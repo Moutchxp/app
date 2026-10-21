@@ -103,6 +103,8 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             {lr.pieces !== undefined && <><dt>{lr.famille === 'local' ? 'Bureaux / pièces' : 'Pièces'}</dt><dd data-rb="pieces">{lr.pieces ?? rien('non renseignées')}</dd></>}
             <dt>Étage</dt>
             <dd data-rb="etage">{etage ?? rien()}</dd>
+            {/* Arno (21/10/2026, 401) — l'ID fiscal du bien (jamais pour une annexe : la ligne n'est alors pas fournie). */}
+            {c?.idFiscal !== undefined && <><dt>ID fiscal</dt><dd data-rb="id-fiscal">{c.idFiscal ?? rien()}</dd></>}
             {/* Parking : le n° de place dans le résumé (Arno, 20/10/2026) — il quitte alors le détail (une seule ligne par information). */}
             {parking && <><dt>N° de place</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
             {f.proprietaireId === null && (

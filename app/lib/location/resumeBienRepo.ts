@@ -39,6 +39,8 @@ export interface ResumeBien {
     nombrePieces: number | null;
     etage: string | null; porte: string | null; batiment: string | null; escalier: string | null; numLotCopro: string | null;
     surfaceHabitableM2: number | null; surfaceCarrezM2: number | null; surfaceExterieureM2: number | null; surfaceM2: number | null;
+    /** Arno (21/10/2026, migration 401) — l'ID fiscal du bien ; absent sans la migration ET pour une annexe ; `null` = non renseigné. */
+    idFiscal?: string | null;
     annexes: { id: number; libelle: string; detachee: boolean }[];
     /**
      * Arno (20/10/2026, « tous les champs de Nouveau bien ») — la famille (clé), le détail de chaque type, l'époque de
@@ -141,6 +143,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       etage: bien.etage, porte: bien.porte, batiment: c?.batiment ?? null, escalier: c?.escalier ?? null, numLotCopro: bien.numLotCopro,
       surfaceHabitableM2: c?.surfaceHabitableM2 ?? null, surfaceCarrezM2: bien.surfaceCarrezM2, surfaceExterieureM2: bien.surfaceExterieureM2,
       surfaceM2: c?.surfaceM2 ?? null,
+      ...(c?.idFiscal === undefined || bien.parentId != null ? {} : { idFiscal: c.idFiscal }),
       annexes: annexes.map((a) => ({ id: a.id, libelle: `${titreAnnexe(a, LIBELLE_CATEGORIE[a.categorie])}${a.porte === null ? '' : ` n° ${a.porte}`}`, detachee: a.detachee === true })),
       familleCle,
       typeLogement: c?.typeLogement ? LIBELLE_TYPE_LOGEMENT[c.typeLogement as TypeLogement] ?? c.typeLogement : null,

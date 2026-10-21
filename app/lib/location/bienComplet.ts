@@ -34,6 +34,19 @@ export const CLASSES_DPE = ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const;
 export const DPE_NON_SOUMIS = 'non_soumis';
 export const LIBELLE_DPE_NON_SOUMIS = 'Non soumis';
 
+/** « ID fiscal du bien » (Arno, 21/10/2026, migration 401) : les espaces sont retirés ; vide → `null`. PUR. */
+export function normaliserIdFiscal(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.replace(/\s+/g, '');
+  return t === '' ? null : t;
+}
+/** Un identifiant fiscal compte habituellement 12 chiffres : sinon, un avertissement NON bloquant à l'écran. PUR. */
+export const AVERTISSEMENT_ID_FISCAL = 'Un identifiant fiscal compte habituellement 12 chiffres';
+export function idFiscalInhabituel(v: unknown): boolean {
+  const t = normaliserIdFiscal(v);
+  return t !== null && !/^\d{12}$/.test(t);
+}
+
 /** « Paiement des charges » de copropriété (Arno, 21/10/2026, migration 400) : qui les règle au syndic. FACULTATIF. */
 export const CHARGES_COPRO = ['proprietaire', 'agence'] as const;
 export type ChargesCopro = typeof CHARGES_COPRO[number];
@@ -111,6 +124,9 @@ export interface ComplementsBien {
   // ── migration 400 (Arno, 21/10/2026) ──
   /** Qui règle les charges de copropriété au syndic : propriétaire / agence ; `null` = non renseigné (facultatif). */
   chargesCopro?: ChargesCopro | null;
+  // ── migration 401 (Arno, 21/10/2026) ──
+  /** Identifiant fiscal du local (avis de taxe foncière), espaces retirés ; `null` = non renseigné (facultatif). Bien principal seulement. */
+  idFiscal?: string | null;
 }
 
 /** Une annexe saisie : ses champs, ses options de parking, et « même adresse » / « autre adresse ». */
@@ -297,6 +313,9 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
   // L'ASSURANCE PNO (Arno, 18/10/2026) : la date anniversaire seulement si Oui — repasser à Non la vide.
   // « Paiement des charges » (Arno, 21/10/2026) : Propriétaire / Agence / vide ; toute autre valeur est refusée.
   if (!vide(l.chargesCopro) && dans(CHARGES_COPRO, l.chargesCopro) === null) return { ok: false, motif: 'Paiement des charges : Propriétaire ou Agence.' };
+  // « ID fiscal du bien » (Arno, 21/10/2026) : facultatif, espaces retirés ; 40 caractères au plus (le format n'est qu'un avertissement).
+  const idFiscal = normaliserIdFiscal(l.idFiscal);
+  if (idFiscal !== null && idFiscal.length > 40) return { ok: false, motif: 'L’ID fiscal du bien fait 40 caractères au plus.' };
   const pno = ouiNon(l.assurancePno);
   const datePno = texte(l.pnoDateAnniversaire, 10);
   if (pno === true && datePno !== null && !dateValide(datePno)) return { ok: false, motif: 'La date anniversaire de l’assurance PNO n’est pas une date valide.' };
@@ -313,6 +332,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       precisionAcces: texte(l.precisionAcces, 500),
       assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
       chargesCopro: dans(CHARGES_COPRO, l.chargesCopro),
+      idFiscal,
     },
   };
 }

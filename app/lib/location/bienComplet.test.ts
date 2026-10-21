@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aRenseignerDuBien, DPE_NON_SOUMIS, familleDeCategorie, manquesDuBien, TYPES_LOCAL, verifierBienComplet, verifierComplements } from './bienComplet';
+import { aRenseignerDuBien, DPE_NON_SOUMIS, familleDeCategorie, idFiscalInhabituel, manquesDuBien, normaliserIdFiscal, TYPES_LOCAL, verifierBienComplet, verifierComplements } from './bienComplet';
 import { alertesDpe, aujourdhuiParis, interdictionEnVigueur } from './reglagesDpe';
 
 /** Le DPE et l'entretien d'un logement / local complets (Arno, 18/10/2026 : obligatoires à la création). */
@@ -139,6 +139,31 @@ describe('🔴 « Paiement des charges » (Arno, 21/10/2026, migration 400) : fa
         ...(famille === 'parking' ? {} : { dpeClasse: 'C', dpeDate: '2024-01-01', entretienAPrevoir: false }), chargesCopro: 'agence' } });
       if (!r.ok) throw new Error(`${famille} : ${r.motif}`);
       expect(r.logement.chargesCopro, famille).toBe('agence');
+    }
+  });
+});
+
+describe('🔴 « ID fiscal du bien » (Arno, 21/10/2026, migration 401) : facultatif, espaces retirés, avertissement à 12 chiffres', () => {
+  it('espaces retirés ; vide = non renseigné ; 40 caractères au plus ; jamais dans « Reste à renseigner »', () => {
+    expect(normaliserIdFiscal(' 92 1234 5678 90 ')).toBe('921234567890');
+    for (const x of [undefined, null, '', '   ', 12]) expect(normaliserIdFiscal(x)).toBeNull();
+    expect(verifierComplements({ idFiscal: '92 1234 5678 90' })).toMatchObject({ ok: true, valeurs: { idFiscal: '921234567890' } });
+    expect(verifierComplements({ idFiscal: '9212' })).toMatchObject({ ok: true, valeurs: { idFiscal: '9212' } }); // l'avertissement ne bloque pas
+    expect(verifierComplements({})).toMatchObject({ ok: true, valeurs: { idFiscal: null } });
+    expect(verifierComplements({ idFiscal: '1'.repeat(41) })).toEqual({ ok: false, motif: 'L’ID fiscal du bien fait 40 caractères au plus.' });
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' }))).toEqual([]);
+  });
+  it('l’avertissement : tout ce qui n’est pas 12 chiffres (espaces non comptés), jamais à vide', () => {
+    for (const x of ['921234567890', '92 12 34 56 78 90', '', '  ', null]) expect(idFiscalInhabituel(x), String(x)).toBe(false);
+    for (const x of ['9212345', '9212345678901', '92A234567890']) expect(idFiscalInhabituel(x), x).toBe(true);
+  });
+  it('enregistré avec le bien pour les trois familles (création), espaces retirés', () => {
+    for (const famille of ['logement', 'local', 'parking'] as const) {
+      const propre = famille === 'logement' ? { typeLogement: 'studio' } : famille === 'local' ? { typeLocal: TYPES_LOCAL[0] } : { parkingType: 'box_simple' };
+      const r = verifierBienComplet({ proprietaireIds: [1], annexes: [], logement: { adresse: '1 rue A', famille, ...propre,
+        ...(famille === 'parking' ? {} : { dpeClasse: 'C', dpeDate: '2024-01-01', entretienAPrevoir: false }), idFiscal: '92 1234 5678 90' } });
+      if (!r.ok) throw new Error(`${famille} : ${r.motif}`);
+      expect(r.logement.idFiscal, famille).toBe('921234567890');
     }
   });
 });

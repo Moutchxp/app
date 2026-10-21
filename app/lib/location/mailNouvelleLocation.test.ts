@@ -197,6 +197,13 @@ describe('🔴 le bien loué : même adresse / adresses différentes, lots regro
       expect(texteNouvelleLocation(donnees({ lots: [l] }))).not.toContain('Charges copro');
     }
   });
+  it('🔴 Arno (21/10/2026) — l’ID fiscal du bien n’entre JAMAIS dans le mail « Nouvelle location » (HTML ni texte brut)', () => {
+    const l = lotDuMail({ ...VIDE, idFiscal: '921234567890' } as LotSource, ADR);
+    expect(l.lignes.map((x) => x.mot).join(' ')).not.toMatch(/fiscal/i);
+    const d = donnees({ lots: [l] });
+    expect(htmlNouvelleLocation(d)).not.toMatch(/fiscal|921234567890/i);
+    expect(texteNouvelleLocation(d)).not.toMatch(/fiscal|921234567890/i);
+  });
   it('une annexe : type, N° affiché ET N° de lot chacun sur sa ligne, niveau', () => {
     const cave = lotDuMail({ ...VIDE, id: 2, principal: false, categorie: 'cave', typeLibelle: null, nombrePieces: null, meuble: null, porte: '12', numLotCopro: '112', etage: '-1' }, ADR);
     expect(cave.titre).toBe('Cave');

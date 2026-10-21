@@ -305,6 +305,8 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-aide{position:absolute;top:100%;left:0;margin-top:4px;font-size:.82rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
 /* Une aide en phrase (dernière AG) : dans le flux, elle passe à la ligne — jamais de débordement au téléphone. */
 .loc-aide--long{position:static;white-space:normal;margin-top:2px}
+/* Un avertissement discret, NON bloquant, sous un champ (ex. l'ID fiscal qui ne compte pas 12 chiffres — Arno, 21/10/2026). */
+.loc-aide--avert{color:var(--color-svv-amber);font-weight:600}
 /* Bloc 6 : DPE et assurance PNO — voir CSS_DPE_PNO (BlocDpe.tsx), rangées partagées (Arno, 18/10/2026). */
 /* Le rappel des propriétaires rattachés d'office (création propriétaire → bien dans la continuité). */
 .loc-rappel-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;color:var(--color-svv-ink)}

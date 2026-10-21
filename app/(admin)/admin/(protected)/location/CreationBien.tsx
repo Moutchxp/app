@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  CHARGES_COPRO, CHAUFFAGES, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  AVERTISSEMENT_ID_FISCAL, CHARGES_COPRO, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
   LIBELLE_CHARGES_COPRO, type ChargesCopro, type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
@@ -71,7 +71,7 @@ const VIDE = {
   adresse: '', codePostal: '', commune: '', batiment: '', escalier: '', etage: '', porte: '', precisionAcces: '', digicodeCode: '',
   nombrePieces: '', surfaceHabitableM2: '', surfaceCarrezM2: '', surfaceExterieureM2: '', surfaceM2: '',
   numLotCopro: '', syndicId: '', epoqueConstruction: '', chauffage: '', dpeClasse: '', dpeDate: '', commentaire: '', derniereAg: '',
-  pnoDateAnniversaire: '',
+  pnoDateAnniversaire: '', idFiscal: '',
 };
 type Champ = keyof typeof VIDE;
 
@@ -436,6 +436,21 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               {champ('surfaceHabitableM2', famille === 'logement' ? 'Surface habitable (m²)' : 'Surface (m²)', { inputMode: 'decimal' })}
               {champ('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
               {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' }, 'balcon, terrasse, jardin')}
+            </div>
+          </div>
+        )}
+        {/* « ID FISCAL DU BIEN » (Arno, 21/10/2026, migration 401) : le BIEN principal des trois familles (jamais une annexe) ;
+            FACULTATIF ; espaces retirés à l'enregistrement ; avertissement discret, non bloquant, s'il ne compte pas 12 chiffres. */}
+        {famille !== null && (
+          <div className="loc-sous-section" data-id-fiscal>
+            <h4>ID fiscal du bien</h4>
+            <div className="loc-grille">
+              <label className="loc-champ" style={{ maxWidth: '22rem' }}>Identifiant fiscal
+                <input value={b.idFiscal} inputMode="numeric" maxLength={60} placeholder="ex. 921234567890" aria-describedby="loc-id-fiscal-aide"
+                  onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, idFiscal: val })); }} />
+                <small className="loc-aide loc-aide--long" id="loc-id-fiscal-aide">Sur l’avis de taxe foncière</small>
+                {idFiscalInhabituel(b.idFiscal) && <small className="loc-aide loc-aide--long loc-aide--avert" role="status" data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}
+              </label>
             </div>
           </div>
         )}
