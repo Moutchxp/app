@@ -178,6 +178,50 @@ export async function assurerRacineLocationSeule(deps: DepsArbre, jeton: string,
   return { id: (await racinesConnues()).locationSeule ?? cree.id };
 }
 
+/**
+ * ══ LA RACINE « Base de données location seule » AVANT SA PREMIÈRE CRÉATION (Arno, 22/10/2026, mise en production) ═════════════
+ * Le DIAGNOSTIC lit le registre et le Drive (lectures seules : métadonnées et liste des dossiers voisins) et dit ce que la
+ * création ferait. 🔴 Refus : « Documents clients scannés » dans la chaîne ; racine « Base de données locative » inconnue ;
+ * un dossier du MÊME NOM sans l'étiquette de l'application existe déjà à côté (créé à la main ?) — on ne crée jamais un doublon.
+ */
+export type DiagnosticRacine =
+  | { etat: 'deja'; racineId: string }
+  | { etat: 'retrouvee' | 'a_creer'; locative: { id: string; nom: string }; parent: { id: string; nom: string | null }; chaine: string[]; retrouvee: string | null }
+  | { etat: 'refus'; motif: string; chaine: string[] };
+
+export async function diagnosticRacineLocationSeule(deps: DepsArbre = DEPS_PAR_DEFAUT): Promise<DiagnosticRacine> {
+  const r = await racinesConnues();
+  if (r.locationSeule !== null) return { etat: 'deja', racineId: r.locationSeule };
+  if (r.locative === null) return { etat: 'refus', motif: 'La racine « Base de données locative » n’est pas connue du registre.', chaine: [] };
+  const jeton = await jetonOk(deps);
+  if (typeof jeton !== 'string') return { etat: 'refus', motif: jeton.motif, chaine: [] };
+  const maillons = await chaineParents(jeton, r.locative, { fetch: deps.fetch });
+  const chaine = maillons.map((m) => m.nom);
+  const parentId = maillons[0]?.parentId ?? null;
+  if (parentId === null) return { etat: 'refus', motif: 'Le dossier qui contient « Base de données locative » n’a pas pu être lu sur le Drive.', chaine };
+  if (maillons.some((m) => porteLeNomProtege(m.nom))) return { etat: 'refus', motif: refusEcritureArbre(maillons, r) ?? 'Emplacement refusé (« Documents clients scannés »).', chaine };
+  const voisins = await enfants(deps, jeton, parentId);
+  if (voisins === null) return { etat: 'refus', motif: 'Le Drive partagé « GESTION LOCATIVE » n’a pas pu être lu.', chaine };
+  const etiquete = voisins.find((v) => v.cle === CLE_RACINE_LOCATION_SEULE);
+  const homonyme = voisins.find((v) => v.cle !== CLE_RACINE_LOCATION_SEULE && v.nom.trim().toLowerCase() === NOM_RACINE_LOCATION_SEULE.toLowerCase());
+  if (etiquete === undefined && homonyme !== undefined) {
+    return { etat: 'refus', chaine, motif: `Un dossier « ${homonyme.nom} » existe déjà à côté (id ${homonyme.id}) sans l’étiquette de l’application : rien n’est créé (pas de doublon). À trancher à la main.` };
+  }
+  return { etat: etiquete === undefined ? 'a_creer' : 'retrouvee', locative: { id: r.locative, nom: maillons[0]?.nom ?? '?' },
+    parent: { id: parentId, nom: maillons[1]?.nom ?? null }, chaine, retrouvee: etiquete?.id ?? null };
+}
+
+/** La création RÉELLE, seulement si le diagnostic l'autorise ; puis l'inscription au registre (`assurerRacineLocationSeule`). */
+export async function creerRacineLocationSeule(auteur: string, deps: DepsArbre = DEPS_PAR_DEFAUT): Promise<{ ok: true; id: string; geste: 'deja' | 'retrouvee' | 'cree' } | { ok: false; motif: string }> {
+  const d = await diagnosticRacineLocationSeule(deps);
+  if (d.etat === 'refus') return { ok: false, motif: d.motif };
+  if (d.etat === 'deja') return { ok: true, id: d.racineId, geste: 'deja' };
+  const jeton = await jetonOk(deps);
+  if (typeof jeton !== 'string') return { ok: false, motif: jeton.motif };
+  const x = await assurerRacineLocationSeule(deps, jeton, auteur);
+  return 'motif' in x ? { ok: false, motif: x.motif } : { ok: true, id: x.id, geste: d.etat === 'retrouvee' ? 'retrouvee' : 'cree' };
+}
+
 /** Le lot de tête, tel que l'arborescence le nomme. */
 async function lotArbo(teteId: number): Promise<(LotArbo & { proprietaireNom: string }) | null> {
   const { rows } = await query<{ id: string; wippimmo_id: string; proprietaire_id: string | null; adresse: string | null; code_postal: string | null; commune: string | null;
