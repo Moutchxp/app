@@ -16,7 +16,7 @@
 #   3  version préparée À CÔTÉ : releases/<sha> (git archive, liens shared/, npm ci, next build) ;        ✓      ✓
 #      le site en service n'est pas touché ; une version déjà prête (témoin PRETE) est réutilisée
 #   4  plan des migrations (registre) ; 1re fois : amorçage AFFICHÉ (essai) puis écrit (appliquer)       affiché  écrit
-#   5  pause des minuteries (veille, Drive, surveillance, analytics) et fin des passes en cours            —      ✓
+#   5  pause des minuteries (veille, Drive, surveillance, analytics, archivage) et fin des passes en cours —      ✓
 #   6  migrations NOUVELLES seules, chacune inscrite au registre                                          —      ✓
 #   7  golden pipeline.itest.ts lancé depuis la nouvelle version : tous verts (≥ 11), sinon pas de bascule  ✓      ✓
 #   8  unités systemd régénérées si leurs gabarits ont changé ; BASCULE du lien current (un seul geste)   affiché  ✓
@@ -53,7 +53,8 @@ PLACE_MIN_GO=30
 STABLE_S=30
 STABLE_MAX_S=150
 ATTENTE_PASSES_MAX_S=900
-MINUTERIES=(svav-veille svav-drive-empreintes svav-surveillance svav-analytics-maintenance)
+# Arno (22/10/2026) : l'archivage des fins de gestion (405) est mis en pause et relancé comme les autres pendant une mise à jour.
+MINUTERIES=(svav-veille svav-drive-empreintes svav-surveillance svav-analytics-maintenance svav-archivage-fins)
 AMORCAGE_JUSQUA=357
 AMORCAGE_ECARTER=148,212,216,262
 

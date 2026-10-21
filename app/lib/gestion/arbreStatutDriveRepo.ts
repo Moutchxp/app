@@ -207,8 +207,20 @@ export async function diagnosticRacineLocationSeule(deps: DepsArbre = DEPS_PAR_D
   if (etiquete === undefined && homonyme !== undefined) {
     return { etat: 'refus', chaine, motif: `Un dossier « ${homonyme.nom} » existe déjà à côté (id ${homonyme.id}) sans l’étiquette de l’application : rien n’est créé (pas de doublon). À trancher à la main.` };
   }
+  // La racine d'un Drive partagé se lit comme un dossier nommé « Drive » : son vrai nom est celui du Drive partagé (lecture).
+  const drivePartage = maillons[0]?.driveId ?? null;
+  const nomParent = drivePartage !== null && drivePartage === parentId ? await nomDrivePartage(deps, jeton, drivePartage) ?? maillons[1]?.nom ?? null : maillons[1]?.nom ?? null;
+  const chaineLue = drivePartage !== null && drivePartage === parentId && nomParent !== null ? [...chaine.slice(0, -1), nomParent] : chaine;
   return { etat: etiquete === undefined ? 'a_creer' : 'retrouvee', locative: { id: r.locative, nom: maillons[0]?.nom ?? '?' },
-    parent: { id: parentId, nom: maillons[1]?.nom ?? null }, chaine, retrouvee: etiquete?.id ?? null };
+    parent: { id: parentId, nom: nomParent }, chaine: chaineLue, retrouvee: etiquete?.id ?? null };
+}
+
+/** Le nom d'un Drive partagé (« GESTION LOCATIVE »), ou `null` s'il n'a pas pu être lu. Lecture seule. */
+async function nomDrivePartage(deps: DepsArbre, jeton: string, id: string): Promise<string | null> {
+  const r = await deps.fetch(`https://www.googleapis.com/drive/v3/drives/${encodeURIComponent(id)}?fields=name`, { headers: { Authorization: `Bearer ${jeton}` } }).catch(() => null);
+  if (r === null || !r.ok) return null;
+  const j = (await r.json().catch(() => null)) as { name?: string } | null;
+  return typeof j?.name === 'string' && j.name.trim() !== '' ? j.name : null;
 }
 
 /** La création RÉELLE, seulement si le diagnostic l'autorise ; puis l'inscription au registre (`assurerRacineLocationSeule`). */
