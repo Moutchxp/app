@@ -38,7 +38,7 @@ beforeEach(() => {
         { bailId: 12, titre: '9 rue Ancienne, Paris', entree: '2025-01-01', dernierEnvoi: { quand: '2026-10-20T08:00:00Z', par: 'Arnaud Jorel', destinataires: ['laura@monga.io'], objet: 'o', mention: 'Envoyé le 20/10/2026 à 10:00 par Arnaud Jorel à laura@monga.io' } }] });
     }
     return json({ etat: 'ok', data: {
-      bailId: 536, objet: 'Nouvelle location · NOUVEAU PROPRIÉTAIRE · 4 rue Fictive, Puteaux · ESSAI BAIL DRIVE · 01/11/2026 · GLI À VÉRIFIER',
+      bailId: 536, objet: 'Nouvelle location · NOUVEAU PROPRIÉTAIRE · 4 rue Fictive, Puteaux · ESSAI BAIL DRIVE · 01/11/2026 · GARANTIE À VÉRIFIER',
       html: '<html><body><p>Aperçu fictif</p></body></html>', texte: 'x', expediteur: 'gestion@criterimmo.fr',
       destinataires: listeProposee(CONFIG, session), dernierEnvoi: null, envoiPossible: true,
     } });

@@ -38,6 +38,26 @@ function gmail(html: string): Document {
 const fonds = (doc: Document): string[] => [...doc.querySelectorAll('[bgcolor]')].map((e) => (e.getAttribute('bgcolor') ?? '').toLowerCase());
 const SOMBRES = ['#1d2433', '#2f7d4f', '#2f5bb5', '#9b1c1c', '#d64545', '#b7791f'];
 
+describe('🔴 BANDEAU GARANTIE dans Gmail (Arno, 21/10/2026) : les cinq cas gardent leur fond, leur rond et leur titre', () => {
+  const CAS: [string, Parameters<typeof bandeauGli>[0], string, string, string][] = [
+    ['GLI', { assurance: 'gli', precision: 'AXA · contrat 123', garantPhysique: false }, '#e8f4ec', '#2f7d4f', 'ASSURANCE LOYERS IMPAYÉS (GLI)'],
+    ['Visale', { assurance: 'visale', precision: 'V123456789', garantPhysique: false }, '#e8f4ec', '#2f7d4f', 'GARANTIE VISALE'],
+    ['Autre', { assurance: 'autre', precision: 'caution bancaire', garantPhysique: false }, '#e8f4ec', '#2f7d4f', 'GARANTIE : caution bancaire'],
+    ['Aucune', { assurance: 'aucune', precision: null, garantPhysique: true }, '#fdecec', '#d64545', 'PAS D’ASSURANCE LOYERS IMPAYÉS'],
+    ['non renseignée', null, '#fdf3e1', '#b7791f', 'GARANTIE NON RENSEIGNÉE'],
+  ];
+  it.each(CAS)('%s', (_n, c, fond, rond, titre) => {
+    const doc = gmail(htmlNouvelleLocation(donnees({ gli: bandeauGli(c, ['M. MARTIN Henri']) })));
+    const b = [...doc.querySelectorAll('b')].find((x) => x.textContent === titre);
+    expect(b, titre).toBeDefined();
+    const caseFond = b!.closest(`td[bgcolor="${fond}"]`);
+    expect(caseFond, `fond ${fond}`).not.toBeNull();
+    const ic = caseFond!.querySelector(`td[bgcolor="${rond}"]`);
+    expect(ic?.textContent).toBe(c === null ? '!' : c.assurance === 'aucune' ? '✕' : '✓');
+    expect((ic?.getAttribute('style') ?? '')).toMatch(/color:#ffffff/);
+  });
+});
+
 describe('🔴 rendu Gmail : aucune zone colorée perdue', () => {
   it('jamais une couleur de fond sur un <div>, un <span>, un <p>, un <b> ou un <a> ; jamais le raccourci « background: »', () => {
     for (const d of [donnees(), donnees({ gli: bandeauGli(null, []), statut: statutProprietaires({ proprietaires: [{ nom: 'A', dejaEnGestion: true, depuis: '2020-01-01' }], biensEnGestion: 2, mandats: [] }) })]) {

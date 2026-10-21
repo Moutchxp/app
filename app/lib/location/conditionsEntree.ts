@@ -34,6 +34,8 @@ export type Assurance = typeof ASSURANCES[number];
 export const LIBELLE_ASSURANCE: Record<Assurance, string> = { gli: 'GLI', visale: 'Visale', autre: 'Autre', aucune: 'Aucune' };
 /** Les assurances qu'il faut préciser (« laquelle »). */
 const A_PRECISER: readonly Assurance[] = ['gli', 'autre'];
+/** Arno (21/10/2026) — celles dont la précision se GARDE : GLI et Autre (obligatoire), Visale (le n° de visa, facultatif). */
+export const AVEC_PRECISION: readonly Assurance[] = ['gli', 'visale', 'autre'];
 
 export const COMPTES = ['agence', 'gestion'] as const;
 export type Compte = typeof COMPTES[number];
@@ -211,7 +213,7 @@ export function totalCentimes(sommes: Partial<Record<Somme, unknown>>): number |
 export function versEnvoiConditions(s: SaisieConditions): Record<string, unknown> {
   return {
     depot: s.depot, prelevement: s.prelevement, jour: s.prelevement === true ? s.jour : null, garant: s.garant,
-    assurance: s.assurance, assurancePrecision: s.assurance !== null && A_PRECISER.includes(s.assurance) ? s.assurancePrecision : '',
+    assurance: s.assurance, assurancePrecision: s.assurance !== null && AVEC_PRECISION.includes(s.assurance) ? s.assurancePrecision : '',
     honorairesLocataire: s.honorairesLocataire, honorairesProprietaire: s.honorairesProprietaire,
     sommes: { ...s.sommes }, reglement: s.reglement, reglementPrecision: s.reglement === 'autre' ? s.reglementPrecision : '',
     commentaire: s.commentaire, loyer: { ...s.loyer },
@@ -282,7 +284,7 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
   const reglement = dans(REGLEMENTS, b.reglement) as Reglement;
   return { ok: true, valeurs: {
     depot: dans(DEPOTS, b.depot) as Depot, prelevement, jour: prelevement ? Number(b.jour) as JourNumero : null,
-    garant: ouiNon(b.garant) as boolean, assurance, assurancePrecision: A_PRECISER.includes(assurance) ? texte(b.assurancePrecision, 120) : null,
+    garant: ouiNon(b.garant) as boolean, assurance, assurancePrecision: AVEC_PRECISION.includes(assurance) ? texte(b.assurancePrecision, 120) : null,
     honorairesLocataire: dans(COMPTES, b.honorairesLocataire) as Compte, honorairesProprietaire: dans(COMPTES, b.honorairesProprietaire) as Compte,
     sommes: { prorataLoyer: enCentimes(sommes.prorataLoyer) ?? null, prorataCharges: enCentimes(sommes.prorataCharges) ?? null,
       depotGarantie: enCentimes(sommes.depotGarantie) ?? null, honorairesAgence: enCentimes(sommes.honorairesAgence) ?? null },

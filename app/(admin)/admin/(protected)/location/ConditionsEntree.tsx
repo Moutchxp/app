@@ -187,13 +187,21 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         <div className="loc-cond-sous">
           <span className="loc-cond-mot">Assurance loyers impayés</span>
           <Pilules etiquette="Assurance loyers impayés" options={ASSURANCES} libelle={LIBELLE_ASSURANCE} valeur={s.assurance}
-            onChoix={(v) => maj({ assurance: v, assurancePrecision: v === 'gli' || v === 'autre' ? s.assurancePrecision : '' })} />
+            onChoix={(v) => maj({ assurance: v,
+              // GLI ↔ Autre gardent le texte (comme avant) ; le n° de visa ne passe jamais à une autre garantie, ni l'inverse.
+              assurancePrecision: (v === 'gli' || v === 'autre') && s.assurance !== 'visale' ? s.assurancePrecision : v === 'visale' && s.assurance === 'visale' ? s.assurancePrecision : '' })} />
         </div>
         {(s.assurance === 'gli' || s.assurance === 'autre') && (
           <label className="loc-champ" data-cond-precision="assurance">
             <span>{s.assurance === 'gli' ? 'GLI : laquelle ?' : 'Autre assurance : laquelle ?'} <span className="loc-oblig">*</span></span>
             <input value={s.assurancePrecision} maxLength={120} placeholder={s.assurance === 'gli' ? 'ex. nom de l’assureur ou du contrat' : 'ex. caution bancaire'}
               onChange={(e) => maj({ assurancePrecision: e.target.value })} /></label>
+        )}
+        {/* Arno (21/10/2026) : le n° de visa Visale, FACULTATIF — repris dans le bandeau vert du mail « Nouvelle location ». */}
+        {s.assurance === 'visale' && (
+          <label className="loc-champ" data-cond-precision="visa">
+            <span>Visale : n° de visa (facultatif)</span>
+            <input value={s.assurancePrecision} maxLength={120} placeholder="ex. V123456789" onChange={(e) => maj({ assurancePrecision: e.target.value })} /></label>
         )}
         {manque('assurance')}{manque('assurancePrecision')}
       </div>

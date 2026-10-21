@@ -48,7 +48,11 @@ export interface LotMail {
 }
 
 export type EtatGli = 'oui' | 'non' | 'inconnue';
-export interface BandeauGli { etat: EtatGli; titre: string; detail: string | null }
+export interface BandeauGli {
+  etat: EtatGli; titre: string; detail: string | null;
+  /** Arno (21/10/2026) — la garantie saisie (GLI, Visale, Autre, Aucune) ; `null` : non renseignée. */
+  sorte?: 'gli' | 'visale' | 'autre' | 'aucune' | null;
+}
 
 export interface StatutProprietaires {
   sorte: 'nouveau' | 'deja';
@@ -347,22 +351,24 @@ export function lignesBailMail(entree: string, c: ConditionsEntree | null, h: Ca
 // ── L'ASSURANCE LOYERS IMPAYÉS ───────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le bandeau GLI, lu dans les conditions d'entrée du bail (migration 391) : « GLI » → vert, avec l'assureur / le contrat
- * saisis ; Visale, Autre ou Aucune → rouge « PAS D'ASSURANCE LOYERS IMPAYÉS », avec la garantie en place (Visale, l'autre
- * garantie, la caution des garants) ; pas de conditions d'entrée → orange « NON RENSEIGNÉE ». PUR.
+ * 🔴 LE BANDEAU GARANTIE (Arno, 21/10/2026), lu dans les conditions d'entrée du bail (migration 391) :
+ *   · GLI    → VERT ✓ « ASSURANCE LOYERS IMPAYÉS (GLI) » + l'assureur / le n° de contrat saisis ;
+ *   · Visale → VERT ✓ « GARANTIE VISALE » + le n° de visa s'il est saisi ;
+ *   · Autre  → VERT ✓ « GARANTIE : <détail saisi> » (« AUTRE GARANTIE » sans détail) ;
+ *   · Aucune → ROUGE ✕ « PAS D'ASSURANCE LOYERS IMPAYÉS » + la caution en place (les garants) ou « aucune garantie » ;
+ *   · pas de conditions d'entrée → ORANGE « GARANTIE NON RENSEIGNÉE ».
+ * L'objet porte « · SANS GLI » pour « Aucune » seulement, et « · GARANTIE À VÉRIFIER » pour « non renseignée ». PUR.
  */
 export function bandeauGli(c: { assurance: string; precision: string | null; garantPhysique: boolean } | null, garants: readonly string[]): BandeauGli {
-  if (c === null) return { etat: 'inconnue', titre: 'ASSURANCE LOYERS IMPAYÉS NON RENSEIGNÉE', detail: 'À vérifier : les conditions d’entrée de ce bail ne disent pas s’il est couvert.' };
-  if (c.assurance === 'gli') return { etat: 'oui', titre: 'ASSURANCE LOYERS IMPAYÉS', detail: present(c.precision) ? c.precision.trim() : null };
-  const garanties = [
-    c.assurance === 'visale' ? 'Visale' : null,
-    c.assurance === 'autre' ? (present(c.precision) ? c.precision.trim() : 'autre garantie') : null,
-    c.garantPhysique ? (garants.length > 0 ? `caution de ${garants.join(' et ')}` : 'garant personne physique') : null,
-  ].filter((x): x is string => x !== null);
-  return {
-    etat: 'non', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS',
-    detail: `Ce bail n’est pas couvert par une GLI · garantie : ${garanties.length > 0 ? garanties.join(' · ') : 'aucune'}`,
-  };
+  if (c === null) {
+    return { etat: 'inconnue', sorte: null, titre: 'GARANTIE NON RENSEIGNÉE', detail: 'À vérifier : les conditions d’entrée de ce bail ne disent pas quelle garantie le couvre.' };
+  }
+  const precision = present(c.precision) ? c.precision.trim() : null;
+  if (c.assurance === 'gli') return { etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: precision };
+  if (c.assurance === 'visale') return { etat: 'oui', sorte: 'visale', titre: 'GARANTIE VISALE', detail: precision === null ? null : `N° de visa : ${precision}` };
+  if (c.assurance === 'autre') return { etat: 'oui', sorte: 'autre', titre: precision === null ? 'AUTRE GARANTIE' : `GARANTIE : ${precision}`, detail: null };
+  const caution = c.garantPhysique ? (garants.length > 0 ? `Caution en place : ${garants.join(' et ')}` : 'Caution en place : garant personne physique') : null;
+  return { etat: 'non', sorte: 'aucune', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS', detail: caution ?? 'Aucune garantie' };
 }
 
 // ── L'OBJET ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -375,7 +381,8 @@ export function nomsLocataires(l: readonly PersonneMail[]): string {
 /** « Nouvelle location · NOUVEAU PROPRIÉTAIRE · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026 · SANS GLI ». PUR. */
 export function objetNouvelleLocation(d: DonneesNouvelleLocation): string {
   const adresse = [d.bien.voie, d.bien.commune].filter(present).join(', ');
-  const suffixe = d.gli.etat === 'non' ? 'SANS GLI' : d.gli.etat === 'inconnue' ? 'GLI À VÉRIFIER' : null;
+  // Arno (21/10/2026) : « SANS GLI » pour « Aucune » seulement ; Visale et Autre n'ajoutent rien.
+  const suffixe = d.gli.etat === 'non' ? 'SANS GLI' : d.gli.etat === 'inconnue' ? 'GARANTIE À VÉRIFIER' : null;
   return ['Nouvelle location', d.statut.objet, adresse, nomsLocataires(d.locataires), dateCourte(d.entree), suffixe]
     .filter((x): x is string => present(x)).join(' · ');
 }

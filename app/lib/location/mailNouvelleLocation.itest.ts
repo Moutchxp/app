@@ -155,7 +155,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     expect(d!.garants[0].garantit).toEqual([`Mme MARTIN${S.toUpperCase()} Sophie`, `M. MARTIN${S.toUpperCase()} Paul`]);
     expect(html).not.toContain(`CONJOINTE${S}`.toUpperCase());
     expect(html).not.toContain(mel('zoe', 7));
-    expect(d!.gli).toEqual({ etat: 'non', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS', detail: `Ce bail n’est pas couvert par une GLI · garantie : caution de M. GARANT${S.toUpperCase()} Henri` });
+    // Arno (21/10/2026) : « Aucune » → rouge, avec la caution en place (les garants).
+    expect(d!.gli).toEqual({ etat: 'non', sorte: 'aucune', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS', detail: `Caution en place : M. GARANT${S.toUpperCase()} Henri` });
     // Le bail : loyer, honoraires ENREGISTRÉS (barème du 01/01/2026, zone très tendue : 61,8 × (12,10 + 3,03) = 935,034).
     expect(html).toContain('1 420,00 €');
     expect(html).toContain('935,03 € · 61,8 m² × (12,10 € + 3,03 €) · barème du 01/01/2026, zone très tendue · compte bancaire gestion');
@@ -248,7 +249,7 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     const dB = (await donneesNouvelleLocation(bailB))!;
     expect(dB.statut.objet).toBe('PROPRIÉTAIRES DÉJÀ EN GESTION');
     expect(dB.statut.phrase).toMatch(/2 biens en gestion$/);
-    expect(dB.gli).toEqual({ etat: 'oui', titre: 'ASSURANCE LOYERS IMPAYÉS', detail: 'AXA · contrat 42' });
+    expect(dB.gli).toEqual({ etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: 'AXA · contrat 42' });
     expect(objetNouvelleLocation(dB)).toMatch(/^Nouvelle location · PROPRIÉTAIRES DÉJÀ EN GESTION · .* · 01\/11\/2026$/);
     expect(htmlNouvelleLocation(dB)).toContain(`barème du ${aujourdhui.split('-').reverse().join('/')}, zone très tendue`);
     expect((await lireVersionsBaremes()).map((v) => [v.id, v.baux])).toEqual([[v2.id, 1], [1, 1]]);
@@ -281,7 +282,7 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     const a = (await apercuNouvelleLocation(bail, AUTEUR))!;
     expect(a.destinataires.map((d) => d.adresse)).toEqual(['a.jorel@sansvisavis.com', 'gestion@criterimmo.fr', 'gestion.criterimmo@gmail.com', 'laura@monga.io']);
     ecrire('apercu-essai.json', JSON.stringify(a, null, 2));
-    expect(a.objet).toMatch(/^Nouvelle location · (NOUVEAUX? PROPRIÉTAIRES?|PROPRIÉTAIRES? DÉJÀ EN GESTION) · .+ · ESSAI BAIL DRIVE · 01\/11\/2026 · GLI À VÉRIFIER$/);
+    expect(a.objet).toMatch(/^Nouvelle location · (NOUVEAUX? PROPRIÉTAIRES?|PROPRIÉTAIRES? DÉJÀ EN GESTION) · .+ · ESSAI BAIL DRIVE · 01\/11\/2026 · GARANTIE À VÉRIFIER$/);
     // L'interception de la recette : le VRAI chemin d'envoi (message RFC 822, API Gmail), et la décision de la recette.
     const interceptions: { action: string; canal?: string; corps: string }[] = [];
     const fetchRecette = (async (u: string | URL | Request, i?: RequestInit) => {

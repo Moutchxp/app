@@ -90,6 +90,17 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect(dd('honoraires-proprietaire')).toContain('61,8 m² × 12,10 €/m² (zone très tendue)');
     expect(dd('honoraires-proprietaire')).toContain('barème du 01/01/2026, à la date du 01/11/2026');
     expect([dd('garant-physique'), dd('assurance')]).toEqual(['Garant personne physique : oui', 'Assurance loyers impayés : GLI — Assureur ESSAI']);
+    // Arno (21/10/2026) : la couleur du bandeau du mail — GLI, Visale, Autre en vert ; Aucune en rouge.
+    expect(container.querySelector('[data-rb="assurance"]')?.getAttribute('data-rb-garantie')).toBe('vert');
+    expect(container.querySelector('[data-rb="assurance"]')?.className).toContain('rb-garantie--vert');
+  });
+  it('🔴 Arno (21/10/2026) — la garantie « Aucune » en rouge, Visale et Autre en vert (même règle que le bandeau du mail)', async () => {
+    for (const [assurance, couleur] of [['aucune', 'rouge'], ['visale', 'vert'], ['autre', 'vert']] as const) {
+      act(() => root.unmount()); root = createRoot(container);
+      await rendre({ ...SAISI, conditions: { ...SAISI.conditions!, conditions: { ...SAISI.conditions!.conditions, assurance, assurancePrecision: assurance === 'autre' ? 'caution bancaire' : null } } });
+      expect(container.querySelector('[data-rb="assurance"]')?.getAttribute('data-rb-garantie')).toBe(couleur);
+      expect(container.querySelector('[data-rb="assurance"]')?.className).toContain(`rb-garantie--${couleur}`);
+    }
     // Le mode de règlement n'est plus affiché sur la fiche locataire (ni résumé ni détail) — décision d'Arno du 20/10/2026.
     expect(container.querySelector('[data-rb="reglement"]')).toBeNull();
     expect(container.querySelector('[data-encart-bail]')?.textContent).not.toMatch(/Mode de règlement|Virement/);

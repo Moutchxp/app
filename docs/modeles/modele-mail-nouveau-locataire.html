@@ -66,6 +66,10 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
 .gli-ic{width:36px;height:36px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
 .gli.non{background:#fdecec;border:2px solid #d64545;color:#8f1d1d} .gli.non .gli-ic{background:#d64545}
 .gli.oui{background:var(--vert-l);border:2px solid var(--vert);color:#1f5a37} .gli.oui .gli-ic{background:var(--vert)}
+.gli.orange{background:var(--ambre-l);border:2px solid #e8b65c;color:#7a4e0a} .gli.orange .gli-ic{background:var(--ambre)}
+.variantes{margin:4px 0 14px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px}
+.variantes>p{font-size:12px;color:var(--mut);margin-bottom:8px}
+.variantes .gli{margin-bottom:8px}
 .statut .pastille{text-align:center;line-height:1.25;border-radius:12px;padding:8px 12px;flex-shrink:0}
 .alerte{display:flex;flex-direction:column;gap:3px;background:var(--ambre-l);border:1.5px solid #e8b65c;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:13.5px;color:#7a4e0a}
 .alerte b{font-size:15px;color:#8a4b00;letter-spacing:.2px}
@@ -92,7 +96,7 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
 
 <!-- ============ MODÈLE 1 ============ -->
 <div id="m1">
-<div class="meta"><b>De</b> gestion@criterimmo.fr<br><b>À</b> Cabinet comptable · MONGA<br><b>Objet</b> Nouvelle location · NOUVEAUX PROPRIÉTAIRES · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026</div>
+<div class="meta"><b>De</b> gestion@criterimmo.fr<br><b>À</b> Cabinet comptable · MONGA<br><b>Objet</b> Nouvelle location · NOUVEAUX PROPRIÉTAIRES · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026 · SANS GLI</div>
 <div class="mail">
  <div class="top"><div class="marque"><span>Sans Vis-à-Vis®</span> · Gestion locative</div><h1>Nouvelle location</h1><div class="sous">12 rue Victor Hugo, 92400 Courbevoie · entrée le 1er novembre 2026</div></div>
  <div class="corps">
@@ -133,6 +137,7 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
      <dt>Étage</dt><dd>3ᵉ</dd>
      <dt>Précision</dt><dd>À droite en sortant de l'ascenseur</dd>
      <dt>Ascenseur</dt><dd>Oui</dd>
+     <!-- Arno (21/10/2026) : le code du BÂTIMENT du lot (ici le B) ; la cave, même bâtiment, ne le répète pas ; le parking, ailleurs, a le sien. -->
      <dt>Digicode</dt><dd><b>57B83</b></dd>
      <dt>Pièces</dt><dd>3</dd>
      <dt>Surface habitable</dt><dd>64,2 m²</dd>
@@ -153,12 +158,21 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
    <div class="groupe autre"><div class="adr">📍 14 rue Victor Hugo, 92400 Courbevoie <span class="nb">1 lot · autre adresse</span></div>
    <div class="deux">
     <div class="sous-carte"><div class="nom">Parking · box simple</div>
-     <dl class="grille annexe"><dt>N° affiché</dt><dd>34</dd><dt>N° de lot</dt><dd>134</dd><dt>Niveau</dt><dd>−1</dd></dl></div>
+     <dl class="grille annexe"><dt>N° affiché</dt><dd>34</dd><dt>N° de lot</dt><dd>134</dd><dt>Niveau</dt><dd>−1</dd><dt>Digicode</dt><dd><b>4410</b></dd></dl></div>
    </div></div>
   </div>
 
   <div class="bloc loc"><div class="titre">Locataires <span class="nb">2</span></div>
-   <div class="gli non"><span class="gli-ic">✕</span><div><b>PAS D'ASSURANCE LOYERS IMPAYÉS</b><span>Ce bail n'est pas couvert par une GLI · garantie : caution de M. MARTIN Henri</span></div></div>
+   <div class="gli non"><span class="gli-ic">✕</span><div><b>PAS D'ASSURANCE LOYERS IMPAYÉS</b><span>Caution en place : M. MARTIN Henri</span></div></div>
+   <!-- Arno (21/10/2026) — le BANDEAU GARANTIE selon la garantie saisie (l'objet porte « · SANS GLI » pour « Aucune » seulement,
+        « · GARANTIE À VÉRIFIER » quand elle n'est pas renseignée). Le mail n'en montre qu'UN : celui du bail. -->
+   <div class="variantes"><p>Les autres cas du bandeau (un seul figure dans le mail) :</p>
+    <div class="gli oui"><span class="gli-ic">✓</span><div><b>ASSURANCE LOYERS IMPAYÉS (GLI)</b><span>AXA · contrat 123456</span></div></div>
+    <div class="gli oui"><span class="gli-ic">✓</span><div><b>GARANTIE VISALE</b><span>N° de visa : V123456789</span></div></div>
+    <div class="gli oui"><span class="gli-ic">✓</span><div><b>GARANTIE : caution bancaire</b></div></div>
+    <div class="gli non"><span class="gli-ic">✕</span><div><b>PAS D'ASSURANCE LOYERS IMPAYÉS</b><span>Aucune garantie</span></div></div>
+    <div class="gli orange"><span class="gli-ic">!</span><div><b>GARANTIE NON RENSEIGNÉE</b><span>À vérifier : les conditions d'entrée de ce bail ne disent pas quelle garantie le couvre.</span></div></div>
+   </div>
    <div class="contact"><div class="nom">Mme MARTIN Sophie <small>LOCATAIRE</small></div>
     <dl class="grille">
      <dt>Qualité</dt><dd>Salariée</dd>

@@ -78,23 +78,55 @@ describe('🔴 statut du propriétaire : nouveau / déjà en gestion (1 et 2 pro
   });
 });
 
-describe('🔴 GLI : oui / non / non renseignée, et l’objet', () => {
-  it('oui : vert, l’assureur saisi ; l’objet sans suffixe', () => {
+describe('🔴 BANDEAU GARANTIE (Arno, 21/10/2026) : GLI, Visale, Autre en vert ; Aucune en rouge ; non renseignée en orange ; l’objet', () => {
+  const sansSuffixe = 'Nouvelle location · NOUVEAU PROPRIÉTAIRE · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026';
+  it('GLI : vert ✓ « ASSURANCE LOYERS IMPAYÉS (GLI) » + l’assureur et le n° de contrat saisis ; l’objet sans suffixe', () => {
     const g = bandeauGli({ assurance: 'gli', precision: 'AXA · contrat 123', garantPhysique: false }, []);
-    expect(g).toEqual({ etat: 'oui', titre: 'ASSURANCE LOYERS IMPAYÉS', detail: 'AXA · contrat 123' });
-    expect(objetNouvelleLocation(donnees({ gli: g }))).toBe('Nouvelle location · NOUVEAU PROPRIÉTAIRE · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026');
+    expect(g).toEqual({ etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: 'AXA · contrat 123' });
+    expect(objetNouvelleLocation(donnees({ gli: g }))).toBe(sansSuffixe);
   });
-  it('non : rouge, la garantie en place (Visale, caution des garants) ; « · SANS GLI »', () => {
-    expect(bandeauGli({ assurance: 'visale', precision: null, garantPhysique: false }, [])).toMatchObject({ etat: 'non', detail: 'Ce bail n’est pas couvert par une GLI · garantie : Visale' });
-    const g = bandeauGli({ assurance: 'aucune', precision: null, garantPhysique: true }, ['M. MARTIN Henri']);
-    expect(g).toEqual({ etat: 'non', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS', detail: 'Ce bail n’est pas couvert par une GLI · garantie : caution de M. MARTIN Henri' });
+  it('Visale : vert ✓ « GARANTIE VISALE » + le n° de visa s’il est saisi ; jamais « SANS GLI »', () => {
+    expect(bandeauGli({ assurance: 'visale', precision: null, garantPhysique: true }, ['M. MARTIN Henri'])).toEqual({ etat: 'oui', sorte: 'visale', titre: 'GARANTIE VISALE', detail: null });
+    const g = bandeauGli({ assurance: 'visale', precision: 'V123456789', garantPhysique: false }, []);
+    expect(g).toEqual({ etat: 'oui', sorte: 'visale', titre: 'GARANTIE VISALE', detail: 'N° de visa : V123456789' });
+    expect(objetNouvelleLocation(donnees({ gli: g }))).toBe(sansSuffixe);
+  });
+  it('Autre : vert ✓ « GARANTIE : <détail saisi> », ou « AUTRE GARANTIE » sans détail ; jamais « SANS GLI »', () => {
+    const g = bandeauGli({ assurance: 'autre', precision: 'caution bancaire', garantPhysique: false }, []);
+    expect(g).toEqual({ etat: 'oui', sorte: 'autre', titre: 'GARANTIE : caution bancaire', detail: null });
+    expect(bandeauGli({ assurance: 'autre', precision: '  ', garantPhysique: false }, []).titre).toBe('AUTRE GARANTIE');
+    expect(objetNouvelleLocation(donnees({ gli: g }))).toBe(sansSuffixe);
+  });
+  it('Aucune : rouge ✕ « PAS D’ASSURANCE LOYERS IMPAYÉS » + la caution en place (les garants), ou « Aucune garantie » ; « · SANS GLI »', () => {
+    const g = bandeauGli({ assurance: 'aucune', precision: null, garantPhysique: true }, ['M. MARTIN Henri', 'Mme MARTIN Sophie']);
+    expect(g).toEqual({ etat: 'non', sorte: 'aucune', titre: 'PAS D’ASSURANCE LOYERS IMPAYÉS', detail: 'Caution en place : M. MARTIN Henri et Mme MARTIN Sophie' });
+    expect(bandeauGli({ assurance: 'aucune', precision: null, garantPhysique: false }, []).detail).toBe('Aucune garantie');
+    expect(bandeauGli({ assurance: 'aucune', precision: null, garantPhysique: true }, []).detail).toBe('Caution en place : garant personne physique');
     expect(objetNouvelleLocation(donnees({ gli: g }))).toMatch(/ · 01\/11\/2026 · SANS GLI$/);
   });
-  it('non renseignée (pas de conditions d’entrée) : orange ; « · GLI À VÉRIFIER »', () => {
+  it('non renseignée (pas de conditions d’entrée) : orange « GARANTIE NON RENSEIGNÉE » ; « · GARANTIE À VÉRIFIER »', () => {
     const g = bandeauGli(null, []);
-    expect(g.etat).toBe('inconnue');
-    expect(g.titre).toBe('ASSURANCE LOYERS IMPAYÉS NON RENSEIGNÉE');
-    expect(objetNouvelleLocation(donnees({ gli: g }))).toMatch(/ · GLI À VÉRIFIER$/);
+    expect(g).toMatchObject({ etat: 'inconnue', sorte: null, titre: 'GARANTIE NON RENSEIGNÉE' });
+    expect(objetNouvelleLocation(donnees({ gli: g }))).toMatch(/ · GARANTIE À VÉRIFIER$/);
+  });
+  it('les couleurs et le signe : vert ✓ pour GLI, Visale, Autre ; rouge ✕ pour Aucune ; orange ! pour non renseignée (HTML et texte)', () => {
+    // Le fond pâle et le rond du signe, lus JUSTE AVANT le titre du bandeau (la pastille de statut a aussi du vert).
+    const cas: [Parameters<typeof bandeauGli>[0], string, string, string][] = [
+      [{ assurance: 'gli', precision: 'AXA', garantPhysique: false }, '#e8f4ec', '#2f7d4f', '✓'], [{ assurance: 'visale', precision: null, garantPhysique: false }, '#e8f4ec', '#2f7d4f', '✓'],
+      [{ assurance: 'autre', precision: 'caution bancaire', garantPhysique: false }, '#e8f4ec', '#2f7d4f', '✓'],
+      [{ assurance: 'aucune', precision: null, garantPhysique: false }, '#fdecec', '#d64545', '✕'], [null, '#fdf3e1', '#b7791f', '!'],
+    ];
+    for (const [c, fond, rond, signe] of cas) {
+      const g = bandeauGli(c, []);
+      const html = htmlNouvelleLocation(donnees({ gli: g }));
+      const i = html.indexOf(`>${g.titre}</b>`);
+      expect(i).toBeGreaterThan(-1);
+      const avant = html.slice(Math.max(0, i - 1200), i);
+      expect(avant).toContain(`bgcolor="${fond}"`);
+      expect(avant).toContain(`bgcolor="${rond}"`);
+      expect(avant).toContain(`>${signe}</td>`);
+      expect(texteNouvelleLocation(donnees({ gli: g }))).toContain(`${signe} ${g.titre}`);
+    }
   });
   it('l’objet suit le statut accordé (déjà en gestion, deux propriétaires) et les noms des locataires', () => {
     const statut = statutProprietaires({ proprietaires: [{ nom: 'A', dejaEnGestion: true, depuis: null }, { nom: 'B', dejaEnGestion: false, depuis: null }], biensEnGestion: 2, mandats: [] });
@@ -160,8 +192,8 @@ describe('🔴 le bien loué : même adresse / adresses différentes, lots regro
     expect(html.toLowerCase()).not.toContain('non renseign');
     expect(texteNouvelleLocation(d).toLowerCase()).not.toContain('non renseign');
     expect(html).toContain('Dossier Drive en cours de création');
-    // Seul le bandeau GLI dit « NON RENSEIGNÉE ».
-    expect(htmlNouvelleLocation({ ...d, gli: bandeauGli(null, []) })).toContain('ASSURANCE LOYERS IMPAYÉS NON RENSEIGNÉE');
+    // Seul le bandeau garantie dit « NON RENSEIGNÉE ».
+    expect(htmlNouvelleLocation({ ...d, gli: bandeauGli(null, []) })).toContain('GARANTIE NON RENSEIGNÉE');
   });
 });
 

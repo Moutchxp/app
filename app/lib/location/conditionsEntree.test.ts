@@ -31,14 +31,18 @@ describe('🔴 conditions d’entrée — choix obligatoires', () => {
     expect(v.ok && v.valeurs.jour).toBe(5);
   });
 
-  it('« préciser » : GLI et Autre exigent le texte ; Visale et Aucune non (le texte est vidé)', () => {
+  it('« préciser » : GLI et Autre exigent le texte ; Visale le garde, facultatif (n° de visa, Arno 21/10/2026) ; Aucune le vide', () => {
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, assurance: 'gli', assurancePrecision: '  ' }))).toEqual({ assurancePrecision: 'GLI : précisez laquelle.' });
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, assurance: 'autre' }))).toEqual({ assurancePrecision: 'Autre assurance : précisez laquelle.' });
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, reglement: 'autre' }))).toEqual({ reglementPrecision: 'Autre mode de règlement : précisez lequel.' });
     const gli = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'gli', assurancePrecision: ' Assureur X ' }));
     expect(gli.ok && gli.valeurs.assurancePrecision).toBe('Assureur X');
-    const visale = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'visale', assurancePrecision: 'reste d’avant' }));
-    expect(visale.ok && visale.valeurs.assurancePrecision).toBeNull();
+    const visale = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'visale', assurancePrecision: ' V123456789 ' }));
+    expect(visale.ok && visale.valeurs.assurancePrecision).toBe('V123456789');
+    const visaleSans = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'visale', assurancePrecision: '' }));
+    expect(visaleSans.ok && visaleSans.valeurs.assurancePrecision).toBeNull();
+    const aucune = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'aucune', assurancePrecision: 'reste d’avant' }));
+    expect(aucune.ok && aucune.valeurs.assurancePrecision).toBeNull();
   });
 
   it('le serveur refuse ce qui manque, avec les mêmes mots', () => {

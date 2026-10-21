@@ -139,7 +139,11 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                 <dd data-rb="garanties" className="rb-liste">{c === null ? rien() : (
                   <>
                     <span data-rb="garant-physique">Garant personne physique : {ouiNon(c.garant)}</span>
-                    <span data-rb="assurance">Assurance loyers impayés : {LIBELLE_ASSURANCE[c.assurance]}{c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}</span>
+                    {/* Arno (21/10/2026) : la MÊME couleur que le bandeau du mail « Nouvelle location » — vert ✓ GLI, Visale, Autre ;
+                        rouge ✕ Aucune (le signe est posé par la feuille de style : le texte de la ligne ne change pas). */}
+                    <span data-rb="assurance" data-rb-garantie={c.assurance === 'aucune' ? 'rouge' : 'vert'}
+                      className={`rb-garantie ${c.assurance === 'aucune' ? 'rb-garantie--rouge' : 'rb-garantie--vert'}`}>
+                      Assurance loyers impayés : {LIBELLE_ASSURANCE[c.assurance]}{c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}</span>
                   </>
                 )}</dd>
                 <dt>Entretiens</dt>
@@ -284,6 +288,11 @@ const CSS_RESUME_BAIL = `
    texte, en face de son intitulé, sans trou sous elle. */
 .rb-liens .rb-lien{border:0;background:none;padding:0;font:inherit;display:inline-flex;align-items:center;min-height:44px;margin:-12px 0}
 .rb-a-rattacher{color:var(--color-svv-amber);font-weight:700}
+.rb-garantie{align-self:flex-start;border-radius:8px;padding:1px 8px;font-weight:700}
+.rb-garantie--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.rb-garantie--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+.rb-garantie--vert::before{content:"✓ "}
+.rb-garantie--rouge::before{content:"✕ "}
 .rb-gestes{grid-column:1/-1;min-width:0;cursor:auto}
 .rb-colonne-paie{min-width:0}
 .rb-legende{margin:0 0 4px;font-size:.8rem;color:var(--color-svv-muted)}
