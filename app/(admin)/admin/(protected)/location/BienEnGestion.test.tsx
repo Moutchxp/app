@@ -135,10 +135,19 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     await soumettre();
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ action: 'creer-bien', proprietaireIds: [1], enGestion: false });
+    // Arno (21/10/2026) : enregistré → modale « ✓ Bien enregistré », et le bien n'est JAMAIS recréé par un second clic.
+    expect(document.querySelector('[data-modale-issue="succes"]')).not.toBeNull();
+    await soumettre();
+    expect(posts).toHaveLength(1);
+    // Changer d'avis : sur un formulaire neuf.
+    act(() => { root.unmount(); }); root = createRoot(container); document.body.querySelectorAll('[data-modale-issue]').forEach((m) => m.closest('.mis-voile')?.remove());
+    await rendreBien();
+    await parkingComplet();
+    await clic(bouton('Non'));
     await clic(bouton('Oui'));
     expect(bouton('Non').getAttribute('aria-pressed')).toBe('false');
     await soumettre();
-    expect(posts[1]).toMatchObject({ action: 'creer-bien', enGestion: true });
+    expect(posts.at(-1)).toMatchObject({ action: 'creer-bien', enGestion: true });
   });
 
   it('en continuité de « Créer un nouveau propriétaire » : la question n’est pas reposée, le bien prend la réponse du dessus', async () => {

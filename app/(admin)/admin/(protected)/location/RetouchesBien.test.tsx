@@ -181,7 +181,9 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires', 'creer-bien']);
     expect(posts[0]).toMatchObject({ enGestion: false, numeroMandatTransaction: 'MT 2026-041', numeroMandat: '' });
     expect(posts[1]).toMatchObject({ proprietaireIds: [41, 42] });
-    expect(window.location.href).toBe('/admin/location/bien/9');
+    // Arno (21/10/2026) : plus de départ silencieux — la modale « ✓ Bien enregistré » mène à la fiche du bien.
+    expect(window.location.href).toBe('');
+    expect(document.querySelector('[data-modale-issue="succes"] [data-voir-fiche-bien]')?.getAttribute('href')).toBe('/admin/location/bien/9');
   });
 
   it('si le bien est refusé, les fiches restent créées, le message le dit, et le nouvel essai ne les recrée pas', async () => {

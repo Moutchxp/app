@@ -79,9 +79,15 @@ describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {
     expect([champ('gestion', 'numero').value, champ('gestion', 'date').value, champ('transaction', 'numero').value]).toEqual(['MG-41', '2026-10-15', 'MT-7']);
     await soumettre();
     expect(posts[0]).toMatchObject({ action: 'creer-bien', enGestion: true, mandat: { sorte: 'gestion', numero: 'MG-41', signeLe: '2026-10-15' } });
+    // Le même scénario, choix final « Non » : sur un formulaire neuf (le bien enregistré ne se recrée jamais — Arno, 21/10/2026).
+    act(() => { root.unmount(); }); root = createRoot(container); document.body.querySelectorAll('[data-modale-issue]').forEach((m) => m.closest('.mis-voile')?.remove());
+    await rendre();
+    await clic(bouton('Oui'));
+    await saisir(champ('gestion', 'numero'), 'MG-41');
     await clic(bouton('Non'));
+    await saisir(champ('transaction', 'numero'), 'MT-7');
     await soumettre();
-    expect(posts[1]).toMatchObject({ action: 'creer-bien', enGestion: false, mandat: { sorte: 'transaction', numero: 'MT-7', signeLe: '' } });
+    expect(posts.at(-1)).toMatchObject({ action: 'creer-bien', enGestion: false, mandat: { sorte: 'transaction', numero: 'MT-7', signeLe: '' } });
   });
 
   it('FACULTATIF : jamais dans « Reste à renseigner », l’enregistrement part sans mandat (aucune clé « mandat »)', async () => {

@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { droitsDifferents, NOM_COOKIE, optionsCookie, reemettreJeton, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
 import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
 import { origineAutorisee } from './app/lib/admin/controleOrigine';
+import { ligneJournalEchec } from './app/lib/location/issueEnregistrement';
 
 /**
  * Garde d'accès de l'interface admin (EX-11..EX-15) + contrôle des PERMISSIONS côté serveur (M3 Lot 2e).
@@ -118,7 +119,33 @@ const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
   '/api/admin/taches/reponse',
 ]);
 
+/**
+ * ══ 🔴 PLUS AUCUN ÉCHEC SILENCIEUX (Arno, 21/10/2026) — LES REFUS DU PROXY SUR UNE ÉCRITURE DE LA LOCATION SONT JOURNALISÉS ═══
+ * Une écriture (POST…) vers `/api/admin/location` refusée ICI (origine, session absente ou révoquée, droit du module, mot de
+ * passe à changer, base injoignable) n'atteignait jamais la route : rien n'était écrit, rien n'était journalisé, et l'écran
+ * ne recevait qu'un code sans texte. La décision est INCHANGÉE (même réponse, même cookie) : on l'écrit seulement au journal du
+ * serveur (`journalctl -u svav-next`), avec le compte s'il est lisible.
+ */
 export async function proxy(request: NextRequest) {
+  const res = await decider(request);
+  const chemin = request.nextUrl.pathname;
+  if (request.method !== 'GET' && request.method !== 'HEAD' && (chemin === '/api/admin/location' || chemin.startsWith('/api/admin/location/'))
+    && (res.status === 401 || res.status === 403 || res.status === 503)) {
+    let compte = 'inconnu';
+    try {
+      const jeton = request.cookies.get(NOM_COOKIE)?.value;
+      const payload = jeton ? await verifierJeton(jeton) : null;
+      if (payload) compte = sessionDepuisPayload(payload).identifiant ?? `compte ${String(payload.sub ?? '?')}`;
+    } catch { /* le journal n'empêche jamais rien */ }
+    let code = '';
+    try { code = ((await res.clone().json()) as { erreur?: string })?.erreur ?? ''; } catch { code = ''; }
+    console.warn(ligneJournalEchec({ compte, ecran: 'proxy', action: `${request.method} ${chemin}`,
+      cause: res.status === 503 ? 'technique' : 'droit', raison: `refus du proxy (HTTP ${res.status}${code ? ` ${code}` : ''})` }));
+  }
+  return res;
+}
+
+async function decider(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ═══ LIEN DE RÉPONSE À UNE TÂCHE (lot GESTION-ACCEPTATION, 16/10/2026) ═══

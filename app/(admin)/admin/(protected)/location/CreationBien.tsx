@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
+import { ModaleIssue } from './ModaleIssue';
+import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
+import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
   AVERTISSEMENT_ID_FISCAL, CHARGES_COPRO, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -125,6 +127,16 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const mandatTouche = useRef<Record<SorteMandat, boolean>>({ gestion: false, transaction: false });
   const [notesMandat, setNotesMandat] = useState<Partial<Record<SorteMandat, string | null>>>({});
   const [envoi, setEnvoi] = useState(false);
+  /* Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : l'issue de « Enregistrer le bien » s'ouvre en MODALE (succès : résumé et
+     gestes suivants ; échec : quoi, pourquoi, quoi faire). `enCours` interdit le double clic (avant même le rendu suivant) ;
+     `enregistre` : le bien est créé — le bouton ne le recrée jamais. */
+  const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null } | null>(null);
+  const [enregistre, setEnregistre] = useState<string | null>(null);
+  const enCours = useRef(false);
+  /** Le contrôle de la PAGE qui bloque l'envoi : dit au journal du serveur (best effort, jamais bloquant). */
+  const journalEchec = (cause: CauseEchec, raison: string): void => {
+    journaliserEchecPage({ ecran: 'nouveau-bien', pour: 'creer-bien', cause, raison });
+  };
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
   /** Le SYNDIC choisi (loupe, suggestion « déjà connu pour cette adresse », ou créé dans la modale de la Gestion). */
@@ -253,8 +265,13 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
   const enregistrer = async (): Promise<void> => {
+    if (enCours.current || enregistre !== null) return;
     setTente(true);
     if (Object.keys(manque).length > 0) {
+      // Arno (21/10/2026) : jamais de silence — la modale dit ce qui manque ; la page garde ses messages et descend au premier.
+      const raison = `Il manque : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.`;
+      setIssue({ sorte: 'erreur', cause: 'champs', motif: raison });
+      journalEchec('champs', raison);
       // La barre collante dit, EN DIRECT, ce qui reste à renseigner (elle se vide au fur et à mesure) ; les messages
       // apparaissent sous chaque champ manquant.
       setMotif(null);
@@ -270,13 +287,14 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       return;
     }
     const v = verifierChampsBien(b);
-    if (!v.ok) { setMotif(v.motif); return; }
+    if (!v.ok) { setMotif(v.motif); setIssue({ sorte: 'erreur', cause: 'saisie', motif: v.motif }); journalEchec('saisie', v.motif); return; }
+    enCours.current = true;
     setEnvoi(true);
     // Continuité : les fiches d'abord (une seule fois), puis le bien.
     let proprietaireIds = proprietaires.map((p) => p.id);
     if (continuite !== undefined) {
       const f = await continuite.creerFiches();
-      if ('motif' in f) { setEnvoi(false); setMotif(f.motif); return; }
+      if ('motif' in f) { enCours.current = false; setEnvoi(false); setMotif(f.motif); setIssue({ sorte: 'erreur', cause: 'saisie', motif: f.motif }); return; }
       proprietaireIds = f.ids;
     }
     const r = await envoyer({
@@ -298,21 +316,28 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         ...(autreAdresse ? { adresse, codePostal, commune } : {}),
       })) : [],
     });
+    enCours.current = false;
     setEnvoi(false);
     if (r.motif !== null) {
-      setMotif(continuite !== undefined
+      const dit = continuite !== undefined
         ? `Les fiches des propriétaires sont créées, mais le bien n’est pas encore enregistré : ${r.motif} Corrigez puis enregistrez à nouveau (les fiches ne seront pas recréées).`
-        : r.motif);
+        : r.motif;
+      setMotif(dit);
+      setIssue({ sorte: 'erreur', cause: r.cause ?? 'saisie', motif: dit });
       return;
     }
     oublierContactsEnAttente();
     const id = (r.data as { logementId?: number } | undefined)?.logementId;
     const cible = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
-    // Arno (18/10/2026) : le mail « nouveau mandat » n'est jamais bloquant — mais s'il n'est pas parti, on le DIT avant de partir.
+    setEnregistre(cible);
+    // Arno (18/10/2026) : le mail « nouveau mandat » n'est jamais bloquant — mais s'il n'est pas parti, on le DIT (modale et page).
     const echec = [phraseMail(r.mail), (r.data as { mandatRefus?: string | null } | undefined)?.mandatRefus ?? null].filter((x) => x !== null).join(' ') || null;
-    if (echec !== null) { setMailEchec({ phrase: echec, cible }); return; }
-    window.location.href = cible;
+    if (echec !== null) setMailEchec({ phrase: echec, cible });
+    // Arno (21/10/2026) : le succès s'ouvre en modale (résumé, « Voir la fiche du bien », « Créer un autre bien », « Fermer »).
+    setIssue({ sorte: 'succes', cible, notes: echec === null ? [] : [echec] });
   };
+  const nomsProprietaires = (continuite !== undefined ? continuite.proprietaires.map((p) => p.nom) : proprietaires.map((p) => p.nom)).filter((x) => x).join(', ');
+  const adresseComplete = [b.adresse, [b.codePostal, b.commune].filter((x) => x).join(' ')].filter((x) => x.trim() !== '').join(', ');
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
@@ -661,12 +686,35 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         </div>
       )}
       <div className="loc-collant" data-collant>
-        <p className="loc-manques" role="status">
+        <p className={`loc-manques${motif !== null ? ' loc-manques--refus' : ''}`} role="status">
           {motif ?? (Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.')}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/proprietaires">Annuler</a>
-        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer le bien'}</button>
+        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null} aria-busy={envoi}>
+          {envoi ? 'Enregistrement…' : enregistre !== null ? '✓ Bien enregistré' : 'Enregistrer le bien'}</button>
       </div>
+      {issue !== null && (issue.sorte === 'succes' ? (
+        <ModaleIssue sorte="succes" titre="Bien enregistré" onFermer={() => setIssue(null)} notes={issue.notes}
+          lignes={[[nomsProprietaires.includes(',') ? 'Propriétaires' : 'Propriétaire', nomsProprietaires || '—'], ['Adresse', adresseComplete || '—'],
+            ...(famille !== null ? [['Bien', LIBELLE_FAMILLE[famille]] as [string, string]] : [])]}
+          actions={[
+            { libelle: 'Voir la fiche du bien', href: issue.cible, principal: true, repere: 'voir-fiche-bien' },
+            { libelle: 'Créer un autre bien', href: '/admin/location/nouveau-bien', repere: 'creer-autre' },
+            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
+          ]} />
+      ) : (
+        <ModaleIssue sorte="erreur" titre={issue.cause === 'champs' ? 'Il manque des informations' : 'Enregistrement impossible'}
+          echec={explicationEchec('nouveau-bien', issue.cause, issue.motif)}
+          onFermer={() => setIssue(null)}
+          actions={[{ libelle: issue.cause === 'champs' ? 'Compléter' : 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-issue' }]} />
+      ))}
+      {/* Après la modale fermée : le succès reste dit sur la page (le bien n'est jamais recréé par erreur). */}
+      {enregistre !== null && issue === null && mailEchec === null && (
+        <div className="loc-alerte loc-alerte--verte" role="status" data-bien-enregistre>
+          <p style={{ margin: '0 0 8px' }}><strong>✓ Bien enregistré.</strong></p>
+          <a className="svv-btn svv-btn-primary gst-btn" href={enregistre}>Ouvrir la fiche du bien</a>
+        </div>
+      )}
     </form>
   );
 }

@@ -224,8 +224,8 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
         </div>
       );
       // La variante discrète vit dans une carte qui se soulève au survol (transform) et rogne ce qui dépasse : la fenêtre est
-      // rendue dans <body>, sinon elle serait coupée. La variante d'origine reste à sa place.
-      return variante === 'discret' && typeof document !== 'undefined' ? createPortal(fenetre, document.body) : fenetre; })()}
+      // rendue dans `.svv-adm-root` (porteur des jetons du thème), sinon elle serait coupée. La variante d'origine reste à sa place.
+      return variante === 'discret' && typeof document !== 'undefined' ? createPortal(fenetre, document.querySelector('.svv-adm-root') ?? document.body) : fenetre; })()}
     </div>
   );
 }

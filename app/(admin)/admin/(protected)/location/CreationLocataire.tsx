@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, useLecture } from './commun';
 import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -14,6 +14,8 @@ import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
 import { MOTIF_MONTANT_SAISI, montantHonorairesSaisi, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
+import { ModaleIssue } from './ModaleIssue';
+import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
@@ -100,6 +102,18 @@ export function CreationLocataire() {
      puis confirmation compris), puis la fenêtre d'envoi s'ouvre pour le bail créé. Le dernier bouton cliqué décide. */
   const envoyerApres = useRef(false);
   const [intentionEnvoi, setIntentionEnvoi] = useState(false);
+  /* Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : l'issue s'ouvre en MODALE (succès : résumé et gestes suivants ; échec :
+     quoi, pourquoi, quoi faire) ; `enCours` interdit le double clic ; quitter le récapitulatif sans confirmer est averti. */
+  const [issue, setIssue] = useState<{ sorte: 'succes'; titre: string; lignes: [string, string][]; notes: string[]; lien: string; bailId: number | null }
+    | { sorte: 'erreur'; cause: CauseEchec; motif: string | null } | { sorte: 'quitter' } | null>(null);
+  const enCours = useRef(false);
+  /** Relance la fenêtre « Envoi ADHOC & MONGA » du bail créé (depuis la modale de succès). */
+  const [envoiCle, setEnvoiCle] = useState(0);
+  const echec = (cause: CauseEchec, motifDit: string, journal = true): void => {
+    setMotif(motifDit);
+    setIssue({ sorte: 'erreur', cause, motif: motifDit });
+    if (journal) journaliserEchecPage({ ecran: 'nouveau-locataire', pour: 'creer-locataires', cause, raison: motifDit });
+  };
   const idForm = useId();
   // Bloc 3 — les conditions d'entrée et l'entretien du bien ; `tente` : les messages sous chaque champ après un essai.
   const [conditions, setConditions] = useState<SaisieConditions>(CONDITIONS_VIDES);
@@ -228,18 +242,22 @@ export function CreationLocataire() {
   const nbLocataires = etat.clients.length + etat.existants.length;
   const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
   const enregistrer = async (): Promise<void> => {
+    if (enCours.current || fait !== null) return;
     if (nbLocataires === 0) {
-      setMotif(etat.contacts.length > 0 ? 'Un contact n’est pas un client : ajoutez au moins une carte « Locataire (client) ».'
+      echec('champs', etat.contacts.length > 0 ? 'Un contact n’est pas un client : ajoutez au moins une carte « Locataire (client) ».'
         : 'Remplissez et enregistrez au moins une carte « Locataire (client) » (ou utilisez une fiche déjà connue).');
       return;
     }
-    if (etat.ouvertes > 0) { setMotif('Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
-    if (bien === null) { setMotif('Choisissez le bien loué.'); return; }
-    if (!dateEntreeSaisie) { setMotif('Indiquez la date d’entrée dans les lieux.'); return; }
-    if (coches !== null && coches.length === 0) { setMotif('Cochez au moins un lot loué.'); return; }
-    if (garantSansLocataire) { setMotif('Un garant doit garantir au moins un locataire : cochez-le sous « Garantit : ».'); return; }
+    if (etat.ouvertes > 0) { echec('champs', 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
+    if (bien === null) { echec('champs', 'Choisissez le bien loué.'); return; }
+    if (!dateEntreeSaisie) { echec('champs', 'Indiquez la date d’entrée dans les lieux.'); return; }
+    if (coches !== null && coches.length === 0) { echec('champs', 'Cochez au moins un lot loué.'); return; }
+    if (garantSansLocataire) { echec('champs', 'Un garant doit garantir au moins un locataire : cochez-le sous « Garantit : ».'); return; }
     // Bloc 3 : tant qu'un choix manque, rien n'est envoyé ; le message est sous le champ et la page y descend.
     if (Object.keys(manque).length > 0) {
+      const raison = `Il manque : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`;
+      setIssue({ sorte: 'erreur', cause: 'champs', motif: raison });
+      journaliserEchecPage({ ecran: 'nouveau-locataire', pour: 'creer-locataires', cause: 'champs', raison });
       setTente(true); setMotif(null);
       setTimeout(() => {
         const premier = document.querySelector('[data-conditions-entree] .loc-manque');
@@ -251,14 +269,17 @@ export function CreationLocataire() {
     }
     // ① LE RÉCAPITULATIF d'abord : ce que le bail va faire des lots (rien n'est écrit).
     if (recap === null) {
+      enCours.current = true;
       setEnvoi(true);
       const a = await envoyer({ action: 'apercu-lots', lotId: bien.id, lotIds: coches ?? [bien.id] });
+      enCours.current = false;
       setEnvoi(false);
-      if (a.motif !== null) { setMotif(a.motif); return; }
+      if (a.motif !== null) { echec(a.cause ?? 'saisie', a.motif, false); return; }
       setRecap((a.data as { recap?: string[] } | undefined)?.recap ?? []);
       return;
     }
     // ② LA CONFIRMATION : l'entrée des locataires, les fiches autonomes, la réintégration — une seule transaction.
+    enCours.current = true;
     setEnvoi(true);
     const r = await envoyer({
       action: 'creer-locataires', cartes: etat.clients, existants: etat.existants.map((x) => x.id), contacts: etat.contacts,
@@ -269,8 +290,9 @@ export function CreationLocataire() {
       ...(avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
       ...(avecRattachements && etat.contacts.length > 0 ? { rattachements: rattachementsAEnvoyer() } : {}),
     });
+    enCours.current = false;
     setEnvoi(false);
-    if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
+    if (r.motif !== null) { echec(r.cause ?? 'saisie', r.motif, false); setRecap(null); return; }
     const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null; contactsRefus?: string | null;
       dateBaremeSupposee?: boolean; drive?: { ok: boolean; motif?: string }; bailId?: number | null } | undefined;
     const ids = d?.locataireIds ?? [];
@@ -285,9 +307,24 @@ export function CreationLocataire() {
        celui de toujours. */
     const bailId = typeof d?.bailId === 'number' ? d.bailId : null;
     // « Enregistrer et envoyer » : la fenêtre ne s'ouvre qu'ICI, après un enregistrement réussi et pour un bail créé.
-    if (annonces.length > 0 || bailId !== null) { setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoyerApres.current && bailId !== null }); return; }
-    window.location.href = lien;
+    // Arno (21/10/2026) : l'écran RESTE (plus de départ silencieux vers la fiche) et le succès s'ouvre en modale — sauf
+    // « Enregistrer et envoyer », qui ouvre directement la fenêtre d'envoi du bail créé (choix du 21/10/2026).
+    const envoiDirect = envoyerApres.current && bailId !== null;
+    setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoiDirect });
+    if (!envoiDirect) {
+      const noms = [...etat.clients.map((c) => nomDeCarte(c)), ...etat.existants.map((x) => x.nom)].filter((x) => x);
+      setIssue({ sorte: 'succes', titre: `${noms.length > 1 ? 'Locataires enregistrés et rattachés' : 'Locataire enregistré et rattaché'} à ${bien.titre}`,
+        lignes: [[noms.length > 1 ? 'Locataires' : 'Locataire', noms.join(', ') || '—'], ['Bien', bien.titre], ['Date d’entrée', entree.split('-').reverse().join('/')]],
+        notes: annonces, lien, bailId });
+    }
   };
+  // Le récapitulatif affiché, rien d'enregistré : quitter la page (onglet, rechargement) est averti par le navigateur.
+  useEffect(() => {
+    if (recap === null || fait !== null) return;
+    const avertir = (e: BeforeUnloadEvent): void => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', avertir);
+    return () => window.removeEventListener('beforeunload', avertir);
+  }, [recap, fait]);
 
   return (
     <div className="loc-page loc-ample">
@@ -381,13 +418,33 @@ export function CreationLocataire() {
           {fait.bailId !== undefined && fait.bailId !== null && (
             <div className="loc-apres-enregistrer" data-apres-enregistrer>
               <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>
-              <EnvoiAdhocMonga bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true} />
+              <EnvoiAdhocMonga key={envoiCle} bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true || envoiCle > 0} />
             </div>
           )}
           <p style={{ margin: 0 }}><a href={fait.lien}>Ouvrir la fiche du locataire</a></p>
         </section>
       )}
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {issue !== null && (issue.sorte === 'succes' ? (
+        <ModaleIssue sorte="succes" titre={issue.titre} lignes={issue.lignes} notes={issue.notes} onFermer={() => setIssue(null)}
+          actions={[
+            { libelle: 'Voir la fiche du locataire', href: issue.lien, principal: true, repere: 'voir-fiche-locataire' },
+            ...(issue.bailId !== null ? [{ libelle: 'Envoi ADHOC & MONGA', onClick: () => { setIssue(null); setEnvoiCle((k) => k + 1); }, repere: 'envoi-depuis-issue' }] : []),
+            { libelle: 'Créer un autre locataire', href: '/admin/location/nouveau-locataire', repere: 'creer-autre' },
+            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
+          ]} />
+      ) : issue.sorte === 'quitter' ? (
+        <ModaleIssue sorte="attention" titre="Quitter sans confirmer ?" onFermer={() => setIssue(null)}
+          notes={['Le récapitulatif est affiché mais le locataire n’est pas encore enregistré : « Confirmer » l’enregistre. Si vous quittez maintenant, rien ne sera enregistré.']}
+          actions={[
+            { libelle: 'Rester sur la page', onClick: () => setIssue(null), principal: true, repere: 'rester' },
+            { libelle: 'Quitter sans enregistrer', href: '/admin/location/locataires', repere: 'quitter-sans-enregistrer' },
+          ]} />
+      ) : (
+        <ModaleIssue sorte="erreur" titre={issue.cause === 'champs' ? 'Il manque des informations' : 'Enregistrement impossible'}
+          echec={explicationEchec('nouveau-locataire', issue.cause, issue.motif)} onFermer={() => setIssue(null)}
+          actions={[{ libelle: issue.cause === 'champs' ? 'Compléter' : 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-issue' }]} />
+      ))}
       <div className="loc-collant" data-collant>
         <p className="loc-manques" role="status">
           {nbLocataires === 0 ? 'Reste à renseigner : au moins un locataire (client).' : bien === null ? 'Reste à choisir : le bien loué.'
@@ -395,7 +452,8 @@ export function CreationLocataire() {
             : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
-        <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
+        <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires" data-annuler-locataire
+          onClick={(e) => { if (recap !== null && fait === null) { e.preventDefault(); setIssue({ sorte: 'quitter' }); } }}>Annuler</a>
         {/* Arno (21/10/2026) — à côté d'« Enregistrer », mêmes conditions d'activation : enregistre de la même façon, puis ouvre la
             fenêtre d'envoi du bail créé (jamais en cas d'échec ; rien ne part sans « Envoyer » dans la fenêtre). */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn loc-enregistrer-envoyer" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}

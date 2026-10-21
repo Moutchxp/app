@@ -38,6 +38,7 @@ import { planifierBail } from '../../../../lib/location/regroupement';
 import { conditionsEntreeDisponible, schemaConditionsEntree } from '../../../../lib/location/conditionsEntreeRepo';
 import { loyerConnuDuBien } from '../../../../lib/location/loyerEntreeRepo';
 import { calculHonorairesDuBien } from '../../../../lib/location/honorairesProprietaireRepo';
+import { ligneJournalEchec } from '../../../../lib/location/issueEnregistrement';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -230,9 +231,33 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+/**
+ * ══ 🔴 PLUS AUCUN ÉCHEC SILENCIEUX (Arno, 21/10/2026) — LE JOURNAL DES ÉCHECS DE CRÉATION ═══════════════════════════════════
+ * Chaque échec d'une création (« Nouveau bien », « Nouveau locataire », « Nouveau propriétaire ») laisse UNE ligne dans le
+ * journal du serveur (`journalctl -u svav-next`) : compte, écran, action, cause, raison. Refus de la garde (droit, session),
+ * refus métier, base incomplète, erreur technique — et, via `journal-echec`, les contrôles de la page qui ont bloqué l'envoi.
+ * Une ligne de journal du SERVEUR (console), jamais une écriture en base.
+ */
+const ECRAN_DE: Record<string, string> = {
+  'creer-bien': 'nouveau-bien', 'creer-locataires': 'nouveau-locataire', 'apercu-lots': 'nouveau-locataire', 'creer-proprietaires': 'nouveau-proprietaire',
+};
+const estCreation = (a: string): boolean => Object.prototype.hasOwnProperty.call(ECRAN_DE, a);
+function journaliserEchec(compte: string, action: string, ecranDemande: unknown, cause: string, raison: string | null): void {
+  const ecran = typeof ecranDemande === 'string' && /^[a-z-]{1,40}$/.test(ecranDemande) ? ecranDemande : (ECRAN_DE[action] ?? 'location');
+  console.warn(ligneJournalEchec({ compte, ecran, action: action || '—', cause, raison }));
+}
+
 export async function POST(request: Request): Promise<Response> {
   const garde = await exigerLocation(request);
-  if ('refus' in garde) return garde.refus;
+  if ('refus' in garde) {
+    // Le refus de la garde (droit « Location » absent, compte inactif, session expirée) : journalisé pour les créations.
+    const lu = await request.clone().json().catch(() => null) as Record<string, unknown> | null;
+    const a = typeof lu?.action === 'string' ? lu.action : '';
+    if (estCreation(a) || a === 'journal-echec') {
+      journaliserEchec((await auteurDeLaRequete(request)).libelle, a, lu?.ecran, 'droit', `refus de la garde (HTTP ${garde.refus.status})`);
+    }
+    return garde.refus;
+  }
   const auteur = await auteurDeLaRequete(request);
   let corps: Record<string, unknown>;
   try {
@@ -241,9 +266,23 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES });
   }
   const action = typeof corps.action === 'string' ? corps.action : '';
+  // Un contrôle de la PAGE a bloqué l'envoi (champ manquant, format) : il est dit au journal du serveur, rien d'autre.
+  if (action === 'journal-echec') {
+    const raison = typeof corps.raison === 'string' ? corps.raison : null;
+    const cause = typeof corps.cause === 'string' && /^[a-z]{1,20}$/.test(corps.cause) ? corps.cause : 'champs';
+    journaliserEchec(auteur.libelle, typeof corps.pour === 'string' ? corps.pour.slice(0, 40) : '—', corps.ecran, cause, raison);
+    return Response.json({ etat: 'ok', data: null }, { headers: ENTETES });
+  }
   const sujet = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' ? corps.sujet : null;
   const id = identifiant(corps.id);
-  const repondre = (x: unknown): Response => Response.json(x, { headers: ENTETES });
+  const repondre = (x: unknown): Response => {
+    // Une création refusée (métier, base, inconnue) : une ligne au journal du serveur.
+    const etat = x !== null && typeof x === 'object' ? (x as { etat?: unknown }).etat : undefined;
+    if (estCreation(action) && etat !== 'ok') {
+      journaliserEchec(auteur.libelle, action, corps.ecran, etat === 'sans_schema' ? 'base' : 'saisie', String((x as { motif?: unknown }).motif ?? etat ?? '—'));
+    }
+    return Response.json(x, { headers: ENTETES });
+  };
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
   try {
     switch (action) {
@@ -467,6 +506,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (e) {
     console.error('[api/admin/location] écriture impossible', e);
+    if (estCreation(action)) journaliserEchec(auteur.libelle, action, corps.ecran, 'technique', (e as Error)?.message ?? 'erreur inattendue');
     return Response.json(
       { etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503 });
   }

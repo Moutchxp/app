@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
+import { causeDeLaReponse, MOTIF_DROIT, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import type { GestesCartes } from '../gestion/CartesPersonnes';
 
 /**
@@ -62,17 +63,42 @@ export function phraseMail(m: EtatMail | undefined): string | null {
   return `Enregistré, mais mail de confirmation non envoyé${m.motif ? ` : ${m.motif}` : ''}.`;
 }
 
-export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail }> {
+/**
+ * La porte d'écriture de la Location. Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : un refus dit aussi sa `cause` (droit,
+ * saisie, base, technique — `issueEnregistrement.ts`), et un 401 / 403 de la garde (`{ erreur: 'ACCES_REVOQUE' }`, sans `motif`)
+ * n'est plus lu « Enregistrement refusé. » mais dit le droit manquant ou la session expirée. Une réponse réussie : inchangée.
+ */
+export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec }> {
+  let res: Response;
   try {
-    const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-    const d = await res.json() as { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail };
-    if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail };
-    if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION };
-    if (d.etat === 'inconnu') return { motif: 'Cette fiche n’existe plus.' };
-    return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.' };
+    res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
   } catch {
-    return { motif: 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.' };
+    return { motif: 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: 'technique' };
   }
+  let d: { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail; erreur?: string };
+  try {
+    d = await res.json() as typeof d;
+  } catch {
+    const cause = causeDeLaReponse({ statut: res.status });
+    return { motif: cause === 'droit' ? MOTIF_DROIT : 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: cause === 'saisie' ? 'technique' : cause };
+  }
+  if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail };
+  const cause = causeDeLaReponse({ statut: res.status, etat: d.etat, erreur: d.erreur });
+  if (cause === 'droit') return { motif: MOTIF_DROIT, cause };
+  if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION, cause };
+  if (d.etat === 'inconnu') return { motif: 'Cette fiche n’existe plus.', cause };
+  return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.', cause };
+}
+
+/**
+ * Arno (21/10/2026) — un contrôle de la PAGE a bloqué un enregistrement (champ manquant, format) : il est dit au journal du
+ * serveur par un BALISAGE (`sendBeacon`) — sans attente, sans réponse lue, jamais bloquant ; sans `sendBeacon`, rien.
+ */
+export function journaliserEchecPage(o: { ecran: string; pour: string; cause: string; raison: string }): void {
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return;
+    navigator.sendBeacon(API, new Blob([JSON.stringify({ action: 'journal-echec', ...o, raison: o.raison.slice(0, 300) })], { type: 'application/json' }));
+  } catch { /* le journal n'empêche jamais rien */ }
 }
 
 /**
@@ -156,6 +182,8 @@ export const CSS_LOCATION_ECRANS = `
 .loc-alerte{border-radius:10px;padding:10px 12px;background:var(--color-svv-blue-soft);color:var(--color-svv-blue);font-size:.92rem}
 .loc-alerte a{color:inherit}
 .loc-alerte--orange{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
+/* Arno (21/10/2026) : un enregistrement reussi, dit sur la page une fois la modale fermee. */
+.loc-alerte--verte{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:12px}
 /* La carte commune de la Gestion se cale sur la largeur de l'ÉCRAN ; dans un bloc de la Location, sur celle de sa colonne. */
 .loc-cartes .cp-carte{width:auto;max-width:100%;min-width:0}
@@ -289,6 +317,8 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-annexes .loc-annexe-tete{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin:0 0 12px;font-weight:800;font-size:1.08rem;color:var(--color-svv-ink)}
 .loc-collant{position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px 16px;justify-content:flex-end;align-items:center;padding:16px 18px;margin:0 -2px;border:1px solid var(--color-svv-line);border-radius:22px;background:var(--color-svv-surface)}
 .loc-collant .loc-manques{flex:1 1 16rem;margin:0;color:var(--color-svv-muted);font-size:.98rem}
+/* Un refus dans la barre du bas n'est plus du gris discret : il est en rouge, en gras (Arno, 21/10/2026 — plus d'echec silencieux). */
+.loc-collant .loc-manques.loc-manques--refus{color:var(--color-svv-red);font-weight:700}
 .loc-collant .svv-btn{width:auto}
 .loc-collant .svv-btn-primary{min-height:60px;font-size:1.15rem;padding:0 32px}
 .loc-annexe-tete .svv-btn{width:auto}

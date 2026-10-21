@@ -109,6 +109,10 @@ describe('🔴 « ID fiscal du bien » — l’écran « Nouveau bien »', () =>
     await soumettre();
     expect(posts).toHaveLength(1);
     expect((posts[0].logement as Record<string, unknown>).idFiscal ?? '').toBe('');
+    // Un second enregistrement : sur un formulaire neuf (le bien enregistré ne se recrée jamais — Arno, 21/10/2026).
+    act(() => { root.unmount(); }); root = createRoot(container); document.body.querySelectorAll('[data-modale-issue]').forEach((m) => m.closest('.mis-voile')?.remove());
+    await rendre();
+    await parkingComplet();
     await saisir(champId(), '9212 3456');
     expect(avert()).not.toBeNull();
     expect(barre()).not.toMatch(/fiscal/i);

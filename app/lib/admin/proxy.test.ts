@@ -582,3 +582,40 @@ describe('proxy — permissions appliquées immédiatement, sans reconnexion (21
     expect(jetonDe(res, 'set-cookie')).toBeNull();
   });
 });
+
+/**
+ * 🔴 Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : une ÉCRITURE de la Location refusée par le proxy est journalisée (compte,
+ * code) ; la décision ne change pas. Une lecture refusée, ou une écriture d'un autre module, ne l'est pas.
+ */
+describe('proxy — refus d’une écriture de la Location : journalisé, décision inchangée', () => {
+  const ecriture = async (pathname: string, session: SessionAdmin | null, methode = 'POST'): Promise<NextRequest> => {
+    const r = await requete(pathname, session);
+    return new NextRequest(r.url, { method: methode, headers: new Headers([...r.headers.entries(), ['sec-fetch-site', 'same-origin']]), body: methode === 'GET' ? undefined : '{}' });
+  };
+  it('collaborateur SANS le droit Location : 403, et une ligne « [location:echec] » avec son compte', async () => {
+    const lignes: string[] = [];
+    const espion = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => { lignes.push(a.map(String).join(' ')); });
+    const res = await proxy(await ecriture('/api/admin/location', collab()));
+    expect(res.status).toBe(403);
+    expect(lignes).toEqual(['[location:echec] compte=lea ecran=proxy action=POST /api/admin/location cause=droit raison=refus du proxy (HTTP 403)']);
+    espion.mockRestore();
+  });
+  it('sans session : 401 journalisé (compte inconnu) ; AVEC le droit : laissé passer, rien de journalisé', async () => {
+    const lignes: string[] = [];
+    const espion = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => { lignes.push(a.map(String).join(' ')); });
+    expect((await proxy(await ecriture('/api/admin/location', null))).status).toBe(401);
+    expect(lignes.at(-1)).toBe('[location:echec] compte=inconnu ecran=proxy action=POST /api/admin/location cause=droit raison=refus du proxy (HTTP 401)');
+    const passe = await proxy(await ecriture('/api/admin/location', collab({ ...permsAucune(), location: true })));
+    expect(passe.status).not.toBe(403);
+    expect(lignes).toHaveLength(1);
+    espion.mockRestore();
+  });
+  it('une LECTURE refusée, ou une écriture d’un autre module : rien au journal de la Location', async () => {
+    const lignes: string[] = [];
+    const espion = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => { lignes.push(a.map(String).join(' ')); });
+    expect((await proxy(await ecriture('/api/admin/location', collab(), 'GET'))).status).toBe(403);
+    expect((await proxy(await ecriture('/api/admin/curation', collab()))).status).toBe(403);
+    expect(lignes).toEqual([]);
+    espion.mockRestore();
+  });
+});
