@@ -151,6 +151,12 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
           sépare la barre de recherche des cases — le MÊME espace réservé (mêmes classes), entre les mêmes écarts de page. */}
       <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-preavis />
       <BlocPreavisAccueil gestion={gestion} />
+
+      {/* Arno (21/10/2026, 403) — « CLIENTS ET BIENS » : une entrée de plus, APRÈS ce qui existait (rien ne bouge au-dessus). */}
+      <a className="loc-case loc-case--clients" href="/admin/location/clients" data-case="/admin/location/clients">
+        <span className="loc-case-titre">Clients et biens</span>
+        <span className="loc-case-phrase">Tous les propriétaires et leurs biens — en gestion, location seule, ancienne gestion — avec leur statut.</span>
+      </a>
     </div>
   );
 }

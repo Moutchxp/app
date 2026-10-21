@@ -25,7 +25,7 @@ import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
 import { AnnexesDeLaFiche, CartoucheAnnexeDetachee, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
-import { StatutDuBien } from './StatutDuBien';
+import { CSS_PASTILLE_STATUT, PastilleStatut, StatutDuBien } from './StatutDuBien';
 import { estLotAnnexe, motCompteur, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from '../../../../lib/gestion/annexesBien';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
@@ -363,7 +363,8 @@ export function Annuaire({
          * de `SorteFiche` et les 228 nombres ambigus qu'il mesure.
          */
         const parametre = ficheParCle(fiche.sorte) ? 'lotCle' : fiche.sorte;
-        const res = await fetch(`/api/admin/gestion/annuaire?${parametre}=${fiche.id}`, { cache: 'no-store' });
+        // Arno (21/10/2026, 403) : `vue=gestion` — la Gestion écarte la location seule (la route l'ignore depuis la Location).
+        const res = await fetch(`/api/admin/gestion/annuaire?${parametre}=${fiche.id}&vue=gestion`, { cache: 'no-store' });
         const d = (await res.json()) as { etat?: string; data?: unknown };
         if (!vivant) return;
         if (d.etat === 'inconnu') { setDetail({ etat: 'erreur', message: 'Cette fiche n’existe pas (ou plus) dans l’annuaire.' }); return; }
@@ -837,8 +838,11 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
                 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — la pastille « lot N » a QUITTÉ l'en-tête (accord d'Arno) :
                 la référence est écrite en bas de la carte, petite et grise (« Réf. Wippimmo N »). */}
             {pastillesBien(b).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
-            {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre. */}
-            {b.horsGestion === true && <EtiquetteHorsGestion />}
+            {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre.
+                Arno (21/10/2026, 403) : avec le STATUT du bien, sa pastille (bleu location seule, gris ancienne gestion) dit la même
+                chose, en mieux ; un bien en gestion n'en porte pas (sa section le dit). Sans statut : l'étiquette d'avant. */}
+            {b.statut !== undefined ? (b.statut !== 'en_gestion' && <PastilleStatut statut={b.statut} petite />)
+              : b.horsGestion === true && <EtiquetteHorsGestion />}
           </span>
           {/* Arno (20/10/2026, faille 6) : un bien en indivision — seuls ses AUTRES copropriétaires actifs (`indivision.ts`). */}
           {motIndivision(b.indivisionAvec) !== null && <span className="ann-carte-sous" data-indivision>{motIndivision(b.indivisionAvec)}</span>}
@@ -910,10 +914,14 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
             <span className="ann-fait-mot">Événements ouverts</span>
             <span>{b.evenementsOuverts === 0 ? 'aucun' : b.evenementsOuverts}</span>
           </span>
+          {/* Arno (21/10/2026, 403) — « En gestion depuis » est propre à la GESTION : un bien en LOCATION SEULE ne le porte pas
+              (sa pastille dit son statut). En gestion et ancienne gestion : la ligne, inchangée. */}
+          {b.statut !== 'location_seule' && (
           <span className="ann-fait">
             <span className="ann-fait-mot">{b.fin === null ? 'En gestion depuis' : 'Sorti de gestion le'}</span>
             <DateOuRien iso={b.fin ?? b.debut} sinon="non renseigné" />
           </span>
+          )}
       </div>
       {/* ══ 🔴🔴 LOT FICHES-RETOUCHES — LE PIED DE CARTE EN BOUTONS ═══════════════════════════════════════════
           Arno : « “Fiche du locataire →” et “Dossier Drive du lot ↗” sont aujourd'hui deux liens soulignés mal
@@ -1033,7 +1041,10 @@ function VueProprietaire({
   // ⚠️ Les GESTES qui portent sur « tous les biens en gestion de la fiche » (ajouter un co-propriétaire) gardent la liste
   // COMPLÈTE, annexes comprises : seul l'affichage range les annexes sous leur bien.
   const enGestionTous = f.biens.filter(bienEnGestion);
-  const anciens = f.biens.filter((b) => !bienEnGestion(b)).filter((b) => !rangee(b));
+  /* Arno (21/10/2026, 403) — LA LOCATION SEULE a sa section (la Gestion ne la reçoit jamais : la route l'écarte ; la Location, si).
+     « Anciens biens » = l'ANCIENNE GESTION. Sans statut (avant la 403) : comme avant. */
+  const locationSeule = f.biens.filter((b) => b.statut === 'location_seule').filter((b) => !rangee(b));
+  const anciens = f.biens.filter((b) => !bienEnGestion(b) && b.statut !== 'location_seule').filter((b) => !rangee(b));
   // Arno (21/10/2026) — le bail en cours de chaque bien en gestion (une lecture) : le bouton discret de sa carte.
   const bauxEnCours = useBauxEnCoursDesBiens(enGestion.map((b) => Number(b.id)));
   /* 🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026) — les cartes « contact du propriétaire » de ses biens en gestion, et
@@ -1042,6 +1053,7 @@ function VueProprietaire({
   const ficheArchivee = f.personnes.length > 0 && f.personnes.every((p) => p.archive);
   return (
     <>
+      <style>{CSS_PASTILLE_STATUT}</style>
       {/* ══ 🔴 L'EN-TÊTE DE FICHE — un bandeau sobre : le nom en grand, le rôle en capsule, les actions à droite.
           Demande d'Arno : « en-tête de fiche distinct ». Il remplace un titre et une ligne grise qui se
           confondaient avec le reste de la page. */}
@@ -1145,7 +1157,28 @@ function VueProprietaire({
               onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} envoi={bauxEnCours[String(b.id)]} />)}
           </ul>
         )}
+        {/* Arno (21/10/2026, 403) — dans la GESTION, une ligne discrète pour les biens en location seule de ce propriétaire. */}
+        {(f.biensLocationSeule ?? 0) > 0 && (
+          <p className="ann-gris ann-location-seule-ailleurs" data-location-seule-ailleurs={f.biensLocationSeule}>
+            + {f.biensLocationSeule} bien{f.biensLocationSeule! > 1 ? 's' : ''} en location seule →{' '}
+            <a href={`/admin/location/proprietaire/${f.id}`}>voir dans la Location</a>
+          </p>
+        )}
       </section>
+
+      {/* Arno (21/10/2026, 403) — LES BIENS EN LOCATION SEULE (fiche ouverte depuis la Location : la Gestion ne les reçoit pas). */}
+      {locationSeule.length > 0 && (
+        <section className="ann-bloc" aria-labelledby="ann-biens-ls" data-biens-location-seule>
+          <h4 className="ann-bloc-titre" id="ann-biens-ls">
+            Biens en location seule <span className="gst-compte">{locationSeule.length}</span>
+          </h4>
+          <ul className="ann-cartes">
+            {locationSeule.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} annexesRangees={annexesDe(b.id)}
+              candidatsRattachement={candidatsDe(b)} onRecharger={onRecharger}
+              onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} />)}
+          </ul>
+        </section>
+      )}
 
       {/* ⚠️ « ANCIENS BIENS » EST REPLIÉ, jamais retiré : un bien sorti de gestion garde ses mails et son
           historique, et c'est souvent pour EUX qu'on ouvre la fiche. Replié, il ne noie pas les biens vivants. */}

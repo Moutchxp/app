@@ -19,7 +19,8 @@
  * compare aux mêmes lignes en base, et compte — sans un seul INSERT.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { sqlStatutBien } from './statutBienRepo';
+import { sqlStatutBien, statutBienDisponible } from './statutBienRepo';
+import type { StatutBien } from './statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
@@ -1011,9 +1012,26 @@ export interface LigneResultat {
  * rien ne change.
  */
 async function sqlFinAffichee(alias: string): Promise<string> {
-  return (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le'))
+  const base = (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le'))
     ? `coalesce(${alias}.gestion_fin, (${alias}.sorti_portefeuille_le AT TIME ZONE 'Europe/Paris')::date)` : `${alias}.gestion_fin`;
+  /* Arno (21/10/2026, 403) : avec le STATUT du bien, la fin affichée le suit — en gestion : aucune (même repris après une fin de
+     gestion WIPPIMMO) ; ancienne gestion : sa fin, à défaut la date d'effet du statut. AUCUN ACCENT GRAVE ICI (gabarit). */
+  return (await statutBienDisponible())
+    ? `(CASE ${alias}.statut_bien WHEN 'en_gestion' THEN NULL WHEN 'ancienne_gestion' THEN coalesce(${base}, ${alias}.statut_bien_depuis) ELSE ${base} END)`
+    : base;
 }
+
+/**
+ * Arno (21/10/2026, 403) — LA GESTION N'AFFICHE PAS LA LOCATION SEULE : le fragment « ce bien n'est pas en location seule », pour
+ * les écrans de la Gestion seulement (annuaire, fiches, listes, compteurs). Les sélecteurs de rattachement des mails ne le
+ * prennent JAMAIS : un bien qui n'est plus en gestion reste proposé pour ses mails.
+ */
+async function sqlPasLocationSeule(alias: string): Promise<string> {
+  return `(${await sqlStatutBien(alias)} <> 'location_seule')`;
+}
+
+/** Les options d'une lecture de l'annuaire : `horsLocationSeule` = vue de la GESTION (les biens en location seule écartés). */
+export interface VueAnnuaire { horsLocationSeule?: boolean }
 
 export interface BienDuProprietaire {
   id: number;
@@ -1071,6 +1089,8 @@ export interface BienDuProprietaire {
   titulaireId?: number | null;
   /** Annexe détachée louée à un AUTRE locataire que son lot principal : la raison (« Rattacher » inactif). `null` : possible. */
   rattachementRefus?: string | null;
+  /** Arno (21/10/2026, 403) — le STATUT du bien (en gestion / ancienne gestion / location seule) : la pastille, les rangements. */
+  statut?: StatutBien;
 }
 
 export interface FicheProprietaire {
@@ -1100,6 +1120,11 @@ export interface FicheProprietaire {
    * échange, événements, Drive — et sépare les biens en gestion des anciens.
    */
   biens: BienDuProprietaire[];
+  /**
+   * Arno (21/10/2026, 403) — vue de la GESTION : combien de biens de ce propriétaire sont en LOCATION SEULE (écartés de `biens`) —
+   * la ligne discrète « + N bien(s) en location seule → voir dans la Location ». Absent hors de cette vue.
+   */
+  biensLocationSeule?: number;
   /**
    * 🔴 LOT FICHES-ANNUAIRE (étape C) — LES CARTES DU BLOC « COORDONNÉES », DANS L'ORDRE.
    *
@@ -1671,7 +1696,7 @@ export async function idsCoproprietaires(proprietaireId: number): Promise<number
   return [...new Set([proprietaireId, ...rows.map((r) => Number(r.proprietaire_id))])];
 }
 
-export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheProprietaire>> {
+export async function ficheProprietaire(id: number, vue: VueAnnuaire = {}): Promise<IssueLecture<FicheProprietaire>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   const { rows } = await query<{
     id: string; wippimmo_id: string; nom_complet: string; civilite: string | null; adresse: string | null;
@@ -1718,7 +1743,8 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
         typeBien: l.type_bien, debut: l.gestion_debut, locataire: l.locataire,
         locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
       })),
-      biens: await biensDuProprietaire(Number(p.id)),
+      biens: await biensDuProprietaire(Number(p.id), vue),
+      ...(vue.horsLocationSeule === true ? { biensLocationSeule: await compterLocationSeule(Number(p.id)) } : {}),
       personnes: await coproprietairesDe(Number(p.id)),
       modifiable: await annuaireModifiableDisponible(),
       /**
@@ -1802,8 +1828,21 @@ async function sqlHorsGestion(alias: string): Promise<string> {
   return `(${await sqlStatutBien(alias)} = 'location_seule')`;
 }
 
-async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
+/** Combien de biens de ce propriétaire (titulaire ou indivision en cours) sont en LOCATION SEULE. */
+async function compterLocationSeule(proprietaireId: number): Promise<number> {
+  const avecIndivision = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
+  const { rows } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_annuaire_lot lo
+      WHERE (lo.proprietaire_id = $1${avecIndivision ? `
+         OR EXISTS (SELECT 1 FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.proprietaire_id = $1
+                     AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))` : ''})
+        AND NOT ${await sqlPasLocationSeule('lo')}`, [proprietaireId]);
+  return rows[0]?.n ?? 0;
+}
+
+async function biensDuProprietaire(proprietaireId: number, vue: VueAnnuaire = {}): Promise<BienDuProprietaire[]> {
   const finAffichee = await sqlFinAffichee('lo');
+  const horsLocationSeule = vue.horsLocationSeule === true ? ` AND ${await sqlPasLocationSeule('lo')}` : '';
   // Arno (21/10/2026) — la catégorie / les pièces / l'étage saisis (372-374) et le lien d'annexe (372) : sondés.
   const avecCategorie = await colonneExisteMemo('gestion_annuaire_lot', 'categorie');
   const avecPieces = await colonneExisteMemo('gestion_annuaire_lot', 'nombre_pieces');
@@ -1820,7 +1859,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
-    hors_gestion: boolean; indivision: string[] | null;
+    hors_gestion: boolean; indivision: string[] | null; statut: string;
     categorie: string | null; nombre_pieces: number | null; etage_saisi: string | null; porte_saisie: string | null; num_lot_copro: string | null;
     detachee_le: string | null; titulaire_id: string | null;
     annexe_de: string | null; annexe_de_adresse: string | null; annexe_de_categorie: string | null; annexes: string[] | null;
@@ -1835,6 +1874,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
               : 'NULL::text AS annexe_de, NULL::text AS annexe_de_adresse, NULL::text AS annexe_de_categorie, NULL::text[] AS annexes'},
             lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
+            ${await sqlStatutBien('lo')} AS statut,
             ${avecIndivision ? sqlCoproprietairesActifs('lo', '$1', await sqlPersonneVivante('px')) : 'NULL::text[]'} AS indivision,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
@@ -1890,9 +1930,9 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
           WHERE ${sqlEvenementOuvertParLaFrise('e')} AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
             AND r2.statut = 'confirme'
        ) ev ON true
-      WHERE lo.proprietaire_id = $1${avecIndivision ? `
+      WHERE (lo.proprietaire_id = $1${avecIndivision ? `
          OR EXISTS (SELECT 1 FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.proprietaire_id = $1
-                     AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))` : ''}
+                     AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))` : ''})${horsLocationSeule}
       ORDER BY ((${finAffichee}) IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
     [proprietaireId]);
 
@@ -1920,6 +1960,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     annexes: l.annexes ?? [],
     porte: l.porte_saisie, numLotCopro: l.num_lot_copro,
     detachee: l.detachee_le !== null, detacheeLe: l.detachee_le, titulaireId: l.titulaire_id === null ? null : Number(l.titulaire_id),
+    statut: l.statut as StatutBien,
   }));
 }
 
@@ -2193,6 +2234,8 @@ export interface BienLie {
    * exactement la « seconde requête qui recompte à sa façon » qu'Arno interdit.
    */
   fin: string | null;
+  /** Arno (21/10/2026, 403) — le statut du bien ; `bienEnGestion` le lit quand il est là. */
+  statut?: StatutBien;
 }
 
 export interface PersonneTrouvee {
@@ -2263,7 +2306,7 @@ function motsTries(nomNormalise: string): string {
  * 1 793 coordonnées — et une seule requête portant les quatre questions serait illisible à la première relecture.
  */
 export async function rechercherPersonnes(
-  t: TermeRecherche, o: { avecArchivees?: boolean } = {},
+  t: TermeRecherche, o: { avecArchivees?: boolean } & VueAnnuaire = {},
 ): Promise<IssueLecture<ResultatsPersonnes>> {
   /**
    * 🔴 LOT SUPPRIMER-CARTE — « cette fiche existe-t-elle encore ? », décidé UNE fois (`personneVivanteAvec`).
@@ -2275,6 +2318,18 @@ export async function rechercherPersonnes(
   if (t.vide) return { etat: 'ok', data: { personnes: [], tronque: false } };
 
   const modifiable = await annuaireModifiableDisponible();
+  /* Arno (21/10/2026, 403) — vue de la GESTION : l'adresse ne ramène pas un bien en location seule, et une personne dont TOUS les
+     biens (au moins un) sont en location seule n'est pas de la Gestion. Sans la vue (sélecteurs de mails…) : comme avant. */
+  const horsLS = o.horsLocationSeule === true;
+  const pasLS = horsLS ? await sqlPasLocationSeule('lo') : 'true';
+  const pasLS3 = horsLS ? await sqlPasLocationSeule('lo3') : 'true';
+  const filtreProprio = horsLS ? `
+        AND (NOT EXISTS (SELECT 1 FROM gestion_annuaire_lot lo3 WHERE lo3.proprietaire_id = pr.id)
+          OR EXISTS (SELECT 1 FROM gestion_annuaire_lot lo3 WHERE lo3.proprietaire_id = pr.id AND ${pasLS3}))` : '';
+  const filtreLocataire = horsLS ? `
+        AND (NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 WHERE o3.locataire_id = lc.id)
+          OR EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 JOIN gestion_annuaire_lot lo3 ON lo3.id = o3.lot_id
+                      WHERE o3.locataire_id = lc.id AND ${pasLS3}))` : '';
   const chiffres = t.chiffres === null ? null : `%${t.chiffres}`;
   const mots = t.mots.length > 0 ? t.mots : [t.texte];
   const params = [mots, t.telephone, chiffres, t.email, t.numeroLot];
@@ -2300,10 +2355,11 @@ export async function rechercherPersonnes(
     lots_vises AS (
       SELECT lo.id, lo.wippimmo_id
         FROM gestion_annuaire_lot lo
-       WHERE ($5::text IS NOT NULL AND lo.wippimmo_id = $5)
+       WHERE (($5::text IS NOT NULL AND lo.wippimmo_id = $5)
           OR NOT EXISTS (SELECT 1 FROM mots
                           WHERE (coalesce(lo.adresse_normalisee, '') || ' ' || coalesce(lo.code_postal, ''))
-                                NOT LIKE '%' || m || '%')
+                                NOT LIKE '%' || m || '%'))
+         AND ${pasLS}
     )`;
 
   // ── ① LES PROPRIÉTAIRES QUI RÉPONDENT ─────────────────────────────────────────────────────────────────────────
@@ -2322,7 +2378,7 @@ export async function rechercherPersonnes(
       WHERE ${vivante('pr')} AND ((NOT EXISTS (SELECT 1 FROM mots WHERE pr.nom_normalise NOT LIKE '%' || m || '%'))
          OR pr.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'proprietaire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_lot lo2 ON lo2.id = v.id
-                     WHERE lo2.proprietaire_id = pr.id))`, params);
+                     WHERE lo2.proprietaire_id = pr.id))${filtreProprio}`, params);
 
   // ── ② LES LOCATAIRES QUI RÉPONDENT, avec l'état de leur occupation ────────────────────────────────────────────
   const { rows: locs } = await query<{
@@ -2346,9 +2402,9 @@ export async function rechercherPersonnes(
       WHERE ${vivante('lc')} AND ((NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%'))
          OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
-                     WHERE o.locataire_id = lc.id))`, params);
+                     WHERE o.locataire_id = lc.id))${filtreLocataire}`, params);
 
-  return assemblerPersonnes(proprios, locs, o.avecArchivees === true);
+  return assemblerPersonnes(proprios, locs, o.avecArchivees === true, horsLS);
 }
 
 /** Ce que la requête des propriétaires rend, avant enrichissement. */
@@ -2368,7 +2424,7 @@ interface LocBrut {
  * Quatre gestes, dans cet ordre, et chacun a sa raison d'être là.
  */
 async function assemblerPersonnes(
-  proprios: readonly ProprioBrut[], locs: readonly LocBrut[], avecArchivees: boolean,
+  proprios: readonly ProprioBrut[], locs: readonly LocBrut[], avecArchivees: boolean, horsLocationSeule = false,
 ): Promise<IssueLecture<ResultatsPersonnes>> {
   const idsP = proprios.map((p) => Number(p.id));
   const idsL = locs.map((l) => Number(l.id));
@@ -2402,29 +2458,32 @@ async function assemblerPersonnes(
   const biens = new Map<string, BienLie[]>();
   if (idsP.length > 0 || idsL.length > 0) {
     const finAffichee = await sqlFinAffichee('lo');
+    const statut = await sqlStatutBien('lo');
+    // Arno (21/10/2026, 403) — vue de la Gestion : les biens en location seule ne sont ni listés ni comptés.
+    const pasLS = horsLocationSeule ? ` AND ${await sqlPasLocationSeule('lo')}` : '';
     const { rows } = await query<{
       cle: string; lot_id: string; numero: string; adresse: string | null; commune: string | null;
-      fin: string | null;
+      fin: string | null; statut: string;
     }>(
       /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — `gestion_fin` VOYAGE AVEC : la barre Annuaire compte les biens
          EN GESTION d'un proprietaire, et la regle est celle de la fiche (bienEnGestion). Meme requete, meme
          ligne, aucune lecture de plus. */
       `SELECT 'proprietaire|' || lo.proprietaire_id::text AS cle, lo.id::text AS lot_id,
-              lo.wippimmo_id AS numero, lo.adresse, lo.commune, (${finAffichee})::text AS fin
+              lo.wippimmo_id AS numero, lo.adresse, lo.commune, (${finAffichee})::text AS fin, ${statut} AS statut
          FROM gestion_annuaire_lot lo
-        WHERE lo.proprietaire_id = ANY($1::bigint[])
+        WHERE lo.proprietaire_id = ANY($1::bigint[])${pasLS}
         UNION ALL
        SELECT DISTINCT 'locataire|' || o.locataire_id::text, lo.id::text, lo.wippimmo_id, lo.adresse, lo.commune,
-              (${finAffichee})::text
+              (${finAffichee})::text, ${statut}
          FROM gestion_annuaire_occupation o
          JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
-        WHERE o.locataire_id = ANY($2::bigint[])
+        WHERE o.locataire_id = ANY($2::bigint[])${pasLS}
         ORDER BY 3`, [idsP, idsL]);
     for (const r of rows) {
       const liste = biens.get(r.cle) ?? [];
       if (!liste.some((b) => b.numero === r.numero)) {
         liste.push({
-          lotId: Number(r.lot_id), numero: r.numero, adresse: r.adresse, commune: r.commune, fin: r.fin,
+          lotId: Number(r.lot_id), numero: r.numero, adresse: r.adresse, commune: r.commune, fin: r.fin, statut: r.statut as StatutBien,
         });
       }
       biens.set(r.cle, liste);

@@ -16,7 +16,7 @@ import { biensPourLocataire } from './portefeuilleRepo';
 
 beforeEach(() => {
   appels.length = 0;
-  lignes = [{ id: '7', adresse: '4 rue Fictive', commune: 'Puteaux', proprietaire: 'DUPONT Jean', loue: false, annexe: null,
+  lignes = [{ id: '7', adresse: '4 rue Fictive', commune: 'Puteaux', proprietaire: 'DUPONT Jean', loue: false, annexe: null, statut: 'en_gestion',
     etage: '3', type_logement: null, nature: 'Appartement', type_bien: 'T3' }];
 });
 
@@ -26,9 +26,10 @@ describe('biensPourLocataire — adresse OU nom du propriétaire', () => {
     const q = appels.find((a) => a.sql.includes('FROM gestion_annuaire_lot lo'))!;
     expect(q.params).toEqual([['dupont']]);
     expect(q.sql).toContain("(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[1] || '%' OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[1] || '%')");
-    expect(q.sql).toContain('lo.gestion_fin IS NULL AND lo.absent_le IS NULL');
+    // Arno (21/10/2026, 403) : le portefeuille se lit sur le STATUT du bien (en gestion ou location seule ; jamais l'ancienne gestion).
+    expect(q.sql).toContain("lo.statut_bien <> 'ancienne_gestion' AND lo.absent_le IS NULL");
     // Arno (20/10/2026) : l'état est rendu À PART (l'écran l'écrit et le colore), plus dans le détail.
-    expect(r).toEqual([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement T3 · 3e étage · propriétaire : DUPONT Jean', loue: false }]);
+    expect(r).toEqual([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement T3 · 3e étage · propriétaire : DUPONT Jean', loue: false, enGestion: true }]);
   });
 
   it('Arno (20/10/2026) : les biens LIBRES d’abord, puis les loués ; dans chaque groupe, l’adresse — avec ou sans recherche', async () => {

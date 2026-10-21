@@ -24,11 +24,16 @@
 export interface BienDatable {
   /** La date de FIN de gestion, en ISO. `null` = la gestion court toujours. */
   fin: string | null;
+  /**
+   * Arno (21/10/2026, migration 403) — le STATUT du bien, quand il voyage : il FAIT FOI (« en gestion » = statut « en gestion »).
+   * Absent (lecture d'avant) : la règle de la date de fin, inchangée.
+   */
+  statut?: 'en_gestion' | 'ancienne_gestion' | 'location_seule';
 }
 
 /** CE BIEN EST-IL ENCORE EN GESTION ? La seule écriture de la règle. */
 export function bienEnGestion(b: BienDatable): boolean {
-  return b.fin === null;
+  return b.statut !== undefined ? b.statut === 'en_gestion' : b.fin === null;
 }
 
 /**

@@ -1,4 +1,5 @@
 import 'server-only';
+import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
 import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, enregistrerPreavis, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
@@ -50,6 +51,7 @@ import { ligneJournalEchec } from '../../../../lib/location/issueEnregistrement'
  *
  * GET : `?q=` recherche de l'accueil (personnes et syndics par nom / téléphone / e-mail ; biens du portefeuille par leur
  *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
+ *       `?clients=1&q=&statut=&page=` (« Clients et biens », 403) ·
  *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie ; plusieurs
  *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1` · `?personnesLiees=N` (« Qui
  *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2` · `?agPourAdresse=texte` (dernière AG connue de l'immeuble) ·
@@ -164,6 +166,11 @@ export async function GET(request: Request): Promise<Response> {
     }
     if (p('proprietairesArchivage') !== null) {
       return Response.json({ etat: 'ok', data: await rechercherPortefeuille((p('proprietairesArchivage') ?? '').slice(0, 200), { proprietairesSeuls: true }) }, { headers: ENTETES });
+    }
+    // Arno (21/10/2026, 403) — « Clients et biens » : propriétaires et leurs biens, tous statuts, filtre par statut, par pages.
+    if (p('clients') !== null) {
+      return Response.json({ etat: 'ok', data: await clientsEtBiens((p('q') ?? '').slice(0, 120), lireFiltreStatut(p('statut')), Number(p('page') ?? 0)) },
+        { headers: ENTETES });
     }
     if (p('biensPourLocataire') !== null) {
       return Response.json({ etat: 'ok', data: await biensPourLocataire((p('biensPourLocataire') ?? '').slice(0, 100)) }, { headers: ENTETES });

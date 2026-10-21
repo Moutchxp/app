@@ -1,4 +1,5 @@
 import 'server-only';
+import { requeteDepuisLaLocation } from '../../../../../lib/gestion/contexteLocation';
 import { enregistrerSortie, notifierSortie } from '../../../../../lib/location/sortieLocatairesRepo';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { analyserTerme } from '../../../../../lib/gestion/annuaireRecherche';
@@ -61,9 +62,12 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
 
   const url = new URL(request.url);
+  /* Arno (21/10/2026, 403) — LA VUE DE LA GESTION (`vue=gestion`, posée par l'annuaire et sa barre) écarte les biens en LOCATION
+     SEULE ; jamais depuis la Location (la même fiche y montre tout), jamais pour les sélecteurs de mails (ils ne la posent pas). */
+  const vue = { horsLocationSeule: url.searchParams.get('vue') === 'gestion' && !requeteDepuisLaLocation(request) };
   try {
     const idProprietaire = identifiant(url.searchParams.get('proprietaire'));
-    if (idProprietaire !== null) return Response.json(await ficheProprietaire(idProprietaire), { headers: ENTETES });
+    if (idProprietaire !== null) return Response.json(await ficheProprietaire(idProprietaire, vue), { headers: ENTETES });
 
     const idLot = identifiant(url.searchParams.get('lot'));
     if (idLot !== null) return Response.json(await ficheLot(idLot), { headers: ENTETES });
@@ -109,7 +113,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     const avecArchivees = url.searchParams.get('archivees') === '1';
     const [personnes, importe] = await Promise.all([
-      rechercherPersonnes(terme, { avecArchivees }), dernierImport(),
+      rechercherPersonnes(terme, { avecArchivees, ...vue }), dernierImport(),
     ]);
     return Response.json({ ...personnes, terme, importe }, { headers: ENTETES });
   } catch (e) {

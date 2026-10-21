@@ -131,7 +131,8 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
     const minuteur = setTimeout(() => {
       void (async () => {
         try {
-          const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}`, { cache: 'no-store' });
+          // Arno (21/10/2026, 403) : `vue=gestion` — l'annuaire de la Gestion écarte la location seule (jamais depuis la Location).
+          const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}&vue=gestion`, { cache: 'no-store' });
           const d = (await res.json().catch(() => ({}))) as ReponseAnnuaire;
           if (annule) return;
           /* ⚠️ LES ERREURS RENDENT UNE LISTE VIDE, pas une liste absente : l'écran dit alors « Aucun contact

@@ -138,7 +138,7 @@ describe('🔴 ce qu’on n’a PAS touché', () => {
     expect(repo).toContain('export async function rechercher(');
     const route = readFileSync('app/(admin)/api/admin/gestion/annuaire/route.ts', 'utf8');
     expect(route).toContain("url.searchParams.get('biens') === '1'");
-    expect(route).toContain('rechercherPersonnes(terme, { avecArchivees })');
+    expect(route).toContain('rechercherPersonnes(terme, { avecArchivees, ...vue })');
     const epreuve = readFileSync('app/scripts/annuaire-epreuve.ts', 'utf8');
     expect(epreuve).toContain('rechercher(analyserTerme');
   });
@@ -239,7 +239,7 @@ describe('🔴🔴 l’écran Annuaire : plus de seconde liste, la barre partag�
   it('⚠️ la route et le dépôt savent toujours rendre les archivées', () => {
     const route = readFileSync('app/(admin)/api/admin/gestion/annuaire/route.ts', 'utf8');
     expect(route).toContain("url.searchParams.get('archivees') === '1'");
-    expect(route).toContain('rechercherPersonnes(terme, { avecArchivees })');
+    expect(route).toContain('rechercherPersonnes(terme, { avecArchivees, ...vue })');
     const repo = readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8');
     expect(repo).toContain('avecArchivees ? lignes : lignes.filter((x) => !x.archive)');
   });

@@ -155,7 +155,7 @@ describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () =
     await monter();
     await taper('normandie');
     expect(urls).toHaveLength(1);
-    expect(urls[0]).toBe('/api/admin/gestion/annuaire?q=normandie');
+    expect(urls[0]).toBe('/api/admin/gestion/annuaire?q=normandie&vue=gestion');
   });
 
   /**
@@ -443,7 +443,8 @@ describe('🔴🔴 ⑦ les garanties structurelles', () => {
    */
   it('🔴🔴 une seule route interrogée, et aucun chemin de fiche écrit à la main', () => {
     const appels = [...BARRE.matchAll(/fetch\(`([^`]+)`/g)].map((m) => m[1]);
-    expect(appels).toEqual(['/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}']);
+    // Arno (21/10/2026, 403) : `vue=gestion` — la Gestion écarte la location seule ; la route reste la même.
+    expect(appels).toEqual(['/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}&vue=gestion']);
     expect(BARRE).not.toContain('ecran:');
     expect(BARRE).not.toContain('?fiche=');
   });

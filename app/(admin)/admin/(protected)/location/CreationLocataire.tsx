@@ -90,7 +90,10 @@ export function CreationLocataire() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
   const [filtreBien, setFiltreBien] = useState('');
   const [terme, setTerme] = useState('');
-  const [bien, setBien] = useState<{ id: number; titre: string } | null>(null);
+  const [bien, setBien] = useState<{ id: number; titre: string; enGestion?: boolean } | null>(null);
+  /* Arno (21/10/2026, 403) — l'envoi à ADHOC & MONGA ne concerne que les biens EN GESTION : un bien en location seule (ou en
+     ancienne gestion) choisi ne montre ni « Enregistrer et envoyer », ni l'envoi après l'enregistrement. */
+  const envoiPermis = bien === null || bien.enGestion !== false;
   const [entree, setEntree] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
@@ -237,7 +240,7 @@ export function CreationLocataire() {
   const AVERTISSEMENT_DATE = 'Sans date d’entrée, le barème du jour a été utilisé.';
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
-  const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
+  const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean; enGestion?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
 
   const nbLocataires = etat.clients.length + etat.existants.length;
   const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
@@ -358,7 +361,7 @@ export function CreationLocataire() {
               liste(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
                 <ul className="loc-choix">
                   {liste(biens.etat.data).map((b) => (
-                    <li key={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre }); setCoches(null); setRecap(null); }}>
+                    <li key={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre, enGestion: b.enGestion }); setCoches(null); setRecap(null); }}>
                       <span>{b.titre}</span><span>{b.detail}</span>
                       {/* Arno (20/10/2026) : le MOT et la couleur (vert « Libre », rouge « déjà loué ») — jamais la couleur seule. */}
                       {b.loue !== undefined && <span className={`loc-etat-bien loc-etat-bien--${b.loue ? 'loue' : 'libre'}`} data-etat-bien={b.loue ? 'loue' : 'libre'}>{b.loue ? 'déjà loué' : 'Libre'}</span>}</button></li>
@@ -415,7 +418,7 @@ export function CreationLocataire() {
       {fait !== null && (
         <section className="loc-section" role="status" data-reintegration>
           {fait.messages.map((m, i) => <p key={`${i}-${m}`} className="gst-info" style={{ margin: 0 }}>{m}</p>)}
-          {fait.bailId !== undefined && fait.bailId !== null && (
+          {fait.bailId !== undefined && fait.bailId !== null && envoiPermis && (
             <div className="loc-apres-enregistrer" data-apres-enregistrer>
               <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>
               <EnvoiAdhocMonga key={envoiCle} bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true || envoiCle > 0} />
@@ -456,9 +459,11 @@ export function CreationLocataire() {
           onClick={(e) => { if (recap !== null && fait === null) { e.preventDefault(); setIssue({ sorte: 'quitter' }); } }}>Annuler</a>
         {/* Arno (21/10/2026) — à côté d'« Enregistrer », mêmes conditions d'activation : enregistre de la même façon, puis ouvre la
             fenêtre d'envoi du bail créé (jamais en cas d'échec ; rien ne part sans « Envoyer » dans la fenêtre). */}
+        {envoiPermis && (
         <button type="button" className="svv-btn svv-btn-outline gst-btn loc-enregistrer-envoyer" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}
           onClick={() => { envoyerApres.current = true; setIntentionEnvoi(true); void enregistrer(); }} data-enregistrer-envoyer>
           {envoi && intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer et envoyer à ADHOC & MONGA' : 'Confirmer et envoyer à ADHOC & MONGA'}</button>
+        )}
         {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille NI sans date d'entrée — « Enregistrer »
             reste inactif sans eux. */}
         <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie} data-enregistrer-locataire>{envoi && !intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>

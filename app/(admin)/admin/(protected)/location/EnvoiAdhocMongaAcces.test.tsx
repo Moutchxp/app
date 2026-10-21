@@ -44,8 +44,11 @@ const saisir = async (el: HTMLInputElement, v: string) => {
 };
 const pilule = (groupe: string, mot: string) => [...container.querySelectorAll(`[aria-label="${groupe}"] button`)].find((b) => b.textContent === mot) as HTMLButtonElement;
 
+/** Arno (21/10/2026, 403) — le statut du bien choisi, tel que la liste le rend (absent : lecture d'avant). */
+let bienEnGestion: boolean | undefined;
 describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & MONGA »', () => {
   beforeEach(() => {
+    bienEnGestion = undefined;
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = decodeURIComponent(String(url));
       appels.push(`${init?.method ?? 'GET'} ${u}`);
@@ -61,7 +64,7 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
       if (u.includes('nouvelle-location?bail=536')) return ok(APERCU);
       if (u.includes('schemaConditionsEntree')) return ok({ conditions: true, loyer: true, manquantes: [] });
       if (u.includes('honorairesProprietaire=7')) return ok({ etat: 'surface_manquante', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, motif: 'Surface Carrez/Boutin manquante dans la fiche du bien' });
-      if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement', loue: false }]);
+      if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement', loue: false, ...(bienEnGestion === undefined ? {} : { enGestion: bienEnGestion }) }]);
       if (u.includes('lotsBail=7')) return ok({ lots: [{ id: 7, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
       if (u.includes('lot=7')) return ok({ bien: { id: 7, categorie: 'logement' }, complements: { entretienAPrevoir: null, entretiens: [] } });
       return ok([]);
@@ -127,6 +130,27 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
     expect(appels.filter((a) => a.startsWith('POST /api/admin/location/nouvelle-location'))).toEqual([]);
     // Le gros bouton d'après « Enregistrer » reste.
     expect(container.querySelector('[data-apres-enregistrer] .eam-gros')?.textContent).toBe('Envoi ADHOC & MONGA');
+  });
+
+  it('🔴 403 — un bien qui n’est PAS en gestion : ni « Enregistrer et envoyer », ni l’envoi après l’enregistrement ; « Enregistrer » reste', async () => {
+    bienEnGestion = false;
+    await preparer();
+    expect(envoyerEtEnregistrer()).not.toBeNull();
+    await choisirBienEtDate();
+    expect(envoyerEtEnregistrer()).toBeNull();
+    expect(enregistrer().disabled).toBe(false);
+    await deroulerAvec(enregistrer);
+    expect(appels.some((a) => a.startsWith('POST'))).toBe(true);
+    expect(container.querySelector('[data-apres-enregistrer]')).toBeNull();
+    expect(container.querySelector('[data-envoi-adhoc]')).toBeNull();
+    expect(container.querySelector('[data-reintegration]')?.textContent).toContain('Ouvrir la fiche du locataire');
+  });
+
+  it('🔴 403 — un bien EN GESTION : le bouton reste', async () => {
+    bienEnGestion = true;
+    await preparer();
+    await choisirBienEtDate();
+    expect(envoyerEtEnregistrer()?.disabled).toBe(false);
   });
 
   it('« Enregistrer » seul : le gros bouton apparaît, la fenêtre NE s’ouvre PAS', async () => {

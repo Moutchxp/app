@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { sqlStatutBien, statutBienDisponible } from '../gestion/statutBienRepo';
 import { ecrireDateSortie } from './dateSortieOccupation';
 import { colonneExisteMemo } from './sondeLocation';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
@@ -58,9 +59,13 @@ export async function sqlDansPortefeuille(alias: string): Promise<string> {
   return (await sortieDisponible()) ? ` AND ${alias}.sorti_portefeuille_le IS NULL` : '';
 }
 
-/** Un bien du portefeuille : en gestion (pas de fin), présent au dernier export, non sorti. */
+/**
+ * Un bien du portefeuille : en gestion (pas de fin), présent au dernier export, non sorti. Arno (21/10/2026, 403) : avec le statut
+ * du bien, « pas de fin » se lit « pas en ancienne gestion » — en gestion ou en location seule (la Location travaille sur les deux).
+ */
 export async function sqlBienDuPortefeuille(alias: string): Promise<string> {
-  return `${alias}.gestion_fin IS NULL AND ${alias}.absent_le IS NULL${await sqlDansPortefeuille(alias)}`;
+  const actif = (await statutBienDisponible()) ? `${alias}.statut_bien <> 'ancienne_gestion'` : `${alias}.gestion_fin IS NULL`;
+  return `${actif} AND ${alias}.absent_le IS NULL${await sqlDansPortefeuille(alias)}`;
 }
 
 /** Par type de résultat : le panneau prend tout l'écran et défile (retouche d'Arno du 17/10/2026). */
@@ -101,7 +106,9 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
    * SAUF une annexe à une AUTRE ADRESSE (migration 376) : son adresse est une adresse du portefeuille (Arno, 17/10/2026).
    */
   const autreAdresse = (await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre'));
-  const bienConnu = (alias: string): string => `${alias}.gestion_fin IS NULL AND ${alias}.absent_le IS NULL
+  // Arno (21/10/2026, 403) : avec le statut du bien, « pas de fin » = pas en ancienne gestion (en gestion ou location seule).
+  const actif = (await statutBienDisponible()) ? (x: string) => `${x}.statut_bien <> 'ancienne_gestion'` : (x: string) => `${x}.gestion_fin IS NULL`;
+  const bienConnu = (alias: string): string => `${actif(alias)} AND ${alias}.absent_le IS NULL
       AND (NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = ${alias}.id)${autreAdresse ? ` OR ${alias}.adresse_autre IS TRUE` : ''})`;
   const params = [t.chiffres ?? '', t.email ?? '', t.mots];
   // Les trois paramètres sont TOUJOURS cités (une clause neutre) : PostgreSQL refuse un paramètre transmis mais inutilisé.
@@ -743,14 +750,15 @@ export async function creerLocataireSurBien(o: CreationLocataire, auteur: Auteur
  * Arno (20/10/2026) — les biens LIBRES d'abord, puis les biens déjà loués ; dans chaque groupe, l'ordre de l'adresse. L'état
  * (`loue`) est rendu À PART : l'écran l'écrit (« Libre » / « déjà loué ») et le colore — jamais la couleur seule.
  */
-export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null; loue: boolean }[]> {
+export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null; loue: boolean; enGestion: boolean }[]> {
   const t = analyserTermePortefeuille(filtre);
   const conditionMots = t.mots.map((_, i) => `(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'
     OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[${i + 1}] || '%')`).join(' AND ');
   const col = async (c: string): Promise<string> => ((await colonneExisteMemo('gestion_annuaire_lot', c)) ? `lo.${c}::text` : 'NULL::text');
   const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; proprietaire: string | null; loue: boolean; annexe: string | null;
-    etage: string | null; type_logement: string | null; nature: string | null; type_bien: string | null }>(
+    etage: string | null; type_logement: string | null; nature: string | null; type_bien: string | null; statut: string }>(
     `SELECT lo.id::text, lo.adresse, lo.commune, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
+            ${await sqlStatutBien('lo')} AS statut,
             CASE WHEN EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)
                  THEN concat_ws(' ', initcap(coalesce(lo.categorie, 'annexe')), 'n° ' || lo.porte) END AS annexe,
             EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS loue,
@@ -765,6 +773,8 @@ export async function biensPourLocataire(filtre: string): Promise<{ id: number; 
       id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
       detail: [type, etageFr(r.etage), r.proprietaire ? `propriétaire : ${r.proprietaire}` : null].filter((x) => x).join(' · ') || null,
       loue: r.loue,
+      // Arno (21/10/2026, 403) : l'envoi à ADHOC & MONGA n'est proposé que pour un bien EN GESTION.
+      enGestion: r.statut === 'en_gestion',
     };
   });
 }

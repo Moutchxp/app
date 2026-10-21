@@ -95,7 +95,7 @@ describe('🔴🔴 ② quelle sorte s’adresse par quel nombre — écrit à un
    */
   it('🔴 l’écran traduit `bien` en `?lotCle=`, et rien d’autre ne change', () => {
     expect(ANNUAIRE).toContain("const parametre = ficheParCle(fiche.sorte) ? 'lotCle' : fiche.sorte;");
-    expect(ANNUAIRE).toContain('`/api/admin/gestion/annuaire?${parametre}=${fiche.id}`');
+    expect(ANNUAIRE).toContain('`/api/admin/gestion/annuaire?${parametre}=${fiche.id}&vue=gestion`');
     /* ⚠️ ET PLUS AUCUN APPEL QUI COLLE LA SORTE DIRECTEMENT : c'est la forme qui enverrait `?bien=478`, que la
        route ne connaît pas — un « Fiche illisible » silencieux. */
     expect(ANNUAIRE).not.toContain('annuaire?${fiche.sorte}=');

@@ -124,7 +124,8 @@ describe('🔴 /admin/location ne plante plus', () => {
     // Titres sur deux lignes (Arno, 17/10/2026).
     expect([...container.querySelectorAll('.loc-cases--accueil .loc-case-titre')].map((t) => [...t.querySelectorAll('.loc-case-ligne')].map((l) => l.textContent)))
       .toEqual([['Ajouter / supprimer', 'un propriétaire / bien'], ['Ajouter / supprimer', 'un locataire'], ['Outils', 'de suivi']]);
-    expect(cases).toEqual(['/admin/location/proprietaires', '/admin/location/locataires', '/admin/location/outils']);
+    // Arno (21/10/2026, 403) : « Clients et biens » s'ajoute APRÈS (sous le bloc des préavis) ; les 3 cases ne bougent pas.
+    expect(cases).toEqual(['/admin/location/proprietaires', '/admin/location/locataires', '/admin/location/outils', '/admin/location/clients']);
     // Plus d'onglets ni de listes sur l'accueil : ils sont dans les trois écrans.
     expect(container.querySelector('[role="tablist"]')).toBeNull();
     // La zone de résultats est RÉSERVÉE dès l'ouverture (les cases ne bougent jamais) : vide et sans cadre.
@@ -150,7 +151,7 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(container.textContent).toContain('Anciens — sortis du portefeuille');
     // Le panneau s'ancre dans l'espace réservé : les cases restent à leur place, toujours présentes.
     expect(zone().querySelector('[data-panneau]')).not.toBeNull();
-    expect(container.querySelectorAll('a.loc-case')).toHaveLength(3);
+    expect(container.querySelectorAll('.loc-cases--accueil a.loc-case')).toHaveLength(3);
     // Flèche bas : la première ligne est visée ; Échap : la recherche est vidée, l'espace réservé redevient vide.
     await act(async () => { champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
     expect(lignes[0].getAttribute('aria-selected')).toBe('true');

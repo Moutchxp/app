@@ -179,7 +179,8 @@ describe('🔴 l’étiquette « Hors gestion » de la carte du bien', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
     expect(src).toMatch(/\.ann-etiq--hors-gestion\{background:var\(--color-svv-amber-soft\);border-color:var\(--color-svv-amber\);color:var\(--color-svv-amber\)\}/);
     // La carte du bien (fiche propriétaire, Gestion ET Location) et l'en-tête de la fiche du bien ; conditionnée au seul statut.
-    expect(src.match(/\{b\.horsGestion === true && <EtiquetteHorsGestion \/>\}/g)).toHaveLength(1);
+    // Arno (21/10/2026, 403) : sur la carte, la pastille du STATUT la remplace quand il est connu ; sans lui, l'étiquette d'avant.
+    expect(src.match(/: b\.horsGestion === true && <EtiquetteHorsGestion \/>\}/g)).toHaveLength(1);
     expect(src.match(/\{f\.horsGestion === true && <EtiquetteHorsGestion \/>\}/g)).toHaveLength(1);
   });
 });

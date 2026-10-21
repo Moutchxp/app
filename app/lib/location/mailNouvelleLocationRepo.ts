@@ -355,6 +355,9 @@ async function journaliser(o: { bailId: number; auteur: Auteur; nom: string; ema
  * ENVOIE le mail « Nouvelle location » à la liste CONFIRMÉE dans la fenêtre (modifiable pour cet envoi seulement : la
  * configuration n'est pas touchée). Une seule tentative ; le résultat (réussi ou non) est journalisé. Ne lève jamais.
  */
+/** L'envoi refusé pour un bien qui n'est pas en gestion (Arno, 21/10/2026, 403). */
+export const MOTIF_ENVOI_HORS_GESTION = 'Ce bien n’est pas en gestion : l’envoi à ADHOC & MONGA ne concerne que les biens en gestion.';
+
 export async function envoyerNouvelleLocation(bailId: number, brut: unknown, auteur: Auteur,
   deps: { transport?: TransportDemande } = {}, messageBrut: unknown = null): Promise<IssueEnvoiNouvelleLocation> {
   if (!(await mailNouvelleLocationDisponible())) return { etat: 'sans_schema' };
@@ -363,6 +366,10 @@ export async function envoyerNouvelleLocation(bailId: number, brut: unknown, aut
   // Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite pratique) : vide = aucun encart.
   const message = typeof messageBrut === 'string' && messageBrut.trim() !== '' ? messageBrut.replace(/\r\n?/g, '\n') : null;
   if (message !== null && message.length > MESSAGE_MAX) return { etat: 'refus', motif: `Le message d’accompagnement dépasse ${MESSAGE_MAX.toLocaleString('fr-FR')} caractères.` };
+  // Arno (21/10/2026, 403) — l'envoi à ADHOC & MONGA ne concerne que les biens EN GESTION : refusé AVANT tout envoi.
+  const { rows: st } = await query<{ s: string }>(
+    `SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_bail g JOIN gestion_annuaire_lot lo ON lo.id = g.lot_id WHERE g.id = $1`, [bailId]);
+  if (st[0] !== undefined && st[0].s !== 'en_gestion') return { etat: 'refus', motif: MOTIF_ENVOI_HORS_GESTION };
   const session = await emailDeLAuteur(auteur);
   let objet = 'Nouvelle location';
   let expediteur = 'gestion@criterimmo.fr';
@@ -400,6 +407,7 @@ export async function bauxEnCoursDuLocataire(locataireId: number): Promise<{ bai
   const { rows } = await query<{ id: string; entree: string | null; adresse: string | null; commune: string | null }>(
     `SELECT g.id::text, g.entree::text, lo.adresse, lo.commune FROM gestion_bail g JOIN gestion_annuaire_lot lo ON lo.id = g.lot_id
       WHERE g.sortie IS NULL AND g.id IN (SELECT o.bail_id FROM gestion_annuaire_occupation o WHERE o.locataire_id = $1 AND o.sortie IS NULL)
+        AND ${await sqlStatutBien('lo')} = 'en_gestion' -- Arno (21/10/2026, 403) : l'envoi ne concerne que les biens EN GESTION
       ORDER BY g.entree DESC NULLS LAST, g.id DESC`, [locataireId]);
   const sortie = [];
   for (const r of rows) {
@@ -424,6 +432,7 @@ export async function bauxEnCoursDesLots(lotIds: readonly number[]): Promise<Rec
              SELECT o.bail_id, o.lot_id FROM gestion_annuaire_occupation o
               WHERE o.bail_id IS NOT NULL AND o.sortie IS NULL AND o.lot_id = ANY($1::bigint[])) x
        JOIN gestion_bail g ON g.id = x.bail AND g.sortie IS NULL
+       JOIN gestion_annuaire_lot lo ON lo.id = x.lot AND ${await sqlStatutBien('lo')} = 'en_gestion' -- 403 : biens EN GESTION seulement
       ORDER BY x.lot, g.entree DESC NULLS LAST, g.id DESC`, [ids]);
   const sortie: Record<string, { bailId: number; entree: string | null; dernierEnvoi: EnvoiJournalise | null }> = {};
   for (const r of rows) sortie[r.lot] = { bailId: Number(r.id), entree: r.entree, dernierEnvoi: await dernierEnvoi(Number(r.id)) };
