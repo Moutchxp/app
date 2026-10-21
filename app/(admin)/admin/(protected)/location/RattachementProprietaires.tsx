@@ -131,7 +131,11 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
                 <div className="cp-lignes">
                   <Ligne libelle="Téléphone">{p.telephone ?? <span className="loc-muet">non renseigné</span>}</Ligne>
                   <Ligne libelle="E-mail" tronque infobulle={p.email ?? undefined}>{p.email ?? <span className="loc-muet">non renseigné</span>}</Ligne>
-                  <Ligne libelle="Biens">{p.biens.length === 0 ? <span className="loc-muet">aucun</span> : p.biens.join(' · ')}</Ligne>
+                  {/* Arno (21/10/2026) : UN BIEN PAR LIGNE — jamais deux sur la même ligne, plus de « · » ; une adresse longue peut
+                      passer sur deux lignes, le bien suivant recommence à la ligne ; « Biens » en face du premier. */}
+                  <Ligne libelle="Biens" enHaut={p.biens.length > 0}>{p.biens.length === 0 ? <span className="loc-muet">aucun</span> : (
+                    <ul className="loc-biens-carte" data-biens-proprietaire>{p.biens.map((b, i) => <li key={`${i}-${b}`}>{b}</li>)}</ul>
+                  )}</Ligne>
                 </div>
                 <a className="loc-carte-lien" href={`/admin/location/proprietaire/${p.id}`} target="_blank" rel="noopener noreferrer">Modifier dans la fiche ↗</a>
               </article>
@@ -184,6 +188,9 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
 }
 
 export const CSS_RATTACHEMENT = `
+/* Les biens d'un propriétaire dans sa carte : un par ligne, un léger espacement entre deux (Arno, 21/10/2026). */
+.loc-biens-carte{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.4rem;flex:1 1 100%;min-width:0}
+.loc-biens-carte>li{margin:0;padding:0;line-height:1.35}
 .loc-qui{border:2px solid var(--color-svv-line-strong);border-radius:18px;padding:16px 18px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:14px}
 .loc-qui-titre{margin:0;font-size:1.1rem;font-weight:800;color:var(--color-svv-ink)}
 .loc-qui-groupe{display:flex;flex-direction:column;gap:8px}

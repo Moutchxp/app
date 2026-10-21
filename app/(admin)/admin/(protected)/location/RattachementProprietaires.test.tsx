@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
+import { CartesDuBloc } from './RattachementProprietaires';
 
 /**
  * 🔴 « Ajouter un nouveau bien » — BLOC 1 : rattacher les personnes UNE À UNE (Arno, 18/10/2026). Les VRAIS composants,
@@ -154,5 +155,30 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
     await act(async () => { bouton('Annuler')!.click(); });
     expect(container.querySelector('[data-qui-rattacher]')).toBeNull();
     expect(container.querySelector('[data-cartes-bloc] .cp-carte')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (21/10/2026) — la carte du propriétaire rattaché : UN BIEN PAR LIGNE', () => {
+  const rendreCarte = async (biens: string[]) => {
+    await act(async () => { root.render(createElement(CartesDuBloc, { proprietaires: [{ ...LEA, biens }], contacts: [], saisis: [],
+      onRetirerProprietaire: () => {}, onRetirerContact: () => {}, onRetirerSaisi: () => {} })); });
+  };
+  const val = () => [...container.querySelectorAll('[data-carte-proprietaire] .cp-lab')].find((l) => l.textContent === 'Biens')!;
+  it('1, 5 et 10 biens : chacun son élément de liste, dans l’ordre, aucun « · » ; « Biens » aligné en haut', async () => {
+    for (const n of [1, 5, 10]) {
+      const biens = Array.from({ length: n }, (_, i) => `${i + 1} rue Exemple, VILLE ${i + 1}`);
+      await rendreCarte(biens);
+      const items = [...container.querySelectorAll('[data-biens-proprietaire] > li')].map((li) => li.textContent);
+      expect(items, String(n)).toEqual(biens);
+      expect(val().nextElementSibling?.textContent, String(n)).not.toContain('·');
+      expect(val().classList.contains('cp-lab--haut'), String(n)).toBe(true);
+      expect(val().nextElementSibling?.classList.contains('cp-val--haut'), String(n)).toBe(true);
+    }
+  });
+  it('aucun bien : « aucun », comme avant (pas de liste, libellé inchangé)', async () => {
+    await rendreCarte([]);
+    expect(container.querySelector('[data-biens-proprietaire]')).toBeNull();
+    expect(val().nextElementSibling?.textContent).toBe('aucun');
+    expect(val().classList.contains('cp-lab--haut')).toBe(false);
   });
 });

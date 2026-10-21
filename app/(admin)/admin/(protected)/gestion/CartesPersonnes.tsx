@@ -219,7 +219,7 @@ function Rangee({ children, nb }: { children: React.ReactNode; nb: number }) {
  * ⚠️ `aria-hidden` SUR LE LIBELLÉ VIDE, et un `<span>` plutôt que rien : la cellule doit exister pour que la grille
  * garde ses deux colonnes. Sans elle, la deuxième ligne d'un groupe glisserait sous le libellé.
  */
-export function Ligne({ libelle, children, apres, tronque, infobulle }: {
+export function Ligne({ libelle, children, apres, tronque, infobulle, enHaut }: {
   libelle: string | null;
   children: React.ReactNode;
   /**
@@ -243,13 +243,16 @@ export function Ligne({ libelle, children, apres, tronque, infobulle }: {
   tronque?: boolean;
   /** Le texte complet, en infobulle, quand la valeur est tronquée. */
   infobulle?: string;
+  /** Une valeur sur PLUSIEURS lignes (ex. les biens d'un propriétaire, un par ligne) : le libellé s'aligne EN HAUT, en face
+   *  de sa première ligne, au lieu d'être centré (Arno, 21/10/2026). Absent : rien ne change. */
+  enHaut?: boolean;
 }) {
   return (
     <>
       {libelle === null
         ? <span className="cp-lab cp-lab--vide" aria-hidden="true" />
-        : <span className="cp-lab">{libelle}</span>}
-      <span className={`cp-val${tronque === true ? ' cp-val--tronque' : ''}`} title={infobulle}>{children}</span>
+        : <span className={`cp-lab${enHaut === true ? ' cp-lab--haut' : ''}`}>{libelle}</span>}
+      <span className={`cp-val${tronque === true ? ' cp-val--tronque' : ''}${enHaut === true ? ' cp-val--haut' : ''}`} title={infobulle}>{children}</span>
       {/* ⚠️ LA CELLULE EXISTE TOUJOURS, même vide : sans elle, la ligne n'aurait que deux cases et la suivante
           remonterait d'une colonne — la grille se décalerait à partir de la première ligne sans bouton. */}
       <span className="cp-apres">{apres}</span>
@@ -1994,6 +1997,8 @@ export const CSS_CARTES = `
 .cp-apres{justify-content:flex-end}
 .cp-val{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0;
   font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* Une valeur sur plusieurs lignes (Ligne enHaut) : libelle et valeur alignes sur la PREMIERE ligne (meme ligne de base). */
+.cp-lignes>.cp-lab--haut,.cp-lignes>.cp-val--haut{align-self:first baseline}
 /* ══ 🔴 UNE VALEUR QUI NE REVIENT JAMAIS A LA LIGNE ════════════════════════════════════════════════════════════
    Arno : « Une adresse e-mail trop longue est tronquee avec “…”, l'adresse complete en infobulle, et sa copie
    reste intacte. Jamais de retour a la ligne qui ferait passer “Copier” dessous. »
