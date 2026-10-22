@@ -107,6 +107,7 @@
     "gestion:drive:ranger-statuts": "tsx app/scripts/ranger-dossiers-statut.ts",
     "gestion:drive:racine-location-seule": "tsx app/scripts/racine-location-seule.ts",
     "gestion:archiver-fins": "tsx app/scripts/archiver-fins-gestion.ts",
+    "location:importer-suivi-2026": "tsx app/scripts/importer-suivi-location-2026.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
     "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",
