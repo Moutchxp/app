@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { verifierDestinataires, type Destinataire } from '../../../../lib/location/mailNouvelleLocation';
 import { refusVersionBareme, type VersionBareme } from '../../../../lib/location/honorairesProprietaire';
 import { erreurLigne } from './EnvoiAdhocMonga';
+import { CSS_ONGLETS_SUIVI, OngletApporteurs, OngletCommissions } from './OngletsSuivi';
 
 /**
  * ══ 🔴🔴 LOCATION — L'ESPACE DE CONFIGURATION (roue crantée) (Arno, 21/10/2026) ═════════════════════════════════════════════
@@ -28,7 +29,9 @@ interface Parametres {
   destinataires: Destinataire[]; destinatairesSaisis: { le: string; par: string } | null;
   versions: VersionBareme[]; aujourdhui: string; manquantes: string[];
 }
-type Onglet = 'destinataires' | 'baremes' | 'archivage';
+type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions';
+/** Arno (22/10/2026, 406) — les onglets du suivi de l'activité enregistrent par leurs propres boutons (une ligne = un geste). */
+const ONGLETS_SUIVI: readonly Onglet[] = ['apporteurs', 'commissions'];
 interface SaisieBareme { depuis: string; tresTendue: string; tendue: string; autre: string; etatDesLieux: string; source: string }
 
 const dateFr = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
@@ -150,20 +153,21 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
 
   return (
     <div className="plo-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) fermer(); }}>
-      <style>{CSS_PARAMETRES}</style>
+      <style>{CSS_PARAMETRES + CSS_ONGLETS_SUIVI}</style>
       <div className="plo-fenetre" role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-parametres>
         <header className="plo-tete">
           <h2 id={titre}>Paramètres Location</h2>
           <button ref={fermerRef} type="button" className="plo-x" aria-label="Fermer" onClick={fermer}>×</button>
         </header>
         <div className="plo-onglets" role="tablist" aria-label="Paramètres">
-          {([['destinataires', 'Destinataires du mail'], ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion']] as const).map(([k, mot]) => (
+          {([['destinataires', 'Destinataires du mail'], ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion'],
+            ['apporteurs', 'Apporteurs'], ['commissions', 'Commissions']] as const).map(([k, mot]) => (
             <button key={k} type="button" role="tab" aria-selected={onglet === k} className="plo-onglet" data-onglet={k}
               onClick={() => { setOnglet(k); setMotif(null); setInfo(null); }}>{mot}</button>
           ))}
         </div>
         <div className="plo-corps" role="tabpanel">
-          {lu === null ? <p className="plo-muet" role="status">{lecture ?? 'Lecture…'}</p> : (
+          {onglet === 'apporteurs' ? <OngletApporteurs /> : onglet === 'commissions' ? <OngletCommissions /> : lu === null ? <p className="plo-muet" role="status">{lecture ?? 'Lecture…'}</p> : (
             <>
               {lu.manquantes.length > 0 && <p className="plo-alerte" role="status" data-parametres-sans-migration>Mise à jour de la base à appliquer (migration {lu.manquantes.join(', ')}) :
                 la configuration se lit, mais rien ne s’enregistre tant qu’elle n’est pas appliquée.</p>}
@@ -252,6 +256,7 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
           <div className="plo-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={fermer} disabled={envoi} data-annuler-parametres>Annuler</button>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }}
+              hidden={ONGLETS_SUIVI.includes(onglet)}
               disabled={envoi || lu === null || (onglet === 'archivage' ? lu.archivage?.disponible !== true : lu.manquantes.length > 0) || (onglet === 'baremes' && refusBareme !== null)} data-enregistrer-parametres>
               {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
           </div>

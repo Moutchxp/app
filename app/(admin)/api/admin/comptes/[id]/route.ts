@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { trouverCompteParId, permsDuCompte, capaciteModifPermis, etatEnvoiGestion } from '../../../../../lib/admin/comptes';
 import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
+import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -36,6 +37,8 @@ export async function GET(request: Request, ctx: Ctx) {
       etatEnvoiGestion: etatEnvoiGestion(c),
       // LOT PROFIL-GESTION — « Appartient au service gestion » (aucun droit), avec son dernier changement (date, auteur).
       serviceGestion: await lireServiceGestion(c.id),
+      // LOCATION « Outils de suivi » (406) — « Voir les commissions » (administrateur : implicite).
+      voirCommissions: await lireVoirCommissions(c.id),
     },
   });
 }

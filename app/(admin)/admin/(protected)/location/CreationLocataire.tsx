@@ -7,6 +7,7 @@ import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { nomDeCarte, SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
+import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, motifSuivi, posterSuivi, SUIVI_VIDE, useParametresSuivi, type SaisieSuivi } from './SuiviCommercial';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
@@ -123,6 +124,11 @@ export function CreationLocataire() {
   const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
   const [entretienDuBien, setEntretienDuBien] = useState<number | null>(null);
   const [tente, setTente] = useState(false);
+  /* Arno (22/10/2026, 406) — BLOC 4 « SUIVI COMMERCIAL » : le suivi mensuel de l'activité (date de signature, honoraires HT,
+     négociateur, apporteur, gestion, origine client), enregistré sur le bail créé, juste après lui. */
+  const [suivi, setSuivi] = useState<SaisieSuivi>(SUIVI_VIDE);
+  const parametresSuivi = useParametresSuivi();
+  const avecSuivi = parametresSuivi.lu?.disponible === true;
   // Arno (20/10/2026) — partie par partie, ce que la base sait enregistrer : le bloc est TOUJOURS montré ; ce qui manque est dit
   // par un bandeau (« migration NNN ») et seule l'écriture de la partie concernée est désactivée.
   const lu = useLecture<{ conditions: boolean; loyer: boolean; rattachements?: boolean; manquantes: string[] }>('schemaConditionsEntree');
@@ -150,8 +156,10 @@ export function CreationLocataire() {
   const manqueHono: Record<string, string> = !avecConditions || !honoSaisie.manuel ? {}
     : montantHono === false ? { honorairesProprietaireMontant: MOTIF_MONTANT_SAISI }
       : montantHono === null ? { honorairesProprietaireMontant: 'Honoraires propriétaire : saisissez le montant, ou « recalculer ».' } : {};
+  const motifDuSuivi = avecSuivi ? motifSuivi(suivi) : null;
   const manque: Record<string, string> = {
     ...manqueHono,
+    ...(motifDuSuivi !== null ? { suivi: motifDuSuivi } : {}),
     ...Object.fromEntries(Object.entries(manquesBloc).filter(([k]) => (k.startsWith('loyer-') ? avecLoyer : avecConditions))),
     ...(avecEntretien ? manquesEntretien({ entretienAPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens }) : {}),
   };
@@ -263,7 +271,7 @@ export function CreationLocataire() {
       journaliserEchecPage({ ecran: 'nouveau-locataire', pour: 'creer-locataires', cause: 'champs', raison });
       setTente(true); setMotif(null);
       setTimeout(() => {
-        const premier = document.querySelector('[data-conditions-entree] .loc-manque');
+        const premier = document.querySelector('[data-conditions-entree] .loc-manque, [data-suivi-commercial] .loc-manque');
         const bloc = premier?.closest('.loc-cond-bloc') ?? premier;
         const reduit = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (bloc instanceof HTMLElement && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'center', behavior: reduit ? 'auto' : 'smooth' });
@@ -312,6 +320,12 @@ export function CreationLocataire() {
     // « Enregistrer et envoyer » : la fenêtre ne s'ouvre qu'ICI, après un enregistrement réussi et pour un bail créé.
     // Arno (21/10/2026) : l'écran RESTE (plus de départ silencieux vers la fiche) et le succès s'ouvre en modale — sauf
     // « Enregistrer et envoyer », qui ouvre directement la fenêtre d'envoi du bail créé (choix du 21/10/2026).
+    // Bloc 4 — le suivi commercial du bail créé : un échec est DIT (le locataire, lui, est enregistré).
+    if (avecSuivi && bailId !== null) {
+      const rs = await posterSuivi({ action: 'enregistrer-activite', bailId,
+        activite: { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions } });
+      if (rs.motif !== null) annonces.push(`Le locataire est enregistré, mais pas son suivi commercial : ${rs.motif}`);
+    }
     const envoiDirect = envoyerApres.current && bailId !== null;
     setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoiDirect });
     if (!envoiDirect) {
@@ -332,7 +346,7 @@ export function CreationLocataire() {
   return (
     <div className="loc-page loc-ample">
       <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); envoyerApres.current = false; setIntentionEnvoi(false); void enregistrer(); }} data-formulaire-page />
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
       <section className="loc-section" aria-labelledby="loc-l1">
@@ -402,6 +416,18 @@ export function CreationLocataire() {
             {avecEntretien && <p className="loc-muet" style={{ margin: 0 }} data-entretien-du-bien>« Entretien à prévoir » est celui du bien : le modifier ici le modifie sur sa fiche.</p>}
           </>
         )}
+      </section>
+
+      <section className="loc-section" aria-labelledby="loc-l4" data-bloc-suivi>
+        <h3 id="loc-l4"><span className="loc-num">4</span>Suivi commercial</h3>
+        <p className="loc-section-phrase">Pour le tableau de bord « Outils de suivi » : les honoraires se saisissent <strong>HT</strong> (le TTC des conditions
+          d’entrée suit, à 20 %). La date de signature est obligatoire.</p>
+        <BlocSuiviCommercial valeur={suivi} onChange={setSuivi} parametres={parametresSuivi} lotId={bien?.id ?? null}
+          locataireIds={etat.existants.map((x) => x.id)}
+          ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
+          onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
+          onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t } }))}
+          manque={manqueDe('suivi')} />
       </section>
 
       {recap !== null && (

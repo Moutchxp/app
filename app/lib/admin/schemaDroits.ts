@@ -69,3 +69,12 @@ export function oublierSchemaDroits(): void {
 export function serviceGestionDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.service_gestion', () => colonneExiste('admin_utilisateur', 'service_gestion'));
 }
+
+/**
+ * LOCATION « OUTILS DE SUIVI » (Arno, 22/10/2026) — la migration 406 est-elle appliquée ? Elle porte le droit « Voir les
+ * commissions » (`perm_commissions`). Tant qu'elle ne l'est pas : seuls les administrateurs voient les commissions, et
+ * l'écran des comptes ne propose pas la case.
+ */
+export function droitCommissionsDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_commissions', () => colonneExiste('admin_utilisateur', 'perm_commissions'));
+}

@@ -30,12 +30,16 @@ interface DetailCompte extends CompteVue {
   doit_changer_mot_de_passe: boolean;
   /** LOT PROFIL-GESTION — « Appartient au service gestion » (migration 341). Absent d'une réponse d'avant ce lot. */
   serviceGestion?: ServiceGestionVue;
+  /** LOCATION « Outils de suivi » (406) — « Voir les commissions ». Absent d'une réponse d'avant ce lot. */
+  voirCommissions?: { valeur: boolean; disponible: boolean };
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
 
 /** Le libellé et l'aide de la case : écrits une fois, relus par les tests. */
 export const LIBELLE_SERVICE_GESTION = 'Appartient au service gestion';
+export const LIBELLE_VOIR_COMMISSIONS = 'Voir les commissions';
+export const AIDE_VOIR_COMMISSIONS = 'Location, « Outils de suivi » : la section « Négociateurs » et les montants de commission. Un administrateur les voit toujours.';
 export const AIDE_SERVICE_GESTION = 'Les mails écrits depuis la gestion n’affichent pas de cartouche d’alerte sur le nom.';
 
 const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
@@ -157,10 +161,11 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  */
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
-  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion,
+  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions,
 }: {
   /** LOT PROFIL-GESTION — coche / décoche « Appartient au service gestion » (enregistré aussitôt, historisé). */
   onBasculerServiceGestion?: () => void;
+  onBasculerVoirCommissions?: () => void;
   compte: DetailCompte;
   perms: Perms;
   peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case
@@ -237,6 +242,20 @@ export function DetailContenu({
             <span className="cpt-note">
               Dernier changement : {formaterDate(compte.serviceGestion.modifieLe)}{compte.serviceGestion.modifiePar ? `, par ${compte.serviceGestion.modifiePar}` : ''}.
             </span>
+          )}
+        </div>
+      )}
+
+      {/* LOCATION « OUTILS DE SUIVI » (Arno, 22/10/2026, 406) — « VOIR LES COMMISSIONS » : collaborateur seulement (un administrateur
+          les voit d'office). Enregistrée aussitôt, journalisée. */}
+      {compte.voirCommissions !== undefined && collaborateur && (
+        <div className="cpt-identite" role="group" aria-labelledby={`commissions-${compte.id}`} style={{ marginTop: 8 }} data-voir-commissions>
+          <div className="cpt-perms-titre" id={`commissions-${compte.id}`}>Commissions</div>
+          <Chip libelle={LIBELLE_VOIR_COMMISSIONS} coche={compte.voirCommissions.valeur}
+            disabled={enCours || !compte.voirCommissions.disponible} onToggle={onBasculerVoirCommissions} />
+          <span className="cpt-note">{AIDE_VOIR_COMMISSIONS}</span>
+          {!compte.voirCommissions.disponible && (
+            <span className="cpt-note">Mise à jour de la base à appliquer (migration 406) avant de pouvoir la cocher.</span>
           )}
         </div>
       )}
@@ -365,6 +384,18 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       }
     } finally { setEnCours(false); }
   }
+  async function basculerVoirCommissions() {
+    if (!d?.voirCommissions) return;
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/voir-commissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ valeur: !d.voirCommissions.valeur }) });
+      if (res.ok) { setMsg('Droit « Voir les commissions » enregistré.'); await recharger(); }
+      else {
+        const body = await res.json().catch(() => null);
+        setMsg(typeof body?.erreur === 'string' ? body.erreur : 'Enregistrement refusé.');
+      }
+    } finally { setEnCours(false); }
+  }
   async function promouvoir() {
     if (!window.confirm('Promouvoir ce compte en administrateur ? Un administrateur a toutes les permissions et ne peut plus être rétrogradé.')) return;
     setEnCours(true); setMsg(null);
@@ -387,7 +418,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
               setPerms((p) => ({ ...p, [cle]: !p[cle] }));
             }}
             onToggleModif={() => setPeutModifierPermis((v) => !v)} onChoisirEnvoi={setEnvoi}
-            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} />
+            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} onBasculerVoirCommissions={basculerVoirCommissions} />
         : (msg ?? 'Chargement…')}
     </div>
   );

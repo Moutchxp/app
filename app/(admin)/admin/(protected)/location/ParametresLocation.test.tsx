@@ -76,7 +76,7 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
   it('la modale : ses onglets (dont « Archivage des fins de gestion », 405) ; Enregistrer / Annuler en bas', async () => {
     await ouvrir();
     expect(container.querySelector('[data-modale-parametres]')?.getAttribute('role')).toBe('dialog');
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion']);
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions']); // 406 : deux onglets AJOUTÉS en fin
     expect([...container.querySelectorAll('.plo-boutons button')].map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer']);
     await clic(container.querySelector('[data-annuler-parametres]'));
     expect(container.querySelector('[data-modale-parametres]')).toBeNull();
