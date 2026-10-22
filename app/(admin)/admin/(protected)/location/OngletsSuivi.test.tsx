@@ -78,7 +78,9 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     expect(container.querySelector('[data-retrocession="8"]')?.textContent).toContain('Alex Coms — 200,00 €');
     await clic(container.querySelector('[data-annuler-retrocession="8"]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'annuler-retrocession', id: 8 });
-    expect(container.querySelector('[data-enregistrer-parametres]')?.hasAttribute('hidden')).toBe(true);
+    expect(container.querySelector('[data-enregistrer-parametres]')).toBeNull();   // chaque ligne a son bouton
+    await clic(container.querySelector('[data-onglet="baremes"]')!);
+    expect(container.querySelector('[data-enregistrer-parametres]')).not.toBeNull();   // les autres onglets gardent le leur
   });
 
   it('sans la migration 406 : le dit, rien à saisir', async () => {

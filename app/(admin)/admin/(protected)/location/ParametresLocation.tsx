@@ -255,10 +255,12 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
           {info !== null && <p className="plo-ok" role="status" data-info-parametres>{info}</p>}
           <div className="plo-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={fermer} disabled={envoi} data-annuler-parametres>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }}
-              hidden={ONGLETS_SUIVI.includes(onglet)}
-              disabled={envoi || lu === null || (onglet === 'archivage' ? lu.archivage?.disponible !== true : lu.manquantes.length > 0) || (onglet === 'baremes' && refusBareme !== null)} data-enregistrer-parametres>
-              {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+            {/* Apporteurs / Commissions : chaque ligne enregistre par son propre bouton — pas de « Enregistrer » global (il ne ferait rien). */}
+            {!ONGLETS_SUIVI.includes(onglet) && (
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }}
+                disabled={envoi || lu === null || (onglet === 'archivage' ? lu.archivage?.disponible !== true : lu.manquantes.length > 0) || (onglet === 'baremes' && refusBareme !== null)} data-enregistrer-parametres>
+                {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+            )}
           </div>
         </footer>
       </div>

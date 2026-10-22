@@ -274,10 +274,12 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-table th[scope=row],.fdm-table thead th:first-child,.fdm-table thead th:nth-child(2){text-align:left}
 .fdm-table thead th{font-size:.72rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .fdm-table th[scope=row] a{color:inherit;font-weight:800}
+.fdm-table td[data-mot*="HT"],.fdm-table td[data-mot^="Hono"],.fdm-table td[data-mot^="Prime"],.fdm-table td[data-mot^="CA "],.fdm-table td[data-mot*="/ "]{white-space:nowrap}
+.fdm-totaux dd[data-total]:not([data-total="balance"]),.fdm-totaux dd[data-total-commission]{white-space:nowrap}
 .fdm-table .loc-pastille{margin-left:6px}
 .fdm-historique th[scope=row]{color:var(--color-svv-muted)}
 .fdm-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.fdm-modifier{min-height:36px;padding:0 10px;font-size:.82rem}
+.fdm-modifier{min-height:44px;padding:0 12px;font-size:.82rem}
 .fdm-orange{color:var(--color-svv-amber);font-weight:800}
 .fdm-orange-ligne th{color:var(--color-svv-amber)}
 .fdm-edition td{background:var(--color-svv-field)}
