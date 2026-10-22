@@ -32,6 +32,7 @@ import { assemblerBadges } from "../../../../lib/libelles";
 import { EnTetePage } from "../_composants/EnTetePage";
 import EditeurProfilTest from "./EditeurProfilTest";
 import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
+import { exclusionPourBanc } from "../../../../lib/svv/exclusionPivot";
 import { urlStreetView } from "./streetView";
 
 // FaisceauMap = Leaflet impératif (ssr:false, comme dans le parcours public).
@@ -697,6 +698,8 @@ export default function BancSaisie() {
                 }}
                 coneDemiAngleDeg={(profilTest ?? profilActif).coneFamilleDemiAngleDeg}
                 borneScoreM={(profilTest ?? profilActif).distanceMaxM}
+                // Arno (22/10/2026) — AJOUT : faisceaux de l'éventail visé exclus par le pivot (mode Façade), ou mode Libre.
+                exclusion={exclusionPourBanc(runParams?.mode, comparaison.actif.pivot)}
                 profilActif={profilActif}
                 profilTest={profilTest ?? profilActif}
               />

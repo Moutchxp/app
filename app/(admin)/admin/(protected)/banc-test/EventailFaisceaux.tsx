@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
+import type { ExclusionPivot } from "../../../../lib/svv/exclusionPivot";
 
 /** Carte d'année appliquée (miroir de CarteAnnee du seam, Chantier A) — pour rendre les bornes lisibles. */
 export interface CarteAnneeLite {
@@ -106,6 +107,7 @@ export default function EventailFaisceaux({
   borneScoreM,
   profilActif,
   profilTest,
+  exclusion,
 }: {
   actif: LigneVentil[];
   test: LigneVentil[];
@@ -120,7 +122,13 @@ export default function EventailFaisceaux({
    *  Le profil de test = `profilTest ?? profilActif` côté appelant (le run de test l'utilise). */
   profilActif: ProfilDegagement;
   profilTest: ProfilDegagement;
+  /**
+   * Arno (22/10/2026) — AJOUT : ce que le pivot retire de l'éventail visé (mode Façade), ou le mode Libre. Absent → rendu
+   * strictement inchangé. Affichage seulement : n'entre ni dans le score ni dans le verdict.
+   */
+  exclusion?: ExclusionPivot | null;
 }) {
+  const [survolExclu, setSurvolExclu] = useState<number | null>(null);
   const [visibles, setVisibles] = useState<Record<SerieId, boolean>>({ brut: false, actif: true, test: true });
   const [selection, setSelection] = useState<number | null>(null);
   const [survol, setSurvol] = useState<number | null>(null);
@@ -182,6 +190,22 @@ export default function EventailFaisceaux({
   const focus = survol ?? selection;
   const reduce = "prefers-reduced-motion";
 
+  // ── Arno (22/10/2026) — l'éventail VISÉ (azimut choisi) superposé à l'éventail du score (centré sur la façade) ──
+  //    Les angles sont comptés depuis la NORMALE du mur, le centre du dessin en mode Façade. Les faisceaux exclus partent
+  //    derrière le mur : sous la ligne de base. Le dessin ne s'agrandit vers le bas QUE s'il y en a.
+  const facade = exclusion?.mode === "facade" ? exclusion : null;
+  const exclus = facade ? facade.vises.filter((f) => f.exclu) : [];
+  const maxSousBase = exclus.reduce((m, f) => Math.max(m, Math.abs(f.angleFacadeDeg) - 90), 0);
+  const extraBas = exclus.length ? Math.ceil(R200 * Math.sin(rad(maxSousBase + 1.5))) + 22 : 0;
+  const secteur = (angles: number[]) => {
+    if (!angles.length) return "";
+    const lo = Math.min(...angles) - 1.5, hi = Math.max(...angles) + 1.5;
+    const pts = [pointFor(lo, 0)];
+    for (let a = lo; a <= hi + 1e-9; a += (hi - lo) / 12) pts.push(pointFor(a, R200));
+    return pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  };
+  const fmtFr = (v: number, d = 1) => v.toFixed(d).replace(".", ",");
+
   return (
     <div>
       {/* Graphique EN PREMIER (ajustement 2) : filtres + moyennes déplacés SOUS le graphe → la carte analysée
@@ -189,7 +213,7 @@ export default function EventailFaisceaux({
           SVG centré horizontalement (`margin: 0 auto`, ajustement 1) → le sommet (OX = W/2) tombe au centre du
           bloc, sur le MÊME axe vertical que le point d'origine rouge de la carte analysée (lui aussi centré). */}
       <div style={{ overflowX: "auto" }}>
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: 520, display: "block", margin: "0 auto" }} role="img" aria-label="Éventail des 61 faisceaux">
+        <svg viewBox={`0 0 ${W} ${H + extraBas}`} width="100%" style={{ maxWidth: 520, display: "block", margin: "0 auto" }} role="img" aria-label="Éventail des 61 faisceaux">
           <style>{`@media (${reduce}: reduce){.svv-ev *{transition:none!important;animation:none!important}}`}</style>
           <g className="svv-ev">
             {/* Calque du cône central (±demi-angle) DÉRIVÉ DU PROFIL — DESSINÉ EN PREMIER (derrière arcs + séries),
@@ -218,6 +242,36 @@ export default function EventailFaisceaux({
               const p = pointFor(90, r); // bord droit de l'arc — ancrage à DROITE pour ne pas déborder le viewBox (fix « 80 » → « 800 »)
               return <text key={r} x={p.x} y={p.y - 2} textAnchor="end" fontSize="8" fill="var(--color-svv-muted)">{t}</text>;
             })}
+
+            {/* Arno (22/10/2026) — AJOUT, mode Façade : l'éventail visé (azimut choisi), ses faisceaux exclus (derrière la façade)
+                et le secteur ajouté par le pivot. Dessiné SOUS les séries : l'éventail du score reste tel quel, au-dessus. */}
+            {facade && (
+              <g data-eventail-vise>
+                <defs>
+                  <pattern id="svv-ev-hachure" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <line x1="0" y1="0" x2="0" y2="4" stroke="var(--color-svv-red)" strokeWidth="1.3" />
+                  </pattern>
+                </defs>
+                {facade.ajoutesOffsetsDeg.length > 0 && (
+                  <g data-ajoute-pivot>
+                    <polygon points={secteur(facade.ajoutesOffsetsDeg)} fill="var(--color-svv-green)" fillOpacity={0.22} stroke="var(--color-svv-green)" strokeOpacity={0.6} strokeWidth={0.8} />
+                    {(() => { const a = facade.ajoutesOffsetsDeg; const m = (Math.min(...a) + Math.max(...a)) / 2; const p = pointFor(m, R200 + 6); return (
+                      <text x={p.x} y={p.y} textAnchor={m > 0 ? "start" : "end"} fontSize="7" fill="var(--color-svv-green-ink)">ajouté par le pivot</text>); })()}
+                  </g>
+                )}
+                {facade.vises.filter((f) => !f.exclu).map((f) => { const e = pointFor(f.angleFacadeDeg, R200); return (
+                  <line key={`v${f.offsetDeg}`} x1={OX} y1={OY} x2={e.x} y2={e.y} stroke="var(--color-svv-gray)" strokeWidth="0.5" opacity={0.6} />); })}
+                {exclus.length > 0 && (
+                  <g data-exclu-facade>
+                    <polygon points={secteur(exclus.map((f) => f.angleFacadeDeg))} fill="url(#svv-ev-hachure)" stroke="var(--color-svv-red)" strokeWidth={0.8} />
+                    {exclus.map((f) => { const e = pointFor(f.angleFacadeDeg, R200); return (
+                      <line key={`x${f.offsetDeg}`} x1={OX} y1={OY} x2={e.x} y2={e.y} stroke="var(--color-svv-red)" strokeWidth="0.8" />); })}
+                    {(() => { const a = exclus.map((f) => f.angleFacadeDeg); const m = (Math.min(...a) + Math.max(...a)) / 2; const p = pointFor(m, R200 + 6); return (
+                      <text x={p.x} y={p.y + 4} textAnchor={m > 0 ? "start" : "end"} fontSize="7" fill="var(--color-svv-red)">exclu : derrière la façade</text>); })()}
+                  </g>
+                )}
+              </g>
+            )}
 
             {/* Guides radiaux faibles (61 directions) + zones de survol/clic invisibles */}
             {actif.map((l, i) => {
@@ -270,6 +324,22 @@ export default function EventailFaisceaux({
                 </g>
               );
             })}
+            {/* Arno (22/10/2026) — survol des faisceaux exclus : posé APRÈS les zones de survol du score pour rester atteignable
+                près de l'horizon (ces zones ne couvrent que des angles au-delà de 90°, que le score n'utilise pas). */}
+            {exclus.length > 0 && (
+              <g data-survol-exclus>
+                    {exclus.map((f, i) => { const e = pointFor(f.angleFacadeDeg, R200); return (
+                      <line key={`h${f.offsetDeg}`} data-exclu-offset={f.offsetDeg} x1={OX} y1={OY} x2={e.x} y2={e.y} stroke="transparent" strokeWidth="6" style={{ cursor: "help" }}
+                        onMouseEnter={() => setSurvolExclu(i)} onMouseLeave={() => setSurvolExclu((s) => (s === i ? null : s))}>
+                        <title>{`${f.offsetDeg > 0 ? "+" : ""}${f.offsetDeg}° · azimut ${fmtFr(f.azimutDeg)}° · exclu : derrière la façade`}</title>
+                      </line>); })}
+                    {survolExclu !== null && exclus[survolExclu] && (
+                      <text data-survol-exclu x={OX} y={OY + extraBas - 6} textAnchor="middle" fontSize="8" fill="var(--color-svv-red)">
+                        {`Faisceau ${exclus[survolExclu].offsetDeg > 0 ? "+" : ""}${exclus[survolExclu].offsetDeg}° · azimut ${fmtFr(exclus[survolExclu].azimutDeg)}° · exclu : derrière la façade`}
+                      </text>
+                    )}
+              </g>
+            )}
             {/* Origine */}
             <circle cx={OX} cy={OY} r={2.4} fill="var(--color-svv-red)" />
           </g>
@@ -279,6 +349,28 @@ export default function EventailFaisceaux({
       <p style={{ margin: "2px 0 0", fontSize: ".72rem", color: "var(--color-svv-muted)" }}>
         Survolez un faisceau pour lire ses valeurs ; cliquez pour figer le détail. Faisceaux où test ≠ actif : guides plus marqués.
       </p>
+
+      {/* Arno (22/10/2026) — AJOUT : légende de l'éventail visé et encart chiffré de ce que le pivot retire. */}
+      {facade && (
+        <div data-legende-pivot style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 8, fontSize: ".78rem", color: "var(--color-svv-ink)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-block", width: 14, height: 1, background: "var(--color-svv-gray)" }} />Éventail visé (azimut choisi)</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-block", width: 14, height: 10, border: "1px solid var(--color-svv-red)", background: "repeating-linear-gradient(45deg, var(--color-svv-red) 0 1.5px, transparent 1.5px 4px)" }} />Exclu : derrière la façade</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-block", width: 14, height: 10, border: "1px solid var(--color-svv-green)", background: "color-mix(in srgb, var(--color-svv-green) 22%, transparent)" }} />Ajouté par le pivot</span>
+        </div>
+      )}
+      {exclusion && (
+        <div data-encart-pivot style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-svv-line)", background: "var(--color-svv-field)", fontSize: ".82rem", color: "var(--color-svv-ink)", lineHeight: 1.5 }}>
+          {exclusion.mode === "libre" ? (
+            <div>Mode Libre : éventail centré sur l’azimut choisi, aucun faisceau exclu</div>
+          ) : (
+            <>
+              <div>Faisceaux exclus : {exclusion.n} sur {exclusion.total} ({fmtFr(exclusion.pourcentage)} %)</div>
+              <div>Secteur retiré : {fmtFr(exclusion.secteurRetireDeg, 0)}° sur {fmtFr(exclusion.amplitudeDeg, 0)}° (écart exact : {fmtFr(exclusion.ecartDeg, 2)}°)</div>
+              <div>Écart azimut choisi ↔ façade : {fmtFr(exclusion.ecartDeg)}° (azimut {fmtFr(exclusion.azimutChoisiDeg)}°, normale de la façade {fmtFr(exclusion.azimutNormaleDeg)}°)</div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Filtres de séries (BE-64/64a) — DÉPLACÉS SOUS le graphe (ajustement 2). Tabulation cohérente : le graphe
           (éléments non focusables) précède, puis les cases à cocher, puis les moyennes. */}

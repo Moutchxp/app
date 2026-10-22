@@ -25,7 +25,7 @@ describe('🔴 LOT P — 19 rue Louis Ulbach : l’éventail du score face à la
     expect(entree!.pivot!.azimutNormaleDeg).toBeCloseTo(242.13299614843544, 6);
     expect(entree!.pivot!.azimutChoisiDeg).toBe(229);
     expect(entree!.pivot!.ecartDeg).toBeCloseTo(13.132996148435495, 6);
-    // Aucun faisceau du score derrière le mur ; l'éventail de l'azimut choisi en avait 4 (−90° à −81°).
+    // Aucun faisceau du score derrière le mur ; l'éventail de l'azimut choisi en avait 5 (−90° à −78°).
     const derriere = (az: number) => ecartAzimuts(az, entree!.pivot!.azimutNormaleDeg) > 90 + 1e-9;
     expect(entree!.faisceauxScore!.filter((f) => derriere(entree!.pivot!.azimutNormaleDeg + f.offsetDeg))).toHaveLength(0);
     expect(entree!.faisceaux.filter((f) => derriere(229 + f.offsetDeg)).length).toBeGreaterThan(0);
