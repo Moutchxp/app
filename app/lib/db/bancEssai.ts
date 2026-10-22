@@ -14,6 +14,7 @@ import { clonerProfil, diffProfils, type EcartsProfil } from "../svv/profilTest"
 import type { ProfilDegagement } from "../svv/profilDegagement";
 import type { ScoreTotal } from "../svv/scoreTotal";
 import type { VentilationAnalyse } from "../svv/coucheDegagement";
+import type { PivotEventail } from "../svv/analyse";
 
 /** Un run du banc : score client (total /100 + libellé + détail interne famille1/2) + ventilation par faisceau + verdict. */
 export interface RunBanc {
@@ -25,6 +26,8 @@ export interface RunBanc {
   contexteVueNature: string | null;
   contexteImmobilier: string | null;
   monumentsHistoriques: string[];
+  /** LOT P (Arno, 22/10/2026) — mode Façade : l'éventail du score est centré sur la normale du mur. Absent en mode Libre. */
+  pivot?: PivotEventail;
 }
 
 /** Comparaison actif vs test. `ok=false` si le point est invalide (BE-55 : pas de comparatif partiel). */
@@ -76,11 +79,13 @@ export async function comparerProfils(
       score: rActif.score, ventilation: rActif.ventilation, verdict: rActif.verdict.verdict,
       contexteDegagement: rActif.contexteDegagement, contexteVueNature: rActif.contexteVueNature,
       contexteImmobilier: rActif.contexteImmobilier, monumentsHistoriques: rActif.monumentsHistoriques,
+      ...(rActif.pivot ? { pivot: rActif.pivot } : {}),
     },
     test: {
       score: rTest.score, ventilation: rTest.ventilation, verdict: rTest.verdict.verdict,
       contexteDegagement: rTest.contexteDegagement, contexteVueNature: rTest.contexteVueNature,
       contexteImmobilier: rTest.contexteImmobilier, monumentsHistoriques: rTest.monumentsHistoriques,
+      ...(rTest.pivot ? { pivot: rTest.pivot } : {}),
     },
     delta: rTest.score.total - rActif.score.total,
     verdictIdentique: rActif.verdict.verdict === rTest.verdict.verdict,

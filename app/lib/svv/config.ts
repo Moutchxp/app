@@ -24,6 +24,13 @@
  */
 export const ANALYSIS_RANGE_M = 200;
 
+/**
+ * LOT P (décision d'Arno du 22/10/2026) — rayon (m) autour du point snappé dans lequel un sommet du contour (coin saillant
+ * ou rentrant) ouvre le choix du mur de la fenêtre : parmi les côtés concernés, celui dont la normale extérieure est la plus
+ * proche de l'azimut choisi (`murFenetre.ts`). Score seulement : n'entre jamais dans le verdict.
+ */
+export const RAYON_SOMMET_MUR_M = 1;
+
 /* ------------------------------------------------------------------ */
 /* Hauteur de vision / point d'origine (CLAUDE.md §4)                  */
 /* ------------------------------------------------------------------ */

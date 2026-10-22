@@ -113,6 +113,8 @@ type RunLite = {
   contexteVueNature: string | null;
   contexteImmobilier: string | null;
   monumentsHistoriques: string[];
+  // LOT P (Arno, 22/10/2026) — mode Façade : l'éventail du score est centré sur la normale du mur de la fenêtre.
+  pivot?: { azimutNormaleDeg: number; azimutChoisiDeg: number; ecartDeg: number };
 };
 type ComparaisonLite = {
   ok: boolean;
@@ -678,6 +680,13 @@ export default function BancSaisie() {
           {profilActif && comparaison.actif.ventilation && comparaison.test.ventilation && (
             <div style={{ marginTop: 16 }}>
               <div className="svv-label" style={{ marginBottom: 6 }}>Éventail des 61 faisceaux</div>
+              {/* LOT P (Arno, 22/10/2026) — AJOUT : en mode Façade, l'éventail du score suit la façade, pas l'azimut. */}
+              {comparaison.actif.pivot && (
+                <div data-pivot-eventail style={{ marginBottom: 6, fontSize: ".82rem", color: "var(--color-svv-muted)" }}>
+                  Éventail du score centré sur la façade : normale {comparaison.actif.pivot.azimutNormaleDeg.toFixed(1)}°, azimut choisi{" "}
+                  {comparaison.actif.pivot.azimutChoisiDeg.toFixed(1)}°, écart {comparaison.actif.pivot.ecartDeg.toFixed(1)}°
+                </div>
+              )}
               <EventailFaisceaux
                 actif={comparaison.actif.ventilation.lignes}
                 test={comparaison.test.ventilation.lignes}

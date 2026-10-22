@@ -33,8 +33,15 @@ export interface EntreeComplete {
   dernierEtage: boolean;
   // Axe principal (verdict) : obstacles candidats déjà résolus (ordre indifférent).
   obstaclesAxePrincipal: ObstacleCandidat[];
-  // 61 faisceaux (amplitude du score).
+  // 61 faisceaux centrés sur l'AZIMUT CHOISI : Résultat A, cartouches (dégagement, vue nature), extractions.
   faisceaux: FaisceauResultat[];
+  /**
+   * 🔴 LOT P (décision d'Arno du 22/10/2026) — les 61 faisceaux du SCORE, centrés sur la normale du mur de la fenêtre
+   * (mode Façade). Absent (mode Libre, entrées d'avant le lot, tests) → le score se calcule sur `faisceaux`, comme avant.
+   */
+  faisceauxScore?: FaisceauResultat[];
+  /** LOT P — le pivot appliqué (mode Façade seulement), pour l'affichage. Descriptif. */
+  pivot?: PivotEventail;
   // Extraction « vue nature » (DESCRIPTIVE, score-only) — optionnelle (absente dans les tests unitaires).
   extractionVueNature?: ExtractionVueNature;
   // Extraction « environnement immobilier » (DESCRIPTIVE, score-only) — optionnelle (absente en tests unit).
@@ -43,6 +50,13 @@ export interface EntreeComplete {
   extractionMonuments?: ExtractionMonuments;
   // Paysage (Famille 2) : enums/flags déjà résolus.
   paysage: EntreePaysage;
+}
+
+/** LOT P — l'éventail du score centré sur la façade : normale du mur, azimut choisi, écart (degrés, dans [0, 180]). */
+export interface PivotEventail {
+  azimutNormaleDeg: number;
+  azimutChoisiDeg: number;
+  ecartDeg: number;
 }
 
 export interface ResultatComplet {
@@ -54,6 +68,7 @@ export interface ResultatComplet {
   contexteImmobilier: string | null; // cartouche « environnement immobilier » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
   monumentsHistoriques: string[]; // badges « monument historique » (variante A) DESCRIPTIFS (SCORE-ONLY) ; [] si aucun
   ventilation?: VentilationAnalyse; // SEAM VERBEUX (banc M5) — présent UNIQUEMENT si demandé (opt-in) ; SCORE-ONLY
+  pivot?: PivotEventail; // LOT P — présent en mode Façade : l'éventail du score est centré sur la normale du mur
 }
 
 /** Options d'analyse (opt-in). `ventilation` : joindre la ventilation par faisceau (banc M5) ; absent en prod. */
@@ -127,7 +142,10 @@ export function analyser(
 
   // 5) Score affiché = Résultat B / Couche 1 (note de dégagement /80) sur les 61 faisceaux.
   //    Le verdict (calculé en 1) n'entre jamais ici ; Résultat A (f1) reste le constat factuel.
-  const score = scoreTotal(f1, f2, entree.faisceaux, entree.orientationAzimutDeg, profil);
+  //    🔴 LOT P : en mode Façade, l'éventail du SCORE est centré sur la normale du mur (`faisceauxScore`) ; le nom de
+  //    l'orientation reste celui de l'azimut choisi (`orientationAzimutDeg`). Sans `faisceauxScore` : comme avant.
+  const faisceauxScore = entree.faisceauxScore ?? entree.faisceaux;
+  const score = scoreTotal(f1, f2, faisceauxScore, entree.orientationAzimutDeg, profil);
 
   // 6) Cartouche de contexte « dégagement » — DESCRIPTIVE, sur les 61 faisceaux (score-only) ;
   //    n'entre NI dans le score NI dans le verdict.
@@ -151,7 +169,8 @@ export function analyser(
     verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier, monumentsHistoriques,
   };
   if (options?.ventilation) {
-    resultat.ventilation = ventilerAnalyse(entree.faisceaux, profil, entree.orientationAzimutDeg);
+    resultat.ventilation = ventilerAnalyse(faisceauxScore, profil, entree.orientationAzimutDeg);
   }
+  if (entree.pivot) resultat.pivot = entree.pivot;
   return resultat;
 }

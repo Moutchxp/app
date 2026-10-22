@@ -17,6 +17,7 @@ import { obstaclesSurAxe, resoudreVueNature, resoudreEpoqueImmobilier, resoudreM
 import { faisceauxAmplitude } from "./faisceaux";
 import { preparerPaysageGeometrique } from "../svv/preparateurPaysage";
 import { ANALYSIS_RANGE_M, CONE_VUE_NATURE_DEG } from "../svv/config";
+import { murDeLaFenetre, normaliserAzimut } from "../svv/murFenetre";
 
 /**
  * EntreeFamille2 neutre représentant « aucune photo exploitable ».
@@ -99,8 +100,13 @@ export interface EntreeConstruite {
  * bit-identique du chemin de prod.
  */
 export async function construireEntree(params: ParametresAnalyse): Promise<EntreeConstruite> {
+  // LOT P, règle P6 (Arno, 22/10/2026) — un azimut stocké hors 0–360° (−27°, 378°) est ramené modulo 360 POUR LE CALCUL ;
+  // rien n'est réécrit. Tout ce qui suit lit `azimutDeg`.
+  const azimutDeg = normaliserAzimut(params.azimutPrincipalDeg);
+  const mode = params.mode ?? "semi_auto";
+
   // a) Validation du point d'origine.
-  const validation = await validerOrigine(params.point, params.mode ?? "semi_auto");
+  const validation = await validerOrigine(params.point, mode);
   if (
     !validation.valide ||
     validation.batimentOrigine === null ||
@@ -117,26 +123,46 @@ export async function construireEntree(params: ParametresAnalyse): Promise<Entre
   // c) Obstacles sur l'axe principal (LiDAR prioritaire + point de contact).
   const obstaclesAxePrincipal = await obstaclesSurAxe({
     point: validation.pointSnappeWgs84,
-    azimutDeg: params.azimutPrincipalDeg,
+    azimutDeg: azimutDeg,
     batimentOrigineId: validation.batimentOrigine.id,
     batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
     lidar: true,
     altitudeFenetreM,
   });
 
-  // d) 61 faisceaux d'amplitude.
+  // d) 61 faisceaux d'amplitude, centrés sur l'azimut choisi (Résultat A, cartouches, extractions ci-dessous).
   const faisceaux = await faisceauxAmplitude({
     point: validation.pointSnappeWgs84,
-    azimutPrincipalDeg: params.azimutPrincipalDeg,
+    azimutPrincipalDeg: azimutDeg,
     batimentOrigineId: validation.batimentOrigine.id,
     batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
     altitudeFenetreM,
   });
 
+  // d-pivot) 🔴 LOT P (décision d'Arno du 22/10/2026) — en mode « Façade (snap) » SEULEMENT, les 61 faisceaux du SCORE sont
+  //   centrés sur la normale extérieure du mur de la fenêtre (règle P2, `murFenetre.ts`) : plus aucun ne part derrière le mur,
+  //   à travers le propre immeuble. Verdict, cartouches, vue nature, immobilier, patrimoine et nom de l'orientation restent
+  //   sur l'azimut choisi (P3). Mode « Libre » : rien ne change (P4). Règle A′ inchangée (P5) : elle vit dans les faisceaux.
+  let faisceauxScore: typeof faisceaux | undefined;
+  let pivot: EntreeComplete["pivot"];
+  const mur = mode === "semi_auto"
+    ? murDeLaFenetre(validation.batimentOrigine.polygoneWkt, validation.pointSnappeL93, azimutDeg)
+    : null;
+  if (mur) {
+    pivot = { azimutNormaleDeg: mur.azimutNormaleDeg, azimutChoisiDeg: azimutDeg, ecartDeg: mur.ecartDeg };
+    faisceauxScore = mur.azimutNormaleDeg === azimutDeg ? faisceaux : await faisceauxAmplitude({
+      point: validation.pointSnappeWgs84,
+      azimutPrincipalDeg: mur.azimutNormaleDeg,
+      batimentOrigineId: validation.batimentOrigine.id,
+      batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
+      altitudeFenetreM,
+    });
+  }
+
   // d-bis) Cartouche « vue nature » (DESCRIPTIVE, SCORE-ONLY) : extraction PARALLÈLE sur le cône visible
   //        (|offset| ≤ CONE_VUE_NATURE_DEG), même borne que natureTraverseeM (min(distObst, portée)).
   const coneFaisc = faisceaux.filter((f) => Math.abs(f.offsetDeg) <= CONE_VUE_NATURE_DEG);
-  const coneAzimuts = coneFaisc.map((f) => (((params.azimutPrincipalDeg + f.offsetDeg) % 360) + 360) % 360);
+  const coneAzimuts = coneFaisc.map((f) => (((azimutDeg + f.offsetDeg) % 360) + 360) % 360);
   const coneBornes = coneFaisc.map((f) => Math.min(f.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M));
   const extractionVueNature = await resoudreVueNature(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
 
@@ -147,8 +173,8 @@ export async function construireEntree(params: ParametresAnalyse): Promise<Entre
 
   // d-quater) Badges « monument historique » (DESCRIPTIF, SCORE-ONLY) — les 61 azimuts COMPLETS (pas le
   //           cône) : offsetDeg signé conservé pour filtrer le cône côté badge + futur boost.
-  const azimutsComplets = faisceaux.map((f) => (((params.azimutPrincipalDeg + f.offsetDeg) % 360) + 360) % 360);
-  const extractionMonuments = await resoudreMonuments(validation.pointSnappeWgs84, azimutsComplets, params.azimutPrincipalDeg);
+  const azimutsComplets = faisceaux.map((f) => (((azimutDeg + f.offsetDeg) % 360) + 360) % 360);
+  const extractionMonuments = await resoudreMonuments(validation.pointSnappeWgs84, azimutsComplets, azimutDeg);
 
   // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
   // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
@@ -158,7 +184,7 @@ export async function construireEntree(params: ParametresAnalyse): Promise<Entre
     paysage = params.paysage;
   } else {
     try {
-      const geo = await preparerPaysageGeometrique(validation.pointSnappeL93, params.azimutPrincipalDeg);
+      const geo = await preparerPaysageGeometrique(validation.pointSnappeL93, azimutDeg);
       paysage = {
         photoExploitable: false, // pas d'IA câblée (pièce B/C) → scorePartiel reste true
         faisceauxValorisants: geo.faisceauxValorisants,
@@ -178,10 +204,11 @@ export async function construireEntree(params: ParametresAnalyse): Promise<Entre
   // f) Assemblage de l'entrée complète.
   const entree: EntreeComplete = {
     altitudeFenetreM,
-    orientationAzimutDeg: params.azimutPrincipalDeg,
+    orientationAzimutDeg: azimutDeg,
     dernierEtage: params.dernierEtage,
     obstaclesAxePrincipal,
     faisceaux,
+    ...(faisceauxScore ? { faisceauxScore, pivot } : {}),
     extractionVueNature,
     extractionImmobilier,
     extractionMonuments,
