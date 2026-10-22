@@ -1,0 +1,327 @@
+import {
+  type Apporteur, type CategoriePrime, type Origine, type RegleCommission, type TypeActivite, versionADate,
+} from './suivi';
+
+/**
+ * ══ LOCATION — « OUTILS DE SUIVI » : LES CALCULS DU TABLEAU DE BORD (Arno, 22/10/2026) ════════════════════════════════════════
+ *
+ * Reproduit EXACTEMENT les formules du suivi mensuel d'Arno (CA_JBP_2026.xlsx), ligne par ligne puis par mois :
+ *   CA HT de la ligne        = honoraires propriétaire HT + honoraires locataire HT             (colonne E)
+ *   commission d'apporteur   = la commission saisie, sinon CA HT × taux de l'apporteur à la date (colonne H, `=E8*10%`)
+ *   prime de nouvelle gestion = la prime saisie, sinon (mandat signé) la prime de la règle à la date, logement ou parking (F)
+ *   CA net d'apporteurs      = CA HT − commissions d'apporteurs                                   (`TOTAL CA HT - APPORTEURS`)
+ *   commission du négociateur = taux × CA net + primes − rétrocessions                            (`=C19*15%+F18-F24`)
+ *   ventilation              = CA des baux avec gestion / sans gestion                            (« VENTILATION »)
+ * Le taux du négociateur est celui de la règle EN VIGUEUR À LA DATE DE SIGNATURE de chaque ligne (jamais rétroactif) : avec
+ * un taux unique dans le mois, c'est la formule du fichier. AUCUN ARRONDI dans les calculs ; l'affichage arrondit au centime.
+ * Chaque agrégat garde la liste de ses lignes (`ids`) : tout chiffre de l'écran ouvre la liste des baux qui le font.
+ * PUR : aucune base, aucun réseau.
+ */
+
+export type Assurance = 'gli' | 'visale' | 'autre' | 'aucune';
+
+export interface ActiviteCalcul {
+  id: number | string;
+  type: TypeActivite;
+  dateSignature: string;
+  dateSupposee?: boolean;
+  libelleProprietaire: string;
+  libelleLocataire: string;
+  honoProprietaireHt: number;
+  honoLocataireHt: number;
+  primeSaisie: number | null;
+  mandatGestion: boolean;
+  categoriePrime: CategoriePrime | null;
+  apporteurId: number | null;
+  apporteurNom: string | null;
+  apporteurTaux: number | null;
+  commissionSaisie: number | null;
+  negociateurId: number | null;
+  negociateurLibelle: string;
+  avecGestion: boolean;
+  origineProprietaire: Origine | null;
+  origineLocataire: Origine | null;
+  loyerHc: number | null;
+  charges: number | null;
+  assurance: Assurance | null;
+  parking: boolean;
+  /** Jours sans locataire avant ce bail (sortie du précédent → entrée), quand elle est connue. */
+  vacanceJours: number | null;
+  rattachement: 'rattache' | 'douteux' | 'non_rattache';
+}
+
+export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
+
+export interface ContexteCalcul {
+  regles: RegleCommission[];
+  apporteurs: Apporteur[];
+  retrocessions: Retrocession[];
+}
+
+export interface Filtre {
+  negociateur?: string | null;
+  /** Un apporteur (id), ou « aucun » (baux sans apporteur). */
+  apporteur?: number | 'aucun' | null;
+  gestion?: 'avec' | 'sans' | null;
+  /** Origine du PROPRIÉTAIRE (le client de l'agence) : nouveau ou déjà client. */
+  origine?: Origine | null;
+}
+
+// ── Une ligne ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export const caLigne = (a: ActiviteCalcul): number => a.honoProprietaireHt + a.honoLocataireHt;
+export const moisDeLigne = (a: ActiviteCalcul): string => a.dateSignature.slice(0, 7);
+
+/** Le négociateur : son id s'il est connu, sinon son nom (lignes reprises du fichier, sans compte). */
+export const cleNegociateur = (o: { negociateurId: number | null; negociateurLibelle: string }): string =>
+  (o.negociateurId !== null ? `id:${o.negociateurId}` : `nom:${o.negociateurLibelle.trim().toLowerCase()}`);
+
+export function primeDe(a: ActiviteCalcul, regles: readonly RegleCommission[]): number {
+  if (a.primeSaisie !== null) return a.primeSaisie;
+  if (!a.mandatGestion) return 0;
+  const r = versionADate(regles, a.dateSignature);
+  if (r === null) return 0;
+  return (a.categoriePrime ?? (a.parking ? 'parking' : 'logement')) === 'parking' ? r.primeParking : r.primeLogement;
+}
+
+export function tauxApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  if (a.apporteurId === null) return 0;
+  if (a.apporteurTaux !== null) return a.apporteurTaux;
+  const ap = apporteurs.find((x) => x.id === a.apporteurId);
+  return ap === undefined ? 0 : versionADate(ap.baremes, a.dateSignature)?.taux ?? 0;
+}
+
+export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  if (a.commissionSaisie !== null) return a.commissionSaisie;
+  return caLigne(a) * tauxApporteurDe(a, apporteurs);
+}
+
+export const tauxNegociateurDe = (a: ActiviteCalcul, regles: readonly RegleCommission[]): number => versionADate(regles, a.dateSignature)?.tauxNegociateur ?? 0;
+
+// ── Filtres ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export function filtrer(activites: readonly ActiviteCalcul[], f: Filtre): ActiviteCalcul[] {
+  return activites.filter((a) => {
+    if (f.negociateur && cleNegociateur(a) !== f.negociateur) return false;
+    if (f.apporteur === 'aucun' && a.apporteurId !== null) return false;
+    if (typeof f.apporteur === 'number' && a.apporteurId !== f.apporteur) return false;
+    if (f.gestion === 'avec' && !a.avecGestion) return false;
+    if (f.gestion === 'sans' && a.avecGestion) return false;
+    if (f.origine && a.origineProprietaire !== f.origine) return false;
+    return true;
+  });
+}
+
+/** Les rétrocessions d'un ou plusieurs mois (« AAAA-MM »), pour un négociateur ou pour tous. */
+export function retrocessionsDe(ctx: ContexteCalcul, mois: readonly string[], negociateur?: string | null): number {
+  return ctx.retrocessions
+    .filter((r) => mois.includes(r.mois.slice(0, 7)) && (!negociateur || cleNegociateur(r) === negociateur))
+    .reduce((s, r) => s + r.montant, 0);
+}
+
+// ── Les totaux d'un ensemble de lignes ─────────────────────────────────────────────────────────────────────────────
+
+export interface Totaux {
+  nb: number;
+  nbBaux: number;
+  nbAvenants: number;
+  nbGestionSeule: number;
+  ca: number;
+  caProprietaire: number;
+  caLocataire: number;
+  primes: number;
+  apporteurs: number;
+  caNet: number;
+  /** Σ taux × CA net + primes, AVANT rétrocessions. */
+  commissionAvantRetro: number;
+  avecGestion: number;
+  sansGestion: number;
+  ids: (number | string)[];
+}
+
+export function totaux(lignes: readonly ActiviteCalcul[], ctx: ContexteCalcul): Totaux {
+  const t: Totaux = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, ca: 0, caProprietaire: 0, caLocataire: 0, primes: 0, apporteurs: 0, caNet: 0, commissionAvantRetro: 0, avecGestion: 0, sansGestion: 0, ids: [] };
+  for (const a of lignes) {
+    const ca = caLigne(a);
+    const app = commissionApporteurDe(a, ctx.apporteurs);
+    const prime = primeDe(a, ctx.regles);
+    t.nb += 1;
+    if (a.type === 'bail') t.nbBaux += 1; else if (a.type === 'avenant') t.nbAvenants += 1; else t.nbGestionSeule += 1;
+    t.ca += ca; t.caProprietaire += a.honoProprietaireHt; t.caLocataire += a.honoLocataireHt;
+    t.primes += prime; t.apporteurs += app; t.caNet += ca - app;
+    t.commissionAvantRetro += tauxNegociateurDe(a, ctx.regles) * (ca - app) + prime;
+    if (a.avecGestion) t.avecGestion += ca; else t.sansGestion += ca;
+    t.ids.push(a.id);
+  }
+  return t;
+}
+
+export const variation = (courant: number, precedent: number): number | null => (precedent === 0 ? null : (courant - precedent) / precedent);
+
+const moisDe = (annee: number, m: number): string => `${annee}-${String(m).padStart(2, '0')}`;
+
+// ── A — le mois, comparé au même mois de l'année précédente ─────────────────────────────────────────────────────────
+
+export interface Periode { annee: number; mois: number | null }
+export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number }
+
+/** Les lignes d'une période : l'année entière (`mois` null) ou un mois. */
+export function lignesDePeriode(activites: readonly ActiviteCalcul[], p: Periode): ActiviteCalcul[] {
+  const prefixe = p.mois === null ? `${p.annee}-` : `${moisDe(p.annee, p.mois)}`;
+  return activites.filter((a) => a.dateSignature.startsWith(prefixe));
+}
+
+export function totauxPeriode(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode, negociateur?: string | null): TotauxPeriode {
+  const t = totaux(lignesDePeriode(activites, p), ctx);
+  const mois = p.mois === null ? Array.from({ length: 12 }, (_, i) => moisDe(p.annee, i + 1)) : [moisDe(p.annee, p.mois)];
+  const retrocessions = retrocessionsDe(ctx, mois, negociateur);
+  return { ...t, retrocessions, commission: t.commissionAvantRetro - retrocessions };
+}
+
+export interface SectionMois { courant: TotauxPeriode; precedent: TotauxPeriode; variationCa: number | null; variationNb: number | null }
+
+export function sectionMois(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode, negociateur?: string | null): SectionMois {
+  const courant = totauxPeriode(activites, ctx, p, negociateur);
+  const precedent = totauxPeriode(activites, ctx, { annee: p.annee - 1, mois: p.mois }, negociateur);
+  return { courant, precedent, variationCa: variation(courant.ca, precedent.ca), variationNb: variation(courant.nb, precedent.nb) };
+}
+
+// ── B — le cumul de l'année, mois par mois, et celui de l'année précédente ─────────────────────────────────────────
+
+export interface PointCumul { mois: string; ca: number; caCumule: number; nb: number; caN1: number; caCumuleN1: number; nbN1: number; ids: (number | string)[] }
+
+export function sectionCumul(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, annee: number): PointCumul[] {
+  let cumul = 0;
+  let cumulN1 = 0;
+  return Array.from({ length: 12 }, (_, i) => {
+    const t = totaux(lignesDePeriode(activites, { annee, mois: i + 1 }), ctx);
+    const n1 = totaux(lignesDePeriode(activites, { annee: annee - 1, mois: i + 1 }), ctx);
+    cumul += t.ca; cumulN1 += n1.ca;
+    return { mois: moisDe(annee, i + 1), ca: t.ca, caCumule: cumul, nb: t.nb, caN1: n1.ca, caCumuleN1: cumulN1, nbN1: n1.nb, ids: t.ids };
+  });
+}
+
+// ── C — les apporteurs : ce qu'ils apportent, ce qu'ils coûtent ─────────────────────────────────────────────────────
+
+export interface LigneApporteur {
+  apporteurId: number | null;
+  nom: string;
+  type: string | null;
+  nb: number;
+  ca: number;
+  commissions: number;
+  coutsFixes: number;
+  /** Ce qui reste à l'agence : CA apporté − commissions − coûts fixes. */
+  net: number;
+  /** Ce que coûte l'apporteur pour 1 € de CA apporté ; null sans CA. */
+  coutParEuro: number | null;
+  ids: (number | string)[];
+}
+
+/** Les coûts fixes mensuels d'un apporteur sur les mois de la période (la version en vigueur au 1er de chaque mois). */
+export function coutsFixesDe(ap: Apporteur, mois: readonly string[]): number {
+  return mois.reduce((s, m) => s + (versionADate(ap.baremes, `${m}-01`)?.coutFixeMensuel ?? 0), 0);
+}
+
+export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode, moisEcoules?: readonly string[]): LigneApporteur[] {
+  const lignes = lignesDePeriode(activites, p).filter((a) => a.apporteurId !== null || a.apporteurNom !== null);
+  const mois = moisEcoules ?? (p.mois === null ? Array.from({ length: 12 }, (_, i) => moisDe(p.annee, i + 1)) : [moisDe(p.annee, p.mois)]);
+  const parCle = new Map<string, LigneApporteur>();
+  for (const ap of ctx.apporteurs.filter((x) => !x.archive)) {
+    parCle.set(`id:${ap.id}`, { apporteurId: ap.id, nom: ap.nom, type: ap.type, nb: 0, ca: 0, commissions: 0, coutsFixes: coutsFixesDe(ap, mois), net: 0, coutParEuro: null, ids: [] });
+  }
+  for (const a of lignes) {
+    const cle = a.apporteurId !== null ? `id:${a.apporteurId}` : `nom:${(a.apporteurNom ?? '').toLowerCase()}`;
+    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, coutsFixes: 0, net: 0, coutParEuro: null, ids: [] };
+    l.nb += 1; l.ca += caLigne(a); l.commissions += commissionApporteurDe(a, ctx.apporteurs); l.ids.push(a.id);
+    parCle.set(cle, l);
+  }
+  return [...parCle.values()]
+    .map((l) => ({ ...l, net: l.ca - l.commissions - l.coutsFixes, coutParEuro: l.ca === 0 ? null : (l.commissions + l.coutsFixes) / l.ca }))
+    .filter((l) => l.nb > 0 || l.coutsFixes > 0)
+    .sort((a, b) => b.ca - a.ca || a.nom.localeCompare(b.nom));
+}
+
+// ── D — la gestion récurrente : entrées, sorties, solde, et le portefeuille sur 12 mois ────────────────────────────
+
+export interface Transition { lotId: number; avant: string | null; apres: string; effetLe: string }
+export interface PointGestion { mois: string; entrees: number; sorties: number; solde: number; stock: number; lotsEntres: number[]; lotsSortis: number[] }
+
+/**
+ * Les 12 mois qui finissent en `moisFin` (« AAAA-MM ») : entrées en gestion (un statut qui DEVIENT « en_gestion ») et sorties
+ * (un statut qui QUITTE « en_gestion »), solde, et le nombre de biens en gestion à la fin de chaque mois, remonté depuis le
+ * nombre d'aujourd'hui (`stockActuel`) en défaisant les transitions postérieures.
+ */
+export function sectionGestion(transitions: readonly Transition[], stockActuel: number, moisFin: string): PointGestion[] {
+  const [a, m] = moisFin.split('-').map(Number);
+  const mois = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(a, m - 12 + i, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
+  const entre = (t: Transition): boolean => t.apres === 'en_gestion' && t.avant !== 'en_gestion';
+  const sort = (t: Transition): boolean => t.avant === 'en_gestion' && t.apres !== 'en_gestion';
+  const delta = (t: Transition): number => (entre(t) ? 1 : sort(t) ? -1 : 0);
+  return mois.map((mm) => {
+    const duMois = transitions.filter((t) => t.effetLe.slice(0, 7) === mm);
+    const apres = transitions.filter((t) => t.effetLe.slice(0, 7) > mm).reduce((s, t) => s + delta(t), 0);
+    const entrees = duMois.filter(entre);
+    const sorties = duMois.filter(sort);
+    return { mois: mm, entrees: entrees.length, sorties: sorties.length, solde: entrees.length - sorties.length, stock: stockActuel - apres,
+      lotsEntres: entrees.map((t) => t.lotId), lotsSortis: sorties.map((t) => t.lotId) };
+  });
+}
+
+// ── E — les indicateurs métier ──────────────────────────────────────────────────────────────────────────────────────
+
+export interface Indicateurs {
+  vacanceMoyenneJours: number | null;
+  vacanceIds: (number | string)[];
+  preavis: number;
+  partGaranties: number | null;
+  garantiesIds: (number | string)[];
+  assuranceConnue: number;
+  partParkingNb: number | null;
+  partParkingCa: number | null;
+  parkingIds: (number | string)[];
+}
+
+export function sectionIndicateurs(lignes: readonly ActiviteCalcul[], preavisDuMois: number): Indicateurs {
+  const avecVacance = lignes.filter((a) => a.vacanceJours !== null);
+  const connue = lignes.filter((a) => a.assurance !== null);
+  const garanties = connue.filter((a) => a.assurance === 'gli' || a.assurance === 'visale');
+  const parking = lignes.filter((a) => a.parking || a.categoriePrime === 'parking');
+  const ca = lignes.reduce((s, a) => s + caLigne(a), 0);
+  return {
+    vacanceMoyenneJours: avecVacance.length === 0 ? null : avecVacance.reduce((s, a) => s + (a.vacanceJours as number), 0) / avecVacance.length,
+    vacanceIds: avecVacance.map((a) => a.id),
+    preavis: preavisDuMois,
+    partGaranties: connue.length === 0 ? null : garanties.length / connue.length,
+    garantiesIds: garanties.map((a) => a.id),
+    assuranceConnue: connue.length,
+    partParkingNb: lignes.length === 0 ? null : parking.length / lignes.length,
+    partParkingCa: ca === 0 ? null : parking.reduce((s, a) => s + caLigne(a), 0) / ca,
+    parkingIds: parking.map((a) => a.id),
+  };
+}
+
+// ── F — les négociateurs (droit « Voir les commissions ») ──────────────────────────────────────────────────────────
+
+export interface LigneNegociateur { cle: string; libelle: string; mois: string; totaux: TotauxPeriode }
+
+/** Pour chaque négociateur, chaque mois de la période qui a de l'activité ou une rétrocession : la formule du fichier. */
+export function sectionNegociateurs(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode): LigneNegociateur[] {
+  const lignes = lignesDePeriode(activites, p);
+  const mois = p.mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [p.mois];
+  const noms = new Map<string, string>();
+  for (const a of lignes) noms.set(cleNegociateur(a), a.negociateurLibelle || '—');
+  for (const r of ctx.retrocessions) if (r.mois.startsWith(`${p.annee}-`)) noms.set(cleNegociateur(r), noms.get(cleNegociateur(r)) ?? r.negociateurLibelle);
+  const sortie: LigneNegociateur[] = [];
+  for (const [cle, libelle] of [...noms.entries()].sort((x, y) => x[1].localeCompare(y[1]))) {
+    const siens = lignes.filter((a) => cleNegociateur(a) === cle);
+    for (const m of mois) {
+      const t = totauxPeriode(siens, ctx, { annee: p.annee, mois: m }, cle);
+      if (t.nb > 0 || t.retrocessions > 0) sortie.push({ cle, libelle, mois: moisDe(p.annee, m), totaux: t });
+    }
+  }
+  return sortie;
+}
