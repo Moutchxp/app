@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  type Apporteur, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './SuiviCommercial';
 
@@ -20,6 +20,8 @@ interface Lu {
   regles: RegleCommission[];
   retrocessions: { id: number; negociateurLibelle: string; negociateurId: number | null; mois: string; montant: number; libelle: string }[];
   negociateurs: { id: number; libelle: string }[];
+  collegues: { id: number; libelle: string }[];
+  annuaire: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -36,7 +38,8 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       if (d.etat !== 'ok' || d.data === undefined) { setErreur(d.message ?? 'Lecture impossible.'); return; }
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
-        retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [] });
+        retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -71,25 +74,77 @@ function useGeste(relire: () => void) {
   return { envoi, faire, retour, effacer: () => { setMotif(null); setInfo(null); } };
 }
 
+const VIDE_APPORTEUR = (jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
+type Cumul = { parAnnee: { annee: number; nb: number; ca: number; commission: number }[]; parMois: { mois: string; nb: number; ca: number; commission: number }[] };
+
+/** Le cumul d'un apporteur (affaires, CA apporté, honoraires d'apporteur), par an et par mois — lu à l'ouverture de sa fiche. */
+function CumulApporteur({ id }: { id: number }) {
+  const [c, setC] = useState<Cumul | null | 'erreur'>(null);
+  useEffect(() => {
+    let vivant = true;
+    fetch(`${API_SUIVI}?vue=cumul-apporteur&id=${id}`, { cache: 'no-store' }).then((r) => r.json())
+      .then((d: { etat?: string; data?: Cumul }) => { if (vivant) setC(d.etat === 'ok' && d.data && Array.isArray(d.data.parAnnee) ? d.data : 'erreur'); })
+      .catch(() => { if (vivant) setC('erreur'); });
+    return () => { vivant = false; };
+  }, [id]);
+  if (c === null) return <p className="plo-muet plo-petit-texte" role="status">Lecture du cumul…</p>;
+  if (c === 'erreur') return <p className="plo-muet plo-petit-texte">Cumul indisponible.</p>;
+  if (c.parAnnee.length === 0) return <p className="plo-muet plo-petit-texte" data-cumul-vide>Aucune affaire apportée pour l’instant.</p>;
+  const ligne = (mot: string, x: { nb: number; ca: number; commission: number }) => (
+    <tr key={mot}><th scope="row">{mot}</th><td data-mot="Affaires">{x.nb}</td><td data-mot="CA apporté">{euros(x.ca)}</td><td data-mot="Honoraires d’apporteur">{euros(x.commission)}</td></tr>
+  );
+  return (
+    <table className="plo-cumul" data-cumul-apporteur>
+      <thead><tr><th scope="col">Période</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Honoraires d’apporteur</th></tr></thead>
+      <tbody>
+        {c.parAnnee.map((a) => ligne(`Année ${a.annee}`, a))}
+        {c.parMois.map((m) => ligne(moisFr(`${m.mois}-01`), m))}
+      </tbody>
+    </table>
+  );
+}
+
 export function OngletApporteurs() {
   const { lu, erreur, relire } = useSuiviParametres();
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
-  const [nouveau, setNouveau] = useState({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour });
+  const [nouveau, setNouveau] = useState(VIDE_APPORTEUR(jour));
   const [version, setVersion] = useState<{ id: number; taux: string; coutFixe: string; depuis: string } | null>(null);
+  const [ouverte, setOuverte] = useState<number | null>(null);
+  const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur }>({ societe: '', telephone: '', email: '', type: 'partenaire' });
+  const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string }>({ collegueId: '', depuis: jour });
+  const annuaire = lu?.annuaire === true;
+  const ouvrir = (a: Apporteur) => {
+    g.effacer();
+    if (ouverte === a.id) { setOuverte(null); return; }
+    setOuverte(a.id);
+    setFiche({ societe: a.societe ?? '', telephone: a.telephone ?? '', email: a.email ?? '', type: a.type });
+    setRattachement({ collegueId: '', depuis: (a.collegues ?? []).length === 0 ? `${jour.slice(0, 4)}-01-01` : jour });
+  };
   return (
     <section data-onglet-apporteurs>
-      <p className="plo-note">Les apporteurs d’affaires et leur commission (en % des honoraires HT du bail). <strong>Un nouveau taux crée une nouvelle version</strong> :
-        il vaut pour les baux signés à partir de sa date ; les baux déjà signés gardent le leur. Un taux se corrige aussi bail par bail, à la saisie.</p>
+      <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission (en % des honoraires HT du bail). <strong>Un nouveau taux crée une nouvelle version</strong> :
+        il vaut pour les baux signés à partir de sa date ; les baux déjà signés gardent le leur.{annuaire && <> Chaque apporteur est <strong>rattaché à un collègue</strong> ;
+        un changement de collègue est daté : les affaires passées restent au collègue de l’époque.</>}</p>
       <Etat lu={lu} erreur={erreur} />
       {lu !== null && lu.disponible && (
         <>
+          {annuaire && lu.apporteurs.some((a) => !a.archive && aRattacher(a)) && (
+            <p className="plo-alerte" role="status" data-alerte-a-rattacher>
+              {lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length} apporteur(s) « à rattacher » : tant qu’ils n’ont pas de collègue, ils ne peuvent pas être choisis pour une nouvelle location.</p>
+          )}
           <ol className="plo-versions" data-liste-apporteurs>
             {lu.apporteurs.filter((a) => !a.archive).map((a) => {
               const enVigueur = versionADate(a.baremes, jour);
+              const orphelin = annuaire && aRattacher(a);
+              const collegue = collegueADate(a, jour);
               return (
-                <li key={a.id} data-apporteur={a.id}>
-                  <p className="plo-version-titre"><strong>{a.nom}</strong><span className="plo-pastille">{LIBELLE_TYPE_APPORTEUR[a.type]}</span></p>
+                <li key={a.id} data-apporteur={a.id} className={orphelin ? 'plo-a-rattacher' : undefined}>
+                  <p className="plo-version-titre"><strong>{a.nom}</strong><span className="plo-pastille">{LIBELLE_TYPE_APPORTEUR[a.type]}</span>
+                    {annuaire && (orphelin
+                      ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
+                      : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
+                  {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
                   <p className="plo-version-valeurs">{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
                     : `Taux ${pourcent(enVigueur.taux)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (depuis le ${dateFr(enVigueur.depuis)})`}</p>
                   {a.baremes.length > 1 && (
@@ -108,9 +163,47 @@ export function OngletApporteurs() {
                       </span>
                     </div>
                   ) : (
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
-                      onClick={() => { g.effacer(); setVersion({ id: a.id, taux: enVigueur === null ? '' : String(Math.round(enVigueur.taux * 1000000) / 10000).replace('.', ','), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour }); }}>
-                      Nouveau taux</button>
+                    <span className="plo-gestes-ligne">
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
+                        onClick={() => { g.effacer(); setVersion({ id: a.id, taux: enVigueur === null ? '' : String(Math.round(enVigueur.taux * 1000000) / 10000).replace('.', ','), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour }); }}>
+                        Nouveau taux</button>
+                      {annuaire && <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-expanded={ouverte === a.id} onClick={() => ouvrir(a)} data-ouvrir-fiche={a.id}>
+                        {ouverte === a.id ? 'Fermer la fiche' : 'Fiche et cumul'}</button>}
+                    </span>
+                  )}
+                  {annuaire && ouverte === a.id && (
+                    <div className="plo-fiche" data-fiche-apporteur={a.id}>
+                      <h4 className="plo-h4">Fiche</h4>
+                      <div className="plo-grille">
+                        <label className="plo-champ"><span>Société</span><input value={fiche.societe} onChange={(e) => setFiche({ ...fiche, societe: e.target.value })} data-fiche-societe /></label>
+                        <label className="plo-champ"><span>Type</span>
+                          <select className="plo-select" value={fiche.type} onChange={(e) => setFiche({ ...fiche, type: e.target.value as TypeApporteur })}>
+                            {TYPES_APPORTEUR.map((t) => <option key={t} value={t}>{LIBELLE_TYPE_APPORTEUR[t]}</option>)}
+                          </select></label>
+                        <label className="plo-champ"><span>Téléphone</span><input inputMode="tel" value={fiche.telephone} onChange={(e) => setFiche({ ...fiche, telephone: e.target.value })} /></label>
+                        <label className="plo-champ"><span>E-mail</span><input inputMode="email" value={fiche.email} onChange={(e) => setFiche({ ...fiche, email: e.target.value })} /></label>
+                      </div>
+                      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-enregistrer-fiche
+                        onClick={() => { void g.faire({ action: 'modifier-apporteur', apporteurId: a.id, fiche }, `Fiche de ${a.nom} enregistrée.`); }}>Enregistrer la fiche</button>
+                      <h4 className="plo-h4">Collègue de rattachement</h4>
+                      {(a.collegues ?? []).length === 0
+                        ? <p className="plo-alerte" role="status">À rattacher : choisissez le collègue et la date à partir de laquelle ses affaires lui reviennent.</p>
+                        : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `depuis le ${dateFr(c.depuis)} : ${c.collegueLibelle}`).join(' · ')}</p>}
+                      <div className="plo-grille">
+                        <label className="plo-champ"><span>Collègue</span>
+                          <select className="plo-select" value={rattachement.collegueId} onChange={(e) => setRattachement({ ...rattachement, collegueId: e.target.value })} data-rattacher-collegue>
+                            <option value="">— choisir —</option>
+                            {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+                          </select></label>
+                        <label className="plo-champ"><span>À partir du</span><input type="date" value={rattachement.depuis} onChange={(e) => setRattachement({ ...rattachement, depuis: e.target.value })} data-rattacher-depuis /></label>
+                      </div>
+                      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-rattacher
+                        onClick={() => { void g.faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: rattachement.collegueId === '' ? null : Number(rattachement.collegueId), depuis: rattachement.depuis } },
+                          `${a.nom} est rattaché à ${lu.collegues.find((c) => String(c.id) === rattachement.collegueId)?.libelle ?? 'son collègue'}.`); }}>
+                        {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
+                      <h4 className="plo-h4">Cumul</h4>
+                      <CumulApporteur id={a.id} />
+                    </div>
                   )}
                 </li>
               );
@@ -124,12 +217,27 @@ export function OngletApporteurs() {
               <select className="plo-select" value={nouveau.type} onChange={(e) => setNouveau({ ...nouveau, type: e.target.value as TypeApporteur })}>
                 {TYPES_APPORTEUR.map((t) => <option key={t} value={t}>{LIBELLE_TYPE_APPORTEUR[t]}</option>)}
               </select></label>
+            {annuaire && (
+              <label className="plo-champ"><span>Collègue de rattachement *</span>
+                <select className="plo-select" value={nouveau.collegueId} onChange={(e) => setNouveau({ ...nouveau, collegueId: e.target.value })} data-collegue-apporteur-nouveau>
+                  <option value="">— choisir —</option>
+                  {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+                </select></label>
+            )}
             <label className="plo-champ"><span>Taux (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
             <label className="plo-champ"><span>Coût fixe mensuel (€, facultatif)</span><input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
             <label className="plo-champ"><span>Taux applicable à partir du</span><input type="date" value={nouveau.depuis} onChange={(e) => setNouveau({ ...nouveau, depuis: e.target.value })} /></label>
+            {annuaire && (
+              <>
+                <label className="plo-champ"><span>Société (facultatif)</span><input value={nouveau.societe} onChange={(e) => setNouveau({ ...nouveau, societe: e.target.value })} /></label>
+                <label className="plo-champ"><span>Téléphone (facultatif)</span><input inputMode="tel" value={nouveau.telephone} onChange={(e) => setNouveau({ ...nouveau, telephone: e.target.value })} /></label>
+                <label className="plo-champ"><span>E-mail (facultatif)</span><input inputMode="email" value={nouveau.email} onChange={(e) => setNouveau({ ...nouveau, email: e.target.value })} /></label>
+              </>
+            )}
           </div>
           <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-ajouter-apporteur
-            onClick={() => { void g.faire({ action: 'creer-apporteur', apporteur: nouveau }, `Apporteur « ${nouveau.nom.trim()} » ajouté.`).then((ok) => { if (ok) setNouveau({ nom: '', type: 'partenaire', taux: '', coutFixe: '', depuis: jour }); }); }}>
+            onClick={() => { void g.faire({ action: 'creer-apporteur', apporteur: { ...nouveau, collegueId: nouveau.collegueId === '' ? null : Number(nouveau.collegueId) } }, `Apporteur « ${nouveau.nom.trim()} » ajouté.`)
+              .then((ok) => { if (ok) setNouveau(VIDE_APPORTEUR(jour)); }); }}>
             + Ajouter l’apporteur</button>
         </>
       )}
@@ -216,5 +324,20 @@ export function OngletCommissions() {
 }
 
 export const CSS_ONGLETS_SUIVI = `
+.plo-a-rattacher{border-color:var(--color-svv-amber) !important;background:var(--color-svv-amber-soft)}
+.plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
+.plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}
+.plo-fiche{margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-svv-line-strong);display:flex;flex-direction:column;gap:8px}
+.plo-h4{margin:6px 0 0;font-size:.92rem}
+.plo-cumul{width:100%;border-collapse:collapse;font-size:.88rem}
+.plo-cumul th,.plo-cumul td{padding:5px 6px;border-bottom:1px solid var(--color-svv-line);text-align:right}
+.plo-cumul th[scope=row],.plo-cumul thead th:first-child{text-align:left}
+@media (max-width:640px){
+  .plo-cumul thead{display:none}
+  .plo-cumul,.plo-cumul tbody,.plo-cumul tr,.plo-cumul th,.plo-cumul td{display:block;width:100%;box-sizing:border-box}
+  .plo-cumul tr{border:1px solid var(--color-svv-line);border-radius:10px;padding:4px 8px;margin-bottom:6px}
+  .plo-cumul td{display:flex;justify-content:space-between;border-bottom:0}
+  .plo-cumul td::before{content:attr(data-mot);color:var(--color-svv-muted);font-weight:700}
+}
 .plo-select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:.95rem;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}
 `;

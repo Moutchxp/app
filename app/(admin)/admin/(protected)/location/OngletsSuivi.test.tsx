@@ -26,6 +26,7 @@ beforeEach(() => {
     retrocessions: [{ id: 8, negociateurId: 5, negociateurLibelle: 'Jean-Baptiste PONS', mois: '2026-08-01', montant: 200, libelle: 'Alex Coms' }] };
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     if (init?.method === 'POST') { posts.push({ ...JSON.parse(String(init.body)) as Record<string, unknown>, url: String(url) }); return json({ etat: 'ok' }); }
+    if (String(url).includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: { parAnnee: [{ annee: 2026, nb: 5, ca: 3941.03, commission: 394.1 }], parMois: [{ mois: '2026-09', nb: 5, ca: 3941.03, commission: 394.1 }] } });
     if (String(url).includes('/suivi')) return json({ etat: 'ok', data: suivi });
     return json({ etat: 'ok', data: { destinataires: [], destinatairesSaisis: null, versions: [], aujourdhui: '2026-10-22', manquantes: [], archivage: { mois: 24, disponible: true } } });
   }) as unknown as typeof fetch;
@@ -85,5 +86,48 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     await ouvrir('commissions');
     expect(container.querySelector('[data-suivi-sans-migration]')?.textContent).toContain('migration 406');
     expect(container.querySelector('[data-ajouter-retrocession]')).toBeNull();
+  });
+});
+
+describe('🔴 407 — l’annuaire des apporteurs', () => {
+  const avec407 = () => {
+    suivi = { ...suivi, annuaire: true, collegues: [{ id: 2, libelle: 'Arnaud Jorel' }, { id: 5, libelle: 'Jean-Baptiste PONS' }],
+      apporteurs: [
+        { id: 3, nom: 'Kin Immo', type: 'agence', archive: false, societe: 'Kin SAS', telephone: '01 02 03 04 05', email: 'kin@exemple.test', baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0 }],
+          collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] },
+        { id: 4, nom: 'Apporteur Repris', type: 'partenaire', archive: false, baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0 }], collegues: [] },
+      ] };
+  };
+  it('un apporteur sans collègue s’affiche en orange « à rattacher » ; le rattaché montre son collègue', async () => {
+    avec407();
+    await ouvrir('apporteurs');
+    expect(container.querySelector('[data-apporteur="4"]')?.className).toContain('plo-a-rattacher');
+    expect(container.querySelector('[data-apporteur="4"] [data-a-rattacher]')?.textContent).toBe('à rattacher');
+    expect(container.querySelector('[data-apporteur="3"] [data-collegue-apporteur]')?.textContent).toBe('Arnaud Jorel');
+    expect(container.querySelector('[data-alerte-a-rattacher]')?.textContent).toContain('1 apporteur(s) « à rattacher »');
+  });
+  it('la fiche : coordonnées, rattachement DATÉ, cumul par an et par mois', async () => {
+    avec407();
+    await ouvrir('apporteurs');
+    await clic(container.querySelector('[data-ouvrir-fiche="4"]')!);
+    const f = container.querySelector('[data-fiche-apporteur="4"]')!;
+    const choisir = async (el: HTMLSelectElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
+    await choisir(f.querySelector('[data-rattacher-collegue]') as HTMLSelectElement, '5');
+    expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).value).toBe(`${new Date().getFullYear()}-01-01`);
+    await clic(f.querySelector('[data-rattacher]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'rattacher-apporteur', apporteurId: 4, rattachement: { collegueId: 5 } });
+    await saisir(f.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Repris SARL');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 4, fiche: { societe: 'Repris SARL' } });
+    expect(container.querySelector('[data-cumul-apporteur]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toContain('Année 202653 941,03 €394,10 €septembre 202653 941,03 €394,10 €');
+  });
+  it('un nouvel apporteur part avec son collègue de rattachement', async () => {
+    avec407();
+    await ouvrir('apporteurs');
+    await saisir(container.querySelector('[data-nom-apporteur]') as HTMLInputElement, 'Nouveau');
+    const sel = container.querySelector('[data-collegue-apporteur-nouveau]') as HTMLSelectElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(sel, '2'); sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    await clic(container.querySelector('[data-ajouter-apporteur]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'creer-apporteur', apporteur: { nom: 'Nouveau', collegueId: 2 } });
   });
 });

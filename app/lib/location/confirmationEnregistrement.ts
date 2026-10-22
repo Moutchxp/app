@@ -71,6 +71,16 @@ const LIBELLES: Record<string, Libelle> = {
   destinataires: L('Destinataires enregistrés', 'Les destinataires n’ont pas été enregistrés.'),
   'modifier-encart': L('Modifications enregistrées', 'Les modifications n’ont pas été enregistrées.'),
   'archivage-delai': L('Délai d’archivage enregistré', 'Le délai d’archivage n’a pas été enregistré.'),
+  // Arno (22-23/10/2026) — « Outils de suivi » : le suivi commercial, l'annuaire des apporteurs, la règle de commission.
+  'modifier-activite': L('Affaire mise à jour', 'L’affaire n’a pas été mise à jour.'),
+  'creer-apporteur': L('Apporteur ajouté à l’annuaire', 'L’apporteur n’a pas été ajouté.'),
+  'modifier-apporteur': L('Fiche de l’apporteur enregistrée', 'La fiche de l’apporteur n’a pas été enregistrée.'),
+  'rattacher-apporteur': L('Collègue de rattachement enregistré', 'Le collègue de rattachement n’a pas été enregistré.'),
+  'bareme-apporteur': L('Nouveau taux de l’apporteur enregistré', 'Le nouveau taux n’a pas été enregistré.'),
+  regle: L('Règle de commission enregistrée', 'La règle de commission n’a pas été enregistrée.'),
+  retrocession: L('Rétrocession enregistrée', 'La rétrocession n’a pas été enregistrée.'),
+  'annuler-retrocession': L('Rétrocession annulée', 'L’annulation de la rétrocession n’a pas été enregistrée.'),
+  'enregistrer-activite': L('Suivi commercial enregistré', 'Le suivi commercial n’a pas été enregistré.'),
 };
 
 const SUJET: Record<string, string> = { proprietaire: 'Propriétaire', locataire: 'Locataire', bien: 'Bien' };

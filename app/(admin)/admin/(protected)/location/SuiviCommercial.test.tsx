@@ -145,3 +145,55 @@ describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
     expect(posts.some((p) => p.action === 'enregistrer-activite')).toBe(false);
   });
 });
+
+describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion', () => {
+  const avec407 = () => {
+    parametres = { disponible: true, annuaire: true, moi: 5, negociateurs: [{ id: 5, libelle: 'Jean-Baptiste PONS' }],
+      collegues: [{ id: 2, libelle: 'Arnaud Jorel' }, { id: 5, libelle: 'Jean-Baptiste PONS' }],
+      regles: [{ depuis: '2026-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }],
+      apporteurs: [
+        { id: 3, nom: 'Kin Immo', type: 'partenaire', archive: false, baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0 }], collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] },
+        { id: 4, nom: 'Sans Collègue', type: 'partenaire', archive: false, baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0 }], collegues: [] },
+      ], retrocessions: [] };
+  };
+  it('l’origine du contact est obligatoire : « Enregistrer » est bloqué et le dit', async () => {
+    avec407();
+    await preparer();
+    await toutRepondre();
+    await soumettre();
+    expect(posts.some((p) => p.action === 'apercu-lots' || p.action === 'creer-locataires')).toBe(false);
+    expect(container.querySelector('[data-suivi-commercial] .loc-manque')?.textContent).toBe('L’origine du contact est obligatoire.');
+  });
+  it('« Apporteur d’affaires » : un apporteur « à rattacher » n’est pas choisissable ; le collègue s’affiche ; la commission est proposée au taux', async () => {
+    avec407();
+    await preparer();
+    await choisir(container.querySelector('select[data-origine-contact]') as HTMLSelectElement, 'apporteur');
+    const options = [...container.querySelectorAll('select[data-apporteur] option')] as HTMLOptionElement[];
+    expect(options.find((o) => o.value === '4')?.disabled).toBe(true);
+    expect(options.find((o) => o.value === '4')?.textContent).toContain('à rattacher');
+    expect(options.find((o) => o.value === '3')?.disabled).toBe(false);
+    await choisir(container.querySelector('select[data-apporteur]') as HTMLSelectElement, '3');
+    expect(container.querySelector('[data-collegue-rattache]')?.textContent).toBe('Collègue de rattachement : Arnaud Jorel');
+    await saisir(htProprio(), '400');
+    await saisir(htLocataire(), '200');
+    expect((container.querySelector('input[data-commission-apporteur]') as HTMLInputElement).placeholder).toBe('60,00');
+  });
+  it('« Collègue directement » : le collègue ; la prime « 150 € » par défaut avec un mandat, « Personnalisé » exige son montant ; tout part au bail créé', async () => {
+    avec407();
+    await preparer();
+    await toutRepondre();
+    await choisir(container.querySelector('select[data-origine-contact]') as HTMLSelectElement, 'collegue');
+    await choisir(container.querySelector('select[data-collegue]') as HTMLSelectElement, '2');
+    const prime = () => container.querySelector('select[data-prime-mode]') as HTMLSelectElement;
+    expect(prime().value).toBe('aucune');
+    await clic(container.querySelector('input[data-mandat-gestion]')!);
+    expect(prime().value).toBe('regle');
+    expect(prime().selectedOptions[0].textContent).toBe('150 €');
+    await choisir(prime(), 'personnalise');
+    await soumettre();
+    expect(container.querySelector('[data-suivi-commercial] .loc-manque')?.textContent).toBe('Prime de gestion personnalisée : saisissez le montant (ex. 15).');
+    await saisir(container.querySelector('input[data-prime-montant]') as HTMLInputElement, '15');
+    await soumettre(); await soumettre();
+    expect(posts.find((p) => p.action === 'enregistrer-activite')).toMatchObject({ activite: { origineContact: 'collegue', collegueId: 2, primeMode: 'personnalise', primeMontant: '15', mandatGestion: true } });
+  });
+});

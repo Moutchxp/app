@@ -3,8 +3,9 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDeCategorie } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import type { ActiviteCalcul, ActiviteLue, Assurance, DonneesTableau, Transition } from './tableauBord';
-import { lireApporteurs, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+import type { ActiviteCalcul, ActiviteLue, Assurance, DonneesTableau, LigneGestion, Transition } from './tableauBord';
+import type { ModePrime, OrigineContact } from './suivi';
+import { annuaireDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
@@ -21,6 +22,7 @@ const iso = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${S
 export async function lireActivites(annees: readonly number[]): Promise<ActiviteLue[]> {
   if (!(await suiviDisponible()) || annees.length === 0) return [];
   const avecAssurance = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_id');
+  const avec407 = await annuaireDisponible();
   const { rows } = await query<Record<string, unknown>>(
     `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
             a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
@@ -29,6 +31,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             coalesce(a.origine_proprietaire_saisie, a.origine_proprietaire_deduite) AS origine_proprietaire,
             coalesce(a.origine_locataire_saisie, a.origine_locataire_deduite) AS origine_locataire,
             a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie,
+            ${avec407 ? 'a.origine_contact, a.collegue_id, a.collegue_libelle, a.prime_mode' : 'NULL::text AS origine_contact, NULL::bigint AS collegue_id, NULL::text AS collegue_libelle, NULL::text AS prime_mode'},
             ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
               WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
@@ -50,6 +53,8 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     parking: r.categorie_prime === 'parking' || familleDeCategorie(r.categorie as string | null) === 'parking',
     vacanceJours: nOuNull(r.vacance), rattachement: r.rattachement as ActiviteCalcul['rattachement'],
     lotId: nOuNull(r.lot_id), bailId: nOuNull(r.bail_id), source: String(r.source),
+    origineContact: (r.origine_contact as OrigineContact | null) ?? null, collegueId: nOuNull(r.collegue_id),
+    collegueLibelle: (r.collegue_libelle as string | null) ?? null, primeMode: (r.prime_mode as ModePrime | null) ?? null,
   }));
 }
 
@@ -76,6 +81,32 @@ export async function lireGestion(depuis: string): Promise<{ transitions: Transi
   };
 }
 
+/**
+ * 407 — les ENTRÉES en gestion et les SORTIES (mandats perdus) d'une période, avec le bien, son propriétaire, et le loyer et le
+ * taux de gestion du bail en cours à la date (le dernier bail entré au plus tard deux mois après) : de quoi chiffrer les
+ * honoraires de gestion gagnés et perdus. Sans loyer saisi : la ligne est là, sans montant (rien n'est inventé).
+ */
+export async function lireLignesGestion(debut: string, fin: string): Promise<LigneGestion[]> {
+  if (!(await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien'))) return [];
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT t.lot_id, t.avant, t.apres, t.effet_le, concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS libelle,
+            coalesce(p.nom_complet, '') AS proprietaire, c.loyer_hc, c.provisions, c.base, c.taux_gestion_ht
+       FROM gestion_bien_statut_transition t
+       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id
+       LEFT JOIN LATERAL (
+         SELECT x.loyer_hc, x.provisions, x.base, x.taux_gestion_ht FROM gestion_bail b JOIN gestion_location_conditions x ON x.bail_id = b.id
+          WHERE b.lot_id = t.lot_id AND (b.entree IS NULL OR b.entree <= t.effet_le + 62)
+          ORDER BY b.entree DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
+      WHERE t.effet_le BETWEEN $1 AND $2 AND (t.apres = 'en_gestion' OR t.avant = 'en_gestion')
+      ORDER BY t.effet_le, t.id`, [debut, fin]);
+  return rows.map((r) => ({
+    lotId: n(r.lot_id), libelle: String(r.libelle || `Bien n° ${r.lot_id}`), proprietaire: String(r.proprietaire), effetLe: iso(r.effet_le),
+    avant: (r.avant as string | null) ?? null, apres: String(r.apres), loyerHc: nOuNull(r.loyer_hc), provisions: nOuNull(r.provisions),
+    base: (r.base as 'cc' | 'hc' | null) ?? null, tauxHt: nOuNull(r.taux_gestion_ht),
+  }));
+}
+
 /** Les préavis reçus, par mois (« AAAA-MM » → nombre), pour les années demandées ; ni annulés ni remplacés. */
 export async function preavisParMois(annees: readonly number[]): Promise<Record<string, number>> {
   if (!(await colonneExisteMemo('gestion_location_preavis', 'recu_le'))) return {};
@@ -95,16 +126,20 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
   const [a, m] = moisFin.split('-').map(Number);
   const depuis = new Date(Date.UTC(a, m - 12, 1)).toISOString().slice(0, 10);
-  const [activites, annees, regles, apporteurs, retrocessions, gestion, preavis] = await Promise.all([
-    lireActivites([annee - 1, annee]), anneesActives(), voirCommissions ? lireRegles() : Promise.resolve([]), lireApporteurs(),
+  const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionLignes, collegues, annuaire] = await Promise.all([
+    lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
     voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
+    lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireCollegues(), annuaireDisponible(),
   ]);
-  const visibles = voirCommissions ? activites : activites.map((x) => ({ ...x, primeSaisie: null }));
+  /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
+     (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
+  const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));
+  const visibles = activites;
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
-    gestion, preavis, voirCommissions,
+    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire,
   };
 }

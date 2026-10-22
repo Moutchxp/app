@@ -156,7 +156,7 @@ export function CreationLocataire() {
   const manqueHono: Record<string, string> = !avecConditions || !honoSaisie.manuel ? {}
     : montantHono === false ? { honorairesProprietaireMontant: MOTIF_MONTANT_SAISI }
       : montantHono === null ? { honorairesProprietaireMontant: 'Honoraires propriétaire : saisissez le montant, ou « recalculer ».' } : {};
-  const motifDuSuivi = avecSuivi ? motifSuivi(suivi) : null;
+  const motifDuSuivi = avecSuivi ? motifSuivi(suivi, parametresSuivi.lu?.annuaire === true) : null;
   const manque: Record<string, string> = {
     ...manqueHono,
     ...(motifDuSuivi !== null ? { suivi: motifDuSuivi } : {}),
@@ -323,7 +323,7 @@ export function CreationLocataire() {
     // Bloc 4 — le suivi commercial du bail créé : un échec est DIT (le locataire, lui, est enregistré).
     if (avecSuivi && bailId !== null) {
       const rs = await posterSuivi({ action: 'enregistrer-activite', bailId,
-        activite: { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions } });
+        activite: { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions } }, { propre: true });
       if (rs.motif !== null) annonces.push(`Le locataire est enregistré, mais pas son suivi commercial : ${rs.motif}`);
     }
     const envoiDirect = envoyerApres.current && bailId !== null;

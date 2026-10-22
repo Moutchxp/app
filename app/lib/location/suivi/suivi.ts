@@ -32,6 +32,18 @@ export const LIBELLE_ORIGINE: Record<Origine, string> = { nouveau: 'Nouveau clie
 export const CATEGORIES_PRIME = ['logement', 'parking'] as const;
 export type CategoriePrime = typeof CATEGORIES_PRIME[number];
 
+/** Arno (23/10/2026, 407) — L'ORIGINE DU CONTACT : liste fixe, obligatoire pour toute nouvelle location. */
+export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'passage_agence', 'campagne'] as const;
+export type OrigineContact = typeof ORIGINES_CONTACT[number];
+export const LIBELLE_ORIGINE_CONTACT: Record<OrigineContact, string> = {
+  collegue: 'Collègue directement', apporteur: 'Apporteur d’affaires', internet: 'Internet', recommandation: 'Recommandation client',
+  relocation: 'Relocation (portefeuille de gestion)', passage_agence: 'Passage agence', campagne: 'Campagne de communication',
+};
+
+/** Arno (23/10/2026, 407) — LA PRIME DE GESTION : la règle (150 € par défaut quand un mandat de gestion est signé), personnalisée, aucune. */
+export const MODES_PRIME = ['regle', 'personnalise', 'aucune'] as const;
+export type ModePrime = typeof MODES_PRIME[number];
+
 /** Arrondi au centime (montants en euros). */
 export const auCentime = (x: number): number => Math.round((x + Number.EPSILON) * 100) / 100;
 /** TTC déduit d'un HT (× 1,2), au centime. */
@@ -73,7 +85,25 @@ export function versionADate<T extends Datee>(versions: readonly T[], dateIso: s
 
 export interface RegleCommission extends Datee { tauxNegociateur: number; primeLogement: number; primeParking: number }
 export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number }
-export interface Apporteur { id: number; nom: string; type: TypeApporteur; baremes: BaremeApporteur[]; archive: boolean }
+/** Le collègue de rattachement d'un apporteur, daté (407) : la version en vigueur à la date d'une affaire fait foi. */
+export interface CollegueDate extends Datee { collegueId: number | null; collegueLibelle: string }
+export interface Apporteur {
+  id: number; nom: string; type: TypeApporteur; baremes: BaremeApporteur[]; archive: boolean;
+  societe?: string | null; telephone?: string | null; email?: string | null;
+  /** Vide : « à rattacher » (407). Absent : base sans la 407. */
+  collegues?: CollegueDate[];
+}
+
+/** « À rattacher » : aucun collègue de rattachement — l'apporteur ne peut pas être choisi pour une nouvelle location. PUR. */
+export const aRattacher = (a: Pick<Apporteur, 'collegues'>): boolean => a.collegues !== undefined && a.collegues.length === 0;
+
+/** Le collègue de rattachement d'un apporteur À UNE DATE : la version en vigueur ce jour-là (jamais rétroactif) ; avant la
+ *  première version, la première (l'apporteur était déjà le sien). null : à rattacher. PUR. */
+export function collegueADate(a: Pick<Apporteur, 'collegues'>, dateIso: string): CollegueDate | null {
+  const v = a.collegues ?? [];
+  if (v.length === 0) return null;
+  return versionADate(v, dateIso) ?? [...v].sort((x, y) => x.depuis.localeCompare(y.depuis))[0];
+}
 
 /** Une date AAAA-MM-JJ valide (le calendrier, pas seulement la forme). */
 export function dateIsoValide(t: unknown): t is string {
@@ -99,6 +129,13 @@ export interface SaisieActivite {
   avecGestion: boolean;
   origineProprietaire: Origine | null;
   origineLocataire: Origine | null;
+  /** 407 — l'origine du contact (obligatoire), le collègue (« collègue directement »), la commission d'apporteur saisie (€),
+   *  la prime (règle / personnalisée / aucune) et son montant personnalisé. */
+  origineContact?: OrigineContact | null;
+  collegueId?: number | null;
+  commissionApporteur?: string;
+  primeMode?: ModePrime | null;
+  primeMontant?: string;
 }
 
 export interface ActiviteVerifiee {
@@ -113,37 +150,79 @@ export interface ActiviteVerifiee {
   avecGestion: boolean;
   origineProprietaire: Origine | null;
   origineLocataire: Origine | null;
+  origineContact: OrigineContact | null;
+  collegueId: number | null;
+  commissionApporteur: number | null;
+  primeMode: ModePrime | null;
+  primeMontant: number | null;
 }
 
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null => (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
 const entierPositif = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null);
 
 /** Vérifie la saisie reçue (navigateur ou serveur) : la date de signature est obligatoire ; montants ≥ 0 ; taux en %. */
-export function verifierActivite(brut: unknown): { ok: true; valeurs: ActiviteVerifiee } | { ok: false; motif: string } {
+export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolean } = {}): { ok: true; valeurs: ActiviteVerifiee } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
   const type = dans(TYPES_ACTIVITE, b.type) ?? 'bail';
   if (!dateIsoValide(b.dateSignature)) return { ok: false, motif: 'La date de signature du bail est obligatoire.' };
+  const c = verifierCommercial(b, o.origineObligatoire ?? true);
+  if (!c.ok) return c;
   const hp = lireMontant(b.honoProprietaireHt);
   const hl = lireMontant(b.honoLocataireHt);
   if (hp === undefined) return { ok: false, motif: 'Honoraires propriétaire HT : un montant en euros (ex. 416,67).' };
   if (hl === undefined) return { ok: false, motif: 'Honoraires locataire HT : un montant en euros (ex. 226,95).' };
   const taux = lireTauxPourcent(b.apporteurTaux);
   if (taux === undefined) return { ok: false, motif: 'Taux de l’apporteur : un pourcentage entre 0 et 100.' };
-  const apporteurId = entierPositif(b.apporteurId);
+  const apporteurId = c.valeurs.apporteurId;
   return {
     ok: true,
     valeurs: {
       type, dateSignature: b.dateSignature, honoProprietaireHt: hp ?? 0, honoLocataireHt: hl ?? 0,
-      negociateurId: entierPositif(b.negociateurId), apporteurId, apporteurTaux: apporteurId === null ? null : taux,
+      negociateurId: entierPositif(b.negociateurId), apporteurTaux: apporteurId === null ? null : taux,
       mandatGestion: b.mandatGestion === true, avecGestion: b.avecGestion === true,
       origineProprietaire: dans(ORIGINES, b.origineProprietaire), origineLocataire: dans(ORIGINES, b.origineLocataire),
+      ...c.valeurs,
     },
   };
 }
 
+export interface ChampsCommerciaux {
+  origineContact: OrigineContact | null; collegueId: number | null; apporteurId: number | null;
+  commissionApporteur: number | null; primeMode: ModePrime | null; primeMontant: number | null;
+}
+
+/**
+ * Arno (23/10/2026, 407) — les CHAMPS COMMERCIAUX d'une affaire (saisie au bail, ou correction dans la feuille du mois) :
+ * l'origine du contact est OBLIGATOIRE ; « collègue directement » exige le collègue ; « apporteur d'affaires » exige
+ * l'apporteur ; une prime « personnalisée » exige son montant. La commission d'apporteur saisie (€) est facultative (vide :
+ * le taux). PUR.
+ */
+export function verifierCommercial(b: Record<string, unknown>, origineObligatoire = true): { ok: true; valeurs: ChampsCommerciaux } | { ok: false; motif: string } {
+  const origineContact = dans(ORIGINES_CONTACT, b.origineContact);
+  if (origineContact === null && origineObligatoire) return { ok: false, motif: 'L’origine du contact est obligatoire.' };
+  const collegueId = entierPositif(b.collegueId);
+  if (origineContact === 'collegue' && collegueId === null) return { ok: false, motif: 'Choisissez le collègue (origine « Collègue directement »).' };
+  const apporteurId = origineContact === null || origineContact === 'apporteur' ? entierPositif(b.apporteurId) : null;
+  if (origineContact === 'apporteur' && apporteurId === null) return { ok: false, motif: 'Choisissez l’apporteur d’affaires dans l’annuaire.' };
+  const com = lireMontant(b.commissionApporteur);
+  if (com === undefined) return { ok: false, motif: 'Honoraires d’apporteur : un montant en euros (ex. 64,39).' };
+  const primeMode = dans(MODES_PRIME, b.primeMode);
+  const pm = lireMontant(b.primeMontant);
+  if (primeMode === 'personnalise' && (pm === undefined || pm === null)) return { ok: false, motif: 'Prime de gestion personnalisée : saisissez le montant (ex. 15).' };
+  return { ok: true, valeurs: {
+    origineContact, collegueId: origineContact === 'collegue' ? collegueId : null, apporteurId,
+    commissionApporteur: apporteurId === null ? null : com, primeMode, primeMontant: primeMode === 'personnalise' ? (pm as number) : null,
+  } };
+}
+
 /** Vérifie un apporteur nouveau (nom, type, taux par défaut en %, coût fixe mensuel en €, date d'effet). */
-export function verifierApporteur(brut: unknown): { ok: true; nom: string; type: TypeApporteur; taux: number; coutFixe: number; depuis: string } | { ok: false; motif: string } {
+export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: boolean } = {}): { ok: true; nom: string; type: TypeApporteur; taux: number; coutFixe: number; depuis: string;
+  societe: string | null; telephone: string | null; email: string | null; collegueId: number | null } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
+  const coord = verifierCoordonnees(b);
+  if (!coord.ok) return coord;
+  const collegueId = entierPositif(b.collegueId);
+  if (o.collegueObligatoire && collegueId === null) return { ok: false, motif: 'Le collègue de rattachement de l’apporteur est obligatoire.' };
   const nom = typeof b.nom === 'string' ? b.nom.replace(/\s+/g, ' ').trim() : '';
   if (nom === '') return { ok: false, motif: 'Le nom de l’apporteur est obligatoire.' };
   const type = dans(TYPES_APPORTEUR, b.type);
@@ -154,7 +233,16 @@ export function verifierApporteur(brut: unknown): { ok: true; nom: string; type:
   if (cout === undefined) return { ok: false, motif: 'Coût fixe mensuel : un montant en euros.' };
   const depuis = dateIsoValide(b.depuis) ? b.depuis : null;
   if (depuis === null) return { ok: false, motif: 'La date d’effet du taux est obligatoire.' };
-  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis };
+  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId };
+}
+
+const texteOuNull = (v: unknown): string | null => (typeof v === 'string' && v.replace(/\s+/g, ' ').trim() !== '' ? v.replace(/\s+/g, ' ').trim() : null);
+
+/** La fiche de l'apporteur : société, téléphone, e-mail (facultatifs ; un e-mail mal écrit est refusé). PUR. */
+export function verifierCoordonnees(b: Record<string, unknown>): { ok: true; valeurs: { societe: string | null; telephone: string | null; email: string | null } } | { ok: false; motif: string } {
+  const email = texteOuNull(b.email);
+  if (email !== null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, motif: 'L’e-mail de l’apporteur est mal écrit (ex. nom@exemple.fr).' };
+  return { ok: true, valeurs: { societe: texteOuNull(b.societe), telephone: texteOuNull(b.telephone), email } };
 }
 
 /** Vérifie une version de la règle de commission (taux du négociateur en %, primes en €, date d'effet). */

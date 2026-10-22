@@ -1,5 +1,5 @@
 import {
-  type Apporteur, type CategoriePrime, type Origine, type RegleCommission, type TypeActivite, versionADate,
+  type Apporteur, type CategoriePrime, collegueADate, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
 /**
@@ -48,6 +48,11 @@ export interface ActiviteCalcul {
   /** Jours sans locataire avant ce bail (sortie du précédent → entrée), quand elle est connue. */
   vacanceJours: number | null;
   rattachement: 'rattache' | 'douteux' | 'non_rattache';
+  /** 407 — origine du contact, collègue (« collègue directement »), choix de prime. Absents : base d'avant la 407. */
+  origineContact?: OrigineContact | null;
+  collegueId?: number | null;
+  collegueLibelle?: string | null;
+  primeMode?: ModePrime | null;
 }
 
 export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
@@ -77,8 +82,11 @@ export const cleNegociateur = (o: { negociateurId: number | null; negociateurLib
   (o.negociateurId !== null ? `id:${o.negociateurId}` : `nom:${o.negociateurLibelle.trim().toLowerCase()}`);
 
 export function primeDe(a: ActiviteCalcul, regles: readonly RegleCommission[]): number {
+  // 407 — le choix de prime : « Aucune » → 0 ; « Personnalisé » → le montant saisi ; « 150 € » → la règle à la date.
+  if (a.primeMode === 'aucune') return 0;
+  if (a.primeMode === 'personnalise') return a.primeSaisie ?? 0;
   if (a.primeSaisie !== null) return a.primeSaisie;
-  if (!a.mandatGestion) return 0;
+  if (!a.mandatGestion && a.primeMode !== 'regle') return 0;
   const r = versionADate(regles, a.dateSignature);
   if (r === null) return 0;
   return (a.categoriePrime ?? (a.parking ? 'parking' : 'logement')) === 'parking' ? r.primeParking : r.primeLogement;
@@ -94,6 +102,30 @@ export function tauxApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteu
 export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
   if (a.commissionSaisie !== null) return a.commissionSaisie;
   return caLigne(a) * tauxApporteurDe(a, apporteurs);
+}
+
+/** Le taux de commission appliqué à la ligne (affichage) : celui du bail, sinon celui de l'apporteur à la date ; null sans apporteur. */
+export function tauxAffichage(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number | null {
+  if (a.apporteurId === null && a.apporteurNom === null) return null;
+  if (a.commissionSaisie !== null && a.apporteurTaux === null) return caLigne(a) === 0 ? null : a.commissionSaisie / caLigne(a);
+  return tauxApporteurDe(a, apporteurs);
+}
+
+/**
+ * 407 — le COLLÈGUE DE RATTACHEMENT d'une affaire : le collègue choisi (« collègue directement ») ; pour un apporteur, son
+ * collègue À LA DATE DE SIGNATURE (un changement de collègue ne réattribue jamais les affaires passées) ; sinon aucun.
+ * `aRattacher` : l'apporteur n'a encore aucun collègue. PUR.
+ */
+export function collegueDeLigne(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): { cle: string; libelle: string } | { aRattacher: true } | null {
+  if (a.origineContact === 'collegue' && a.collegueLibelle) {
+    return { cle: a.collegueId !== null && a.collegueId !== undefined ? `id:${a.collegueId}` : `nom:${a.collegueLibelle.toLowerCase()}`, libelle: a.collegueLibelle };
+  }
+  if (a.apporteurId === null) return null;
+  const ap = apporteurs.find((x) => x.id === a.apporteurId);
+  if (ap === undefined || ap.collegues === undefined) return null;
+  const c = collegueADate(ap, a.dateSignature);
+  if (c === null) return { aRattacher: true };
+  return { cle: c.collegueId !== null ? `id:${c.collegueId}` : `nom:${c.collegueLibelle.toLowerCase()}`, libelle: c.collegueLibelle };
 }
 
 export const tauxNegociateurDe = (a: ActiviteCalcul, regles: readonly RegleCommission[]): number => versionADate(regles, a.dateSignature)?.tauxNegociateur ?? 0;
@@ -368,4 +400,91 @@ export interface DonneesTableau {
   gestion: { transitions: Transition[]; stock: number; disponible: boolean };
   preavis: Record<string, number>;
   voirCommissions: boolean;
+  /** 407 — les entrées en gestion et les mandats perdus de l'année (feuille du mois) ; les collègues (comptes Location) ; la 407 est-elle là ? */
+  gestionLignes?: LigneGestion[];
+  collegues?: { id: number; libelle: string }[];
+  annuaire?: boolean;
+}
+
+
+// ── 407 — LA FEUILLE DU MOIS ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface CumulAffaires { nb: number; ca: number; commission: number; ids: (number | string)[] }
+const cumulVide = (): CumulAffaires => ({ nb: 0, ca: 0, commission: 0, ids: [] });
+const ajouter = (c: CumulAffaires, a: ActiviteCalcul, apporteurs: readonly Apporteur[]): void => {
+  c.nb += 1; c.ca += caLigne(a); c.commission += commissionApporteurDe(a, apporteurs); c.ids.push(a.id);
+};
+
+export interface ApporteurDuMois extends CumulAffaires { apporteurId: number | null; nom: string; aRattacher: boolean }
+export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: string }
+
+/**
+ * Les apporteurs d'un ensemble de lignes (nombre d'affaires, CA apporté, honoraires d'apporteur), et pour chaque COLLÈGUE le
+ * cumul des affaires apportées par SES apporteurs (collègue à la date de chaque affaire ; « à rattacher » à part). PUR.
+ */
+export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[]): { apporteurs: ApporteurDuMois[]; collegues: CollegueDuMois[] } {
+  const parApp = new Map<string, ApporteurDuMois>();
+  const parCol = new Map<string, CollegueDuMois>();
+  for (const a of lignes) {
+    if (a.apporteurId === null && a.apporteurNom === null) continue;
+    const ap = a.apporteurId === null ? undefined : apporteurs.find((x) => x.id === a.apporteurId);
+    const cleA = a.apporteurId !== null ? `id:${a.apporteurId}` : `nom:${(a.apporteurNom ?? '').toLowerCase()}`;
+    const ligneA = parApp.get(cleA) ?? { ...cumulVide(), apporteurId: a.apporteurId, nom: ap?.nom ?? a.apporteurNom ?? '—', aRattacher: ap !== undefined && ap.collegues !== undefined && ap.collegues.length === 0 };
+    ajouter(ligneA, a, apporteurs);
+    parApp.set(cleA, ligneA);
+    const col = collegueDeLigne({ ...a, origineContact: 'apporteur' }, apporteurs);
+    if (col === null) continue;
+    const cleC = 'aRattacher' in col ? 'a-rattacher' : col.cle;
+    const ligneC = parCol.get(cleC) ?? { ...cumulVide(), cle: cleC, libelle: 'aRattacher' in col ? 'À rattacher' : col.libelle };
+    ajouter(ligneC, a, apporteurs);
+    parCol.set(cleC, ligneC);
+  }
+  const tri = <T extends { ca: number; nom?: string; libelle?: string }>(x: T[]): T[] => x.sort((p, q) => q.ca - p.ca || String(p.nom ?? p.libelle).localeCompare(String(q.nom ?? q.libelle)));
+  return { apporteurs: tri([...parApp.values()]), collegues: tri([...parCol.values()]) };
+}
+
+/** Le cumul d'UN apporteur, par année et par mois (fiche de l'annuaire). PUR. */
+export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number): { parAnnee: (CumulAffaires & { annee: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
+  const siennes = activites.filter((a) => a.apporteurId === apporteurId);
+  const an = new Map<number, CumulAffaires & { annee: number }>();
+  const mo = new Map<string, CumulAffaires & { mois: string }>();
+  for (const a of siennes) {
+    const y = Number(a.dateSignature.slice(0, 4));
+    const m = a.dateSignature.slice(0, 7);
+    const ly = an.get(y) ?? { ...cumulVide(), annee: y };
+    const lm = mo.get(m) ?? { ...cumulVide(), mois: m };
+    ajouter(ly, a, apporteurs); ajouter(lm, a, apporteurs);
+    an.set(y, ly); mo.set(m, lm);
+  }
+  return { parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
+}
+
+/** Une entrée en gestion ou une sortie (mandat perdu), avec le loyer et le taux qui font ses honoraires de gestion. */
+export interface LigneGestion {
+  lotId: number; libelle: string; proprietaire: string; effetLe: string; avant: string | null; apres: string;
+  loyerHc: number | null; provisions: number | null; base: 'cc' | 'hc' | null; tauxHt: number | null;
+}
+export const STATUT_ARRIVEE: Record<string, string> = { ancienne_gestion: 'Ancienne gestion', location_seule: 'Location seule', en_gestion: 'En gestion' };
+
+/** Les honoraires de gestion mensuels HT d'une ligne : (loyer HC + provisions si base « charges comprises ») × taux ; null sans loyer ni taux. */
+export function honorairesGestionMensuels(l: Pick<LigneGestion, 'loyerHc' | 'provisions' | 'base' | 'tauxHt'>): number | null {
+  if (l.loyerHc === null || l.tauxHt === null) return null;
+  return (l.loyerHc + (l.base === 'cc' ? (l.provisions ?? 0) : 0)) * l.tauxHt / 100;
+}
+
+export interface GestionDuMois {
+  nouvelles: LigneGestion[]; perdues: LigneGestion[];
+  gagneMensuel: number; perduMensuel: number; balanceMensuelle: number; balanceAnnuelle: number; sansLoyer: number;
+}
+
+/** Les nouvelles gestions et les mandats perdus d'un mois (« AAAA-MM »), et la balance gagné − perdu (mensuelle, annualisée). PUR. */
+export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): GestionDuMois {
+  const duMois = lignes.filter((l) => l.effetLe.slice(0, 7) === mois);
+  const nouvelles = duMois.filter((l) => l.apres === 'en_gestion' && l.avant !== 'en_gestion');
+  const perdues = duMois.filter((l) => l.avant === 'en_gestion' && l.apres !== 'en_gestion');
+  const somme = (x: LigneGestion[]): number => x.reduce((s, l) => s + (honorairesGestionMensuels(l) ?? 0), 0);
+  const gagneMensuel = somme(nouvelles);
+  const perduMensuel = somme(perdues);
+  return { nouvelles, perdues, gagneMensuel, perduMensuel, balanceMensuelle: gagneMensuel - perduMensuel, balanceAnnuelle: (gagneMensuel - perduMensuel) * 12,
+    sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length };
 }

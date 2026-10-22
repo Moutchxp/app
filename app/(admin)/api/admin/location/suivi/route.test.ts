@@ -12,10 +12,11 @@ const repo = {
   ajouterBaremeApporteur: vi.fn(), ajouterRegle: vi.fn(), ajouterRetrocession: vi.fn(), annulerRetrocession: vi.fn(), creerApporteur: vi.fn(),
   enregistrerActiviteBail: vi.fn(), lireApporteurs: vi.fn(), lireNegociateurs: vi.fn(), lireRegles: vi.fn(), lireRetrocessions: vi.fn(),
   peutVoirCommissions: vi.fn(), proposerActivite: vi.fn(), suiviDisponible: vi.fn(),
+  annuaireDisponible: vi.fn(), lireCollegues: vi.fn(), modifierActivite: vi.fn(), modifierApporteur: vi.fn(), rattacherApporteur: vi.fn(),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
-vi.mock('../../../../../lib/location/suivi/tableauBordRepo', () => ({ donneesTableau: (...a: unknown[]) => donneesTableau(...a) }));
+vi.mock('../../../../../lib/location/suivi/tableauBordRepo', () => ({ donneesTableau: (...a: unknown[]) => donneesTableau(...a), lireActivites: async () => [], anneesActives: async () => [] }));
 const { GET, POST } = await import('./route');
 
 const poster = (corps: unknown) => POST(new Request('http://x', { method: 'POST', body: JSON.stringify(corps) }));
@@ -27,6 +28,8 @@ beforeEach(() => {
   repo.lireApporteurs.mockResolvedValue([]);
   repo.lireRegles.mockResolvedValue([]);
   repo.lireNegociateurs.mockResolvedValue([]);
+  repo.lireCollegues.mockResolvedValue([]);
+  repo.annuaireDisponible.mockResolvedValue(true);
   repo.lireRetrocessions.mockResolvedValue([{ id: 1, montant: 200 }]);
   repo.peutVoirCommissions.mockResolvedValue(false);
   exigerAdministrateur.mockReset().mockResolvedValue({ auteurId: 2 });
@@ -36,13 +39,23 @@ beforeEach(() => {
 describe('/api/admin/location/suivi', () => {
   it('🔴 un collaborateur Location ne crée NI barème, NI règle, NI rétrocession (garde administrateur)', async () => {
     exigerAdministrateur.mockResolvedValue(REFUS());
-    for (const action of ['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession']) {
+    for (const action of ['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur']) {
       expect((await poster({ action })).status).toBe(403);
     }
     expect(repo.ajouterBaremeApporteur).not.toHaveBeenCalled();
     expect(repo.ajouterRegle).not.toHaveBeenCalled();
     expect(repo.ajouterRetrocession).not.toHaveBeenCalled();
     expect(repo.annulerRetrocession).not.toHaveBeenCalled();
+    expect(repo.modifierApporteur).not.toHaveBeenCalled();
+    expect(repo.rattacherApporteur).not.toHaveBeenCalled();
+  });
+  it('407 — la feuille du mois corrige une affaire avec le droit Location ; l’annuaire passe par la garde administrateur', async () => {
+    expect((await poster({ action: 'modifier-activite', id: 12, champs: { origineContact: 'internet' } })).status).toBe(200);
+    expect(repo.modifierActivite).toHaveBeenCalledWith(12, { origineContact: 'internet' }, { id: 5, libelle: 'Jean-Baptiste PONS' });
+    expect(exigerAdministrateur).not.toHaveBeenCalled();
+    await poster({ action: 'rattacher-apporteur', apporteurId: 3, rattachement: { collegueId: 2, depuis: '2026-01-01' } });
+    expect(exigerAdministrateur).toHaveBeenCalled();
+    expect(repo.rattacherApporteur).toHaveBeenCalledWith(3, { collegueId: 2, depuis: '2026-01-01' }, { id: 5, libelle: 'Jean-Baptiste PONS' });
   });
   it('le suivi d’un bail et « + Nouvel apporteur » : droit Location, avec l’auteur de la requête', async () => {
     expect((await poster({ action: 'enregistrer-activite', bailId: 7, activite: { dateSignature: '2026-10-22' } })).status).toBe(200);

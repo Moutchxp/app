@@ -3,10 +3,12 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
-  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
-  lireApporteurs, lireNegociateurs, lireRegles, lireRetrocessions, peutVoirCommissions, proposerActivite, suiviDisponible,
+  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
+  lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
+  proposerActivite, rattacherApporteur, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
-import { donneesTableau } from '../../../../../lib/location/suivi/tableauBordRepo';
+import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
+import { cumulApporteur } from '../../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 
 /**
@@ -17,6 +19,9 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
  *   POST action=enregistrer-activite {bailId, activite}   le suivi commercial d'un bail (module Location) ;
  *   POST action=creer-apporteur {apporteur}               « + Nouvel apporteur » (module Location) ;
  *   POST action=bareme-apporteur | regle | retrocession | annuler-retrocession   (ADMINISTRATEUR : la roue Paramètres).
+ *   407 : POST action=modifier-activite {id, champs}  la feuille du mois corrige origine, collègue, apporteur, prime (Location) ;
+ *         POST action=modifier-apporteur | rattacher-apporteur  la fiche de l'annuaire, le collègue daté (ADMINISTRATEUR) ;
+ *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur, par mois et par an.
  * Les rétrocessions (montants de commission) ne sont lues que par qui peut « Voir les commissions ».
  */
 export const runtime = 'nodejs';
@@ -33,23 +38,29 @@ export async function GET(request: Request): Promise<Response> {
       return json(await proposerActivite(Number(url.searchParams.get('lotId')), ids, url.searchParams.get('date')));
     }
     const voirCommissions = await peutVoirCommissions(garde.auteurId);
+    if (url.searchParams.get('vue') === 'cumul-apporteur') {
+      const id = Number(url.searchParams.get('id'));
+      const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
+      return json({ etat: 'ok', data: cumulApporteur(await lireActivites(annees), apporteurs, id) });
+    }
     if (url.searchParams.get('vue') === 'tableau') {
       const jour = aujourdhuiParis();
       const a = Number(url.searchParams.get('annee'));
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
-    const [disponible, apporteurs, regles, retrocessions, negociateurs] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
+      lireCollegues(), annuaireDisponible(),
     ]);
-    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null } });
+    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);
   }
 }
 
-const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession']);
+const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur']);
 
 export async function POST(request: Request): Promise<Response> {
   let corps: Record<string, unknown>;
@@ -70,6 +81,9 @@ export async function POST(request: Request): Promise<Response> {
       case 'regle': return json(await ajouterRegle(corps.regle, auteur));
       case 'retrocession': return json(await ajouterRetrocession(corps.retrocession, auteur));
       case 'annuler-retrocession': return json(await annulerRetrocession(corps.id, auteur));
+      case 'modifier-activite': return json(await modifierActivite(corps.id, corps.champs, auteur));
+      case 'modifier-apporteur': return json(await modifierApporteur(corps.apporteurId, corps.fiche, auteur));
+      case 'rattacher-apporteur': return json(await rattacherApporteur(corps.apporteurId, corps.rattachement, auteur));
       default: return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);
     }
   } catch (e) {
