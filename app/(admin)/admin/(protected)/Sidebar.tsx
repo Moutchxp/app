@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { liensVisibles, ordonner } from './menuAdmin';
+import { adresseNormalisee, demanderAccueilTuile } from './ContenuTuile';
 import { SelecteurTheme } from './SelecteurTheme';
 import type { Perms, RoleAdmin } from '../../../lib/admin/session';
 
@@ -20,6 +21,7 @@ export const ATTR_MOBILE = 'data-gst-mobile';
 
 export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms: Perms; ordreModules?: unknown }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [ouvert, setOuvert] = useState(false);
   // Filtrage RÔLE D'ABORD (cf. menuAdmin) : administrateur → tout + « Administratif » ; collaborateur → ses perms.
   // Puis `ordonner()` applique l'ordre personnalisé (migration 030) — MÊME appel que la grille du tableau de bord.
@@ -92,10 +94,27 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
                 className="svv-adm-link"
                 data-actif={actif}
                 aria-current={actif ? 'page' : undefined}
+                /* Arno (22/10/2026) — marque l'entrée du menu : l'avertissement « Modifications non enregistrées » s'applique
+                   même quand l'adresse est déjà celle de l'accueil (le clic remet la page à zéro). */
+                data-accueil-tuile=""
                 onClick={(e) => {
                   setOuvert(false);
-                  if (pathname !== m.slug) return;
+                  if (pathname !== m.slug || e.defaultPrevented) return;
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;   // nouvel onglet : le navigateur
                   e.preventDefault();
+                  /* ══ 🔴🔴 ARNO (22/10/2026) — TOUTES LES TUILES, MÊME DE L'INTÉRIEUR ════════════════════════════════════
+                     Sur la première page de la tuile (paramètres compris) : on repose l'adresse et on émet le `popstate`,
+                     comme avant ; et pour les tuiles autres que Gestion, le contenu est REMONTÉ (`ContenuTuile`) — sans
+                     quoi le Banc de test gardait sa saisie, Permis son onglet, toute page sa modale ouverte.
+                     Avec des paramètres d'URL lus par le serveur (`/admin/permis?q=…`), seule une vraie navigation les
+                     efface : `router.push`, et le remontage attend que l'adresse soit arrivée.
+                     ⚠️ Gestion garde sa remise à zéro EN PLACE (lot ACCUEIL-GESTION, 06/10/2026), sans remontage. */
+                  const ici = pathname + window.location.search;
+                  if (m.accueil === undefined) demanderAccueilTuile(destination);
+                  if (m.accueil === undefined && adresseNormalisee(ici) !== adresseNormalisee(destination)) {
+                    router.push(destination);
+                    return;
+                  }
                   window.history.pushState(null, '', destination);
                   window.dispatchEvent(new PopStateEvent('popstate'));
                 }}

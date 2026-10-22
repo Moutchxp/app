@@ -113,7 +113,8 @@ export function useEditionEncart(lotId: number, apres: () => void): EditionEncar
       const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (a === null || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if ((a.target && a.target !== '_self') || a.hasAttribute('download') || a.origin !== window.location.origin) return;
-      if (a.pathname === window.location.pathname && a.search === window.location.search) return;
+      // Même adresse : on ne quitte rien… sauf une entrée du menu de gauche, qui remet la page à zéro (Arno, 22/10/2026).
+      if (a.pathname === window.location.pathname && a.search === window.location.search && !a.hasAttribute('data-accueil-tuile')) return;
       if (!window.confirm(`${AVERTISSEMENT_SORTIE} Quitter quand même ?`)) { e.preventDefault(); e.stopPropagation(); }
     };
     window.addEventListener('beforeunload', avertir);

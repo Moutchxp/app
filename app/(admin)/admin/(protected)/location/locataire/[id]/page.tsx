@@ -1,5 +1,6 @@
 import { accesLocation, identifiantPage, REFUS_FICHE_COMMUNE, REFUS_LOCATION } from '../../acces';
 import { FicheCommuneLocation } from '../../../gestion/FicheCommune';
+import { LienRetour } from '../../../_composants/EnTetePage';
 import { BlocSortieLogement, EcranSortieLocataire } from '../../SortieLocataires';
 import { BlocEnvoiFicheLocataire } from '../../EnvoiAdhocMonga';
 
@@ -21,10 +22,11 @@ export default async function Page({ params, searchParams }: {
   return (
     <section className="gst-page">
       {!autorise ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_LOCATION}</div>
-        : id === null ? <div className="svv-card">Adresse incomplète : identifiant manquant.</div>
+        : id === null ? <>{/* Arno (22/10/2026) — sans la fiche, un « ← Retour » vers la Location. */}<LienRetour href="/admin/location" /><div className="svv-card">Adresse incomplète : identifiant manquant.</div></>
           : sortie !== null ? <EcranSortieLocataire occupationInitiale={sortie} gestion={gestion} />
           : (
             <>
+              {!gestion && <LienRetour href="/admin/location" />}
               <BlocSortieLogement locataireId={id} occupationDemandee={sortie} gestion={gestion} />
               {/* Arno (21/10/2026) — « Envoi ADHOC & MONGA » pour chaque bail en cours (rien sans bail en cours). */}
               <BlocEnvoiFicheLocataire locataireId={id} />

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 // La barre appelle `usePathname` pour souligner le module courant : hors du routeur d'application, il rend `null` et
 //   la barre tombe. On lui donne le chemin réel de la page de gestion — c'est tout ce dont elle a besoin.
-vi.mock('next/navigation', () => ({ usePathname: () => '/admin/gestion' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/admin/gestion', useRouter: () => ({ push: () => {} }) }));
 
 import { Sidebar, ATTR_MOBILE, ATTR_PLEIN_ECRAN, ID_EMPLACEMENT_MODE } from '../Sidebar';
 import { GestionVue } from './GestionVue';

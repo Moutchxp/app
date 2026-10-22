@@ -26,7 +26,7 @@ import { URL_ACCUEIL_GESTION } from '../../../lib/gestion/ecranUrl';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let cheminCourant = '/admin/gestion';
-vi.mock('next/navigation', () => ({ usePathname: () => cheminCourant }));
+vi.mock('next/navigation', () => ({ usePathname: () => cheminCourant, useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('next/link', () => ({
   default: ({ href, children, onClick, ...reste }: {
     href: string; children: unknown; onClick?: (e: unknown) => void;

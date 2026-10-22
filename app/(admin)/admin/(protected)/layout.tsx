@@ -11,6 +11,7 @@ import { BoutonDeconnexion } from './BoutonDeconnexion';
 import { BoutonDriveBandeau } from './BoutonDriveBandeau';
 import { HeureParis } from './HeureParis';
 import { Sidebar } from './Sidebar';
+import { ContenuTuile } from './ContenuTuile';
 import { RevocationWatcher } from './RevocationWatcher';
 import { RoueParametresLocation } from './location/ParametresLocation';
 
@@ -83,7 +84,9 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
             <BoutonDeconnexion />
           </span>
         </div>
-        <main className="svv-adm-main">{children}</main>
+        {/* Arno (22/10/2026) — `ContenuTuile` remonte le contenu quand une entrée du menu de gauche ramène à l'accueil de la tuile
+            où l'on est déjà (voir son encadré). Rien d'autre ne change : même `main`, mêmes enfants. */}
+        <main className="svv-adm-main"><ContenuTuile>{children}</ContenuTuile></main>
       </div>
     </div>
   );

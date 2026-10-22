@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../../../lib/admin/session';
 import { EnTetePage } from '../../_composants/EnTetePage';
 import { RapprochementDossiers } from './RapprochementDossiers';
+import { URL_ACCUEIL_GESTION } from '../../../../../lib/gestion/ecranUrl';
 
 /**
  * Tuile Gestion — « Rapprochement des dossiers clients » (Arno, 19/10/2026). RÉSERVÉ À L'ADMINISTRATEUR : le proxy exige
@@ -17,7 +18,8 @@ export default async function Page() {
   const admin = session?.role === 'administrateur';
   return (
     <section className="gst-page">
-      <EnTetePage titre="Rapprochement des dossiers clients" intro={INTRO_RAPPROCHEMENT} />
+      {/* Arno (22/10/2026) — « ← Retour » vers la page parente : la page Gestion, qui porte le bouton de cet écran. */}
+      <EnTetePage titre="Rapprochement des dossiers clients" intro={INTRO_RAPPROCHEMENT} retour={URL_ACCUEIL_GESTION} />
       {admin ? <RapprochementDossiers /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Cet écran est réservé à l’administrateur.</div>
       )}

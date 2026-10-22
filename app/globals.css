@@ -191,6 +191,10 @@
   @keyframes svvGuideFondu{from{opacity:.4}to{opacity:1}}
   /* En-tête standard des pages admin (socle unifié — voir composant EnTetePage). */
   .svv-page-head{margin:0 0 1rem}
+  /* « ← Retour » des sous-pages de tuile (Arno, 22/10/2026) : au-dessus du titre, à gauche, cible tactile ≥ 44 px. */
+  .svv-page-retour{margin:0 0 .25rem}
+  .svv-page-retour-lien{display:inline-flex;align-items:center;min-height:44px;min-width:44px;padding:0 .25rem 0 0;color:var(--color-svv-ink);font-weight:600;text-decoration:none}
+  .svv-page-retour-lien:hover,.svv-page-retour-lien:focus-visible{text-decoration:underline}
   .svv-page-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
   .svv-page-title{font-size:1.35rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 4px}
   .svv-page-sub{font-size:.9rem;color:var(--color-svv-muted);margin:0;line-height:1.45}
