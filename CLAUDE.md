@@ -14,12 +14,14 @@
 > foi** : en cas de divergence entre une formulation ci-dessous, la documentation et le code, se référer
 > au code cité. Ne jamais modifier ces invariants sans accord explicite du porteur.
 
-- **Golden de non-régression = `29.12915579059343`** (note Couche 1 /80), scellé
+- **Golden de non-régression = `40.77232776704026`** (note Couche 1 /80), scellé
   `app/lib/db/pipeline.itest.ts:88` (et `app/lib/svv/golden.test.ts`, sans base), rejoue **Asnières** (lat
   `48.90693182287072`, lon `2.269431435588249`, azimut 90, étage 2). Toute modif touchant le score change le golden →
   recalcul + validation manuelle + **rescellage en commit SÉPARÉ**. (Asnières est un oracle *faible* pour le chemin
   patrimoine MH/Inventaire/mondial → cas scellés dédiés si l'on y touche.)
-  - Historique : 14/10/2026 : 29.107259068449615 → 29.12915579059343, règle « un frôlement n'est pas un contact » (propre
+  - Historique : 22/10/2026 : 29.12915579059343 → 40.77232776704026, pivot face à la façade, décision d'Arno du 22/10/2026 ; l'ancien golden incluait des vues à travers le propre immeuble (éventail
+    du score centré sur la normale du mur en mode Façade ; verdict inchangé), validé par Arno.
+  - 14/10/2026 : 29.107259068449615 → 29.12915579059343, règle « un frôlement n'est pas un contact » (propre
     bâtiment et voisins), validé par Arno.
 - **Verdict binaire 100 % géométrique** : 1er obstacle réel ≥ **40 m** → `SANS_VIS_A_VIS`, sinon
   `VIS_A_VIS` (`THRESHOLD_M`, `app/lib/svv/config.ts:82` ; `verdict.ts:103`). Jamais couplé au score ni à

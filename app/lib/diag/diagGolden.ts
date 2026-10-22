@@ -24,8 +24,9 @@ export const CAS_GOLDEN = {
 } as const;
 
 /** La valeur scellée du golden (`pipeline.itest.ts` ; CLAUDE.md §0). Historique : 14/10/2026 : 29.107259068449615 →
- *  29.12915579059343, règle « un frôlement n'est pas un contact » (propre bâtiment et voisins), validé par Arno. */
-export const SCORE_GOLDEN = 29.12915579059343;
+ *  29.12915579059343, règle « un frôlement n'est pas un contact » (propre bâtiment et voisins), validé par Arno.
+ *  22/10/2026 : 29.12915579059343 → 40.77232776704026, pivot face à la façade, décision d'Arno du 22/10/2026 ; l'ancien golden incluait des vues à travers le propre immeuble. */
+export const SCORE_GOLDEN = 40.77232776704026;
 
 /**
  * COPIE EXACTE de `PROFIL_GOLDEN_REF` (`app/lib/db/pipeline.itest.ts`). Le type est volontairement large (pas d'import du

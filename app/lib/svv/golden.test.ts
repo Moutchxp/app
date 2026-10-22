@@ -7,7 +7,7 @@ import type { ProfilDegagement } from './profilDegagement';
 /**
  * GARDE GOLDEN RAPIDE — SANS BASE (item G2 de l'audit du 21/09, docs/AUDIT_2026-09-21_diagnostic_code_et_dette.md).
  *
- * Le golden de non-régression (note Couche 1 = 29.12915579059343) était scellé UNIQUEMENT dans
+ * Le golden de non-régression (note Couche 1 = 40.77232776704026) était scellé UNIQUEMENT dans
  * app/lib/db/pipeline.itest.ts, qui exige une base PostGIS et tourne HORS du `npm test` quotidien (suite
  * d'intégration `test:integration`). Une modif du moteur de score pouvait donc décaler la note certifiée sans
  * que `npm test` (vert) ne le voie. Ce garde COMPLÉMENTAIRE rejoue la note en PUR : entrée FIGÉE (fixture
@@ -18,8 +18,10 @@ import type { ProfilDegagement } from './profilDegagement';
  * snapshot des rasters LiDAR locaux, comme le `.itest` — à RECAPTURER volontairement si le golden est rescellé
  * (jamais pour « faire passer » ce test : un écart = ALERTE de régression, pas un ajustement).
  */
-const GOLDEN = 29.12915579059343; // identique à pipeline.itest.ts — la valeur scellée, en dur ici aussi.
-// Historique : 14/10/2026 : 29.107259068449615 → 29.12915579059343, règle « un frôlement n'est pas un contact » (propre
+const GOLDEN = 40.77232776704026; // identique à pipeline.itest.ts — la valeur scellée, en dur ici aussi.
+// Historique : 22/10/2026 : 29.12915579059343 → 40.77232776704026, pivot face à la façade, décision d'Arno du 22/10/2026 ; l'ancien golden incluait des vues à travers le propre immeuble ;
+// fixture recapturée le même jour (`faisceaux` inchangés au bit près ; `faisceauxScore` et `pivot` ajoutés).
+// 14/10/2026 : 29.107259068449615 → 29.12915579059343, règle « un frôlement n'est pas un contact » (propre
 // bâtiment et voisins), validé par Arno ; fixture recapturée le même jour (seuls les faisceaux -90° et +45° changent).
 
 const fixture = JSON.parse(
@@ -27,7 +29,7 @@ const fixture = JSON.parse(
 ) as { golden: number; entree: EntreeComplete; profil: ProfilDegagement };
 
 describe('Garde golden Couche 1 (pur, sans base) — cas Asnières', () => {
-  it('analyser(entree figée, profil gelé).score.total vaut EXACTEMENT 29.12915579059343 (égalité stricte, aucune tolérance)', () => {
+  it('analyser(entree figée, profil gelé).score.total vaut EXACTEMENT 40.77232776704026 (égalité stricte, aucune tolérance)', () => {
     const score = analyser(fixture.entree, fixture.profil).score.total;
     expect(score).toBe(GOLDEN);          // égalité STRICTE (toBe), pas toBeCloseTo : aucun arrondi, aucune tolérance.
     expect(score).toBe(fixture.golden);  // cohérence : la fixture porte aussi la valeur scellée.

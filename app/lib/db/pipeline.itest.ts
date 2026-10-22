@@ -142,7 +142,9 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     // Couche 2 (Exception) non implémentée → non ajoutée. Verdict (ci-dessus) inchangé.
     // F4 additif boostF4=2.5 + fallback MNS (bâti BD TOPO sans hauteur → toit LiDAR, côté SCORE seul).
     // Verdict (balayage) INCHANGÉ. (Avant fallback MNS : 27.390194425537956.)
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    // 🔴 RESCELLÉ le 22/10/2026 : 29.12915579059343 → 40.77232776704026 — pivot face à la façade, décision d'Arno du 22/10/2026 ; l'ancien golden incluait des vues à travers le propre immeuble.
+    //    Éventail du score centré sur la normale du mur (61,50°) au lieu de l'azimut choisi (90°) ; verdict inchangé.
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
   });
 
   it('BE-19 : le seam verbeux (opt-in) ne bouge PAS le golden — ventilation.note.total = score.total, 61 lignes', async () => {
@@ -156,7 +158,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     });
     expect(resultat).not.toBeNull();
     // Golden INCHANGÉ malgré l'opt-in (le seam est additif, dérivé du même calcul).
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
     // Ventilation présente, 61 faisceaux.
     expect(resultat!.ventilation).toBeDefined();
     expect(resultat!.ventilation!.lignes).toHaveLength(61);
@@ -179,7 +181,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     });
     expect(resultat).not.toBeNull();
     expect(resultat!.ventilation).toBeUndefined();
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
   });
 
   it('seam ENRICHI : Asnières inchangé (note.total === score.total) + champs descriptifs cohérents', async () => {
@@ -193,7 +195,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     });
     expect(resultat).not.toBeNull();
     // Golden inchangé + reconstruction STRICTE non altérée par l'enrichissement descriptif.
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
     expect(resultat!.ventilation!.note.total).toBe(resultat!.score.total);
     // Champs descriptifs présents et cohérents avec la famille appliquée (après précédence).
     for (const l of resultat!.ventilation!.lignes) {
@@ -245,7 +247,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
       profil: clone,
     });
     expect(resultat).not.toBeNull();
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
     // Immutabilité : muter le clone APRÈS coup ne touche jamais le profil de référence.
     clone.boostF4 = 999;
     clone.famillesAnnee[0].cone = 42;
@@ -264,8 +266,8 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     } as const;
     const rTest = (await analyserAdresse({ ...params, profil: clone })).resultat;
     const rActif = (await analyserAdresse({ ...params, profil: PROFIL_GOLDEN_REF })).resultat;
-    expect(rActif!.score.total).toBeCloseTo(29.12915579059343, 3); // actif inchangé
-    expect(rTest!.score.total).not.toBeCloseTo(29.12915579059343, 3); // test décorrélé
+    expect(rActif!.score.total).toBeCloseTo(40.77232776704026, 3); // actif inchangé
+    expect(rTest!.score.total).not.toBeCloseTo(40.77232776704026, 3); // test décorrélé
   });
 
   it('CA-2.6 : muter une variable VESTIGIALE (boostF2) du profil de test ne change PAS le score', async () => {
@@ -278,7 +280,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
       dernierEtage: false,
       profil: clone,
     });
-    expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(resultat!.score.total).toBeCloseTo(40.77232776704026, 3);
   });
 
   it('BE-50/50bis + CA-5.2 : comparerProfils, profil de test = clone du profil actif → deux scores identiques (= golden), delta 0', async () => {
@@ -291,7 +293,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     });
     expect(comp.ok).toBe(true);
     // Chemin banc (build entree ×1 + analyser ×2) → MÊME golden, bit-identique.
-    expect(comp.actif!.score.total).toBeCloseTo(29.12915579059343, 3);
+    expect(comp.actif!.score.total).toBeCloseTo(40.77232776704026, 3);
     expect(comp.test!.score.total).toBe(comp.actif!.score.total); // profil test == actif → identiques
     expect(comp.delta).toBe(0);
     expect(comp.verdictIdentique).toBe(true);
@@ -315,8 +317,8 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
       profilTest,
     );
     expect(comp.ok).toBe(true);
-    expect(comp.actif!.score.total).toBeCloseTo(29.12915579059343, 3); // actif INCHANGÉ
-    expect(comp.test!.score.total).not.toBeCloseTo(29.12915579059343, 3); // test décorrélé
+    expect(comp.actif!.score.total).toBeCloseTo(40.77232776704026, 3); // actif INCHANGÉ
+    expect(comp.test!.score.total).not.toBeCloseTo(40.77232776704026, 3); // test décorrélé
     expect(comp.delta).not.toBe(0);
     expect(comp.verdictIdentique).toBe(true); // verdict 100 % géométrique → identique quoi qu'il arrive
     expect(comp.ecarts!.scalaires.some((e) => e.champ === 'plafondDegagement')).toBe(true);

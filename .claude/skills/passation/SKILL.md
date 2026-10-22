@@ -71,7 +71,7 @@ Décris l'objectif GLOBAL du projet ET l'objectif du chantier EN COURS au moment
 
 ### 4. Invariants verrouillés (garde-fous permanents)
 Liste les constantes inviolables, notamment :
-- Golden Asnières = 29.12915579059343 (scellé, hand-verified, BITIDENT=true). Tout ce qui touche
+- Golden Asnières = 40.77232776704026 (scellé, hand-verified, BITIDENT=true). Tout ce qui touche
   le score /100 change le golden → recalcul + validation main + rescellage en commit SÉPARÉ.
 - Verdict binaire = 100% géométrique (1er obstacle ≥40m sur l'axe), jamais couplé au score ni à la photo.
 - Hauteur de vision = étage × (hauteur_sous_plafond + 0,30 dalle) + 1,65 yeux — FORMULE À PARAMÈTRE

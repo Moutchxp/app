@@ -20,7 +20,7 @@ Les mots-clés MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD NOT, R
   Gemini hors staging), sauf demande explicite d'Arno.
 - SI le diff touche le score /100 (fichiers moteur : `coucheDegagement.ts`, `scoreDegagement.ts`,
   `scoreTotal.ts`, `profilConfig.ts`, `profilDegagement.ts`, `faisceaux.ts`, `config.ts`, ou
-  `config_scoring`), THEN MUST rappeler à Arno que le golden `29.12915579059343` doit être re-vérifié
+  `config_scoring`), THEN MUST rappeler à Arno que le golden `40.77232776704026` doit être re-vérifié
   et signaler si le rescellage devrait être un commit séparé.
 - SI plusieurs modifications logiques sont staged, THEN MUST proposer de les séparer en commits
   distincts (un chantier = un commit) — ne pas committer un lot mélangé.
