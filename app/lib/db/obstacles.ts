@@ -40,7 +40,9 @@ export interface ParametresAxe {
   lidar?: boolean;
   /**
    * Altitude de la fenêtre (NGF). Requise avec lidar=true pour localiser le
-   * point de contact (distanceM = dContact). Inutile pour les faisceaux.
+   * point de contact (distanceM = dContact). Pour les faisceaux (lidar=false) : A′ d'Arno (22/10/2026), une
+   * ré-entrée dans le propre bâtiment ne bloque que si son toit LiDAR atteint cette altitude (cf.
+   * candidatReentreeOrigine) ; absente → comportement d'avant A′.
    */
   altitudeFenetreM?: number;
   /**
@@ -489,6 +491,51 @@ interface LigneReentreeSql {
   impact_pt_wkt: string;
   axe_wkt: string;
   mns_toit: number | null;
+  fin_m: number | string | null;
+  suivants: [number, number][] | null;
+}
+
+/** Pas d'échantillonnage du toit LiDAR le long d'un span de ré-entrée (m) — la moitié de la maille MNS (0,5 m). */
+const PAS_TOIT_REENTREE_M = 0.25;
+
+/**
+ * ══ A′ (DÉCISION D'ARNO DU 22/10/2026) — LE TOIT LiDAR D'UNE RÉ-ENTRÉE, LE LONG DU RAYON ═══════════════════════════════
+ * Sur le tronçon [debutM ; finM] du rayon (une ré-entrée dans le propre bâtiment), le toit MNS atteint-il l'œil ?
+ *  · `atteint` : au moins un point du tronçon a un toit MNS ≥ œil ;
+ *  · `lidar`   : au moins un point du tronçon a une valeur MNS (hors nodata).
+ * Points tous les PAS_TOIT_REENTREE_M, bornes comprises. Aucun arrondi. Lecture seule.
+ */
+async function toitReentree(params: ParametresAxe, debutM: number, finM: number, oeilM: number): Promise<{ atteint: boolean; lidar: boolean; impactPointWkt: string }> {
+  const res = await query<{ atteint: boolean; lidar: boolean; impact_pt_wkt: string }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     axe AS (SELECT ST_MakeLine(o.g, ST_Translate(o.g, $3*sin(radians($4)), $3*cos(radians($4)))) AS ln FROM o),
+     pts AS (
+       SELECT ST_LineInterpolatePoint(a.ln, LEAST(LEAST($5::float8 + k*$8::float8, $6::float8), $3) / $3::float8) AS p
+       FROM axe a, generate_series(0, ceil(GREATEST($6::float8 - $5::float8, 0) / $8::float8)::int) AS k
+     ),
+     v AS (
+       SELECT (SELECT x.val FROM (
+                 SELECT ST_Value(m.rast, pts.p) AS val
+                 ${sqlTuileContenant('mns_lidar_brut', 'm', 'pts.p')}
+               ) x WHERE x.val IS NOT NULL AND x.val <> -9999) AS val
+       FROM pts
+     )
+     SELECT EXISTS (SELECT 1 FROM v WHERE v.val >= $7) AS atteint,
+            EXISTS (SELECT 1 FROM v WHERE v.val IS NOT NULL) AS lidar,
+            (SELECT ST_AsText(ST_LineInterpolatePoint(a.ln, LEAST($5::float8, $3) / $3::float8)) FROM axe a) AS impact_pt_wkt;`,
+    [params.point.lon, params.point.lat, ANALYSIS_RANGE_M, params.azimutDeg, debutM, finM, oeilM, PAS_TOIT_REENTREE_M],
+  );
+  const r = res.rows[0];
+  return { atteint: r.atteint, lidar: r.lidar, impactPointWkt: r.impact_pt_wkt };
+}
+
+/**
+ * A′ — une ré-entrée BLOQUE si le toit LiDAR, le long du rayon dans ce span, atteint l'œil ; ou si le LiDAR y manque
+ * (comportement d'avant A′, inchangé). Elle ne bloque PAS si le LiDAR y est et reste partout sous l'œil (aile basse).
+ */
+async function reentreeBloquante(params: ParametresAxe, debutM: number, finM: number, oeilM: number): Promise<{ bloque: boolean; impactPointWkt: string }> {
+  const t = await toitReentree(params, debutM, finM, oeilM);
+  return { bloque: t.atteint || !t.lidar, impactPointWkt: t.impactPointWkt };
 }
 
 /**
@@ -571,6 +618,15 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
        FROM entree e LEFT JOIN porteur pt ON true LEFT JOIN contact c ON true
      )
      SELECT r.d_in AS dist_m, bat.amt, bat.h, bat.sol, bat.net, bat.cleabs,
+            -- A′ (Arno, 22/10/2026) : la fin du span RÉEL qui porte la ré-entrée retenue, et les spans réels suivants
+            -- (ré-entrées plus lointaines). LUS seulement : la distance et la hauteur ci-dessus sont inchangées.
+            (SELECT s.d_out FROM spans s WHERE s.d_in <= r.d_in + 1e-6 AND s.d_out >= r.d_in - 1e-6
+              ORDER BY s.d_in DESC LIMIT 1) AS fin_m,
+            -- Spans suivants : une VRAIE entrée (polygone rétréci, règle A du 14/10 : un frôlement n'en est pas une),
+            -- mesurée sur le span réel qui la porte — comme la ré-entrée retenue.
+            (SELECT COALESCE(json_agg(json_build_array(x.d_in, x.d_out) ORDER BY x.d_in), '[]'::json) FROM (
+               SELECT DISTINCT s.d_in, s.d_out FROM spansc c JOIN spans s ON s.d_in <= c.d_in + 1e-6 AND s.d_out >= c.d_in - 1e-6
+               WHERE s.d_in > r.d_in + 1e-6) x) AS suivants,
             ST_AsText(ST_LineInterpolatePoint(a.ln, LEAST(r.d_in, $3) / $3::float8)) AS impact_pt_wkt,
             ST_AsText(a.ln) AS axe_wkt,
             (SELECT v.val FROM (
@@ -599,16 +655,35 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
     altSommet = r.mns_toit;
     src = "LIDAR_HD";
   }
-  return {
-    distanceM: Number(r.dist_m),
+  const candidat = (distanceM: number, impactPointWkt: string): ObstacleCandidat => ({
+    distanceM,
     altitudeSommetM: altSommet,
     source: src,
     cleabs: r.cleabs,
     nature: null, // bâti pur : aucun boost valorisant F2/F3/F4
     rayonWkt: r.axe_wkt,
-    impactPointWkt: r.impact_pt_wkt,
+    impactPointWkt,
     ancien: false, // jamais valorisé comme F2 (avant 1900)
-  };
+  });
+
+  /* ══ 🔴 A′ — DÉCISION D'ARNO DU 22/10/2026 (cas 19 rue Louis Ulbach, Courbevoie) ═══════════════════════════════════════
+     Le propre bâtiment est UN polygone BD TOPO à hauteur UNIQUE : une aile basse (toit LiDAR ≈ 3 m au-dessus du sol) y
+     recevait la hauteur de la partie haute (70,1 m) et coupait les faisceaux à 8 m. Désormais, une ré-entrée ne bloque le
+     faisceau que si le toit LiDAR, le long du rayon DANS cette ré-entrée, atteint l'œil ; la DISTANCE d'arrêt reste le bord
+     BD TOPO (calcul ci-dessus, inchangé au bit près) ; sans LiDAR sur le tronçon, comportement d'avant inchangé. Une
+     ré-entrée basse franchie, la suivante (même polygone, plus loin) est jugée de la même façon, à SON bord BD TOPO.
+     Aucun changement pour les voisins, ni pour le verdict (chemin LiDAR distinct). Le décrochement de façade qui coupe
+     à 0,5 m reste un mur (option D refusée par Arno ; règle du 14/10 inchangée).
+     Sans altitude de l'œil (appels de diagnostic, épreuves de la règle de contact) : comportement d'avant. */
+  const oeilM = params.altitudeFenetreM;
+  const distanceM = Number(r.dist_m);
+  if (oeilM === undefined || r.fin_m === null) return candidat(distanceM, r.impact_pt_wkt);
+  if ((await reentreeBloquante(params, distanceM, Number(r.fin_m), oeilM)).bloque) return candidat(distanceM, r.impact_pt_wkt);
+  for (const [debut, fin] of r.suivants ?? []) {
+    const suivant = await reentreeBloquante(params, Number(debut), Number(fin), oeilM);
+    if (suivant.bloque) return candidat(Number(debut), suivant.impactPointWkt);
+  }
+  return null;
 }
 
 export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCandidat[]> {

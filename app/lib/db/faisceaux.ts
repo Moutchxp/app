@@ -47,6 +47,9 @@ export async function faisceauxAmplitude(
       batimentOrigineId: params.batimentOrigineId,
       batimentOriginePolygoneWkt: params.batimentOriginePolygoneWkt,
       toleranceContactReentreeM,
+      // A′ (Arno, 22/10/2026) : l'œil, pour juger une ré-entrée dans le propre bâtiment sur son toit LiDAR. lidar reste
+      // absent → chemin BD TOPO des faisceaux, inchangé pour les voisins.
+      altitudeFenetreM: params.altitudeFenetreM,
     });
     const res = premierObstacle(candidats, params.altitudeFenetreM);
     const obstacle = res.obstacle; // 1er obstacle retenu (≥ fenêtre) ou null si dégagé
