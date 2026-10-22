@@ -126,9 +126,10 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
       anomalies.push(`Ligne ${r} (${proprietaire}) : CA ${euros(caFichier)} ≠ honoraires ${euros(hp)} + ${euros(hl)}.`);
     }
     const h = c(`H${r}`);
+    const apporteurTexte = texte(c(`G${r}`)) || null;
     const commission = nombre(h) ?? 0;
     const tauxCommission = tauxDeFormule(h?.f);
-    const apporteurTexte = texte(c(`G${r}`)) || null;
+    if (commission > 0 && apporteurTexte === null) anomalies.push(`Ligne ${r} (${proprietaire}) : commission d’apporteur (${euros(commission)}) sans apporteur nommé.`);
     if (commission > 0 && h?.f === undefined) anomalies.push(`Ligne ${r} (${proprietaire}) : commission d’apporteur saisie à la main (${euros(commission)}, sans formule).`);
     const prime = nombre(c(`F${r}`)) ?? 0;
     if (prime !== 0 && prime !== 150 && prime !== 15) anomalies.push(`Ligne ${r} (${proprietaire}) : prime de nouvelle gestion de ${euros(prime)} (ni 150 ni 15).`);

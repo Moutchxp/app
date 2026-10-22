@@ -63,6 +63,7 @@ export async function ecrireImport(o: {
   plan: readonly LignePlan[]; annee: number; negociateur: { id: number | null; libelle: string }; tauxApporteurs: ReadonlyMap<string, number>;
   retrocessions: readonly Retrocession[]; auteur: string;
 }): Promise<BilanEcriture> {
+  const avec407 = await colonneExisteMemo('gestion_location_activite', 'origine_contact');
   return withTransaction(async (q) => {
     const bilan: BilanEcriture = { activites: 0, apporteurs: 0, retrocessions: 0 };
     const ids = new Map<string, number>();
@@ -72,6 +73,7 @@ export async function ecrireImport(o: {
     for (const p of o.plan) if (p.apporteur !== null) apporteurs.set(p.apporteur.nom.trim().toLowerCase(), p.apporteur);
     for (const [cle, a] of apporteurs) {
       if (ids.has(cle)) continue;
+      // 407 : créé SANS collègue de rattachement — « à rattacher » (jamais deviné).
       const { rows } = await q<{ id: string }>('INSERT INTO gestion_location_apporteur (nom, type, cree_par_libelle) VALUES ($1, $2, $3) RETURNING id', [a.nom, a.type, o.auteur]);
       const id = n(rows[0].id);
       await q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle) VALUES ($1, $2, $3, 0, $4)
@@ -103,7 +105,8 @@ export async function ecrireImport(o: {
             mandat_gestion, categorie_prime, prime_gestion_saisie, avec_gestion, origine_proprietaire_deduite, origine_locataire_deduite,
             source, rattachement, import_cle, import_score, commentaire, cree_par_libelle)
          VALUES ($1, $2, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'import', $22, $23, $24, $25, $26)
-         ON CONFLICT (import_cle) DO NOTHING`,
+         ON CONFLICT (import_cle) DO NOTHING
+         RETURNING id`,
         [a.type, date, p.bailId, c?.lotId ?? null, c?.proprietaireId ?? null, c?.locataireId ?? null, a.libelleProprietaire, a.libelleLocataire,
           a.honoProprietaireHt, a.honoLocataireHt, a.negociateurId, a.negociateurLibelle,
           p.apporteur === null ? null : ids.get(p.apporteur.nom.trim().toLowerCase()) ?? null, a.apporteurTaux, a.commissionSaisie,
@@ -111,17 +114,24 @@ export async function ecrireImport(o: {
           a.rattachement, p.importCle, Math.round(p.rapprochement.score * 10000) / 10000,
           [`import ${SOURCE_IMPORT}, ligne ${p.ligne.rang} de « ${p.ligne.mois} »`, ...p.commentaire].join(' · '), o.auteur]);
       bilan.activites += r.rowCount ?? 0;
+      const nouvelle = (r.rows as { id: string }[])[0];
+      if (avec407 && nouvelle !== undefined) {
+        await q('UPDATE gestion_location_activite SET origine_contact = $2, collegue_id = $3, collegue_libelle = $4, prime_mode = $5 WHERE id = $1',
+          [n(nouvelle.id), a.origineContact ?? null, a.collegueId ?? null, a.collegueLibelle ?? null, a.primeMode ?? null]);
+      }
     }
     return bilan;
   });
 }
 
 /** Après l'écriture : les lignes de cet import, relues EN BASE, pour le contrôle au centime. */
-export async function relireImport(): Promise<{ type: string; date: string; hp: number; hl: number; prime: number | null; commission: number | null; avec: boolean; taux: number | null; cle: string }[]> {
+export async function relireImport(): Promise<{ type: string; date: string; hp: number; hl: number; prime: number | null; commission: number | null; avec: boolean; taux: number | null; cle: string; primeMode: string | null }[]> {
+  const avec407 = await colonneExisteMemo('gestion_location_activite', 'origine_contact');
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT type, date_signature, hono_proprietaire_ht, hono_locataire_ht, prime_gestion_saisie, apporteur_commission_saisie, avec_gestion, apporteur_taux, import_cle
+    `SELECT type, date_signature, hono_proprietaire_ht, hono_locataire_ht, prime_gestion_saisie, apporteur_commission_saisie, avec_gestion, apporteur_taux, import_cle,
+            ${avec407 ? 'prime_mode' : 'NULL::text AS prime_mode'}
        FROM gestion_location_activite WHERE import_cle LIKE $1 AND annule_le IS NULL`, [`${SOURCE_IMPORT}#%`]);
   return rows.map((r) => ({ type: String(r.type), date: iso(r.date_signature) ?? '', hp: n(r.hono_proprietaire_ht), hl: n(r.hono_locataire_ht),
     prime: r.prime_gestion_saisie === null ? null : n(r.prime_gestion_saisie), commission: r.apporteur_commission_saisie === null ? null : n(r.apporteur_commission_saisie),
-    avec: r.avec_gestion === true, taux: r.apporteur_taux === null ? null : n(r.apporteur_taux), cle: String(r.import_cle) }));
+    avec: r.avec_gestion === true, taux: r.apporteur_taux === null ? null : n(r.apporteur_taux), cle: String(r.import_cle), primeMode: (r.prime_mode as string | null) ?? null }));
 }

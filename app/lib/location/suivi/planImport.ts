@@ -1,5 +1,6 @@
 import type { LigneExcel, MoisExcel } from './lectureExcel';
-import { apporteurDeTexte, typeDeLigne, type ApporteurLu } from './repriseExcel';
+import { modePrimeDe, origineDeTexte, typeDeLigne, type ApporteurLu, type OrigineLue } from './repriseExcel';
+import { LIBELLE_ORIGINE_CONTACT } from './suivi';
 import type { CandidatBail, Rapprochement } from './rapprochementImport';
 import { SEUIL_DOUTEUX, SEUIL_RATTACHE } from './rapprochementImport';
 import type { RegleCommission } from './suivi';
@@ -13,7 +14,10 @@ import { type ActiviteCalcul, type Retrocession, totauxPeriode } from './tableau
  *   · « (Avenant) » → type avenant ; honoraires nuls et prime seule → mandat de gestion seul ;
  *   · commission d'apporteur et prime : celles du fichier, telles quelles ; date de signature : le 1er du mois, « supposée » ;
  *   · avec / sans gestion : la ventilation du fichier ; à défaut, le statut du bien rapproché ; à défaut, « sans » et c'est dit ;
- *   · déjà importée (même clé) : rien ne change (rejouable) ; bail déjà suivi dans l'outil : la ligne n'est pas doublée.
+ *   · déjà importée (même clé) : rien ne change (rejouable) ; bail déjà suivi dans l'outil : la ligne n'est pas doublée ;
+ *   · 407 (Arno, 23/10/2026) — la colonne G devient l'ORIGINE DU CONTACT (`origineDeTexte`) ; les partenaires sont créés dans
+ *     l'annuaire « à rattacher » (leur collègue n'est jamais deviné) ; « X ( Y) » est à arbitrer ; la prime devient un choix
+ *     (150 → « 150 € », 15 → « Personnalisé : 15 € », 0 → « Aucune »).
  * Le CONTRÔLE : les totaux de chaque mois, recalculés par le tableau de bord sur les lignes du plan, face à ceux du fichier.
  * PUR.
  */
@@ -24,8 +28,11 @@ export type EtatLigne = 'a_importer' | 'deja_importee' | 'deja_suivie';
 export interface LignePlan {
   ligne: LigneExcel;
   importCle: string;
+  /** Le compte du collègue (« collègue directement »), quand il en a un. */
+  collegueId?: number | null;
   rapprochement: Rapprochement;
   type: ActiviteCalcul['type'];
+  origine: OrigineLue;
   apporteur: ApporteurLu | null;
   avecGestion: boolean;
   gestionSource: 'fichier' | 'bien' | 'inconnue';
@@ -36,6 +43,8 @@ export interface LignePlan {
 
 export interface ContextePlan {
   collaborateurs: readonly string[];
+  /** Les comptes (pour l'id du collègue nommé dans le fichier). */
+  comptes?: readonly { id: number; libelle: string }[];
   /** Les clés d'import déjà en base (rejouer ne double rien). */
   dejaImportees: ReadonlySet<string>;
   /** Les baux déjà suivis dans l'outil (saisie, reprise des TTC) : leur ligne n'est pas doublée. */
@@ -58,8 +67,12 @@ export function planifier(mois: readonly MoisExcel[], rapprochements: readonly R
     if (gestionSource === 'inconnue') commentaire.push('avec / sans gestion : absent de la ventilation du fichier, compté « sans »');
     const suivi = rattache && r.candidat !== null && ctx.bauxSuivis.has(r.candidat.bailId) && typeDeLigne(l) === 'bail';
     const etat: EtatLigne = ctx.dejaImportees.has(importCle) ? 'deja_importee' : suivi ? 'deja_suivie' : 'a_importer';
+    const origine = origineDeTexte(l.apporteurTexte, ctx.collaborateurs);
+    if (origine.aArbitrer) commentaire.push(`origine à arbitrer : « ${l.apporteurTexte} »`);
+    const nrm = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const collegueId = origine.collegue === null ? null : ctx.comptes?.find((c) => nrm(c.libelle) === nrm(origine.collegue as string))?.id ?? null;
     return {
-      ligne: l, importCle, rapprochement: r, type: typeDeLigne(l), apporteur: apporteurDeTexte(l.apporteurTexte, ctx.collaborateurs),
+      ligne: l, importCle, rapprochement: r, type: typeDeLigne(l), origine, collegueId, apporteur: origine.apporteur,
       avecGestion: avecGestion === true, gestionSource, bailId: rattache ? r.candidat!.bailId : null, etat, commentaire,
     };
   }));
@@ -76,6 +89,7 @@ export function versActivite(p: LignePlan, negociateur: { id: number | null; lib
     negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle, avecGestion: p.avecGestion,
     origineProprietaire: null, origineLocataire: null, loyerHc: null, charges: null, assurance: null, parking: l.parking || (p.rapprochement.candidat?.parking ?? false),
     vacanceJours: null, rattachement: p.bailId !== null ? 'rattache' : p.rapprochement.statut === 'douteux' ? 'douteux' : 'non_rattache',
+    origineContact: p.origine.origine, collegueId: p.collegueId ?? null, collegueLibelle: p.origine.collegue, primeMode: modePrimeDe(l.prime),
   };
 }
 
@@ -142,7 +156,9 @@ export function texteRapportImport(o: {
     'CONTRÔLE MOIS PAR MOIS (fichier / outil recalculé, commission = 15 % × CA net + primes − rétrocession) :',
     tableauControle(o.controle),
     '',
-    `APPORTEURS À CRÉER (${o.apporteursACreer.length}) : ${o.apporteursACreer.map((a) => `${a.nom} (${a.type})`).join(', ') || 'aucun'}`,
+    `APPORTEURS CRÉÉS « À RATTACHER » (${o.apporteursACreer.length}) — dans l'annuaire, sans collègue (jamais deviné) : ${o.apporteursACreer.map((a) => a.nom).join(', ') || 'aucun'}`,
+    `ORIGINES DU CONTACT : ${Object.entries(p.reduce<Record<string, number>>((acc, x) => { const k = x.origine.origine === null ? (x.origine.aArbitrer ? 'à arbitrer' : 'non renseignée') : LIBELLE_ORIGINE_CONTACT[x.origine.origine]; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {})).map(([k, v]) => `${k} ${v}`).join(' · ')}`,
+    `PRIMES : « 150 € » ${p.filter((x) => modePrimeDe(x.ligne.prime) === 'regle').length} · « Personnalisé » ${p.filter((x) => modePrimeDe(x.ligne.prime) === 'personnalise').map((x) => `${euros(x.ligne.prime)} (${x.ligne.mois} ligne ${x.ligne.rang})`).join(', ') || 'aucune'} · « Aucune » ${p.filter((x) => x.ligne.prime === 0).length}`,
     `RÉTROCESSIONS : ${o.retrocessions.map((r) => `${r.libelle} ${euros(r.montant)} (${r.mois.slice(0, 7)})`).join(', ') || 'aucune'}`,
     '',
     `RAPPROCHÉES (${rat.length}) :`, ...(rat.length ? rat.map((x) => `${desc(x)}${avec(x)}${x.etat === 'deja_suivie' ? ' — BAIL DÉJÀ SUIVI : non doublée' : ''}`) : ['  (aucune)']),
@@ -150,6 +166,9 @@ export function texteRapportImport(o: {
     `DOUTEUSES (${dou.length}) — importées NON rattachées, le bail proposé est noté sur la ligne :`, ...(dou.length ? dou.map((x) => `${desc(x)}${avec(x)}`) : ['  (aucune)']),
     '',
     `NON TROUVÉES (${non.length}) — « historique non rattaché » :`, ...(non.length ? non.map((x) => `${desc(x)}${avec(x)}`) : ['  (aucune)']),
+    '',
+    `ORIGINE À ARBITRER (${p.filter((x) => x.origine.aArbitrer).length}) — l'origine reste vide, à choisir dans la feuille du mois :`,
+    ...(p.some((x) => x.origine.aArbitrer) ? p.filter((x) => x.origine.aArbitrer).map((x) => `${desc(x)} — colonne G : « ${x.ligne.apporteurTexte} » (apporteur gardé : ${x.apporteur?.nom}, commission ${euros(x.ligne.commission)})`) : ['  (aucune)']),
     '',
     'CE QUE LE FICHIER A D’ÉTRANGE (rien n’est corrigé) :',
     ...o.mois.flatMap((m) => m.anomalies.map((a) => `  · ${m.nomFeuille.trim()} : ${a}`)),

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { lireClasseur, type ClasseurLu } from './lectureExcel';
 import { controler, planifier, tableauControle, versActivite } from './planImport';
 import { rapprocher, type CandidatBail } from './rapprochementImport';
-import { retrocessionDuMois } from './repriseExcel';
+import { modePrimeDe, origineDeTexte, retrocessionDuMois } from './repriseExcel';
 import { tauxParApporteur } from '../../../scripts/importer-suivi-location-2026';
 
 /** 🔴 Arno (22/10/2026) — l'import du suivi : rien n'est perdu, rien n'est doublé, et le contrôle tombe au centime. */
@@ -55,5 +55,36 @@ describe('🔴 plan d’import', () => {
     const t = tauxParApporteur(plan);
     expect(t.get('apporteur a')).toBe(0.1);
     expect([...t.values()].every((x) => x === 0.1 || x === 0.2)).toBe(true);
+  });
+});
+
+describe('🔴 407 — la colonne G devient l’origine du contact ; la prime devient un choix', () => {
+  const C = ['Arnaud Jorel', 'Jean-Baptiste Pons', 'Cédric Jullien'];
+  it('Internet, agences, collègues, partenaires (« à rattacher »), « X ( Y) » à arbitrer, vide', () => {
+    expect(origineDeTexte('Internet ', C)).toMatchObject({ origine: 'internet', apporteur: null });
+    expect(origineDeTexte('Agence Puteaux ', C)).toMatchObject({ origine: 'passage_agence', apporteur: null });
+    expect(origineDeTexte('Agence Courbevoie', C)).toMatchObject({ origine: 'passage_agence' });
+    expect(origineDeTexte('Cédric Jullien', C)).toMatchObject({ origine: 'collegue', collegue: 'Cédric Jullien', apporteur: null });
+    expect(origineDeTexte('Jean-Baptiste Pons', C)).toMatchObject({ origine: 'collegue' });
+    expect(origineDeTexte('Pierre Thevenin ', C)).toEqual({ origine: 'apporteur', collegue: null, apporteur: { nom: 'Pierre Thevenin', type: 'partenaire' }, aArbitrer: false });
+    expect(origineDeTexte('Jean-Baptiste ( Julien Deblois)', C)).toEqual({ origine: null, collegue: null, apporteur: { nom: 'Julien Deblois', type: 'partenaire' }, aArbitrer: true });
+    expect(origineDeTexte(null, C)).toMatchObject({ origine: null, aArbitrer: false });
+  });
+  it('primes : 150 → « 150 € », 15 et 50 → « Personnalisé », 0 → « Aucune » — et le contrôle reste au centime', () => {
+    expect([modePrimeDe(150), modePrimeDe(15), modePrimeDe(50), modePrimeDe(0)]).toEqual(['regle', 'personnalise', 'personnalise', 'aucune']);
+    const plan = planifier(mois, rapprocher(lignes, []), { collaborateurs: ['Collaborateur Un', 'Collaborateur Deux'], dejaImportees: new Set(), bauxSuivis: new Set() });
+    const acts = plan.map((p) => versActivite(p, nego));
+    expect(acts.filter((a) => a.primeMode === 'personnalise').map((a) => a.primeSaisie)).toEqual([15, 15, 15, 15, 15, 15, 50]);
+    expect(controler(mois, acts, REGLE, retro).every((x) => x.auCentime)).toBe(true);
+  });
+  it('le collègue nommé reçoit son compte quand il en a un ; la ligne « à arbitrer » garde son apporteur et le dit', () => {
+    const plan = planifier(mois, rapprocher(lignes, []), { collaborateurs: ['Collaborateur Un'], comptes: [{ id: 5, libelle: 'Collaborateur Un' }], dejaImportees: new Set(), bauxSuivis: new Set() });
+    const col = plan.filter((p) => p.origine.origine === 'collegue');
+    expect(col.length).toBeGreaterThan(0);
+    expect(col.every((p) => p.collegueId === 5)).toBe(true);
+    const arb = plan.filter((p) => p.origine.aArbitrer);
+    expect(arb.map((p) => p.ligne.cle)).toEqual(['2026-03#7']);
+    expect(arb[0].commentaire.join()).toMatch(/origine à arbitrer/);
+    expect(versActivite(arb[0], nego)).toMatchObject({ origineContact: null, apporteurNom: 'Apporteur D' });
   });
 });

@@ -34,6 +34,8 @@ import type { ActiviteCalcul } from '../lib/location/suivi/tableauBord';
 const P = '[location:importer-suivi-2026]';
 const NOM_SCRIPT = 'importer-suivi-location-2026';
 const ANNEE = 2026;
+/** Les collègues nommés dans le fichier (Arno, 23/10/2026) — en plus des comptes actifs. */
+export const COLLEGUES_CONNUS = ['Arnaud Jorel', 'Jean-Baptiste Pons', 'Cédric Jullien'];
 const REGLE_FICHIER = [{ depuis: `${ANNEE}-01-01`, tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }];
 const norm = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
@@ -69,7 +71,7 @@ async function principal(): Promise<void> {
     const memePrenom = comptes.filter((c) => norm(c.prenom) === norm(entete));
     const negociateur = memePrenom.length === 1 ? { id: memePrenom[0].id, libelle: memePrenom[0].libelle } : { id: null, libelle: entete };
     const plan = planifier(mois, rapprocher(mois.flatMap((m) => m.lignes), candidats),
-      { collaborateurs: comptes.map((c) => c.libelle), dejaImportees: existants.dejaImportees, bauxSuivis: existants.bauxSuivis });
+      { collaborateurs: [...new Set([...comptes.map((c) => c.libelle), ...COLLEGUES_CONNUS])], comptes, dejaImportees: existants.dejaImportees, bauxSuivis: existants.bauxSuivis });
     const retrocessions = mois.map((m) => retrocessionDuMois(m, { negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle })).filter((r) => r !== null);
     const apporteursACreer = [...new Map(plan.filter((p) => p.apporteur !== null && !existants.apporteurs.has(p.apporteur.nom.trim().toLowerCase()))
       .map((p) => [p.apporteur!.nom.trim().toLowerCase(), p.apporteur!] as [string, ApporteurLu])).values()];
@@ -82,7 +84,8 @@ async function principal(): Promise<void> {
       const relu = await repo.relireImport();
       const parCle = new Map(plan.map((p) => [p.importCle, p]));
       activites = relu.map((r) => ({ ...versActivite(parCle.get(r.cle)!, negociateur), type: r.type as ActiviteCalcul['type'], dateSignature: r.date,
-        honoProprietaireHt: r.hp, honoLocataireHt: r.hl, primeSaisie: r.prime, commissionSaisie: r.commission, avecGestion: r.avec, apporteurTaux: r.taux }));
+        honoProprietaireHt: r.hp, honoLocataireHt: r.hl, primeSaisie: r.prime, commissionSaisie: r.commission, avecGestion: r.avec, apporteurTaux: r.taux,
+        primeMode: (r.primeMode as ActiviteCalcul['primeMode']) ?? null }));
     }
     const controle = controler(mois, activites, REGLE_FICHIER, retrocessions);
     const texte = [texteRapportImport({ reel, base, fichier, plan, mois, controle, negociateur, apporteursACreer, retrocessions, disponible }), bilan].join('\n');
