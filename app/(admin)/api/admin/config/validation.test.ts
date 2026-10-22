@@ -84,11 +84,13 @@ describe('validerPatch — rejets', () => {
     if (!r.ok) expect(r.erreurs[0].message).toContain('NOT NULL');
   });
 
-  it('distance_max_m résultant > analysis_range_m → erreur (anti-repli)', () => {
-    // Portée courante = 200 ; on pousse distance_max_m à 300 → repli forcé.
-    const r = validerPatch({ distance_max_m: 300 }, ligneActuelle());
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.erreurs.some((e) => e.colonne === 'distance_max_m')).toBe(true);
+  // Arno (22/10/2026) — plafond des faisceaux nature : portée (200) ≤ distance_max_m ≤ 500. 300 ACCEPTÉ (voir plus bas).
+  it('distance_max_m 150 (sous la portée) ou 600 (au-delà de 500) → erreur sur distance_max_m', () => {
+    for (const v of [150, 600]) {
+      const r = validerPatch({ distance_max_m: v }, ligneActuelle());
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.erreurs.some((e) => e.colonne === 'distance_max_m')).toBe(true);
+    }
   });
 
   it("mode_combinaison='xyz' → erreur (hors liste fermée {max, addition, sequentiel})", () => {
@@ -131,11 +133,11 @@ describe('validerPatch — acceptations', () => {
     if (r.ok) expect(r.set).toEqual([{ colonne: 'mode_combinaison_repli', valeur: 'addition' }]);
   });
 
-  it('distance_max_m seul (≤ portée en base) → ok + set = [distance_max_m] uniquement', () => {
-    // La paire est dissoute : distance_max_m s'écrit seul, borné par la portée EN BASE (200), inchangée.
-    const r = validerPatch({ distance_max_m: 180 }, ligneActuelle());
+  it('distance_max_m seul (entre la portée et 500) → ok + set = [distance_max_m] uniquement', () => {
+    // La paire est dissoute : distance_max_m s'écrit seul ; Arno (22/10/2026) : 300 est accepté (plafond des faisceaux nature).
+    const r = validerPatch({ distance_max_m: 300 }, ligneActuelle());
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.set).toEqual([{ colonne: 'distance_max_m', valeur: 180 }]);
+    if (r.ok) expect(r.set).toEqual([{ colonne: 'distance_max_m', valeur: 300 }]);
   });
 
   it('groupe {distance_max_m, analysis_range_m} → REFUSÉ (analysis_range_m verrouillé, aucune écriture)', () => {

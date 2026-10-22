@@ -13,6 +13,18 @@ import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 import type { CarteAnnee } from "../../../../lib/svv/cartesAnnee";
 import { clonerProfil, diffProfils, validerCartesAnnee } from "../../../../lib/svv/profilTest";
 import { META, FAMILLES_ORDRE, type ColonneMeta } from "../pilotage/mappingConfig";
+import { erreurPlafondNature } from "../../../../lib/svv/profilDegagement";
+
+/**
+ * Arno (22/10/2026) — dans le BANC seulement (le pilotage garde son libellé) : le plafond `distance_max_m` est désormais celui
+ * des faisceaux nature. Même champ, même place ; libellé et aide propres au banc, message sous le champ hors bornes.
+ */
+const LIBELLE_BANC: Record<string, { libelle: string; aide: string }> = {
+  distance_max_m: {
+    libelle: "Plafond des faisceaux nature",
+    aide: "Dès qu’un faisceau survole un espace vert, il peut compter jusqu’à cette valeur au lieu de 200 m ; le capital de la note reste 61 × 200 m.",
+  },
+};
 import { pontParColonne } from "./pontProfil";
 
 const COULEUR_STATUT: Record<string, string> = {
@@ -57,8 +69,11 @@ export default function EditeurProfilTest({
     } else {
       let v = Number(brut);
       if (!Number.isFinite(v)) return;
-      if (typeof meta.min === "number") v = Math.max(meta.min, v);
-      if (typeof meta.max === "number") v = Math.min(meta.max, v);
+      // Arno (22/10/2026) — le plafond des faisceaux nature n'est PAS ramené dans ses bornes : une valeur hors bornes est
+      // REFUSÉE (message sous le champ, « Lancer le test » bloqué). Les autres champs gardent leur recadrage.
+      const recadrer = meta.colonne !== "distance_max_m";
+      if (recadrer && typeof meta.min === "number") v = Math.max(meta.min, v);
+      if (recadrer && typeof meta.max === "number") v = Math.min(meta.max, v);
       pont.ecrire(next, v);
     }
     onChange(next);
@@ -164,17 +179,21 @@ function ChampScalaire({
 }) {
   const modifie = String(valeur) !== String(valeurActive);
   const vestigiale = meta.statut === "VESTIGIALE" || !meta.editable;
+  const banc = LIBELLE_BANC[meta.colonne];
+  const erreurBornes = meta.colonne === "distance_max_m" ? erreurPlafondNature(Number(valeur)) : null;
   return (
+    <div>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, opacity: vestigiale ? 0.6 : 1 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: ".82rem", color: "var(--color-svv-ink)" }}>
-          {meta.libelle}
+          {banc?.libelle ?? meta.libelle}
           {modifie && <span style={{ marginLeft: 6, color: "var(--color-svv-red)", fontWeight: 700 }} title="modifié">●</span>}
         </div>
         <div style={{ fontSize: ".68rem", color: COULEUR_STATUT[meta.statut] ?? "var(--color-svv-muted)" }}>
           {meta.statut}
           {vestigiale ? " — sans effet sur le score" : ""} · {meta.unite}
         </div>
+        {banc && <div data-aide-champ={meta.colonne} style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", marginTop: 2 }}>{banc.aide}</div>}
       </div>
       {vestigiale ? (
         <div style={{ fontSize: ".82rem", color: "var(--color-svv-muted)", whiteSpace: "nowrap" }}>
@@ -200,9 +219,12 @@ function ChampScalaire({
           step={meta.pas ?? "any"}
           onChange={(e) => onEdit(e.target.value)}
           className="rounded-lg border border-svv-line bg-svv-surface px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
-          style={{ width: 110, ...(modifie ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : {}) }}
+          style={{ width: 110, ...(modifie || erreurBornes ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : {}) }}
+          aria-invalid={erreurBornes ? true : undefined}
         />
       )}
+    </div>
+    {erreurBornes && <div role="alert" data-erreur-champ={meta.colonne} style={{ marginTop: 4, fontSize: ".78rem", color: "var(--color-svv-red)" }}>{erreurBornes}</div>}
     </div>
   );
 }

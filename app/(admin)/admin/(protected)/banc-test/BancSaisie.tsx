@@ -33,6 +33,8 @@ import { EnTetePage } from "../_composants/EnTetePage";
 import EditeurProfilTest from "./EditeurProfilTest";
 import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
 import { exclusionPourBanc } from "../../../../lib/svv/exclusionPivot";
+import { erreurPlafondNature } from "../../../../lib/svv/profilDegagement";
+import { ANALYSIS_RANGE_M } from "../../../../lib/svv/config";
 import { urlStreetView } from "./streetView";
 
 // FaisceauMap = Leaflet impératif (ssr:false, comme dans le parcours public).
@@ -108,7 +110,7 @@ type ScoreLite = {
 type RunLite = {
   score: ScoreLite;
   verdict: string;
-  ventilation?: { lignes: LigneVentil[] };
+  ventilation?: { lignes: LigneVentil[]; note?: { capitalM: number; cumulCompteM: number; plafonneAuCapital: boolean } };
   // Cartouches de qualité de vue (forward pur de ResultatComplet) — consommées par assemblerBadges.
   contexteDegagement: string;
   contexteVueNature: string | null;
@@ -315,6 +317,8 @@ export default function BancSaisie() {
   const perime = comparaison != null && runSnapshot !== empreinteRun;
   // BE-24 : refuser l'exécution si les cartes d'année du profil de test se chevauchent (validation Lot 2).
   const cartesTestValides = profilTest ? validerCartesAnnee(profilTest.famillesAnnee).ok : true;
+  // Arno (22/10/2026) — plafond des faisceaux nature hors bornes (portée ≤ v ≤ 500) : « Lancer le test » bloqué (message sous le champ).
+  const plafondTestValide = profilTest ? erreurPlafondNature(profilTest.distanceMaxM) === null : true;
 
   function onSelectAdresse(s: SuggestionAdresse) {
     setAdresse(s.label);
@@ -598,7 +602,7 @@ export default function BancSaisie() {
         <button
           type="button"
           onClick={lancer}
-          disabled={!parametres || runEnCours || !cartesTestValides}
+          disabled={!parametres || runEnCours || !cartesTestValides || !plafondTestValide}
           className="svv-btn svv-btn-primary"
           style={{ opacity: !parametres || runEnCours || !cartesTestValides ? 0.6 : 1 }}
         >
@@ -692,14 +696,16 @@ export default function BancSaisie() {
                 actif={comparaison.actif.ventilation.lignes}
                 test={comparaison.test.ventilation.lignes}
                 bornes={{
-                  base: profilActif.distanceMaxM,
+                  base: ANALYSIS_RANGE_M, // arc « 200 m » = la portée (capital fixe) ; les faisceaux nature peuvent le dépasser
                   famille: Math.max(profilActif.famillesPonderation.mh.distMaxM, profilActif.famillesPonderation.inventaire.distMaxM),
                   mondial: profilActif.famillesPonderation.mondialFaisceauM,
                 }}
                 coneDemiAngleDeg={(profilTest ?? profilActif).coneFamilleDemiAngleDeg}
-                borneScoreM={(profilTest ?? profilActif).distanceMaxM}
+                borneScoreM={ANALYSIS_RANGE_M}
                 // Arno (22/10/2026) — AJOUT : faisceaux de l'éventail visé exclus par le pivot (mode Façade), ou mode Libre.
                 exclusion={exclusionPourBanc(runParams?.mode, comparaison.actif.pivot)}
+                // Arno (22/10/2026) — AJOUT : capital de la note (61 × portée), moteur actif et profil de test.
+                capital={comparaison.actif.ventilation.note ? { actif: comparaison.actif.ventilation.note, test: comparaison.test.ventilation.note } : undefined}
                 profilActif={profilActif}
                 profilTest={profilTest ?? profilActif}
               />

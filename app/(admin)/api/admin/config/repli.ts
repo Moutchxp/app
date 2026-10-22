@@ -8,7 +8,8 @@
  * d'une ligne en base. Les 3 causes :
  *   1. ligne `id=1` absente ;
  *   2. `mode_combinaison` hors liste fermée {max, addition, sequentiel} ;
- *   3. `distance_max_m > analysis_range_m` (garde-fou du cap perçu).
+ *   3. `distance_max_m` hors de [analysis_range_m ; 500] (plafond des faisceaux nature, Arno 22/10/2026 — même règle que
+ *      `erreurPlafondNature` du moteur ; 500 recopié ici, son égalité avec PLAFOND_NATURE_MAX_M est éprouvée par repli.test.ts).
  */
 
 /** Liste fermée des modes acceptés — copiée en dur (pas d'import métier). */
@@ -32,6 +33,9 @@ export interface ResultatRepli {
  * Évalue si le profil en base est réellement actif ou en repli sur le défaut.
  * `row` = la ligne lue par la route (ou `null` si `id=1` absent).
  */
+/** Borne haute du plafond des faisceaux nature (miroir de PLAFOND_NATURE_MAX_M, `app/lib/svv/config.ts`). */
+const PLAFOND_NATURE_MAX_M = 500;
+
 export function evaluerRepli(row: LigneRepli | null): ResultatRepli {
   const raisons: string[] = [];
 
@@ -48,9 +52,9 @@ export function evaluerRepli(row: LigneRepli | null): ResultatRepli {
 
   const distanceMax = Number(row.distance_max_m);
   const portee = Number(row.analysis_range_m);
-  if (distanceMax > portee) {
+  if (!(distanceMax >= portee && distanceMax <= PLAFOND_NATURE_MAX_M)) {
     raisons.push(
-      `distance_max_m (${distanceMax}) dépasse la portée d’analyse analysis_range_m (${portee})`,
+      `distance_max_m (${distanceMax}) hors des bornes du plafond des faisceaux nature : entre la portée d’analyse analysis_range_m (${portee}) et ${PLAFOND_NATURE_MAX_M} m`,
     );
   }
 

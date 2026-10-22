@@ -49,6 +49,15 @@ export interface LigneVentil {
   // Lot 4 (détail interne de la lecture dégagement, descriptif) :
   baseM: number; // distance retenue = min(distanceObstacle ?? portée, portée)
   p1AvantCapM: number | null; // lecture dégagement avant son plafond capP1M ; null ssi p1M === null
+  // Arno (22/10/2026) — sorte de faisceau pour son plafond : nature (plafond des faisceaux nature), patrimoine, ordinaire (portée).
+  typeFaisceau?: "nature" | "patrimoine" | "ordinaire";
+}
+
+/** Arno (22/10/2026) — le capital de la note : Σ des distances comptées sur 61 × portée ; plafonné si la somme le dépasse. */
+export interface CapitalNote {
+  capitalM: number;
+  cumulCompteM: number;
+  plafonneAuCapital: boolean;
 }
 
 export interface BornesArcs {
@@ -108,6 +117,7 @@ export default function EventailFaisceaux({
   profilActif,
   profilTest,
   exclusion,
+  capital,
 }: {
   actif: LigneVentil[];
   test: LigneVentil[];
@@ -127,6 +137,8 @@ export default function EventailFaisceaux({
    * strictement inchangé. Affichage seulement : n'entre ni dans le score ni dans le verdict.
    */
   exclusion?: ExclusionPivot | null;
+  /** Arno (22/10/2026) — AJOUT : capital de la note (moteur actif, et profil de test s'il diffère). Absent → rien de plus. */
+  capital?: { actif: CapitalNote; test?: CapitalNote };
 }) {
   const [survolExclu, setSurvolExclu] = useState<number | null>(null);
   const [visibles, setVisibles] = useState<Record<SerieId, boolean>>({ brut: false, actif: true, test: true });
@@ -346,6 +358,22 @@ export default function EventailFaisceaux({
         </svg>
       </div>
 
+      {/* Arno (22/10/2026) — AJOUT : au survol, ce que le faisceau perçoit et ce qu'il COMPTE (plafond selon sa sorte). */}
+      {focus != null && actif[focus] && (() => {
+        const l = actif[focus];
+        const t = test[focus];
+        const type = l.typeFaisceau ?? (l.famille ? "patrimoine" : l.natureTraverseeM > 0 ? "nature" : "ordinaire");
+        const f1 = (v: number) => v.toFixed(1).replace(".", ",");
+        // Le profil de test (ex. plafond nature à 300) peut compter autrement que le moteur actif : on montre les deux.
+        const differe = t && Math.abs(t.distancePercueM - l.distancePercueM) > 1e-9;
+        return (
+          <div data-survol-faisceau style={{ marginTop: 4, fontSize: ".78rem", color: "var(--color-svv-ink)", textAlign: "center" }}>
+            Faisceau {l.offsetDeg > 0 ? "+" : ""}{Math.round(l.offsetDeg)}° · {type} · perçue {f1(l.valeurAvantCapM)} m ·{" "}
+            {differe ? <>comptée <span style={{ color: COULEUR.actif }}>actif {f1(l.distancePercueM)} m</span> / <span style={{ color: COULEUR.test }}>test {f1(t.distancePercueM)} m</span></> : <>comptée {f1(l.distancePercueM)} m</>}
+            {l.natureTraverseeM > 0 ? ` · nature survolée : ${f1(l.natureTraverseeM)} m` : ""}
+          </div>
+        );
+      })()}
       <p style={{ margin: "2px 0 0", fontSize: ".72rem", color: "var(--color-svv-muted)" }}>
         Survolez un faisceau pour lire ses valeurs ; cliquez pour figer le détail. Faisceaux où test ≠ actif : guides plus marqués.
       </p>
@@ -358,6 +386,21 @@ export default function EventailFaisceaux({
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ display: "inline-block", width: 14, height: 10, border: "1px solid var(--color-svv-green)", background: "color-mix(in srgb, var(--color-svv-green) 22%, transparent)" }} />Ajouté par le pivot</span>
         </div>
       )}
+      {capital && (() => {
+        const ligne = (titre: string, c: CapitalNote) => (
+          <div>
+            {titre}Capital : {Math.round(c.cumulCompteM).toLocaleString("fr-FR")} / {Math.round(c.capitalM).toLocaleString("fr-FR")} m ({((Math.min(c.cumulCompteM, c.capitalM) / c.capitalM) * 100).toFixed(1).replace(".", ",")} %)
+            {c.plafonneAuCapital ? " — plafonné au capital" : ""}
+          </div>
+        );
+        const testDiffere = capital.test && (capital.test.cumulCompteM !== capital.actif.cumulCompteM || capital.test.plafonneAuCapital !== capital.actif.plafonneAuCapital);
+        return (
+          <div data-encart-capital style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-svv-line)", background: "var(--color-svv-field)", fontSize: ".82rem", color: "var(--color-svv-ink)", lineHeight: 1.5 }}>
+            {ligne(testDiffere ? "Moteur actif — " : "", capital.actif)}
+            {testDiffere && ligne("Profil de test — ", capital.test!)}
+          </div>
+        );
+      })()}
       {exclusion && (
         <div data-encart-pivot style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-svv-line)", background: "var(--color-svv-field)", fontSize: ".82rem", color: "var(--color-svv-ink)", lineHeight: 1.5 }}>
           {exclusion.mode === "libre" ? (

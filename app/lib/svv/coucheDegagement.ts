@@ -14,6 +14,7 @@ import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement, FamilleCoeff, ModeCombinaison, ModeRepli } from './profilDegagement';
 import { carteMatche, type CarteAnnee } from './cartesAnnee';
 import {
+  ANALYSIS_RANGE_M,
   CONE_VUE_NATURE_DEG,
   SEUIL_VUE_NATURE,
   SEUIL_NOM_PROFONDEUR,
@@ -101,10 +102,20 @@ export function combinerP1P2(
  * (l'année remplace boostF2 ; MH/Inventaire remplacent le forfait remarquable).
  */
 export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegagement): number {
+  /* ══ 🔴 CAPITAL FIXE + PLAFOND DES FAISCEAUX NATURE (décision d'Arno du 22/10/2026, choix 1) ═══════════════════════
+     Avant : `distance_max_m` coupait chaque faisceau ET servait de dénominateur → le baisser FAISAIT MONTER le score
+     (diagnostic : .captures/diagnostic-plafond/SYNTHESE.md). Désormais, trois sortes de faisceaux :
+       · ORDINAIRE (ni nature ni patrimoine) : compté min(distance perçue, PORTÉE d'analyse) — 200 m, ANALYSIS_RANGE_M ;
+       · NATURE (survole un espace vert, natureTraverseeM > 0) : compté min(distance perçue, distance_max_m) — le
+         réglage existant devient « plafond des faisceaux nature » (portée ≤ distance_max_m ≤ 500 m) ;
+       · PATRIMOINE : ses plafonds propres, inchangés ; s'il survole aussi un espace vert, le plus grand des deux.
+     Le dénominateur est le CAPITAL FIXE 61 × portée (ventilerNote). Avec distance_max_m = 200 (défaut), chaque opération
+     est celle d'avant, dans le même ordre : résultat identique au bit. */
   const { distanceMaxM } = profil;
+  const portee = ANALYSIS_RANGE_M;
 
-  // F1 base + F4 nature (calcul classique, capé à la portée globale) — bâti ordinaire ET Partie 1.
-  const base = Math.min(f.distanceObstacleM ?? distanceMaxM, distanceMaxM);
+  // F1 base (capée à la PORTÉE) + F4 nature (capé au plafond des faisceaux nature) — bâti ordinaire ET Partie 1.
+  const base = Math.min(f.distanceObstacleM ?? portee, portee);
   const natureM = f.natureTraverseeM ?? 0;
   const valeurClassique = natureM > 0 ? Math.min(base + profil.boostF4 * natureM, distanceMaxM) : base;
 
@@ -124,7 +135,7 @@ export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegage
     const diviseur = diviseurCumulNature(natureM, profil.cumulNature);
     return Math.min(
       combinerP1P2(p1, p2, diviseur, natureM, profil.cumulNature.seuilMinM, profil.modeCombinaison, profil.modeCombinaisonRepli),
-      fam.distMaxM,
+      Math.max(fam.distMaxM, distanceMaxM), // nature ET patrimoine : le plus grand des deux plafonds
     );
   }
   // Famille sans nature devant : distance réelle × coeff, capée distMax famille.
@@ -205,15 +216,15 @@ function malusCouloirM(n: number, S: number, profil: ProfilDegagement): number {
   return n * profil.couloirMalusPct * S;
 }
 
-/** Cumul BRUT des faisceaux : Σ (distanceObstacleM ?? distanceMaxM). Sans boost F2/F3/F4, = cumul perçu. */
-function cumulBrut(faisceaux: FaisceauResultat[], profil: ProfilDegagement): number {
-  return faisceaux.reduce((acc, f) => acc + (f.distanceObstacleM ?? profil.distanceMaxM), 0);
+/** Cumul BRUT des faisceaux : Σ (distanceObstacleM ?? portée). Sans boost F2/F3/F4, = cumul perçu. */
+function cumulBrut(faisceaux: FaisceauResultat[]): number {
+  return faisceaux.reduce((acc, f) => acc + (f.distanceObstacleM ?? ANALYSIS_RANGE_M), 0);
 }
 
 /** Diagnostic couloir des DEUX côtés (lecture seule) : validée, n (faisceaux de la chaîne), malus en m et en points. */
 export function diagnostiquerCouloir(faisceaux: FaisceauResultat[], profil: ProfilDegagement) {
-  const S = cumulBrut(faisceaux, profil);
-  const denom = (faisceaux.length || 1) * profil.distanceMaxM;
+  const S = cumulBrut(faisceaux);
+  const denom = (faisceaux.length || 1) * ANALYSIS_RANGE_M; // capital fixe
   return (['gauche', 'droite'] as const).map((cote) => {
     const ch = detecterChaineCouloir(faisceaux, profil, cote);
     const n = ch.indices.length;
@@ -239,8 +250,10 @@ export interface VentilationFaisceau {
   distanceBruteM: number | null;
   /** Distance perçue pondérée (m) = `distancePercueFaisceau(f, profil)` (source unique, bit-identique). */
   distancePercueM: number;
-  /** Borne du PROFIL qui plafonne ce faisceau (base `distanceMaxM` / famille `distMaxM` / mondial), dérivée du profil. */
+  /** Borne qui plafonne ce faisceau : portée (ordinaire) / `distanceMaxM` (nature) / famille `distMaxM` / mondial. */
   seuilBorneM: number;
+  /** Sorte de faisceau pour le plafond (Arno, 22/10/2026) : nature, patrimoine ou ordinaire. */
+  typeFaisceau: 'nature' | 'patrimoine' | 'ordinaire';
   /** Famille pondérée appliquée (ou `null` = bâti ordinaire / faisceau dégagé). */
   famille: FamilleFaisceau;
   /** Coefficient cône/flanc appliqué (`null` si ordinaire ou mondial fixe). */
@@ -300,10 +313,16 @@ export interface VentilationNote {
   malusCouloir: VentilationCouloir[]; // [droite, gauche]
   malusTotalM: number;
   cumulNetM: number;
-  /** Note AVANT orientation = `(cumulNet / nb / distanceMaxM) × plafondDegagement` (valeur exacte). */
+  /** Note AVANT orientation = `(min(cumulNet, capital) / nb / portée) × plafondDegagement` (valeur exacte). */
   noteAvantOrientation: number;
-  /** Facteur de normalisation indicatif `(1 / nb / distanceMaxM) × plafondDegagement` (affichage). */
+  /** Facteur de normalisation indicatif `(1 / nb / portée) × plafondDegagement` (affichage). */
   facteurNormalisation: number;
+  /** Capital FIXE de la note = nb × portée (61 × 200 = 12 200 m aujourd'hui). */
+  capitalM: number;
+  /** Σ des distances comptées (après malus couloir), avant le garde-fou du capital. */
+  cumulCompteM: number;
+  /** Le garde-fou a-t-il joué (Σ > capital → la note est plafonnée au capital) ? */
+  plafonneAuCapital: boolean;
   orientation: { secteur: string | null; points: number };
   clamp: { min: number; max: number; applique: boolean };
 }
@@ -336,12 +355,13 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
   let diviseur: number | null = null;
   let modeEff: ModeCombinaison | ModeRepli | null = null;
   let capFamilleApplique = false;
-  let seuilBorneM = profil.distanceMaxM;
+  // Ordinaire : capé à la portée ; nature : au plafond des faisceaux nature (Arno, 22/10/2026). Surchargé pour le patrimoine.
+  let seuilBorneM = natureM > 0 ? profil.distanceMaxM : ANALYSIS_RANGE_M;
   let carteAnnee: CarteAnnee | null = null;
   // Valeur AVANT le dernier plafond (DESCRIPTIF). Défaut = cas ordinaire/dégagé (fam === null) : base capée
-  // portée + boost F4, c.-à-d. la valeur avant le plafond de portée `distanceMaxM`. Surchargée dans les
+  // portée + boost F4, c.-à-d. la valeur avant son plafond (portée, ou plafond nature). Surchargée dans les
   // branches mondial / famille ci-dessous (capture des valeurs déjà calculées, aucun recalcul du barème).
-  const baseOrdinaireM = Math.min(f.distanceObstacleM ?? profil.distanceMaxM, profil.distanceMaxM);
+  const baseOrdinaireM = Math.min(f.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M);
   let valeurAvantCapM = baseOrdinaireM + boostF4AppliqueM;
   let p1M: number | null = null;
   let p1AvantCapM: number | null = null;
@@ -357,9 +377,9 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     if (fam !== null && dist !== null) {
       famille = f.impactMH === true ? 'mh' : f.impactInventaire === true ? 'inventaire' : 'annee';
       coeffApplique = Math.abs(f.offsetDeg) <= profil.coneFamilleDemiAngleDeg ? fam.cone : fam.flanc;
-      seuilBorneM = fam.distMaxM;
+      seuilBorneM = natureM > 0 ? Math.max(fam.distMaxM, profil.distanceMaxM) : fam.distMaxM;
       carteAnnee = fam.carte ?? null; // carte matchée (année) capturée AU PASSAGE ; undefined (mh/inv) → null
-      const base = Math.min(dist, profil.distanceMaxM);
+      const base = Math.min(dist, ANALYSIS_RANGE_M);
       const valeurClassique = natureM > 0 ? Math.min(base + profil.boostF4 * natureM, profil.distanceMaxM) : base;
       if (natureM > 0) {
         const p1 = Math.min(valeurClassique, profil.cumulNature.capP1M);
@@ -369,7 +389,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
         const combine = combinerP1P2(
           p1, p2, diviseur, natureM, profil.cumulNature.seuilMinM, profil.modeCombinaison, profil.modeCombinaisonRepli,
         );
-        capFamilleApplique = fam.distMaxM < combine;
+        capFamilleApplique = seuilBorneM < combine;
         valeurAvantCapM = combine; // CAPTURE (pas de recalcul) : combinaison P1/P2 avant le cap famille
         p1M = p1;
         p1AvantCapM = valeurClassique; // CAPTURE : lecture dégagement AVANT son cap capP1M (déjà calculée l. valeurClassique)
@@ -390,6 +410,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     distanceBruteM: f.distanceObstacleM,
     distancePercueM,
     seuilBorneM,
+    typeFaisceau: famille !== null ? 'patrimoine' : natureM > 0 ? 'nature' : 'ordinaire',
     famille,
     coeffApplique,
     boostF4AppliqueM,
@@ -419,12 +440,13 @@ export function ventilerNote(faisceaux: FaisceauResultat[], profil: ProfilDegage
   if (faisceaux.length === 0) {
     return {
       total: 0, cumulPercuM: 0, cumulBrutM: 0, malusCouloir: [], malusTotalM: 0, cumulNetM: 0,
-      noteAvantOrientation: 0, facteurNormalisation: 0, orientation: { secteur: null, points: 0 },
+      noteAvantOrientation: 0, facteurNormalisation: 0, capitalM: 0, cumulCompteM: 0, plafonneAuCapital: false,
+      orientation: { secteur: null, points: 0 },
       clamp: { min: clampMin, max: clampMax, applique: false },
     };
   }
   const cumulPercu = faisceaux.reduce((acc, f) => acc + distancePercueFaisceau(f, profil), 0);
-  const S = cumulBrut(faisceaux, profil);
+  const S = cumulBrut(faisceaux);
   let malusTotal = 0;
   const malusCouloir: VentilationCouloir[] = [];
   for (const cote of ['droite', 'gauche'] as const) {
@@ -434,7 +456,11 @@ export function ventilerNote(faisceaux: FaisceauResultat[], profil: ProfilDegage
     malusCouloir.push({ cote, validee: ch.validee, n: ch.indices.length, indices: ch.indices, malusM });
   }
   const cumulNet = Math.max(0, cumulPercu - malusTotal);
-  const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement;
+  // CAPITAL FIXE (Arno, 22/10/2026) : nb × portée ; la somme comptée n'en dépasse jamais (garde-fou). Même ordre
+  // d'opérations qu'avant (÷ nb ÷ portée) : avec distance_max_m = 200, note identique au bit.
+  const capitalM = faisceaux.length * ANALYSIS_RANGE_M;
+  const compte = Math.min(cumulNet, capitalM);
+  const note = (compte / faisceaux.length / ANALYSIS_RANGE_M) * profil.plafondDegagement;
   let noteAvecOrientation = note;
   let secteur: ReturnType<typeof azimutVersSecteur> | null = null;
   let pts = 0;
@@ -452,7 +478,10 @@ export function ventilerNote(faisceaux: FaisceauResultat[], profil: ProfilDegage
     malusTotalM: malusTotal,
     cumulNetM: cumulNet,
     noteAvantOrientation: note,
-    facteurNormalisation: (1 / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement,
+    facteurNormalisation: (1 / faisceaux.length / ANALYSIS_RANGE_M) * profil.plafondDegagement,
+    capitalM,
+    cumulCompteM: cumulNet,
+    plafonneAuCapital: cumulNet > capitalM,
     orientation: { secteur, points: pts },
     clamp: { min: clampMin, max: clampMax, applique: total !== noteAvecOrientation },
   };

@@ -31,6 +31,13 @@ export const ANALYSIS_RANGE_M = 200;
  */
 export const RAYON_SOMMET_MUR_M = 1;
 
+/**
+ * Arno (22/10/2026) — borne HAUTE du plafond des faisceaux nature (`distance_max_m`) ; la borne basse est la portée
+ * d'analyse (ANALYSIS_RANGE_M). Appliquée à l'identique dans la configuration réelle et dans le banc d'essai
+ * (`erreurPlafondNature`, profilDegagement.ts).
+ */
+export const PLAFOND_NATURE_MAX_M = 500;
+
 /* ------------------------------------------------------------------ */
 /* Hauteur de vision / point d'origine (CLAUDE.md §4)                  */
 /* ------------------------------------------------------------------ */

@@ -9,7 +9,7 @@
  * de calcul ici : uniquement la SOURCE des constantes.
  */
 import { query } from "./client";
-import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement, type ModeCombinaison } from "../svv/profilDegagement";
+import { PROFIL_DEGAGEMENT_DEFAUT, erreurPlafondNature, type ProfilDegagement, type ModeCombinaison } from "../svv/profilDegagement";
 import type { CarteAnnee } from "../svv/cartesAnnee";
 
 interface LigneConfigScoring {
@@ -71,9 +71,9 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
     const r = res.rows[0];
     if (!r) return PROFIL_DEGAGEMENT_DEFAUT;
     if (!MODES_VALIDES.includes(r.mode_combinaison as ModeCombinaison)) return PROFIL_DEGAGEMENT_DEFAUT;
-    // Garde-fou : le cap perçu par faisceau (F1/base/P1) ne peut excéder la portée d'analyse.
-    // (N'affecte PAS les distMax famille — mh 400, etc. — qui peuvent dépasser la portée.) Repli DEFAUT, pas de clamp.
-    if (r.distance_max_m > r.analysis_range_m) return PROFIL_DEGAGEMENT_DEFAUT;
+    // Garde-fou (Arno, 22/10/2026) : le plafond des faisceaux nature est borné portée ≤ v ≤ 500 (`erreurPlafondNature`, la
+    // même règle que le pilotage et le banc). (N'affecte PAS les distMax famille — mh 400, etc.) Repli DEFAUT, pas de clamp.
+    if (erreurPlafondNature(r.distance_max_m) !== null) return PROFIL_DEGAGEMENT_DEFAUT;
 
     // Cartes d'année — try/catch LOCAL, distinct du catch global : une table absente/SQL en échec
     // retombe sur les 2 cartes seed (repli de CHAMP), sans invalider le reste du profil config_scoring.

@@ -89,11 +89,15 @@ describe('PATCH /api/admin/config', () => {
     expect(ecritureEmise()).toBe(false);
   });
 
-  it('distance_max_m > portée (résultant) → 422 (anti-repli)', async () => {
-    branche();
-    const res = await PATCH(req({ distance_max_m: 300 }));
-    expect(res.status).toBe(422);
-    expect(ecritureEmise()).toBe(false);
+  // Arno (22/10/2026) — plafond des faisceaux nature : portée (200) ≤ distance_max_m ≤ 500 ; 300 est désormais ACCEPTÉ.
+  it('distance_max_m hors bornes (150 ou 600) → 422, aucune écriture', async () => {
+    for (const v of [150, 600]) {
+      queryMock.mockReset();
+      branche();
+      const res = await PATCH(req({ distance_max_m: v }));
+      expect(res.status).toBe(422);
+      expect(ecritureEmise()).toBe(false);
+    }
   });
 
   it('analysis_range_m (MIROIR verrouillé) forgé → 422 + AUCUNE écriture (base inchangée)', async () => {
@@ -116,9 +120,9 @@ describe('PATCH /api/admin/config', () => {
     expect(ecritureEmise()).toBe(false);
   });
 
-  it('distance_max_m seul (≤ portée en base) → 200 + SET ne contient QUE distance_max_m', async () => {
-    branche({ distance_max_m: 180 });
-    const res = await PATCH(req({ distance_max_m: 180 }));
+  it('distance_max_m seul (entre la portée et 500) → 200 + SET ne contient QUE distance_max_m', async () => {
+    branche({ distance_max_m: 300 });
+    const res = await PATCH(req({ distance_max_m: 300 }));
     expect(res.status).toBe(200);
     const ecriture = queryMock.mock.calls.find(
       (c) => typeof c[0] === 'string' && (c[0] as string).includes('UPDATE config_scoring'),

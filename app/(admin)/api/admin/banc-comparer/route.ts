@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { comparerProfils } from "../../../../lib/db/bancEssai";
 import { aLaPermission } from "../../../../lib/admin/garde";
-import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
+import { erreurPlafondNature, type ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 
 /**
  * Banc M5 · Lot 5 — exécution ×2 (actif/test) + comparaison. LECTURE SEULE (comparerProfils ne fait que des
@@ -35,6 +35,9 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json({ ok: false, message: "Paramètres manquants ou invalides." }, { status: 400 });
   }
+  // Arno (22/10/2026) — mêmes bornes que la configuration réelle pour le plafond des faisceaux nature du profil de test.
+  const erreurPlafond = body.profilTest ? erreurPlafondNature(Number(body.profilTest.distanceMaxM)) : null;
+  if (erreurPlafond) return NextResponse.json({ ok: false, message: erreurPlafond }, { status: 400 });
 
   try {
     const comparaison = await comparerProfils(

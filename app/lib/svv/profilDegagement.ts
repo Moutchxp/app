@@ -5,6 +5,7 @@
  * Module pur : aucune donnée, aucune IA. VALEURS DE DÉPART À CALIBRER (non figées).
  */
 import type { Orientation } from './config';
+import { ANALYSIS_RANGE_M, PLAFOND_NATURE_MAX_M } from './config';
 import type { CarteAnnee } from './cartesAnnee';
 
 export type ModeCombinaison = 'max' | 'addition' | 'sequentiel';
@@ -58,7 +59,8 @@ export interface ProfilDegagement {
   forfaitExtremites: number;
   /** Demi-angle (deg) du cône central F3, autour de l'axe de visée (|offsetDeg| <= …). */
   coneF3DemiAngleDeg: number;
-  /** Plafond de distance perçue par faisceau (m) pour F1/F2/F4 (F3 forfaitaire peut le dépasser). */
+  /** Plafond des FAISCEAUX NATURE (m) : un faisceau qui survole un espace vert compte jusqu'à cette valeur ; les autres
+   *  sont capés à la portée, le patrimoine à ses plafonds propres (Arno, 22/10/2026). Bornes : portée ≤ v ≤ 500. */
   distanceMaxM: number;
   /** Note max de la Couche 1 (les 20 restants = Couche 2). BORNE DE CLAMP finale uniquement. */
   plafondCouche1: number;
@@ -134,3 +136,15 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   orientationPts: { N: 0, NE: 1, E: 5, SE: 8, S: 10, SO: 9, O: 7, NO: 3 },
   analysisRangeM: 200,
 };
+
+/**
+ * Arno (22/10/2026) — bornes du plafond des faisceaux nature (`distance_max_m`) : portée d'analyse ≤ v ≤ PLAFOND_NATURE_MAX_M.
+ * SOURCE UNIQUE, appliquée à l'identique à la configuration réelle (chargement, pilotage) et au banc d'essai.
+ * `null` si la valeur est acceptée, sinon le message à afficher.
+ */
+export function erreurPlafondNature(v: number): string | null {
+  if (!Number.isFinite(v) || v < ANALYSIS_RANGE_M || v > PLAFOND_NATURE_MAX_M) {
+    return `Le plafond des faisceaux nature doit être compris entre ${ANALYSIS_RANGE_M} m (portée d’analyse) et ${PLAFOND_NATURE_MAX_M} m.`;
+  }
+  return null;
+}
