@@ -258,7 +258,7 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
 // ── Le droit « Voir les commissions » ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Peut voir les commissions (négociateurs, apporteurs, rétrocessions) : administrateur (implicite), OU droit
+ * Peut voir les commissions des négociateurs (section « Négociateurs », primes, rétrocessions) : administrateur (implicite), OU droit
  * `perm_commissions` (migration 406). RELU EN BASE à chaque appel (un droit retiré l'est aussitôt). Voie de secours (compte
  * sans identifiant, garde administrateur déjà passée) : oui.
  */

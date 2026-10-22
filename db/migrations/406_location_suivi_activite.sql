@@ -118,7 +118,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS gestion_location_activite_bail_uniq
 -- ── Le droit « Voir les commissions » ──────────────────────────────────────────────────────────────────────────────
 ALTER TABLE admin_utilisateur ADD COLUMN IF NOT EXISTS perm_commissions boolean NOT NULL DEFAULT false;
 COMMENT ON COLUMN admin_utilisateur.perm_commissions IS
-  'Voir les commissions (négociateurs, apporteurs) dans « Outils de suivi » de la Location. Administrateur : implicite (migration 406).';
+  'Voir les commissions des négociateurs (section « Négociateurs », primes, rétrocessions) dans « Outils de suivi » de la Location. Administrateur : implicite (migration 406).';
 
 -- ── Les honoraires TTC déjà saisis → une ligne d'activité HT par bail (TTC ÷ 1,2) ──────────────────────────────────
 -- Date de signature inconnue avant cette migration : la date d'entrée du bail, marquée « supposée ». Avec / sans gestion :

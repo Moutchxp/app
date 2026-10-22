@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  type Apporteur, type CategoriePrime, htVersTtc, LIBELLE_ORIGINE, LIBELLE_TYPE_APPORTEUR, lireMontant, type Origine, pourcent,
+  aujourdhuiParis, type Apporteur, type CategoriePrime, htVersTtc, LIBELLE_ORIGINE, LIBELLE_TYPE_APPORTEUR, lireMontant, type Origine, pourcent,
   type SaisieActivite, ttcVersHt, TYPES_APPORTEUR, type TypeApporteur, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 
@@ -26,7 +26,7 @@ export interface ParametresSuivi {
 
 export interface SaisieSuivi extends SaisieActivite { categoriePrime: CategoriePrime | null }
 
-export const aujourdhuiParis = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+export { aujourdhuiParis };
 
 export const SUIVI_VIDE = (): SaisieSuivi => ({
   type: 'bail', dateSignature: aujourdhuiParis(), honoProprietaireHt: '', honoLocataireHt: '', negociateurId: null, apporteurId: null,

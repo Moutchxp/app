@@ -14,6 +14,8 @@ const repo = {
   peutVoirCommissions: vi.fn(), proposerActivite: vi.fn(), suiviDisponible: vi.fn(),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
+const donneesTableau = vi.fn();
+vi.mock('../../../../../lib/location/suivi/tableauBordRepo', () => ({ donneesTableau: (...a: unknown[]) => donneesTableau(...a) }));
 const { GET, POST } = await import('./route');
 
 const poster = (corps: unknown) => POST(new Request('http://x', { method: 'POST', body: JSON.stringify(corps) }));
@@ -62,6 +64,15 @@ describe('/api/admin/location/suivi', () => {
     d = await (await GET(new Request('http://x/api/admin/location/suivi'))).json();
     expect(d.data.retrocessions).toEqual([{ id: 1, montant: 200 }]);
     expect(d.data.moi).toBe(5);
+  });
+  it('🔴 le tableau de bord : l’année demandée, et le droit « Voir les commissions » relu pour la requête', async () => {
+    donneesTableau.mockReset().mockResolvedValue({ activites: [] });
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2025'));
+    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    repo.peutVoirCommissions.mockResolvedValue(true);
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=n%27importe'));
+    expect(donneesTableau.mock.calls[1][0]).toBe(new Date().getFullYear());
+    expect(donneesTableau.mock.calls[1][1]).toBe(true);
   });
   it('une action inconnue ou un corps illisible : 400', async () => {
     expect((await poster({ action: 'supprimer' })).status).toBe(400);

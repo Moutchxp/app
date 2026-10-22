@@ -2,6 +2,7 @@
 
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
+import { TableauBordSuivi } from './TableauBordSuivi';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -100,7 +101,11 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style>
-      <EnTeteLocation titre="Outils de suivi" sous="Les outils de pilotage de la location. D’autres viendront s’ajouter ici." />
+      <EnTeteLocation titre="Outils de suivi" sous="Le tableau de bord de l’activité location, et les outils de pilotage." />
+      {/* Arno (22/10/2026) — le TABLEAU DE BORD de l'activité (modèle : son suivi mensuel CA_JBP_2026.xlsx). Les outils
+          d'avant restent dessous, inchangés. */}
+      <TableauBordSuivi />
+      <h3 style={{ margin: '8px 0 0', fontSize: '1.05rem' }}>Autres outils</h3>
       <ul className="loc-cases">
         {administrateur ? (
           <li>

@@ -325,3 +325,47 @@ export function sectionNegociateurs(activites: readonly ActiviteCalcul[], ctx: C
   }
   return sortie;
 }
+
+/** Les filtres lus d'une adresse (`?negociateur=id:5&apporteur=3&gestion=avec&origine=nouveau`) — l'écran et l'export. */
+export function filtreDepuis(p: URLSearchParams): Filtre {
+  const ap = p.get('apporteur');
+  const g = p.get('gestion');
+  const o = p.get('origine');
+  return {
+    negociateur: p.get('negociateur') || null,
+    apporteur: ap === 'aucun' ? 'aucun' : ap && /^[1-9]\d*$/.test(ap) ? Number(ap) : null,
+    gestion: g === 'avec' || g === 'sans' ? g : null,
+    origine: o === 'nouveau' || o === 'deja' ? o : null,
+  };
+}
+
+/** Le filtre écrit dans l'adresse (les valeurs vides sont omises). */
+export function filtreVersParams(f: Filtre): string {
+  const e: [string, string][] = [];
+  if (f.negociateur) e.push(['negociateur', f.negociateur]);
+  if (f.apporteur !== null && f.apporteur !== undefined) e.push(['apporteur', String(f.apporteur)]);
+  if (f.gestion) e.push(['gestion', f.gestion]);
+  if (f.origine) e.push(['origine', f.origine]);
+  return new URLSearchParams(e).toString();
+}
+
+export const NOMS_MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+/** Une ligne d'activité telle que l'écran la reçoit : le bien et le bail pour ouvrir la fiche, la provenance. */
+export interface ActiviteLue extends ActiviteCalcul { lotId: number | null; bailId: number | null; source: string }
+
+/** Ce que `/api/admin/location/suivi?vue=tableau` rend (l'année demandée et la précédente). */
+export interface DonneesTableau {
+  disponible: boolean;
+  annee: number;
+  annees: number[];
+  aujourdhui: string;
+  activites: ActiviteLue[];
+  regles: RegleCommission[];
+  apporteurs: Apporteur[];
+  retrocessions: (Retrocession & { id: number })[];
+  negociateurs: { cle: string; libelle: string }[];
+  gestion: { transitions: Transition[]; stock: number; disponible: boolean };
+  preavis: Record<string, number>;
+  voirCommissions: boolean;
+}

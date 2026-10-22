@@ -6,11 +6,14 @@ import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireNegociateurs, lireRegles, lireRetrocessions, peutVoirCommissions, proposerActivite, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
+import { donneesTableau } from '../../../../../lib/location/suivi/tableauBordRepo';
+import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
  *   GET  ?vue=parametres                         apporteurs (taux datés), règles de commission, rétrocessions, négociateurs ;
  *   GET  ?vue=proposition&lotId&locataires&date  ce que « Nouveau locataire » propose (gestion du bien, origine client déduite) ;
+ *   GET  ?vue=tableau&annee=AAAA                  le tableau de bord (lignes de l'année et de N−1, gestion récurrente, préavis) ;
  *   POST action=enregistrer-activite {bailId, activite}   le suivi commercial d'un bail (module Location) ;
  *   POST action=creer-apporteur {apporteur}               « + Nouvel apporteur » (module Location) ;
  *   POST action=bareme-apporteur | regle | retrocession | annuler-retrocession   (ADMINISTRATEUR : la roue Paramètres).
@@ -30,6 +33,12 @@ export async function GET(request: Request): Promise<Response> {
       return json(await proposerActivite(Number(url.searchParams.get('lotId')), ids, url.searchParams.get('date')));
     }
     const voirCommissions = await peutVoirCommissions(garde.auteurId);
+    if (url.searchParams.get('vue') === 'tableau') {
+      const jour = aujourdhuiParis();
+      const a = Number(url.searchParams.get('annee'));
+      const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
+      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
+    }
     const [disponible, apporteurs, regles, retrocessions, negociateurs] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
     ]);

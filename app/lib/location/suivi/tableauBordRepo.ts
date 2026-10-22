@@ -1,0 +1,110 @@
+import 'server-only';
+import { query } from '../../db/client';
+import { colonneExisteMemo } from '../sondeLocation';
+import { familleDeCategorie } from '../bienComplet';
+import type { Origine, TypeActivite, CategoriePrime } from './suivi';
+import type { ActiviteCalcul, ActiviteLue, Assurance, DonneesTableau, Transition } from './tableauBord';
+import { lireApporteurs, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+
+/**
+ * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
+ * LECTURE SEULE. Les lignes d'activité des années demandées (non annulées), enrichies de ce que la base sait du bail :
+ * l'assurance des loyers (conditions d'entrée, migration 391), la vacance avant l'entrée (sortie du bail précédent du même
+ * bien), le parking (famille du bien). Et pour la gestion récurrente : les transitions de statut du bien (migration 403), le
+ * nombre de biens en gestion aujourd'hui, les préavis reçus par mois. Une table absente (migration non appliquée) : rien.
+ */
+
+const n = (v: unknown): number => Number(v);
+const nOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+const iso = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : String(v).slice(0, 10));
+
+export async function lireActivites(annees: readonly number[]): Promise<ActiviteLue[]> {
+  if (!(await suiviDisponible()) || annees.length === 0) return [];
+  const avecAssurance = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_id');
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
+            a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
+            a.apporteur_id, ap.nom AS apporteur_nom, a.apporteur_taux, a.apporteur_commission_saisie,
+            a.negociateur_id, a.negociateur_libelle, a.avec_gestion,
+            coalesce(a.origine_proprietaire_saisie, a.origine_proprietaire_deduite) AS origine_proprietaire,
+            coalesce(a.origine_locataire_saisie, a.origine_locataire_deduite) AS origine_locataire,
+            a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie,
+            ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
+            (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
+              WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
+       FROM gestion_location_activite a
+       LEFT JOIN gestion_location_apporteur ap ON ap.id = a.apporteur_id
+       LEFT JOIN gestion_annuaire_lot l ON l.id = a.lot_id
+      WHERE a.annule_le IS NULL AND extract(year FROM a.date_signature)::int = ANY($1::int[])
+      ORDER BY a.date_signature, a.id`, [[...annees]]);
+  return rows.map((r) => ({
+    id: n(r.id), type: r.type as TypeActivite, dateSignature: iso(r.date_signature), dateSupposee: r.date_signature_supposee === true,
+    libelleProprietaire: String(r.libelle_proprietaire ?? ''), libelleLocataire: String(r.libelle_locataire ?? ''),
+    honoProprietaireHt: n(r.hono_proprietaire_ht), honoLocataireHt: n(r.hono_locataire_ht),
+    primeSaisie: nOuNull(r.prime_gestion_saisie), mandatGestion: r.mandat_gestion === true, categoriePrime: (r.categorie_prime as CategoriePrime | null) ?? null,
+    apporteurId: nOuNull(r.apporteur_id), apporteurNom: (r.apporteur_nom as string | null) ?? null, apporteurTaux: nOuNull(r.apporteur_taux),
+    commissionSaisie: nOuNull(r.apporteur_commission_saisie),
+    negociateurId: nOuNull(r.negociateur_id), negociateurLibelle: String(r.negociateur_libelle ?? ''), avecGestion: r.avec_gestion === true,
+    origineProprietaire: (r.origine_proprietaire as Origine | null) ?? null, origineLocataire: (r.origine_locataire as Origine | null) ?? null,
+    loyerHc: nOuNull(r.loyer_hc), charges: nOuNull(r.charges), assurance: (r.assurance as Assurance | null) ?? null,
+    parking: r.categorie_prime === 'parking' || familleDeCategorie(r.categorie as string | null) === 'parking',
+    vacanceJours: nOuNull(r.vacance), rattachement: r.rattachement as ActiviteCalcul['rattachement'],
+    lotId: nOuNull(r.lot_id), bailId: nOuNull(r.bail_id), source: String(r.source),
+  }));
+}
+
+/** Les années où il y a de l'activité (pour le filtre « Année »). */
+export async function anneesActives(): Promise<number[]> {
+  if (!(await suiviDisponible())) return [];
+  const { rows } = await query<{ annee: number }>(
+    'SELECT DISTINCT extract(year FROM date_signature)::int AS annee FROM gestion_location_activite WHERE annule_le IS NULL ORDER BY 1');
+  return rows.map((r) => n(r.annee));
+}
+
+/** Les transitions de statut du bien depuis `depuis` (AAAA-MM-JJ), et le nombre de biens en gestion aujourd'hui. */
+export async function lireGestion(depuis: string): Promise<{ transitions: Transition[]; stock: number; disponible: boolean }> {
+  const avecStatut = await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien');
+  if (!avecStatut) return { transitions: [], stock: 0, disponible: false };
+  const [t, s] = await Promise.all([
+    query<{ lot_id: string; avant: string | null; apres: string; effet_le: Date }>(
+      'SELECT lot_id, avant, apres, effet_le FROM gestion_bien_statut_transition WHERE effet_le >= $1 ORDER BY effet_le, id', [depuis]),
+    query<{ nb: string }>("SELECT count(*) AS nb FROM gestion_annuaire_lot WHERE statut_bien = 'en_gestion'"),
+  ]);
+  return {
+    transitions: t.rows.map((r) => ({ lotId: n(r.lot_id), avant: r.avant, apres: r.apres, effetLe: iso(r.effet_le) })),
+    stock: n(s.rows[0]?.nb ?? 0), disponible: true,
+  };
+}
+
+/** Les préavis reçus, par mois (« AAAA-MM » → nombre), pour les années demandées ; ni annulés ni remplacés. */
+export async function preavisParMois(annees: readonly number[]): Promise<Record<string, number>> {
+  if (!(await colonneExisteMemo('gestion_location_preavis', 'recu_le'))) return {};
+  const { rows } = await query<{ mois: string; nb: string }>(
+    `SELECT to_char(recu_le, 'YYYY-MM') AS mois, count(*) AS nb FROM gestion_location_preavis
+      WHERE annule_le IS NULL AND remplace_le IS NULL AND extract(year FROM recu_le)::int = ANY($1::int[]) GROUP BY 1`, [[...annees]]);
+  return Object.fromEntries(rows.map((r) => [r.mois, n(r.nb)]));
+}
+
+
+/**
+ * Tout ce que l'écran calcule, pour `annee` et l'année précédente. 🔒 Sans « Voir les commissions » : ni règle (taux du
+ * négociateur, primes), ni rétrocession, ni prime saisie ne partent — la commission du négociateur n'est pas calculable.
+ */
+export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string): Promise<DonneesTableau> {
+  const disponible = await suiviDisponible();
+  const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
+  const [a, m] = moisFin.split('-').map(Number);
+  const depuis = new Date(Date.UTC(a, m - 12, 1)).toISOString().slice(0, 10);
+  const [activites, annees, regles, apporteurs, retrocessions, gestion, preavis] = await Promise.all([
+    lireActivites([annee - 1, annee]), anneesActives(), voirCommissions ? lireRegles() : Promise.resolve([]), lireApporteurs(),
+    voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
+  ]);
+  const visibles = voirCommissions ? activites : activites.map((x) => ({ ...x, primeSaisie: null }));
+  const negociateurs = new Map<string, string>();
+  for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
+  return {
+    disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
+    regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
+    gestion, preavis, voirCommissions,
+  };
+}

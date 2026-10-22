@@ -12,6 +12,9 @@
 
 export const TAUX_TVA = 0.2;
 
+/** Aujourd'hui à Paris (AAAA-MM-JJ). */
+export const aujourdhuiParis = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+
 export const TYPES_APPORTEUR = ['partenaire', 'agence', 'internet', 'collaborateur'] as const;
 export type TypeApporteur = typeof TYPES_APPORTEUR[number];
 export const LIBELLE_TYPE_APPORTEUR: Record<TypeApporteur, string> = {
