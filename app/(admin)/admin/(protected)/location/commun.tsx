@@ -202,6 +202,7 @@ export const CSS_LOCATION_ECRANS = `
 .loc-case-titre{font-weight:800;font-size:1.12rem;color:var(--color-svv-ink)}
 .loc-case-phrase{font-size:.9rem;color:var(--color-svv-muted)}
 .loc-cases--accueil .loc-case{min-height:18rem;padding:28px 30px;gap:14px;border-radius:20px}
+.loc-cases--deux{grid-template-columns:repeat(2,minmax(0,1fr))}
 .loc-cases--accueil .loc-case-titre{font-size:1.5rem;line-height:1.25}
 .loc-case-ligne{display:block}
 /* Arno (17/10/2026) — LA ZONE DE RÉSULTATS RÉSERVÉE : toujours là, hauteur FIXE (celle d'une zone à un résultat, mesurée

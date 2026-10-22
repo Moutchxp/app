@@ -7,6 +7,7 @@ import {
   sectionNegociateurs, type TotauxPeriode,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
+import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
 
 /**
  * ══ 🔴 LOCATION — « OUTILS DE SUIVI » : LE TABLEAU DE BORD DE L'ACTIVITÉ (Arno, 22/10/2026) ═══════════════════════════════════
@@ -45,8 +46,13 @@ const LIGNES_A: { k: 'nb' | 'caProprietaire' | 'caLocataire' | 'ca' | 'apporteur
 
 type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string; ids: number[] }[] } | null;
 
-export function TableauBordSuivi() {
+/**
+ * Arno (23/10/2026) — DEUX BRIQUES : `vue="mois"` (« Suivi du mois » : onglets des mois, section A et la feuille du mois) et
+ * `vue="annee"` (« Suivi annuel » : sections B à G). Les filtres, les 4 tuiles et la liste qui s'ouvre sont dans les deux.
+ */
+export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee' }) {
   const jour = aujourdhuiParis();
+  const [n, setN] = useState(0);
   const [annee, setAnnee] = useState(Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(Number(jour.slice(5, 7)));
   const [portee, setPortee] = useState<'mois' | 'annee'>('mois');
@@ -62,7 +68,7 @@ export function TableauBordSuivi() {
         else setLu({ annee, erreur: x.etat === 'refus' ? 'Accès refusé : droit « Location » requis.' : x.message ?? 'Lecture impossible.' });
       }).catch(() => { if (vivant) setLu({ annee, erreur: 'Lecture impossible : le serveur n’a pas répondu.' }); });
     return () => { vivant = false; };
-  }, [annee]);
+  }, [annee, n]);
   useEffect(() => {
     if (detail === null) return;
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') setDetail(null); };
@@ -75,7 +81,7 @@ export function TableauBordSuivi() {
   const lignes = useMemo(() => (d === null ? [] : filtrer(d.activites, filtre)), [d, filtre]);
   const parId = useMemo(() => new Map((d?.activites ?? []).map((a) => [String(a.id), a])), [d]);
 
-  if (lu === null || lu.annee !== annee) return <p className="gst-info" role="status">Chargement du tableau de bord…</p>;
+  if (lu === null || (lu.annee !== annee)) return <p className="gst-info" role="status">Chargement du tableau de bord…</p>;
   if ('erreur' in lu) return <p className="gst-erreur" role="alert">{lu.erreur}</p>;
   if (d === null) return null;
 
@@ -110,18 +116,28 @@ export function TableauBordSuivi() {
 
   return (
     <div className="tdb" data-tableau-de-bord>
-      <style>{CSS_TABLEAU_BORD}</style>
+      <style>{CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-tdb-sans-migration>Mise à jour de la base à appliquer (migration 406) : le tableau de bord se remplira dès qu’elle le sera.</p>}
 
+      {vue === 'mois' && (
+        <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`} data-onglets-mois>
+          {NOMS_MOIS.map((m, i) => (
+            <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => setMois(i + 1)} data-onglet-mois={i + 1}>
+              {m}{lignes.some((a) => a.dateSignature.startsWith(`${annee}-${String(i + 1).padStart(2, '0')}`)) ? '' : <span className="tdb-onglet-vide" aria-hidden="true"> ·</span>}</button>
+          ))}
+        </div>
+      )}
       <form className="tdb-filtres" aria-label="Filtres du tableau de bord" onSubmit={(e) => e.preventDefault()} data-filtres>
         <label className="tdb-champ">Année
           <select value={annee} onChange={(e) => setAnnee(Number(e.target.value))} data-filtre="annee">
             {d.annees.map((a) => <option key={a} value={a}>{a}</option>)}
           </select></label>
-        <label className="tdb-champ">Mois
-          <select value={mois} onChange={(e) => setMois(Number(e.target.value))} data-filtre="mois">
-            {NOMS_MOIS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select></label>
+        {vue === 'annee' && (
+          <label className="tdb-champ">Mois
+            <select value={mois} onChange={(e) => setMois(Number(e.target.value))} data-filtre="mois">
+              {NOMS_MOIS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select></label>
+        )}
         <label className="tdb-champ">Négociateur
           <select value={filtre.negociateur ?? ''} onChange={(e) => poser({ negociateur: e.target.value || null })} data-filtre="negociateur">
             <option value="">Tous</option>
@@ -174,7 +190,7 @@ export function TableauBordSuivi() {
         </p>
       )}
 
-      <section className="tdb-section" aria-labelledby="tdb-a" data-section="A">
+      {vue === 'mois' && <section className="tdb-section" aria-labelledby="tdb-a" data-section="A">
         <h3 id="tdb-a">Le mois — {NOMS_MOIS[mois - 1].toLowerCase()} {annee}, face à {annee - 1}</h3>
         <table className="tdb-table">
           <thead><tr><th scope="col">Indicateur</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee}</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee - 1}</th><th scope="col">Écart</th></tr></thead>
@@ -203,8 +219,14 @@ export function TableauBordSuivi() {
             })}
           </tbody>
         </table>
-      </section>
+      </section>}
 
+      {vue === 'mois' && (
+        <FeuilleDuMois d={d} lignes={lignes} ctx={ctx} annee={annee} mois={mois} negociateur={filtre.negociateur ?? null}
+          onDetail={(titre, ids) => setDetail({ titre, ids })} onRelire={() => setN((x) => x + 1)} />
+      )}
+
+      {vue === 'annee' && <>
       <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
         <h3 id="tdb-b">Le cumul de {annee}, mois par mois</h3>
         <CourbeCumul points={B} annee={annee} sansN1={sansN1} moisSelectionne={mois} />
@@ -316,6 +338,7 @@ export function TableauBordSuivi() {
         <p className="loc-muet">Le suivi {annee}, un onglet par mois, avec les filtres ci-dessus : la mise en page du suivi mensuel (totaux et ventilation en formules).</p>
         <a className="svv-btn svv-btn-outline gst-btn tdb-bouton-export" href={exportHref} download data-export>Exporter en .xlsx</a>
       </section>
+      </>}
 
       {detail !== null && <ListeDetail detail={detail} parId={parId} ctx={ctx} voirCommissions={d.voirCommissions} onFermer={() => setDetail(null)} />}
     </div>
@@ -441,6 +464,11 @@ const cartes = (t: string): string => `
 
 export const CSS_TABLEAU_BORD = `
 .tdb{display:flex;flex-direction:column;gap:18px}
+.tdb-onglets{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--color-svv-line);padding-bottom:0;scrollbar-width:thin}
+.tdb-onglet{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--color-svv-muted);font:inherit;font-weight:800;padding:10px 12px;min-height:44px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+.tdb-onglet[aria-selected="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}
+.tdb-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.tdb-onglet-vide{color:var(--color-svv-line-strong)}
 .tdb-filtres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .tdb-champ{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:700;color:var(--color-svv-muted);min-width:0}
 .tdb-champ select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 8px;font:inherit;font-size:.92rem;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}

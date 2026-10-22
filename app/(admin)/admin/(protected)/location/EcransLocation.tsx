@@ -97,14 +97,43 @@ export function EcranLocataires() {
   );
 }
 
+export const BRIQUES_SUIVI = [
+  { cle: 'mois', href: '/admin/location/outils/mois', titre: 'Suivi du mois',
+    phrase: 'Une feuille par mois : les locations signées, les nouvelles gestions, les mandats perdus, le bas de feuille et les apporteurs du mois.' },
+  { cle: 'annee', href: '/admin/location/outils/annee', titre: 'Suivi annuel',
+    phrase: 'Le cumul de l’année et ses courbes, les apporteurs, la gestion récurrente, les indicateurs, les négociateurs et l’export .xlsx.' },
+] as const;
+
+/** « Suivi du mois » / « Suivi annuel » : le tableau de bord, dans sa vue. */
+export function EcranSuiviActivite({ vue }: { vue: 'mois' | 'annee' }) {
+  return (
+    <div className="loc-page loc-ample">
+      <style>{CSS_LOCATION_ECRANS}</style>
+      <p className="loc-retour" style={{ margin: 0 }}><a href="/admin/location/outils">← Outils de suivi</a></p>
+      <EnTeteLocation retour={false} titre={vue === 'mois' ? 'Suivi du mois' : 'Suivi annuel'}
+        sous={vue === 'mois' ? 'La feuille d’un mois, sur le modèle du suivi mensuel.' : 'L’année : cumul, apporteurs, gestion, indicateurs, négociateurs, export.'} />
+      <TableauBordSuivi vue={vue} />
+    </div>
+  );
+}
+
 export function EcranOutils({ administrateur }: { administrateur: boolean }) {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style>
       <EnTeteLocation titre="Outils de suivi" sous="Le tableau de bord de l’activité location, et les outils de pilotage." />
-      {/* Arno (22/10/2026) — le TABLEAU DE BORD de l'activité (modèle : son suivi mensuel CA_JBP_2026.xlsx). Les outils
-          d'avant restent dessous, inchangés. */}
-      <TableauBordSuivi />
+      {/* Arno (23/10/2026) — DEUX GROSSES BRIQUES, le style des cases de l'accueil Location : « Suivi du mois » (section A et la
+          feuille du mois) et « Suivi annuel » (sections B à G). Le tableau de bord du 22/10 y est RÉPARTI, rien n'est retiré. */}
+      <ul className="loc-cases loc-cases--accueil loc-cases--deux" aria-label="Le suivi de l’activité">
+        {BRIQUES_SUIVI.map((b) => (
+          <li key={b.href}>
+            <a className="loc-case" href={b.href} data-brique={b.cle}>
+              <span className="loc-case-titre">{b.titre}</span>
+              <span className="loc-case-phrase">{b.phrase}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
       <h3 style={{ margin: '8px 0 0', fontSize: '1.05rem' }}>Autres outils</h3>
       <ul className="loc-cases">
         {administrateur ? (

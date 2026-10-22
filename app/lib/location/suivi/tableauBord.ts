@@ -132,7 +132,7 @@ export const tauxNegociateurDe = (a: ActiviteCalcul, regles: readonly RegleCommi
 
 // ── Filtres ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export function filtrer(activites: readonly ActiviteCalcul[], f: Filtre): ActiviteCalcul[] {
+export function filtrer<T extends ActiviteCalcul>(activites: readonly T[], f: Filtre): T[] {
   return activites.filter((a) => {
     if (f.negociateur && cleNegociateur(a) !== f.negociateur) return false;
     if (f.apporteur === 'aucun' && a.apporteurId !== null) return false;
