@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDeCategorie } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { historiqueAnnees, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
+import { historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModePrime, OrigineContact } from './suivi';
 import { annuaireDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
@@ -107,6 +107,33 @@ export async function lireLignesGestion(debut: string, fin: string): Promise<Lig
   }));
 }
 
+/**
+ * 408 — les gestions perdues notées dans le suivi mensuel (décision d'Arno, 23/10/2026), en lignes du bloc « Mandats de gestion
+ * perdus » : le bien rapproché (ou aucun), les loyers cc du fichier comme assiette (base cc), le taux retenu et sa source.
+ */
+export async function lireGestionsPerduesFichier(debut: string, fin: string): Promise<LigneGestion[]> {
+  if (!(await colonneExisteMemo('gestion_location_gestion_perdue', 'import_cle'))) return [];
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT g.mois, g.lot_id, g.libelle_fichier, g.proprietaire, g.loyers_cc, g.taux_ht, g.taux_source, g.commentaire,
+            concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS adresse
+       FROM gestion_location_gestion_perdue g LEFT JOIN gestion_annuaire_lot l ON l.id = g.lot_id
+      WHERE g.annule_le IS NULL AND g.mois BETWEEN $1 AND $2 ORDER BY g.mois, g.id`, [debut, fin]);
+  return rows.map((r) => ({
+    lotId: nOuNull(r.lot_id), libelle: String(r.adresse || r.libelle_fichier), proprietaire: String(r.proprietaire ?? r.libelle_fichier), effetLe: iso(r.mois),
+    avant: 'en_gestion', apres: 'perdue_fichier', loyerHc: nOuNull(r.loyers_cc), provisions: 0, base: 'cc', tauxHt: nOuNull(r.taux_ht),
+    origine: 'fichier', tauxSource: (r.taux_source as LigneGestion['tauxSource']) ?? null, commentaire: (r.commentaire as string | null) ?? null,
+  }));
+}
+
+/** 408 — les écarts expliqués avec le fichier, sur la période. */
+export async function lireEcartsFichier(debut: string, fin: string): Promise<EcartFichier[]> {
+  if (!(await colonneExisteMemo('gestion_location_ecart_fichier', 'import_cle'))) return [];
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT mois, champ, montant_fichier, montant_outil, libelle FROM gestion_location_ecart_fichier
+      WHERE annule_le IS NULL AND mois BETWEEN $1 AND $2 ORDER BY mois, id`, [debut, fin]);
+  return rows.map((r) => ({ mois: iso(r.mois).slice(0, 7), champ: r.champ as EcartFichier['champ'], fichier: n(r.montant_fichier), outil: n(r.montant_outil), libelle: String(r.libelle) }));
+}
+
 /** Les préavis reçus, par mois (« AAAA-MM » → nombre), pour les années demandées ; ni annulés ni remplacés. */
 export async function preavisParMois(annees: readonly number[]): Promise<Record<string, number>> {
   if (!(await colonneExisteMemo('gestion_location_preavis', 'recu_le'))) return {};
@@ -126,11 +153,13 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
   const [a, m] = moisFin.split('-').map(Number);
   const depuis = new Date(Date.UTC(a, m - 12, 1)).toISOString().slice(0, 10);
-  const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionLignes, collegues, annuaire] = await Promise.all([
+  const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
     voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
     lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireCollegues(), annuaireDisponible(),
+    lireGestionsPerduesFichier(`${annee}-01-01`, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
   ]);
+  const gestionLignes = [...gestionTransitions, ...pertesFichier];
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
      (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
   const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));
@@ -144,5 +173,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
     gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique,
+    // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
+    ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
   };
 }

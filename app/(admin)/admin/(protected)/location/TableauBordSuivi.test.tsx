@@ -330,6 +330,35 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     });
   });
 
+  it('🔴 408 (Arno, 23/10/2026) : une gestion perdue du fichier dans « Mandats de gestion perdus », et la note d’un écart avec le fichier', async () => {
+    donnees = { ...donnees, gestionLignes: [
+      { lotId: null, libelle: 'PROPRIÉTAIRE PERDU 1', proprietaire: 'PROPRIÉTAIRE PERDU 1', effetLe: '2026-09-01', avant: 'en_gestion', apres: 'perdue_fichier',
+        loyerHc: 1380, provisions: 0, base: 'cc', tauxHt: 4.5, origine: 'fichier', tauxSource: 'reglage', commentaire: 'Parti ailleurs' },
+    ], ecartsFichier: [
+      { mois: '2026-09', champ: 'apporteurs', fichier: 86.67, outil: 215, libelle: 'Le total des apporteurs du fichier (=SUM(H2:H9)) sans les lignes 13, 14 : 128,33 € absents du total' },
+      { mois: '2026-09', champ: 'commission', fichier: 4365.31, outil: 1448.64, libelle: 'La commission du fichier AJOUTE 2916,67 € hors location' },
+    ] };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const perte = container.querySelector('[data-bloc="mandats-perdus"] [data-ligne-gestion="fichier"]')!;
+    expect(perte.querySelector('a')).toBeNull();   // non rattachée : pas de lien vers un bien
+    expect(perte.querySelector('[data-perte-fichier]')?.textContent).toBe('suivi mensuel · non rattaché');
+    expect(nbsp(perte.textContent)).toContain('09/2026 (mois)Perdue (suivi mensuel)62,10 € *745,20 €');
+    expect(nbsp(container.querySelector('[data-total="balance"]')?.textContent)).toBe('−62,10 € / mois · −745,20 € / an');
+    const notes = [...container.querySelectorAll('[data-ecart-fichier]')];
+    expect(notes.map((n) => n.getAttribute('data-ecart-fichier'))).toEqual(['apporteurs', 'commission']);
+    expect(notes[0].textContent).toContain('Écart avec le fichier, expliqué');
+    expect(nbsp(notes[0].getAttribute('title'))).toBe('Honoraires d’apporteurs — fichier : 86,67 € · outil (calcul juste) : 215,00 €');
+    // Sans « Voir les commissions » : la note de commission reste, sans ses montants.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    donnees = { ...donnees, voirCommissions: false };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const sans = container.querySelector('[data-ecart-fichier="commission"]')!;
+    expect(sans.getAttribute('title')).toBeNull();
+    expect(sans.textContent).not.toContain('4');
+  });
+
   it('apporteurs du mois : par apporteur, et par collègue (les affaires de SES apporteurs, à la date de l’affaire)', async () => {
     const ids = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09') && a.apporteurNom === 'Apporteur A');
     donnees = { ...donnees, activites: donnees.activites.map((a) => (ids.includes(a) ? { ...a, apporteurId: 9 } : a)),

@@ -29,6 +29,7 @@ const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractio
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %`;
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
 /** Une valeur en base, dans une case : virgule française, sans le bruit des flottants (64,362 et non 64,36200000000001) — jamais arrondie. */
+const LIBELLE_CHAMP: Record<string, string> = { ca: 'TOTAL CA HT', apporteurs: 'Honoraires d’apporteurs', primes: 'Primes de gestion', commission: 'Commission brute' };
 const saisie = (x: number | null): string => (x === null ? '' : String(Number(x.toPrecision(12))).replace('.', ','));
 /** Un montant en euros dans une case : toujours 2 décimales, comme dans le tableau (64,36). */
 const saisieEuros = (x: number): string => auCentime(x).toFixed(2).replace('.', ',');
@@ -55,6 +56,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
+  const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs);
   const [edition, setEdition] = useState<number | string | null>(null);
   // Échap referme la ligne en édition — sauf quand une fenêtre (confirmation, roue) est ouverte : Échap est alors à elle.
@@ -150,6 +152,13 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           <div className="fdm-fort"><dt>Balance de gestion récurrente (gagné − perdu)</dt>
             <dd data-total="balance">{g.balanceMensuelle >= 0 ? '+' : '−'}{eur(Math.abs(g.balanceMensuelle))} / mois · {g.balanceAnnuelle >= 0 ? '+' : '−'}{eur(Math.abs(g.balanceAnnuelle))} / an</dd></div>
         </dl>
+        {g.perdues.some((l) => l.origine === 'fichier') && <p className="loc-muet tdb-note" data-note-pertes-fichier>* Mandats perdus notés dans le suivi mensuel : honoraires DÉDUITS (loyers cc du fichier × taux retenu, détail au survol).</p>}
+        {ecarts.map((e, i) => (
+          <p key={i} className="fdm-ecart" data-ecart-fichier={e.champ}
+            title={e.champ === 'commission' && !d.voirCommissions ? undefined : `${LIBELLE_CHAMP[e.champ]} — fichier : ${eur(e.fichier)} · outil (calcul juste) : ${eur(e.outil)}`}>
+            <span className="fdm-ecart-mot">Écart avec le fichier, expliqué</span> {e.libelle}.
+            {!(e.champ === 'commission' && !d.voirCommissions) && <span className="fdm-ecart-montants"> ({LIBELLE_CHAMP[e.champ]} : fichier {eur(e.fichier)} · outil {eur(e.outil)})</span>}</p>
+        ))}
         {g.sansLoyer > 0 && <p className="loc-muet tdb-note">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés dans la balance (rien n’est inventé).</p>}
       </section>
 
@@ -194,13 +203,17 @@ function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; per
       <tbody>{lignes.map((l, i) => {
         const m = honorairesGestionMensuels(l);
         return (
-          <tr key={`${l.lotId}-${l.effetLe}-${i}`} data-ligne-gestion={l.lotId}>
-            <th scope="row"><a href={`/admin/location/bien/${l.lotId}`}>{l.libelle}</a></th>
+          <tr key={`${l.lotId ?? 'fichier'}-${l.effetLe}-${i}`} data-ligne-gestion={l.lotId ?? 'fichier'}>
+            <th scope="row">{l.lotId !== null ? <a href={`/admin/location/bien/${l.lotId}`}>{l.libelle}</a> : <span>{l.libelle}</span>}
+              {l.origine === 'fichier' && <span className="loc-pastille" title={[l.commentaire, l.lotId === null ? 'Bien non rattaché' : null].filter(Boolean).join(' · ') || undefined}
+                data-perte-fichier>suivi mensuel{l.lotId === null ? ' · non rattaché' : ''}</span>}</th>
             <td data-mot="Propriétaire">{l.proprietaire || '—'}</td>
-            {perdus ? <><td data-mot="Sortie le">{dateFr(l.effetLe)}</td><td data-mot="Statut d’arrivée">{STATUT_ARRIVEE[l.apres] ?? l.apres}</td></>
+            {perdus ? <><td data-mot="Sortie le">{l.origine === 'fichier' ? `${dateFr(l.effetLe).slice(3)} (mois)` : dateFr(l.effetLe)}</td>
+              <td data-mot="Statut d’arrivée">{STATUT_ARRIVEE[l.apres] ?? l.apres}</td></>
               : <><td data-mot="Loyer">{l.loyerHc === null ? <span className="loc-muet">à saisir</span> : `${eur(l.loyerHc)} HC${l.base === 'cc' && l.provisions ? ` + ${eur(l.provisions)}` : ''}`}</td>
                 <td data-mot="Taux">{l.tauxHt === null ? '—' : `${String(l.tauxHt).replace('.', ',')} %`}</td></>}
-            <td data-mot={perdus ? 'Perdu / mois' : 'Honoraires / mois'}>{m === null ? '—' : eur(m)}</td>
+            <td data-mot={perdus ? 'Perdu / mois' : 'Honoraires / mois'} title={l.origine === 'fichier' && m !== null ? `Déduit : loyers ${eur(l.loyerHc ?? 0)} cc (fichier) × ${String(l.tauxHt).replace('.', ',')} % HT — ${l.tauxSource === 'conditions' ? 'taux des conditions du bail' : l.tauxSource === 'wippimmo' ? 'taux WIPPIMMO du bien' : 'taux par défaut de l’agence'}` : undefined}>
+              {m === null ? '—' : eur(m)}{l.origine === 'fichier' && m !== null && <span className="fdm-deduit" aria-label="valeur déduite"> *</span>}</td>
             <td data-mot={perdus ? 'Perdu / an' : 'Honoraires / an'}>{m === null ? '—' : eur(m * 12)}</td>
           </tr>
         );
@@ -325,6 +338,11 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .fdm-modifier{min-height:44px;padding:0 12px;font-size:.82rem}
 .fdm-orange{color:var(--color-svv-amber);font-weight:800}
+.fdm-ecart{margin:6px 0 0;font-size:.8rem;color:var(--color-svv-muted);border-left:3px solid var(--color-svv-amber);padding-left:8px}
+.fdm-ecart-mot{font-weight:800;color:var(--color-svv-ink)}
+.fdm-ecart-montants{display:none}
+@media (hover:none){ .fdm-ecart-montants{display:inline} }
+.fdm-deduit{color:var(--color-svv-amber);font-weight:800}
 .fdm-orange-ligne th{color:var(--color-svv-amber)}
 .fdm-edition td{background:var(--color-svv-field)}
 .fdm-edition-corps{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;text-align:left;padding:6px 0;position:sticky;left:0;width:100cqi;box-sizing:border-box}
