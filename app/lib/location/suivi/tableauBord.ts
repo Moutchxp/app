@@ -320,13 +320,27 @@ export interface PointGestion { mois: string; entrees: number; sorties: number; 
  * (un statut qui QUITTE « en_gestion »), solde, et le nombre de biens en gestion à la fin de chaque mois, remonté depuis le
  * nombre d'aujourd'hui (`stockActuel`) en défaisant les transitions postérieures.
  */
+/** Une ENTRÉE en gestion : le passage au statut « En gestion » (la règle de la tuile « Biens en gestion »). PUR. */
+export function entreeEnGestion(t: Transition): boolean { return t.apres === 'en_gestion' && t.avant !== 'en_gestion'; }
+
+/**
+ * Arno (23/10/2026) — « Mois par mois », mesure « Gestion » : les NOUVELLES gestions de chaque mois civil de l'année (les passages au
+ * statut « En gestion »), sans soustraire les sorties. Douze nombres, janvier → décembre. PUR.
+ */
+export function entreesGestionParMois(transitions: readonly Transition[], annee: number): number[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const mm = `${annee}-${String(i + 1).padStart(2, '0')}`;
+    return transitions.filter((t) => t.effetLe.slice(0, 7) === mm && entreeEnGestion(t)).length;
+  });
+}
+
 export function sectionGestion(transitions: readonly Transition[], stockActuel: number, moisFin: string): PointGestion[] {
   const [a, m] = moisFin.split('-').map(Number);
   const mois = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(Date.UTC(a, m - 12 + i, 1));
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   });
-  const entre = (t: Transition): boolean => t.apres === 'en_gestion' && t.avant !== 'en_gestion';
+  const entre = entreeEnGestion;
   const sort = (t: Transition): boolean => t.avant === 'en_gestion' && t.apres !== 'en_gestion';
   const delta = (t: Transition): number => (entre(t) ? 1 : sort(t) ? -1 : 0);
   return mois.map((mm) => {

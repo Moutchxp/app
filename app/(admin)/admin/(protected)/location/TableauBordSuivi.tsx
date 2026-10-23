@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
-  lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
+  entreesGestionParMois, lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
   sectionNegociateurs, type TotauxPeriode, tuilesAnnee, variation,
   type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -17,6 +17,19 @@ export function anneeMoisDeLAdresse(jour: string, recherche: string = typeof win
   const a = Number(p.get('annee'));
   const m = Number(p.get('mois'));
   return { annee: Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4)), mois: Number.isInteger(m) && m >= 1 && m <= 12 ? m : Number(jour.slice(5, 7)) };
+}
+
+/**
+ * Arno (23/10/2026) — « Mois par mois » : la MESURE affichée — CA HT (par défaut), baux signés, nouvelles gestions. Gardée dans
+ * l'adresse (?mesure=baux | gestion ; absente = CA).
+ */
+export type MesureMois = 'ca' | 'baux' | 'gestion';
+export const MESURES_MOIS: readonly { cle: MesureMois; mot: string; titre: string }[] = [
+  { cle: 'ca', mot: 'CA', titre: 'CA HT' }, { cle: 'baux', mot: 'Baux', titre: 'baux signés' }, { cle: 'gestion', mot: 'Gestion', titre: 'nouvelles gestions' },
+];
+export function mesureDeLAdresse(recherche: string = typeof window === 'undefined' ? '' : window.location.search): MesureMois {
+  const m = new URLSearchParams(recherche).get('mesure');
+  return m === 'baux' || m === 'gestion' ? m : 'ca';
 }
 
 /**
@@ -71,13 +84,17 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   // données, quelle que soit l'année : pas d'écart entre le rendu du serveur et celui du navigateur.
   const [annee, setAnnee] = useState(() => anneeMoisDeLAdresse(jour).annee);
   const [mois, setMois] = useState(() => anneeMoisDeLAdresse(jour).mois);
+  const [mesure, setMesure] = useState<MesureMois>(() => mesureDeLAdresse());
   useEffect(() => {
     const u = new URL(window.location.href);
-    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois)) return;
+    const mesureVoulue = vue === 'mois' && mesure !== 'ca' ? mesure : null;
+    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('mesure') === mesureVoulue) return;
     u.searchParams.set('annee', String(annee));
     u.searchParams.set('mois', String(mois));
+    // Arno (23/10/2026) — la mesure de « Mois par mois » (Suivi du mois) : ?mesure=baux | gestion ; CA (le défaut) n'écrit rien.
+    if (mesureVoulue === null) u.searchParams.delete('mesure'); else u.searchParams.set('mesure', mesureVoulue);
     window.history.replaceState(window.history.state, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
-  }, [annee, mois]);
+  }, [annee, mois, mesure, vue]);
   const [portee, setPortee] = useState<'mois' | 'annee'>('mois');
   const [filtre, setFiltre] = useState<Filtre>({});
   const [lu, setLu] = useState<{ annee: number; d: DonneesTableau } | { annee: number; erreur: string } | null>(null);
@@ -252,20 +269,48 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         </p>
       )}
 
-      {vue === 'mois' && (
-        <section className="tdb-section" aria-labelledby="tdb-histo" data-bloc="histogramme-mois">
-          <h3 id="tdb-histo">Mois par mois — {annee} <small className="loc-muet">(CA HT ; un mois s’ouvre d’un clic)</small></h3>
-          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} aria={`CA HT par mois, ${annee}${sansN1 ? '' : ` et ${annee - 1}`}`}
-            legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
+      {vue === 'mois' && (() => {
+        /* Arno (23/10/2026) — trois mesures, mois par mois : CA HT (comme avant), baux signés (`nb` : la ligne « Baux signés (avenants
+           compris) » du tableau du mois), nouvelles gestions (passages au statut « En gestion », sans soustraire les sorties). */
+        const mm = MESURES_MOIS.find((x) => x.cle === mesure) ?? MESURES_MOIS[0];
+        const gestionN = entreesGestionParMois(d.gestion.transitions, annee);
+        const gestionN1 = entreesGestionParMois(d.gestion.transitions, annee - 1);
+        const sansN1Gestion = !d.gestion.disponible || !d.gestion.transitions.some((t) => t.effetLe.startsWith(`${annee - 1}-`));
+        const sansN1Mesure = mesure === 'gestion' ? sansN1Gestion : sansN1;
+        const motDetail = mesure === 'baux' ? 'Baux signés' : 'Nouvelles gestions';
+        return (
+        <section className="tdb-section" aria-labelledby="tdb-histo" data-bloc="histogramme-mois" data-mesure={mesure}>
+          <div className="tdb-titre-mesures">
+            <h3 id="tdb-histo">{mesure === 'ca' ? <>Mois par mois — {annee} <small className="loc-muet">(CA HT ; un mois s’ouvre d’un clic)</small></>
+              : <>Mois par mois — {annee} <small className="loc-muet">({mm.titre} ; un mois s’ouvre d’un clic)</small></>}</h3>
+            <div className="tdb-mesures" role="group" aria-label="Mesure affichée" data-mesures>
+              {MESURES_MOIS.map((x) => (
+                <button key={x.cle} type="button" className="tdb-onglet tdb-mesure" aria-pressed={mesure === x.cle} data-mesure-bouton={x.cle}
+                  onClick={() => setMesure(x.cle)}>{x.mot}</button>
+              ))}
+            </div>
+          </div>
+          {mesure === 'gestion' && !d.gestion.disponible && <p className="loc-muet tdb-note">Statut du bien : migration 403 non appliquée — pas encore de nouvelles gestions à compter.</p>}
+          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'}
+            aria={`${mesure === 'ca' ? 'CA HT' : motDetail} par mois, ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}`}
+            legende={{ courant: String(annee), n1: sansN1Mesure ? null : String(annee - 1) }}
             barres={B.map((p, i) => {
               // Un mois à venir de l'année en cours : pas de barre (pas de 0 trompeur) ; un mois passé sans activité : 0.
               const aVenir = annee === Number(jour.slice(0, 4)) && i + 1 > Number(jour.slice(5, 7));
-              return { cle: i + 1, libelle: COURT[i], valeur: aVenir ? null : p.ca, n1: sansN1 ? null : p.caN1,
-                info: { titre: NOMS_MOIS[i], courant: { libelle: String(annee), ca: aVenir ? null : p.ca, nb: aVenir ? null : p.nb },
-                  precedent: sansN1 ? null : { libelle: String(annee - 1), ca: p.caN1, nb: p.nbN1 } } };
+              if (mesure === 'ca') {
+                return { cle: i + 1, libelle: COURT[i], valeur: aVenir ? null : p.ca, n1: sansN1 ? null : p.caN1,
+                  info: { titre: NOMS_MOIS[i], courant: { libelle: String(annee), ca: aVenir ? null : p.ca, nb: aVenir ? null : p.nb },
+                    precedent: sansN1 ? null : { libelle: String(annee - 1), ca: p.caN1, nb: p.nbN1 } } };
+              }
+              const v = mesure === 'baux' ? p.nb : gestionN[i];
+              const v1 = mesure === 'baux' ? p.nbN1 : gestionN1[i];
+              return { cle: i + 1, libelle: COURT[i], valeur: aVenir || (mesure === 'gestion' && !d.gestion.disponible) ? null : v, n1: sansN1Mesure ? null : v1,
+                info: { titre: NOMS_MOIS[i], compte: motDetail, courant: { libelle: String(annee), ca: aVenir ? null : v, nb: null },
+                  precedent: sansN1Mesure ? null : { libelle: String(annee - 1), ca: v1, nb: null } } };
             })} />
         </section>
-      )}
+        );
+      })()}
 
       {vue === 'mois' && <section className="tdb-section" aria-labelledby="tdb-a" data-section="A">
         <h3 id="tdb-a">Le mois — {NOMS_MOIS[mois - 1].toLowerCase()} {annee}, face à {annee - 1}</h3>
@@ -532,7 +577,9 @@ function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: Retur
  * elle faisait doublon avec ce bloc).
  */
 interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
-export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null }
+export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null;
+  /** Arno (23/10/2026) — une mesure en NOMBRE (« Baux signés », « Nouvelles gestions ») : `ca` porte alors ce nombre ; absent : le CA HT. */
+  compte?: string }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre }
 
 /** Le sens d'un nombre, pour sa couleur : positif (vert), négatif (rouge), nul (gris). PUR. */
@@ -540,6 +587,7 @@ export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'po
 
 /** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
+  if (info.compte !== undefined) return <BulleCompte info={info} sous={sous} />;
   const { courant: c, precedent: p } = info;
   const ecart = c.ca !== null && p !== null && p.ca !== null ? c.ca - p.ca : null;
   const bloc = (x: ChiffresBulle, sorte: 'courant' | 'n1') => (
@@ -593,16 +641,47 @@ export const PAS_ANNEE_FIXE = (640 - 56 - 12) / 8;
 /** Le graphique défile-t-il ? Oui dès que les barres, à leur largeur fixe, dépassent le dessin. PUR. */
 export const histogrammeDefile = (nbBarres: number, pasFixe: number | undefined): boolean => pasFixe !== undefined && 56 + 12 + nbBarres * pasFixe > 640 + 1e-9;
 
-export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe }: {
+/** Le bloc de détail d'une mesure en NOMBRE : N (rouge), N−1 (gris), l'écart en nombre et en %, coloré par son signe. */
+function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
+  const { courant: c, precedent: p } = info;
+  const mot = info.compte as string;
+  const ecart = c.ca !== null && p !== null && p.ca !== null ? c.ca - p.ca : null;
+  const bloc = (x: ChiffresBulle, sorte: 'courant' | 'n1') => (
+    <div className={`tdb-bulle-bloc tdb-bulle-bloc--${sorte}`} data-bulle-bloc={sorte}>
+      <p className="tdb-bulle-annee">{x.libelle}</p>
+      {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p>
+        : <p className="tdb-bulle-ligne"><span>{mot}</span><span className="tdb-bulle-montant">{x.ca}</span></p>}
+    </div>
+  );
+  return (
+    <div className={sous ? 'tdb-bulle tdb-bulle--sous' : 'tdb-bulle'} data-bulle={sous ? 'sous' : 'survol'} data-bulle-compte>
+      <p className="tdb-bulle-titre">{info.titre}</p>
+      {bloc(c, 'courant')}
+      {p !== null && bloc(p, 'n1')}
+      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? 'N−1 non importée'
+        : ecart === null ? 'Écart : —' : <><span>Écart</span>
+          <span className={`tdb-bulle-montant tdb-signe tdb-signe--${sensDe(ecart)}`} data-ecart={sensDe(ecart)}>
+            {ecart > 0 ? '+' : ecart < 0 ? '−' : ''}{Math.abs(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
+    </div>
+  );
+}
+
+export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe, entier = false }: {
   barres: readonly Barre[]; courante: number; onChoisir: (cle: number) => void; attribut: string; legende?: { courant: string; n1: string | null }; aria: string;
   /** La largeur FIXE d'une barre (unités du dessin) : au-delà de ce qui tient, le graphique défile (« Année par année »). */
   pasFixe?: number;
+  /** Arno (23/10/2026) — une mesure en NOMBRE (baux, gestions) : axe en nombres entiers, graduations entières. */
+  entier?: boolean;
 }) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
   const [survol, setSurvol] = useState<number | null>(null);
   const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null);
   // L'échelle est calculée sur TOUTES les barres, défilement ou non.
-  const max = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
+  const plusHaut = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
+  // Un nombre : quatre pas ENTIERS (0, 1, 2… jamais 0,75 bail) ; un montant : l'échelle d'avant.
+  const pasEntier = Math.max(1, Math.ceil(plusHaut / 4));
+  const max = entier ? pasEntier * 4 : plusHaut;
+  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurRond(v));
   const defile = histogrammeDefile(barres.length, pasFixe);
   const pas = defile ? (pasFixe as number) : (L - m.g - m.d) / barres.length;
   /* ── LE DÉFILEMENT (Arno, 23/10/2026) : glisser à la souris, molette / pavé horizontal et doigt (natifs), flèches ‹ ›, clavier. */
@@ -670,7 +749,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
         <div className="tdb-histo-graphe">
           <div className="tdb-histo-defile" style={{ gridTemplateColumns: `${(m.g / L) * 100}% minmax(0,1fr)` }}>
             <svg className="tdb-histo-axe" viewBox={`0 0 ${m.g} ${H}`} aria-hidden="true" data-histo-axe>
-              {graduations.map((g) => <text key={g} x={m.g - 6} y={yD(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text>)}
+              {graduations.map((g) => <text key={g} x={m.g - 6} y={yD(g) + 4} textAnchor="end" className="tdb-axe">{etiquette(g)}</text>)}
             </svg>
             <div className="tdb-histo-cadre">
               <button type="button" className="tdb-fleche-histo tdb-fleche-histo--g" aria-label="Années précédentes" disabled={!bords.g} data-histo-fleche="g"
@@ -725,7 +804,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
             <rect width="6" height="6" className="tdb-barre-n1-fond" /><line x1="0" y1="0" x2="0" y2="6" className="tdb-barre-n1-trait" /></pattern></defs>
           {graduations.map((g) => (
             <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
-              <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text></g>
+              <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{etiquette(g)}</text></g>
           ))}
           {barres.map((b, i) => {
             const x0 = m.g + i * pas + pas * (avecN1 ? 0.12 : 0.18);
@@ -815,6 +894,11 @@ export const CSS_TABLEAU_BORD = `
 .tdb-onglet[aria-selected="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}
 .tdb-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .tdb-onglet-vide{color:var(--color-svv-line-strong)}
+/* Arno (23/10/2026) — « CA · Baux · Gestion » sur la ligne du titre de « Mois par mois » : le style des onglets de mois, selection en VERT. */
+.tdb-titre-mesures{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 14px;margin:0 0 10px}
+.tdb-titre-mesures h3{margin:0}
+.tdb-mesures{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line)}
+.tdb-mesure[aria-pressed="true"]{color:var(--color-svv-green-ink);border-bottom-color:var(--color-svv-green-ink)}
 .tdb-filtres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .tdb-champ{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:700;color:var(--color-svv-muted);min-width:0}
 .tdb-champ select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 8px;font:inherit;font-size:.92rem;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}

@@ -551,6 +551,73 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     });
   });
 
+  describe('🔴 Arno (23/10/2026) — « Mois par mois » : les boutons CA · Baux · Gestion', () => {
+    const barre = (m: number) => container.querySelector(`[data-barre-mois="${m}"]`)!;
+    const valeur = (m: number) => barre(m).querySelector('[data-valeur]')?.getAttribute('data-valeur') ?? null;
+    const presse = () => [...container.querySelectorAll('[data-mesure-bouton]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-mesure-bouton'));
+    const axe = () => [...container.querySelectorAll('[data-bloc="histogramme-mois"] svg .tdb-axe')].map((t) => nbsp(t.textContent)).filter((t) => !/^[a-zéû.]+$/i.test(t));
+    const cliquer = async (cle: string) => { await act(async () => { (container.querySelector(`[data-mesure-bouton="${cle}"]`) as HTMLButtonElement).click(); }); await calmer(); };
+
+    it('trois boutons exclusifs sur la ligne du titre ; « CA » par défaut : le comportement d’avant, l’adresse ne porte pas de mesure', async () => {
+      await monter('mois');
+      expect([...container.querySelectorAll('[data-mesure-bouton]')].map((b) => b.textContent)).toEqual(['CA', 'Baux', 'Gestion']);
+      expect(presse()).toEqual(['ca']);
+      expect(container.querySelector('[data-bloc="histogramme-mois"] .tdb-titre-mesures h3')?.textContent).toBe('Mois par mois — 2026 (CA HT ; un mois s’ouvre d’un clic)');
+      expect(Number(valeur(9))).toBeCloseTo(15471.7, 2);
+      expect(axe().every((t) => t.endsWith('€'))).toBe(true);
+      expect(new URLSearchParams(window.location.search).get('mesure')).toBeNull();
+    });
+
+    it('Baux : les baux signés du mois (avenants compris), N−1 hachurée, mois à venir vides ; axe en nombres entiers ; détail en nombre', async () => {
+      await monter('mois');
+      await cliquer('baux');
+      expect(presse()).toEqual(['baux']);
+      expect(container.querySelector('[data-bloc="histogramme-mois"] h3')?.textContent).toBe('Mois par mois — 2026 (baux signés ; un mois s’ouvre d’un clic)');
+      expect(valeur(9)).toBe('17');
+      expect([valeur(11), valeur(12)]).toEqual([null, null]);
+      expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
+      expect(axe().every((t) => /^\d+$/.test(t))).toBe(true);   // 0, 5, 10… jamais un montant, jamais une décimale
+      expect(new URLSearchParams(window.location.search).get('mesure')).toBe('baux');
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      const det = container.querySelector('[data-histo-detail]')!;
+      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026Baux signés17');
+      expect(nbsp(det.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025Baux signés1');
+      expect(nbsp(det.querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+16 (+1 600 %)');
+      expect(det.querySelector('[data-ecart]')?.getAttribute('data-ecart')).toBe('positif');
+      // Le clic sur une barre ouvre toujours le mois.
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      expect(container.querySelector('[data-onglet-mois="9"]')?.getAttribute('aria-selected')).toBe('true');
+      expect(presse()).toEqual(['baux']);
+    });
+
+    it('Gestion : les NOUVELLES gestions du mois (une sortie ne se soustrait pas) ; sans transition en N−1 : pas de hachures, « N−1 non importée »', async () => {
+      await monter('mois');
+      await cliquer('gestion');
+      expect(container.querySelector('[data-bloc="histogramme-mois"] h3')?.textContent).toBe('Mois par mois — 2026 (nouvelles gestions ; un mois s’ouvre d’un clic)');
+      expect(valeur(9)).toBe('1');                                   // l'entrée du 12/09/2026
+      expect(valeur(10)).toBe('0');                                  // la sortie du 01/10/2026 ne compte pas
+      expect([valeur(11), valeur(12)]).toEqual([null, null]);
+      expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(0);
+      const det = container.querySelector('[data-histo-detail]')!;
+      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026Nouvelles gestions0');
+      expect(det.querySelector('[data-bulle-pied]')?.textContent).toBe('N−1 non importée');
+      expect(new URLSearchParams(window.location.search).get('mesure')).toBe('gestion');
+      await cliquer('ca');
+      expect(new URLSearchParams(window.location.search).get('mesure')).toBeNull();
+    });
+
+    it('l’adresse (?mesure=gestion) rouvre la mesure choisie ; N−1 de gestion : comptée quand elle existe, l’écart nul en gris', async () => {
+      window.history.replaceState(null, '', '/?mesure=gestion');
+      donnees = { ...donnees, gestion: { ...donnees.gestion, transitions: [...donnees.gestion.transitions, { lotId: 9, avant: null, apres: 'en_gestion', effetLe: '2025-09-03' }] } } as typeof donnees;
+      await monter('mois');
+      expect(presse()).toEqual(['gestion']);
+      expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-pied]')?.textContent)).toBe('Écart0 (+0 %)');
+      expect(container.querySelector('[data-histo-detail] [data-ecart]')?.getAttribute('data-ecart')).toBe('nul');
+    });
+  });
+
   describe('🔴 Arno (23/10/2026) — Suivi du mois : le sélecteur d’année au bout de la rangée des mois', () => {
     const selecteur = () => container.querySelector('[data-annee-onglets]') as HTMLButtonElement;
     const filtreAnnee = () => container.querySelector('[data-filtre="annee"]') as HTMLSelectElement;

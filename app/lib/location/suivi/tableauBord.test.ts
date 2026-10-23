@@ -192,3 +192,18 @@ describe('les sections', () => {
     expect(f[1].totaux.commission).toBeCloseTo((600 - 60) * 0.15 + 100 * 0.15 - 20, 10);
   });
 });
+
+describe('🔴 Arno (23/10/2026) — « Mois par mois », mesure Gestion : les nouvelles gestions de chaque mois', () => {
+  it('douze mois ; seules les ENTRÉES en gestion comptent (une sortie ne se soustrait pas) ; l’année demandée seulement', async () => {
+    const { entreesGestionParMois } = await import('./tableauBord');
+    const t = [
+      { lotId: 1, avant: 'location_seule', apres: 'en_gestion', effetLe: '2026-03-04' },
+      { lotId: 2, avant: null, apres: 'en_gestion', effetLe: '2026-03-20' },
+      { lotId: 3, avant: 'en_gestion', apres: 'ancienne_gestion', effetLe: '2026-03-25' },   // une sortie : ignorée
+      { lotId: 4, avant: 'en_gestion', apres: 'en_gestion', effetLe: '2026-05-01' },          // pas un passage : ignoré
+      { lotId: 5, avant: 'ancienne_gestion', apres: 'en_gestion', effetLe: '2025-03-10' },    // l'année d'avant
+    ] as Parameters<typeof entreesGestionParMois>[0];
+    expect(entreesGestionParMois(t, 2026)).toEqual([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(entreesGestionParMois(t, 2025)).toEqual([0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+});
