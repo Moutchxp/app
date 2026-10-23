@@ -253,7 +253,8 @@ async function deduireOrigines(
  * apporteur et commission saisie, choix de prime. Un apporteur « à rattacher » (sans collègue) ne peut pas être CHOISI ; il
  * reste sur une ligne qui l'avait déjà (reprise du fichier). Rend le motif d'un refus, ou null.
  */
-async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCommerciaux, tauxApporteur: number | null, auteur: Auteur): Promise<string | null> {
+async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCommerciaux, tauxApporteur: number | null, auteur: Auteur,
+  conserverMontants = false): Promise<string | null> {
   const avant = (await q<{ apporteur_id: string | null }>('SELECT apporteur_id FROM gestion_location_activite WHERE id = $1 FOR UPDATE', [activiteId])).rows[0];
   if (avant === undefined) return 'Ligne inconnue.';
   if (c.apporteurId !== null) {
@@ -266,14 +267,18 @@ async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCo
   }
   const collegue = c.collegueId === null ? null : await libelleCompte(q, c.collegueId);
   if (c.collegueId !== null && collegue === null) return 'Le collègue est inconnu.';
+  // Arno (23/10/2026) : taux et montant d'apporteur NON TOUCHÉS dans la feuille → la valeur exacte en base reste (jamais
+  // arrondie par une autre correction : le contrôle au centime du fichier en dépend). Seulement si l'apporteur ne change pas.
+  const garder = conserverMontants && c.apporteurId !== null && numOuNull(avant.apporteur_id) === c.apporteurId;
   await q(
     `UPDATE gestion_location_activite SET origine_contact = $2, collegue_id = $3, collegue_libelle = $4, apporteur_id = $5,
-            apporteur_taux = CASE WHEN $5::bigint IS NULL THEN NULL ELSE $6::numeric END, apporteur_commission_saisie = $7,
+            apporteur_taux = CASE WHEN $5::bigint IS NULL THEN NULL WHEN $11::boolean THEN apporteur_taux ELSE $6::numeric END,
+            apporteur_commission_saisie = CASE WHEN $11::boolean THEN apporteur_commission_saisie ELSE $7 END,
             prime_mode = $8, prime_gestion_saisie = CASE $8::text WHEN 'personnalise' THEN $9::numeric WHEN 'aucune' THEN 0 ELSE CASE WHEN $8::text IS NULL THEN prime_gestion_saisie END END,
             mandat_gestion = CASE WHEN $8::text IS NULL THEN mandat_gestion ELSE $8::text <> 'aucune' END,
             modifie_le = now(), modifie_par_libelle = $10
       WHERE id = $1`,
-    [activiteId, c.origineContact, c.collegueId, collegue, c.apporteurId, tauxApporteur, c.commissionApporteur, c.primeMode, c.primeMontant, auteur.libelle]);
+    [activiteId, c.origineContact, c.collegueId, collegue, c.apporteurId, tauxApporteur, c.commissionApporteur, c.primeMode, c.primeMontant, auteur.libelle, garder]);
   return null;
 }
 
@@ -291,7 +296,7 @@ export async function modifierActivite(activiteId: unknown, brut: unknown, auteu
   const taux = lireTauxPourcent(b.apporteurTaux);
   if (taux === undefined) return { etat: 'refus', motif: 'Taux de l’apporteur : un pourcentage entre 0 et 100.' };
   return withTransaction(async (q) => {
-    const motif = await ecrireCommercial(q as typeof query, id, c.valeurs, taux, auteur);
+    const motif = await ecrireCommercial(q as typeof query, id, c.valeurs, taux, auteur, b.conserverMontants === true);
     return motif === null ? { etat: 'ok' } as const : { etat: 'refus', motif } as const;
   });
 }

@@ -6,7 +6,7 @@ import {
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
-  aRattacher, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, type ModePrime, ORIGINES_CONTACT, type OrigineContact, versionADate,
+  aRattacher, auCentime, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, type ModePrime, ORIGINES_CONTACT, type OrigineContact, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 
 /**
@@ -30,6 +30,13 @@ const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximu
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
 /** Une valeur en base, dans une case : virgule française, sans le bruit des flottants (64,362 et non 64,36200000000001) — jamais arrondie. */
 const saisie = (x: number | null): string => (x === null ? '' : String(Number(x.toPrecision(12))).replace('.', ','));
+/** Un montant en euros dans une case : toujours 2 décimales, comme dans le tableau (64,36). */
+const saisieEuros = (x: number): string => auCentime(x).toFixed(2).replace('.', ',');
+/** Un montant TAPÉ : arrondi au centime à l'envoi (64,365 → 64,37) ; une saisie illisible part telle quelle (le serveur dit pourquoi). */
+const centimeTape = (t: string): string => {
+  const n = Number(t.replace(/[\s  €]/g, '').replace(',', '.'));
+  return t.trim() === '' || !Number.isFinite(n) ? t : saisieEuros(n);
+};
 
 interface Props {
   d: DonneesTableau;
@@ -207,10 +214,12 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
   const [v, setV] = useState({
     origineContact: (a.origineContact ?? '') as OrigineContact | '', collegueId: a.collegueId === null || a.collegueId === undefined ? '' : String(a.collegueId),
     apporteurId: a.apporteurId === null ? '' : String(a.apporteurId), apporteurTaux: a.apporteurTaux === null ? '' : saisie(Math.round(a.apporteurTaux * 1000000) / 10000),
-    commissionApporteur: a.commissionSaisie === null ? '' : saisie(a.commissionSaisie),
+    commissionApporteur: a.commissionSaisie === null ? '' : saisieEuros(a.commissionSaisie),
     primeMode: (a.primeMode ?? (primeDe(a, ctx.regles) === 0 ? 'aucune' : a.primeSaisie !== null && versionADate(ctx.regles, a.dateSignature)?.primeLogement !== a.primeSaisie ? 'personnalise' : 'regle')) as ModePrime,
     primeMontant: a.primeSaisie === null ? '' : saisie(a.primeSaisie),
   });
+  // Les montants tels qu'à l'ouverture : s'ils n'ont pas bougé, la valeur EXACTE en base est gardée (jamais arrondie).
+  const [initial] = useState(() => ({ taux: v.apporteurTaux, commission: v.commissionApporteur }));
   const [envoi, setEnvoi] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
   const [sansOrigine, setSansOrigine] = useState(false);
@@ -218,10 +227,12 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
     // Contrôlée ICI, au clic sur « Enregistrer » seulement : rien n'est envoyé, la ligne reste ouverte, le message est sous le champ.
     if (v.origineContact === '') { setSansOrigine(true); return; }
     setEnvoi(true); setMotif(null);
+    const conserverMontants = v.apporteurTaux === initial.taux && v.commissionApporteur === initial.commission;
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'modifier-activite', id: a.id, champs: {
         origineContact: v.origineContact || null, collegueId: v.collegueId === '' ? null : Number(v.collegueId), apporteurId: v.apporteurId === '' ? null : Number(v.apporteurId),
-        apporteurTaux: v.apporteurTaux, commissionApporteur: v.commissionApporteur, primeMode: v.primeMode, primeMontant: v.primeMontant } }) });
+        apporteurTaux: v.apporteurTaux, commissionApporteur: conserverMontants ? v.commissionApporteur : centimeTape(v.commissionApporteur),
+        conserverMontants, primeMode: v.primeMode, primeMontant: v.primeMontant } }) });
       const j = await r.json() as { etat?: string; motif?: string };
       if (j.etat === 'ok') { onFini(); return; }
       setMotif(j.motif ?? 'Enregistrement refusé.');

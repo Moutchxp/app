@@ -279,6 +279,57 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     });
   });
 
+  describe('🔴 Arno (23/10/2026) — « Hono. d’apporteur » : 2 décimales à l’écran, la valeur exacte en base gardée si on n’y touche pas', () => {
+    const ligne = lignes2026.find((a) => a.dateSignature.startsWith('2026-09'))!;
+    let posts: Record<string, unknown>[];
+    const ouvrirLigne = async () => {
+      donnees = { ...donnees, annuaire: true, collegues: [{ id: 2, libelle: 'Arnaud Jorel' }],
+        apporteurs: [{ id: 4, nom: 'Frédéric Rousseau', type: 'partenaire', archive: false, baremes: [], collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] }],
+        activites: donnees.activites.map((a) => (a === ligne ? { ...a, origineContact: 'apporteur', apporteurId: 4, commissionSaisie: 64.362, apporteurTaux: 0.1 } : a)) };
+      posts = [];
+      global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+        if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+        return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as unknown as Response;
+      }) as unknown as typeof fetch;
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(ligne.id)}"]`) as HTMLButtonElement).click(); });
+    };
+    const taper = async (q: string, v: string) => {
+      const el = container.querySelector(q) as HTMLInputElement | HTMLSelectElement;
+      const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, v); el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); });
+    };
+    const enregistrer = async () => { await act(async () => { (container.querySelector('[data-edition-enregistrer]') as HTMLButtonElement).click(); }); await calmer(); };
+    const champs = () => posts.at(-1)?.champs as Record<string, unknown>;
+
+    it('la case affiche 64,36 (2 décimales), pas 64,362', async () => {
+      await ouvrirLigne();
+      expect((container.querySelector('[data-edition-commission]') as HTMLInputElement).value).toBe('64,36');
+    });
+
+    it('une autre correction (prime, origine) ne réécrit NI le montant NI le taux : « conserverMontants »', async () => {
+      await ouvrirLigne();
+      await taper('[data-edition-prime]', 'aucune');
+      await enregistrer();
+      expect(champs()).toMatchObject({ primeMode: 'aucune', conserverMontants: true });
+    });
+
+    it('le montant modifié part arrondi au centime', async () => {
+      await ouvrirLigne();
+      await taper('[data-edition-commission]', '70,125');
+      await enregistrer();
+      expect(champs()).toMatchObject({ commissionApporteur: '70,13', conserverMontants: false });
+    });
+
+    it('le taux modifié : les montants ne sont plus conservés, le montant part au centime', async () => {
+      await ouvrirLigne();
+      await taper('[data-edition-taux]', '12');
+      await enregistrer();
+      expect(champs()).toMatchObject({ apporteurTaux: '12', commissionApporteur: '64,36', conserverMontants: false });
+    });
+  });
+
   it('apporteurs du mois : par apporteur, et par collègue (les affaires de SES apporteurs, à la date de l’affaire)', async () => {
     const ids = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09') && a.apporteurNom === 'Apporteur A');
     donnees = { ...donnees, activites: donnees.activites.map((a) => (ids.includes(a) ? { ...a, apporteurId: 9 } : a)),
