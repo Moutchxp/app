@@ -14,6 +14,11 @@ import { FormulaireCarte } from './CarteVive';
  * que celle de `CarteVive` vit dans `GestionVue` et n'est pas injectée sur une fiche de bien.
  */
 import { SelecteurUrgence } from './SelecteurUrgence';
+import { ModaleIssue } from '../location/ModaleIssue';
+import { motCategorie } from '../../../../lib/gestion/evenementQualite';
+import {
+  motCloture, motOuverture, motPeriode, motReouvertures, nbReouvertures, ordreHistorique, type PeriodeLue,
+} from '../../../../lib/gestion/historiqueEvenements';
 
 /**
  * ⚠️ LE TYPE DU DÉTAIL VIENT DU **COMPOSANT**, ET NON DU DÉPÔT — et c'est une garde du dépôt qui l'a imposé.
@@ -75,6 +80,9 @@ interface EvenementDuBien {
    * sélecteur. `null` = aucun ; ABSENT = une réponse antérieure à ce lot, et le sélecteur se lit pareil.
    */
   urgence?: string | null;
+  /** Arno (23/10/2026) — le type de l'événement et ses PÉRIODES (ouverture, clôture, auteurs), pour l'Historique des événements. */
+  categorie?: string | null;
+  periodes?: PeriodeLue[];
 }
 
 export function EvenementsDuBien({
@@ -115,6 +123,16 @@ export function EvenementsDuBien({
    */
   const [modifie, setModifie] = useState<{ id: number; detail: DetailEvenement } | null>(null);
   const [occupe, setOccupe] = useState(false);
+  /**
+   * ══ 🔴🔴 L'HISTORIQUE DES ÉVÉNEMENTS (Arno, 23/10/2026) ═════════════════════════════════════════════════════════════════
+   * « Une ligne repliée “Historique des événements (N)” ; dépliée, elle liste tous les événements clôturés du bien, du plus récent
+   * au plus ancien : intitulé, type, périodes, nombre de réouvertures. Chaque événement s'ouvre pour afficher sa frise complète […]
+   * en lecture seule. » Et « Rouvrir », avec confirmation : une NOUVELLE période, datée du jour.
+   */
+  const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
+  const [historiqueDeplies, setHistoriqueDeplies] = useState<ReadonlySet<number>>(new Set());
+  const [aRouvrir, setARouvrir] = useState<EvenementDuBien | null>(null);
+  const [refusRouvrir, setRefusRouvrir] = useState<string | null>(null);
 
   const charger = useCallback(async () => {
     try {
@@ -130,6 +148,31 @@ export function EvenementsDuBien({
   }, [lotCle]);
 
   useEffect(() => { void charger(); }, [charger]);
+
+  /**
+   * « Rouvrir » : la carte « Réouverture » par la route de la frise — le geste qui existait déjà (Réouverture, lot
+   * CLOTURE-REOUVERTURE). La route la DATE DU JOUR elle-même (une borne ne se date pas à la main) : c'est la nouvelle période.
+   */
+  const rouvrir = useCallback(async (e: EvenementDuBien): Promise<void> => {
+    if (occupe) return;
+    setOccupe(true); setRefusRouvrir(null);
+    try {
+      const res = await fetch(`/api/admin/gestion/evenements/${e.id}/frise`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'reouverture', texte: null, titre: null, montantCents: null, pieceNom: null }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { etat?: string; erreur?: string };
+      if (!res.ok || d.etat !== 'ok') { setRefusRouvrir(d.erreur ?? 'Réouverture impossible.'); return; }
+      setARouvrir(null);
+      onGeste?.(`Événement ${e.reference} rouvert : une nouvelle période commence aujourd’hui.`);
+      await charger();
+      onEtatEvenement?.();
+    } catch {
+      setRefusRouvrir('Réouverture impossible : le serveur n’a pas répondu.');
+    } finally {
+      setOccupe(false);
+    }
+  }, [occupe, onGeste, onEtatEvenement, charger]);
 
   /**
    * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — LES DEUX GESTES RAPATRIÉS DEPUIS L'ÉCRAN PARTAGÉ ═════════════
@@ -219,8 +262,13 @@ export function EvenementsDuBien({
      * restent repliés ») contre son esprit — cette règle vaut pour ce qu'on n'a pas demandé.
      */
     const ouverts = new Set(evenements.filter((e) => !e.clos).map((e) => e.id));
-    if (evenementVise !== null && evenements.some((e) => e.id === evenementVise)) ouverts.add(evenementVise);
+    if (evenementVise !== null && evenements.some((e) => e.id === evenementVise && !e.clos)) ouverts.add(evenementVise);
     setDeplies(ouverts);
+    /* Arno (23/10/2026) — un événement visé mais CLOS vit dans l'Historique : on l'y déplie. */
+    if (evenementVise !== null && evenements.some((e) => e.id === evenementVise && e.clos)) {
+      setHistoriqueOuvert(true);
+      setHistoriqueDeplies(new Set([evenementVise]));
+    }
   }, [evenements, evenementVise]);
 
   /**
@@ -244,12 +292,12 @@ export function EvenementsDuBien({
   useEffect(() => {
     /* ⚠️ ON ATTEND QUE L'ÉVÉNEMENT SOIT DÉPLIÉ : sa frise se monte alors, et la page cesse de bouger sous le
        défilement. Mesuré sans cette garde : on arrivait 30 px trop bas, le titre du bloc rogné. */
-    if (pose.current || evenementVise === null || evenements === null || !deplies.has(evenementVise)) return;
+    if (pose.current || evenementVise === null || evenements === null || !(deplies.has(evenementVise) || historiqueDeplies.has(evenementVise))) return;
     const el = ancres.current.get(evenementVise);
     if (el === null || el === undefined) return;
     pose.current = true;
     el.scrollIntoView({ block: 'start' });
-  }, [evenementVise, evenements, deplies]);
+  }, [evenementVise, evenements, deplies, historiqueDeplies]);
 
   /**
    * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — LES TROIS BOUTONS D'ÉTAT SONT RETIRÉS ═════════════════════════
@@ -271,15 +319,19 @@ export function EvenementsDuBien({
 
   /* 🔴 RIEN DU TOUT : ni pendant la lecture, ni sur un bien sans événement. Voir l'encadré. */
   if (evenements === null || evenements.length === 0) return null;
+  /* Arno (23/10/2026) — un événement CLÔTURÉ quitte la liste (sa frise disparaît de la fiche) : il vit dans l'Historique. */
+  const enCours = evenements.filter((e) => !e.clos);
+  const historique = ordreHistorique(evenements);
 
   return (
     <section className="ann-bloc evb" aria-labelledby="evb-titre">
       <style>{CSS_EVENEMENTS_DU_BIEN}</style>
       <h4 className="ann-bloc-titre" id="evb-titre">
-        Événements <span className="gst-compte">{evenements.length}</span>
+        Événements <span className="gst-compte">{enCours.length}</span>
       </h4>
+      {enCours.length === 0 && <p className="evb-aucun" data-aucun-evenement-en-cours>Aucun événement en cours.</p>}
       <ul className="evb-liste">
-        {evenements.map((e) => {
+        {enCours.map((e) => {
           const ouvert = deplies.has(e.id);
           return (
             <li key={e.id} className={`evb-item${e.clos ? ' evb-item--clos' : ''}`}
@@ -411,6 +463,72 @@ export function EvenementsDuBien({
           );
         })}
       </ul>
+      {historique.length > 0 && (
+        <div className="evb-histo" data-historique-evenements>
+          <button type="button" className="evb-histo-tete" aria-expanded={historiqueOuvert} onClick={() => setHistoriqueOuvert((v) => !v)}>
+            <span aria-hidden="true" className={`evb-triangle${historiqueOuvert ? ' evb-triangle--ouvert' : ''}`}>▶</span>
+            Historique des événements ({historique.length})
+          </button>
+          {historiqueOuvert && (
+            <ul className="evb-liste evb-liste--histo">
+              {historique.map((e) => {
+                const periodes = e.periodes ?? [];
+                const deplie = historiqueDeplies.has(e.id);
+                const derniere = periodes[periodes.length - 1];
+                return (
+                  <li key={e.id} className="evb-item evb-item--clos" data-evenement-historique={e.id} ref={(el) => { ancres.current.set(e.id, el); }}>
+                    <button type="button" className="evb-tete" aria-expanded={deplie}
+                      onClick={() => setHistoriqueDeplies((x) => { const n = new Set(x); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); return n; })}>
+                      <span className="evb-objet">{e.objet}</span>
+                      <span className="evb-bas">
+                        <span className="evb-ref">{e.reference}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span data-type-evenement>{motCategorie(e.categorie ?? null)}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span data-periodes>{periodes.length === 0 ? `ouvert le ${jourFr(e.ouvertLe)}${e.closLe ? ` · clos le ${jourFr(e.closLe)}` : ''}` : periodes.map(motPeriode).join(' · ')}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span data-reouvertures>{motReouvertures(nbReouvertures(periodes))}</span>
+                      </span>
+                    </button>
+                    {deplie && (
+                      <div className="evb-frise">
+                        {periodes.length > 0 && (
+                          <ol className="evb-periodes" data-liste-periodes>
+                            {periodes.map((p, i) => (
+                              <li key={`${p.du}-${i}`}>
+                                <strong>Période {i + 1}</strong> — {motPeriode(p)} : {motOuverture(p, i === 0)}{motCloture(p) ? `, ${motCloture(p)}` : ''}.
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                        {/* La frise COMPLÈTE, en lecture seule : étapes, dates, auteurs, commentaires, pièces — rien ne s'y écrit. */}
+                        <FriseAvancement evenementId={e.id} compact lectureSeule onGeste={onGeste} onOuvrirFil={onOuvrirFil} />
+                        <p className="evb-gestes">
+                          <button type="button" className="evb-modifier evb-rouvrir" disabled={occupe}
+                            onClick={() => { setRefusRouvrir(null); setARouvrir(e); }} data-rouvrir={e.id}>Rouvrir</button>
+                          {derniere !== undefined && motCloture(derniere) !== null && <span className="evb-bas"> Dernière clôture : {motCloture(derniere)}.</span>}
+                        </p>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      {aRouvrir !== null && (
+        <ModaleIssue sorte="attention" titre="Rouvrir cet événement ?" onFermer={() => setARouvrir(null)}
+          notes={[
+            `${aRouvrir.reference} — ${aRouvrir.objet}`,
+            'Une nouvelle période commencera aujourd’hui. L’événement revient dans la fiche et dans le bloc « Événements » de la page partagée, et sa frise reprend sur cette nouvelle période ; les périodes précédentes restent visibles.',
+            ...(refusRouvrir !== null ? [refusRouvrir] : []),
+          ]}
+          actions={[
+            { libelle: 'Annuler', onClick: () => setARouvrir(null), repere: 'annuler-rouvrir' },
+            { libelle: occupe ? 'Réouverture…' : 'Rouvrir', onClick: () => { void rouvrir(aRouvrir); }, principal: true, repere: 'confirmer-rouvrir' },
+          ]} />
+      )}
     </section>
   );
 }
@@ -448,6 +566,18 @@ const CSS_EVENEMENTS_DU_BIEN = `
 /* ══ 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — LE « MODIFIER » RAPATRIE DEPUIS L'ECRAN PARTAGE ══════════════════
    Discret : c'est un geste de correction, pas l'action principale du bloc. Cible 44 px (exigence transverse). */
 .evb-gestes{margin:8px 0 0}
+/* Arno (23/10/2026) — l'Historique des evenements : une ligne repliee, cible 44 px ; les periodes, lisibles au telephone. */
+.evb-aucun{margin:0 0 8px;font-size:.82rem;color:var(--color-svv-muted)}
+.evb-histo{margin-top:10px;border-top:1px solid var(--color-svv-line);padding-top:6px}
+.evb-histo-tete{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:2px;font:inherit;font-size:.86rem;font-weight:700;
+  text-align:left;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
+.evb-histo-tete:hover{background:var(--color-svv-field)}
+.evb-histo-tete:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.evb-triangle{display:inline-block;font-size:.7rem;transition:transform .15s}
+.evb-triangle--ouvert{transform:rotate(90deg)}
+@media (prefers-reduced-motion: reduce){ .evb-triangle{transition:none} }
+.evb-liste--histo{margin-top:6px}
+.evb-periodes{margin:0 0 8px;padding-left:1.2em;font-size:.8rem;color:var(--color-svv-ink);display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
 .evb-modifier{font:inherit;font-size:.78rem;min-height:44px;padding:4px 10px;cursor:pointer;
   color:var(--color-svv-ink);background:var(--color-svv-bg);
   border:1px solid var(--color-svv-line);border-radius:6px}

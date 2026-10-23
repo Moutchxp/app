@@ -1,7 +1,8 @@
 'use client';
 
 import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { ModaleIssue } from '../location/ModaleIssue';
 /**
  * 🔴 DEPUIS LES MODULES **PURS**, JAMAIS DEPUIS LE DÉPÔT. Ce composant vit dans le navigateur : importer
  * `mongaEtapeRepo` le ferait remonter jusqu'à `pg`, donc jusqu'à `dns`, et webpack refuserait de construire
@@ -135,9 +136,22 @@ function aujourdhuiLocal(): string {
   return jourParis(new Date()); // jour civil de PARIS, quel que soit le fuseau de la machine (portabilité)
 }
 
+/**
+ * ══ 🔴🔴 LA FRISE EN LECTURE SEULE — L'HISTORIQUE DES ÉVÉNEMENTS (Arno, 23/10/2026) ═════════════════════════════════════
+ *
+ * « Chaque événement de l'historique s'ouvre pour afficher sa frise complète et tout son historique (étapes, dates, auteurs,
+ * commentaires, pièces), en lecture seule. » La MÊME frise : tout ce qu'elle MONTRE reste (cartes, dates, bulles, « i »,
+ * pièces, mail d'origine, tâches) ; tout ce qui ÉCRIT disparaît — les « + », le crayon, Modifier / Retirer, le glisser, ✓ / ✕
+ * d'une étape Monga, le montant et la date d'ouverture saisissables. Un contexte plutôt qu'une propriété traversant trois
+ * composants : chacun lit `lectureSeule` là où il rend un geste.
+ */
+const FriseLectureSeule = createContext(false);
+
 export function FriseAvancement({
-  evenementId, onGeste, onOuvrirFil, onEtatEvenement, compact = false,
+  evenementId, onGeste, onOuvrirFil, onEtatEvenement, compact = false, lectureSeule = false,
 }: {
+  /** L'historique des événements : la frise se lit, rien ne s'y écrit. */
+  lectureSeule?: boolean;
   evenementId: number;
   /** Le compte rendu remonte à l'écran qui porte la frise : un seul bandeau par écran, jamais deux. */
   onGeste?: (message: string) => void;
@@ -411,6 +425,8 @@ export function FriseAvancement({
     const surClicAilleurs = (e: PointerEvent): void => {
       const cible = e.target;
       if (cible instanceof Node && moi.current !== null && moi.current.contains(cible)) return;
+      /* Arno (23/10/2026) — la modale de confirmation (Clôturer) est rendue HORS de la frise : un clic dedans n'est pas « à côté ». */
+      if (cible instanceof Element && cible.closest('.mis-voile, [role="dialog"], [role="alertdialog"]') !== null) return;
       toutRefermer();
     };
     window.addEventListener('keydown', surTouche);
@@ -568,8 +584,10 @@ export function FriseAvancement({
     : (majeures.find((c) => c.etape?.id === detailAffiche.id)?.mot ?? motEtape(detailAffiche.type));
 
   return (
-    <section ref={moi} className={`fav${compact ? ' fav--compact' : ''}`}
-      aria-label="Avancement de l’événement">
+    <FriseLectureSeule.Provider value={lectureSeule}>
+    <section ref={moi} className={`fav${compact ? ' fav--compact' : ''}${lectureSeule ? ' fav--lecture' : ''}`}
+      aria-label={lectureSeule ? 'Avancement de l’événement (lecture seule)' : 'Avancement de l’événement'}
+      data-lecture-seule={lectureSeule ? 'oui' : undefined}>
       <style>{CSS_FRISE_AVANCEMENT}</style>
       {(vue.d.taches ?? []).length > 0 && <style>{CSS_POINT_TACHE_FRISE}</style>}
       {tacheOuverte !== null && (
@@ -623,7 +641,7 @@ export function FriseAvancement({
               ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
               /* 🔴 POINT 2 — « Le ✎ de la carte en cours d'édition reste visiblement “enfoncé” (état actif)
                  tant que le bloc est ouvert. » L'écran dit QUELLE carte ; le carré en tire son état. */
-              enEdition={ajout && modifie !== null ? modifie.id : null}
+              enEdition={ajout && modifie !== null && !lectureSeule ? modifie.id : null}
               /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — `null` veut dire « la souris est sortie », et ce n'est
                  plus « ferme » : c'est « demande la fermeture », que 300 ms et une entrée peuvent annuler.
                  Le contrat du point ne change pas ; ce qu'on en fait, oui. */
@@ -634,7 +652,7 @@ export function FriseAvancement({
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
-              onModifier={crayonDeLaCarte}
+              onModifier={lectureSeule ? undefined : crayonDeLaCarte}
               onCommentaire={(x, ancre) => {
                 /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — SORTIR NE FERME PLUS, cela DEMANDE la fermeture : 300 ms
                    pour atteindre la bulle, annulés si on y entre. La charge utile (texte, abscisse) n'est pas
@@ -654,7 +672,7 @@ export function FriseAvancement({
                 });
                 bulleTexte.entrerCible(`i${x.id}`);
               }}
-              saisie={carteSaisie} onSaisir={saisirLaCarte} onPoignee={saisirParLaPoignee}
+              saisie={carteSaisie} onSaisir={lectureSeule ? undefined : saisirLaCarte} onPoignee={lectureSeule ? undefined : saisirParLaPoignee}
               onOuverture={(j) => void agir(
                 `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
                 { geste: 'ouverture', survenuLe: j })}
@@ -741,7 +759,7 @@ export function FriseAvancement({
         * bulle, au lot FRISE-HORIZONTALE. Un réservoir de quatorze cartes y serait illisible, et il défilerait
         * horizontalement avec la frise au lieu de rester sous les yeux.
         */}
-      {(reservoir !== null || ajout) && (
+      {!lectureSeule && (reservoir !== null || ajout) && (
         <div className="fav-reservoir" role="group" aria-label="Ajouter une carte à la frise">
           {/**
             * ══ 🔴🔴 POINT 2 — « JAMAIS DE PERTE SILENCIEUSE » ════════════════════════════════════════════
@@ -862,6 +880,7 @@ export function FriseAvancement({
         </p>
       )}
     </section>
+    </FriseLectureSeule.Provider>
   );
 }
 
@@ -935,6 +954,8 @@ function ElementDeLaFrise(p: {
       </li>
     );
   }
+  const lecture = useContext(FriseLectureSeule);
+  if ((p.el.sorte === 'plus' || p.el.sorte === 'plus-entre') && lecture) return null;
   if (p.el.sorte === 'plus') {
     return (
       <li className="fav-el fav-el--plus">
@@ -1071,6 +1092,7 @@ function Carre({
    */
   enEdition?: number | null;
 }) {
+  const lectureCarre = useContext(FriseLectureSeule);
   const moi = useRef<HTMLLIElement | null>(null);
 
   /**
@@ -1315,7 +1337,7 @@ function Carre({
         </button>
 
         {/* 🔴 LES DEUX PETITS BOUTONS D'UNE ÉTAPE « À CONFIRMER » (Arno : « confirmer ✓ / écarter ✕ »). */}
-        {aConfirmer && (
+        {aConfirmer && !lectureCarre && (
           <span className="fav-doute">
             <button type="button" className="fav-mini" disabled={occupe} title="Confirmer cette étape"
               onClick={() => onConfirmer(e.id, 'confirmer')}>✓<span className="fav-sr"> confirmer</span></button>
@@ -1490,6 +1512,7 @@ function BulleDetail({
    */
   onFermer?: () => void;
 }) {
+  const lectureBulle = useContext(FriseLectureSeule);
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
   /**
    * ⚠️ LA QUESTION SE REFERME DÈS QU'ON CHANGE DE CARTE : sans cela, un « oui » préparé pour une clôture
@@ -1535,12 +1558,12 @@ function BulleDetail({
           * restent non modifiables »). La garde d'affichage double celle du dépôt, qui refuse en SQL : un bouton
           * qu'on ne devrait pas voir est une invitation à découvrir un refus.
           */}
-        {e.source === 'manuelle' && (
+        {e.source === 'manuelle' && !lectureBulle && (
           <button type="button" className="fav-lien" disabled={occupe} onClick={() => onModifier(e)}>
             Modifier
           </button>
         )}
-        {e.source === 'manuelle' && (
+        {e.source === 'manuelle' && !lectureBulle && (
           <button type="button" className="fav-lien" disabled={occupe}
             onClick={() => { if (question === null) { onRetirer(e.id); return; } setDemandePour(e.id); }}>
             Retirer
@@ -1581,8 +1604,11 @@ function BulleDetail({
         * 🔴 LE MONTANT SE COMPLÈTE À LA MAIN, Y COMPRIS SUR UNE ÉTAPE MONGA (décision d'Arno du 06/10) :
         * l'audit a mesuré qu'il n'est jamais dans le mail — 2 sur 120, et ce sont des phrases humaines.
         */}
-      {e.type === 'devis_recu' && (
+      {e.type === 'devis_recu' && !lectureBulle && (
         <ChampMontant cents={e.montantCents} occupe={occupe} onPoser={(v) => onMontant(e.id, v)} />
+      )}
+      {e.type === 'devis_recu' && lectureBulle && e.montantCents !== null && (
+        <p className="fav-perdu" data-montant-lecture>Montant : {(e.montantCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</p>
       )}
     </div>
   );
@@ -1631,10 +1657,19 @@ function ChampOuverture({
 }: { jour: string; mot: string; occupe: boolean; onPoser: (jour: string) => void }) {
   const [saisie, setSaisie] = useState(jour);
   const [edite, setEdite] = useState(false);
+  const lecture = useContext(FriseLectureSeule);
   /* ⚠️ LA SAISIE SUIT LA DONNÉE quand elle change ailleurs (un enregistrement, une relecture) : sans cela, le
      champ garderait l'ancienne date après coup, et donnerait à croire que rien n'a été pris. */
   useEffect(() => { setSaisie(jour); }, [jour]);
 
+  if (lecture) {
+    return (
+      <span className="fav-carre-clic fav-carre-clic--borne">
+        <span className="fav-titre fav-titre--centree">{mot}</span>
+        <span className="fav-date fav-date--centree">{`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}</span>
+      </span>
+    );
+  }
   if (!edite) {
     return (
       <button type="button" className="fav-carre-clic fav-carre-clic--borne" onClick={() => setEdite(true)}
@@ -2218,23 +2253,22 @@ function AjouterEtape({
         */}
       {refus !== null && <p className="fav-perdu" role="status">{refus}</p>}
 
-      {/* 🔴 LA QUESTION D'ARNO, MOT POUR MOT, et elle dit la CONSÉQUENCE SUR LE BIEN — pas le nom du bouton. */}
+      {/* 🔴 LA QUESTION D'ARNO, MOT POUR MOT, et elle dit la CONSÉQUENCE SUR LE BIEN — pas le nom du bouton.
+          Arno (23/10/2026) : dans une MODALE, style habituel de Location / Gestion — Annuler / Clôturer. */}
       {demande !== null && confirme && (
-        <p className="fav-confirme" role="alert">{demande.question}</p>
+        <ModaleIssue sorte="attention" titre={demande.titre} onFermer={() => setConfirme(false)} notes={[demande.question]}
+          actions={[
+            { libelle: 'Annuler', onClick: () => setConfirme(false), repere: 'annuler-carte-borne' },
+            { libelle: occupe ? 'Enregistrement…' : demande.valider, onClick: () => { void envoyer(); }, principal: true, repere: 'confirmer-carte-borne' },
+          ]} />
       )}
 
       <div className="fav-ajout-ligne">
         <button type="button" className="fav-btn fav-btn--fort"
           disabled={occupe || refus !== null}
           onClick={() => void envoyer()}>
-          {demande !== null && confirme
-            ? demande.valider
-            : (modifie === null ? 'Valider' : 'Enregistrer')}
+          {modifie === null ? 'Valider' : 'Enregistrer'}
         </button>
-        {/* 🔴 « ANNULER » EST LE PREMIER DES DEUX CHOIX D'ARNO : il revient à la saisie, sans rien poser. */}
-        {demande !== null && confirme && (
-          <button type="button" className="fav-btn" onClick={() => setConfirme(false)}>Annuler</button>
-        )}
         {onRetour !== undefined && (
           <button type="button" className="fav-btn" onClick={onRetour}>Choisir une autre carte</button>
         )}

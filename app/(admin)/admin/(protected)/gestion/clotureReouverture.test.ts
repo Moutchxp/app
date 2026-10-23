@@ -171,11 +171,12 @@ describe('🔴🔴 ③ la fermeture en UN CLIC a été retirée', () => {
 
 describe('🔴🔴 ④ la confirmation, avant de poser', () => {
   /** 🔴 LES MOTS D'ARNO, ET LES DEUX BOUTONS QU'IL NOMME. */
-  it('🔴🔴 les deux questions sont posées dans le panneau, pas dans une boîte du navigateur', () => {
+  // Arno (23/10/2026) : la confirmation est une MODALE de l'application (style habituel Location / Gestion), Annuler / Clôturer.
+  it('🔴🔴 les deux questions sont posées dans une modale de l’application, pas dans une boîte du navigateur', () => {
     expect(FRISE).toContain('const demande = modifie === null ? confirmationCarte(type) : null;');
     expect(FRISE).toContain('if (demande !== null && !confirme) { setConfirme(true); return; }');
-    expect(FRISE).toContain('<p className="fav-confirme" role="alert">{demande.question}</p>');
-    expect(FRISE).toContain('onClick={() => setConfirme(false)}>Annuler</button>');
+    expect(FRISE).toContain('<ModaleIssue sorte="attention" titre={demande.titre} onFermer={() => setConfirme(false)} notes={[demande.question]}');
+    expect(FRISE).toContain("{ libelle: 'Annuler', onClick: () => setConfirme(false), repere: 'annuler-carte-borne' },");
     /* ⚠️ AUCUNE BOÎTE MODALE DU NAVIGATEUR : elle bloque la page et ne porte pas les mots du module.
        ⚠️ ON INTERDIT L'APPEL, PAS LA MENTION : l'encadré qui explique ce choix nomme forcément `confirm()`. */
     expect(FRISE).not.toContain('window.confirm(');

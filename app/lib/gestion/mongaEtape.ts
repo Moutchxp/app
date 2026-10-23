@@ -604,6 +604,8 @@ export function informationsDuReservoir(evenementOuvert: boolean): TypeEtape[] {
  * de travers : elle doit dire la CONSÉQUENCE sur le bien, et non répéter le nom du bouton.
  */
 export interface ConfirmationCarte {
+  /** Le titre de la modale de confirmation (Arno, 23/10/2026 : « une modale, style habituel de Location / Gestion »). */
+  titre: string;
   question: string;
   /** Le mot du bouton qui confirme. « Annuler » est l'autre, partout. */
   valider: string;
@@ -611,13 +613,16 @@ export interface ConfirmationCarte {
 
 export function confirmationCarte(type: TypeEtape): ConfirmationCarte | null {
   if (type === 'cloture') {
+    // 🔴 Arno (23/10/2026), mot pour mot : ce que la clôture fait de la frise, du rappel de la page partagée, et où le retrouver.
     return {
-      question: 'Clôturer cet événement ? Le bien n’aura plus d’événement ouvert.',
+      titre: 'Clôturer cet événement ?',
+      question: 'Cet événement sera clôturé. Sa frise disparaîtra de la fiche, ainsi que son rappel / suivi dans le bloc « Événements » de la page partagée. Il restera consultable dans l’Historique des événements.',
       valider: 'Clôturer',
     };
   }
   if (type === 'reouverture') {
     return {
+      titre: 'Rouvrir cet événement ?',
       question: 'Rouvrir cet événement ? Le bien redeviendra un bien avec événement ouvert.',
       valider: 'Rouvrir',
     };

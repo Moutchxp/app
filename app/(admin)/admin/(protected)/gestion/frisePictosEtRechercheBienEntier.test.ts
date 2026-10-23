@@ -71,7 +71,9 @@ describe('🔴🔴 ② le crayon ouvre et referme', () => {
    */
   it('🔴🔴 les trois crayons appellent le même geste', () => {
     expect(FRISE).toContain('const crayonDeLaCarte = useCallback((e: EtapeAAfficher): void => {');
-    expect(FRISE.match(/onModifier=\{crayonDeLaCarte\}/g)).toHaveLength(3);
+    // Arno (23/10/2026) : la rangée ne passe le crayon qu'hors lecture seule (Historique des événements) ; même geste.
+    expect(FRISE.match(/onModifier=\{crayonDeLaCarte\}/g)).toHaveLength(2);
+    expect(FRISE).toContain('onModifier={lectureSeule ? undefined : crayonDeLaCarte}');
     expect(FRISE).not.toContain('onModifier={(x) => { setModifie(x);');
   });
 

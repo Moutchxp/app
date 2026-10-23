@@ -1029,11 +1029,15 @@ export function GestionVue({ intro }: {
    * `d.evenements`. Lire un mail ou changer une urgence relit l'écran (`charger`), les cartes reviennent avec
    * leur nouveau statut, et la liste se reclasse au rendu suivant — sans que personne n'ait à l'ordonner.
    *
-   * ⚠️ AUCUNE CARTE N'EST MASQUÉE, et le compteur reste `d.evenementsTotal` : ce sont des TRIS. `trierEvenements`
+   * ⚠️ LE TRI NE MASQUE AUCUNE CARTE, et le plein écran compte `d.evenementsTotal`. Seule la colonne de la page partagée
+   * retire les événements CLOS (Arno, 23/10/2026 — `evenementsEnCours`, juste dessous) : un filtre décidé et dit. `trierEvenements`
    * rend une COPIE de la même longueur, et c'est éprouvé.
    */
   const tri: TriEvenement = triValide(etatUrl.tri ?? undefined);
   const evenementsRanges = trierEvenements(d.evenements, tri);
+  /* Arno (23/10/2026) — la colonne « Événements » de la page partagée ne montre que les événements EN COURS (lus sur la frise :
+     `etatAffiche` rend « traite » pour un événement clos). Le plein écran garde la liste entière (filtres, tableau de bord). */
+  const evenementsEnCours = evenementsRanges.filter((e) => e.etat !== 'traite');
   /**
    * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LA LISTE RESTREINTE PAR UN CHIFFRE DU TABLEAU DE BORD ═══════════
    *
@@ -1836,8 +1840,10 @@ export function GestionVue({ intro }: {
               listes commencent à la même hauteur. Voir l'encadré de `.gst-tete-partage` dans la feuille. */}
           <div className="gst-tete-partage">
             <div className="gst-tete-partage-titre">
+              {/* Arno (23/10/2026) — un événement CLÔTURÉ quitte ce bloc (son rappel / suivi disparaît de la page partagée) : le
+                  compteur dit les événements EN COURS. Il reste dans le plein écran, son tableau de bord et l'Historique de la fiche. */}
               <h2 className="gst-titre" id="gst-titre-ev">
-                Événements <span className="gst-compte">{d.evenementsTotal}</span>
+                Événements <span className="gst-compte">{d.evenementsOuverts}</span>
               </h2>
             </div>
             {/**
@@ -1877,9 +1883,9 @@ export function GestionVue({ intro }: {
               vide, et les deux pieds ne seraient plus alignés. */}
           <div className="gst-corps-partage">
             {troncEv && <p className="gst-tronc">{troncEv}</p>}
-            {d.evenements.length === 0
+            {evenementsEnCours.length === 0
               ? <p className="gst-vide">{messageEvenementsVide()}</p>
-              : <ul className="gst-liste">{cartesDe(true)}</ul>}
+              : <ul className="gst-liste">{cartesDe(true, evenementsEnCours)}</ul>}
           </div>
           {/* ⚠️ LE PIED EXISTE MÊME VIDE : il réserve la même hauteur qu'à gauche, pour que les deux colonnes se
               terminent sur la même ligne. C'est le prix de la symétrie, et il est de 44 px. */}

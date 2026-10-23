@@ -263,8 +263,14 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
    * qui existe est celui du tableau de bord, qui porte son nom, se voit dans un bandeau et se retire d'un clic.
    * Un filtrage muet rouvrirait exactement le défaut que cette épreuve existe pour empêcher.
    */
-  it('🔴🔴 le compteur reste le total, et le tri ne masque rien', () => {
-    expect((VUE.match(/\{d\.evenementsTotal\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  /**
+   * 🔴 Arno (23/10/2026) — « le rappel disparaît du bloc “Événements” de la page partagée » : la COLONNE partagée ne montre et ne
+   * compte que les événements EN COURS (filtre DIT, décidé par Arno) ; le plein écran garde le total et la liste entière.
+   */
+  it('🔴🔴 le plein écran compte le total, la page partagée les en cours ; le tri ne masque rien', () => {
+    expect((VUE.match(/\{d\.evenementsTotal\}/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(VUE).toContain('Événements <span className="gst-compte">{d.evenementsOuverts}</span>');
+    expect(VUE).toContain("const evenementsEnCours = evenementsRanges.filter((e) => e.etat !== 'traite');");
     /* 🔴 LE TRI RANGE LA LISTE ENTIÈRE : aucune restriction sur ce chemin-là. */
     expect(VUE).toContain('const evenementsRanges = trierEvenements(d.evenements, tri);');
     /**

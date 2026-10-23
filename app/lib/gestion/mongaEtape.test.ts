@@ -335,11 +335,14 @@ describe('⑨ clore et rouvrir, par une carte et rien d’autre', () => {
    * confirmation qu'on relit de travers : elle doit dire la CONSÉQUENCE sur le bien.
    */
   it('🔴🔴 chaque carte d’état demande confirmation, avec les mots d’Arno', () => {
+    // Arno (23/10/2026) : une modale, et ses mots pour la clôture.
     expect(confirmationCarte('cloture')).toEqual({
-      question: 'Clôturer cet événement ? Le bien n’aura plus d’événement ouvert.',
+      titre: 'Clôturer cet événement ?',
+      question: 'Cet événement sera clôturé. Sa frise disparaîtra de la fiche, ainsi que son rappel / suivi dans le bloc « Événements » de la page partagée. Il restera consultable dans l’Historique des événements.',
       valider: 'Clôturer',
     });
     expect(confirmationCarte('reouverture')).toEqual({
+      titre: 'Rouvrir cet événement ?',
       question: 'Rouvrir cet événement ? Le bien redeviendra un bien avec événement ouvert.',
       valider: 'Rouvrir',
     });

@@ -156,7 +156,8 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * disponible derrière le lien.
    */
   it('🔴🔴 une case de devis porte un champ de montant', () => {
-    expect(FRISE).toContain("e.type === 'devis_recu' && (");
+    // Arno (23/10/2026) : la frise en lecture seule (Historique des événements) montre le montant sans le champ.
+    expect(FRISE).toContain("e.type === 'devis_recu' && !lectureBulle && (");
     expect(FRISE).toContain('Montant du devis');
     /* ⚠️ EN CENTIMES, ARRONDIS : un montant en flottant finirait par afficher 885,4999999. */
     expect(FRISE).toContain('Math.round(v * 100)');
@@ -878,7 +879,7 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
    * automatiquement à leur date, NON MODIFIABLES — la garde est dans le dépôt, pas dans l'écran.
    */
   it('🔴🔴 une carte Monga reste non modifiable, et le dépôt le tient', () => {
-    expect(FRISE).toContain("{e.source === 'manuelle' && (");
+    expect(FRISE).toContain("{e.source === 'manuelle' && !lectureBulle && (");
     const repo = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
     const i = repo.indexOf('export async function modifierEtapeManuelle');
     /* ⚠️ LA FENÊTRE S'ÉLARGIT À 2 400 CARACTÈRES : la fonction porte désormais le commentaire qui explique
@@ -972,7 +973,7 @@ describe('⑯ l’espace ne se déploie qu’à la demande, et se replie (Arno, 
     /* ① bulle de détail, fixée par un clic */
     expect(FRISE).toContain('{detailFixe !== null && (');
     /* ②③④ réservoir, ajout, modification — un seul conteneur, ouvert par l'un ou l'autre */
-    expect(FRISE).toContain('{(reservoir !== null || ajout) && (');
+    expect(FRISE).toContain('{!lectureSeule && (reservoir !== null || ajout) && (');
   });
 
   /**
@@ -1102,9 +1103,11 @@ describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
    * de l'écran partagé est déplié même s'il est clos. On vient de cliquer un bouton qui promet de l'ouvrir ;
    * le laisser replié parce qu'il est clos tiendrait la lettre de la règle contre son esprit.
    */
-  it('🔴 l’événement visé par le bouton est déplié, même clos', () => {
+  it('🔴 l’événement visé par le bouton est déplié, même clos — dans l’Historique des événements (Arno, 23/10/2026)', () => {
     expect(BLOC).toContain(
-      'if (evenementVise !== null && evenements.some((e) => e.id === evenementVise)) ouverts.add(evenementVise);');
+      'if (evenementVise !== null && evenements.some((e) => e.id === evenementVise && !e.clos)) ouverts.add(evenementVise);');
+    expect(BLOC).toContain('if (evenementVise !== null && evenements.some((e) => e.id === evenementVise && e.clos)) {');
+    expect(BLOC).toContain('setHistoriqueDeplies(new Set([evenementVise]));');
   });
 
   /**
@@ -1177,7 +1180,8 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
       'const cartesDe = (partage: boolean, liste: readonly CarteEvenement[] = evenementsRanges) => liste.map((e) => (');
     /* 🔴 PLEIN ÉCRAN : `partage` faux, l'état reste. ÉCRAN PARTAGÉ : `partage` vrai, le bouton le remplace. */
     expect(VUE).toContain('{cartesDe(false, evenementsFiltres)}</ul>');
-    expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true)}</ul>');
+    // Arno (23/10/2026) : la colonne de la page partagée ne montre que les événements en cours.
+    expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true, evenementsEnCours)}</ul>');
   });
 
   /**
@@ -1289,7 +1293,7 @@ describe('⑳ le gros bouton « Ouvrir la fiche du bien sur cet événement »',
     /* ⚠️ ET SEULEMENT UNE FOIS L'ÉVÉNEMENT DÉPLIÉ : sa frise se monte alors, et la page cesse de bouger sous le
        défilement. Mesuré sans cette garde : on arrivait 30 px trop bas, le titre du bloc rogné. */
     expect(BLOC).toContain(
-      'if (pose.current || evenementVise === null || evenements === null || !deplies.has(evenementVise)) return;');
+      'if (pose.current || evenementVise === null || evenements === null || !(deplies.has(evenementVise) || historiqueDeplies.has(evenementVise))) return;');
     expect(BLOC).toContain('pose.current = true;');
     /* ⚠️ LU COMMENTAIRES RETIRÉS pour les deux interdits qui suivent : les encadrés qui expliquent POURQUOI on
        les a retirés les citent forcément. C'est le CODE qui ne doit pas les porter. */
