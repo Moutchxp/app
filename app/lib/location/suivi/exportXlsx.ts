@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import {
   type ActiviteCalcul, caLigne, NOMS_MOIS, commissionApporteurDe, type ContexteCalcul, primeDe, tauxNegociateurDe, totauxPeriode,
 } from './tableauBord';
+import { libelleOrigineContact } from './suivi';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : L'EXPORT .XLSX, UN ONGLET PAR MOIS (Arno, 22/10/2026 — exceljs validé) ════════════════════
@@ -26,11 +27,14 @@ export async function classeurSuivi(o: {
     ws.columns = [
       { key: 'A', width: 30 }, { key: 'B', width: 16 }, { key: 'C', width: 30 }, { key: 'D', width: 16 }, { key: 'E', width: 16 },
       { key: 'F', width: 12 }, { key: 'G', width: 24 }, { key: 'H', width: 16 }, { key: 'I', width: 12 }, { key: 'J', width: 22 }, { key: 'K', width: 14 }, { key: 'L', width: 14 },
+      { key: 'M', width: 32 },
     ];
     ws.getCell('A1').value = `Suivi location — ${NOMS_MOIS[m - 1]} ${o.annee}${o.filtres ? ` (${o.filtres})` : ''}`;
     ws.getCell('A1').font = { bold: true, size: 13 };
     const entetes = ['PROPRIÉTAIRES', 'HONO. PROPRIÉTAIRE HT', 'LOCATAIRES', 'HONO. LOCATAIRE HT', 'TOTAL CA HT', o.voirCommissions ? 'GESTION (prime)' : '',
-      'APPORTEURS D’AFFAIRES', 'COMS APPORTEURS', 'AVEC GESTION', 'NÉGOCIATEUR', 'SIGNATURE', 'NATURE'];
+      'APPORTEURS D’AFFAIRES', 'COMS APPORTEURS', 'AVEC GESTION', 'NÉGOCIATEUR', 'SIGNATURE', 'NATURE',
+      // Arno (24/10/2026) — l'origine du contact, telle quelle (« Personnalisé : <texte> »), en DERNIÈRE colonne : rien ne se décale.
+      'ORIGINE DU CONTACT'];
     ws.getRow(2).values = entetes;
     ws.getRow(2).font = { bold: true };
     const debut = 3;
@@ -52,6 +56,7 @@ export async function classeurSuivi(o: {
       row.getCell(10).value = a.negociateurLibelle;
       row.getCell(11).value = `${a.dateSignature.split('-').reverse().join('/')}${a.dateSupposee ? ' (supposée)' : ''}`;
       row.getCell(12).value = LIBELLE_TYPE[a.type];
+      row.getCell(13).value = libelleOrigineContact(a.origineContact, a.origineContactPrecision);
       for (const c of [2, 4, 5, 6, 8]) row.getCell(c).numFmt = EUROS;
     });
     const fin = Math.max(debut, debut + lignes.length - 1);

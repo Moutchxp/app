@@ -33,12 +33,70 @@ export const CATEGORIES_PRIME = ['logement', 'parking'] as const;
 export type CategoriePrime = typeof CATEGORIES_PRIME[number];
 
 /** Arno (23/10/2026, 407) — L'ORIGINE DU CONTACT : liste fixe, obligatoire pour toute nouvelle location. */
-export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'passage_agence', 'campagne'] as const;
+export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'passage_agence', 'campagne', 'personnalise'] as const;
 export type OrigineContact = typeof ORIGINES_CONTACT[number];
 export const LIBELLE_ORIGINE_CONTACT: Record<OrigineContact, string> = {
   collegue: 'Collègue directement', apporteur: 'Apporteur d’affaires', internet: 'Internet', recommandation: 'Recommandation client',
   relocation: 'Relocation (portefeuille de gestion)', passage_agence: 'Passage agence', campagne: 'Campagne de communication',
+  personnalise: 'Personnalisé',
 };
+
+/**
+ * 🔴 Arno (24/10/2026, migration 411) — « PERSONNALISÉ » : en fin de liste ; choisi, un texte OBLIGATOIRE (80 caractères au plus) dit
+ * l'origine voulue. Stocké et affiché tel quel ; regroupé sous « Personnalisé » dans les totaux par origine. Sans la 411, le choix
+ * n'est pas proposé (`originesProposees`) : la base refuserait la valeur.
+ */
+export const PRECISION_ORIGINE_MAX = 80;
+export function originesProposees(personnalisable: boolean): readonly OrigineContact[] {
+  return personnalisable ? ORIGINES_CONTACT : ORIGINES_CONTACT.filter((o) => o !== 'personnalise');
+}
+/** Le libellé affiché d'une origine : « Personnalisé : <texte> » quand il y en a un, sinon le libellé de la liste. PUR. */
+export function libelleOrigineContact(o: OrigineContact | null | undefined, precision?: string | null): string {
+  if (o === null || o === undefined) return '';
+  return o === 'personnalise' && precision ? `${LIBELLE_ORIGINE_CONTACT.personnalise} : ${precision}` : LIBELLE_ORIGINE_CONTACT[o];
+}
+/** La clé de regroupement des totaux par origine : toutes les origines personnalisées sous « personnalise ». PUR. */
+export const cleTotauxOrigine = (o: OrigineContact | null | undefined): OrigineContact | 'sans' => o ?? 'sans';
+
+/**
+ * ══ 🔴🔴 Arno (24/10/2026) — LA SITUATION DU BIEN À LA SIGNATURE, ET CE QUE « NOUVEAU LOCATAIRE » EN PRÉ-REMPLIT ════════════════════
+ *
+ *   · « nouveau_mandat » : sous mandat de gestion et JAMAIS loué par nous depuis l'entrée en gestion (première location d'un nouveau
+ *     mandat, y compris un nouveau bien d'un propriétaire déjà client) → « Nouveau mandat de gestion signé (prime) », prime 150 € ;
+ *   · « relocation » : déjà loué dans notre portefeuille de gestion, il revient à la location → « Bien en gestion chez nous », aucune
+ *     prime, origine « Relocation (portefeuille de gestion) » ;
+ *   · « deja_prime » : en gestion, jamais reloué depuis son (re)entrée, mais SA prime a déjà été versée (un bien n'en génère qu'UNE
+ *     dans toute sa vie de gestion, même s'il sort puis revient) → « Bien en gestion chez nous », aucune prime, case Nouveau mandat
+ *     désactivée ;
+ *   · « hors_gestion » : location seule → aucune case, aucune prime. PUR.
+ */
+export type CasGestion = 'nouveau_mandat' | 'relocation' | 'deja_prime' | 'hors_gestion';
+export function casGestionDuBien(o: { enGestion: boolean; dejaLoueEnGestion: boolean; primeDejaVersee: boolean }): CasGestion {
+  if (!o.enGestion) return 'hors_gestion';
+  if (o.dejaLoueEnGestion) return 'relocation';
+  return o.primeDejaVersee ? 'deja_prime' : 'nouveau_mandat';
+}
+/** Ce que le cas pré-remplit (modifiable). Les deux cases sont EXCLUSIVES. PUR. */
+export function preremplissageGestion(cas: CasGestion): { mandatGestion: boolean; avecGestion: boolean; primeMode: ModePrime; origineRelocation: boolean } {
+  if (cas === 'nouveau_mandat') return { mandatGestion: true, avecGestion: false, primeMode: 'regle', origineRelocation: false };
+  if (cas === 'hors_gestion') return { mandatGestion: false, avecGestion: false, primeMode: 'aucune', origineRelocation: false };
+  return { mandatGestion: false, avecGestion: true, primeMode: 'aucune', origineRelocation: cas === 'relocation' };
+}
+/** « Prime déjà versée le 12/03/2025 (bail DUPONT) ». PUR. */
+export function motPrimeDejaVersee(p: { date: string; bail: string }): string {
+  return `Prime déjà versée le ${p.date.split('-').reverse().join('/')} (bail ${p.bail})`;
+}
+/**
+ * « Cette affaire porte-t-elle une prime de nouvelle gestion ? », en SQL sur l'alias `a` de `gestion_location_activite` — la MÊME
+ * règle que `primeDe` (tableauBord.ts) : « Aucune » → non ; « Personnalisé » → le montant saisi > 0 ; un montant saisi → lui ; sinon
+ * un mandat (ou « 150 € ») → oui. Aucun accent dans le SQL émis.
+ */
+export function sqlPorteUnePrime(a: string, avecModes: boolean): string {
+  const mode = avecModes ? `${a}.prime_mode` : 'NULL::text';
+  return `(${mode} IS DISTINCT FROM 'aucune' AND CASE WHEN ${mode} = 'personnalise' THEN coalesce(${a}.prime_gestion_saisie, 0) > 0
+             WHEN ${a}.prime_gestion_saisie IS NOT NULL THEN ${a}.prime_gestion_saisie > 0
+             ELSE (${a}.mandat_gestion OR ${mode} = 'regle') END)`;
+}
 
 /** Arno (23/10/2026, 407) — LA PRIME DE GESTION : la règle (150 € par défaut quand un mandat de gestion est signé), personnalisée, aucune. */
 export const MODES_PRIME = ['regle', 'personnalise', 'aucune'] as const;
@@ -142,6 +200,8 @@ export interface SaisieActivite {
   commissionApporteur?: string;
   primeMode?: ModePrime | null;
   primeMontant?: string;
+  /** 411 — le texte de l'origine « Personnalisé ». */
+  origineContactPrecision?: string;
 }
 
 export interface ActiviteVerifiee {
@@ -161,6 +221,7 @@ export interface ActiviteVerifiee {
   commissionApporteur: number | null;
   primeMode: ModePrime | null;
   primeMontant: number | null;
+  origineContactPrecision: string | null;
 }
 
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null => (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
@@ -171,6 +232,8 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
   const b = (brut ?? {}) as Record<string, unknown>;
   const type = dans(TYPES_ACTIVITE, b.type) ?? 'bail';
   if (!dateIsoValide(b.dateSignature)) return { ok: false, motif: 'La date de signature du bail est obligatoire.' };
+  // Arno (24/10/2026) — les deux cases sont EXCLUSIVES.
+  if (b.mandatGestion === true && b.avecGestion === true) return { ok: false, motif: 'Cochez « Bien en gestion chez nous » OU « Nouveau mandat de gestion signé (prime) », pas les deux.' };
   const c = verifierCommercial(b, o.origineObligatoire ?? true);
   if (!c.ok) return c;
   const hp = lireMontant(b.honoProprietaireHt);
@@ -195,6 +258,8 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
 export interface ChampsCommerciaux {
   origineContact: OrigineContact | null; collegueId: number | null; apporteurId: number | null;
   commissionApporteur: number | null; primeMode: ModePrime | null; primeMontant: number | null;
+  /** 411 — le texte d'une origine « Personnalisé » (obligatoire, 80 caractères au plus) ; `null` pour toute autre origine. */
+  origineContactPrecision: string | null;
 }
 
 /**
@@ -206,6 +271,10 @@ export interface ChampsCommerciaux {
 export function verifierCommercial(b: Record<string, unknown>, origineObligatoire = true): { ok: true; valeurs: ChampsCommerciaux } | { ok: false; motif: string } {
   const origineContact = dans(ORIGINES_CONTACT, b.origineContact);
   if (origineContact === null && origineObligatoire) return { ok: false, motif: 'L’origine du contact est obligatoire.' };
+  const precision = origineContact === 'personnalise' && typeof b.origineContactPrecision === 'string'
+    ? b.origineContactPrecision.replace(/\s+/g, ' ').trim() : '';
+  if (origineContact === 'personnalise' && precision === '') return { ok: false, motif: 'Origine « Personnalisé » : saisissez l’origine du contact.' };
+  if (precision.length > PRECISION_ORIGINE_MAX) return { ok: false, motif: `Origine personnalisée : ${PRECISION_ORIGINE_MAX} caractères au plus.` };
   const collegueId = entierPositif(b.collegueId);
   if (origineContact === 'collegue' && collegueId === null) return { ok: false, motif: 'Choisissez le collègue (origine « Collègue directement »).' };
   const apporteurId = origineContact === null || origineContact === 'apporteur' ? entierPositif(b.apporteurId) : null;
@@ -218,6 +287,7 @@ export function verifierCommercial(b: Record<string, unknown>, origineObligatoir
   return { ok: true, valeurs: {
     origineContact, collegueId: origineContact === 'collegue' ? collegueId : null, apporteurId,
     commissionApporteur: apporteurId === null ? null : com, primeMode, primeMontant: primeMode === 'personnalise' ? (pm as number) : null,
+    origineContactPrecision: origineContact === 'personnalise' ? precision : null,
   } };
 }
 

@@ -7,7 +7,8 @@ import {
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
-  aRattacher, auCentime, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, type ModePrime, ORIGINES_CONTACT, type OrigineContact, versionADate,
+  aRattacher, auCentime, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, libelleOrigineContact, type ModePrime, originesProposees, type OrigineContact,
+  PRECISION_ORIGINE_MAX, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 
 /**
@@ -103,7 +104,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                       <td data-mot="Hono. locataire HT">{eur(a.honoLocataireHt)}</td>
                       <td data-mot="Total HT" className="tdb-fort">{eur(caLigne(a))}</td>
                       <td data-mot="Gestion">{a.avecGestion ? 'avec' : 'sans'}</td>
-                      <td data-mot="Origine du contact">{a.origineContact ? LIBELLE_ORIGINE_CONTACT[a.origineContact] : <span className="loc-muet">à renseigner</span>}</td>
+                      <td data-mot="Origine du contact">{a.origineContact ? libelleOrigineContact(a.origineContact, a.origineContactPrecision) : <span className="loc-muet">à renseigner</span>}</td>
                       <td data-mot="Apporteur">{a.apporteurNom ?? '—'}</td>
                       <td data-mot="Collègue">{col === null ? '—' : aRat ? <span className="fdm-orange">à rattacher</span> : (col as { libelle: string }).libelle}</td>
                       <td data-mot="Hono. d’apporteur">{a.apporteurNom === null && a.apporteurId === null ? '—' : `${eur(commissionApporteurDe(a, ctx.apporteurs))}${taux === null ? '' : ` (${pct(taux)})`}`}</td>
@@ -231,6 +232,8 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
     commissionApporteur: a.commissionSaisie === null ? '' : saisieEuros(a.commissionSaisie),
     primeMode: (a.primeMode ?? (primeDe(a, ctx.regles) === 0 ? 'aucune' : a.primeSaisie !== null && versionADate(ctx.regles, a.dateSignature)?.primeLogement !== a.primeSaisie ? 'personnalise' : 'regle')) as ModePrime,
     primeMontant: a.primeSaisie === null ? '' : saisie(a.primeSaisie),
+    /* 411 — le texte d'une origine « Personnalisé ». */
+    origineContactPrecision: a.origineContactPrecision ?? '',
   });
   // Les montants tels qu'à l'ouverture : s'ils n'ont pas bougé, la valeur EXACTE en base est gardée (jamais arrondie).
   const [initial] = useState(() => ({ taux: v.apporteurTaux, commission: v.commissionApporteur }));
@@ -246,7 +249,7 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'modifier-activite', id: a.id, champs: {
         origineContact: v.origineContact || null, collegueId: v.collegueId === '' ? null : Number(v.collegueId), apporteurId: v.apporteurId === '' ? null : Number(v.apporteurId),
         apporteurTaux: v.apporteurTaux, commissionApporteur: conserverMontants ? v.commissionApporteur : centimeTape(v.commissionApporteur),
-        conserverMontants, primeMode: v.primeMode, primeMontant: v.primeMontant } }) });
+        conserverMontants, primeMode: v.primeMode, primeMontant: v.primeMontant, origineContactPrecision: v.origineContactPrecision } }) });
       const j = await r.json() as { etat?: string; motif?: string };
       if (j.etat === 'ok') { onFini(); return; }
       setMotif(j.motif ?? 'Enregistrement refusé.');
@@ -263,9 +266,14 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Origine du contact *</span>
         <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} aria-invalid={sansOrigine} data-edition-origine>
           <option value="">— choisir —</option>
-          {ORIGINES_CONTACT.map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
+          {originesProposees(d.personnalisable === true || v.origineContact === 'personnalise').map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
         </select>
         {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
+      {/* Arno (24/10/2026, 411) — « Personnalisé » : le texte de l'origine, obligatoire, 80 caractères au plus. */}
+      {v.origineContact === 'personnalise' && (
+        <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Origine personnalisée *</span>
+          <input value={v.origineContactPrecision} maxLength={PRECISION_ORIGINE_MAX} onChange={(e) => poser({ origineContactPrecision: e.target.value })} data-edition-origine-precision /></label>
+      )}
       {v.origineContact === 'collegue' && (
         <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Collègue *</span>
           <ListeChoix options={d.collegues ?? []} valeur={v.collegueId} libelle="Collègue" onChange={(x) => poser({ collegueId: x })} donnees={{ 'data-edition-collegue': '' }} /></label>

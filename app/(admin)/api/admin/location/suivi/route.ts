@@ -3,7 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
-  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
+  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
   proposerActivite, rattacherApporteur, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
@@ -55,11 +55,12 @@ export async function GET(request: Request): Promise<Response> {
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
-    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
-      lireCollegues(), annuaireDisponible(),
+      lireCollegues(), annuaireDisponible(), personnalisableDisponible(),
     ]);
-    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire } });
+    // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
+    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);

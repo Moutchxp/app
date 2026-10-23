@@ -23,6 +23,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   if (!(await suiviDisponible()) || annees.length === 0) return [];
   const avecAssurance = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_id');
   const avec407 = await annuaireDisponible();
+  const avec411 = await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision');
   const { rows } = await query<Record<string, unknown>>(
     `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
             a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
@@ -32,6 +33,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             coalesce(a.origine_locataire_saisie, a.origine_locataire_deduite) AS origine_locataire,
             a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie,
             ${avec407 ? 'a.origine_contact, a.collegue_id, a.collegue_libelle, a.prime_mode' : 'NULL::text AS origine_contact, NULL::bigint AS collegue_id, NULL::text AS collegue_libelle, NULL::text AS prime_mode'},
+            ${avec411 ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision'},
             ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
               WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
@@ -55,6 +57,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     lotId: nOuNull(r.lot_id), bailId: nOuNull(r.bail_id), source: String(r.source),
     origineContact: (r.origine_contact as OrigineContact | null) ?? null, collegueId: nOuNull(r.collegue_id),
     collegueLibelle: (r.collegue_libelle as string | null) ?? null, primeMode: (r.prime_mode as ModePrime | null) ?? null,
+    origineContactPrecision: (r.origine_contact_precision as string | null) ?? null,
   }));
 }
 
@@ -173,6 +176,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
     gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique,
+    personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
   };

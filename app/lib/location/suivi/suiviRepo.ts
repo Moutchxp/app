@@ -6,6 +6,7 @@ import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
+  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion,
 } from './suivi';
 
 /**
@@ -30,6 +31,31 @@ export function suiviDisponible(): Promise<boolean> {
 export function annuaireDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_activite', 'origine_contact');
 }
+
+/** Arno (24/10/2026) — la migration 411 (origine « Personnalisé » et son texte) est-elle appliquée ? */
+export function personnalisableDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_activite', 'origine_contact_precision');
+}
+
+/**
+ * ══ 🔴🔴 Arno (24/10/2026) — UNE SEULE PRIME DE NOUVELLE GESTION PAR BIEN, DANS TOUTE SA VIE DE GESTION ═══════════════════════
+ * « Un bien ne peut générer qu'UNE SEULE prime de nouvelle gestion dans toute sa vie de gestion, y compris s'il sort puis revient en
+ * gestion. » La première affaire (non annulée) du bien qui porte une prime — même règle que `primeDe` (`sqlPorteUnePrime`), qu'elle
+ * soit saisie ou reprise du fichier — en dehors du bail ou de la ligne qu'on écrit. `null` : aucune.
+ * ⚠️ UNE LIGNE REPRISE DU FICHIER SANS BIEN RAPPROCHÉ (`lot_id` vide) n'est rattachée à aucun bien : elle ne peut pas être reconnue.
+ */
+export async function primeDejaVersee(q: typeof query, lotId: number, exclure: { bailId?: number | null; activiteId?: number | null } = {}): Promise<{ date: string; bail: string } | null> {
+  const modes = await annuaireDisponible();
+  const { rows } = await q<{ date_signature: string; bail: string }>(
+    `SELECT a.date_signature::text AS date_signature,
+            coalesce(nullif(btrim(a.libelle_locataire), ''), CASE WHEN a.bail_id IS NULL THEN 'repris du fichier' ELSE 'n° ' || a.bail_id END) AS bail
+       FROM gestion_location_activite a
+      WHERE a.lot_id = $1 AND a.annule_le IS NULL AND ${sqlPorteUnePrime('a', modes)}
+        AND ($2::bigint IS NULL OR a.bail_id IS DISTINCT FROM $2::bigint) AND ($3::bigint IS NULL OR a.id <> $3::bigint)
+      ORDER BY a.date_signature, a.id LIMIT 1`, [lotId, exclure.bailId ?? null, exclure.activiteId ?? null]);
+  return rows[0] ? { date: rows[0].date_signature.slice(0, 10), bail: rows[0].bail } : null;
+}
+const MOT_UNE_SEULE_PRIME = 'un bien ne génère qu’une seule prime de nouvelle gestion dans toute sa vie de gestion.';
 
 // ── Apporteurs ────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -277,8 +303,17 @@ async function deduireOrigines(
  */
 async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCommerciaux, tauxApporteur: number | null, auteur: Auteur,
   conserverMontants = false): Promise<string | null> {
-  const avant = (await q<{ apporteur_id: string | null }>('SELECT apporteur_id FROM gestion_location_activite WHERE id = $1 FOR UPDATE', [activiteId])).rows[0];
+  const avant = (await q<{ apporteur_id: string | null; lot_id: string | null }>('SELECT apporteur_id, lot_id FROM gestion_location_activite WHERE id = $1 FOR UPDATE', [activiteId])).rows[0];
   if (avant === undefined) return 'Ligne inconnue.';
+  // Arno (24/10/2026, 411) — « Personnalisé » n'existe en base qu'avec la 411 ; et UNE prime par bien.
+  const avecPrecision = await personnalisableDisponible();
+  if (c.origineContact === 'personnalise' && !avecPrecision) return 'L’origine « Personnalisé » demande la mise à jour de la base (migration 411).';
+  const porteUnePrime = c.primeMode === 'regle' || (c.primeMode === 'personnalise' && (c.primeMontant ?? 0) > 0);
+  const lot = numOuNull(avant.lot_id);
+  if (porteUnePrime && lot !== null) {
+    const deja = await primeDejaVersee(q, lot, { activiteId });
+    if (deja !== null) return `${motPrimeDejaVersee(deja)} : ${MOT_UNE_SEULE_PRIME}`;
+  }
   if (c.apporteurId !== null) {
     const ap = (await q<{ archive: boolean; rattache: boolean }>(
       `SELECT archive_le IS NOT NULL AS archive, EXISTS (SELECT 1 FROM gestion_location_apporteur_collegue WHERE apporteur_id = a.id) AS rattache
@@ -301,6 +336,9 @@ async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCo
             modifie_le = now(), modifie_par_libelle = $10
       WHERE id = $1`,
     [activiteId, c.origineContact, c.collegueId, collegue, c.apporteurId, tauxApporteur, c.commissionApporteur, c.primeMode, c.primeMontant, auteur.libelle, garder]);
+  if (avecPrecision) {
+    await q('UPDATE gestion_location_activite SET origine_contact_precision = $2 WHERE id = $1', [activiteId, c.origineContactPrecision ?? null]);
+  }
   return null;
 }
 
@@ -371,6 +409,13 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
         [v.valeurs.negociateurId])).rows[0]?.libelle ?? null;
     const prime: CategoriePrime = categoriePrime ?? (familleDeCategorie(b.categorie) === 'parking' ? 'parking' : 'logement');
     const a: ActiviteVerifiee = v.valeurs;
+    // 🔴 Arno (24/10/2026) — UNE seule prime de nouvelle gestion par bien : le serveur refuse la seconde (lu AVANT d'écrire).
+    const veutUnePrime = a.primeMode === 'aucune' ? false : a.primeMode === 'personnalise' ? (a.primeMontant ?? 0) > 0
+      : a.primeMode === 'regle' ? true : a.mandatGestion;
+    if (veutUnePrime) {
+      const deja = await primeDejaVersee(q as typeof query, lotId, { bailId: id });
+      if (deja !== null) return { etat: 'refus', motif: `${motPrimeDejaVersee(deja)} : ${MOT_UNE_SEULE_PRIME}` } as const;
+    }
     const { rows } = await q<{ id: string }>(
       `INSERT INTO gestion_location_activite
          (type, date_signature, bail_id, lot_id, proprietaire_id, locataire_id, libelle_proprietaire, libelle_locataire,
@@ -399,6 +444,7 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
       const motif = await ecrireCommercial(q as typeof query, activiteId, {
         origineContact: a.origineContact, collegueId: a.collegueId, apporteurId: a.apporteurId, commissionApporteur: a.commissionApporteur,
         primeMode: a.primeMode, primeMontant: a.primeMontant,
+        origineContactPrecision: a.origineContactPrecision,
       }, a.apporteurTaux, auteur);
       // Un refus (apporteur à rattacher) annule TOUTE l'écriture : rien de la ligne ne reste (lu avant d'écrire : piège withTransaction).
       if (motif !== null) throw new RefusSuivi(motif);
@@ -410,8 +456,13 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
 /** Ce que l'écran « Nouveau locataire » propose avant la saisie : le statut de gestion du bien et l'origine déduite. */
 export async function proposerActivite(lotId: unknown, locataireIds: unknown, dateSignature: unknown): Promise<Reponse<{
   avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null;
-  /** 407 — le bien était-il déjà en gestion AVANT la date (dernier statut daté avant elle) ? → origine « Relocation » proposée. */
+  /** 407 — le bien était-il déjà en gestion AVANT la date (dernier statut daté avant elle) ? */
   enGestionAvant: boolean;
+  /** 🔴 Arno (24/10/2026) — la situation du bien et ce qui en découle (voir `casGestionDuBien`). */
+  cas: CasGestion;
+  entreeGestion: string | null;
+  dejaLoueEnGestion: boolean;
+  primeDejaVersee: { date: string; bail: string } | null;
 }>> {
   const lot = typeof lotId === 'number' && Number.isInteger(lotId) && lotId > 0 ? lotId : null;
   const date = typeof dateSignature === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateSignature) ? dateSignature : null;
@@ -425,12 +476,31 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
   const avecTransitions = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
   const enGestionAvant = avecTransitions && (await query<{ apres: string }>(
     'SELECT apres FROM gestion_bien_statut_transition WHERE lot_id = $1 AND effet_le < $2 ORDER BY effet_le DESC, id DESC LIMIT 1', [lot, date])).rows[0]?.apres === 'en_gestion';
+  /**
+   * 🔴 Arno (24/10/2026) — « DÉJÀ LOUÉ PAR NOUS DEPUIS L'ENTRÉE EN GESTION ». L'entrée en gestion : la DERNIÈRE transition vers « en
+   * gestion » à la date de signature ou avant (historique du statut, 403). Déjà loué : un bail du bien (fiche, import WIPPIMMO) ENTRÉ
+   * depuis cette entrée et au plus tard à la signature, OU une affaire du suivi (saisie ou reprise du fichier) signée dans le même
+   * intervalle. Un locataire DÉJÀ EN PLACE quand le mandat a été pris (bail entré avant) ne compte pas : notre première location sera
+   * celle du nouveau mandat. Sans historique de statut : toute location antérieure du bien compte (prudence : pas de prime d'office).
+   */
+  const enGestion = rows[0].statut_bien === 'en_gestion';
+  const entreeGestion = !enGestion || !avecTransitions ? null : (await query<{ effet_le: string }>(
+    `SELECT effet_le::text FROM gestion_bien_statut_transition WHERE lot_id = $1 AND apres = 'en_gestion' AND effet_le <= $2
+      ORDER BY effet_le DESC, id DESC LIMIT 1`, [lot, date])).rows[0]?.effet_le ?? null;
+  const dejaLoueEnGestion = enGestion && (await query<{ deja: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM gestion_bail b WHERE b.lot_id = $1 AND b.entree IS NOT NULL AND b.entree <= $2::date
+                      AND ($3::date IS NULL OR b.entree >= $3::date))
+         OR EXISTS (SELECT 1 FROM gestion_location_activite a WHERE a.lot_id = $1 AND a.annule_le IS NULL AND a.type = 'bail'
+                      AND a.date_signature <= $2::date AND ($3::date IS NULL OR a.date_signature >= $3::date)) AS deja`,
+    [lot, date, entreeGestion])).rows[0]?.deja === true;
+  const deja = await primeDejaVersee(query, lot);
   return {
     etat: 'ok',
     data: {
-      avecGestion: rows[0].statut_bien === 'en_gestion',
+      avecGestion: enGestion,
       categoriePrime: familleDeCategorie(rows[0].categorie) === 'parking' ? 'parking' : 'logement',
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
+      cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
     },
   };
 }

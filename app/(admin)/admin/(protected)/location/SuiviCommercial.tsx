@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  aRattacher, aujourdhuiParis, type Apporteur, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
-  lireMontant, lireTauxPourcent, type ModePrime, type Origine, ORIGINES_CONTACT, type OrigineContact, pourcent, type RegleCommission,
+  aRattacher, aujourdhuiParis, type Apporteur, type CasGestion, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
+  lireMontant, lireTauxPourcent, type ModePrime, motPrimeDejaVersee, type Origine, originesProposees, type OrigineContact, pourcent,
+  PRECISION_ORIGINE_MAX, preremplissageGestion, type RegleCommission,
   type SaisieActivite, ttcVersHt, TYPES_APPORTEUR, type TypeApporteur, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
-import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
+import { ModaleAnnuaireApporteurs } from './ModaleAnnuaireApporteurs';
 
 /**
  * ══ LOCATION — « SUIVI COMMERCIAL » DU BAIL (Arno, 22/10/2026, migration 406) ══════════════════════════════════════════════
@@ -24,7 +25,8 @@ import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregi
  * est proposée quand le bien était déjà en gestion avant le bail. LA PRIME DE GESTION : « 150 € » (par défaut quand un mandat
  * de gestion est signé), « Personnalisé » (montant libre) ou « Aucune ». Sans la 407 : comme avant (ni origine, ni menu).
  */
-export const API_SUIVI = '/api/admin/location/suivi';
+export { API_SUIVI, posterSuivi } from './suiviApi';
+import { API_SUIVI, posterSuivi } from './suiviApi';
 
 export interface ParametresSuivi {
   disponible: boolean;
@@ -35,6 +37,8 @@ export interface ParametresSuivi {
   collegues: { id: number; libelle: string }[];
   regles: RegleCommission[];
   annuaire: boolean;
+  /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */
+  personnalisable?: boolean;
 }
 
 export interface SaisieSuivi extends SaisieActivite { categoriePrime: CategoriePrime | null }
@@ -44,7 +48,7 @@ export { aujourdhuiParis };
 export const SUIVI_VIDE = (): SaisieSuivi => ({
   type: 'bail', dateSignature: aujourdhuiParis(), honoProprietaireHt: '', honoLocataireHt: '', negociateurId: null, apporteurId: null,
   apporteurTaux: '', mandatGestion: false, avecGestion: false, origineProprietaire: null, origineLocataire: null, categoriePrime: null,
-  origineContact: null, collegueId: null, commissionApporteur: '', primeMode: 'aucune', primeMontant: '',
+  origineContact: null, collegueId: null, commissionApporteur: '', primeMode: 'aucune', primeMontant: '', origineContactPrecision: '',
 });
 
 /** « 500 » → « 500,00 » (l'écriture des cases en euros de l'écran). */
@@ -66,7 +70,8 @@ export function lireParametres(d: unknown): ParametresSuivi {
   const apporteurs = Array.isArray(o.apporteurs) ? o.apporteurs.map((a) => ({ ...a, baremes: Array.isArray(a.baremes) ? a.baremes : [] })) : [];
   const negociateurs = Array.isArray(o.negociateurs) ? o.negociateurs : [];
   return { disponible: o.disponible === true && Array.isArray(o.apporteurs), apporteurs, negociateurs, moi: typeof o.moi === 'number' ? o.moi : null,
-    collegues: Array.isArray(o.collegues) ? o.collegues : [], regles: Array.isArray(o.regles) ? o.regles : [], annuaire: o.annuaire === true };
+    collegues: Array.isArray(o.collegues) ? o.collegues : [], regles: Array.isArray(o.regles) ? o.regles : [], annuaire: o.annuaire === true,
+    ...(o.personnalisable === true ? { personnalisable: true } : {}) };
 }
 
 /** Lit les paramètres du suivi (apporteurs, négociateurs) ; `rafraichir` relit (après « + Nouvel apporteur »). */
@@ -91,18 +96,6 @@ export function motifSuivi(s: SaisieSuivi, annuaire = false): string | null {
   return v.ok ? null : v.motif;
 }
 
-/** `propre` : l'écran a déjà sa modale (Nouveau locataire) — la confirmation de la tuile ne s'y ajoute pas. */
-export async function posterSuivi(corps: Record<string, unknown>, o: { propre?: boolean } = {}): Promise<{ motif: string | null; data?: unknown }> {
-  try {
-    const r = await fetch(API_SUIVI, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(o.propre ? { [ENTETE_CONFIRMATION]: 'propre' } : {}) }, body: JSON.stringify(corps) });
-    const d = await r.json() as { etat?: string; motif?: string; message?: string; data?: unknown };
-    if (d.etat === 'ok') return { motif: null, data: d.data };
-    if (r.status === 401 || r.status === 403) return { motif: 'Accès refusé : droit « Location » requis (ou session expirée).' };
-    return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.' };
-  } catch {
-    return { motif: 'Enregistrement impossible : le serveur n’a pas répondu.' };
-  }
-}
 
 interface Props {
   valeur: SaisieSuivi;
@@ -137,7 +130,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   }, [lu, s, onChange]);
 
   // Ce que le serveur déduit : la gestion du bien, la catégorie de prime, l'origine des clients à la date de signature.
-  const [propose, setPropose] = useState<{ cle: string; avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null; enGestionAvant?: boolean } | null>(null);
+  const [propose, setPropose] = useState<{ cle: string; avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null; enGestionAvant?: boolean;
+    /* 🔴 Arno (24/10/2026) — la situation du bien (première location en gestion, relocation, prime déjà versée, hors gestion). */
+    cas?: CasGestion; primeDejaVersee?: { date: string; bail: string } | null } | null>(null);
   const cle = lotId !== null && /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? `${lotId}|${locataireIds.join(',')}|${s.dateSignature}` : null;
   useEffect(() => {
     if (cle === null || lu?.disponible !== true) return;
@@ -148,15 +143,24 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       .catch(() => {});
     return () => { vivant = false; };
   }, [cle, lu?.disponible]);
-  // « Avec gestion » suit le bien tant qu'on n'y a pas touché (une fois par bien).
+  // Les cases suivent le bien tant qu'on n'y a pas touché (une fois par bien) — PRÉ-REMPLISSAGE, toujours modifiable.
   const [gestionPourLot, setGestionPourLot] = useState<number | null>(null);
   useEffect(() => {
     if (propose === null || propose.cle !== cle || lotId === null || gestionPourLot === lotId) return;
     setGestionPourLot(lotId);
-    // 407 — « Relocation » proposée quand le bien était déjà en gestion avant le bail (si l'origine n'est pas déjà choisie).
-    onChange({ ...s, avecGestion: propose.avecGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
-      ...(propose.enGestionAvant === true && s.origineContact === null ? { origineContact: 'relocation' as const } : {}) });
-  }, [propose, cle, lotId, gestionPourLot, s, onChange]);
+    if (propose.cas === undefined) {
+      // Un serveur d'avant le 24/10/2026 : le comportement d'avant (« Relocation » proposée si le bien était déjà en gestion).
+      onChange({ ...s, avecGestion: propose.avecGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
+        ...(propose.enGestionAvant === true && s.origineContact === null ? { origineContact: 'relocation' as const } : {}) });
+      return;
+    }
+    /* 🔴 Arno (24/10/2026) — première location d'un nouveau mandat → « Nouveau mandat » + prime 150 € ; relocation → « Bien en gestion
+       chez nous », aucune prime, origine « Relocation » ; prime déjà versée → « Bien en gestion », aucune prime ; hors gestion → rien. */
+    const p = preremplissageGestion(propose.cas);
+    onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
+      ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
+      ...(p.origineRelocation && s.origineContact === null ? { origineContact: 'relocation' as const } : {}) });
+  }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
 
   // « + Nouvel apporteur » : une petite carte, enregistrée tout de suite (le référentiel), puis choisie.
@@ -174,6 +178,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     parametres.rafraichir();
     if (id !== null) poser({ apporteurId: id, apporteurTaux: '', commissionApporteur: '', ...(lu?.annuaire ? { origineContact: 'apporteur' as const } : {}) });
   };
+  /* Arno (24/10/2026) — l'annuaire COMPLET en modale ; fermée, la liste du champ est relue (apporteur créé ou rattaché). */
+  const [annuaireOuvert, setAnnuaireOuvert] = useState(false);
   const nouvelApporteur = () => setNouveau({ nom: '', type: 'partenaire', taux: '', coutFixe: '', collegueId: lu?.moi ?? null, societe: '', telephone: '', email: '' });
 
   if (lu === null) return <p className={parametres.erreur ? 'gst-erreur' : 'gst-info'} role={parametres.erreur ? 'alert' : 'status'}>{parametres.erreur ?? 'Chargement…'}</p>;
@@ -215,77 +221,142 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     );
   };
 
+  const primeBloquee = deduit?.primeDejaVersee ?? null;
+  /* 🔴 Arno (24/10/2026) — les deux cases sont EXCLUSIVES : cocher l'une décoche l'autre. La prime suit « Nouveau mandat ». */
+  const cocherGestion = (v: boolean): void => poser({ avecGestion: v, ...(v ? { mandatGestion: false } : {}),
+    ...(v && annuaire && s.primeMode !== 'personnalise' ? { primeMode: 'aucune' as const } : {}) });
+  const cocherMandat = (v: boolean): void => poser({ mandatGestion: v, ...(v ? { avecGestion: false } : {}),
+    // 407 — un mandat signé avec la location : « 150 € » par défaut ; décoché : « Aucune » (un montant personnalisé reste).
+    ...(annuaire && s.primeMode !== 'personnalise' ? { primeMode: v ? 'regle' as const : 'aucune' as const } : {}) });
+  const libelle = (mot: React.ReactNode, oblig = false) => <span className="loc-suivi-libelle">{mot}{oblig && <> <span className="loc-oblig">*</span></>}</span>;
+
   return (
     <div className="loc-suivi" data-suivi-commercial>
-      <div className="loc-grille">
-        <label className="loc-champ"><span>Date de signature du bail <span className="loc-oblig">*</span></span>
+      {/* ── Ligne 1 : date de signature · nature · négociateur ── */}
+      <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="1">
+        <label className="loc-champ">{libelle('Date de signature du bail', true)}
           <input type="date" value={s.dateSignature} required onChange={(e) => poser({ dateSignature: e.target.value })} data-date-signature /></label>
-        <label className="loc-champ">Nature
+        <label className="loc-champ">{libelle('Nature')}
           <select value={s.type} onChange={(e) => poser({ type: e.target.value === 'avenant' ? 'avenant' : 'bail' })} data-type-activite>
             <option value="bail">Bail</option>
             <option value="avenant">Avenant</option>
           </select></label>
-        <label className="loc-champ">Négociateur
+        <label className="loc-champ">{libelle('Négociateur')}
           <ListeChoix options={lu.negociateurs} valeur={s.negociateurId === null || s.negociateurId === undefined ? '' : String(s.negociateurId)} vide="— aucun —" libelle="Négociateur"
             onChange={(v) => poser({ negociateurId: v === '' ? null : Number(v) })} donnees={{ 'data-negociateur': '' }} /></label>
       </div>
-      <div className="loc-grille">
-        <label className="loc-champ">Honoraires propriétaire HT (€)
+      {/* ── Ligne 2 : les deux cases (exclusives) · prime de gestion · prime de nouvelle gestion (toujours visibles) ── */}
+      <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="2">
+        <div className="loc-champ">{libelle('Gestion')}
+          <label className={`loc-suivi-case${s.avecGestion ? ' loc-suivi-case--cochee' : ''}`}>
+            <input type="checkbox" checked={s.avecGestion} onChange={(e) => cocherGestion(e.target.checked)} data-avec-gestion />
+            <span>Bien en gestion chez nous</span></label>
+          {deduit !== null && <small className="loc-muet">D’après la fiche du bien : {deduit.avecGestion ? 'en gestion' : 'pas en gestion'}.</small>}</div>
+        <div className="loc-champ">{libelle('Nouveau mandat')}
+          <label className={`loc-suivi-case${s.mandatGestion ? ' loc-suivi-case--cochee' : ''}${primeBloquee !== null && !s.mandatGestion ? ' loc-suivi-case--inactive' : ''}`}>
+            <input type="checkbox" checked={s.mandatGestion} disabled={primeBloquee !== null && !s.mandatGestion} onChange={(e) => cocherMandat(e.target.checked)} data-mandat-gestion />
+            <span>Nouveau mandat de gestion signé (prime)</span></label>
+          {primeBloquee !== null && <small className="loc-muet" data-prime-deja-versee>{motPrimeDejaVersee(primeBloquee)} : une seule prime de nouvelle gestion par bien.</small>}</div>
+        {annuaire && (
+          <label className="loc-champ">{libelle('Prime de gestion')}
+            <select value={s.mandatGestion ? s.primeMode ?? 'aucune' : 'aucune'} disabled={!s.mandatGestion} onChange={(e) => poser({ primeMode: e.target.value as ModePrime })} data-prime-mode>
+              <option value="regle">{euros(primeRegle).replace(',00', '')}</option>
+              <option value="personnalise">Personnalisé</option>
+              <option value="aucune">Aucune</option>
+            </select></label>
+        )}
+        <label className="loc-champ">{libelle('Prime de nouvelle gestion')}
+          <select value={s.categoriePrime ?? deduit?.categoriePrime ?? 'logement'} disabled={!s.mandatGestion || (annuaire && s.primeMode !== 'regle')}
+            onChange={(e) => poser({ categoriePrime: e.target.value === 'parking' ? 'parking' : 'logement' })} data-categorie-prime>
+            <option value="logement">Logement</option>
+            <option value="parking">Parking</option>
+          </select></label>
+        {annuaire && s.mandatGestion && s.primeMode === 'personnalise' && (
+          <label className="loc-champ">{libelle('Montant de la prime (€)', true)}
+            <input inputMode="decimal" value={s.primeMontant ?? ''} placeholder="ex. 15" onChange={(e) => poser({ primeMontant: e.target.value })} data-prime-montant /></label>
+        )}
+      </div>
+      {/* ── Ligne 3 : honoraires HT ── */}
+      <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="3">
+        <label className="loc-champ">{libelle('Honoraires propriétaire HT (€)')}
           <input inputMode="decimal" value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, proprietaire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcProprietaire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, proprietaire: null }))} />
           <small className="loc-muet" data-hono-proprietaire-ttc>= {ttcProprietaire.trim() === '' ? '—' : `${ttcProprietaire} € TTC`} (Conditions d’entrée)</small></label>
-        <label className="loc-champ">Honoraires locataire HT (€)
+        <label className="loc-champ">{libelle('Honoraires locataire HT (€)')}
           <input inputMode="decimal" value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, locataire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcLocataire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, locataire: null }))} />
           <small className="loc-muet" data-hono-locataire-ttc>= {ttcLocataire.trim() === '' ? '—' : `${ttcLocataire} € TTC`} (« Honoraires agence »)</small></label>
       </div>
-      {annuaire && (
-        <div className="loc-grille" data-origine-contact-bloc>
-          <label className="loc-champ"><span>Origine du contact <span className="loc-oblig">*</span></span>
-            <select value={s.origineContact ?? ''} required data-origine-contact
-              onChange={(e) => {
-                const v = e.target.value === '' ? null : e.target.value as OrigineContact;
-                poser({ origineContact: v, ...(v !== 'apporteur' ? { apporteurId: null, apporteurTaux: '', commissionApporteur: '' } : {}), ...(v !== 'collegue' ? { collegueId: null } : {}) });
-              }}>
-              <option value="">— choisir —</option>
-              {ORIGINES_CONTACT.map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
-            </select>
-            {deduit?.enGestionAvant === true && <small className="loc-muet">Le bien était déjà en gestion avant ce bail : « Relocation » proposée.</small>}</label>
-          {s.origineContact === 'collegue' && (
-            <label className="loc-champ"><span>Collègue <span className="loc-oblig">*</span></span>
+      {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
+      {(annuaire || avecApporteur) && (
+        <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
+          {annuaire && (
+            <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
+              <select value={s.origineContact ?? ''} required data-origine-contact
+                onChange={(e) => {
+                  const v = e.target.value === '' ? null : e.target.value as OrigineContact;
+                  poser({ origineContact: v, ...(v !== 'apporteur' ? { apporteurId: null, apporteurTaux: '', commissionApporteur: '' } : {}), ...(v !== 'collegue' ? { collegueId: null } : {}),
+                    ...(v !== 'personnalise' ? { origineContactPrecision: '' } : {}) });
+                }}>
+                <option value="">— choisir —</option>
+                {originesProposees(lu.personnalisable === true).map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
+              </select>
+              {deduit?.cas === 'relocation' && <small className="loc-muet">Le bien a déjà été loué dans notre portefeuille de gestion : « Relocation » proposée.</small>}</label>
+          )}
+          {annuaire && s.origineContact === 'personnalise' && (
+            <label className="loc-champ">{libelle('Origine personnalisée', true)}
+              <input value={s.origineContactPrecision ?? ''} maxLength={PRECISION_ORIGINE_MAX} placeholder="ex. Salon de l’immobilier" required
+                onChange={(e) => poser({ origineContactPrecision: e.target.value })} data-origine-precision />
+              <small className="loc-muet">{PRECISION_ORIGINE_MAX} caractères au plus.</small></label>
+          )}
+          {annuaire && s.origineContact === 'collegue' && (
+            <label className="loc-champ">{libelle('Collègue', true)}
               <ListeChoix options={lu.collegues} valeur={s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId)} libelle="Collègue"
                 onChange={(v) => poser({ collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-collegue': '' }} /></label>
           )}
+          {avecApporteur && (
+            <label className="loc-champ">
+              <span className="loc-suivi-libelle loc-suivi-libelle--action">
+                <span>Apporteur d’affaires{annuaire && <> <span className="loc-oblig">*</span></>}</span>
+                <button type="button" className="loc-suivi-annuaire" onClick={(e) => { e.preventDefault(); setAnnuaireOuvert(true); }} data-ouvrir-annuaire>Ouvrir l’annuaire</button>
+              </span>
+              <select value={s.apporteurId ?? ''} data-apporteur
+                onChange={(e) => { if (e.target.value === '+') { nouvelApporteur(); return; } poser({ apporteurId: e.target.value === '' ? null : Number(e.target.value), apporteurTaux: '', commissionApporteur: '' }); }}>
+                <option value="">{annuaire ? '— choisir dans l’annuaire —' : '— aucun —'}</option>
+                {actifs.map((a) => {
+                  const bloque = annuaire && aRattacher(a);
+                  return <option key={a.id} value={a.id} disabled={bloque} data-a-rattacher={bloque ? '' : undefined}>{a.nom} ({LIBELLE_TYPE_APPORTEUR[a.type]}){bloque ? ' — à rattacher' : ''}</option>;
+                })}
+                <option value="+">+ Nouvel apporteur…</option>
+              </select>
+              {annuaire && apporteur !== null && <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>}
+              {annuaire && actifs.some(aRattacher) && <small className="loc-muet">Un apporteur « à rattacher » se rattache à un collègue dans l’annuaire avant d’être choisi.</small>}</label>
+          )}
+          {avecApporteur && apporteur !== null && (
+            <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}
+              <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
+                placeholder={baremeDuJour === null ? 'aucun taux à cette date' : pourcent(baremeDuJour.taux).replace(' %', '')} />
+              <small className="loc-muet">{baremeDuJour === null ? 'Aucun taux daté à la signature : saisissez-le.' : `Vide = le taux de l’apporteur à la signature (${pourcent(baremeDuJour.taux)}).`}</small></label>
+          )}
+          {avecApporteur && apporteur !== null && annuaire && (
+            <label className="loc-champ">{libelle('Honoraires d’apporteur (€)')}
+              <input inputMode="decimal" value={s.commissionApporteur ?? ''} onChange={(e) => poser({ commissionApporteur: e.target.value })} data-commission-apporteur
+                placeholder={commissionProposee === null ? '' : commissionProposee.toFixed(2).replace('.', ',')} />
+              <small className="loc-muet">{commissionProposee === null ? 'Saisissez le montant.' : `Vide = proposé au taux : ${euros(commissionProposee)}.`}</small></label>
+          )}
         </div>
       )}
-      {avecApporteur && <div className="loc-grille">
-        <label className="loc-champ"><span>Apporteur d’affaires{annuaire && <> <span className="loc-oblig">*</span></>}</span>
-          <select value={s.apporteurId ?? ''} data-apporteur
-            onChange={(e) => { if (e.target.value === '+') { nouvelApporteur(); return; } poser({ apporteurId: e.target.value === '' ? null : Number(e.target.value), apporteurTaux: '', commissionApporteur: '' }); }}>
-            <option value="">{annuaire ? '— choisir dans l’annuaire —' : '— aucun —'}</option>
-            {actifs.map((a) => {
-              const bloque = annuaire && aRattacher(a);
-              return <option key={a.id} value={a.id} disabled={bloque} data-a-rattacher={bloque ? '' : undefined}>{a.nom} ({LIBELLE_TYPE_APPORTEUR[a.type]}){bloque ? ' — à rattacher' : ''}</option>;
-            })}
-            <option value="+">+ Nouvel apporteur…</option>
-          </select>
-          {annuaire && apporteur !== null && <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>}
-          {annuaire && actifs.some(aRattacher) && <small className="loc-muet">Un apporteur « à rattacher » se rattache à un collègue dans la roue « Paramètres Location » avant d’être choisi.</small>}</label>
-        {apporteur !== null && (
-          <label className="loc-champ">Taux appliqué à ce bail (%)
-            <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
-              placeholder={baremeDuJour === null ? 'aucun taux à cette date' : pourcent(baremeDuJour.taux).replace(' %', '')} />
-            <small className="loc-muet">{baremeDuJour === null ? 'Aucun taux daté à la signature : saisissez-le.' : `Vide = le taux de l’apporteur à la signature (${pourcent(baremeDuJour.taux)}).`}</small></label>
-        )}
-        {apporteur !== null && annuaire && (
-          <label className="loc-champ">Honoraires d’apporteur (€)
-            <input inputMode="decimal" value={s.commissionApporteur ?? ''} onChange={(e) => poser({ commissionApporteur: e.target.value })} data-commission-apporteur
-              placeholder={commissionProposee === null ? '' : commissionProposee.toFixed(2).replace('.', ',')} />
-            <small className="loc-muet">{commissionProposee === null ? 'Saisissez le montant.' : `Vide = proposé au taux : ${euros(commissionProposee)}.`}</small></label>
-        )}
-      </div>}
+      {annuaireOuvert && (
+        <ModaleAnnuaireApporteurs
+          onFermer={() => { setAnnuaireOuvert(false); parametres.rafraichir(); }}
+          onChoisir={(a) => {
+            setAnnuaireOuvert(false);
+            parametres.rafraichir();
+            poser({ apporteurId: a.id, apporteurTaux: '', commissionApporteur: '', ...(annuaire ? { origineContact: 'apporteur' as const, collegueId: null, origineContactPrecision: '' } : {}) });
+          }} />
+      )}
       {nouveau !== null && (
         <div className="loc-suivi-nouveau" data-nouvel-apporteur>
           <p className="loc-muet" style={{ margin: 0 }}>Nouvel apporteur : il rejoint le référentiel (roue « Paramètres Location ») ; son taux vaut à partir d’aujourd’hui.</p>
@@ -316,33 +387,6 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           </div>
         </div>
       )}
-      <div className="loc-grille">
-        <label className="loc-champ loc-suivi-case"><span><input type="checkbox" checked={s.avecGestion} onChange={(e) => poser({ avecGestion: e.target.checked })} data-avec-gestion /> Bien en gestion chez nous</span>
-          <small className="loc-muet">{deduit === null ? '' : `D’après la fiche du bien : ${deduit.avecGestion ? 'en gestion' : 'pas en gestion'}.`}</small></label>
-        <label className="loc-champ loc-suivi-case"><span><input type="checkbox" checked={s.mandatGestion} data-mandat-gestion
-          onChange={(e) => poser({ mandatGestion: e.target.checked,
-            // 407 — un mandat signé avec la location : « 150 € » par défaut ; décoché : « Aucune » (un montant personnalisé reste).
-            ...(annuaire && s.primeMode !== 'personnalise' ? { primeMode: e.target.checked ? 'regle' as const : 'aucune' as const } : {}) })} /> Nouveau mandat de gestion signé (prime)</span></label>
-        {annuaire && (
-          <label className="loc-champ">Prime de gestion
-            <select value={s.primeMode ?? 'aucune'} onChange={(e) => poser({ primeMode: e.target.value as ModePrime })} data-prime-mode>
-              <option value="regle">{euros(primeRegle).replace(',00', '')}</option>
-              <option value="personnalise">Personnalisé</option>
-              <option value="aucune">Aucune</option>
-            </select></label>
-        )}
-        {annuaire && s.primeMode === 'personnalise' && (
-          <label className="loc-champ"><span>Montant de la prime (€) <span className="loc-oblig">*</span></span>
-            <input inputMode="decimal" value={s.primeMontant ?? ''} placeholder="ex. 15" onChange={(e) => poser({ primeMontant: e.target.value })} data-prime-montant /></label>
-        )}
-        {s.mandatGestion && (!annuaire || s.primeMode === 'regle') && (
-          <label className="loc-champ">Prime de nouvelle gestion
-            <select value={s.categoriePrime ?? deduit?.categoriePrime ?? 'logement'} onChange={(e) => poser({ categoriePrime: e.target.value === 'parking' ? 'parking' : 'logement' })} data-categorie-prime>
-              <option value="logement">Logement</option>
-              <option value="parking">Parking</option>
-            </select></label>
-        )}
-      </div>
       <fieldset className="loc-suivi-origine">
         <legend>Origine client</legend>
         <div className="loc-grille">{origine('proprietaire')}{origine('locataire')}</div>
@@ -355,8 +399,24 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
 export const CSS_SUIVI_COMMERCIAL = `
 .loc-suivi{display:flex;flex-direction:column;gap:12px}
 .loc-suivi select,.loc-suivi input:not([type=checkbox]){min-height:44px}
-.loc-suivi-case span{display:flex;align-items:center;gap:8px;color:var(--color-svv-ink);font-weight:600;min-height:44px}
-.loc-suivi-case input{width:20px;height:20px}
+/* Arno (24/10/2026) — PRESENTATION HOMOGENE : les libelles d'une ligne sur la meme ligne de base (meme boite, meme hauteur), les
+   champs alignes en haut ; la liste du negociateur (ListeChoix) et les cases prennent l'allure des autres champs du bloc. */
+.loc-suivi-ligne{align-items:start}
+.loc-suivi-libelle{display:flex;align-items:center;gap:8px;min-height:1.6em;line-height:1.3}
+.loc-suivi-libelle--action{justify-content:space-between}
+.loc-suivi-annuaire{appearance:none;border:1px solid var(--color-svv-line-strong);border-radius:999px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.8rem;font-weight:700;min-height:32px;padding:0 12px;cursor:pointer;white-space:nowrap}
+.loc-suivi-annuaire:hover{border-color:var(--color-svv-ink)}
+.loc-suivi-annuaire:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.loc-suivi .lch-champ{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;font-size:inherit}
+.loc-ample .loc-suivi .lch-champ{min-height:58px;font-size:1.1rem;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px}
+.loc-suivi select:disabled{opacity:.6;cursor:not-allowed}
+/* Les deux cases : des l'ouverture la presentation de l'etat coche (taille, alignement, texte a droite) ; decochees, meme taille,
+   bordure grise ; cochee, bordure rouge. */
+.loc-suivi-case{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;box-sizing:border-box;border:1px solid var(--color-svv-line);border-radius:9px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:600;cursor:pointer}
+.loc-ample .loc-suivi-case{min-height:58px;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px;font-size:1rem}
+.loc-suivi-case--cochee,.loc-ample .loc-suivi-case--cochee{border-color:var(--color-svv-red)}
+.loc-suivi-case--inactive{opacity:.55;cursor:not-allowed}
+.loc-suivi-case input[type=checkbox],.loc-ample .loc-suivi-case input[type=checkbox]{width:22px;height:22px;min-height:0;margin:0;padding:0;border:0;flex:0 0 auto;accent-color:var(--color-svv-red)}
 .loc-suivi-nouveau{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px dashed var(--color-svv-line-strong);border-radius:12px}
 .loc-suivi-origine{border:1px solid var(--color-svv-line);border-radius:12px;padding:8px 12px 12px;margin:0}
 .loc-suivi-origine legend{font-weight:800;font-size:.85rem;padding:0 4px}

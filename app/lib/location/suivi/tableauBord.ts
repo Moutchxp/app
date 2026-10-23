@@ -53,6 +53,8 @@ export interface ActiviteCalcul {
   collegueId?: number | null;
   collegueLibelle?: string | null;
   primeMode?: ModePrime | null;
+  /** 411 — le texte d'une origine « Personnalisé ». */
+  origineContactPrecision?: string | null;
 }
 
 export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
@@ -454,6 +456,8 @@ export interface DonneesTableau {
   gestionLignes?: LigneGestion[];
   collegues?: { id: number; libelle: string }[];
   annuaire?: boolean;
+  /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */
+  personnalisable?: boolean;
   /** Arno (23/10/2026, historique 2019 → 2025) — chaque année d'activité, sans filtre : baux, CA, CA net, commission (droit). */
   historique?: AnneeHistorique[];
   /** 408 — les écarts expliqués avec le fichier, de l'année (notes de la feuille du mois). */

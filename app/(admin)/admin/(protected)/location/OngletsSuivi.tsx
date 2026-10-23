@@ -5,7 +5,7 @@ import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
 } from '../../../../lib/location/suivi/suivi';
-import { API_SUIVI, aujourdhuiParis, posterSuivi } from './SuiviCommercial';
+import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -137,7 +137,11 @@ function CumulApporteur({ id }: { id: number }) {
 type Tri = 'ca' | 'commission' | 'nb' | 'nom';
 const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom (A → Z)' };
 
-export function OngletApporteurs() {
+/**
+ * `onChoisir` (Arno, 24/10/2026) — ouvert depuis « Nouveau locataire » (modale « Ouvrir l'annuaire ») : chaque apporteur porte
+ * « Choisir cet apporteur », qui le pose sur le bail et ferme la modale. Absent ⇒ l'annuaire de la roue, à l'identique.
+ */
+export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => void } = {}) {
   const { lu, erreur, relire } = useSuiviParametres();
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
@@ -235,6 +239,11 @@ export function OngletApporteurs() {
                     </div>
                   ) : (
                     <span className="plo-gestes-ligne">
+                      {onChoisir !== undefined && (
+                        <button type="button" className="svv-btn svv-btn-primary gst-btn plo-corriger" data-choisir-apporteur={a.id}
+                          disabled={orphelin} title={orphelin ? 'À rattacher à un collègue avant d’être choisi' : undefined}
+                          onClick={() => onChoisir(a)}>Choisir cet apporteur</button>
+                      )}
                       <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
                         onClick={() => { g.effacer(); setVersion({ id: a.id, taux: enVigueur === null ? '' : String(Math.round(enVigueur.taux * 1000000) / 10000).replace('.', ','), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour }); }}>
                         Nouveau taux</button>
