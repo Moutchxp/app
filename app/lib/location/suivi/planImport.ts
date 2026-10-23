@@ -1,5 +1,5 @@
 import type { LigneExcel, MoisExcel } from './lectureExcel';
-import { modePrimeDe, origineDeTexte, typeDeLigne, type ApporteurLu, type OrigineLue } from './repriseExcel';
+import { modePrimeDe, origineDeTexte, retrocessionDuMois, typeDeLigne, type ApporteurLu, type OrigineLue } from './repriseExcel';
 import { LIBELLE_ORIGINE_CONTACT } from './suivi';
 import type { CandidatBail, Rapprochement } from './rapprochementImport';
 import { SEUIL_DOUTEUX, SEUIL_RATTACHE } from './rapprochementImport';
@@ -23,6 +23,8 @@ import { type ActiviteCalcul, type Retrocession, totauxPeriode } from './tableau
  */
 
 export const SOURCE_IMPORT = 'CA_JBP_2026';
+/** La source d'un fichier de suivi : « CA_JBP_<année du fichier> » (l'historique 2019 → 2025, Arno, 23/10/2026). */
+export const sourceDe = (anneeFichier: number): string => `CA_JBP_${anneeFichier}`;
 export type EtatLigne = 'a_importer' | 'deja_importee' | 'deja_suivie';
 
 export interface LignePlan {
@@ -49,6 +51,8 @@ export interface ContextePlan {
   dejaImportees: ReadonlySet<string>;
   /** Les baux déjà suivis dans l'outil (saisie, reprise des TTC) : leur ligne n'est pas doublée. */
   bauxSuivis: ReadonlySet<number>;
+  /** La source des clés d'import (« CA_JBP_2020 ») ; par défaut celle de 2026. */
+  source?: string;
 }
 
 const euros = (x: number): string => `${x.toFixed(2).replace('.', ',')} €`;
@@ -57,7 +61,7 @@ export function planifier(mois: readonly MoisExcel[], rapprochements: readonly R
   const parCle = new Map(rapprochements.map((r) => [r.cle, r]));
   return mois.flatMap((m) => m.lignes.map((l) => {
     const r = parCle.get(l.cle) ?? { cle: l.cle, candidat: null, score: 0, statut: 'non_rattache' as const };
-    const importCle = `${SOURCE_IMPORT}#${l.cle}`;
+    const importCle = `${ctx.source ?? SOURCE_IMPORT}#${l.cle}`;
     const commentaire: string[] = [];
     const rattache = r.statut === 'rattache' && r.candidat !== null;
     if (r.statut === 'douteux' && r.candidat !== null) commentaire.push(`rapprochement douteux (score ${r.score.toFixed(2)}) : bail ${r.candidat.bailId} — ${r.candidat.proprietaire} / ${r.candidat.locataires}`);
@@ -93,24 +97,67 @@ export function versActivite(p: LignePlan, negociateur: { id: number | null; lib
   };
 }
 
+const PRIMES_REGLE = { primeLogement: 150, primeParking: 15 };
+
+/** L'année d'un fichier de suivi, lue dans son nom (« CA_JBP_2025_3.xlsx », « CA JBP 2025 (3).xlsx » → 2025). PUR. */
+export function anneeDuFichier(nom: string): number | null {
+  const m = (nom.split('/').pop() ?? nom).match(/(20\d{2})/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Les règles de commission que disent les fichiers : une version datée à chaque changement de taux (12,5 % → 15 %). PUR. */
+export function reglesDesFichiers(mois: readonly MoisExcel[]): RegleCommission[] {
+  const regles: RegleCommission[] = [];
+  for (const m of [...mois].sort((a, b) => a.mois.localeCompare(b.mois))) {
+    const t = m.totaux.tauxNegociateur;
+    if (t === null || regles.at(-1)?.tauxNegociateur === t) continue;
+    regles.push({ depuis: `${m.mois}-01`, tauxNegociateur: t, ...PRIMES_REGLE });
+  }
+  return regles;
+}
+
+/** Les rétrocessions d'un mois : celle du fichier (`-F24`), et la ligne que la formule retire de la base (« hors commission »). PUR. */
+export function retrocessionsDuMois(m: MoisExcel, negociateur: { id: number | null; libelle: string }): Retrocession[] {
+  const r = retrocessionDuMois(m, { negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle });
+  const toutes: Retrocession[] = m.totaux.retrocessions === undefined ? (r === null ? [] : [r])
+    : m.totaux.retrocessions.filter((x) => x.montant > 0).map((x) => ({ negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle, mois: `${m.mois}-01`, montant: x.montant, libelle: x.libelle }));
+  const taux = m.totaux.tauxNegociateur ?? 0;
+  const hors: Retrocession[] = (m.totaux.horsCommission ?? []).map((h) => {
+    const l = m.lignes.find((x) => x.rang === h.rang);
+    return { negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle, mois: `${m.mois}-01`, montant: taux * h.montant,
+      libelle: `Hors commission (formule du fichier) : ligne ${h.rang}${l ? ` — ${l.proprietaire}` : ''}` };
+  });
+  return [...toutes, ...hors];
+}
+
 export interface ControleMois {
   mois: string; lignesFichier: number; lignesOutil: number;
   caFichier: number; caOutil: number; apporteursFichier: number; apporteursOutil: number; primesFichier: number; primesOutil: number;
   caNetFichier: number; caNetOutil: number; commissionFichier: number; commissionOutil: number;
   avecFichier: number | null; avecOutil: number; sansFichier: number | null; sansOutil: number; auCentime: boolean;
+  /** « Avec gestion » contrôlé : seulement quand la ventilation du fichier classe TOUTES les lignes (sinon : non contrôlable). */
+  avecControle: boolean;
+  /** Les écarts expliqués du mois (formule de total qui oublie des lignes, commission de vente) : l'outil vaut « fichier + écarts ». */
+  ecarts: string[];
 }
 
 /** Le contrôle mois par mois : les lignes de l'outil (`activites`) recalculées, face aux totaux du fichier. PUR. */
 export function controler(mois: readonly MoisExcel[], activites: readonly ActiviteCalcul[], regles: readonly RegleCommission[], retrocessions: readonly Retrocession[]): ControleMois[] {
-  const c = (x: number): number => Math.round(x * 100) / 100;
+  // Au centime : moins d'un demi-centime d'écart (comparer deux arrondis ferait tomber 1 753,375 d'un côté ou de l'autre).
+  const egal = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
   return mois.map((m) => {
     const t = totauxPeriode(activites, { regles: [...regles], apporteurs: [], retrocessions: [...retrocessions] }, { annee: Number(m.mois.slice(0, 4)), mois: Number(m.mois.slice(5, 7)) });
     const f = m.totaux;
-    const auCentime = [[f.caHt, t.ca], [f.apporteurs, t.apporteurs], [f.primes, t.primes], [f.caNet, t.caNet], [f.commissionBrute, t.commission]].every(([a, b]) => c(a) === c(b));
+    const avecControle = f.ventilationAvec !== null && m.lignes.every((l) => l.avecGestion !== null || l.caFichier === 0);
+    const e = (f.ecarts ?? []).reduce((x, y) => ({ ca: x.ca + y.ca, apporteurs: x.apporteurs + y.apporteurs, primes: x.primes + y.primes, commission: x.commission + y.commission }),
+      { ca: 0, apporteurs: 0, primes: 0, commission: 0 });
+    const auCentime = [[f.caHt + e.ca, t.ca], [f.apporteurs + e.apporteurs, t.apporteurs], [f.primes + e.primes, t.primes], [f.caNet + e.ca - e.apporteurs, t.caNet],
+      [f.commissionBrute + e.commission, t.commission], ...(avecControle ? [[f.ventilationAvec as number, t.avecGestion]] : [])].every(([a, b]) => egal(a, b));
     return {
       mois: m.mois, lignesFichier: m.lignes.length, lignesOutil: t.nb, caFichier: f.caHt, caOutil: t.ca, apporteursFichier: f.apporteurs, apporteursOutil: t.apporteurs,
       primesFichier: f.primes, primesOutil: t.primes, caNetFichier: f.caNet, caNetOutil: t.caNet, commissionFichier: f.commissionBrute, commissionOutil: t.commission,
-      avecFichier: f.ventilationAvec, avecOutil: t.avecGestion, sansFichier: f.ventilationSans, sansOutil: t.sansGestion, auCentime,
+      avecFichier: f.ventilationAvec, avecOutil: t.avecGestion, sansFichier: f.ventilationSans, sansOutil: t.sansGestion, auCentime, avecControle,
+      ecarts: (f.ecarts ?? []).map((x) => x.libelle),
     };
   });
 }
@@ -123,11 +170,12 @@ export function tableauControle(lignes: readonly ControleMois[]): string {
   const tete = ['mois', 'lignes', 'CA fichier', 'CA outil', 'apporteurs f.', 'apporteurs o.', 'primes f.', 'primes o.', 'coms f.', 'coms o.', 'avec gestion f.', 'avec gestion o.', ''];
   const larg = [8, 9, 13, 13, 13, 13, 10, 10, 12, 12, 15, 15, 2];
   const ligne = (v: string[]) => v.map((x, i) => colonne(x, larg[i])).join(' ');
+  const nomMois = (m: string): string => (lignes.some((x) => x.mois.slice(0, 4) !== lignes[0].mois.slice(0, 4)) ? `${NOMS[Number(m.slice(5)) - 1]}${m.slice(2, 4)}` : NOMS[Number(m.slice(5)) - 1]);
   const total = (k: keyof ControleMois) => lignes.reduce((s, l) => s + (l[k] as number ?? 0), 0);
   return [
     ligne(tete),
-    ...lignes.map((l) => ligne([`${NOMS[Number(l.mois.slice(5)) - 1]}`, `${l.lignesFichier}/${l.lignesOutil}`, euros(l.caFichier), euros(l.caOutil), euros(l.apporteursFichier), euros(l.apporteursOutil),
-      euros(l.primesFichier), euros(l.primesOutil), euros(l.commissionFichier), euros(l.commissionOutil), l.avecFichier === null ? '—' : euros(l.avecFichier), euros(l.avecOutil), l.auCentime ? '✓' : '✗'])),
+    ...lignes.map((l) => ligne([nomMois(l.mois), `${l.lignesFichier}/${l.lignesOutil}`, euros(l.caFichier), euros(l.caOutil), euros(l.apporteursFichier), euros(l.apporteursOutil),
+      euros(l.primesFichier), euros(l.primesOutil), euros(l.commissionFichier), euros(l.commissionOutil), l.avecFichier === null ? '—' : `${euros(l.avecFichier)}${l.avecControle ? '' : '*'}`, euros(l.avecOutil), l.auCentime ? (l.ecarts.length ? '✓²' : '✓') : '✗'])),
     ligne(['TOTAL', `${total('lignesFichier')}/${total('lignesOutil')}`, euros(total('caFichier')), euros(total('caOutil')), euros(total('apporteursFichier')), euros(total('apporteursOutil')),
       euros(total('primesFichier')), euros(total('primesOutil')), euros(total('commissionFichier')), euros(total('commissionOutil')), '', '', lignes.every((l) => l.auCentime) ? '✓' : '✗']),
   ].join('\n');
@@ -137,6 +185,8 @@ export function tableauControle(lignes: readonly ControleMois[]): string {
 export function texteRapportImport(o: {
   reel: boolean; base: string; fichier: string; plan: readonly LignePlan[]; mois: readonly MoisExcel[]; controle: readonly ControleMois[];
   negociateur: { id: number | null; libelle: string }; apporteursACreer: readonly ApporteurLu[]; retrocessions: readonly Retrocession[]; disponible: boolean;
+  /** « IMPORT DU SUIVI LOCATION 2026 » par défaut. */
+  titre?: string;
 }): string {
   const p = o.plan;
   const desc = (x: LignePlan): string => `  · ${x.ligne.mois} ligne ${x.ligne.rang} — ${x.ligne.proprietaire} / ${x.ligne.locataire} — CA ${euros(x.ligne.honoProprietaireHt + x.ligne.honoLocataireHt)}`;
@@ -145,7 +195,7 @@ export function texteRapportImport(o: {
   const dou = p.filter((x) => x.rapprochement.statut === 'douteux');
   const non = p.filter((x) => x.rapprochement.statut === 'non_rattache');
   return [
-    `IMPORT DU SUIVI LOCATION 2026 — ${o.reel ? 'RÉEL' : 'À BLANC (aucune écriture)'}`,
+    `${o.titre ?? 'IMPORT DU SUIVI LOCATION 2026'} — ${o.reel ? 'RÉEL' : 'À BLANC (aucune écriture)'}`,
     `base : ${o.base} · fichier : ${o.fichier} · négociateur des lignes : ${o.negociateur.libelle}${o.negociateur.id === null ? ' (aucun compte trouvé : nom seul)' : ` (compte ${o.negociateur.id})`}`,
     ...(o.disponible ? [] : ['⚠ migration 406 non appliquée sur cette base : rien ne peut être écrit (le plan et le contrôle sont calculés quand même).']),
     '',
@@ -153,8 +203,10 @@ export function texteRapportImport(o: {
     `à importer ${p.filter((x) => x.etat === 'a_importer').length} · déjà importées ${p.filter((x) => x.etat === 'deja_importee').length} · bail déjà suivi dans l'outil (non doublées) ${p.filter((x) => x.etat === 'deja_suivie').length}`,
     `seuils : rapprochée ≥ ${SEUIL_RATTACHE.toFixed(2)} ; douteuse ≥ ${SEUIL_DOUTEUX.toFixed(2)} (importée non rattachée, bail proposé noté) ; sinon « historique non rattaché ».`,
     '',
-    'CONTRÔLE MOIS PAR MOIS (fichier / outil recalculé, commission = 15 % × CA net + primes − rétrocession) :',
+    'CONTRÔLE MOIS PAR MOIS (fichier / outil recalculé, commission = taux du mois × CA net + primes − rétrocession) :',
     tableauControle(o.controle),
+    ...(o.controle.some((x) => x.avecFichier !== null && !x.avecControle) ? ['  * « avec gestion » non contrôlable ce mois-là : la ventilation du fichier ne classe pas toutes les lignes.'] : []),
+    ...(o.controle.some((x) => x.ecarts.length) ? ['  ✓² juste au centime une fois l’écart expliqué du fichier compté (détail dans « CE QUE LE FICHIER A D’ÉTRANGE »).'] : []),
     '',
     `APPORTEURS CRÉÉS « À RATTACHER » (${o.apporteursACreer.length}) — dans l'annuaire, sans collègue (jamais deviné) : ${o.apporteursACreer.map((a) => a.nom).join(', ') || 'aucun'}`,
     `ORIGINES DU CONTACT : ${Object.entries(p.reduce<Record<string, number>>((acc, x) => { const k = x.origine.origine === null ? (x.origine.aArbitrer ? 'à arbitrer' : 'non renseignée') : LIBELLE_ORIGINE_CONTACT[x.origine.origine]; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {})).map(([k, v]) => `${k} ${v}`).join(' · ')}`,

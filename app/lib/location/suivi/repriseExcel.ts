@@ -66,6 +66,57 @@ export function origineDeTexte(texte: string | null, collegues: readonly string[
   return { ...vide, origine: 'apporteur', apporteur: { nom: brut, type: 'partenaire' } };
 }
 
+/** Distance d'édition simple (insertion, suppression, substitution). PUR. */
+const ecart = (a: string, b: string): number => {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= a.length; i += 1) for (let j = 1; j <= b.length; j += 1) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+};
+
+/**
+ * Deux écritures du MÊME apporteur (Arno, 23/10/2026) : « Catherine Tarisse » / « Catherine Tarrisse », « Brahim Boujra » /
+ * « Brahim Boujrah » — même prénom, et un nom à UNE lettre près (deux pour un nom de 7 lettres ou plus) ; « Mme Beaucourt » /
+ * « Beaucourt » (la civilité ne compte pas, un nom seul de 5 lettres ou plus retrouvé dans l'autre) ; « Maillard Stéphane » /
+ * « Stéphane Maillard » (l'ordre ne compte pas). Les accents, la casse et les espaces ne comptent pas. Deux prénoms différents ne
+ * sont jamais le même apporteur. PUR.
+ */
+const CIVILITES = new Set(['m', 'm.', 'mr', 'mme', 'mlle', 'madame', 'monsieur', 'mademoiselle']);
+const motsNom = (t: string): string[] => norm(t).replace(/[^a-z0-9 .-]/g, ' ').split(' ').filter((m) => m !== '' && !CIVILITES.has(m));
+
+export function memeApporteur(a: string, b: string): boolean {
+  const x = motsNom(a);
+  const y = motsNom(b);
+  if (x.length === 0 || y.length === 0) return false;
+  // « Mme Beaucourt » = « Madame Beaucourt » = « Beaucourt » ; « Maillard Stéphane » = « Stéphane Maillard ».
+  if ([...x].sort().join(' ') === [...y].sort().join(' ')) return true;
+  if ((x.length === 1 || y.length === 1) && (x.length === 1 ? y : x).includes((x.length === 1 ? x : y)[0]) && (x.length === 1 ? x : y)[0].length >= 5) return true;
+  if (x.length < 2 || y.length < 2 || x[0] !== y[0]) return false;
+  const nx = x.slice(1).join(' ');
+  const ny = y.slice(1).join(' ');
+  const tolere = Math.min(nx.length, ny.length) >= 7 ? 2 : Math.min(nx.length, ny.length) >= 4 ? 1 : 0;
+  return ecart(nx, ny) <= tolere;
+}
+
+/**
+ * Les noms d'apporteurs du fichier → leur nom dans l'annuaire, SANS DOUBLON : un nom déjà dans l'annuaire (ou une variante)
+ * garde l'écriture de l'annuaire ; sinon la variante la plus fréquente du fichier l'emporte (à égalité : la première vue).
+ * Rend la table « écrit → retenu » et les regroupements faits (pour les dire). PUR.
+ */
+export function canoniserApporteurs(noms: readonly string[], annuaire: readonly string[]): { retenu: Map<string, string>; regroupements: { retenu: string; variantes: string[] }[] } {
+  const comptes = new Map<string, number>();
+  for (const n of noms) comptes.set(n.trim(), (comptes.get(n.trim()) ?? 0) + 1);
+  const groupes: { tete: string; membres: string[] }[] = annuaire.map((a) => ({ tete: a.trim(), membres: [] }));
+  const ordre = [...comptes.keys()].sort((a, b) => (comptes.get(b) ?? 0) - (comptes.get(a) ?? 0) || noms.indexOf(a) - noms.indexOf(b));
+  for (const n of ordre) {
+    const g = groupes.find((x) => memeApporteur(x.tete, n) || x.membres.some((m) => memeApporteur(m, n)));
+    if (g) g.membres.push(n); else groupes.push({ tete: n, membres: [n] });
+  }
+  const retenu = new Map<string, string>();
+  for (const g of groupes) for (const m of g.membres) retenu.set(m, g.tete);
+  const regroupements = groupes.map((g) => ({ retenu: g.tete, variantes: [...new Set(g.membres)].filter((m) => m !== g.tete) })).filter((g) => g.variantes.length > 0);
+  return { retenu, regroupements };
+}
+
 /** La prime du fichier → le choix de prime : 150 → « 150 € » (la règle) ; 0 → « Aucune » ; autre (15, 50) → « Personnalisé ». */
 export const modePrimeDe = (prime: number): ModePrime => (prime === 0 ? 'aucune' : prime === 150 ? 'regle' : 'personnalise');
 

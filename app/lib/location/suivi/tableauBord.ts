@@ -404,6 +404,19 @@ export interface DonneesTableau {
   gestionLignes?: LigneGestion[];
   collegues?: { id: number; libelle: string }[];
   annuaire?: boolean;
+  /** Arno (23/10/2026, historique 2019 → 2025) — chaque année d'activité, sans filtre : baux, CA, CA net, commission (droit). */
+  historique?: AnneeHistorique[];
+}
+
+export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
+
+/** Une ligne par année d'activité (toutes affaires, sans filtre) ; la commission seulement pour qui peut la voir. PUR. */
+export function historiqueAnnees(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, voirCommissions: boolean): AnneeHistorique[] {
+  const annees = [...new Set(activites.map((a) => Number(a.dateSignature.slice(0, 4))))].sort((x, y) => x - y);
+  return annees.map((annee) => {
+    const t = totauxPeriode(activites, ctx, { annee, mois: null });
+    return { annee, nbBaux: t.nbBaux, nb: t.nb, ca: t.ca, caNet: t.caNet, apporteurs: t.apporteurs, commission: voirCommissions ? t.commission : null };
+  });
 }
 
 
