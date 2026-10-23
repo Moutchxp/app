@@ -103,7 +103,7 @@ describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
     expect(htProprio().value).toBe('779,19');                     // 935,03 TTC ÷ 1,2
     await saisir(htProprio(), '500');
     expect(champ().value).toBe('600,00');
-    expect(mention()).toBe('saisi à la main · recalculer');
+    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : +335,03 €) · recalculer');
     await saisir(htLocataire(), '200');
     expect(container.querySelector('[data-hono-locataire-ttc]')?.textContent).toContain('240,00 € TTC');
   });

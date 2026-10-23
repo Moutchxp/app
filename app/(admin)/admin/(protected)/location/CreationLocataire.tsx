@@ -16,6 +16,7 @@ import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocati
 import { MOTIF_MONTANT_SAISI, montantHonorairesSaisi, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
 import { ModaleIssue } from './ModaleIssue';
+import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
@@ -124,6 +125,10 @@ export function CreationLocataire() {
   const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
   const [entretienDuBien, setEntretienDuBien] = useState<number | null>(null);
   const [tente, setTente] = useState(false);
+  /* Arno (24/10/2026) — « CARACTÉRISTIQUES DU BIEN » : la fiche du bien (le formulaire « Modifier le bien ») en grande modale ;
+     enregistrée, le bien est relu (fiche, honoraires au barème, lots) — `versionBien` remonte la liste des lots. */
+  const [caracteristiquesOuvertes, setCaracteristiquesOuvertes] = useState(false);
+  const [versionBien, setVersionBien] = useState(0);
   /* Arno (22/10/2026, 406) — BLOC 4 « SUIVI COMMERCIAL » : le suivi mensuel de l'activité (date de signature, honoraires HT,
      négociateur, apporteur, gestion, origine client), enregistré sur le bail créé, juste après lui. */
   const [suivi, setSuivi] = useState<SaisieSuivi>(SUIVI_VIDE);
@@ -346,7 +351,7 @@ export function CreationLocataire() {
   return (
     <div className="loc-page loc-ample">
       <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); envoyerApres.current = false; setIntentionEnvoi(false); void enregistrer(); }} data-formulaire-page />
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL + CSS_BOUTON_BIEN}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
       <section className="loc-section" aria-labelledby="loc-l1">
@@ -384,7 +389,7 @@ export function CreationLocataire() {
               ))}
           </>
         )}
-        {bien !== null && <LotsLoues lotId={bien.id} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
+        {bien !== null && <LotsLoues key={`${bien.id}-${versionBien}`} lotId={bien.id} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
         <div className="loc-grille">
           {/* Arno (20/10/2026) : la date d'entrée est OBLIGATOIRE — le dossier Drive du bail porte la date (« BAIL 01/09/2024 MARTIN »). */}
           <label className="loc-champ"><span>Date d’entrée <span className="loc-oblig">*</span></span><input form={idForm} type="date" value={entree} required
@@ -392,8 +397,13 @@ export function CreationLocataire() {
         </div>
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-l3" data-bloc-conditions>
+      <section className="loc-section loc-section--bouton-bien" aria-labelledby="loc-l3" data-bloc-conditions>
         <h3 id="loc-l3"><span className="loc-num">3</span>Conditions d’entrée</h3>
+        {/* Arno (24/10/2026) — sur la première ligne du bloc, à droite : la fiche du bien en grande modale. Sans bien : inactif, et
+            l'info-bulle le dit (`aria-disabled` plutôt que `disabled`, pour que la bulle s'affiche). */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" data-caracteristiques-bien
+          aria-disabled={bien === null} title={bien === null ? 'Choisissez d’abord le bien' : undefined}
+          onClick={() => { if (bien !== null) setCaracteristiquesOuvertes(true); }}>Caractéristiques du bien</button>
         {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : (
           <>
             {schema !== null && !avecConditions && (
@@ -417,6 +427,11 @@ export function CreationLocataire() {
           </>
         )}
       </section>
+
+      {caracteristiquesOuvertes && bien !== null && (
+        <ModaleCaracteristiquesBien lotId={bien.id} onFermer={() => setCaracteristiquesOuvertes(false)}
+          onEnregistre={() => { setCaracteristiquesOuvertes(false); ficheBien.rafraichir(); hono.rafraichir(); setVersionBien((n) => n + 1); }} />
+      )}
 
       <section className="loc-section" aria-labelledby="loc-l4" data-bloc-suivi>
         <h3 id="loc-l4"><span className="loc-num">4</span>Suivi commercial</h3>
@@ -521,4 +536,17 @@ const CSS_LOTS_LOUES = `
 .loc-collant .loc-enregistrer-envoyer{width:auto;white-space:normal;text-align:center}
 @media (max-width:760px){ .loc-collant .loc-enregistrer-envoyer{flex:1 1 100%;order:3} }
 .loc-apres-enregistrer{display:flex;flex-direction:column;gap:10px;padding:14px;border:1.5px solid var(--color-svv-line-strong);border-radius:14px}
+`;
+
+/**
+ * AUCUN ACCENT GRAVE DANS CE LITTERAL. Arno (24/10/2026) — le bouton « Caractéristiques du bien » sur la ligne du titre du bloc 3,
+ * a droite : le titre reste l'enfant direct de la section (`.loc-section > h3`) ; la section passe en grille a deux colonnes, tout le
+ * reste sur la largeur. Au telephone, le bouton passe sous le titre, a droite.
+ */
+export const CSS_BOUTON_BIEN = `
+.loc-section.loc-section--bouton-bien{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:18px;align-items:center}
+.loc-section--bouton-bien > *:not(h3):not(.loc-bouton-bien){grid-column:1 / -1}
+.loc-section--bouton-bien > .loc-bouton-bien{justify-self:end;width:auto;margin:0;min-height:44px}
+.loc-bouton-bien[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
+@media (max-width:520px){ .loc-section--bouton-bien > .loc-bouton-bien{grid-column:1 / -1} }
 `;

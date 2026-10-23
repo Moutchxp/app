@@ -314,6 +314,19 @@ export interface ProprieteHonoraires {
 /** Le montant saisi et s'il a été modifié à la main ; `erreur` : le message sous le champ (montant illisible ou vide). */
 export interface SaisieHonoraires { valeur: string; manuel: boolean; onChange: (v: { valeur: string; manuel: boolean }) => void; erreur?: ReactNode }
 
+/**
+ * Arno (24/10/2026) — un montant SAISI À LA MAIN n'est jamais écrasé par le calcul (même après une surface modifiée dans
+ * « Caractéristiques du bien ») : l'écart avec le barème est DIT — « au barème : 935,03 € (écart : +64,97 €) ». `null` : pas de
+ * calcul, montant illisible, ou aucun écart. PUR.
+ */
+export function ecartHonoraires(saisie: string, cible: string): string | null {
+  const a = enCentimes(saisie);
+  const b = enCentimes(cible);
+  if (cible.trim() === '' || typeof a !== 'number' || typeof b !== 'number' || a === b) return null;
+  const d = b - a;
+  return `au barème : ${formaterCentimes(b)} (écart : ${d > 0 ? '+' : '−'}${formaterCentimes(Math.abs(d))})`;
+}
+
 /** La mention sous un champ vide sans surface (Arno, 21/10/2026). */
 export const MENTION_SURFACE_INCONNUE = 'Surface inconnue : saisissez le montant';
 
@@ -365,7 +378,8 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
               }} />
             <span className="loc-hono-mention" data-hono-mention>
               {manuel ? (
-                <>{MENTION_SAISI_MAIN}{cible !== '' && <>{' · '}<button type="button" className="loc-lien-recalculer" data-hono-recalculer
+                <>{MENTION_SAISI_MAIN}{ecartHonoraires(sa.valeur, cible) !== null && <span data-hono-ecart>{' · '}{ecartHonoraires(sa.valeur, cible)}</span>}
+                  {cible !== '' && <>{' · '}<button type="button" className="loc-lien-recalculer" data-hono-recalculer
                   onClick={() => sa.onChange({ valeur: cible, manuel: false })}>recalculer</button></>}</>
               ) : h.charge !== true && c !== null && c.etat === 'surface_manquante' ? MENTION_SURFACE_INCONNUE
                 : h.charge !== true && c !== null && c.etat === 'ok' ? 'calculé avec la surface du bien — modifiable' : null}

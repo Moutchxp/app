@@ -127,11 +127,13 @@ export function gestesLocation(modifiable: boolean, apres: () => void): GestesCa
 export function EnTeteLocation({ titre, sous, actions, retour = true, retourVers }: {
   titre: string; sous?: React.ReactNode; actions?: React.ReactNode; retour?: boolean;
   /** Arno (23/10/2026) — « Modifier » la fiche du bien : le lien de retour mène à la fiche (Gestion ou Location). Absent : la Location. */
-  retourVers?: { href: string; mot: string };
+  retourVers?: { href: string; mot: string; surClic?: () => void };
 }) {
   return (
     <header className="loc-tete">
-      {retour && <p className="loc-retour"><a href={retourVers?.href ?? '/admin/location'}>← {retourVers?.mot ?? 'Location'}</a></p>}
+      {/* Arno (24/10/2026) — `surClic` : le lien referme une modale au lieu de quitter la page (« Caractéristiques du bien »). */}
+      {retour && <p className="loc-retour"><a href={retourVers?.href ?? '/admin/location'}
+        onClick={retourVers?.surClic === undefined ? undefined : (e) => { e.preventDefault(); retourVers.surClic?.(); }}>← {retourVers?.mot ?? 'Location'}</a></p>}
       <div className="loc-tete-ligne">
         <div>
           <h2 className="loc-titre">{titre}</h2>

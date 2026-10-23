@@ -137,6 +137,11 @@ export interface ModificationBien {
   /** Le lien « ← … » de l'en-tête : la fiche du bien d'où l'on vient (Gestion ou Location). */
   retour: { href: string; mot: string };
   /**
+   * Arno (24/10/2026) — le formulaire ouvert DANS UNE MODALE (« Caractéristiques du bien » de « Nouveau locataire ») : le lien de
+   * l'en-tête referme la modale (comme « Annuler », avec la question si la saisie a changé) au lieu de quitter la page.
+   */
+  dansModale?: boolean;
+  /**
    * Les appels de la FICHE COMMUNE (la route de la Gestion, gardée par `perm_gestion`), fournis par l'hôte : ce formulaire de la
    * Location ne parle qu'à sa propre route (garde `locationBien.test.ts`).
    */
@@ -592,7 +597,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         <>
           {/* Arno (23/10/2026) : la page « Ajouter un nouveau bien », à l'identique, sans le bloc « Propriétaire(s) » (le bien y est
               déjà rattaché) ; tout est pré-rempli. */}
-          <EnTeteLocation titre="Modifier le bien" retourVers={modification.retour}
+          <EnTeteLocation titre="Modifier le bien" retourVers={modification.dansModale === true ? { ...modification.retour, surClic: annulerModification } : modification.retour}
             sous={<>Toutes les informations du bien, pré-remplies. « Enregistrer les modifications » montre d’abord ce qui change (ancienne valeur → nouvelle valeur), puis enregistre.</>} />
           {conflit && (
             <div className="mfb-conflit" role="alert" data-conflit-version>

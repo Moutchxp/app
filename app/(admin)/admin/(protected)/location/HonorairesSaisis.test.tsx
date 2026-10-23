@@ -109,7 +109,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau 
     await preparer();
     await toutRepondre();
     await saisir(champ(), '1 000');
-    expect(mention()).toBe('saisi à la main · recalculer');
+    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : −64,97 €) · recalculer');   // Arno (24/10/2026) : l'écart est dit
     expect(total()).toBe('1\u202f000,00 €');
     await soumettre(); await soumettre();
     expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '1 000' });
@@ -152,7 +152,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau 
     await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-02');
     await calmer();
     expect(champ().value).toBe('500');
-    expect(mention()).toBe('saisi à la main · recalculer');
+    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : +435,03 €) · recalculer');   // jamais écrasé : l'écart est dit
   });
 
   it('un montant illisible bloque « Enregistrer » et le dit ; rien n’est créé', async () => {

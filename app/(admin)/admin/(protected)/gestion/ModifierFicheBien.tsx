@@ -22,7 +22,13 @@ import { annoncerBienModifie, useVersionBien, type ImportBien } from './EditionE
  */
 const API = '/api/admin/gestion/annuaire/location';
 
-export function ModifierFicheBien({ lotId, retour }: { lotId: number; retour: { href: string; mot: string } }) {
+/**
+ * Arno (24/10/2026) — `modale` : le MÊME formulaire ouvert dans une grande modale (« Caractéristiques du bien » de « Nouveau
+ * locataire ») ; « Annuler », Échap et le lien de l'en-tête la referment sans rien écrire, l'enregistrement la referme et prévient
+ * l'hôte (qui relit le bien). Absent : la page, qui revient à la fiche (comportement inchangé).
+ */
+export function ModifierFicheBien({ lotId, retour, modale }: { lotId: number; retour: { href: string; mot: string };
+  modale?: { onFermer: () => void; onEnregistre: () => void } }) {
   const router = useRouter();
   const [lecture, setLecture] = useState<LectureFiche | null>(null);
   const [importe, setImporte] = useState<ImportBien | undefined>(undefined);
@@ -49,7 +55,8 @@ export function ModifierFicheBien({ lotId, retour }: { lotId: number; retour: { 
       }).catch(() => {});
     return () => { vivant = false; };
   }, [lotId]);
-  const revenir = useCallback((): void => { router.push(retour.href); }, [router, retour.href]);
+  const fermerModale = modale?.onFermer;
+  const revenir = useCallback((): void => { if (fermerModale !== undefined) fermerModale(); else router.push(retour.href); }, [router, retour.href, fermerModale]);
   if (lecture === null) {
     return refus === null ? <p className="loc-muet" role="status">Lecture de la fiche du bien…</p> : (
       <ModaleIssue sorte="erreur" titre="Modification impossible" onFermer={revenir}
@@ -62,9 +69,9 @@ export function ModifierFicheBien({ lotId, retour }: { lotId: number; retour: { 
       <style>{CSS_MODIFIER_FICHE_BIEN}</style>
       <CreationBien key={`${lecture.version}-${n}`} proprietairesInitiaux={[]}
         modification={{
-          lotId, lecture, versionDistante, importe, retour,
+          lotId, lecture, versionDistante, importe, retour, ...(modale !== undefined ? { dansModale: true } : {}),
           onFermer: revenir,
-          onEnregistre: () => { annoncerBienModifie(lotId); revenir(); },
+          onEnregistre: () => { annoncerBienModifie(lotId); if (modale !== undefined) modale.onEnregistre(); else revenir(); },
           onRecharger: () => { void lire(); },
           enregistrer: async (saisie) => {
             const r = await fetch(API, {
