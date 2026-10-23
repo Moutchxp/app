@@ -139,6 +139,15 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
      * ⚠️ ELLE NE PEUT RIEN FAIRE ÉCHOUER : `enregistrerCiblesEnvoi` attrape ses propres erreurs et rend 0. Et
      * elle est de toute façon appelée AU MIEUX-EFFORT, après le message parti.
      */
+    /**
+     * 🔴🔴 Arno (23/10/2026) — LE MESSAGE ENVOYÉ ENTRE TOUT DE SUITE DANS « ENVOYÉS », avec ses pièces, son fil et son classement :
+     * relu chez Gmail par son identifiant, écrit par le chemin de la relève (voir `captureImmediate.ts`). Le même jeton que
+     * l'envoi, rafraîchi au même endroit.
+     */
+    capturerEnvoi: async (o) => {
+      const { capturerApresEnvoi } = await import('./captureImmediateReelle');
+      await capturerApresEnvoi(o, () => deps.jetonAcces(), c.origine);
+    },
     classer: async (o) => {
       /* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — les biens voyagent par l'intention complète (portée comprise) quand elle
          est retenue ; ils ne passent alors plus par les rattachements manuels directs. Sinon : le chemin d'avant. */

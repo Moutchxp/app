@@ -312,6 +312,11 @@ export async function POST(request: Request): Promise<Response> {
       console.error('[gestion/envois] LE MESSAGE EST PARTI mais « %s » a échoué (%s) — à rattraper à la main : %s',
         etape, m.etiquette, e instanceof Error ? e.message : String(e));
     },
+    /* 🔴 Arno (23/10/2026) — le message envoyé entre tout de suite dans « Envoyés » (voir `captureImmediate.ts`). */
+    capturerEnvoi: async (o) => {
+      const { capturerApresEnvoi } = await import('../../../../../lib/gestion/captureImmediateReelle');
+      await capturerApresEnvoi(o, () => deps.jetonAcces(), 'envois');
+    },
     maintenant: () => new Date(),
     alea: () => crypto.randomUUID().replace(/-/g, ''),
   };

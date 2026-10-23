@@ -205,6 +205,12 @@ export interface DepsEnvoiComplet {
    * et le mail restera « à classer » dans le fil — ce qui se répare d'un geste, contrairement à un mail renvoyé.
    */
   marquerHorsGestion?(o: { envoiId: number; auteur: Auteur }): Promise<void>;
+  /**
+   * 🔴 Arno (23/10/2026) — LE MESSAGE ENVOYÉ ENTRE TOUT DE SUITE DANS « ENVOYÉS ». Relit l'original chez Gmail et l'écrit par le
+   * chemin de la relève, puis pose les intentions retenues ci-dessus (voir `captureImmediate.ts`). En DERNIER, au mieux-effort :
+   * rien ici ne peut rendre un échec, et la relève reste le filet. Absente ⇒ comportement d'avant (la relève seule).
+   */
+  capturerEnvoi?(o: { envoiId: number; gmailMessageId: string }): Promise<void>;
   /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
   journaliser(l: {
     auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
@@ -233,7 +239,9 @@ export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classemen
   // ⚠️ `images_citees` NON PLUS n'est pas une étape d'après-envoi : elle vient avant, et emprunte le même filet,
   //    pour la même raison que `signature` — un second mécanisme pour dire la même chose serait un second endroit
   //    où regarder le jour où une image manque.
-  | 'images_citees';
+  | 'images_citees'
+  // 🔴 Arno (23/10/2026) — la capture immédiate du message envoyé, pour « Envoyés » : même filet que le classement.
+  | 'capture';
 
 export type IssueEnvoi =
   | { ok: true; envoi: EnvoiEnBase; deja: boolean }
@@ -440,6 +448,13 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
       () => (deps.marquerHorsGestion as NonNullable<DepsEnvoiComplet['marquerHorsGestion']>)({
         envoiId: envoi.id, auteur,
       }));
+  }
+  /* 🔴 Arno (23/10/2026) — EN DERNIER : les intentions ci-dessus sont retenues, la capture immédiate peut donc les poser. */
+  if (deps.capturerEnvoi && issue.gmailMessageId) {
+    const gmailMessageId = issue.gmailMessageId;
+    await auMieux('capture', () => (deps.capturerEnvoi as NonNullable<DepsEnvoiComplet['capturerEnvoi']>)({
+      envoiId: envoi.id, gmailMessageId,
+    }));
   }
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };
 }
