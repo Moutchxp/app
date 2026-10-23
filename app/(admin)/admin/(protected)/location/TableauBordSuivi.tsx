@@ -10,6 +10,15 @@ import {
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
 import { OuvrirAnnuaireApporteurs } from './ParametresLocation';
+import { ListeChoix } from './ListeChoix';
+
+/** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
+export function anneeMoisDeLAdresse(jour: string, recherche: string = typeof window === 'undefined' ? '' : window.location.search): { annee: number; mois: number } {
+  const p = new URLSearchParams(recherche);
+  const a = Number(p.get('annee'));
+  const m = Number(p.get('mois'));
+  return { annee: Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4)), mois: Number.isInteger(m) && m >= 1 && m <= 12 ? m : Number(jour.slice(5, 7)) };
+}
 
 /**
  * ══ 🔴 LOCATION — « OUTILS DE SUIVI » : LE TABLEAU DE BORD DE L'ACTIVITÉ (Arno, 22/10/2026) ═══════════════════════════════════
@@ -56,8 +65,18 @@ type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string
 export function TableauBordSuivi({ vue = 'annee', administrateur = false }: { vue?: 'mois' | 'annee'; administrateur?: boolean }) {
   const jour = aujourdhuiParis();
   const [n, setN] = useState(0);
-  const [annee, setAnnee] = useState(Number(jour.slice(0, 4)));
-  const [mois, setMois] = useState(Number(jour.slice(5, 7)));
+  // Arno (23/10/2026) — l'année et le mois se gardent dans l'adresse (?annee=2025&mois=9) : un rechargement ou un lien garde la
+  // sélection. Par défaut : l'année et le mois EN COURS (jamais une valeur écrite en dur). Rien ne s'affiche avant la lecture des
+  // données, quelle que soit l'année : pas d'écart entre le rendu du serveur et celui du navigateur.
+  const [annee, setAnnee] = useState(() => anneeMoisDeLAdresse(jour).annee);
+  const [mois, setMois] = useState(() => anneeMoisDeLAdresse(jour).mois);
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois)) return;
+    u.searchParams.set('annee', String(annee));
+    u.searchParams.set('mois', String(mois));
+    window.history.replaceState(window.history.state, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+  }, [annee, mois]);
   const [portee, setPortee] = useState<'mois' | 'annee'>('mois');
   const [filtre, setFiltre] = useState<Filtre>({});
   const [lu, setLu] = useState<{ annee: number; d: DonneesTableau } | { annee: number; erreur: string } | null>(null);
@@ -127,11 +146,20 @@ export function TableauBordSuivi({ vue = 'annee', administrateur = false }: { vu
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-tdb-sans-migration>Mise à jour de la base à appliquer (migration 406) : le tableau de bord se remplira dès qu’elle le sera.</p>}
 
       {vue === 'mois' && (
-        <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`} data-onglets-mois>
-          {NOMS_MOIS.map((m, i) => (
-            <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => setMois(i + 1)} data-onglet-mois={i + 1}>
-              {m}{lignes.some((a) => a.dateSignature.startsWith(`${annee}-${String(i + 1).padStart(2, '0')}`)) ? '' : <span className="tdb-onglet-vide" aria-hidden="true"> ·</span>}</button>
-          ))}
+        <div className="tdb-rangee-mois" data-rangee-mois>
+          <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`} data-onglets-mois>
+            {NOMS_MOIS.map((m, i) => (
+              <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => setMois(i + 1)} data-onglet-mois={i + 1}>
+                {/* Le point gris (mois sans affaire) ne vaut que pour l'année en cours ; une année passée a ses 12 mois actifs. */}
+                {m}{annee !== Number(jour.slice(0, 4)) || lignes.some((a) => a.dateSignature.startsWith(`${annee}-${String(i + 1).padStart(2, '0')}`)) ? '' : <span className="tdb-onglet-vide" aria-hidden="true"> ·</span>}</button>
+            ))}
+          </div>
+          {/* Arno (23/10/2026) — l'année, au bout de la rangée (collée à droite : sur téléphone, la rangée défile, l'année reste visible).
+              Toujours synchronisée avec le filtre « Année » du bloc des filtres (le même état). */}
+          <div className="tdb-onglet-annee" data-selecteur-annee>
+            <ListeChoix options={[...d.annees].sort((x, y) => y - x).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+              classe="tdb-onglet tdb-onglet-annee-champ" onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-annee-onglets': '' }} />
+          </div>
         </div>
       )}
       <form className="tdb-filtres" aria-label="Filtres du tableau de bord" onSubmit={(e) => e.preventDefault()} data-filtres>
@@ -634,6 +662,10 @@ const cartes = (t: string): string => `
 
 export const CSS_TABLEAU_BORD = `
 .tdb{display:flex;flex-direction:column;gap:18px}
+.tdb-rangee-mois{display:flex;align-items:stretch;border-bottom:1px solid var(--color-svv-line)}
+.tdb-rangee-mois .tdb-onglets{flex:1 1 auto;min-width:0;border-bottom:0}
+.tdb-onglet-annee{flex:0 0 auto;width:104px;position:sticky;right:0;background:var(--color-svv-surface);padding-left:6px;box-shadow:-10px 0 10px -10px var(--color-svv-line-strong)}
+.tdb-onglet-annee .lch-champ.tdb-onglet-annee-champ{border:0;border-radius:0;border-bottom:3px solid var(--color-svv-red);background:transparent;color:var(--color-svv-ink);font-weight:800;padding:10px 8px;min-height:47px}
 .tdb-onglets{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--color-svv-line);padding-bottom:0;scrollbar-width:thin}
 .tdb-onglet{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--color-svv-muted);font:inherit;font-weight:800;padding:10px 12px;min-height:44px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
 .tdb-onglet[aria-selected="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}

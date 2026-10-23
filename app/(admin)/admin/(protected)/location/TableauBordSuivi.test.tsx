@@ -33,6 +33,7 @@ beforeEach(() => {
     gestion: { disponible: true, stock: 120, transitions: [{ lotId: 7, avant: 'location_seule', apres: 'en_gestion', effetLe: '2026-09-12' }, { lotId: 8, avant: 'en_gestion', apres: 'ancienne_gestion', effetLe: '2026-10-01' }] },
     preavis: { '2026-09': 3 }, voirCommissions: true,
   };
+  window.history.replaceState(null, '', '/');   // l'adresse garde l'année et le mois choisis : chaque épreuve repart d'une adresse nue
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   global.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) }) as unknown as Response) as unknown as typeof fetch;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-22T10:00:00Z'));
@@ -522,6 +523,59 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       // Un mois à venir : « À venir », pas de montant.
       await act(async () => { barre(12).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       expect(nbsp(container.querySelector('[data-bulle="survol"] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
+    });
+  });
+
+  describe('🔴 Arno (23/10/2026) — Suivi du mois : le sélecteur d’année au bout de la rangée des mois', () => {
+    const selecteur = () => container.querySelector('[data-annee-onglets]') as HTMLButtonElement;
+    const filtreAnnee = () => container.querySelector('[data-filtre="annee"]') as HTMLSelectElement;
+    const choisirAnnee = async (a: string) => {
+      await act(async () => { selecteur().click(); });
+      await act(async () => { (container.querySelector(`[data-liste-choix] [data-option="${a}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      await calmer();
+    };
+
+    it('au bout de la rangée, après « Décembre » ; par défaut l’année EN COURS ; la plus récente en premier', async () => {
+      donnees = { ...donnees, annees: [2019, 2020, 2025, 2026] };
+      await monter('mois');
+      const rangee = container.querySelector('[data-rangee-mois]')!;
+      expect([...rangee.children].map((x) => x.hasAttribute('data-onglets-mois') ? 'onglets' : x.hasAttribute('data-selecteur-annee') ? 'annee' : '?')).toEqual(['onglets', 'annee']);
+      expect(container.querySelectorAll('[data-onglets-mois] [data-onglet-mois]')).toHaveLength(12);
+      expect(selecteur().textContent).toBe('2026');
+      expect(selecteur().className).toContain('tdb-onglet');
+      await act(async () => { selecteur().click(); });
+      expect([...container.querySelectorAll('[data-liste-choix] [role="option"]')].map((o) => o.getAttribute('data-option'))).toEqual(['2026', '2025', '2020', '2019']);
+      expect(window.location.search).toBe('?annee=2026&mois=10');
+    });
+
+    it('changer l’année recharge la feuille, les tuiles et l’histogramme de cette année, au même mois ; le filtre suit ; l’adresse aussi', async () => {
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      await choisirAnnee('2025');
+      expect((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some((c) => String(c[0]).includes('annee=2025'))).toBe(true);
+      expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2025-09');
+      expect(container.querySelector('[data-onglet-mois="9"]')?.getAttribute('aria-selected')).toBe('true');
+      expect(nbsp(container.querySelector('[data-tuile="ca-mois"] .tdb-tuile-valeur')?.textContent)).toBe('2 000,00 €');
+      expect(container.querySelector('#tdb-histo')?.textContent).toContain('Mois par mois — 2025');
+      expect(filtreAnnee().value).toBe('2025');
+      expect(window.location.search).toBe('?annee=2025&mois=9');
+      // Une année passée : ses 12 mois actifs, aucun point gris.
+      expect(container.querySelectorAll('[data-onglets-mois] .tdb-onglet-vide')).toHaveLength(0);
+      // Et l'inverse : le filtre « Année » change le sélecteur.
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(filtreAnnee(), '2026'); filtreAnnee().dispatchEvent(new Event('change', { bubbles: true })); });
+      await calmer();
+      expect(selecteur().textContent).toBe('2026');
+      expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2026-09');
+      expect(container.querySelectorAll('[data-onglets-mois] .tdb-onglet-vide').length).toBeGreaterThan(0);   // l'année en cours : les mois à venir
+    });
+
+    it('l’adresse garde la sélection : ?annee=2025&mois=3 ouvre mars 2025', async () => {
+      window.history.replaceState(null, '', '/admin/location/outils/mois?annee=2025&mois=3');
+      await monter('mois');
+      expect(selecteur().textContent).toBe('2025');
+      expect(container.querySelector('[data-onglet-mois="3"]')?.getAttribute('aria-selected')).toBe('true');
+      expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2025-03');
+      expect(filtreAnnee().value).toBe('2025');
     });
   });
 

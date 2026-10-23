@@ -23,6 +23,7 @@ const apporteurs = [
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, '', '/');   // l'adresse garde l'année et le mois choisis : chaque épreuve repart d'une adresse nue
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
