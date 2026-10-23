@@ -441,6 +441,20 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await calmer();
     expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2025');
+    // La bulle au survol : l'année (rouge), l'année d'avant (gris), l'écart ; la 1re année n'a pas de N−1.
+    await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    const bulle = container.querySelector('[data-bulle="survol"]')!;
+    expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2025');
+    expect(nbsp(bulle.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2025CA HT126 660,04 €Baux130');
+    expect(nbsp(bulle.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2024CA HT95 124,22 €Baux100');
+    expect(nbsp(bulle.querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+31 535,82 € (+33,2 %)');
+    await act(async () => { container.querySelector('[data-barre-annee="2024"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(container.querySelector('[data-bulle="survol"] [data-bulle-pied]')?.textContent).toBe('N−1 non importée');
+    // Les couleurs : le bloc de l'année en ROUGE (celui de la barre), N−1 en GRIS (celui des hachures), le pied neutre.
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.tdb-bulle-bloc--courant{color:var(--color-svv-red)}');
+    expect(css).toContain('.tdb-bulle-bloc--n1{color:var(--color-svv-muted)}');
+    expect(css).toContain('.tdb-barre-n1-trait{stroke:var(--color-svv-muted)');
     // Sans « Voir les commissions » : pas de colonne commission.
     act(() => { root.unmount(); }); root = createRoot(container);
     donnees = { ...donnees, voirCommissions: false, historique: donnees.historique!.map((h) => ({ ...h, commission: null })) };
@@ -465,8 +479,22 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(12);
       expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
       expect(nbsp(h.querySelector('figcaption')?.textContent)).toBe(' 2026 ·  2025');
-      expect(nbsp(barre(9).querySelector('title')?.textContent)).toBe('Septembre 2026 : 15 471,70 € HT, 17 bail(s) · 2025 : 2 000,00 € HT, 1 bail(s) · écart +13 471,70 € (+673,6 %)');
-      expect(nbsp(h.querySelector('[data-histo-detail]')?.textContent)).toContain('Octobre 2026 : 0,00 € HT');
+      // Au survol : la bulle structurée — l'en-tête, 2026 (rouge) EN HAUT, 2025 (gris) dessous, l'écart en pied.
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      const bulle = container.querySelector('[data-bulle="survol"]')!;
+      expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Septembre');
+      expect([...bulle.querySelectorAll('[data-bulle-bloc]')].map((b) => b.getAttribute('data-bulle-bloc'))).toEqual(['courant', 'n1']);
+      expect(bulle.querySelector('[data-bulle-bloc="courant"]')?.className).toContain('tdb-bulle-bloc--courant');
+      expect(bulle.querySelector('[data-bulle-bloc="n1"]')?.className).toContain('tdb-bulle-bloc--n1');
+      expect(nbsp(bulle.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT15 471,70 €Baux17');
+      expect(nbsp(bulle.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025CA HT2 000,00 €Baux1');
+      expect(nbsp(bulle.querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+13 471,70 € (+673,6 %)');
+      await act(async () => { container.querySelector('.tdb-histo-zone')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
+      expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
+      // Le détail sous le graphique : la même bulle, pour le mois de l'onglet (octobre, en cours : 0).
+      const sous = h.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
+      expect(sous.querySelector('.tdb-bulle-titre')?.textContent).toBe('Octobre');
+      expect(nbsp(sous.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT0,00 €Baux0');
     });
 
     it('un clic sur une barre ouvre l’onglet de ce mois ; le détail s’écrit sous le graphique (lisible au toucher)', async () => {
@@ -475,7 +503,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-onglet-mois="9"]')?.getAttribute('aria-selected')).toBe('true');
       expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2026-09');
       expect(barre(9).querySelector('.tdb-barre--courante')).not.toBeNull();
-      expect(nbsp(container.querySelector('[data-histo-detail]')?.textContent)).toContain('Septembre 2026 : 15 471,70 € HT');
+      expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT15 471,70 €Baux17');
+      expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Septembre');
     });
 
     it('les filtres s’appliquent ; N−1 absente : pas de barre N−1, pas de légende N−1', async () => {
@@ -487,7 +516,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await monter('mois');
       expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(0);
       expect(nbsp(container.querySelector('[data-bloc="histogramme-mois"] figcaption')?.textContent)).toBe(' 2026');
-      expect(nbsp(barre(9).querySelector('title')?.textContent)).toContain('2025 : non importé');
+      const sous = container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
+      expect([...sous.querySelectorAll('[data-bulle-bloc]')].map((b) => b.getAttribute('data-bulle-bloc'))).toEqual(['courant']);
+      expect(sous.querySelector('[data-bulle-pied]')?.textContent).toBe('N−1 non importée');
+      // Un mois à venir : « À venir », pas de montant.
+      await act(async () => { barre(12).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      expect(nbsp(container.querySelector('[data-bulle="survol"] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
     });
   });
 

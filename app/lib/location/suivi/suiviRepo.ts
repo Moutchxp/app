@@ -5,7 +5,7 @@ import { familleDeCategorie } from '../bienComplet';
 import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
-  verifierCoordonnees, verifierRegle, verifierRetrocession,
+  verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
 } from './suivi';
 
 /**
@@ -43,9 +43,9 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     query<{ apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string }>(
       'SELECT apporteur_id, depuis, taux, cout_fixe_mensuel FROM gestion_location_apporteur_bareme ORDER BY depuis, id'),
     avecAnnuaire
-      ? query<{ apporteur_id: string; depuis: Date; collegue_id: string | null; collegue_libelle: string }>(
-        'SELECT apporteur_id, depuis, collegue_id, collegue_libelle FROM gestion_location_apporteur_collegue ORDER BY depuis, id')
-      : Promise.resolve({ rows: [] as { apporteur_id: string; depuis: Date; collegue_id: string | null; collegue_libelle: string }[] }),
+      ? query<{ apporteur_id: string; depuis: Date | null; collegue_id: string | null; collegue_libelle: string }>(
+        'SELECT apporteur_id, depuis, collegue_id, collegue_libelle FROM gestion_location_apporteur_collegue ORDER BY depuis NULLS FIRST, id')
+      : Promise.resolve({ rows: [] as { apporteur_id: string; depuis: Date | null; collegue_id: string | null; collegue_libelle: string }[] }),
   ]);
   const baremes = new Map<number, BaremeApporteur[]>();
   for (const r of b.rows) {
@@ -55,7 +55,7 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const collegues = new Map<number, CollegueDate[]>();
   for (const r of c.rows) {
     const id = num(r.apporteur_id);
-    collegues.set(id, [...(collegues.get(id) ?? []), { depuis: iso(r.depuis), collegueId: numOuNull(r.collegue_id), collegueLibelle: r.collegue_libelle }]);
+    collegues.set(id, [...(collegues.get(id) ?? []), { depuis: r.depuis === null ? DEPUIS_TOUJOURS : iso(r.depuis), collegueId: numOuNull(r.collegue_id), collegueLibelle: r.collegue_libelle }]);
   }
   return a.rows.map((r) => ({
     id: num(r.id), nom: r.nom, type: r.type, archive: r.archive_le !== null, baremes: baremes.get(num(r.id)) ?? [],
@@ -69,13 +69,25 @@ async function libelleCompte(q: typeof query, id: number): Promise<string | null
   return rows[0]?.libelle ?? null;
 }
 
-/** Les collègues possibles : les comptes ACTIFS qui ont accès à la Location (administrateurs, ou droit « Location »). */
-export async function lireCollegues(): Promise<{ id: number; libelle: string }[]> {
-  const avecDroit = await colonneExisteMemo('admin_utilisateur', 'perm_location');
-  const { rows } = await query<{ id: string; libelle: string }>(
-    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant, 'compte ' || id) AS libelle FROM admin_utilisateur
-      WHERE actif AND (role = 'administrateur' ${avecDroit ? 'OR perm_location IS TRUE' : ''}) ORDER BY prenom, nom, id`);
-  return rows.map((r) => ({ id: num(r.id), libelle: r.libelle }));
+/**
+ * Les collègues possibles (Arno, 23/10/2026) : TOUS les comptes ACTIFS de l'interface d'administration — même sans accès aux
+ * tuiles Location ou Gestion —, triés par NOM. Un compte désactivé n'y figure que s'il est déjà le collègue de rattachement d'un
+ * apporteur (`actif: false`, montré « désactivé », jamais proposé pour un nouveau choix).
+ */
+/** La 409 est-elle appliquée (date d'effet d'un rattachement facultative : « depuis toujours ») ? */
+export async function depuisToujoursDisponible(): Promise<boolean> {
+  const { rows } = await query<{ n: string }>(
+    `SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'gestion_location_apporteur_collegue' AND column_name = 'depuis' AND is_nullable = 'YES'`);
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+
+export async function lireCollegues(): Promise<{ id: number; libelle: string; actif: boolean }[]> {
+  const rattaches = (await annuaireDisponible()) ? 'OR EXISTS (SELECT 1 FROM gestion_location_apporteur_collegue c WHERE c.collegue_id = u.id)' : '';
+  const { rows } = await query<{ id: string; libelle: string; actif: boolean }>(
+    `SELECT u.id, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant, 'compte ' || u.id) AS libelle, u.actif
+       FROM admin_utilisateur u WHERE u.actif ${rattaches}
+      ORDER BY lower(coalesce(nullif(btrim(u.nom), ''), u.prenom, u.identifiant, '')), lower(coalesce(u.prenom, '')), u.id`);
+  return rows.map((r) => ({ id: num(r.id), libelle: r.libelle, actif: r.actif === true }));
 }
 
 /** Nouvel apporteur + son premier taux daté. Un nom déjà pris (hors archivés) est refusé : jamais de doublon. */
@@ -144,9 +156,19 @@ export async function rattacherApporteur(apporteurId: unknown, brut: unknown, au
   const collegueId = typeof b.collegueId === 'number' && Number.isInteger(b.collegueId) && b.collegueId > 0 ? b.collegueId : null;
   if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
   if (collegueId === null) return { etat: 'refus', motif: 'Choisissez le collègue de rattachement.' };
-  if (!dateIsoValide(b.depuis)) return { etat: 'refus', motif: 'La date d’effet du rattachement est obligatoire.' };
+  // Arno (23/10/2026, 409) — « depuis toujours » : la date d'effet est vide ; tout l'historique et ce qui suit, jusqu'à un rattachement daté.
+  const toujours = b.depuisToujours === true;
+  if (!toujours && !dateIsoValide(b.depuis)) return { etat: 'refus', motif: 'La date d’effet du rattachement est obligatoire (ou « Depuis toujours »).' };
   const libelle = await libelleCompte(query, collegueId);
   if (libelle === null) return { etat: 'refus', motif: 'Le collègue de rattachement est inconnu.' };
+  if (toujours) {
+    if (!(await depuisToujoursDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 409) n’est pas encore appliquée : « Depuis toujours » n’est pas encore possible.' };
+    const r = await query(
+      `INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle)
+       SELECT $1, NULL, $2, $3, $4 WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
+         AND NOT EXISTS (SELECT 1 FROM gestion_location_apporteur_collegue WHERE apporteur_id = $1 AND depuis IS NULL)`, [id, collegueId, libelle, auteur.libelle]);
+    return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Cet apporteur est déjà rattaché « depuis toujours » : pour changer de collègue, choisissez une date d’effet.' };
+  }
   const r = await query(
     `INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle)
      SELECT $1, $2, $3, $4, $5 WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
@@ -208,7 +230,7 @@ export interface Negociateur { id: number; libelle: string }
 /** Les comptes actifs de l'administration (les négociateurs possibles). */
 export async function lireNegociateurs(): Promise<Negociateur[]> {
   const { rows } = await query<{ id: string; prenom: string | null; nom: string | null; identifiant: string | null }>(
-    'SELECT id, prenom, nom, identifiant FROM admin_utilisateur WHERE actif ORDER BY prenom, nom, id');
+    "SELECT id, prenom, nom, identifiant FROM admin_utilisateur WHERE actif ORDER BY lower(coalesce(nullif(btrim(nom), ''), prenom, identifiant, '')), lower(coalesce(prenom, '')), id");
   return rows.map((r) => ({ id: num(r.id), libelle: [r.prenom, r.nom].filter(Boolean).join(' ').trim() || (r.identifiant ?? `compte ${r.id}`) }));
 }
 

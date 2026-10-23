@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ListeChoix } from './ListeChoix';
 import {
   type ActiviteLue, apporteursEtCollegues, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
@@ -267,10 +268,7 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
         {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
       {v.origineContact === 'collegue' && (
         <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Collègue *</span>
-          <select value={v.collegueId} onChange={(e) => poser({ collegueId: e.target.value })} data-edition-collegue>
-            <option value="">— choisir —</option>
-            {(d.collegues ?? []).map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
-          </select></label>
+          <ListeChoix options={d.collegues ?? []} valeur={v.collegueId} libelle="Collègue" onChange={(x) => poser({ collegueId: x })} donnees={{ 'data-edition-collegue': '' }} /></label>
       )}
       {v.origineContact === 'apporteur' && (
         <>

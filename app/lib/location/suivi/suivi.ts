@@ -87,6 +87,12 @@ export interface RegleCommission extends Datee { tauxNegociateur: number; primeL
 export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number }
 /** Le collègue de rattachement d'un apporteur, daté (407) : la version en vigueur à la date d'une affaire fait foi. */
 export interface CollegueDate extends Datee { collegueId: number | null; collegueLibelle: string }
+/**
+ * Arno (23/10/2026, 409) — un rattachement « DEPUIS TOUJOURS » (date d'effet vide en base) se lit avec cette date, la plus petite
+ * qui soit : il couvre tout l'historique, et un rattachement daté ultérieur prend le relais à sa date.
+ */
+export const DEPUIS_TOUJOURS = '0001-01-01';
+export const depuisLibelle = (c: Pick<CollegueDate, 'depuis'>): string => (c.depuis === DEPUIS_TOUJOURS ? 'depuis toujours' : `depuis le ${c.depuis.split('-').reverse().join('/')}`);
 export interface Apporteur {
   id: number; nom: string; type: TypeApporteur; baremes: BaremeApporteur[]; archive: boolean;
   societe?: string | null; telephone?: string | null; email?: string | null;

@@ -232,10 +232,9 @@ export function TableauBordSuivi({ vue = 'annee', administrateur = false }: { vu
             barres={B.map((p, i) => {
               // Un mois à venir de l'année en cours : pas de barre (pas de 0 trompeur) ; un mois passé sans activité : 0.
               const aVenir = annee === Number(jour.slice(0, 4)) && i + 1 > Number(jour.slice(5, 7));
-              const n1 = sansN1 ? null : ` · ${annee - 1} : ${eur(p.caN1)} HT, ${p.nbN1} bail(s)`;
               return { cle: i + 1, libelle: COURT[i], valeur: aVenir ? null : p.ca, n1: sansN1 ? null : p.caN1,
-                detail: aVenir ? `${NOMS_MOIS[i]} ${annee} : à venir${n1 ?? ''}`
-                  : `${NOMS_MOIS[i]} ${annee} : ${eur(p.ca)} HT, ${p.nb} bail(s)${n1 === null ? ` · ${annee - 1} : non importé` : `${n1} · écart ${ecartEur(p.ca - p.caN1)} (${signe(variation(p.ca, p.caN1))})`}` };
+                info: { titre: NOMS_MOIS[i], courant: { libelle: String(annee), ca: aVenir ? null : p.ca, nb: aVenir ? null : p.nb },
+                  precedent: sansN1 ? null : { libelle: String(annee - 1), ca: p.caN1, nb: p.nbN1 } } };
             })} />
         </section>
       )}
@@ -498,14 +497,44 @@ function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: Retur
 /**
  * L'HISTOGRAMME du suivi (Arno, 23/10/2026) — une barre par période (année du Suivi annuel, mois du Suivi du mois) ; la période
  * affichée en rouge, les autres en gris ; à côté, une barre claire hachurée pour N−1 quand elle existe ; une période sans valeur
- * (un mois à venir) n'a PAS de barre. Le survol dit le détail ; un clic (ou un toucher) ouvre la période, et son détail s'écrit
- * sous le graphique — lisible sans survol, sur téléphone.
+ * (un mois à venir) n'a PAS de barre. Au survol, une BULLE structurée (la période ; en rouge l'année affichée ; en gris N−1 ;
+ * l'écart en pied) ; un clic (ou un toucher) ouvre la période, et la même bulle s'écrit sous le graphique — lisible sur téléphone.
  */
-interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; detail: string }
+interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
+export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null }
+interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre }
+
+/** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (neutre) — ou « N−1 non importée ». */
+export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
+  const { courant: c, precedent: p } = info;
+  const ecart = c.ca !== null && p !== null && p.ca !== null ? c.ca - p.ca : null;
+  const bloc = (x: ChiffresBulle, sorte: 'courant' | 'n1') => (
+    <div className={`tdb-bulle-bloc tdb-bulle-bloc--${sorte}`} data-bulle-bloc={sorte}>
+      <p className="tdb-bulle-annee">{x.libelle}</p>
+      {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : (
+        <>
+          <p className="tdb-bulle-ligne"><span>CA HT</span><span className="tdb-bulle-montant">{eur(x.ca)}</span></p>
+          <p className="tdb-bulle-ligne"><span>Baux</span><span className="tdb-bulle-montant">{x.nb}</span></p>
+        </>
+      )}
+    </div>
+  );
+  return (
+    <div className={sous ? 'tdb-bulle tdb-bulle--sous' : 'tdb-bulle'} data-bulle={sous ? 'sous' : 'survol'}>
+      <p className="tdb-bulle-titre">{info.titre}</p>
+      {bloc(c, 'courant')}
+      {p !== null && bloc(p, 'n1')}
+      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? 'N−1 non importée'
+        : ecart === null ? 'Écart : —' : <><span>Écart</span><span className="tdb-bulle-montant">{ecartEur(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
+    </div>
+  );
+}
+
 function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
   barres: readonly Barre[]; courante: number; onChoisir: (cle: number) => void; attribut: string; legende?: { courant: string; n1: string | null }; aria: string;
 }) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
+  const [survol, setSurvol] = useState<number | null>(null);
   const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null);
   const max = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
   const pas = (L - m.g - m.d) / barres.length;
@@ -513,34 +542,41 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
   const largeur = pas * (avecN1 ? 0.36 : 0.64);
   const choisie = barres.find((b) => b.cle === courante);
+  const iSurvol = survol === null ? -1 : barres.findIndex((b) => b.cle === survol);
   return (
-    <figure className="tdb-courbe" data-courbe={attribut.replace(/^data-barre-/, '')}>
-      <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={aria}>
-        <defs><pattern id={`hachures-${attribut}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <rect width="6" height="6" className="tdb-barre-n1-fond" /><line x1="0" y1="0" x2="0" y2="6" className="tdb-barre-n1-trait" /></pattern></defs>
-        {graduations.map((g) => (
-          <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
-            <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text></g>
-        ))}
-        {barres.map((b, i) => {
-          const x0 = m.g + i * pas + pas * (avecN1 ? 0.12 : 0.18);
-          return (
-            <g key={b.cle} className="tdb-barre-annee" onClick={() => onChoisir(b.cle)} {...{ [attribut]: b.cle }}>
-              <title>{b.detail}</title>
-              <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
-              {avecN1 && b.n1 !== undefined && b.n1 !== null && (
-                <rect x={x0 + largeur} y={y(b.n1)} width={largeur} height={Math.max(0, H - m.b - y(b.n1))} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
-              )}
-              {b.valeur !== null && <rect x={x0} y={y(b.valeur)} width={largeur} height={Math.max(0, H - m.b - y(b.valeur))}
-                className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />}
-              <text x={m.g + i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{b.libelle}</text>
-            </g>
-          );
-        })}
-      </svg>
+    <figure className="tdb-courbe tdb-histo" data-courbe={attribut.replace(/^data-barre-/, '')}>
+      <div className="tdb-histo-zone" onMouseLeave={() => setSurvol(null)}>
+        <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={aria}>
+          <defs><pattern id={`hachures-${attribut}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" className="tdb-barre-n1-fond" /><line x1="0" y1="0" x2="0" y2="6" className="tdb-barre-n1-trait" /></pattern></defs>
+          {graduations.map((g) => (
+            <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
+              <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text></g>
+          ))}
+          {barres.map((b, i) => {
+            const x0 = m.g + i * pas + pas * (avecN1 ? 0.12 : 0.18);
+            return (
+              <g key={b.cle} className="tdb-barre-annee" onClick={() => onChoisir(b.cle)} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+                <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
+                {avecN1 && b.n1 !== undefined && b.n1 !== null && (
+                  <rect x={x0 + largeur} y={y(b.n1)} width={largeur} height={Math.max(0, H - m.b - y(b.n1))} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
+                )}
+                {b.valeur !== null && <rect x={x0} y={y(b.valeur)} width={largeur} height={Math.max(0, H - m.b - y(b.valeur))}
+                  className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />}
+                <text x={m.g + i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{b.libelle}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {iSurvol >= 0 && (
+          <div className="tdb-bulle-ancre" style={{ left: `${Math.min(82, Math.max(18, ((m.g + iSurvol * pas + pas / 2) / L) * 100))}%` }} role="tooltip">
+            <BulleBarre info={barres[iSurvol].info} />
+          </div>
+        )}
+      </div>
       {legende && <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
         {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
-      {choisie && legende && <p className="tdb-histo-detail" data-histo-detail>{choisie.detail}</p>}
+      {choisie && <div data-histo-detail><BulleBarre info={choisie.info} sous /></div>}
     </figure>
   );
 }
@@ -548,7 +584,11 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
 /** H — le CA HT de chaque année d'activité (barres) ; l'année affichée est en couleur ; une barre ouvre son année. */
 function CourbeAnnees({ lignes, annee, onAnnee }: { lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void }) {
   return <Histogramme attribut="data-barre-annee" courante={annee} onChoisir={onAnnee} aria={`CA HT par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
-    barres={lignes.map((l) => ({ cle: l.annee, libelle: String(l.annee), valeur: l.ca, detail: `${l.annee} : ${eur(l.ca)} HT, ${l.nbBaux} baux` }))} />;
+    barres={lignes.map((l, i) => {
+      const p = i > 0 && lignes[i - 1].annee === l.annee - 1 ? lignes[i - 1] : null;
+      return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre: `Année ${l.annee}`, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux },
+        precedent: p === null ? null : { libelle: String(p.annee), ca: p.ca, nb: p.nbBaux } } };
+    })} />;
 }
 
 /** D — le portefeuille en gestion (trait) et les entrées / sorties de chaque mois (barres), 12 mois ; un mois s'ouvre. */
@@ -643,9 +683,22 @@ export const CSS_TABLEAU_BORD = `
 .tdb-barre-annee{cursor:pointer}
 .tdb-barre-zone{fill:transparent}
 .tdb-barre-n1-fond{fill:var(--color-svv-field)}
-.tdb-barre-n1-trait{stroke:var(--color-svv-line-strong);stroke-width:3}
-.tdb-barre-n1{stroke:var(--color-svv-line-strong);stroke-width:1}
-.tdb-histo-detail{margin:4px 0 0;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+.tdb-barre-n1-trait{stroke:var(--color-svv-muted);stroke-width:2}
+.tdb-barre-n1{stroke:var(--color-svv-muted);stroke-width:1}
+.tdb-histo-zone{position:relative}
+.tdb-bulle-ancre{position:absolute;top:0;transform:translateX(-50%);pointer-events:none;z-index:2}
+.tdb-bulle{min-width:190px;background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:8px 10px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent);font-size:.82rem}
+.tdb-bulle--sous{display:inline-block;margin-top:6px;box-shadow:none}
+.tdb-bulle p{margin:0}
+.tdb-bulle-titre{font-weight:800;margin-bottom:4px !important}
+.tdb-bulle-bloc{padding:2px 0}
+.tdb-bulle-annee{font-weight:800}
+.tdb-bulle-bloc--courant{color:var(--color-svv-red)}
+.tdb-bulle-bloc--n1{color:var(--color-svv-muted)}
+.tdb-bulle-ligne,.tdb-bulle-pied{display:flex;justify-content:space-between;gap:14px}
+.tdb-bulle-montant{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tdb-bulle-pied{border-top:1px solid var(--color-svv-line);margin-top:4px !important;padding-top:4px;color:var(--color-svv-ink)}
+@media (hover:none){ .tdb-bulle-ancre{display:none} }
 .tdb-lien-annuaire{align-self:flex-start;background:none;border:0;padding:6px 0;min-height:44px;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-red);cursor:pointer;text-decoration:underline}
 .tdb-barre-entree{fill:var(--color-svv-green-ink)}
 .tdb-barre-sortie{fill:var(--color-svv-amber)}
@@ -657,7 +710,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-legende--entree{background:var(--color-svv-green-ink);height:8px;width:8px}
 .tdb-legende--sortie{background:var(--color-svv-amber);height:8px;width:8px}
 .tdb-legende--barre{background:var(--color-svv-red);height:10px;width:12px}
-.tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--color-svv-line-strong) 0 2px,var(--color-svv-field) 2px 5px);border:1px solid var(--color-svv-line-strong);height:10px;width:12px;box-sizing:border-box}
+.tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--color-svv-muted) 0 2px,var(--color-svv-field) 2px 5px);border:1px solid var(--color-svv-muted);height:10px;width:12px;box-sizing:border-box}
 .tdb-bouton-export{width:auto !important;display:inline-flex;align-items:center;min-height:44px}
 .tdb-voile{position:fixed;inset:0;z-index:80;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:24px}
 .tdb-fenetre{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:18px;width:min(860px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden}

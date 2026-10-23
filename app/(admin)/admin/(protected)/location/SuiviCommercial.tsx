@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { ListeChoix } from './ListeChoix';
 import {
   aRattacher, aujourdhuiParis, type Apporteur, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
   lireMontant, lireTauxPourcent, type ModePrime, type Origine, ORIGINES_CONTACT, type OrigineContact, pourcent, type RegleCommission,
@@ -225,10 +226,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             <option value="avenant">Avenant</option>
           </select></label>
         <label className="loc-champ">Négociateur
-          <select value={s.negociateurId ?? ''} onChange={(e) => poser({ negociateurId: e.target.value === '' ? null : Number(e.target.value) })} data-negociateur>
-            <option value="">— aucun —</option>
-            {lu.negociateurs.map((n) => <option key={n.id} value={n.id}>{n.libelle}</option>)}
-          </select></label>
+          <ListeChoix options={lu.negociateurs} valeur={s.negociateurId === null || s.negociateurId === undefined ? '' : String(s.negociateurId)} vide="— aucun —" libelle="Négociateur"
+            onChange={(v) => poser({ negociateurId: v === '' ? null : Number(v) })} donnees={{ 'data-negociateur': '' }} /></label>
       </div>
       <div className="loc-grille">
         <label className="loc-champ">Honoraires propriétaire HT (€)
@@ -256,10 +255,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             {deduit?.enGestionAvant === true && <small className="loc-muet">Le bien était déjà en gestion avant ce bail : « Relocation » proposée.</small>}</label>
           {s.origineContact === 'collegue' && (
             <label className="loc-champ"><span>Collègue <span className="loc-oblig">*</span></span>
-              <select value={s.collegueId ?? ''} onChange={(e) => poser({ collegueId: e.target.value === '' ? null : Number(e.target.value) })} data-collegue>
-                <option value="">— choisir —</option>
-                {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
-              </select></label>
+              <ListeChoix options={lu.collegues} valeur={s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId)} libelle="Collègue"
+                onChange={(v) => poser({ collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-collegue': '' }} /></label>
           )}
         </div>
       )}
@@ -303,10 +300,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             {annuaire && (
               <>
                 <label className="loc-champ"><span>Collègue de rattachement <span className="loc-oblig">*</span></span>
-                  <select value={nouveau.collegueId ?? ''} onChange={(e) => setNouveau({ ...nouveau, collegueId: e.target.value === '' ? null : Number(e.target.value) })} data-nouvel-apporteur-collegue>
-                    <option value="">— choisir —</option>
-                    {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
-                  </select></label>
+                  <ListeChoix options={lu.collegues} valeur={nouveau.collegueId === null || nouveau.collegueId === undefined ? '' : String(nouveau.collegueId)} libelle="Collègue de rattachement"
+                    onChange={(v) => setNouveau({ ...nouveau, collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-nouvel-apporteur-collegue': '' }} /></label>
                 <label className="loc-champ">Société (facultatif)<input value={nouveau.societe} onChange={(e) => setNouveau({ ...nouveau, societe: e.target.value })} /></label>
                 <label className="loc-champ">Téléphone (facultatif)<input inputMode="tel" value={nouveau.telephone} onChange={(e) => setNouveau({ ...nouveau, telephone: e.target.value })} /></label>
                 <label className="loc-champ">E-mail (facultatif)<input inputMode="email" value={nouveau.email} onChange={(e) => setNouveau({ ...nouveau, email: e.target.value })} /></label>

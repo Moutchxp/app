@@ -1,8 +1,9 @@
 'use client';
 
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
+import { ListeChoix } from './ListeChoix';
 import {
-  type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  type Apporteur, aRattacher, collegueADate, depuisLibelle, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './SuiviCommercial';
 
@@ -118,7 +119,8 @@ export function OngletApporteurs() {
   const [version, setVersion] = useState<{ id: number; taux: string; coutFixe: string; depuis: string } | null>(null);
   const [ouverte, setOuverte] = useState<number | null>(null);
   const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur }>({ societe: '', telephone: '', email: '', type: 'partenaire' });
-  const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string }>({ collegueId: '', depuis: jour });
+  /** Arno (23/10/2026, 409) — `toujours` : « Depuis toujours » (tout l'historique et la suite), proposé d'office au 1er rattachement. */
+  const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string; toujours: boolean }>({ collegueId: '', depuis: jour, toujours: false });
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
   const [seulementARattacher, setSeulementARattacher] = useState(false);
   const annuaire = lu?.annuaire === true;
@@ -127,7 +129,7 @@ export function OngletApporteurs() {
     if (ouverte === a.id) { setOuverte(null); return; }
     setOuverte(a.id);
     setFiche({ societe: a.societe ?? '', telephone: a.telephone ?? '', email: a.email ?? '', type: a.type });
-    setRattachement({ collegueId: '', depuis: (a.collegues ?? []).length === 0 ? `${jour.slice(0, 4)}-01-01` : jour });
+    setRattachement({ collegueId: '', depuis: jour, toujours: (a.collegues ?? []).length === 0 });
   };
   return (
     <section data-onglet-apporteurs>
@@ -158,6 +160,9 @@ export function OngletApporteurs() {
                     {annuaire && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
+                  {annuaire && !orphelin && collegue !== null && (
+                    <p className="plo-muet plo-petit-texte" data-rattache-libelle>Rattaché à {collegue.collegueLibelle} {depuisLibelle(collegue)}</p>
+                  )}
                   {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
                   <p className="plo-version-valeurs">{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
                     : `Taux ${pourcent(enVigueur.taux)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (depuis le ${dateFr(enVigueur.depuis)})`}</p>
@@ -202,17 +207,19 @@ export function OngletApporteurs() {
                       <h4 className="plo-h4">Collègue de rattachement</h4>
                       {(a.collegues ?? []).length === 0
                         ? <p className="plo-alerte" role="status">À rattacher : choisissez le collègue et la date à partir de laquelle ses affaires lui reviennent.</p>
-                        : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `depuis le ${dateFr(c.depuis)} : ${c.collegueLibelle}`).join(' · ')}</p>}
+                        : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
                       <div className="plo-grille">
                         <label className="plo-champ"><span>Collègue</span>
-                          <select className="plo-select" value={rattachement.collegueId} onChange={(e) => setRattachement({ ...rattachement, collegueId: e.target.value })} data-rattacher-collegue>
-                            <option value="">— choisir —</option>
-                            {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
-                          </select></label>
-                        <label className="plo-champ"><span>À partir du</span><input type="date" value={rattachement.depuis} onChange={(e) => setRattachement({ ...rattachement, depuis: e.target.value })} data-rattacher-depuis /></label>
+                          <ListeChoix options={lu.collegues} valeur={rattachement.collegueId} libelle="Collègue de rattachement"
+                            onChange={(v) => setRattachement({ ...rattachement, collegueId: v })} donnees={{ 'data-rattacher-collegue': '' }} /></label>
+                        <div className="plo-champ"><span>À partir du</span>
+                          <label className="plo-case"><input type="checkbox" checked={rattachement.toujours} onChange={(e) => setRattachement({ ...rattachement, toujours: e.target.checked })} data-rattacher-toujours />
+                            Depuis toujours <small className="plo-muet">(tout l’historique, et la suite)</small></label>
+                          <input type="date" aria-label="À partir du" value={rattachement.toujours ? '' : rattachement.depuis} disabled={rattachement.toujours}
+                            onChange={(e) => setRattachement({ ...rattachement, depuis: e.target.value })} data-rattacher-depuis /></div>
                       </div>
                       <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-rattacher
-                        onClick={() => { void g.faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: rattachement.collegueId === '' ? null : Number(rattachement.collegueId), depuis: rattachement.depuis } },
+                        onClick={() => { void g.faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: rattachement.collegueId === '' ? null : Number(rattachement.collegueId), ...(rattachement.toujours ? { depuisToujours: true } : { depuis: rattachement.depuis }) } },
                           `${a.nom} est rattaché à ${lu.collegues.find((c) => String(c.id) === rattachement.collegueId)?.libelle ?? 'son collègue'}.`); }}>
                         {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
                       <h4 className="plo-h4">Cumul</h4>
@@ -234,10 +241,8 @@ export function OngletApporteurs() {
               </select></label>
             {annuaire && (
               <label className="plo-champ"><span>Collègue de rattachement *</span>
-                <select className="plo-select" value={nouveau.collegueId} onChange={(e) => setNouveau({ ...nouveau, collegueId: e.target.value })} data-collegue-apporteur-nouveau>
-                  <option value="">— choisir —</option>
-                  {lu.collegues.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
-                </select></label>
+                <ListeChoix options={lu.collegues} valeur={nouveau.collegueId} libelle="Collègue de rattachement"
+                  onChange={(v) => setNouveau({ ...nouveau, collegueId: v })} donnees={{ 'data-collegue-apporteur-nouveau': '' }} /></label>
             )}
             <label className="plo-champ"><span>Taux (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
             <label className="plo-champ"><span>Coût fixe mensuel (€, facultatif)</span><input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
@@ -317,10 +322,8 @@ export function OngletCommissions() {
           </ol>
           <div className="plo-grille" data-ajout-retrocession>
             <label className="plo-champ"><span>Négociateur</span>
-              <select className="plo-select" value={retro.negociateurId} onChange={(e) => setRetro({ ...retro, negociateurId: e.target.value })}>
-                <option value="">— choisir —</option>
-                {lu.negociateurs.map((n) => <option key={n.id} value={n.id}>{n.libelle}</option>)}
-              </select></label>
+              <ListeChoix options={lu.negociateurs} valeur={retro.negociateurId} libelle="Négociateur"
+                onChange={(v) => setRetro({ ...retro, negociateurId: v })} donnees={{ 'data-retro-negociateur': '' }} /></label>
             <label className="plo-champ"><span>Mois</span><input type="month" value={retro.mois} onChange={(e) => setRetro({ ...retro, mois: e.target.value })} /></label>
             <label className="plo-champ"><span>Montant (€)</span><input inputMode="decimal" value={retro.montant} onChange={(e) => setRetro({ ...retro, montant: e.target.value })} /></label>
             <label className="plo-champ"><span>Libellé</span><input value={retro.libelle} placeholder="ex. Alex Coms" onChange={(e) => setRetro({ ...retro, libelle: e.target.value })} /></label>
@@ -343,6 +346,9 @@ export const CSS_ONGLETS_SUIVI = `
 .plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
 .plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}
 .plo-filtre-rattacher{margin:0 0 8px}
+.plo-case{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;cursor:pointer}
+.plo-case input{width:20px;height:20px;accent-color:var(--color-svv-red)}
+.plo-champ input[type=date]:disabled{opacity:.5}
 .plo-filtre-rattacher .svv-btn[aria-pressed="true"]{border-color:var(--color-svv-amber);color:var(--color-svv-amber)}
 .plo-fiche{margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-svv-line-strong);display:flex;flex-direction:column;gap:8px}
 .plo-h4{margin:6px 0 0;font-size:.92rem}

@@ -108,16 +108,24 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(container.querySelector('[data-apporteur="3"] [data-collegue-apporteur]')?.textContent).toBe('Arnaud Jorel');
     expect(container.querySelector('[data-alerte-a-rattacher]')?.textContent).toContain('1 apporteur(s) « à rattacher »');
   });
-  it('la fiche : coordonnées, rattachement DATÉ, cumul par an et par mois', async () => {
+  it('la fiche : coordonnées, rattachement (« depuis toujours » proposé d’office au 1er), cumul par an et par mois', async () => {
     avec407();
     await ouvrir('apporteurs');
     await clic(container.querySelector('[data-ouvrir-fiche="4"]')!);
     const f = container.querySelector('[data-fiche-apporteur="4"]')!;
-    const choisir = async (el: HTMLSelectElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
-    await choisir(f.querySelector('[data-rattacher-collegue]') as HTMLSelectElement, '5');
-    expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).value).toBe(`${new Date().getFullYear()}-01-01`);
+    await clic(f.querySelector('[data-rattacher-collegue]')!);
+    await clic(container.querySelector('[data-liste-choix] [data-option="5"]')!);
+    expect((f.querySelector('[data-rattacher-toujours]') as HTMLInputElement).checked).toBe(true);
+    expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).disabled).toBe(true);
+    expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).value).toBe('');
     await clic(f.querySelector('[data-rattacher]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'rattacher-apporteur', apporteurId: 4, rattachement: { collegueId: 5 } });
+    expect(posts.at(-1)).toMatchObject({ action: 'rattacher-apporteur', apporteurId: 4, rattachement: { collegueId: 5, depuisToujours: true } });
+    expect((posts.at(-1)!.rattachement as Record<string, unknown>).depuis).toBeUndefined();
+    // Décochée : une date d'effet (un rattachement daté, qui prend le relais à sa date).
+    await clic(f.querySelector('[data-rattacher-toujours]')!);
+    await saisir(f.querySelector('[data-rattacher-depuis]') as HTMLInputElement, '2026-11-01');
+    await clic(f.querySelector('[data-rattacher]')!);
+    expect(posts.at(-1)).toMatchObject({ rattachement: { collegueId: 5, depuis: '2026-11-01' } });
     await saisir(f.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Repris SARL');
     await clic(f.querySelector('[data-enregistrer-fiche]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 4, fiche: { societe: 'Repris SARL' } });
@@ -178,8 +186,8 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     avec407();
     await ouvrir('apporteurs');
     await saisir(container.querySelector('[data-nom-apporteur]') as HTMLInputElement, 'Nouveau');
-    const sel = container.querySelector('[data-collegue-apporteur-nouveau]') as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(sel, '2'); sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    await clic(container.querySelector('[data-collegue-apporteur-nouveau]')!);
+    await clic(container.querySelector('[data-liste-choix] [data-option="2"]')!);
     await clic(container.querySelector('[data-ajouter-apporteur]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'creer-apporteur', apporteur: { nom: 'Nouveau', collegueId: 2 } });
   });

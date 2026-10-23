@@ -183,7 +183,8 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     await preparer();
     await toutRepondre();
     await choisir(container.querySelector('select[data-origine-contact]') as HTMLSelectElement, 'collegue');
-    await choisir(container.querySelector('select[data-collegue]') as HTMLSelectElement, '2');
+    await clic(container.querySelector('button[data-collegue]')!);
+    await clic(container.querySelector('[data-liste-choix] [data-option="2"]')!);
     const prime = () => container.querySelector('select[data-prime-mode]') as HTMLSelectElement;
     expect(prime().value).toBe('aucune');
     await clic(container.querySelector('input[data-mandat-gestion]')!);
