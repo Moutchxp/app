@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
-  sectionNegociateurs, type TotauxPeriode,
+  sectionNegociateurs, type TotauxPeriode, tuilesAnnee,
   type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
@@ -28,6 +28,7 @@ const pct = (x: number | null): string => (x === null ? '—' : `${(x * 100).toL
 const signe = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 const moisCourt = (m: string): string => `${NOMS_MOIS[Number(m.slice(5, 7)) - 1].slice(0, 4).replace(/\.$/, '')}. ${m.slice(0, 4)}`;
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
+const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
 const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 /** A — les lignes du tableau du mois ; `commission` : seulement avec « Voir les commissions ». */
@@ -105,6 +106,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee' }) 
   const E = sectionIndicateurs(lignesPeriode, preavis);
   const F = d.voirCommissions ? sectionNegociateurs(lignes, ctx, periode) : [];
   const sansN1 = !d.activites.some((a) => a.dateSignature.startsWith(`${annee - 1}-`));
+  // Arno (23/10/2026) — Suivi annuel : les tuiles montrent l'ANNÉE (en cours : du 1er janvier à la fin du mois choisi), face à N−1 sur la même période.
+  const T = tuilesAnnee(lignes, ctx, annee, jour, mois, d.gestionLignes ?? []);
+  const periodeT = T.complete ? String(annee) : `${COURT[0]} → ${COURT[T.moisFin - 1]}`;
+  const periodeN1 = T.complete ? String(annee - 1) : `${COURT[0]} → ${COURT[T.moisFin - 1]} ${annee - 1}`;
   const reprises = d.activites.filter((a) => a.source === 'import' && a.dateSignature.startsWith(`${annee}-`));
   const nonRattachees = reprises.filter((a) => a.rattachement !== 'rattache').length;
   const ouvrir = (titre: string, ids: (number | string)[]) => () => setDetail({ titre, ids });
@@ -164,6 +169,29 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee' }) 
           </select></label>
       </form>
 
+      {vue === 'annee' ? (
+        <ul className="tdb-tuiles" aria-label={`L’essentiel de ${annee}`} data-tuiles-annee>
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-annee">
+            <span className="tdb-tuile-mot">CA HT {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+            <strong className="tdb-tuile-valeur">{eur(T.courant.ca)}</strong>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${eur(T.precedent.ca)} · ${ecartEur(T.ecartCa)} · ${signe(T.variationCa)}`}</span></button></li>
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Baux signés en ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="baux-annee">
+            <span className="tdb-tuile-mot">Baux signés en {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+            <strong className="tdb-tuile-valeur">{T.courant.nbBaux}{T.courant.nbAvenants + T.courant.nbGestionSeule > 0 && <small> + {T.courant.nbAvenants + T.courant.nbGestionSeule} autre(s)</small>}</strong>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${T.precedent.nbBaux} · ${T.ecartNb >= 0 ? '+' : '−'}${Math.abs(T.ecartNb)} · ${signe(T.variationNb)}`}</span></button></li>
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net d’apporteurs ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-net-annee">
+            <span className="tdb-tuile-mot">CA net d’apporteurs {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+            <strong className="tdb-tuile-valeur">{eur(T.courant.caNet)}</strong>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${eur(T.precedent.caNet)} · ${ecartEur(T.ecartCaNet)} · ${signe(T.variationCaNet)}`}</span></button></li>
+          <li><button type="button" className="tdb-tuile" data-tuile="gestion"
+            onClick={() => setDetail({ titre: `Gestion — ${annee}${T.complete ? '' : ` (${periodeT})`}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
+            <span className="tdb-tuile-mot">Biens en gestion</span>
+            <strong className="tdb-tuile-valeur">{d.gestion.disponible ? d.gestion.stock : '—'}</strong>
+            <span className="tdb-tuile-n1">{d.gestion.disponible
+              ? `${annee}${T.complete ? '' : ` (${periodeT})`} : +${T.gestion.nouvelles} / −${T.gestion.perdues} · récurrent ${ecartEur(T.gestion.gagneMensuel)} / −${eur(T.gestion.perduMensuel)} par mois${T.gestion.sansLoyer > 0 ? ` (${T.gestion.sansLoyer} sans loyer saisi, non comptés)` : ''}`
+              : 'statut du bien : migration 403'}</span></button></li>
+        </ul>
+      ) : (
       <ul className="tdb-tuiles" aria-label="L’essentiel">
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT — ${NOMS_MOIS[mois - 1]} ${annee}`, A.courant.ids)} data-tuile="ca-mois">
           <span className="tdb-tuile-mot">CA HT — {NOMS_MOIS[mois - 1].toLowerCase()}</span>
@@ -183,6 +211,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee' }) 
           <strong className="tdb-tuile-valeur">{d.gestion.disponible ? Dm.stock : '—'}</strong>
           <span className="tdb-tuile-n1">{d.gestion.disponible ? `${moisCourt(Dm.mois)} : +${Dm.entrees} / −${Dm.sorties} (solde ${Dm.solde >= 0 ? '+' : '−'}${Math.abs(Dm.solde)})` : 'statut du bien : migration 403'}</span></button></li>
       </ul>
+      )}
 
       {(sansN1 || reprises.length > 0) && (
         <p className="loc-muet tdb-note" data-tdb-note>

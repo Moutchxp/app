@@ -50,9 +50,11 @@ const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as H
 const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ');
 
 describe('🔴 « Outils de suivi » — le tableau de bord', () => {
-  it('septembre 2026 : les 4 tuiles — CA du mois (au centime du fichier) face à N−1, baux, cumul, gestion', async () => {
-    await monter();
-    await choisir('mois', '9');
+  const ongletMois = async (m: number) => { await act(async () => { (container.querySelector(`[data-onglet-mois="${m}"]`) as HTMLButtonElement).click(); }); await calmer(); };
+
+  it('Suivi du mois, septembre 2026 : les 4 tuiles mensuelles — CA du mois (au centime du fichier) face à N−1, baux, cumul, gestion', async () => {
+    await monter('mois');
+    await ongletMois(9);
     expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-valeur')?.textContent)).toBe('15 471,70 €');
     expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-n1')?.textContent)).toBe('2 000,00 € en 2025 · +673,6 %');
     expect(tuile('baux-mois').querySelector('.tdb-tuile-valeur')?.textContent).toBe('17');
@@ -62,8 +64,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
   });
 
   it('un chiffre s’ouvre sur la liste de ses baux ; Échap la ferme', async () => {
-    await monter();
-    await choisir('mois', '8');
+    await monter('mois');
+    await ongletMois(8);
     await act(async () => { tuile('ca-mois').click(); });
     const d = container.querySelector('[data-detail]')!;
     expect(d.getAttribute('aria-label')).toBe('CA HT — Août 2026');
@@ -83,12 +85,65 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
   });
 
   it('filtres : « sans gestion » et « sans apporteur » recalculent tout ; l’export garde les filtres', async () => {
-    await monter();
-    await choisir('mois', '9');
+    await monter('mois');
+    await ongletMois(9);
     await choisir('gestion', 'sans');
     expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-valeur')?.textContent)).toBe('1 158,34 €');
+    // Le Suivi annuel : l'export garde les filtres.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await monter('annee');
+    await choisir('gestion', 'sans');
     await choisir('apporteur', 'aucun');
     expect((container.querySelector('[data-export]') as HTMLAnchorElement).getAttribute('href')).toBe('/api/admin/location/suivi/export?annee=2026&apporteur=aucun&gestion=sans');
+  });
+
+  describe('🔴 Arno (23/10/2026) — Suivi annuel : les 4 tuiles montrent l’ANNÉE, face à N−1 sur la même période', () => {
+    const val = (k: string) => nbsp(tuile(k).querySelector('.tdb-tuile-valeur')?.textContent);
+    const n1 = (k: string) => nbsp(tuile(k).querySelector('.tdb-tuile-n1')?.textContent);
+    const mot = (k: string) => nbsp(tuile(k).querySelector('.tdb-tuile-mot')?.textContent);
+
+    it('année en cours (2026, mois choisi : octobre par défaut) : janv. → oct., N−1 sur janv. → oct. 2025, écart en valeur et en %', async () => {
+      await monter('annee');
+      expect(container.querySelector('[data-tuile="ca-mois"]')).toBeNull();
+      expect(mot('ca-annee')).toBe('CA HT 2026 (janv. → oct.)');
+      expect(val('ca-annee')).toBe('94 612,61 €');
+      expect(n1('ca-annee')).toBe('janv. → oct. 2025 : 3 000,00 € · +91 612,61 € · +3 053,8 %');
+      expect(mot('baux-annee')).toBe('Baux signés en 2026 (janv. → oct.)');
+      expect(mot('ca-net-annee')).toBe('CA net d’apporteurs 2026 (janv. → oct.)');
+      expect(val('ca-net-annee')).toBe('90 538,16 €');
+      expect(val('gestion')).toBe('120');
+      expect(n1('gestion')).toBe('2026 (janv. → oct.) : +0 / −0 · récurrent +0,00 € / −0,00 € par mois');
+      // Le mois choisi borne la période : à fin mars, seul le CA de janvier à mars compte (n−1 : janv. → mars 2025).
+      await choisir('mois', '3');
+      expect(mot('ca-annee')).toBe('CA HT 2026 (janv. → mars)');
+      expect(val('ca-annee')).toBe('25 305,33 €');
+      expect(n1('ca-annee')).toBe('janv. → mars 2025 : 1 000,00 € · +24 305,33 € · +2 430,5 %');
+    });
+
+    it('année passée (2025) : l’année complète, face à 2024 entière ; N−1 absente : « 2024 : non importé »', async () => {
+      donnees = { ...donnees, annee: 2025, activites: donnees.activites.filter((a) => a.dateSignature.startsWith('2025-')) };
+      await monter('annee');
+      await choisir('annee', '2025');
+      expect(mot('ca-annee')).toBe('CA HT 2025');
+      expect(val('ca-annee')).toBe('3 000,00 €');
+      expect(n1('ca-annee')).toBe('2024 : non importé');
+      expect(n1('baux-annee')).toBe('2024 : non importé');
+    });
+
+    it('les filtres s’appliquent aux tuiles ; la gestion de l’année compte nouvelles et perdues avec leurs honoraires', async () => {
+      donnees = { ...donnees, gestionLignes: [
+        { lotId: 7, libelle: 'A', proprietaire: 'P', effetLe: '2026-03-12', avant: 'location_seule', apres: 'en_gestion', loyerHc: 1000, provisions: 100, base: 'cc', tauxHt: 6 },
+        { lotId: 8, libelle: 'B', proprietaire: 'Q', effetLe: '2026-09-30', avant: 'en_gestion', apres: 'ancienne_gestion', loyerHc: 800, provisions: 0, base: 'hc', tauxHt: 5 },
+        { lotId: 9, libelle: 'C', proprietaire: 'R', effetLe: '2026-11-02', avant: 'en_gestion', apres: 'ancienne_gestion', loyerHc: 800, provisions: 0, base: 'hc', tauxHt: 5 },
+      ] };
+      await monter('annee');
+      expect(n1('gestion')).toBe('2026 (janv. → oct.) : +1 / −1 · récurrent +66,00 € / −40,00 € par mois');   // novembre : hors période
+      await choisir('gestion', 'sans');
+      expect(val('ca-annee')).not.toBe('94 612,61 €');
+      const filtrees = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-') && !a.avecGestion);
+      expect(val('ca-annee')).toBe(nbsp(`${filtrees.reduce((t, a) => t + a.honoProprietaireHt + a.honoLocataireHt, 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`));
+      expect(n1('ca-annee')).toMatch(/^janv\. → oct\. 2025 : /);
+    });
   });
 
   it('🔒 sans « Voir les commissions » : ni section « Négociateurs », ni primes, ni commission', async () => {

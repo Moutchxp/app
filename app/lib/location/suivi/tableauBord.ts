@@ -218,6 +218,42 @@ export function sectionMois(activites: readonly ActiviteCalcul[], ctx: ContexteC
   return { courant, precedent, variationCa: variation(courant.ca, precedent.ca), variationNb: variation(courant.nb, precedent.nb) };
 }
 
+// ── LES TUILES DU SUIVI ANNUEL (Arno, 23/10/2026) ─────────────────────────────────────────────────────────────────────
+/**
+ * Les 4 tuiles du Suivi annuel montrent l'ANNÉE : une année passée en entier ; l'année en cours du 1er janvier à la fin du
+ * mois choisi (`moisFin`). N−1 sur la MÊME période (janv. → oct. 2025 face à janv. → oct. 2026). CA HT, baux, CA net
+ * d'apporteurs ; et la gestion de la période (nouvelles / perdues, honoraires récurrents gagnés / perdus par mois). PUR.
+ */
+export interface TuilesAnnee {
+  annee: number; moisFin: number; complete: boolean;
+  courant: Totaux; precedent: Totaux;
+  ecartCa: number; variationCa: number | null; ecartNb: number; variationNb: number | null; ecartCaNet: number; variationCaNet: number | null;
+  /** `sansLoyer` : biens dont les honoraires ne sont pas calculables (loyer ou taux absent) — non comptés, rien n'est inventé. */
+  gestion: { nouvelles: number; perdues: number; gagneMensuel: number; perduMensuel: number; sansLoyer: number; lotsEntres: number[]; lotsSortis: number[] };
+}
+
+export function tuilesAnnee(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, annee: number, aujourdhui: string, moisChoisi: number,
+  gestionLignes: readonly LigneGestion[] = []): TuilesAnnee {
+  const enCours = annee === Number(aujourdhui.slice(0, 4));
+  const moisFin = enCours ? Math.min(12, Math.max(1, moisChoisi)) : 12;
+  const dans = (a: number) => (x: { dateSignature: string }) => x.dateSignature >= `${a}-01` && x.dateSignature.slice(0, 7) <= moisDe(a, moisFin);
+  const courant = totaux(activites.filter(dans(annee)), ctx);
+  const precedent = totaux(activites.filter(dans(annee - 1)), ctx);
+  const g = gestionLignes.filter((l) => l.effetLe.slice(0, 4) === String(annee) && l.effetLe.slice(0, 7) <= moisDe(annee, moisFin));
+  const nouvelles = g.filter((l) => l.apres === 'en_gestion' && l.avant !== 'en_gestion');
+  const perdues = g.filter((l) => l.avant === 'en_gestion' && l.apres !== 'en_gestion');
+  const somme = (x: LigneGestion[]): number => x.reduce((t, l) => t + (honorairesGestionMensuels(l) ?? 0), 0);
+  return {
+    annee, moisFin, complete: moisFin === 12, courant, precedent,
+    ecartCa: courant.ca - precedent.ca, variationCa: variation(courant.ca, precedent.ca),
+    ecartNb: courant.nbBaux - precedent.nbBaux, variationNb: variation(courant.nbBaux, precedent.nbBaux),
+    ecartCaNet: courant.caNet - precedent.caNet, variationCaNet: variation(courant.caNet, precedent.caNet),
+    gestion: { nouvelles: nouvelles.length, perdues: perdues.length, gagneMensuel: somme(nouvelles), perduMensuel: somme(perdues),
+      sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length,
+      lotsEntres: nouvelles.map((l) => l.lotId).filter((x): x is number => x !== null), lotsSortis: perdues.map((l) => l.lotId).filter((x): x is number => x !== null) },
+  };
+}
+
 // ── B — le cumul de l'année, mois par mois, et celui de l'année précédente ─────────────────────────────────────────
 
 export interface PointCumul { mois: string; ca: number; caCumule: number; nb: number; caN1: number; caCumuleN1: number; nbN1: number; ids: (number | string)[] }
