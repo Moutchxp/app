@@ -6,6 +6,7 @@ import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import { LIBELLE_CATEGORIE, type Categorie } from '../../../../lib/location/locationBien';
 import { motIndivision } from '../../../../lib/gestion/indivision';
 import { ResumeBienFiche } from './ResumeBien';
+import { useRelectureBien } from './EditionEncart';
 import { BoutonDossierBailEntete, ResumeBailFiche } from './ResumeBail';
 import {
   formaterDateIso, periodeOccupation, titreLogement,
@@ -384,6 +385,10 @@ export function Annuaire({
   }, [fiche, rafraichi]);
 
   const ouvrir = useCallback((sorte: FicheUrl['sorte'], id: number) => onFiche({ sorte, id }), [onFiche]);
+  /* Arno (23/10/2026) — LA FICHE DU BIEN SE MET À JOUR TOUTE SEULE : une modification du bien (ici, dans une autre fenêtre ou
+     par un collègue — l'encart compare son empreinte toutes les quelques secondes) fait RELIRE la fiche (adresse, titre, listes). */
+  const lotOuvert = detail !== null && detail.etat === 'lot' ? detail.data.id : 0;
+  useRelectureBien(lotOuvert, recharger, lotOuvert > 0);
 
   /**
    * ══ 🔴🔴 LES GESTES D'ÉCRITURE — UNE SEULE PORTE, UN SEUL TRAITEMENT DE REFUS ════════════════════════════════════

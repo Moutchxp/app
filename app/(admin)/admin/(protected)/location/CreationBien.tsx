@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModaleIssue } from './ModaleIssue';
-import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
+import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
@@ -17,7 +17,7 @@ import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAtt
 import { CartesDuBloc, CSS_RATTACHEMENT, PanneauQuiRattacher } from './RattachementProprietaires';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
-import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
+import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
 import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
 import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
@@ -30,6 +30,12 @@ import { QuestionEnGestion } from './QuestionEnGestion';
 import { LignesMandat } from './LignesMandat';
 import type { Mandat, SorteMandat } from '../../../../lib/location/mandatBien';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
+import { BlocStatutModification } from './StatutModification';
+import { annoncerBienModifie, useAvertissementSortie, type ImportBien } from '../gestion/EditionEncart';
+import { contactsSyndicEnTexte, entretiensEnTexte, LIBELLE_CATEGORIE, type ValeursEncart } from '../../../../lib/location/encartBien';
+import { changementsFiche, refusFiche, titreAnnexeSaisie, type ChangementFiche, type SaisieFiche, type TransitionSaisie } from '../../../../lib/location/ficheBienEntiere';
+import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
+import { LIBELLE_DESTINATION } from '../../../../lib/gestion/statutBien';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -67,6 +73,8 @@ interface Annexe {
   annotation: string; detachee: boolean; fermee: boolean; aConfirmer: boolean;
   parkingSituation: SituationParking | null; parkingType: TypeParking | null;
   autreAdresse: boolean; adresse: string; codePostal: string; commune: string; adresseVerifiee: boolean;
+  /** « Modifier » la fiche (Arno, 23/10/2026) : l'annexe EXISTANTE (son identifiant), à sortir du portefeuille, et si son adresse se modifie. */
+  id?: number | null; sortir?: boolean; adresseModifiable?: boolean;
 }
 
 const VIDE = {
@@ -98,7 +106,76 @@ export interface Continuite {
   enGestion?: boolean | null;
 }
 
-export function CreationBien({ proprietairesInitiaux, continuite }: { proprietairesInitiaux: number[]; continuite?: Continuite }) {
+/**
+ * ══ 🔴🔴 « MODIFIER » LA FICHE DU BIEN : CE MÊME FORMULAIRE, PRÉ-REMPLI (Arno, 23/10/2026) ═════════════════════════════════════════════
+ *
+ * « UN seul “Modifier” qui ouvre l'intégralité du formulaire “Nouveau bien”, pré-rempli avec toutes les valeurs existantes (adresse,
+ * famille, caractéristiques, situation et accès, annexes, copropriété & ID fiscal, DPE, statut et mandat, commentaire…), avec Annuler /
+ * Valider, modale de contre-validation et confirmation habituelles. » Le MÊME composant dans la Gestion et dans la Location
+ * (`ModifierFicheBien.tsx`). En modification :
+ *   · pas de bloc « Propriétaire(s) » (rappel en lecture seule) ; « Bien en gestion ? » devient « Statut du bien » : le statut actuel et
+ *     les SEULES transitions permises (`StatutModification.tsx`) ;
+ *   · l'adresse d'un bien importé (tenue par WIPPIMMO) est montrée, non modifiable ; une annexe existante garde sa catégorie et son
+ *     choix « même / autre adresse » ; « Supprimer » une annexe existante la SORT du portefeuille à la validation (rien n'est effacé) ;
+ *   · rien n'est exigé au-delà de ce que le serveur refuserait (une fiche existante n'est jamais bloquée par les obligatoires de la
+ *     création) ; « Valider les modifications » montre « Champ : ancienne valeur → nouvelle valeur » (et ce que le statut fera du
+ *     dossier Drive) avant d'enregistrer ;
+ *   · une empreinte différente en base (`versionDistante`, relue toutes les quelques secondes) : « Ce bien a été modifié par ailleurs —
+ *     recharger ? » ; le serveur refuse aussi d'écrire sur une version dépassée.
+ */
+export interface ModificationBien {
+  lotId: number;
+  lecture: LectureFiche;
+  versionDistante: string | null;
+  /** Les valeurs de l'import WIPPIMMO affichées par l'encart quand la Location est vide : DITES, jamais recopiées. */
+  importe?: ImportBien;
+  onFermer: () => void;
+  /** Après « ✓ Modifications enregistrées », fermée : la fiche se relit et le formulaire se referme. */
+  onEnregistre: () => void;
+  /** « Recharger » : relire la fiche (la saisie en cours est abandonnée). */
+  onRecharger: () => void;
+  /**
+   * Les appels de la FICHE COMMUNE (la route de la Gestion, gardée par `perm_gestion`), fournis par l'hôte : ce formulaire de la
+   * Location ne parle qu'à sa propre route (garde `locationBien.test.ts`).
+   */
+  enregistrer: (saisie: SaisieFiche & { confirmeOccupation?: boolean }) => Promise<{ statut: number | null; corps: { etat?: string; motif?: string; message?: string; erreur?: string;
+    data?: { changements?: ChangementFiche[]; notes?: string[] } } }>;
+  /** Combien de locations en cours une annexe a (l'avertissement avant de la sortir du portefeuille). */
+  occupationsDe: (annexeId: number) => Promise<number>;
+}
+
+const ouiNonDe = (v: string): boolean | null => (v === 'oui' ? true : v === 'non' ? false : null);
+const enOuiNon = (v: boolean | null): string => (v === true ? 'oui' : v === false ? 'non' : '');
+
+/** L'état du formulaire, rempli depuis la fiche lue (une seule source). */
+function etatDepuisLecture(l: LectureFiche) {
+  const v = l.encart.valeurs;
+  const b: typeof VIDE = {
+    adresse: v.adresse, codePostal: v.codePostal, commune: v.commune, batiment: v.batiment, escalier: v.escalier, etage: v.etage, porte: v.porte,
+    precisionAcces: v.precisionAcces, digicodeCode: v.digicodeCode, nombrePieces: v.nombrePieces, surfaceHabitableM2: v.surfaceHabitableM2,
+    surfaceCarrezM2: v.surfaceCarrezM2, surfaceExterieureM2: v.surfaceExterieureM2, surfaceM2: v.surfaceM2, numLotCopro: v.numLotCopro, syndicId: v.syndicId,
+    epoqueConstruction: v.epoqueConstruction, chauffage: v.chauffage, dpeClasse: v.dpeClasse, dpeDate: v.dpeDate, commentaire: v.commentaire,
+    derniereAg: v.derniereAg, pnoDateAnniversaire: v.pnoDateAnniversaire, idFiscal: v.idFiscal,
+  };
+  const entretiens = (() => { try { return JSON.parse(v.entretiens || '[]') as { sorte: 'chaudiere' | 'ramonage' | 'autre'; nom: string | null; dateAnniversaire: string | null }[]; } catch { return []; } })();
+  return {
+    b, famille: l.encart.famille, type: (v.typeLogement || null) as TypeLogement | null, typeLocal: (v.typeLocal || null) as TypeLocal | null,
+    parkingSituation: (v.parkingSituation || null) as SituationParking | null, parkingType: (v.parkingType || null) as TypeParking | null,
+    meuble: ouiNonDe(v.meuble), ascenseur: ouiNonDe(v.ascenseur), digicode: ouiNonDe(v.digicode),
+    syndic: v.syndicId === '' ? null : { id: Number(v.syndicId), nom: v.syndicNom, ville: null, contactsIds: [], nouveauxContacts: [] } as SyndicChoisi,
+    assurancePno: ouiNonDe(v.assurancePno), chargesCopro: (v.chargesCopro || null) as ChargesCopro | null,
+    entretien: versSaisieEntretien(ouiNonDe(v.entretienAPrevoir), entretiens),
+    annexes: l.annexes.map((a): Annexe => ({
+      cle: a.id, id: a.id, categorie: a.categorie, etage: a.etage, numLotCopro: a.numLotCopro, porte: a.porte, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
+      detachee: a.detachee, fermee: true, aConfirmer: false, parkingSituation: (a.parkingSituation || null) as SituationParking | null,
+      parkingType: (a.parkingType || null) as TypeParking | null, autreAdresse: a.autreAdresse, adresse: a.adresse, codePostal: a.codePostal, commune: a.commune,
+      adresseVerifiee: true, adresseModifiable: a.adresseModifiable, sortir: false,
+    })),
+  };
+}
+
+export function CreationBien({ proprietairesInitiaux, continuite, modification }: { proprietairesInitiaux: number[]; continuite?: Continuite; modification?: ModificationBien }) {
+  const [init] = useState(() => (modification === undefined ? null : etatDepuisLecture(modification.lecture)));
   const [proprietaires, setProprietaires] = useState<PersonneProprietaire[]>([]);
   /** Les contacts EXISTANTS de la Gestion cochés dans « Qui rattacher à ce bien ? ». */
   const [contactsExistants, setContactsExistants] = useState<ContactProprietaire[]>([]);
@@ -106,17 +183,17 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const [enChoix, setEnChoix] = useState<number | null>(null);
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
-  const [b, setB] = useState(VIDE);
-  const [famille, setFamille] = useState<Famille | null>(null);
-  const [type, setType] = useState<TypeLogement | null>(null);
-  const [typeLocal, setTypeLocal] = useState<TypeLocal | null>(null);
-  const [parkingSituation, setParkingSituation] = useState<SituationParking | null>(null);
-  const [parkingType, setParkingType] = useState<TypeParking | null>(null);
-  const [meuble, setMeuble] = useState<boolean | null>(null);
-  const [ascenseur, setAscenseur] = useState<boolean | null>(null);
-  const [digicode, setDigicode] = useState<boolean | null>(null);
-  const [adresseVerifiee, setAdresseVerifiee] = useState(false);
-  const [annexes, setAnnexes] = useState<Annexe[]>([]);
+  const [b, setB] = useState(init?.b ?? VIDE);
+  const [famille, setFamille] = useState<Famille | null>(init?.famille ?? null);
+  const [type, setType] = useState<TypeLogement | null>(init?.type ?? null);
+  const [typeLocal, setTypeLocal] = useState<TypeLocal | null>(init?.typeLocal ?? null);
+  const [parkingSituation, setParkingSituation] = useState<SituationParking | null>(init?.parkingSituation ?? null);
+  const [parkingType, setParkingType] = useState<TypeParking | null>(init?.parkingType ?? null);
+  const [meuble, setMeuble] = useState<boolean | null>(init?.meuble ?? null);
+  const [ascenseur, setAscenseur] = useState<boolean | null>(init?.ascenseur ?? null);
+  const [digicode, setDigicode] = useState<boolean | null>(init?.digicode ?? null);
+  const [adresseVerifiee, setAdresseVerifiee] = useState(init !== null);
+  const [annexes, setAnnexes] = useState<Annexe[]>(init?.annexes ?? []);
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
   /** Le bien est enregistré, mais le mail « nouveau mandat » n'est pas parti (Arno, 18/10/2026). */
@@ -131,7 +208,10 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
      gestes suivants ; échec : quoi, pourquoi, quoi faire). `enCours` interdit le double clic (avant même le rendu suivant) ;
      `enregistre` : le bien est créé — le bouton ne le recrée jamais. */
   const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null }
-    | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number } | null>(null);
+    | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number }
+    // « Modifier » la fiche (Arno, 23/10/2026) : contre-validation, succès, version dépassée, abandon de la saisie.
+    | { sorte: 'contre'; changements: ChangementFiche[]; notes: string[]; confirmeOccupation: boolean } | { sorte: 'succes-modif'; changements: ChangementFiche[]; notes: string[] }
+    | { sorte: 'conflit' } | { sorte: 'abandon' } | null>(null);
   /* Arno (21/10/2026) — GARDE-FOU « SÉLECTION EN ATTENTE » : le panneau « Qui rattacher à ce bien ? » confie ici son geste
      « Rattacher la sélection » tant que des cases cochées n'ont pas été rattachées ; « Rattacher et enregistrer » l'emploie,
      puis enregistre dès que les cartes sont posées. */
@@ -147,14 +227,14 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
   /** Le SYNDIC choisi (loupe, suggestion « déjà connu pour cette adresse », ou créé dans la modale de la Gestion). */
-  const [syndic, setSyndic] = useState<SyndicChoisi | null>(null);
-  useEffect(() => { if (continuite === undefined) setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux, continuite]);
+  const [syndic, setSyndic] = useState<SyndicChoisi | null>(init?.syndic ?? null);
+  useEffect(() => { if (continuite === undefined && modification === undefined) setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux, continuite, modification]);
   /** L'ASSURANCE PNO (Arno, 18/10/2026) : oui / non / non renseigné ; Non vide la date anniversaire. */
-  const [assurancePno, setAssurancePno] = useState<boolean | null>(null);
+  const [assurancePno, setAssurancePno] = useState<boolean | null>(init?.assurancePno ?? null);
   /** « PAIEMENT DES CHARGES » (Arno, 21/10/2026, migration 400) : Propriétaire / Agence / non renseigné — FACULTATIF. */
-  const [chargesCopro, setChargesCopro] = useState<ChargesCopro | null>(null);
+  const [chargesCopro, setChargesCopro] = useState<ChargesCopro | null>(init?.chargesCopro ?? null);
   /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
-  const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
+  const [entretien, setEntretien] = useState<SaisieEntretien>(init?.entretien ?? ENTRETIEN_VIDE);
   /**
    * « BIEN EN GESTION ? » (Arno, 20/10/2026) : `null` tant qu'on n'a pas répondu. En continuité, la question n'est pas
    * posée : la réponse du dessus (toujours donnée avant que ce formulaire s'ouvre), sinon rien (« en gestion » par défaut).
@@ -176,7 +256,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   // La DERNIÈRE AG (Arno, 18/10/2026) : partagée par l'immeuble — pré-remplie si elle est déjà connue pour l'adresse saisie,
   // tant qu'on n'y a pas touché ; la modifier ici met à jour l'immeuble à l'enregistrement.
-  const agTouchee = useRef(false);
+  // En modification, la fiche a déjà SA valeur : rien n'est pré-rempli par-dessus.
+  const agTouchee = useRef(modification !== undefined);
   const [agConnue, setAgConnue] = useState<string | null>(null);
   useEffect(() => {
     const adresse = b.adresse.trim();
@@ -195,7 +276,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   }, [b.adresse]);
   /* Arno (21/10/2026, 396) — LE DIGICODE EST CELUI DE L'IMMEUBLE de l'adresse : connu, il pré-remplit le champ (tant qu'on n'y a
      pas touché), et la mention « Commun à tous les biens du … (N biens) » s'affiche ; le modifier ici le modifie pour l'immeuble. */
-  const digicodeTouche = useRef(false);
+  const digicodeTouche = useRef(modification !== undefined);
   const [digicodeImmeuble, setDigicodeImmeuble] = useState<{ mention: string | null; source: string | null; portee?: string } | null>(null);
   useEffect(() => {
     const voie = b.adresse.trim();
@@ -258,7 +339,127 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   }]);
 
   const nom = famille === null ? 'bien' : NOM_FAMILLE[famille];
-  const avecAnnexes = famille !== 'parking';
+  /** En modification : ce que la fiche montre (une annexe n'a pas d'annexes ; l'ID fiscal, la PNO… seulement là où le serveur les écrit). */
+  const lu = modification?.lecture.encart;
+  const ficheAnnexe = lu?.annexe === true;
+  const avecAnnexes = famille !== 'parking' && !ficheAnnexe;
+  const avecComplements = famille !== 'parking';
+  const montre = (cle: 'avecAg' | 'avecIdFiscal' | 'avecCharges' | 'avecPno' | 'avecEntretien'): boolean =>
+    lu === undefined || (lu[cle] === true && (cle === 'avecAg' || cle === 'avecEntretien' || !lu.annexe));
+  const [transition, setTransition] = useState<TransitionSaisie | null>(null);
+  /** Les valeurs de l'import WIPPIMMO que l'encart affiche quand la Location est vide : DITES au-dessus des champs vides, jamais recopiées. */
+  const importesModif: string[] = (() => {
+    const imp = modification?.importe;
+    const v = lu?.valeurs;
+    if (imp === undefined || v === undefined) return [];
+    const parking = famille === 'parking';
+    const local = famille === 'local';
+    const vide = (avant: string, maintenant: string): boolean => avant === '' && maintenant === '';
+    const [typeAvant, typeMaintenant] = parking ? [v.parkingType, parkingType ?? ''] : local ? [v.typeLocal, typeLocal ?? ''] : [v.typeLogement, type ?? ''];
+    return [
+      ...(imp.type && vide(typeAvant, typeMaintenant) ? [`Type : ${imp.type}`] : []),
+      ...(!parking && imp.meuble === true && vide(v.meuble, enOuiNon(meuble)) ? ['Meublé : oui'] : []),
+      ...(!parking && imp.pieces != null && vide(v.nombrePieces, b.nombrePieces) ? [`Pièces : ${imp.pieces}`] : []),
+      ...(imp.surface != null && vide(parking ? v.surfaceM2 : v.surfaceHabitableM2, parking ? b.surfaceM2 : b.surfaceHabitableM2)
+        ? [`Surface : ${String(imp.surface).replace('.', ',')} m²`] : []),
+    ];
+  })();
+  /** La saisie de « Modifier » : les valeurs de l'encart (texte), les annexes, la transition de statut. */
+  const saisieModification = (): SaisieFiche | null => {
+    if (modification === undefined) return null;
+    const l = modification.lecture;
+    const v = l.encart.valeurs;
+    const e = versEnvoiEntretien(entretien);
+    const categorie = l.encart.annexe || famille === null ? v.categorie : famille === 'parking' ? (v.categorie === 'box' ? 'box' : 'parking') : famille;
+    const valeurs: ValeursEncart = {
+      ...v, categorie, adresse: b.adresse, codePostal: b.codePostal, commune: b.commune,
+      assurancePno: enOuiNon(assurancePno), pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '',
+      etage: b.etage, porte: b.porte, numLotCopro: b.numLotCopro, surfaceCarrezM2: b.surfaceCarrezM2, surfaceExterieureM2: b.surfaceExterieureM2,
+      typeLogement: type ?? '', typeLocal: typeLocal ?? '', parkingSituation: parkingSituation ?? '', parkingType: parkingType ?? '', meuble: enOuiNon(meuble),
+      nombrePieces: b.nombrePieces, surfaceHabitableM2: b.surfaceHabitableM2, surfaceM2: b.surfaceM2, epoqueConstruction: b.epoqueConstruction, chauffage: b.chauffage,
+      batiment: b.batiment, escalier: b.escalier, precisionAcces: b.precisionAcces, ascenseur: enOuiNon(ascenseur), digicode: enOuiNon(digicode), digicodeCode: b.digicodeCode,
+      syndicId: syndic === null ? '' : String(syndic.id), syndicNom: syndic?.nom ?? '',
+      syndicContacts: syndic === null ? '' : contactsSyndicEnTexte({ contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts }),
+      chargesCopro: chargesCopro ?? '', idFiscal: b.idFiscal, derniereAg: b.derniereAg, dpeClasse: b.dpeClasse, dpeDate: b.dpeDate,
+      entretienAPrevoir: enOuiNon(e.entretienAPrevoir), entretiens: entretiensEnTexte(e.entretiens), commentaire: b.commentaire,
+    };
+    return {
+      version: l.version, valeurs, statut: transition,
+      annexes: annexes.map((a) => ({
+        id: a.id ?? null, categorie: a.categorie, etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
+        detachee: a.detachee, parkingSituation: a.parkingSituation ?? '', parkingType: a.parkingType ?? '', autreAdresse: a.autreAdresse,
+        adresse: a.adresse, codePostal: a.codePostal, commune: a.commune, ...(a.sortir === true ? { sortir: true } : {}),
+      })),
+    };
+  };
+  const saisieModif = saisieModification();
+  const changementsModif = modification === undefined || saisieModif === null ? [] : changementsFiche(modification.lecture, saisieModif);
+  const conflit = modification !== undefined && enregistre === null && modification.versionDistante !== null && modification.versionDistante !== modification.lecture.version;
+  useAvertissementSortie(modification !== undefined && enregistre === null && changementsModif.length > 0);
+  const annulerModification = (): void => {
+    if (modification === undefined) return;
+    if (changementsModif.length > 0 && enregistre === null) { setIssue({ sorte: 'abandon' }); return; }
+    if (enregistre !== null) modification.onEnregistre(); else modification.onFermer();
+  };
+  const annulerRef = useRef(annulerModification);
+  useEffect(() => { annulerRef.current = annulerModification; });
+  // Échap referme le formulaire (avec la question si la saisie a changé) — jamais quand une modale est ouverte par-dessus.
+  useEffect(() => {
+    if (modification === undefined) return;
+    const surTouche = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelectorAll('[aria-modal="true"]').length > 1) return;
+      e.preventDefault();
+      annulerRef.current();
+    };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [modification]);
+  const validerModification = async (): Promise<void> => {
+    if (modification === undefined || saisieModif === null || enCours.current || enregistre !== null) return;
+    if (changementsModif.length === 0) return;
+    const refus = refusFiche(modification.lecture, saisieModif);
+    if (refus !== null) { setIssue({ sorte: 'erreur', cause: 'saisie', motif: refus }); return; }
+    // « Supprimer » une annexe LOUÉE : l'avertissement de la fiche, dit dans la contre-validation (la sortie clôt ses locations).
+    const occupation: string[] = [];
+    for (const a of saisieModif.annexes.filter((x) => x.id !== null && x.sortir === true)) {
+      try {
+        const k = await modification.occupationsDe(a.id as number);
+        if (k > 0) occupation.push(`L’annexe ${titreAnnexeSaisie(a)} est louée : la sortir du portefeuille clôt ${k === 1 ? 'sa location en cours' : `ses ${k} locations en cours`}.`);
+      } catch { /* le serveur redira le refus */ }
+    }
+    const st = modification.lecture.statut;
+    const notes = [
+      ...(saisieModif.statut !== null ? [`Dossier Drive : ${LIBELLE_DESTINATION[saisieModif.statut.vers]} (le déplacement habituel du changement de statut ; aucun autre dossier n’est touché).`,
+        ...(st !== null && (st.statut === 'en_gestion' || saisieModif.statut.vers === 'en_gestion') ? ['Le mail de portefeuille part, comme pour le geste de la fiche.'] : [])] : []),
+      ...(changementsModif.some((c) => c.cle === 'adresse' || c.cle === 'codePostal' || c.cle === 'commune')
+        ? ['Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.'] : []),
+      ...occupation,
+    ];
+    setIssue({ sorte: 'contre', changements: changementsModif, notes, confirmeOccupation: occupation.length > 0 });
+  };
+  const confirmerModification = async (confirmeOccupation: boolean): Promise<void> => {
+    if (modification === undefined || saisieModif === null || enCours.current) return;
+    enCours.current = true;
+    setEnvoi(true);
+    try {
+      const { statut, corps: d } = await modification.enregistrer({ ...saisieModif, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
+      if (statut !== null && statut < 400 && d.etat === 'ok') {
+        setEnregistre('modifie');
+        setIssue({ sorte: 'succes-modif', changements: d.data?.changements ?? changementsModif, notes: d.data?.notes ?? [] });
+        annoncerBienModifie(modification.lotId);
+        return;
+      }
+      if (d.etat === 'conflit') { setIssue({ sorte: 'conflit' }); return; }
+      setIssue({ sorte: 'erreur', cause: causeDeLaReponse({ statut, etat: d.etat, erreur: d.erreur }),
+        motif: d.etat === 'sans_schema' ? 'La base de données n’est pas à jour pour cet enregistrement.' : d.motif ?? d.message ?? null });
+    } catch {
+      setIssue({ sorte: 'erreur', cause: 'technique', motif: null });
+    } finally {
+      enCours.current = false;
+      setEnvoi(false);
+    }
+  };
   // Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires pour un logement / local (la règle de `bienComplet.ts`).
   const aujourdhui = aujourdhuiParis();
   const dpeNonSoumis = b.dpeClasse === DPE_NON_SOUMIS;
@@ -272,6 +473,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
   const enregistrer = async (options: { confirmeDoublon?: boolean } = {}): Promise<void> => {
+    if (modification !== undefined) { await validerModification(); return; }
     if (enCours.current || enregistre !== null) return;
     // Une sélection cochée mais pas rattachée : jamais d'enregistrement silencieux sans elle (Arno, 21/10/2026).
     if (enChoix !== null && selectionEnAttente.current !== null) {
@@ -372,7 +574,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
+  const sections = [...(continuite !== undefined || modification !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
     ...(continuite !== undefined ? [] : ['gestion'])];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
@@ -381,7 +583,28 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE}</style>
-      {continuite === undefined ? (
+      {modification !== undefined ? (
+        <>
+          <EnTeteLocation titre="Modifier le bien" retour={false}
+            sous={<>Toutes les informations du bien, pré-remplies. « Valider les modifications » montre d’abord ce qui change (ancienne valeur → nouvelle valeur), puis enregistre.</>} />
+          {conflit && (
+            <div className="mfb-conflit" role="alert" data-conflit-version>
+              <span>Ce bien a été modifié par ailleurs — recharger ?</span>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={modification.onRecharger} data-recharger>Recharger</button>
+              <span className="mfb-note">Recharger reprend les valeurs enregistrées ; la saisie en cours est abandonnée.</span>
+            </div>
+          )}
+          <section className="loc-section loc-rappel" aria-labelledby="loc-rappel-modif" data-rappel-proprietaires>
+            <h3 id="loc-rappel-modif">{modification.lecture.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire'}</h3>
+            {modification.lecture.proprietaires.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun propriétaire rattaché.</p> : (
+              <ul className="loc-rappel-liste">
+                {modification.lecture.proprietaires.map((p, i) => <li key={`p${i}`}><BadgeCarte cote="proprietaire" sorte="client" /> <strong>{p}</strong></li>)}
+              </ul>
+            )}
+            <p className="loc-muet" style={{ margin: 0 }}>Lecture seule : les propriétaires et leurs contacts se modifient sur la fiche.</p>
+          </section>
+        </>
+      ) : continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
           sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir ; et si le bien est en gestion <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
       ) : (
@@ -398,7 +621,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         </section>
       )}
 
-      {continuite === undefined && <section className="loc-section" aria-labelledby="loc-b1">
+      {continuite === undefined && modification === undefined && <section className="loc-section" aria-labelledby="loc-b1">
         <h3 id="loc-b1"><span className="loc-num">{n('proprietaires')}</span>Propriétaire(s) <span className="loc-oblig">*</span></h3>
         <label className="loc-recherche" aria-label="Chercher un propriétaire">
           <span aria-hidden="true">🔎</span>
@@ -432,12 +655,19 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
       <section className="loc-section" aria-labelledby="loc-b3" data-bloc-bien>
         <h3 id="loc-b3"><span className="loc-num">{n('bien')}</span>Le bien <span className="loc-oblig">*</span></h3>
+        {importesModif.length > 0 && (
+          <p className="loc-aide loc-aide--long" data-importe>Affiché d’après l’import WIPPIMMO tant que ces champs sont vides : {importesModif.join(' · ')}.</p>
+        )}
+        {ficheAnnexe ? (
+          <p className="loc-muet" style={{ margin: 0 }} data-categorie-annexe>Annexe : {LIBELLE_CATEGORIE[modification?.lecture.encart.valeurs.categorie ?? ''] ?? 'Annexe'} — elle garde sa catégorie.</p>
+        ) : (
         <div className="loc-gros-boutons loc-gros-boutons--3d loc-familles" role="group" aria-label="Famille du bien">
           {FAMILLES.map((f) => (
             <button key={f} type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={famille === f} data-famille={f}
               onClick={() => setFamille(f)}>{famille === f ? `✓ ${LIBELLE_FAMILLE[f]}` : LIBELLE_FAMILLE[f]}</button>
           ))}
         </div>
+        )}
         {manqueDe('famille')}
         {famille === 'logement' && (
           <>
@@ -484,13 +714,13 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             </div>
           </>
         )}
-        {(famille === 'logement' || famille === 'local') && (
+        {(famille === 'logement' || famille === 'local' || (ficheAnnexe && famille === null)) && (
           <div className="loc-sous-section">
-            <h4>{famille === 'logement' ? 'Pièces et surfaces' : 'Bureaux / pièces et surfaces'}</h4>
+            <h4>{famille === 'local' ? 'Bureaux / pièces et surfaces' : 'Pièces et surfaces'}</h4>
             <div className="loc-grille" data-ligne-surfaces>
-              <ChampFleches sorte="pieces" libelle={famille === 'logement' ? 'Nombre de pièces' : 'Nombre de bureaux / pièces'} placeholder="ex. 3"
+              <ChampFleches sorte="pieces" libelle={famille === 'local' ? 'Nombre de bureaux / pièces' : 'Nombre de pièces'} placeholder="ex. 3"
                 valeur={b.nombrePieces} onChange={(v) => setB((x) => ({ ...x, nombrePieces: v }))} />
-              {champ('surfaceHabitableM2', famille === 'logement' ? 'Surface habitable (m²)' : 'Surface (m²)', { inputMode: 'decimal' })}
+              {champ('surfaceHabitableM2', famille === 'local' ? 'Surface (m²)' : 'Surface habitable (m²)', { inputMode: 'decimal' })}
               {champ('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
               {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' }, 'balcon, terrasse, jardin')}
             </div>
@@ -500,6 +730,15 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
       <section className="loc-section" aria-labelledby="loc-b2">
         <h3 id="loc-b2"><span className="loc-num">{n('adresse')}</span>Adresse et situation</h3>
+        {lu !== undefined && !lu.adresseModifiable ? (
+          /* L'adresse d'un bien importé est tenue par WIPPIMMO (l'import la réécrirait) : montrée, jamais modifiable ici. */
+          <div className="loc-grille mfb-fige" data-adresse-figee>
+            <label className="loc-champ loc-pleine"><span>Adresse</span><input value={b.adresse} disabled />
+              <small className="loc-aide loc-aide--long">Tenue par l’import WIPPIMMO : elle ne se modifie pas ici.</small></label>
+            {champ('codePostal', 'Code postal', { disabled: true })}
+            {champ('commune', 'Commune', { disabled: true })}
+          </div>
+        ) : (
         <div className="loc-grille">
           <label className="loc-champ loc-pleine">
             <span>Adresse <span className="loc-oblig">*</span></span>
@@ -510,6 +749,10 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           {champ('codePostal', 'Code postal', { inputMode: 'numeric', maxLength: 5 })}
           {champ('commune', 'Commune')}
         </div>
+        )}
+        {lu !== undefined && lu.adresseModifiable && (b.adresse !== lu.valeurs.adresse || b.codePostal !== lu.valeurs.codePostal || b.commune !== lu.valeurs.commune) && (
+          <p className="mfb-note" data-note-drive-adresse>Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.</p>
+        )}
         {manqueDe('adresse')}
         <div className="loc-sous-section">
           <h4>Situation dans l’immeuble</h4>
@@ -536,7 +779,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               <label className="loc-code-digicode">Code
                 <input value={b.digicodeCode} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
                   onChange={(e) => { digicodeTouche.current = true; const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
-              {digicodeImmeuble?.mention && <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>}
+              {digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{lu !== undefined ? ' — le modifier vaut pour tout l’immeuble (son bâtiment)' : digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>
+                : lu?.digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{lu.digicodeImmeuble.mention} — le modifier vaut pour tout l’immeuble (son bâtiment).</small> : null}
             </div>
           </div>
         </div>
@@ -550,12 +794,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             bloquant, s'il ne compte pas 12 chiffres. */}
         <div className="loc-grille loc-grille--debut loc-grille--copro" data-ligne-copro>
           {champ('numLotCopro', 'N° de lot (règlement de copropriété)')}
-          <label className="loc-champ" data-id-fiscal>ID fiscal du bien
+          {montre('avecIdFiscal') && <label className="loc-champ" data-id-fiscal>ID fiscal du bien
             <input value={b.idFiscal} inputMode="numeric" maxLength={60} placeholder="ex. 921234567890" aria-describedby="loc-id-fiscal-aide"
               onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, idFiscal: val })); }} />
             <small className="loc-aide loc-aide--long" id="loc-id-fiscal-aide">Sur l’avis de taxe foncière</small>
             {idFiscalInhabituel(b.idFiscal) && <small className="loc-aide loc-aide--long loc-aide--avert" role="status" data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}
-          </label>
+          </label>}
           <BlocSyndic adresse={{ libelle: b.adresse, codePostal: b.codePostal, commune: b.commune }} choisi={syndic} onChoisi={setSyndic} />
         </div>
       </section>
@@ -567,7 +811,18 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           <ul className="loc-annexes" data-annexes>
             <li className="loc-racine">{famille === null ? 'Le bien' : `${nom.charAt(0).toUpperCase()}${nom.slice(1)}`}{b.adresse.trim() !== '' ? ` · ${b.adresse}` : ''}</li>
             {annexes.map((a, i) => (
-              <li key={a.cle} className={`loc-enfant${a.fermee ? ' loc-enfant--fermee' : ''}`} data-annexe={a.categorie} data-fermee={a.fermee ? 'oui' : undefined}>
+              a.sortir === true ? (
+                <li key={a.cle} className="loc-enfant loc-enfant--fermee mfb-sortie" data-annexe={a.categorie} data-annexe-sortie={a.id ?? undefined}>
+                  <div className="loc-annexe-tete">
+                    <span className="loc-annexe-titre">{resumeAnnexe({ ...a })}</span>
+                    <span className="loc-etiquette-detachee">Sortie du portefeuille à la validation</span>
+                    <span className="loc-annexe-actions">
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, sortir: false }))} data-annuler-sortie>Annuler la sortie</button>
+                    </span>
+                  </div>
+                </li>
+              ) : (
+              <li key={a.cle} className={`loc-enfant${a.fermee ? ' loc-enfant--fermee' : ''}`} data-annexe={a.categorie} data-fermee={a.fermee ? 'oui' : undefined} data-annexe-id={a.id ?? undefined}>
                 {/* Arno (18/10/2026) : « Retirer » devient Supprimer (après confirmation) · Détacher / Rattacher · Fermer / Ouvrir. */}
                 <div className="loc-annexe-tete">
                   {a.fermee
@@ -583,8 +838,10 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                 </div>
                 {a.aConfirmer && (
                   <div className="loc-confirmer" role="alert" data-confirmer-suppression>
-                    <span>Supprimer cette annexe du formulaire ?</span>
-                    <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Oui, supprimer</button>
+                    {/* Une annexe EXISTANTE ne s'efface jamais : « Supprimer » la sort du portefeuille, à la validation (la règle de la fiche). */}
+                    <span>{a.id != null ? 'Sortir cette annexe du portefeuille à la validation ? Rien n’est effacé : son historique et son lien avec le bien restent.' : 'Supprimer cette annexe du formulaire ?'}</span>
+                    <button type="button" className="svv-btn svv-btn-primary gst-btn"
+                      onClick={() => (a.id != null ? changerAnnexe(i, (x) => ({ ...x, sortir: true, aConfirmer: false })) : setAnnexes((l) => l.filter((_, j) => j !== i)))}>Oui, supprimer</button>
                     <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, aConfirmer: false }))}>Non</button>
                   </div>
                 )}
@@ -599,11 +856,17 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                   </div>
                 )}
                 {manqueDe(`annexe-nom-${i}`)}
+                {a.id != null ? (
+                  /* Une annexe existante garde son choix « même / autre adresse » ; l'autre adresse se modifie si l'annexe a été créée ici. */
+                  <p className="loc-muet" style={{ margin: 0 }} data-adresse-annexe-fixe>{a.autreAdresse ? 'À une autre adresse que le bien' : 'À l’adresse du bien'}
+                    {a.autreAdresse && a.adresseModifiable !== true ? ' — tenue par l’import WIPPIMMO : elle ne se modifie pas ici.' : '.'}</p>
+                ) : (
                 <div className="loc-pilules loc-annexe-adresse" role="group" aria-label="Adresse de l’annexe">
                   <button type="button" aria-pressed={!a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: false }))}>Même adresse</button>
                   <button type="button" aria-pressed={a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: true }))}>Autre adresse</button>
                 </div>
-                {a.autreAdresse && (
+                )}
+                {a.autreAdresse && (a.id == null || a.adresseModifiable === true) && (
                   <div className="loc-grille" data-autre-adresse>
                     <label className="loc-champ loc-pleine">
                       <span>Adresse de l’annexe <span className="loc-oblig">*</span></span>
@@ -641,6 +904,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                 </div>
                 </>}
               </li>
+              )
             ))}
           </ul>
           <div className="loc-pilules">
@@ -654,15 +918,15 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       {/* Arno (21/10/2026) : le bloc 6 existe aussi pour un parking nu — il n'y porte que « Paiement des charges ». */}
       <section className="loc-section" aria-labelledby="loc-b6">
           <h3 id="loc-b6"><span className="loc-num">{n('complements')}</span>Caractéristiques complémentaires</h3>
-          {avecAnnexes && <>
+          {avecComplements && <>
           {/* Arno (18/10/2026) : libellés et champs sur la MÊME ligne (alignés en haut) ; la légende de l'AG reste dessous. */}
           <div className="loc-grille loc-grille--debut" data-ligne-epoque>
             {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
             {choix('chauffage', 'Chauffage', CHAUFFAGES)}
-            <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
+            {montre('avecAg') && <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
               <input type="date" value={b.derniereAg} onChange={(e) => { agTouchee.current = true; const val = e.target.value; setB((x) => ({ ...x, derniereAg: val })); }} />
               <small className="loc-aide loc-aide--long">{agConnue !== null && b.derniereAg === agConnue
-                ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>
+                ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>}
           </div>
           {/* Arno (18/10/2026) : DPE (gauche) et assurance PNO (droite), deux blocs de même hauteur aux rangées partagées —
               choix sur une ligne, dates sur la suivante ; la date reste à sa place, grisée, quand elle est sans objet. */}
@@ -670,7 +934,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             <BlocDpe classe={b.dpeClasse} date={b.dpeDate} aujourdhui={aujourdhui}
               onClasse={(c) => setB((x) => ({ ...x, dpeClasse: c }))} onDate={(d) => setB((x) => ({ ...x, dpeDate: d }))}
               manque={(k) => manqueDe(k)} />
-            <div className="loc-dpe-pno-bloc" data-pno>
+            {montre('avecPno') && <div className="loc-dpe-pno-bloc" data-pno>
               <h4>Assurance PNO</h4>
               <div className="loc-dpe-pno-choix">
                 <Pilules etiquette="Assurance PNO" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(assurancePno)}
@@ -682,20 +946,20 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                     onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, pnoDateAnniversaire: val })); }} /></label>
               </div>
               <div className="loc-dpe-pno-notes" />
-            </div>
+            </div>}
           </div>
-          <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
-            manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
+          {montre('avecEntretien') && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire={modification === undefined}
+            manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />}
           </>}
           {/* « PAIEMENT DES CHARGES » (Arno, 21/10/2026) : petit encadré, même style que DPE / Assurance PNO ; FACULTATIF (ne bloque
               pas « Enregistrer le bien », absent de « Reste à renseigner ») ; pour les trois familles. */}
-          <div className="loc-charges" data-charges-copro>
+          {montre('avecCharges') && <div className="loc-charges" data-charges-copro>
             <div className="loc-charges-bloc">
               <h4>Paiement des charges</h4>
               <Pilules etiquette="Paiement des charges" options={CHARGES_COPRO} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
               <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
             </div>
-          </div>
+          </div>}
         </section>
 
       <section className="loc-section" aria-labelledby="loc-b7">
@@ -704,7 +968,9 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           <textarea value={b.commentaire} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, commentaire: val })); }} maxLength={4000} /></label>
       </section>
 
-      {continuite === undefined && (
+      {modification !== undefined ? (
+        <BlocStatutModification numero={n('gestion')} lu={modification.lecture.statut} mandat={modification.lecture.mandat} valeur={transition} onChange={setTransition} />
+      ) : continuite === undefined && (
         <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Statut du bien" sorte="bien" obligatoire valeur={enGestionSaisi}
           libelles={{ oui: 'En gestion', non: 'Location seule' }}
           onChoix={setEnGestion}>{manqueDe('enGestion')}
@@ -712,12 +978,23 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             onChange={(sorte, m) => { mandatTouche.current[sorte] = true; setMandats((x) => ({ ...x, [sorte]: m })); }} /></QuestionEnGestion>
       )}
 
-      {mailEchec !== null && (
+      {modification === undefined && mailEchec !== null && (
         <div className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>
           <p style={{ margin: '0 0 8px' }}>{mailEchec.phrase}</p>
           <a className="svv-btn svv-btn-primary gst-btn" href={mailEchec.cible}>Ouvrir la fiche du bien</a>
         </div>
       )}
+      {modification !== undefined ? (
+      <div className="loc-collant" data-collant>
+        <p className={`loc-manques${conflit ? ' loc-manques--refus' : ''}`} role="status" data-etat-modification>
+          {conflit ? 'Ce bien a été modifié par ailleurs — recharger ?' : enregistre !== null ? '✓ Modifications enregistrées.'
+            : changementsModif.length === 0 ? 'Aucune modification.' : `${changementsModif.length} modification${changementsModif.length > 1 ? 's' : ''} à valider.`}
+        </p>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annulerModification} data-annuler-modification>{enregistre !== null ? 'Fermer' : 'Annuler'}</button>
+        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null || changementsModif.length === 0} aria-busy={envoi} data-valider-modification>
+          {envoi ? 'Enregistrement…' : 'Valider les modifications'}</button>
+      </div>
+      ) : (
       <div className="loc-collant" data-collant>
         <p className={`loc-manques${motif !== null ? ' loc-manques--refus' : ''}`} role="status">
           {motif ?? (Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.')}
@@ -726,7 +1003,33 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null} aria-busy={envoi}>
           {envoi ? 'Enregistrement…' : enregistre !== null ? '✓ Bien enregistré' : 'Enregistrer le bien'}</button>
       </div>
-      {issue !== null && (issue.sorte === 'succes' ? (
+      )}
+      {modification !== undefined && issue !== null && (issue.sorte === 'contre' ? (
+        <ModaleIssue sorte="attention" titre="Valider les modifications ?" onFermer={() => setIssue(null)} notes={issue.notes}
+          actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), repere: 'revenir-saisie' },
+            { libelle: envoi ? 'Enregistrement…' : 'Confirmer', onClick: () => { void confirmerModification(issue.confirmeOccupation); }, principal: true, repere: 'confirmer-modification' }]}>
+          <ul className="eden-liste" data-contre-validation>{issue.changements.map((c) => <li key={c.cle} data-changement={c.cle}>{`${c.champ} : ${c.avant} → ${c.apres}`}</li>)}</ul>
+        </ModaleIssue>
+      ) : issue.sorte === 'succes-modif' ? (
+        <ModaleIssue sorte="succes" titre="Modifications enregistrées" onFermer={modification.onEnregistre} notes={issue.notes}
+          lignes={issue.changements.map((c) => [c.champ, `${c.avant} → ${c.apres}`] as [string, string])}
+          actions={[{ libelle: 'Fermer', onClick: modification.onEnregistre, principal: true, repere: 'fermer-succes-modification' }]} />
+      ) : issue.sorte === 'conflit' ? (
+        <ModaleIssue sorte="attention" titre="Ce bien a été modifié par ailleurs — recharger ?" onFermer={() => setIssue(null)}
+          notes={['Rien n’a été enregistré : la fiche a changé depuis l’ouverture du formulaire.', '« Recharger » reprend les valeurs enregistrées (votre saisie est abandonnée).']}
+          actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), repere: 'revenir-saisie' },
+            { libelle: 'Recharger', onClick: () => { setIssue(null); modification.onRecharger(); }, principal: true, repere: 'recharger-conflit' }]} />
+      ) : issue.sorte === 'abandon' ? (
+        <ModaleIssue sorte="attention" titre="Abandonner les modifications ?" onFermer={() => setIssue(null)}
+          notes={[`${changementsModif.length} modification${changementsModif.length > 1 ? 's' : ''} non enregistrée${changementsModif.length > 1 ? 's' : ''} : fermer les perdra.`]}
+          actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), principal: true, repere: 'revenir-saisie' },
+            { libelle: 'Abandonner', onClick: () => { setIssue(null); modification.onFermer(); }, repere: 'abandonner-modification' }]} />
+      ) : issue.sorte === 'erreur' ? (
+        <ModaleIssue sorte="erreur" titre="Modifications non enregistrées" onFermer={() => setIssue(null)}
+          echec={explicationEchecDe('Les modifications n’ont pas été enregistrées.', '« Valider les modifications »', issue.cause, issue.motif)}
+          actions={[{ libelle: 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-erreur-modification' }]} />
+      ) : null)}
+      {modification === undefined && issue !== null && (issue.sorte === 'succes' ? (
         <ModaleIssue sorte="succes" titre="Bien enregistré" onFermer={() => setIssue(null)} notes={issue.notes}
           lignes={[[nomsProprietaires.includes(',') ? 'Propriétaires' : 'Propriétaire', nomsProprietaires || '—'], ['Adresse', adresseComplete || '—'],
             ...(famille !== null ? [['Bien', LIBELLE_FAMILLE[famille]] as [string, string]] : [])]}
@@ -757,14 +1060,14 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             { libelle: 'Créer quand même', repere: 'creer-quand-meme', onClick: () => { setIssue(null); void enregistrer({ confirmeDoublon: true }); } },
             { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
           ]} />
-      ) : (
+      ) : issue.sorte === 'erreur' ? (
         <ModaleIssue sorte="erreur" titre={issue.cause === 'champs' ? 'Il manque des informations' : 'Enregistrement impossible'}
           echec={explicationEchec('nouveau-bien', issue.cause, issue.motif)}
           onFermer={() => setIssue(null)}
           actions={[{ libelle: issue.cause === 'champs' ? 'Compléter' : 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-issue' }]} />
-      ))}
+      ) : null)}
       {/* Après la modale fermée : le succès reste dit sur la page (le bien n'est jamais recréé par erreur). */}
-      {enregistre !== null && issue === null && mailEchec === null && (
+      {modification === undefined && enregistre !== null && issue === null && mailEchec === null && (
         <div className="loc-alerte loc-alerte--verte" role="status" data-bien-enregistre>
           <p style={{ margin: '0 0 8px' }}><strong>✓ Bien enregistré.</strong></p>
           <a className="svv-btn svv-btn-primary gst-btn" href={enregistre}>Ouvrir la fiche du bien</a>

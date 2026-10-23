@@ -7,6 +7,7 @@ import {
 } from '../../../../lib/gestion/statutBien';
 import { LIBELLE_MANDAT, type Mandat } from '../../../../lib/location/mandatBien';
 import { texteBandeauGestionTerminee } from '../../../../lib/gestion/finGestion';
+import { useRelectureBien } from './EditionEncart';
 
 /**
  * ══ 🔴🔴 LE STATUT DU BIEN SUR SA FICHE — EN GESTION · ANCIENNE GESTION · LOCATION SEULE (Arno, 21/10/2026, migration 403) ══════
@@ -79,6 +80,8 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
     return () => { vivant = false; };
   }, [lotId]);
   useEffect(() => lire(), [lire]);
+  // Arno (23/10/2026) — le statut changé dans « Modifier » la fiche entière (ou ailleurs) : la pastille et le dossier Drive se relisent.
+  useRelectureBien(lotId, () => { lire(); setCleDrive((k) => k + 1); });
   if (lu === null) return null;
   return (
     <section className="sdb" data-statut-du-bien={lu.statut}>
