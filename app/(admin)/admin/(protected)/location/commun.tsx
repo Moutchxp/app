@@ -124,12 +124,14 @@ export function gestesLocation(modifiable: boolean, apres: () => void): GestesCa
   };
 }
 
-export function EnTeteLocation({ titre, sous, actions, retour = true }: {
+export function EnTeteLocation({ titre, sous, actions, retour = true, retourVers }: {
   titre: string; sous?: React.ReactNode; actions?: React.ReactNode; retour?: boolean;
+  /** Arno (23/10/2026) — « Modifier » la fiche du bien : le lien de retour mène à la fiche (Gestion ou Location). Absent : la Location. */
+  retourVers?: { href: string; mot: string };
 }) {
   return (
     <header className="loc-tete">
-      {retour && <p className="loc-retour"><a href="/admin/location">← Location</a></p>}
+      {retour && <p className="loc-retour"><a href={retourVers?.href ?? '/admin/location'}>← {retourVers?.mot ?? 'Location'}</a></p>}
       <div className="loc-tete-ligne">
         <div>
           <h2 className="loc-titre">{titre}</h2>

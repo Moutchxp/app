@@ -16,10 +16,15 @@ import { liensVisibles } from './menuAdmin';
  */
 const RACINE = 'app/(admin)/admin/(protected)';
 const L = `${RACINE}/location`;
-const RETOUR_LOCATION = { fichier: `${L}/commun.tsx`, lien: '<a href="/admin/location">← Location</a>' };   // EnTeteLocation (retour par défaut)
+// EnTeteLocation (retour par défaut : « ← Location » ; Arno, 23/10/2026 : « Modifier » la fiche du bien y passe le retour vers la fiche).
+const RETOUR_LOCATION = { fichier: `${L}/commun.tsx`, lien: "<a href={retourVers?.href ?? '/admin/location'}>← {retourVers?.mot ?? 'Location'}</a>" };
+/** Arno (23/10/2026) — « Modifier » la fiche du bien : « ← Fiche du bien », vers la fiche de la tuile d'où l'on vient. */
+const RETOUR_FICHE_BIEN = [RETOUR_LOCATION, { fichier: `${L}/CreationBien.tsx`, lien: '<EnTeteLocation titre="Modifier le bien" retourVers={modification.retour}' }];
 const FICHE = { fichier: `${RACINE}/gestion/FicheCommune.tsx`, lien: '<a href="/admin/location">← Location</a>' };
 
 const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
+  'gestion/bien/[id]/modifier': [...RETOUR_FICHE_BIEN, { fichier: 'app/lib/gestion/ficheBienAdresses.ts', lien: "{ href: `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}`, mot: 'Fiche du bien' }" }],
+  'location/bien/[id]/modifier': [...RETOUR_FICHE_BIEN, { fichier: 'app/lib/gestion/ficheBienAdresses.ts', lien: "{ href: `/admin/location/bien/${lotId}`, mot: 'Fiche du bien' }" }],
   'gestion/rapprochement-dossiers': [{ fichier: `${RACINE}/gestion/rapprochement-dossiers/page.tsx`, lien: 'retour={URL_ACCUEIL_GESTION}' }],
   'location/bien/[id]': [FICHE, { fichier: `${L}/bien/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   'location/proprietaire/[id]': [FICHE, { fichier: `${L}/proprietaire/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],

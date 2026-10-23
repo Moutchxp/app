@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { usePathname } from 'next/navigation';
 import { formaterDateIso, titreLogement } from '../../../../lib/gestion/annuaireRecherche';
 import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
@@ -11,7 +11,7 @@ import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR } from '../../../../
 import { libelleEtage } from '../../../../lib/location/locationBien';
 import { lignesResume } from '../../../../lib/location/resumeBienLignes';
 import { CSS_EDITION_ENCART, useRelectureBien, useVersionBien } from './EditionEncart';
-import { ModifierFicheBien } from './ModifierFicheBien';
+import { adresseModifier } from '../../../../lib/gestion/ficheBienAdresses';
 
 /**
  * ══ 🔴🔴 FICHE BIEN — L'ENCART : UN RÉSUMÉ TOUJOURS VISIBLE, UN DÉTAIL DÉPLIABLE (Arno, 20/10/2026) ═══════════════════════════
@@ -25,9 +25,10 @@ import { ModifierFicheBien } from './ModifierFicheBien';
  *    déplacés. Un groupe du détail entièrement vide garde son titre et dit « non renseigné ».
  * Lu à la source (`resumeBienRepo.ts`) ; tant que la lecture n'est pas arrivée — ou si elle échoue — les lignes tirées de la
  * fiche (adresse, immeuble, type, pièces, surface) s'affichent seules.
- * 🔴 Arno (23/10/2026) : les cinq « Modifier » par groupe sont REMPLACÉS par UN seul « Modifier » (en tête de l'encart) qui ouvre le
- *    formulaire « Nouveau bien » ENTIER, pré-rempli (`ModifierFicheBien.tsx`) — l'encart lui-même n'a aucun champ de saisie. La fiche
- *    se met à jour toute seule : son empreinte est relue toutes les quelques secondes (`useVersionBien`).
+ * 🔴 Arno (23/10/2026) : les cinq « Modifier » par groupe sont REMPLACÉS par UN seul « Modifier » (en tête de l'encart) qui mène
+ *    DIRECTEMENT à la page « Ajouter un nouveau bien », pré-remplie (`/admin/{location|gestion}/bien/[id]/modifier`,
+ *    `ModifierFicheBien.tsx`) — l'encart lui-même n'a aucun champ de saisie. La fiche se met à jour toute seule : son empreinte est
+ *    relue toutes les quelques secondes (`useVersionBien`).
  */
 const API = '/api/admin/gestion/annuaire/location';
 
@@ -55,10 +56,8 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
   // Arno (21/10/2026) — la relecture : à chaque modification du bien dans la page, et au retour sur l'onglet (une seule source).
   const [relu, setRelu] = useState(0);
   useRelectureBien(f.id, () => setRelu((x) => x + 1));
-  const [modifier, setModifier] = useState(false);
-  // Les valeurs de l'import seul (sans la Location) : dites dans le formulaire quand le champ de Location est vide.
-  const imp = lignesResume({ nature: f.nature, typeBien: f.typeBien, surfaceM2: f.surfaceM2 }, undefined);
-  const importe = { type: imp.type, meuble: imp.meuble, pieces: imp.pieces, surface: imp.surfaces[0]?.m2 ?? null };
+  // La page « Modifier » de la tuile d'où l'on vient (la fiche est commune à la Gestion et à la Location).
+  const depuisLaLocation = (usePathname() ?? '').startsWith('/admin/location');
   useEffect(() => {
     let vivant = true;
     if (relu === 0) setR(null);
@@ -72,7 +71,7 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
     return () => { vivant = false; };
   }, [f.id, relu]);
   // Arno (23/10/2026) — la mise à jour automatique : l'empreinte du bien, relue toutes les quelques secondes (après la lecture du résumé).
-  const version = useVersionBien(f.id);
+  useVersionBien(f.id);
 
   const c = r?.caracteristiques;
   const lr = lignesResume({ nature: f.nature, typeBien: f.typeBien, surfaceM2: f.surfaceM2 }, c === undefined ? undefined : {
@@ -107,12 +106,9 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
   return (
     <div className={`rb${deplie ? ' rb--deplie' : ''}`} data-resume-bien data-deplie={deplie ? 'oui' : 'non'} onClick={surClic}>
       <style>{CSS_RESUME_BIEN + CSS_EDITION_ENCART}</style>
-      {modifier && typeof document !== 'undefined' && createPortal(
-        // Dans la racine de l'admin (comme les modales) : le thème clair / sombre s'y applique.
-        <ModifierFicheBien lotId={f.id} versionDistante={version} importe={importe} onFermer={() => setModifier(false)} />, document.querySelector('.svv-adm-root') ?? document.body)}
       <section className="rb-groupe rb-resume" data-groupe="caracteristiques">
         <div className="eden-tete"><h4 className="rb-titre">Caractéristiques</h4>
-          {modifiable && r !== null && <button type="button" className="eden-bouton" onClick={() => setModifier(true)} data-modifier-fiche>Modifier</button>}</div>
+          {modifiable && r !== null && <a className="eden-bouton" href={adresseModifier(f.id, depuisLaLocation)} data-modifier-fiche>Modifier</a>}</div>
         <>
         {/* Arno (20/10/2026) : deux colonnes côte à côte à partir de 768 px — « Le bien » à gauche, « Surfaces et bâti » à droite
             (sans sous-titre visible) ; au téléphone, une seule colonne, la gauche puis la droite. */}

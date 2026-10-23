@@ -1,83 +1,91 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { CreationBien } from '../location/CreationBien';
 import { ModaleIssue } from '../location/ModaleIssue';
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
-import { annoncerBienModifie, type ImportBien } from './EditionEncart';
+import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
+import { lignesResume } from '../../../../lib/location/resumeBienLignes';
+import { annoncerBienModifie, useVersionBien, type ImportBien } from './EditionEncart';
 
 /**
- * ══ 🔴🔴 « MODIFIER » LA FICHE DU BIEN : LE FORMULAIRE « NOUVEAU BIEN » ENTIER, PRÉ-REMPLI (Arno, 23/10/2026) ═══════════════════════
+ * ══ 🔴🔴 « MODIFIER » LA FICHE DU BIEN : LA PAGE « AJOUTER UN NOUVEAU BIEN », À L'IDENTIQUE (Arno, 23/10/2026) ═════════════════════
  *
- * L'UNIQUE « Modifier » de l'encart du bien (il remplace les cinq « Modifier » par groupe — accord d'Arno du 23/10/2026) ouvre, en
- * plein écran, le MÊME composant que « Ajouter un nouveau bien » (`CreationBien`, mode modification), rempli des valeurs ACTUELLES
- * relues à la source. Le même écran dans la Gestion et dans la Location (la fiche est commune). Échap ou « Annuler » referme (une
- * saisie en cours demande confirmation). `versionDistante` : l'empreinte que la fiche relit toutes les quelques secondes — si elle
+ * « Un clic sur “Modifier” du bloc Caractéristiques doit afficher DIRECTEMENT la page “Ajouter un nouveau bien” de la tuile Location,
+ * présentation STRICTEMENT identique (mêmes blocs numérotés, mêmes cartes, mêmes boutons, mêmes largeurs, même barre du bas), SAUF le
+ * bloc 1 “Propriétaire(s)” […] Tout est pré-rempli. Un seul écran. » Une PAGE, donc, et non un calque : `/admin/location/bien/[id]/modifier`
+ * et `/admin/gestion/bien/[id]/modifier` rendent ce composant dans la même `<section className="gst-page">` que `nouveau-bien` — même
+ * mise en page, mêmes largeurs —, et ce composant rend `CreationBien` (le MÊME composant que la page d'origine, en mode modification).
+ * « Annuler » et la fin de l'enregistrement reviennent à la fiche. L'empreinte du bien est relue toutes les quelques secondes : si elle
  * change pendant la saisie, le formulaire le dit (« Ce bien a été modifié par ailleurs — recharger ? »).
  */
 const API = '/api/admin/gestion/annuaire/location';
 
-export function ModifierFicheBien({ lotId, versionDistante, importe, onFermer }: { lotId: number; versionDistante: string | null; importe?: ImportBien; onFermer: () => void }) {
+export function ModifierFicheBien({ lotId, retour }: { lotId: number; retour: { href: string; mot: string } }) {
+  const router = useRouter();
   const [lecture, setLecture] = useState<LectureFiche | null>(null);
+  const [importe, setImporte] = useState<ImportBien | undefined>(undefined);
   const [refus, setRefus] = useState<string | null>(null);
   const [n, setN] = useState(0);
-  const panneau = useRef<HTMLDivElement | null>(null);
+  const versionDistante = useVersionBien(lotId);
   const lire = useCallback(async (): Promise<void> => {
     try {
       const r = await fetch(`${API}?ficheEntiere=${lotId}`, { cache: 'no-store' });
       const d = await r.json() as { etat?: string; data?: LectureFiche };
       if (d.etat === 'ok' && d.data) { setLecture(d.data); setRefus(null); setN((x) => x + 1); return; }
-      setRefus(d.etat === 'sans_schema' ? 'La base de données n’est pas à jour pour modifier ce bien.' : 'La fiche du bien n’a pas pu être lue.');
+      setRefus(d.etat === 'inconnu' ? 'Ce bien n’existe pas (ou plus).' : d.etat === 'sans_schema' ? 'La base de données n’est pas à jour pour modifier ce bien.' : 'La fiche du bien n’a pas pu être lue.');
     } catch { setRefus('La fiche du bien n’a pas pu être lue : le serveur n’a pas répondu.'); }
   }, [lotId]);
   useEffect(() => { void lire(); }, [lire]);
-  // La page dessous ne défile plus tant que le formulaire est ouvert ; le focus va au panneau.
+  // Les valeurs de l'import WIPPIMMO que l'encart affiche quand la Location est vide : DITES dans le formulaire, jamais recopiées.
   useEffect(() => {
-    const avant = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    panneau.current?.focus();
-    return () => { document.body.style.overflow = avant; };
-  }, []);
+    let vivant = true;
+    void fetch(`/api/admin/gestion/annuaire?lot=${lotId}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: FicheLot }>)
+      .then((d) => {
+        if (!vivant || d.etat !== 'ok' || d.data === undefined) return;
+        const imp = lignesResume({ nature: d.data.nature, typeBien: d.data.typeBien, surfaceM2: d.data.surfaceM2 }, undefined);
+        setImporte({ type: imp.type, meuble: imp.meuble, pieces: imp.pieces, surface: imp.surfaces[0]?.m2 ?? null });
+      }).catch(() => {});
+    return () => { vivant = false; };
+  }, [lotId]);
+  const revenir = useCallback((): void => { router.push(retour.href); }, [router, retour.href]);
+  if (lecture === null) {
+    return refus === null ? <p className="loc-muet" role="status">Lecture de la fiche du bien…</p> : (
+      <ModaleIssue sorte="erreur" titre="Modification impossible" onFermer={revenir}
+        echec={{ quoi: 'Le formulaire ne s’ouvre pas.', pourquoi: refus, faire: 'Revenez à la fiche, puis réessayez dans un instant.', conserve: 'Rien n’a été modifié.' }}
+        actions={[{ libelle: 'Revenir à la fiche', onClick: revenir, principal: true, repere: 'fermer-lecture' }]} />
+    );
+  }
   return (
-    <div className="mfb-plein" role="dialog" aria-modal="true" aria-label="Modifier le bien" tabIndex={-1} ref={panneau} data-modifier-fiche-bien={lotId}>
+    <>
       <style>{CSS_MODIFIER_FICHE_BIEN}</style>
-      <div className="mfb-dedans">
-        {lecture === null && refus === null && <p className="loc-muet" role="status">Lecture de la fiche du bien…</p>}
-        {lecture === null && refus !== null && (
-          <ModaleIssue sorte="erreur" titre="Modification impossible" onFermer={onFermer}
-            echec={{ quoi: 'Le formulaire ne s’ouvre pas.', pourquoi: refus, faire: 'Fermez, puis réessayez dans un instant.', conserve: 'Rien n’a été modifié.' }}
-            actions={[{ libelle: 'Fermer', onClick: onFermer, principal: true, repere: 'fermer-lecture' }]} />
-        )}
-        {lecture !== null && (
-          <CreationBien key={`${lecture.version}-${n}`} proprietairesInitiaux={[]}
-            modification={{
-              lotId, lecture, versionDistante, importe, onFermer,
-              onEnregistre: () => { annoncerBienModifie(lotId); onFermer(); },
-              onRecharger: () => { void lire(); },
-              enregistrer: async (saisie) => {
-                const r = await fetch(API, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
-                  body: JSON.stringify({ action: 'modifier-fiche-bien', id: lotId, saisie }),
-                });
-                return { statut: r.status, corps: await r.json().catch(() => ({})) };
-              },
-              occupationsDe: async (annexeId) => {
-                const r = await fetch(`${API}?apercuArchivage=${annexeId}&sujet=bien`, { cache: 'no-store' });
-                const d = await r.json() as { data?: { occupees?: unknown[] } };
-                return Array.isArray(d.data?.occupees) ? d.data.occupees.length : 0;
-              },
-            }} />
-        )}
-      </div>
-    </div>
+      <CreationBien key={`${lecture.version}-${n}`} proprietairesInitiaux={[]}
+        modification={{
+          lotId, lecture, versionDistante, importe, retour,
+          onFermer: revenir,
+          onEnregistre: () => { annoncerBienModifie(lotId); revenir(); },
+          onRecharger: () => { void lire(); },
+          enregistrer: async (saisie) => {
+            const r = await fetch(API, {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
+              body: JSON.stringify({ action: 'modifier-fiche-bien', id: lotId, saisie }),
+            });
+            return { statut: r.status, corps: await r.json().catch(() => ({})) };
+          },
+          occupationsDe: async (annexeId) => {
+            const r = await fetch(`${API}?apercuArchivage=${annexeId}&sujet=bien`, { cache: 'no-store' });
+            const d = await r.json() as { data?: { occupees?: unknown[] } };
+            return Array.isArray(d.data?.occupees) ? d.data.occupees.length : 0;
+          },
+        }} />
+    </>
   );
 }
 
-/** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; sous les modales (90) ; rien ne deborde. */
+/** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; rien ne deborde. */
 export const CSS_MODIFIER_FICHE_BIEN = `
-.mfb-plein{position:fixed;inset:0;z-index:80;background:var(--color-svv-bg);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;cursor:auto;outline:none}
-.mfb-dedans{box-sizing:border-box;max-width:1100px;margin:0 auto;padding:16px 16px 0;min-width:0}
-.mfb-conflit{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px;padding:10px 14px;border-radius:14px;border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
+.mfb-conflit{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0;padding:10px 14px;border-radius:14px;border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .mfb-conflit .svv-btn{min-height:44px;width:auto;margin:0}
 .mfb-sortie{opacity:.7}
 .mfb-sortie .loc-annexe-titre{text-decoration:line-through}

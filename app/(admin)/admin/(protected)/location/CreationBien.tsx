@@ -134,6 +134,8 @@ export interface ModificationBien {
   onEnregistre: () => void;
   /** « Recharger » : relire la fiche (la saisie en cours est abandonnée). */
   onRecharger: () => void;
+  /** Le lien « ← … » de l'en-tête : la fiche du bien d'où l'on vient (Gestion ou Location). */
+  retour: { href: string; mot: string };
   /**
    * Les appels de la FICHE COMMUNE (la route de la Gestion, gardée par `perm_gestion`), fournis par l'hôte : ce formulaire de la
    * Location ne parle qu'à sa propre route (garde `locationBien.test.ts`).
@@ -211,7 +213,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number }
     // « Modifier » la fiche (Arno, 23/10/2026) : contre-validation, succès, version dépassée, abandon de la saisie.
     | { sorte: 'contre'; changements: ChangementFiche[]; notes: string[]; confirmeOccupation: boolean } | { sorte: 'succes-modif'; changements: ChangementFiche[]; notes: string[] }
-    | { sorte: 'conflit' } | { sorte: 'abandon' } | null>(null);
+    | { sorte: 'conflit' } | { sorte: 'abandon' } | { sorte: 'aucune' } | null>(null);
   /* Arno (21/10/2026) — GARDE-FOU « SÉLECTION EN ATTENTE » : le panneau « Qui rattacher à ce bien ? » confie ici son geste
      « Rattacher la sélection » tant que des cases cochées n'ont pas été rattachées ; « Rattacher et enregistrer » l'emploie,
      puis enregistre dès que les cartes sont posées. */
@@ -417,7 +419,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   }, [modification]);
   const validerModification = async (): Promise<void> => {
     if (modification === undefined || saisieModif === null || enCours.current || enregistre !== null) return;
-    if (changementsModif.length === 0) return;
+    if (changementsModif.length === 0) { setIssue({ sorte: 'aucune' }); return; }
     const refus = refusFiche(modification.lecture, saisieModif);
     if (refus !== null) { setIssue({ sorte: 'erreur', cause: 'saisie', motif: refus }); return; }
     // « Supprimer » une annexe LOUÉE : l'avertissement de la fiche, dit dans la contre-validation (la sortie clôt ses locations).
@@ -464,11 +466,13 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const aujourdhui = aujourdhuiParis();
   const dpeNonSoumis = b.dpeClasse === DPE_NON_SOUMIS;
   // En continuité, les propriétaires sont ceux qu'on vient de saisir (au moins un, vérifié par l'écran du dessus).
-  const manque = manquesDuBien({
-    proprietaireIds: continuite !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
+  // En modification : le bien a ses propriétaires, et son statut ne se « choisit » pas (il change par une transition) ; une annexe
+  // n'a pas de famille à choisir. « Reste à renseigner » y est une INFORMATION, jamais un blocage.
+  const manque = ficheAnnexe ? {} : manquesDuBien({
+    proprietaireIds: continuite !== undefined || modification !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
     dpeClasse: b.dpeClasse, dpeDate: b.dpeDate, entretienAPrevoir: entretien.aPrevoir, entretiens: versEnvoiEntretien(entretien).entretiens, aujourdhui,
     annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })) : [],
-    ...(enGestion !== undefined ? { enGestion } : {}),
+    ...(enGestion !== undefined && modification === undefined ? { enGestion } : {}),
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
@@ -574,7 +578,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = [...(continuite !== undefined || modification !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
+  // Arno (23/10/2026) : en modification, le bloc 1 « Propriétaire(s) » n'apparaît pas, et les suivants GARDENT leur numéro (2, 3, 4…).
+  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
     ...(continuite !== undefined ? [] : ['gestion'])];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
@@ -585,8 +590,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE}</style>
       {modification !== undefined ? (
         <>
-          <EnTeteLocation titre="Modifier le bien" retour={false}
-            sous={<>Toutes les informations du bien, pré-remplies. « Valider les modifications » montre d’abord ce qui change (ancienne valeur → nouvelle valeur), puis enregistre.</>} />
+          {/* Arno (23/10/2026) : la page « Ajouter un nouveau bien », à l'identique, sans le bloc « Propriétaire(s) » (le bien y est
+              déjà rattaché) ; tout est pré-rempli. */}
+          <EnTeteLocation titre="Modifier le bien" retourVers={modification.retour}
+            sous={<>Toutes les informations du bien, pré-remplies. « Enregistrer les modifications » montre d’abord ce qui change (ancienne valeur → nouvelle valeur), puis enregistre.</>} />
           {conflit && (
             <div className="mfb-conflit" role="alert" data-conflit-version>
               <span>Ce bien a été modifié par ailleurs — recharger ?</span>
@@ -594,15 +601,6 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               <span className="mfb-note">Recharger reprend les valeurs enregistrées ; la saisie en cours est abandonnée.</span>
             </div>
           )}
-          <section className="loc-section loc-rappel" aria-labelledby="loc-rappel-modif" data-rappel-proprietaires>
-            <h3 id="loc-rappel-modif">{modification.lecture.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire'}</h3>
-            {modification.lecture.proprietaires.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun propriétaire rattaché.</p> : (
-              <ul className="loc-rappel-liste">
-                {modification.lecture.proprietaires.map((p, i) => <li key={`p${i}`}><BadgeCarte cote="proprietaire" sorte="client" /> <strong>{p}</strong></li>)}
-              </ul>
-            )}
-            <p className="loc-muet" style={{ margin: 0 }}>Lecture seule : les propriétaires et leurs contacts se modifient sur la fiche.</p>
-          </section>
         </>
       ) : continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
@@ -986,13 +984,15 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       )}
       {modification !== undefined ? (
       <div className="loc-collant" data-collant>
+        {/* La barre de « Nouveau bien » : « Reste à renseigner » (information — une fiche existante n'est jamais bloquée par les
+            obligatoires de la création, règle de `bienComplet.ts`), « Annuler », le bouton rouge. */}
         <p className={`loc-manques${conflit ? ' loc-manques--refus' : ''}`} role="status" data-etat-modification>
           {conflit ? 'Ce bien a été modifié par ailleurs — recharger ?' : enregistre !== null ? '✓ Modifications enregistrées.'
-            : changementsModif.length === 0 ? 'Aucune modification.' : `${changementsModif.length} modification${changementsModif.length > 1 ? 's' : ''} à valider.`}
+            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.'}
         </p>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annulerModification} data-annuler-modification>{enregistre !== null ? 'Fermer' : 'Annuler'}</button>
-        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null || changementsModif.length === 0} aria-busy={envoi} data-valider-modification>
-          {envoi ? 'Enregistrement…' : 'Valider les modifications'}</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annulerModification} data-annuler-modification>Annuler</button>
+        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null} aria-busy={envoi} data-valider-modification>
+          {envoi ? 'Enregistrement…' : 'Enregistrer les modifications'}</button>
       </div>
       ) : (
       <div className="loc-collant" data-collant>
@@ -1024,6 +1024,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           notes={[`${changementsModif.length} modification${changementsModif.length > 1 ? 's' : ''} non enregistrée${changementsModif.length > 1 ? 's' : ''} : fermer les perdra.`]}
           actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), principal: true, repere: 'revenir-saisie' },
             { libelle: 'Abandonner', onClick: () => { setIssue(null); modification.onFermer(); }, repere: 'abandonner-modification' }]} />
+      ) : issue.sorte === 'aucune' ? (
+        <ModaleIssue sorte="attention" titre="Aucune modification" onFermer={() => setIssue(null)}
+          notes={['Rien n’a changé par rapport à la fiche du bien : il n’y a rien à enregistrer.']}
+          actions={[{ libelle: 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-aucune' }]} />
       ) : issue.sorte === 'erreur' ? (
         <ModaleIssue sorte="erreur" titre="Modifications non enregistrées" onFermer={() => setIssue(null)}
           echec={explicationEchecDe('Les modifications n’ont pas été enregistrées.', '« Valider les modifications »', issue.cause, issue.motif)}

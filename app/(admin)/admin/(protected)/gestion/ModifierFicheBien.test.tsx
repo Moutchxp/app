@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
+const nav = vi.hoisted(() => ({ chemin: '/admin/gestion', push: vi.fn() }));
+vi.mock('next/navigation', () => ({ usePathname: () => nav.chemin, useRouter: () => ({ push: nav.push }) }));
 import { ResumeBienFiche } from './ResumeBien';
+import { ModifierFicheBien } from './ModifierFicheBien';
 import { EVENEMENT_BIEN_MODIFIE, AVERTISSEMENT_SORTIE, HistoriqueEncart, INTERVALLE_VERSION_MS } from './EditionEncart';
 import { valeursDepuis } from '../../../../lib/location/encartBien';
 import { gestesPour } from '../../../../lib/gestion/statutBien';
@@ -12,7 +15,9 @@ import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
 
 /**
- * 🔴 Arno (23/10/2026, réponse « B ») — LA FICHE DU BIEN SE MODIFIE EN ENTIER, avec le vrai composant et un `fetch` simulé :
+ * 🔴 Arno (23/10/2026, réponse « B », puis sa précision du même jour : la PAGE « Ajouter un nouveau bien », à l'identique, sans le bloc
+ * « Propriétaire(s) », numérotation d'origine, barre « Reste à renseigner », « Enregistrer les modifications ») — LA FICHE DU BIEN SE
+ * MODIFIE EN ENTIER, avec les vrais composants et un `fetch` simulé :
  *   · UN seul « Modifier » (les cinq « Modifier » par groupe sont retirés, accord d'Arno) ouvre le formulaire « Nouveau bien » ENTIER,
  *     pré-rempli (adresse, famille, caractéristiques, situation, annexes, copropriété, DPE, PNO, statut, commentaire) ;
  *   · aucune valeur perdue : relue telle quelle, la saisie ne compte aucun changement, et l'envoi rend chaque valeur lue ;
@@ -61,7 +66,10 @@ let version: string;
 let lecture: LectureFiche;
 let occupees: unknown[];
 let appels: { url: string; init?: RequestInit }[];
+let ficheLot: FicheLot;
+const RETOUR = { href: '/admin/gestion?ecran=annuaire&fiche=lot-7', mot: 'Fiche du bien' };
 beforeEach(() => {
+  nav.chemin = '/admin/gestion'; nav.push.mockReset(); ficheLot = FICHE;
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = []; version = 'v1'; lecture = LECTURE; occupees = [];
   reponsePost = async () => ok({ changements: [{ cle: 'commentaire', champ: 'Commentaire libre', avant: 'Avant.', apres: 'Après.' }], notes: [] });
@@ -73,6 +81,7 @@ beforeEach(() => {
     if (u.includes('?versionBien=')) return ok({ version });
     if (u.includes('?ficheEntiere=')) return ok(lecture);
     if (u.includes('?apercuArchivage=')) return ok({ occupees });
+    if (u.startsWith('/api/admin/gestion/annuaire?lot=')) return ok(ficheLot);
     return ok(null);
   }) as unknown as typeof fetch;
 });
@@ -89,34 +98,41 @@ const saisir = async (e: HTMLInputElement | HTMLTextAreaElement, v: string) => {
 };
 /** Le champ d'un libellé du formulaire (« Commune », « Surface Carrez/Boutin m² »…). */
 const champ = (mot: string): HTMLInputElement | HTMLTextAreaElement => {
-  const l = [...document.querySelectorAll('[data-modifier-fiche-bien] label')].find((x) => (x.firstChild?.textContent ?? x.textContent ?? '').trim().startsWith(mot));
+  const l = [...document.querySelectorAll('form.loc-page label')].find((x) => (x.firstChild?.textContent ?? x.textContent ?? '').trim().startsWith(mot));
   const e = l?.querySelector('input, textarea, select');
   if (!e) throw new Error(`champ absent : ${mot}`);
   return e as HTMLInputElement;
 };
-const commentaire = () => q('[data-modifier-fiche-bien] textarea[maxlength="4000"]') as HTMLTextAreaElement;
+const commentaire = () => q('form.loc-page textarea[maxlength="4000"]') as HTMLTextAreaElement;
 const modale = () => q('.mis-boite') as HTMLElement | null;
 const posts = () => appels.filter((a) => a.init?.method === 'POST');
-const ouvrir = async () => { await rendre(); await clic('[data-modifier-fiche]'); };
+/** La PAGE « Modifier » (celle de `/admin/{gestion|location}/bien/[id]/modifier`). */
+const ouvrir = async () => { await act(async () => { root.render(createElement(ModifierFicheBien, { lotId: 7, retour: RETOUR })); }); await attendre(); };
 
-describe('🔴 UN seul « Modifier » ouvre le formulaire « Nouveau bien » entier', () => {
+describe('🔴 UN seul « Modifier » mène à la page « Ajouter un nouveau bien », pré-remplie', () => {
   it('sans droit de modifier : aucun « Modifier »', async () => {
     await rendre(false);
     expect(q('[data-modifier-fiche]')).toBeNull();
   });
 
-  it('un seul « Modifier » ; les cinq « Modifier » par groupe ont disparu ; l’encart n’a aucun champ de saisie', async () => {
+  it('un seul « Modifier » — un LIEN vers la page de la tuile ; les cinq « Modifier » par groupe ont disparu ; l’encart n’a aucun champ', async () => {
     await rendre();
     expect(document.querySelectorAll('[data-modifier-fiche]')).toHaveLength(1);
+    expect(q('[data-modifier-fiche]')?.getAttribute('href')).toBe('/admin/gestion/bien/7/modifier');
+    act(() => root.unmount()); root = createRoot(container); nav.chemin = '/admin/location/bien/7';
+    await rendre();
+    expect(q('[data-modifier-fiche]')?.getAttribute('href')).toBe('/admin/location/bien/7/modifier');
     expect(document.querySelectorAll('[data-modifier-groupe]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-resume-bien] input, [data-resume-bien] textarea, [data-resume-bien] select')).toHaveLength(0);
   });
 
-  it('ouvert : TOUS les blocs de « Nouveau bien », pré-remplis des valeurs lues ; rien à valider', async () => {
+  it('la page : TOUS les blocs de « Nouveau bien » SAUF « Propriétaire(s) », numérotation d’origine (2…8), pré-remplis', async () => {
     await ouvrir();
-    expect(q('[data-modifier-fiche-bien]')?.getAttribute('role')).toBe('dialog');
     expect(q('.loc-titre')?.textContent).toBe('Modifier le bien');
-    expect(q('[data-rappel-proprietaires]')?.textContent).toContain('DURAND Léa');
+    expect(q('.loc-retour a')?.getAttribute('href')).toBe(RETOUR.href);
+    expect(q('[aria-labelledby="loc-b1"]')).toBeNull();
+    expect(q('[data-rappel-proprietaires]')).toBeNull();
+    expect([...document.querySelectorAll('form.loc-page section.loc-section > h3 .loc-num')].map((x) => x.textContent)).toEqual(['2', '3', '4', '5', '6', '7', '8']);
     expect(q('[data-famille="logement"]')?.getAttribute('aria-pressed')).toBe('true');
     expect((q('[data-bloc-bien] [aria-label="Type de logement"] [aria-pressed="true"]'))?.textContent).toMatch(/Appartement/);
     expect(champ('Surface Carrez/Boutin m²').value).toBe('61,8');
@@ -132,17 +148,24 @@ describe('🔴 UN seul « Modifier » ouvre le formulaire « Nouveau bien » ent
     expect(q('[data-annexe-id="31"]')).not.toBeNull();
     expect(q('[data-bloc-statut-modification]')?.textContent).toContain('Mandat de gestion n° MG-41');
     expect(commentaire().value).toBe('Avant.');
-    expect(q('[data-etat-modification]')?.textContent).toBe('Aucune modification.');
-    expect((q('[data-valider-modification]') as HTMLButtonElement).disabled).toBe(true);
+    // La barre de « Nouveau bien » : « Reste à renseigner » (une information), « Annuler », le bouton rouge.
+    expect(q('[data-etat-modification]')?.textContent).toBe('Tout l’obligatoire est renseigné.');
+    expect(q('[data-valider-modification]')?.textContent).toBe('Enregistrer les modifications');
+    expect((q('[data-valider-modification]') as HTMLButtonElement).disabled).toBe(false);
+    expect(document.querySelectorAll('[data-modifier-groupe], [data-bascule-detail]')).toHaveLength(0);
+    // Rien de changé : rien à enregistrer, et c'est dit.
+    await clic('[data-valider-modification]');
+    expect(modale()?.textContent).toContain('Aucune modification');
+    expect(posts()).toHaveLength(0);
   });
 
   it('les valeurs de l’import WIPPIMMO, quand la Location est vide, sont DITES (jamais recopiées)', async () => {
     lecture = { ...LECTURE, encart: { ...LECTURE.encart, valeurs: { ...VALEURS, typeLogement: '', nombrePieces: '', meuble: '' } } };
-    await act(async () => { root.render(createElement(ResumeBienFiche, { f: { ...FICHE, nature: 'Appartement meublé', typeBien: 'T3' } as FicheLot, ouvrir: () => {}, modifiable: true })); });
-    await attendre();
-    await clic('[data-modifier-fiche]');
+    ficheLot = { ...FICHE, nature: 'Appartement meublé', typeBien: 'T3' } as FicheLot;
+    await ouvrir();
     expect(q('[data-importe]')?.textContent).toBe('Affiché d’après l’import WIPPIMMO tant que ces champs sont vides : Type : Logement · Appartement · Meublé : oui · Pièces : 3.');
-    expect(q('[data-etat-modification]')?.textContent).toBe('Aucune modification.');
+    // « Reste à renseigner » le dit — sans bloquer : une fiche existante ne l'est jamais par les obligatoires de la création.
+    expect(q('[data-etat-modification]')?.textContent).toBe('Reste à renseigner : Le type de logement est obligatoire.');
   });
 });
 
@@ -150,7 +173,6 @@ describe('🔴 aucune valeur perdue, contre-validation, enregistrement', () => {
   it('un changement → contre-validation « Champ : ancienne → nouvelle » ; Confirmer → UNE requête qui rend CHAQUE valeur lue ; succès ; la page est prévenue', async () => {
     await ouvrir();
     await saisir(commentaire(), 'Après.');
-    expect(q('[data-etat-modification]')?.textContent).toBe('1 modification à valider.');
     await clic('[data-valider-modification]');
     expect([...document.querySelectorAll('[data-contre-validation] li')].map((l) => l.textContent)).toEqual(['Commentaire libre : Avant. → Après.']);
     const annonces: unknown[] = [];
@@ -173,7 +195,7 @@ describe('🔴 aucune valeur perdue, contre-validation, enregistrement', () => {
     expect(annonces).toContainEqual({ lotId: 7 });
     window.removeEventListener(EVENEMENT_BIEN_MODIFIE, ecoute);
     await clic('[data-fermer-succes-modification]');
-    expect(q('[data-modifier-fiche-bien]')).toBeNull();
+    expect(nav.push).toHaveBeenCalledWith(RETOUR.href);   // retour à la fiche
   });
 
   it('« Revenir à la saisie » garde la saisie ; refus du serveur → modale rouge, la saisie reste', async () => {
@@ -237,32 +259,33 @@ describe('🔴 « Ce bien a été modifié par ailleurs — recharger ? » et la
     vi.useFakeTimers();
     await ouvrir();
     expect(q('[data-conflit-version]')).toBeNull();
-    const resumes = () => appels.filter((a) => a.url.includes('?resume=')).length;
-    const avant = resumes();
+    const annonces: unknown[] = [];
+    window.addEventListener(EVENEMENT_BIEN_MODIFIE, (e) => annonces.push((e as CustomEvent).detail));
     version = 'v2';
     await act(async () => { await vi.advanceTimersByTimeAsync(INTERVALLE_VERSION_MS); });
     await attendre();
-    expect(resumes()).toBe(avant + 1);   // l'encart s'est relu de lui-même
+    expect(annonces).toContainEqual({ lotId: 7 });   // la page est prévenue
     expect(q('[data-conflit-version]')?.textContent).toContain('Ce bien a été modifié par ailleurs — recharger ?');
     expect(q('[data-etat-modification]')?.textContent).toBe('Ce bien a été modifié par ailleurs — recharger ?');
   });
 });
 
 describe('🔴 Annuler, Échap, sortie de page', () => {
-  it('sans changement : « Annuler » et Échap referment ; avec changement : la question, « Abandonner » referme', async () => {
+  it('sans changement : « Annuler » (et Échap) revient à la fiche ; avec changement : la question, « Abandonner » revient ; rien d’écrit', async () => {
     await ouvrir();
     await clic('[data-annuler-modification]');
-    expect(q('[data-modifier-fiche-bien]')).toBeNull();
-    await clic('[data-modifier-fiche]');
+    expect(nav.push).toHaveBeenLastCalledWith(RETOUR.href);
+    nav.push.mockReset();
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
     await attendre();
-    expect(q('[data-modifier-fiche-bien]')).toBeNull();
-    await clic('[data-modifier-fiche]');
+    expect(nav.push).toHaveBeenLastCalledWith(RETOUR.href);
+    nav.push.mockReset();
     await saisir(commentaire(), 'Après.');
     await clic('[data-annuler-modification]');
     expect(modale()?.textContent).toContain('Abandonner les modifications ?');
+    expect(nav.push).not.toHaveBeenCalled();
     await clic('[data-abandonner-modification]');
-    expect(q('[data-modifier-fiche-bien]')).toBeNull();
+    expect(nav.push).toHaveBeenLastCalledWith(RETOUR.href);
     expect(posts()).toHaveLength(0);
   });
 
@@ -280,13 +303,12 @@ describe('🔴 Annuler, Échap, sortie de page', () => {
     expect(question).toHaveBeenCalledWith(`${AVERTISSEMENT_SORTIE} Quitter quand même ?`);
   });
 
-  it('un clic dans le formulaire ne replie ni ne déplie l’encart', async () => {
+  it('la fiche reste celle d’avant : « Voir le détail du bien » déplie et replie l’encart', async () => {
     await rendre();
     await clic('[data-bascule-detail]');
     expect(q('[data-resume-bien]')?.dataset.deplie).toBe('oui');
-    await clic('[data-modifier-fiche]');
-    await clic(q('[data-bloc-bien] h3') as HTMLElement);
-    expect(q('[data-resume-bien]')?.dataset.deplie).toBe('oui');
+    await clic('[data-bascule-detail]');
+    expect(q('[data-resume-bien]')?.dataset.deplie).toBe('non');
   });
 });
 
@@ -317,12 +339,18 @@ describe('🔴 relecture et Historique', () => {
 
 describe('🔴 le MÊME écran dans la Gestion et dans la Location', () => {
   const src = (f: string) => readFileSync(f, 'utf8');
-  it('la fiche Location rend la fiche commune de la Gestion, qui rend l’encart, dont « Modifier » ouvre le composant de « Nouveau bien »', () => {
+  it('les deux pages « Modifier » rendent le MÊME composant que « Ajouter un nouveau bien », dans la même section de page', () => {
     expect(src('app/(admin)/admin/(protected)/location/bien/[id]/page.tsx')).toContain('<FicheCommuneLocation');
-    expect(src('app/(admin)/admin/(protected)/gestion/FicheCommune.tsx')).toContain('<Annuaire ');
     expect(src('app/(admin)/admin/(protected)/gestion/Annuaire.tsx')).toContain('<ResumeBienFiche ');
-    expect(src('app/(admin)/admin/(protected)/gestion/ResumeBien.tsx')).toContain('<ModifierFicheBien ');
+    expect(src('app/(admin)/admin/(protected)/gestion/ResumeBien.tsx')).toContain('href={adresseModifier(f.id, depuisLaLocation)}');
+    for (const f of ['location/bien/[id]/modifier/page.tsx', 'gestion/bien/[id]/modifier/page.tsx']) {
+      const p = src(`app/(admin)/admin/(protected)/${f}`);
+      expect(p, f).toContain('<section className="gst-page">');
+      expect(p, f).toContain('<ModifierFicheBien lotId={id} retour={retourVersLaFiche(id, ');
+    }
     expect(src('app/(admin)/admin/(protected)/gestion/ModifierFicheBien.tsx')).toContain('<CreationBien ');
-    expect(src('app/(admin)/admin/(protected)/location/nouveau-bien/page.tsx')).toContain('<CreationBien ');
+    const nouveau = src('app/(admin)/admin/(protected)/location/nouveau-bien/page.tsx');
+    expect(nouveau).toContain('<section className="gst-page">');
+    expect(nouveau).toContain('<CreationBien proprietairesInitiaux={ids} />');
   });
 });

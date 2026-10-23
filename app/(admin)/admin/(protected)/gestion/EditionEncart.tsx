@@ -107,6 +107,7 @@ export const CSS_EDITION_ENCART = `
 .eden-tete .rb-titre{margin:0}
 .eden-boutons{display:inline-flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
 .eden-bouton{appearance:none;font:inherit;font-weight:700;font-size:.9rem;min-height:44px;padding:6px 14px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer}
+a.eden-bouton{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
 .eden-bouton--valider{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-blanc)}
 .eden-bouton:disabled{opacity:.6;cursor:progress}
 .eden-form{cursor:auto;gap:12px;padding-top:6px;min-width:0}
