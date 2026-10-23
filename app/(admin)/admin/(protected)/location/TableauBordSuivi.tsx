@@ -525,10 +525,11 @@ function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: Retur
 /**
  * L'HISTOGRAMME du suivi (Arno, 23/10/2026) — une barre par période (année du Suivi annuel, mois du Suivi du mois) ; la période
  * affichée en rouge, les autres en gris ; à côté, une barre claire hachurée pour N−1 quand elle existe ; une période sans valeur
- * (un mois à venir) n'a PAS de barre. Au survol, une BULLE structurée (la période ; en rouge l'année affichée ; en gris N−1 ;
+ * (un mois à venir) n'a PAS de barre. Au survol, le BLOC DE DÉTAIL se met à jour (la période ; en rouge l'année affichée ; en gris N−1 ;
  * l'écart en pied) ; un clic (ou un toucher) ouvre la période. Arno (23/10/2026) : le DÉTAIL s'écrit À DROITE du graphique, dans la
- * même carte, aligné en haut (largeur fixe ; le graphique prend le reste) — la période choisie, ou la barre survolée ; au téléphone,
- * sous le graphique, pleine largeur.
+ * même carte, centré verticalement sur le graphique (largeur fixe ; le graphique prend le reste) — la période choisie, ou la barre
+ * survolée ; au téléphone, sous le graphique, pleine largeur. La bulle flottante du survol est RETIRÉE (accord d'Arno du 23/10/2026 :
+ * elle faisait doublon avec ce bloc).
  */
 interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
 export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null }
@@ -700,21 +701,16 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
                       );
                     })}
                   </svg>
-                  {iSurvol >= 0 && (
-                    <div className="tdb-bulle-ancre" style={{ left: `${Math.min(92, Math.max(8, ((iSurvol * pas + pas / 2) / largeurDessin) * 100))}%` }} role="tooltip">
-                      <BulleBarre info={barres[iSurvol].info} />
-                    </div>
-                  )}
                 </div>
               </div>
               <button type="button" className="tdb-fleche-histo tdb-fleche-histo--d" aria-label="Années suivantes" disabled={!bords.d} data-histo-fleche="d"
                 onClick={() => allerA((piste.current?.scrollLeft ?? 0) + pasPx() * 3)}>›</button>
             </div>
           </div>
-          {legende && <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
-            {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
         </div>
         {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
+        {legende && <figcaption className="loc-muet tdb-histo-legende"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
+          {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
         </div>
       </figure>
     );
@@ -746,16 +742,11 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
             );
           })}
         </svg>
-        {iSurvol >= 0 && (
-          <div className="tdb-bulle-ancre" style={{ left: `${Math.min(82, Math.max(18, ((m.g + iSurvol * pas + pas / 2) / L) * 100))}%` }} role="tooltip">
-            <BulleBarre info={barres[iSurvol].info} />
-          </div>
-        )}
       </div>
-      {legende && <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
-        {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
       </div>
       {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
+      {legende && <figcaption className="loc-muet tdb-histo-legende"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
+        {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
       </div>
     </figure>
   );
@@ -859,7 +850,11 @@ export const CSS_TABLEAU_BORD = `
 /* Arno (23/10/2026) — l'histogramme et son detail cote a cote dans la carte : detail a largeur fixe a droite, aligne en haut ;
    au telephone, dessous, pleine largeur. */
 .tdb-histo{max-width:none}
-.tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;align-items:start}
+.tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;grid-template-areas:"graphe detail" "legende .";gap:4px 20px;align-items:start}
+.tdb-histo-graphe{grid-area:graphe}
+/* Arno (23/10/2026) : le detail CENTRE verticalement sur la hauteur du graphique (axe compris) ; la legende a sa propre rangee. */
+.tdb-histo-detail{grid-area:detail;align-self:center}
+.tdb-histo-legende{grid-area:legende;margin:0}
 .tdb-histo-graphe{min-width:0}
 .tdb-histo-defile{display:grid;align-items:start;min-width:0}
 .tdb-histo-axe{width:100%;height:auto;display:block}
@@ -875,7 +870,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-fleche-histo:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 @media (max-width:640px){ .tdb-fleche-histo{width:30px;height:40px;top:22%;font-size:1.1rem;background:color-mix(in srgb, var(--color-svv-surface) 85%, transparent)} .tdb-fleche-histo:disabled{opacity:.25} }
 .tdb-histo-detail .tdb-bulle--sous{display:block;margin-top:0;width:100%;box-sizing:border-box;font-size:.88rem}
-@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);gap:8px} }
+@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);grid-template-areas:"graphe" "legende" "detail";gap:8px} .tdb-histo-detail{align-self:auto} }
 /* Les signes : les memes vert / rouge / gris que le reste de l'interface (jetons du theme). */
 .tdb-signe--positif{color:var(--color-svv-green-ink)}
 .tdb-signe--negatif{color:var(--color-svv-red)}
@@ -903,7 +898,6 @@ export const CSS_TABLEAU_BORD = `
 .tdb-barre-n1-trait{stroke:var(--color-svv-muted);stroke-width:2}
 .tdb-barre-n1{stroke:var(--color-svv-muted);stroke-width:1}
 .tdb-histo-zone{position:relative}
-.tdb-bulle-ancre{position:absolute;top:0;transform:translateX(-50%);pointer-events:none;z-index:2}
 .tdb-bulle{min-width:190px;background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:8px 10px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent);font-size:.82rem}
 .tdb-bulle--sous{display:inline-block;margin-top:6px;box-shadow:none}
 .tdb-bulle p{margin:0}
@@ -915,7 +909,6 @@ export const CSS_TABLEAU_BORD = `
 .tdb-bulle-ligne,.tdb-bulle-pied{display:flex;justify-content:space-between;gap:14px}
 .tdb-bulle-montant{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tdb-bulle-pied{border-top:1px solid var(--color-svv-line);margin-top:4px !important;padding-top:4px;color:var(--color-svv-ink)}
-@media (hover:none){ .tdb-bulle-ancre{display:none} }
 .tdb-barre-entree{fill:var(--color-svv-green-ink)}
 .tdb-barre-sortie{fill:var(--color-svv-amber)}
 .tdb-cible{fill:transparent;cursor:pointer}

@@ -90,6 +90,10 @@ describe('🔴 « Année par année » : 8 années tiennent, 15 défilent', () =
     expect(axe.querySelectorAll('text').length).toBe(5);
     expect(q('[data-histo-detail]')!.closest('[data-histo-piste]')).toBeNull();
     expect(q('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Année 2026');
+    // Le survol d'une barre qui défile met à jour ce bloc — sans bulle flottante (retirée, accord d'Arno du 23/10/2026).
+    await act(async () => { q('[data-barre-annee="2019"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(q('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Année 2019');
+    expect(q('[data-bulle="survol"]')).toBeNull();
     // L'échelle est calculée sur TOUTES les années : la plus haute graduation est le maximum de toutes.
     expect(axe.querySelectorAll('text')[4].textContent?.replace(/\s/g, '')).toBe(`${(1000 + 2026).toLocaleString('fr-FR').replace(/\s/g, '')}€`);
   });

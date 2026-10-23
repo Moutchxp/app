@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { BulleBarre, CSS_TABLEAU_BORD, MouvementsGestion, sensDe } from './TableauBordSuivi';
 
 /**
@@ -56,9 +57,14 @@ describe('🔴 la ligne « Écart » du bloc de détail', () => {
 });
 
 describe('🔴 le bloc de détail à droite de l’histogramme', () => {
-  it('dans la même carte, à droite du graphique (largeur fixe, graphique sur le reste), aligné en haut ; dessous au téléphone', () => {
+  it('dans la même carte, à droite du graphique (largeur fixe, graphique sur le reste), CENTRÉ verticalement sur le graphique ; dessous au téléphone', () => {
     const css = plat(CSS_TABLEAU_BORD);
-    expect(css).toContain('.tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;align-items:start}');
-    expect(css).toContain('@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);gap:8px} }');
+    expect(css).toContain('.tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;grid-template-areas:"graphe detail" "legende .";gap:4px 20px;align-items:start}');
+    expect(css).toContain('.tdb-histo-detail{grid-area:detail;align-self:center}');
+    expect(css).toContain('@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);grid-template-areas:"graphe" "legende" "detail";gap:8px} .tdb-histo-detail{align-self:auto} }');
+  });
+  it('la bulle flottante du survol est retirée (accord d’Arno, 23/10/2026) : plus aucune règle ni aucun rendu', () => {
+    expect(CSS_TABLEAU_BORD).not.toContain('tdb-bulle-ancre');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx', 'utf8')).not.toContain('tdb-bulle-ancre');
   });
 });

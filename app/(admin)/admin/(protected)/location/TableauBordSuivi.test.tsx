@@ -452,15 +452,16 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await calmer();
     expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2025');
-    // La bulle au survol : l'année (rouge), l'année d'avant (gris), l'écart ; la 1re année n'a pas de N−1.
+    // Au survol, le BLOC DE DÉTAIL (plus de bulle flottante — accord d'Arno, 23/10/2026) : l'année (rouge), l'année d'avant (gris), l'écart.
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-    const bulle = container.querySelector('[data-bulle="survol"]')!;
+    expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
+    const bulle = container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
     expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2025');
     expect(nbsp(bulle.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2025CA HT126 660,04 €Baux130');
     expect(nbsp(bulle.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2024CA HT95 124,22 €Baux100');
     expect(nbsp(bulle.querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+31 535,82 € (+33,2 %)');
     await act(async () => { container.querySelector('[data-barre-annee="2024"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-    expect(container.querySelector('[data-bulle="survol"] [data-bulle-pied]')?.textContent).toBe('N−1 non importée');
+    expect(container.querySelector('[data-histo-detail] [data-bulle-pied]')?.textContent).toBe('N−1 non importée');
     // Les couleurs : le bloc de l'année en ROUGE (celui de la barre), N−1 en GRIS (celui des hachures), le pied neutre.
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.tdb-bulle-bloc--courant{color:var(--color-svv-red)}');
@@ -490,9 +491,10 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(12);
       expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
       expect(nbsp(h.querySelector('figcaption')?.textContent)).toBe(' 2026 ·  2025');
-      // Au survol : la bulle structurée — l'en-tête, 2026 (rouge) EN HAUT, 2025 (gris) dessous, l'écart en pied.
+      // Au survol : le bloc de détail — l'en-tête, 2026 (rouge) EN HAUT, 2025 (gris) dessous, l'écart en pied ; aucune bulle flottante.
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-      const bulle = container.querySelector('[data-bulle="survol"]')!;
+      expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
+      const bulle = container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
       expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Septembre');
       expect([...bulle.querySelectorAll('[data-bulle-bloc]')].map((b) => b.getAttribute('data-bulle-bloc'))).toEqual(['courant', 'n1']);
       expect(bulle.querySelector('[data-bulle-bloc="courant"]')?.className).toContain('tdb-bulle-bloc--courant');
@@ -511,7 +513,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     it('Arno (23/10/2026) : le détail est À DROITE du graphique, dans la même carte ; il montre le mois choisi et suit la barre survolée', async () => {
       await monter('mois');
       const rangee = container.querySelector('[data-bloc="histogramme-mois"] [data-histo-rangee]')!;
-      expect([...rangee.children].map((e) => e.className)).toEqual(['tdb-histo-graphe', 'tdb-histo-detail']);
+      expect([...rangee.children].map((e) => e.className)).toEqual(['tdb-histo-graphe', 'tdb-histo-detail', 'loc-muet tdb-histo-legende']);
       const titre = () => container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent;
       expect(titre()).toBe('Octobre');
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
@@ -545,7 +547,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(sous.querySelector('[data-bulle-pied]')?.textContent).toBe('N−1 non importée');
       // Un mois à venir : « À venir », pas de montant.
       await act(async () => { barre(12).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-      expect(nbsp(container.querySelector('[data-bulle="survol"] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
+      expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
     });
   });
 
