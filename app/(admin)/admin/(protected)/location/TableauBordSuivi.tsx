@@ -5,6 +5,7 @@ import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
   sectionNegociateurs, type TotauxPeriode,
+  type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
@@ -227,6 +228,30 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee' }) 
       )}
 
       {vue === 'annee' && <>
+      {(d.historique ?? []).length > 1 && (
+        <section className="tdb-section" aria-labelledby="tdb-h" data-section="H">
+          <h3 id="tdb-h">Année par année <small className="loc-muet">(toutes les affaires, sans filtre — une année s’ouvre d’un clic)</small></h3>
+          <CourbeAnnees lignes={d.historique ?? []} annee={annee} onAnnee={setAnnee} />
+          <table className="tdb-table tdb-table--mois" data-historique-annees>
+            <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">CA HT</th><th scope="col">Apporteurs</th><th scope="col">CA net</th>
+              {d.voirCommissions && <th scope="col">Commission brute</th>}<th scope="col">Évolution du CA</th></tr></thead>
+            <tbody>
+              {(d.historique ?? []).map((h, i, t) => {
+                const avant = i > 0 ? t[i - 1] : null;
+                const evol = avant === null || avant.ca === 0 ? null : (h.ca - avant.ca) / avant.ca;
+                return (
+                  <tr key={h.annee} className={h.annee === annee ? 'tdb-fort' : undefined} data-annee-historique={h.annee}>
+                    <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
+                    <td data-mot="Baux">{h.nbBaux}</td><td data-mot="CA HT">{eur(h.ca)}</td><td data-mot="Apporteurs">{eur(h.apporteurs)}</td><td data-mot="CA net">{eur(h.caNet)}</td>
+                    {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : eur(h.commission)}</td>}
+                    <td data-mot="Évolution du CA">{evol === null ? '—' : signe(evol)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
       <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
         <h3 id="tdb-b">Le cumul de {annee}, mois par mois</h3>
         <CourbeCumul points={B} annee={annee} sansN1={sansN1} moisSelectionne={mois} />
@@ -421,6 +446,33 @@ function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: Retur
   );
 }
 
+/** H — le CA HT de chaque année d'activité (barres) ; l'année affichée est en couleur ; une barre ouvre son année. */
+function CourbeAnnees({ lignes, annee, onAnnee }: { lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void }) {
+  const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
+  const max = Math.max(1, ...lignes.map((l) => l.ca));
+  const pas = (L - m.g - m.d) / lignes.length;
+  const y = (v: number): number => H - m.b - (v * (H - m.h - m.b)) / max;
+  const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  return (
+    <figure className="tdb-courbe" data-courbe="annees">
+      <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={`CA HT par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}>
+        {graduations.map((g) => (
+          <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
+            <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text></g>
+        ))}
+        {lignes.map((l, i) => (
+          <g key={l.annee} className="tdb-barre-annee" onClick={() => onAnnee(l.annee)} data-barre-annee={l.annee}>
+            <title>{`${l.annee} : ${eur(l.ca)} HT, ${l.nbBaux} baux`}</title>
+            <rect x={m.g + i * pas + pas * 0.18} y={y(l.ca)} width={pas * 0.64} height={Math.max(0, H - m.b - y(l.ca))}
+              className={l.annee === annee ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} />
+            <text x={m.g + i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{l.annee}</text>
+          </g>
+        ))}
+      </svg>
+    </figure>
+  );
+}
+
 /** D — le portefeuille en gestion (trait) et les entrées / sorties de chaque mois (barres), 12 mois ; un mois s'ouvre. */
 function CourbeGestion({ points, onMois }: { points: ReturnType<typeof sectionGestion>; onMois: (p: ReturnType<typeof sectionGestion>[number]) => void }) {
   const L = 640; const H = 220; const m = { g: 40, d: 40, h: 26, b: 28 };
@@ -508,6 +560,9 @@ export const CSS_TABLEAU_BORD = `
 .tdb-trait{fill:none;stroke:var(--color-svv-red);stroke-width:2.5}
 .tdb-trait-n1{fill:none;stroke:var(--color-svv-muted);stroke-width:2;stroke-dasharray:6 5}
 .tdb-point{fill:var(--color-svv-red)}
+.tdb-barre{fill:var(--color-svv-line-strong)}
+.tdb-barre--courante{fill:var(--color-svv-red)}
+.tdb-barre-annee{cursor:pointer}
 .tdb-barre-entree{fill:var(--color-svv-green-ink)}
 .tdb-barre-sortie{fill:var(--color-svv-amber)}
 .tdb-cible{fill:transparent;cursor:pointer}

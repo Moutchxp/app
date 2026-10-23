@@ -342,6 +342,28 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(container.querySelector('[data-collegue-mois="Jean-Baptiste PONS"]')).toBeNull();
   });
 
+  it('🔴 historique (Arno, 23/10/2026) : « Année par année » — une barre et une ligne par année ; un clic ouvre l’année ; la commission réservée au droit', async () => {
+    donnees = { ...donnees, annees: [2024, 2025, 2026], historique: [
+      { annee: 2024, nbBaux: 100, nb: 107, ca: 95124.22, caNet: 88836.23, apporteurs: 6287.99, commission: 17075.43 },
+      { annee: 2025, nbBaux: 130, nb: 139, ca: 126660.04, caNet: 121956.75, apporteurs: 4703.29, commission: 23930.6 },
+      { annee: 2026, nbBaux: 105, nb: 112, ca: 94612.61, caNet: 90538.16, apporteurs: 4074.45, commission: 17570.72 },
+    ] };
+    await monter('annee');
+    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'B', 'C', 'D', 'E', 'F', 'G']);
+    expect(container.querySelectorAll('[data-barre-annee]')).toHaveLength(3);
+    expect(nbsp(container.querySelector('[data-annee-historique="2025"]')?.textContent)).toBe('2025130126 660,04 €4 703,29 €121 956,75 €23 930,60 €+33,2 %');
+    expect(container.querySelector('[data-annee-historique="2026"]')?.className).toBe('tdb-fort');
+    const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await calmer();
+    expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2025');
+    // Sans « Voir les commissions » : pas de colonne commission.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    donnees = { ...donnees, voirCommissions: false, historique: donnees.historique!.map((h) => ({ ...h, commission: null })) };
+    await monter('annee');
+    expect(container.querySelector('[data-historique-annees] thead')?.textContent).not.toContain('Commission');
+  });
+
   it('sans la migration 406 : le dit', async () => {
     donnees = { ...donnees, disponible: false, activites: [] };
     await monter();

@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDeCategorie } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import type { ActiviteCalcul, ActiviteLue, Assurance, DonneesTableau, LigneGestion, Transition } from './tableauBord';
+import { historiqueAnnees, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModePrime, OrigineContact } from './suivi';
 import { annuaireDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
@@ -135,11 +135,14 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
      (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
   const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));
   const visibles = activites;
+  // L'historique de toutes les années (Suivi annuel, « année par année ») : calculé ici, seules les sommes partent.
+  const toutes = annees.length > 0 ? await lireActivites(annees) : [];
+  const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions }, voirCommissions);
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
-    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire,
+    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique,
   };
 }
