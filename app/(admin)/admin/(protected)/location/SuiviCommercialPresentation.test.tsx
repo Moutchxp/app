@@ -27,7 +27,7 @@ let rafraichi: number;
 let dernier: SaisieSuivi;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  rafraichi = 0;
+  rafraichi = 0; loyerBanc = undefined;
   proposition = { avecGestion: true, categoriePrime: 'logement', origineProprietaire: null, origineLocataire: null, enGestionAvant: false, cas: 'nouveau_mandat', primeDejaVersee: null };
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   global.fetch = vi.fn(async (url: string | URL | Request) => {
@@ -40,12 +40,13 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); document.body.innerHTML = ''; vi.restoreAllMocks(); });
 
+let loyerBanc: { principal: string; provisions: string } | undefined;
 function Banc({ lu, lotId, depart }: { lu: ParametresSuivi; lotId: number | null; depart?: Partial<SaisieSuivi> }) {
   const [v, setV] = useState<SaisieSuivi>({ ...SUIVI_VIDE(), dateSignature: '2026-10-24', ...depart });
   dernier = v;
   return createElement(BlocSuiviCommercial, {
     valeur: v, onChange: setV, parametres: { lu, erreur: null, rafraichir: () => { rafraichi += 1; } }, lotId, locataireIds: [],
-    ttcProprietaire: '', ttcLocataire: '', onTtcProprietaire: () => {}, onTtcLocataire: () => {}, manque: null,
+    ttcProprietaire: '', ttcLocataire: '', onTtcProprietaire: () => {}, onTtcLocataire: () => {}, manque: null, loyer: loyerBanc,
   });
 }
 const calmer = async () => { await act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); }); };
@@ -301,5 +302,62 @@ describe('🔴 Arno (24/10/2026) — les listes de collègues : tous les comptes
     await monter(null, LU({ negociateurs: COMPTES, collegues: COMPTES }), { negociateurId: 3 });
     expect(q('[data-negociateur]')!.textContent).toBe('Ancien Compte (désactivé)');
     expect((await optionsDe('[data-negociateur]')).find((o) => o.id === '3')?.texte).toBe('Ancien Compte (désactivé)');
+  });
+});
+
+describe('🔴 Arno (24/10/2026, 413) — la commission de l’apporteur, en direct', () => {
+  const AVEC_REGLE = (mode: 'one_shot' | 'recurrent', tauxGestion: number) => LU({ apporteurs: [{ ...APPORTEUR,
+    baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0, mode, tauxGestion }] } as never] });
+  const saisirTexte = async (sel: string, v: string) => {
+    const el = q<HTMLInputElement>(sel)!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await calmer();
+  };
+  const encart = () => q('[data-commission-apporteur-direct]');
+  const texte = () => q('[data-commission-texte]')?.textContent?.replace(/\s+/g, ' ');
+  const preparer = async (mode: 'one_shot' | 'recurrent', tauxGestion: number) => {
+    proposition = { ...proposition, tauxGestionBien: 4.5 };
+    loyerBanc = { principal: '900', provisions: '100' };
+    await monter(7, AVEC_REGLE(mode, tauxGestion));
+    await choisir('[data-origine-contact]', 'apporteur');
+    await choisir('[data-apporteur]', '3');
+    await saisirTexte('[data-hono-proprietaire-ht]', '600');
+    await saisirTexte('[data-hono-locataire-ht]', '400');
+  };
+  it('pas d’encart sans apporteur', async () => {
+    await monter();
+    expect(encart()).toBeNull();
+  });
+  it('One shot : part location · part gestion (1re année) · prime apporteur — 1 000 × 12 × 4,5 % × 20 % = 108,00 €', async () => {
+    await preparer('one_shot', 0.2);
+    expect(encart()?.getAttribute('data-commission-apporteur-direct')).toBe('one_shot');
+    expect(encart()?.className).toContain('loc-suivi-ligne');                       // la trame grise des lignes du bloc
+    expect(texte()).toBe('Part location : 100,00 € · Part gestion (1re année) : 108,00 € · Prime apporteur : 208,00 €');
+    // le détail du calcul en info-bulle (montants et taux utilisés)
+    await clic(q('[data-commission-apporteur-direct] button'));
+    const detail = q('[data-detail-calcul="commission-apporteur"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(detail).toContain('Honoraires de gestion mensuels HT : (900,00 € + 100,00 €) × 4,5 % = 45,00 €');
+    expect(detail).toContain('45,00 € × 12 × 20 % = 108,00 €');
+    // à chaque frappe : un nouveau taux sur la gestion pour ce bail
+    await saisirTexte('[data-apporteur-taux-gestion]', '10');
+    expect(texte()).toBe('Part location : 100,00 € · Part gestion (1re année) : 54,00 € · Prime apporteur : 154,00 €');
+    expect(dernier.apporteurTauxGestion).toBe('10');
+  });
+  it('Récurrent : part location (une fois) · part gestion par mois tant que le bien est en gestion — 4,50 €/mois', async () => {
+    await preparer('recurrent', 0.1);
+    expect(valeur('[data-apporteur-mode]')).toBe('recurrent');                     // proposé par la règle
+    expect(texte()).toBe('Part location (une fois) : 100,00 € · Part gestion : 4,50 € / mois tant que le bien est en gestion');
+    await choisir('[data-apporteur-mode]', 'one_shot');                              // modifiable pour ce bail
+    expect(dernier.apporteurMode).toBe('one_shot');
+    expect(texte()).toBe('Part location : 100,00 € · Part gestion (1re année) : 54,00 € · Prime apporteur : 154,00 €');
+  });
+  it('loyer ou taux de gestion manquant : part gestion 0, et l’écran le dit', async () => {
+    await preparer('one_shot', 0.2);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    loyerBanc = { principal: '', provisions: '' };
+    await monter(7, AVEC_REGLE('one_shot', 0.2));
+    await choisir('[data-origine-contact]', 'apporteur');
+    await choisir('[data-apporteur]', '3');
+    expect(q('[data-commission-manque]')?.textContent).toBe('Part gestion : 0 € — loyer ou taux de gestion manquant.');
   });
 });

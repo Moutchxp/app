@@ -156,7 +156,30 @@ export function montantPrime(r: RegleCommission, c: CategoriePrime): number {
   if (c === 'local') return r.primeLocal ?? r.primeLogement;
   return r.primeLogement;
 }
-export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number }
+/**
+ * 🔴 Arno (24/10/2026, migration 413) — LA COMMISSION D'UN APPORTEUR a deux parts et un mode :
+ *   · `taux` : le taux sur la LOCATION (honoraires propriétaire HT + locataire HT du bail) ;
+ *   · `tauxGestion` : le taux sur la GESTION (honoraires de gestion mensuels HT du bail = loyer CC × taux de gestion du bien) ;
+ *   · `mode` : « One shot » (part gestion = taux × honoraires mensuels × 12, la première année, due une fois à la signature) ou
+ *     « Récurrent » (part gestion = taux × honoraires mensuels, due CHAQUE MOIS tant que le bien reste en gestion).
+ * Les règles d'avant la 413 se lisent « One shot — gestion 0 % » : aucun montant historique ne change.
+ */
+export const MODES_APPORTEUR = ['one_shot', 'recurrent'] as const;
+export type ModeApporteur = (typeof MODES_APPORTEUR)[number];
+export const LIBELLE_MODE_APPORTEUR: Record<ModeApporteur, string> = { one_shot: 'One shot', recurrent: 'Récurrent' };
+export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number; mode?: ModeApporteur; tauxGestion?: number }
+
+/** « 10 % » (fraction 0,1 → texte), sans arrondi au-delà de 4 décimales du pourcentage. PUR. */
+const pctTexte = (x: number): string => `${String(Math.round(x * 1000000) / 10000).replace('.', ',')} %`;
+
+/**
+ * La règle d'un apporteur, telle que la fiche l'écrit : « One shot — location 10 %, gestion 20 % » ou « Récurrent — location
+ * 10 %, gestion 10 % / mois ». PUR.
+ */
+export function libelleRegleApporteur(b: Pick<BaremeApporteur, 'taux' | 'mode' | 'tauxGestion'>): string {
+  const mode = b.mode ?? 'one_shot';
+  return `${LIBELLE_MODE_APPORTEUR[mode]} — location ${pctTexte(b.taux)}, gestion ${pctTexte(b.tauxGestion ?? 0)}${mode === 'recurrent' ? ' / mois' : ''}`;
+}
 /** Le collègue de rattachement d'un apporteur, daté (407) : la version en vigueur à la date d'une affaire fait foi. */
 export interface CollegueDate extends Datee { collegueId: number | null; collegueLibelle: string }
 /**
@@ -216,6 +239,9 @@ export interface SaisieActivite {
   primeMontant?: string;
   /** 411 — le texte de l'origine « Personnalisé ». */
   origineContactPrecision?: string;
+  /** 413 — le mode de CE bail (null = celui de la règle de l'apporteur à la signature) et son taux sur la gestion, en % (vide = la règle). */
+  apporteurMode?: ModeApporteur | null;
+  apporteurTauxGestion?: string;
 }
 
 export interface ActiviteVerifiee {
@@ -236,6 +262,9 @@ export interface ActiviteVerifiee {
   primeMode: ModePrime | null;
   primeMontant: number | null;
   origineContactPrecision: string | null;
+  /** 413 — null : la règle de l'apporteur à la date de signature. */
+  apporteurMode: ModeApporteur | null;
+  apporteurTauxGestion: number | null;
 }
 
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null => (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
@@ -257,6 +286,9 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
   const taux = lireTauxPourcent(b.apporteurTaux);
   if (taux === undefined) return { ok: false, motif: 'Taux de l’apporteur : un pourcentage entre 0 et 100.' };
   const apporteurId = c.valeurs.apporteurId;
+  // 413 — le mode et le taux sur la gestion du bail : facultatifs (vides = la règle de l'apporteur à la signature).
+  const tauxGestion = lireTauxPourcent(b.apporteurTauxGestion);
+  if (tauxGestion === undefined) return { ok: false, motif: 'Taux de l’apporteur sur la gestion : un pourcentage entre 0 et 100.' };
   return {
     ok: true,
     valeurs: {
@@ -265,6 +297,8 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
       mandatGestion: b.mandatGestion === true, avecGestion: b.avecGestion === true,
       origineProprietaire: dans(ORIGINES, b.origineProprietaire), origineLocataire: dans(ORIGINES, b.origineLocataire),
       ...c.valeurs,
+      apporteurMode: apporteurId === null ? null : dans(MODES_APPORTEUR, b.apporteurMode),
+      apporteurTauxGestion: apporteurId === null ? null : tauxGestion,
     },
   };
 }
@@ -307,7 +341,7 @@ export function verifierCommercial(b: Record<string, unknown>, origineObligatoir
 
 /** Vérifie un apporteur nouveau (nom, type, taux par défaut en %, coût fixe mensuel en €, date d'effet). */
 export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: boolean } = {}): { ok: true; nom: string; type: TypeApporteur; taux: number; coutFixe: number; depuis: string;
-  societe: string | null; telephone: string | null; email: string | null; collegueId: number | null } | { ok: false; motif: string } {
+  societe: string | null; telephone: string | null; email: string | null; collegueId: number | null; mode: ModeApporteur; tauxGestion: number } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
   const coord = verifierCoordonnees(b);
   if (!coord.ok) return coord;
@@ -323,7 +357,12 @@ export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: bool
   if (cout === undefined) return { ok: false, motif: 'Coût fixe mensuel : un montant en euros.' };
   const depuis = dateIsoValide(b.depuis) ? b.depuis : null;
   if (depuis === null) return { ok: false, motif: 'La date d’effet du taux est obligatoire.' };
-  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId };
+  // 413 — le mode (défaut « One shot ») et le taux sur la gestion (vide = 0 %).
+  const mode = b.mode === undefined || b.mode === null || b.mode === '' ? 'one_shot' : dans(MODES_APPORTEUR, b.mode);
+  if (mode === null) return { ok: false, motif: 'Le mode de la commission : « One shot » ou « Récurrent ».' };
+  const tauxGestion = lireTauxPourcent(b.tauxGestion);
+  if (tauxGestion === undefined) return { ok: false, motif: 'Taux sur la gestion : un pourcentage entre 0 et 100.' };
+  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId, mode, tauxGestion: tauxGestion ?? 0 };
 }
 
 const texteOuNull = (v: unknown): string | null => (typeof v === 'string' && v.replace(/\s+/g, ' ').trim() !== '' ? v.replace(/\s+/g, ' ').trim() : null);

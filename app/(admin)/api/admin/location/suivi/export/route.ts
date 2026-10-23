@@ -30,7 +30,9 @@ export async function GET(request: Request): Promise<Response> {
     const libelleApp = typeof filtre.apporteur === 'number' ? d.apporteurs.find((x) => x.id === filtre.apporteur)?.nom : filtre.apporteur === 'aucun' ? 'sans apporteur' : undefined;
     const filtres = [libelleNego, libelleApp, filtre.gestion ? `${filtre.gestion} gestion` : null, filtre.origine === 'nouveau' ? 'nouveaux clients' : filtre.origine === 'deja' ? 'déjà clients' : null]
       .filter((x) => x).join(', ');
-    const tampon = await classeurSuivi({ annee, moisMax, activites, ctx: { regles: d.regles, apporteurs: d.apporteurs, retrocessions: d.retrocessions }, voirCommissions, filtres });
+    const tampon = await classeurSuivi({ annee, moisMax, activites, ctx: { regles: d.regles, apporteurs: d.apporteurs, retrocessions: d.retrocessions,
+      // 413 — la part gestion « Récurrent » des affaires de toutes les années, avec les mêmes filtres.
+      recurrents: filtrer(d.recurrents ?? [], filtre), aujourdhui: d.aujourdhui }, voirCommissions, filtres });
     return new Response(new Uint8Array(tampon), {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

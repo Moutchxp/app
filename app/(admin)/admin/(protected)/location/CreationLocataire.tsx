@@ -442,7 +442,7 @@ export function CreationLocataire() {
           ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
           onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
           onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t } }))}
-          manque={manqueDe('suivi')} />
+          manque={manqueDe('suivi')} loyer={conditions.loyer} />
       </section>
 
       {recap !== null && (

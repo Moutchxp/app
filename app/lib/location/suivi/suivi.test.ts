@@ -59,7 +59,8 @@ describe('saisies vérifiées (navigateur et serveur)', () => {
   });
   it('apporteur : nom, type de la liste, taux, date d’effet', () => {
     expect(verifierApporteur({ nom: '  Kin  Immo ', type: 'agence', taux: '10', depuis: '2026-01-01' }))
-      .toEqual({ ok: true, nom: 'Kin Immo', type: 'agence', taux: 0.1, coutFixe: 0, depuis: '2026-01-01', societe: null, telephone: null, email: null, collegueId: null });
+      .toEqual({ ok: true, nom: 'Kin Immo', type: 'agence', taux: 0.1, coutFixe: 0, depuis: '2026-01-01', societe: null, telephone: null, email: null, collegueId: null,
+        mode: 'one_shot', tauxGestion: 0 });   // 413 — par défaut « One shot », gestion 0 %
     expect(verifierApporteur({ nom: '', type: 'agence', depuis: '2026-01-01' }).ok).toBe(false);
     expect(verifierApporteur({ nom: 'X', type: 'ami', depuis: '2026-01-01' }).ok).toBe(false);
     expect(verifierApporteur({ nom: 'X', type: 'internet', taux: '10' }).ok).toBe(false);

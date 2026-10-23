@@ -36,7 +36,9 @@ describe('🔴 Totaux d’un apporteur depuis le début', () => {
     expect(c.parAnnee.map((x) => x.annee)).toEqual([2026, 2024, 2021]);
     const t = totauxApporteurs(lignes, [kin]);
     expect(Object.keys(t)).toEqual(['3', '4']);
-    expect({ ...t[3], ca: Math.round(t[3].ca * 100) / 100 }).toEqual({ nb: 3, avenants: 1, ca: 3134.5, commission: c.total.commission });
+    expect({ ...t[3], ca: Math.round(t[3].ca * 100) / 100 }).toEqual({ nb: 3, avenants: 1, ca: 3134.5, commission: c.total.commission,
+      // 413 — tout est part location (règles d'avant : « One shot — gestion 0 % »).
+      location: c.total.commission, gestion: 0, recurrente: 0 });
   });
 
   it('cohérent avec le Suivi : Frédéric Rousseau (« Apporteur A » des copies anonymisées), toutes années, égale la somme du Suivi', () => {

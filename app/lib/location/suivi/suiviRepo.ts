@@ -6,8 +6,12 @@ import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
-  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille,
+  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
 } from './suivi';
+import { honorairesGestionDisponible } from '../../gestion/schema';
+import { lireReglages } from '../../gestion/honorairesGestionRepo';
+import { proposerTaux } from '../../gestion/honorairesGestion';
+import { bailDisponible } from '../bailRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : ACCÈS À LA BASE (Arno, 22/10/2026, migration 406) ════════════════════════════════════
@@ -21,6 +25,39 @@ const INDISPONIBLE: Reponse<never> = { etat: 'indisponible', motif: 'La mise à 
 const num = (v: unknown): number => Number(v);
 const numOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+
+/**
+ * 🔴 Arno (24/10/2026) — la migration 413 (commission d'apporteur « One shot » / « Récurrent », part location + part gestion) est-elle
+ * appliquée ? Sans elle : les règles se lisent « One shot — gestion 0 % », rien de la part gestion n'est enregistré ni compté.
+ */
+export function commissionGestionDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_activite', 'taux_gestion_bien_ht');
+}
+
+/**
+ * 413 — LE TAUX DE GESTION HT DU BIEN (en %, ex. 4,5) : celui des conditions du bail s'il en a (écrites à l'entrée du locataire),
+ * sinon ce que la carte « Location » propose — location précédente du lot › taux WIPPIMMO › réglage agence (`proposerTaux`).
+ * null : sans la migration 370 (rien n'est inventé).
+ */
+export async function tauxGestionDuBien(q: typeof query, lotId: number, bailId: number | null): Promise<number | null> {
+  if (!(await honorairesGestionDisponible())) return null;
+  const avecBail = await bailDisponible();
+  if (bailId !== null) {
+    const { rows } = await q<{ t: string }>(
+      `SELECT x.taux_gestion_ht::text AS t FROM gestion_location_conditions x
+        WHERE ${avecBail ? 'x.bail_id = $1 OR ' : ''}x.occupation_id IN (SELECT o.id FROM gestion_annuaire_occupation o WHERE o.bail_id = $1)
+        ORDER BY x.id DESC LIMIT 1`, [bailId]);
+    if (rows[0] !== undefined) return Number(rows[0].t);
+  }
+  const { rows } = await q<{ precedent: string | null; wippimmo: string | null }>(
+    `SELECT (SELECT x.taux_gestion_ht::text FROM gestion_annuaire_occupation o
+               JOIN gestion_location_conditions x ON ${avecBail ? '(x.bail_id = o.bail_id OR (o.bail_id IS NULL AND x.occupation_id = o.id))' : 'x.occupation_id = o.id'}
+              WHERE o.lot_id = $1 ORDER BY o.entree DESC NULLS LAST, x.id DESC LIMIT 1) AS precedent,
+            (SELECT taux_honos_wippimmo::text FROM gestion_annuaire_lot WHERE id = $1) AS wippimmo`, [lotId]);
+  const r = rows[0];
+  const reglages = await lireReglages(q);
+  return proposerTaux({ precedent: r?.precedent == null ? null : Number(r.precedent), wippimmo: r?.wippimmo == null ? null : Number(r.wippimmo), reglage: reglages.tauxDefautHt }).taux;
+}
 
 /** La migration 406 est-elle appliquée ? (sondé hors transaction, mémorisé). */
 export function suiviDisponible(): Promise<boolean> {
@@ -75,12 +112,14 @@ const MOT_UNE_SEULE_PRIME = 'un bien ne génère qu’une seule prime de nouvell
 export async function lireApporteurs(): Promise<Apporteur[]> {
   if (!(await suiviDisponible())) return [];
   const avecAnnuaire = await annuaireDisponible();
+  const avecGestion = await commissionGestionDisponible();
   const [a, b, c] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null }>(
       `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'}
          FROM gestion_location_apporteur ORDER BY lower(nom), id`),
-    query<{ apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string }>(
-      'SELECT apporteur_id, depuis, taux, cout_fixe_mensuel FROM gestion_location_apporteur_bareme ORDER BY depuis, id'),
+    query<{ apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string; mode: string | null; taux_gestion: string | null }>(
+      `SELECT apporteur_id, depuis, taux, cout_fixe_mensuel, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'}
+         FROM gestion_location_apporteur_bareme ORDER BY depuis, id`),
     avecAnnuaire
       ? query<{ apporteur_id: string; depuis: Date | null; collegue_id: string | null; collegue_libelle: string }>(
         'SELECT apporteur_id, depuis, collegue_id, collegue_libelle FROM gestion_location_apporteur_collegue ORDER BY depuis NULLS FIRST, id')
@@ -89,7 +128,9 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const baremes = new Map<number, BaremeApporteur[]>();
   for (const r of b.rows) {
     const id = num(r.apporteur_id);
-    baremes.set(id, [...(baremes.get(id) ?? []), { depuis: iso(r.depuis), taux: num(r.taux), coutFixeMensuel: num(r.cout_fixe_mensuel) }]);
+    // 413 — une règle d'avant (ou sans la 413) se lit « One shot — gestion 0 % ».
+    baremes.set(id, [...(baremes.get(id) ?? []), { depuis: iso(r.depuis), taux: num(r.taux), coutFixeMensuel: num(r.cout_fixe_mensuel),
+      mode: (r.mode === 'recurrent' ? 'recurrent' : 'one_shot') as ModeApporteur, tauxGestion: r.taux_gestion === null ? 0 : num(r.taux_gestion) }]);
   }
   const collegues = new Map<number, CollegueDate[]>();
   for (const r of c.rows) {
@@ -152,9 +193,11 @@ export async function creerApporteur(brut: unknown, auteur: Auteur): Promise<Rep
       await q('INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle) VALUES ($1, $2, $3, $4, $5)',
         [id, v.depuis, v.collegueId, collegue, auteur.libelle]);
     }
-    await q(
-      `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle)
-       VALUES ($1, $2, $3, $4, $5)`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle]);
+    await ((await commissionGestionDisponible())
+      ? q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle, mode, taux_gestion)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle, v.mode, v.tauxGestion])
+      : q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle)
+           VALUES ($1, $2, $3, $4, $5)`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle]));
     return { etat: 'ok', data: { id } } as const;
   });
 }
@@ -166,10 +209,15 @@ export async function ajouterBaremeApporteur(apporteurId: unknown, brut: unknown
   if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
   const v = verifierApporteur({ ...(brut as Record<string, unknown>), nom: 'x', type: 'partenaire' });
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // 413 — le mode et le taux sur la gestion ; sans la 413, une règle autre que « One shot — gestion 0 % » est refusée (elle serait perdue).
+  const avecGestion = await commissionGestionDisponible();
+  if (!avecGestion && (v.mode !== 'one_shot' || v.tauxGestion !== 0)) {
+    return { etat: 'refus', motif: 'Mise à jour de la base à appliquer (migration 413) : le mode « Récurrent » et le taux sur la gestion ne peuvent pas encore être enregistrés.' };
+  }
   const r = await query(
-    `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle)
-     SELECT $1, $2, $3, $4, $5 WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
-     ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle]);
+    `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle${avecGestion ? ', mode, taux_gestion' : ''})
+     SELECT $1, $2, $3, $4, $5${avecGestion ? ', $6, $7' : ''} WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
+     ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle, ...(avecGestion ? [v.mode, v.tauxGestion] : [])]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Une version existe déjà à cette date (ou l’apporteur est inconnu) : choisissez une autre date d’effet.' };
 }
 
@@ -453,6 +501,12 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
         origines.proprietaire, a.origineProprietaire, origines.locataire, a.origineLocataire, auteur.libelle,
         loyerHc, charges]);
     const activiteId = num(rows[0].id);
+    // 413 — la part gestion : le mode et le taux de l'apporteur pour CE bail (vides : la règle à la signature), et le taux de gestion
+    // du bien RELEVÉ à la signature (ce qui fait les honoraires de gestion du bail, lu à l'écriture, jamais recalculé ensuite).
+    if (await commissionGestionDisponible()) {
+      await q('UPDATE gestion_location_activite SET apporteur_mode = $2, apporteur_taux_gestion = $3, taux_gestion_bien_ht = $4 WHERE id = $1',
+        [activiteId, a.apporteurMode, a.apporteurTauxGestion, await tauxGestionDuBien(q as typeof query, lotId, id)]);
+    }
     if (avecAnnuaire) {
       const motif = await ecrireCommercial(q as typeof query, activiteId, {
         origineContact: a.origineContact, collegueId: a.collegueId, apporteurId: a.apporteurId, commissionApporteur: a.commissionApporteur,
@@ -471,6 +525,8 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
   avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null;
   /** 407 — le bien était-il déjà en gestion AVANT la date (dernier statut daté avant elle) ? */
   enGestionAvant: boolean;
+  /** 413 — le taux de gestion HT du bien (en %), pour la part gestion de l'apporteur ; null : inconnu. */
+  tauxGestionBien: number | null;
   /** 🔴 Arno (24/10/2026) — la situation du bien et ce qui en découle (voir `casGestionDuBien`). */
   cas: CasGestion;
   entreeGestion: string | null;
@@ -513,6 +569,7 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
       avecGestion: enGestion,
       categoriePrime: categoriePrimeDeFamille(familleDeCategorie(rows[0].categorie)),
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
+      tauxGestionBien: await tauxGestionDuBien(query, lot, null),
       cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
     },
   };

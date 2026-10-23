@@ -4,6 +4,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  LIBELLE_MODE_APPORTEUR, libelleRegleApporteur, MODES_APPORTEUR, type ModeApporteur,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 
@@ -81,8 +82,26 @@ function useGeste(relire: () => void) {
  */
 const echap = (fermer: () => void) => (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); fermer(); } };
 
-const VIDE_APPORTEUR =(jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
-type Chiffres = { nb: number; avenants?: number; ca: number; commission: number };
+const VIDE_APPORTEUR =(jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, mode: 'one_shot' as ModeApporteur, taux: '', tauxGestion: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
+/** 413 — `location` / `gestion` / `recurrente` : le dû détaillé (part location, part gestion « One shot », part gestion « Récurrent »). */
+type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number };
+/** 413 — « 10 » (fraction 0,1 → texte du champ). */
+const champTaux = (x: number | undefined): string => (x === undefined ? '' : String(Math.round(x * 1000000) / 10000).replace('.', ','));
+
+/** 🔴 Arno (24/10/2026, 413) — le CHOIX qui ouvre la règle d'un apporteur : « One shot » ou « Récurrent ». */
+function ChoixMode({ valeur, onChange }: { valeur: ModeApporteur; onChange: (m: ModeApporteur) => void }) {
+  return (
+    <div className="plo-champ plo-champ--large" data-mode-apporteur><span>Mode de commission</span>
+      <span className="plo-modes" role="group" aria-label="Mode de commission">
+        {MODES_APPORTEUR.map((m) => (
+          <button key={m} type="button" className="plo-mode" aria-pressed={valeur === m} data-mode={m} onClick={() => onChange(m)}>{LIBELLE_MODE_APPORTEUR[m]}</button>
+        ))}
+      </span>
+      <small className="plo-muet">{valeur === 'one_shot' ? 'Part gestion due une fois, à la signature : 12 mois d’honoraires de gestion (la première année).'
+        : 'Part gestion due chaque mois, tant que le bien reste en gestion.'}</small>
+    </div>
+  );
+}
 type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number })[]; parMois: (Chiffres & { mois: string })[] };
 const ttc = (ht: number): number => ht * (1 + TAUX_TVA);
 
@@ -117,7 +136,9 @@ function CumulApporteur({ id }: { id: number }) {
           {(t.avenants ?? 0) > 0 && <span className="plo-total-note">dont {t.avenants} avenant{(t.avenants ?? 0) > 1 ? 's' : ''}</span>}</li>
         <li data-total-apporteur="ht"><span className="plo-total-mot">Honoraires apportés HT</span><strong>{euros(t.ca)}</strong></li>
         <li data-total-apporteur="ttc"><span className="plo-total-mot">Honoraires apportés TTC</span><strong>{euros(ttc(t.ca))}</strong><span className="plo-total-note">TVA 20 %</span></li>
-        <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong></li>
+        <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong>
+          {/* 413 — le détail du dû : la location, la gestion « One shot » (à la signature), la gestion « Récurrent » (mois par mois). */}
+          <span className="plo-total-note" data-du-detail>dont location {euros(t.location ?? t.commission)} · dont gestion (one shot) {euros(t.gestion ?? 0)} · dont gestion récurrente {euros(t.recurrente ?? 0)}</span></li>
         <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(t.ca - t.commission)}</strong></li>
       </ul>
       <h4 className="plo-h4">Cumul</h4>
@@ -146,7 +167,7 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
   const [nouveau, setNouveau] = useState(VIDE_APPORTEUR(jour));
-  const [version, setVersion] = useState<{ id: number; taux: string; coutFixe: string; depuis: string } | null>(null);
+  const [version, setVersion] = useState<{ id: number; mode: ModeApporteur; taux: string; tauxGestion: string; coutFixe: string; depuis: string } | null>(null);
   const [ouverte, setOuverte] = useState<number | null>(null);
   const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur }>({ societe: '', telephone: '', email: '', type: 'partenaire' });
   /** Arno (23/10/2026, 409) — `toujours` : « Depuis toujours » (tout l'historique et la suite), proposé d'office au 1er rattachement. */
@@ -173,7 +194,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   };
   return (
     <section data-onglet-apporteurs>
-      <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission (en % des honoraires HT du bail). <strong>Un nouveau taux crée une nouvelle version</strong> :
+      <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission : un taux sur la <strong>location</strong> (honoraires HT du bail) et un taux sur la <strong>gestion</strong>
+        (honoraires de gestion du bail), « One shot » ou « Récurrent ». <strong>Un nouveau taux crée une nouvelle version</strong> :
         il vaut pour les baux signés à partir de sa date ; les baux déjà signés gardent le leur.{annuaire && <> Chaque apporteur est <strong>rattaché à un collègue</strong> ;
         un changement de collègue est daté : les affaires passées restent au collègue de l’époque.</>}</p>
       <Etat lu={lu} erreur={erreur} />
@@ -220,20 +242,23 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                     </dl>
                   )}
                   {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
-                  <p className="plo-version-valeurs">{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
-                    : `Taux ${pourcent(enVigueur.taux)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (depuis le ${dateFr(enVigueur.depuis)})`}</p>
+                  {/* 413 — « One shot — location 10 %, gestion 20 % (depuis le …) » / « Récurrent — location 10 %, gestion 10 % / mois (depuis le …) ». */}
+                  <p className="plo-version-valeurs" data-regle-apporteur={a.id}>{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
+                    : `${libelleRegleApporteur(enVigueur)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (depuis le ${dateFr(enVigueur.depuis)})`}</p>
                   {a.baremes.length > 1 && (
-                    <p className="plo-muet plo-petit-texte">Historique : {a.baremes.map((b) => `${dateFr(b.depuis)} → ${pourcent(b.taux)}${b.coutFixeMensuel > 0 ? ` + ${euros(b.coutFixeMensuel)}/mois` : ''}`).join(' · ')}</p>
+                    <p className="plo-muet plo-petit-texte">Historique : {a.baremes.map((b) => `${dateFr(b.depuis)} → ${libelleRegleApporteur(b)}${b.coutFixeMensuel > 0 ? ` + ${euros(b.coutFixeMensuel)}/mois` : ''}`).join(' · ')}</p>
                   )}
                   {version?.id === a.id ? (
                     <div className="plo-grille" data-nouvelle-version={a.id} onKeyDown={echap(() => setVersion(null))}>
-                      <label className="plo-champ"><span>Taux (%)</span><input inputMode="decimal" value={version.taux} onChange={(e) => setVersion({ ...version, taux: e.target.value })} /></label>
+                      <ChoixMode valeur={version.mode} onChange={(m) => setVersion({ ...version, mode: m })} />
+                      <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={version.taux} onChange={(e) => setVersion({ ...version, taux: e.target.value })} data-version-taux /></label>
+                      <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={version.tauxGestion} placeholder="ex. 20" onChange={(e) => setVersion({ ...version, tauxGestion: e.target.value })} data-version-taux-gestion /></label>
                       <label className="plo-champ"><span>Coût fixe mensuel (€)</span><input inputMode="decimal" value={version.coutFixe} onChange={(e) => setVersion({ ...version, coutFixe: e.target.value })} /></label>
                       <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={version.depuis} onChange={(e) => setVersion({ ...version, depuis: e.target.value })} /></label>
                       <span className="plo-boutons" style={{ alignItems: 'end' }}>
                         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setVersion(null)} data-annuler-version>Annuler</button>
                         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={g.envoi} data-enregistrer-version
-                          onClick={() => { void g.faire({ action: 'bareme-apporteur', apporteurId: a.id, bareme: { taux: version.taux, coutFixe: version.coutFixe, depuis: version.depuis } },
+                          onClick={() => { void g.faire({ action: 'bareme-apporteur', apporteurId: a.id, bareme: { mode: version.mode, taux: version.taux, tauxGestion: version.tauxGestion, coutFixe: version.coutFixe, depuis: version.depuis } },
                             `Nouveau taux de ${a.nom} enregistré.`).then((ok) => { if (ok) setVersion(null); }); }}>Enregistrer</button>
                       </span>
                     </div>
@@ -245,7 +270,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                           onClick={() => onChoisir(a)}>Choisir cet apporteur</button>
                       )}
                       <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
-                        onClick={() => { g.effacer(); setVersion({ id: a.id, taux: enVigueur === null ? '' : String(Math.round(enVigueur.taux * 1000000) / 10000).replace('.', ','), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour }); }}>
+                        onClick={() => { g.effacer(); setVersion({ id: a.id, mode: enVigueur?.mode ?? 'one_shot', taux: enVigueur === null ? '' : champTaux(enVigueur.taux),
+                          tauxGestion: enVigueur === null ? '' : champTaux(enVigueur.tauxGestion ?? 0), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour }); }}>
                         Nouveau taux</button>
                       {annuaire && <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-expanded={ouverte === a.id} onClick={() => ouvrir(a)} data-ouvrir-fiche={a.id}>
                         {ouverte === a.id ? 'Fermer la fiche' : 'Fiche et cumul'}</button>}
@@ -304,7 +330,9 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                 <ListeChoix options={lu.collegues} valeur={nouveau.collegueId} libelle="Collègue de rattachement"
                   onChange={(v) => setNouveau({ ...nouveau, collegueId: v })} donnees={{ 'data-collegue-apporteur-nouveau': '' }} /></label>
             )}
-            <label className="plo-champ"><span>Taux (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
+            <ChoixMode valeur={nouveau.mode} onChange={(m) => setNouveau({ ...nouveau, mode: m })} />
+            <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
+            <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={nouveau.tauxGestion} placeholder="ex. 20" onChange={(e) => setNouveau({ ...nouveau, tauxGestion: e.target.value })} data-taux-gestion-apporteur /></label>
             <label className="plo-champ"><span>Coût fixe mensuel (€, facultatif)</span><input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
             <label className="plo-champ"><span>Taux applicable à partir du</span><input type="date" value={nouveau.depuis} onChange={(e) => setNouveau({ ...nouveau, depuis: e.target.value })} /></label>
             {annuaire && (
@@ -405,6 +433,11 @@ export function OngletCommissions() {
 }
 
 export const CSS_ONGLETS_SUIVI = `
+.plo-champ--large{grid-column:1 / -1}
+.plo-modes{display:flex;flex-wrap:wrap;gap:8px}
+.plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
+.plo-mode[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.plo-mode:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .plo-a-rattacher{border-color:var(--color-svv-amber) !important;background:var(--color-svv-amber-soft)}
 .plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
 .plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}

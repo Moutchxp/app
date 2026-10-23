@@ -117,7 +117,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   }, [detail]);
 
   const d = lu !== null && lu.annee === annee && 'd' in lu ? lu.d : null;
-  const ctx: ContexteCalcul = useMemo(() => ({ regles: d?.regles ?? [], apporteurs: d?.apporteurs ?? [], retrocessions: d?.retrocessions ?? [] }), [d]);
+  // 413 — les affaires « Récurrent » de toutes les années (mêmes filtres) : leur part gestion est due chaque mois en gestion.
+  const ctx: ContexteCalcul = useMemo(() => ({ regles: d?.regles ?? [], apporteurs: d?.apporteurs ?? [], retrocessions: d?.retrocessions ?? [],
+    recurrents: filtrer(d?.recurrents ?? [], filtre), aujourdhui: d?.aujourdhui }), [d, filtre]);
   const lignes = useMemo(() => (d === null ? [] : filtrer(d.activites, filtre)), [d, filtre]);
   const parId = useMemo(() => new Map((d?.activites ?? []).map((a) => [String(a.id), a])), [d]);
 

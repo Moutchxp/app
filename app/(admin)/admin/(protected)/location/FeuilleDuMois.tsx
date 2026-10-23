@@ -59,7 +59,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
-  const ac = apporteursEtCollegues(duMois, ctx.apporteurs);
+  // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
+  const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const [edition, setEdition] = useState<number | string | null>(null);
   // Échap referme la ligne en édition — sauf quand une fenêtre (confirmation, roue) est ouverte : Échap est alors à elle.
   useEffect(() => {

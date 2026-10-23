@@ -1,7 +1,7 @@
 import 'server-only';
 import ExcelJS from 'exceljs';
 import {
-  type ActiviteCalcul, caLigne, NOMS_MOIS, commissionApporteurDe, type ContexteCalcul, primeDe, tauxNegociateurDe, totauxPeriode,
+  type ActiviteCalcul, caLigne, NOMS_MOIS, partGestionSignatureDe, partLocationDe, type ContexteCalcul, primeDe, tauxNegociateurDe, totauxPeriode,
 } from './tableauBord';
 import { libelleOrigineContact } from './suivi';
 
@@ -11,6 +11,9 @@ import { libelleOrigineContact } from './suivi';
  * locataire HT, TOTAL CA HT = B + D, prime de gestion, apporteur, commission), puis TOTAL CA HT, TOTAL CA HT − APPORTEURS,
  * la commission brute du négociateur, et la VENTILATION avec / sans gestion. Les cellules calculées portent la FORMULE et son
  * résultat (le fichier se recalcule dans Excel). 🔒 Sans « Voir les commissions » : ni prime, ni commission du négociateur.
+ * 🔴 Arno (24/10/2026, 413) — « COMS APPORTEURS » (H) reste la PART LOCATION (la formule du fichier, `=E4*10%`, et CA − apporteurs) ;
+ * la part gestion s'ajoute À CÔTÉ : une dernière colonne (« One shot », à la signature) et un bloc « DÛ AUX APPORTEURS » sous la
+ * ventilation (part location, part gestion one shot, part gestion récurrente du mois, total dû).
  */
 const EUROS = '#,##0.00 "€"';
 const LIBELLE_TYPE: Record<ActiviteCalcul['type'], string> = { bail: 'Bail', avenant: 'Avenant', gestion_seule: 'Gestion seule' };
@@ -27,14 +30,16 @@ export async function classeurSuivi(o: {
     ws.columns = [
       { key: 'A', width: 30 }, { key: 'B', width: 16 }, { key: 'C', width: 30 }, { key: 'D', width: 16 }, { key: 'E', width: 16 },
       { key: 'F', width: 12 }, { key: 'G', width: 24 }, { key: 'H', width: 16 }, { key: 'I', width: 12 }, { key: 'J', width: 22 }, { key: 'K', width: 14 }, { key: 'L', width: 14 },
-      { key: 'M', width: 32 },
+      { key: 'M', width: 32 }, { key: 'N', width: 20 },
     ];
     ws.getCell('A1').value = `Suivi location — ${NOMS_MOIS[m - 1]} ${o.annee}${o.filtres ? ` (${o.filtres})` : ''}`;
     ws.getCell('A1').font = { bold: true, size: 13 };
     const entetes = ['PROPRIÉTAIRES', 'HONO. PROPRIÉTAIRE HT', 'LOCATAIRES', 'HONO. LOCATAIRE HT', 'TOTAL CA HT', o.voirCommissions ? 'GESTION (prime)' : '',
       'APPORTEURS D’AFFAIRES', 'COMS APPORTEURS', 'AVEC GESTION', 'NÉGOCIATEUR', 'SIGNATURE', 'NATURE',
       // Arno (24/10/2026) — l'origine du contact, telle quelle (« Personnalisé : <texte> »), en DERNIÈRE colonne : rien ne se décale.
-      'ORIGINE DU CONTACT'];
+      'ORIGINE DU CONTACT',
+      // 413 — la part gestion « One shot » de l'apporteur, due à la signature (après la dernière colonne d'avant).
+      'COMS APPORTEURS — GESTION'];
     ws.getRow(2).values = entetes;
     ws.getRow(2).font = { bold: true };
     const debut = 3;
@@ -48,7 +53,7 @@ export async function classeurSuivi(o: {
       row.getCell(5).value = { formula: `B${r}+D${r}`, result: caLigne(a) };
       if (o.voirCommissions) row.getCell(6).value = primeDe(a, o.ctx.regles);
       row.getCell(7).value = a.apporteurNom ?? '';
-      const com = commissionApporteurDe(a, o.ctx.apporteurs);
+      const com = partLocationDe(a, o.ctx.apporteurs);
       // La formule du fichier (`=E4*10%`) quand la commission EST le taux appliqué au CA ; sinon le montant saisi.
       const taux = a.apporteurTaux !== null && (a.commissionSaisie === null || Math.abs(a.commissionSaisie - caLigne(a) * a.apporteurTaux) < 1e-9) ? a.apporteurTaux : null;
       row.getCell(8).value = taux !== null ? { formula: `E${r}*${String(taux * 100).replace(',', '.')}%`, result: com } : com;
@@ -57,7 +62,8 @@ export async function classeurSuivi(o: {
       row.getCell(11).value = `${a.dateSignature.split('-').reverse().join('/')}${a.dateSupposee ? ' (supposée)' : ''}`;
       row.getCell(12).value = LIBELLE_TYPE[a.type];
       row.getCell(13).value = libelleOrigineContact(a.origineContact, a.origineContactPrecision);
-      for (const c of [2, 4, 5, 6, 8]) row.getCell(c).numFmt = EUROS;
+      row.getCell(14).value = partGestionSignatureDe(a, o.ctx.apporteurs);
+      for (const c of [2, 4, 5, 6, 8, 14]) row.getCell(c).numFmt = EUROS;
     });
     const fin = Math.max(debut, debut + lignes.length - 1);
     const t = totauxPeriode(lignes, o.ctx, { annee: o.annee, mois: m });
@@ -66,7 +72,8 @@ export async function classeurSuivi(o: {
     ws.getCell(`A${rT}`).value = 'TOTAL CA HT';
     ws.getCell(`B${rT}`).value = somme('E', t.ca);
     if (o.voirCommissions) ws.getCell(`F${rT}`).value = somme('F', t.primes);
-    ws.getCell(`H${rT}`).value = somme('H', t.apporteurs);
+    ws.getCell(`H${rT}`).value = somme('H', t.apporteursLocation);
+    ws.getCell(`N${rT}`).value = somme('N', t.apporteursGestion);
     ws.getCell(`A${rT + 1}`).value = 'TOTAL CA HT - APPORTEURS';
     ws.getCell(`C${rT + 1}`).value = { formula: `B${rT}-H${rT}`, result: t.caNet };
     if (o.voirCommissions) {
@@ -87,8 +94,19 @@ export async function classeurSuivi(o: {
     ws.getCell(`B${rV + 2}`).value = t.sansGestion;
     ws.getCell(`A${rV + 3}`).value = 'Total';
     ws.getCell(`B${rV + 3}`).value = { formula: `B${rV + 1}+B${rV + 2}`, result: t.avecGestion + t.sansGestion };
-    for (const a of [`B${rT}`, `F${rT}`, `H${rT}`, `C${rT + 1}`, `B${rV + 1}`, `B${rV + 2}`, `B${rV + 3}`]) ws.getCell(a).numFmt = EUROS;
-    for (const r of [rT, rT + 1, rT + 2, rV]) ws.getRow(r).font = { bold: true };
+    // 413 — ce qui est dû aux apporteurs ce mois-ci : part location, part gestion « One shot », part gestion « Récurrent » du mois.
+    const rD = rV + 5;
+    ws.getCell(`A${rD}`).value = 'DÛ AUX APPORTEURS HT';
+    ws.getCell(`A${rD + 1}`).value = 'dont location';
+    ws.getCell(`B${rD + 1}`).value = { formula: `H${rT}`, result: t.apporteursLocation };
+    ws.getCell(`A${rD + 2}`).value = 'dont gestion (one shot)';
+    ws.getCell(`B${rD + 2}`).value = { formula: `N${rT}`, result: t.apporteursGestion };
+    ws.getCell(`A${rD + 3}`).value = 'dont gestion récurrente';
+    ws.getCell(`B${rD + 3}`).value = t.apporteursRecurrents;
+    ws.getCell(`A${rD + 4}`).value = 'Total dû';
+    ws.getCell(`B${rD + 4}`).value = { formula: `B${rD + 1}+B${rD + 2}+B${rD + 3}`, result: t.apporteurs };
+    for (const a of [`B${rT}`, `F${rT}`, `H${rT}`, `N${rT}`, `C${rT + 1}`, `B${rV + 1}`, `B${rV + 2}`, `B${rV + 3}`, `B${rD + 1}`, `B${rD + 2}`, `B${rD + 3}`, `B${rD + 4}`]) ws.getCell(a).numFmt = EUROS;
+    for (const r of [rT, rT + 1, rT + 2, rV, rD]) ws.getRow(r).font = { bold: true };
   }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

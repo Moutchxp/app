@@ -1,4 +1,4 @@
-import { montantPrime,
+import { montantPrime, type BaremeApporteur, type ModeApporteur,
   type Apporteur, type CategoriePrime, collegueADate, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -8,6 +8,9 @@ import { montantPrime,
  * Reproduit EXACTEMENT les formules du suivi mensuel d'Arno (CA_JBP_2026.xlsx), ligne par ligne puis par mois :
  *   CA HT de la ligne        = honoraires propriétaire HT + honoraires locataire HT             (colonne E)
  *   commission d'apporteur   = la commission saisie, sinon CA HT × taux de l'apporteur à la date (colonne H, `=E8*10%`)
+ *                              — 🔴 Arno (24/10/2026, 413) : c'est la PART LOCATION ; s'y ajoute la PART GESTION (voir plus bas,
+ *                              « One shot » à la signature, « Récurrent » chaque mois en gestion). Le CA net d'apporteurs et la
+ *                              commission du négociateur restent calculés sur la PART LOCATION (la formule du fichier).
  *   prime de nouvelle gestion = la prime saisie, sinon (mandat signé) la prime de la règle à la date, logement ou parking (F)
  *   CA net d'apporteurs      = CA HT − commissions d'apporteurs                                   (`TOTAL CA HT - APPORTEURS`)
  *   commission du négociateur = taux × CA net + primes − rétrocessions                            (`=C19*15%+F18-F24`)
@@ -55,6 +58,15 @@ export interface ActiviteCalcul {
   primeMode?: ModePrime | null;
   /** 411 — le texte d'une origine « Personnalisé ». */
   origineContactPrecision?: string | null;
+  /**
+   * 413 — la commission d'apporteur sur la GESTION : le mode et le taux de CE bail (null : la règle de l'apporteur à la signature),
+   * le taux de gestion HT du bien relevé à la signature (en %, ex. 4,5), et la date de SORTIE de gestion du bien (la première
+   * après la signature ; null : toujours en gestion). Absents : base d'avant la 413 — part gestion 0.
+   */
+  apporteurMode?: ModeApporteur | null;
+  apporteurTauxGestion?: number | null;
+  tauxGestionBien?: number | null;
+  finGestion?: string | null;
 }
 
 export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
@@ -63,6 +75,12 @@ export interface ContexteCalcul {
   regles: RegleCommission[];
   apporteurs: Apporteur[];
   retrocessions: Retrocession[];
+  /**
+   * 413 — les affaires « Récurrent » de TOUTES les années (mêmes filtres que les lignes), et le jour : leur part gestion est due
+   * chaque mois, jusqu'au mois en cours. Absent : les affaires « Récurrent » des lignes passées au calcul.
+   */
+  recurrents?: ActiviteCalcul[];
+  aujourdhui?: string;
 }
 
 export interface Filtre {
@@ -101,9 +119,99 @@ export function tauxApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteu
   return ap === undefined ? 0 : versionADate(ap.baremes, a.dateSignature)?.taux ?? 0;
 }
 
-export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+/** La PART LOCATION de la commission d'apporteur : la commission saisie, sinon CA HT × taux sur la location. PUR. */
+export function partLocationDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
   if (a.commissionSaisie !== null) return a.commissionSaisie;
   return caLigne(a) * tauxApporteurDe(a, apporteurs);
+}
+
+// ── 413 — LA PART GESTION (Arno, 24/10/2026) ────────────────────────────────────────────────────────────────────────
+
+/** La règle de l'apporteur EN VIGUEUR À LA SIGNATURE (jamais rétroactive) ; null sans apporteur ni règle. */
+export function regleApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): BaremeApporteur | null {
+  if (a.apporteurId === null) return null;
+  const ap = apporteurs.find((x) => x.id === a.apporteurId);
+  return ap === undefined ? null : versionADate(ap.baremes, a.dateSignature);
+}
+/** Le mode du bail : le sien, sinon celui de la règle à la signature, sinon « One shot ». */
+export const modeApporteurDe = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): ModeApporteur =>
+  a.apporteurMode ?? regleApporteurDe(a, apporteurs)?.mode ?? 'one_shot';
+/** Le taux de l'apporteur sur la gestion (fraction) : celui du bail, sinon celui de la règle à la signature, sinon 0. */
+export function tauxGestionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  if (a.apporteurId === null) return 0;
+  return a.apporteurTauxGestion ?? regleApporteurDe(a, apporteurs)?.tauxGestion ?? 0;
+}
+
+/** Pourquoi la part gestion vaut 0 : le bien n'est pas en gestion, ou le loyer / le taux de gestion manquent. */
+export type ManqueGestion = 'hors_gestion' | 'loyer_ou_taux';
+export const MOT_MANQUE_GESTION: Record<ManqueGestion, string> = {
+  hors_gestion: 'le bien n’est pas en gestion', loyer_ou_taux: 'loyer ou taux de gestion manquant',
+};
+
+/**
+ * Les HONORAIRES DE GESTION MENSUELS HT du bail = loyer charges comprises (loyer HC + charges) × taux de gestion HT du bien.
+ * Un bail sans gestion (ni « Relocation » ni « Nouveau mandat ») n'en a pas ; sans loyer ou sans taux, on le DIT (rien n'est
+ * inventé : la part gestion vaut alors 0). AUCUN ARRONDI. PUR.
+ */
+export function honorairesGestionDuBail(a: Pick<ActiviteCalcul, 'avecGestion' | 'mandatGestion' | 'loyerHc' | 'charges' | 'tauxGestionBien'>):
+  { montant: number } | { manque: ManqueGestion } {
+  if (!a.avecGestion && !a.mandatGestion) return { manque: 'hors_gestion' };
+  if (a.loyerHc === null || a.tauxGestionBien === null || a.tauxGestionBien === undefined) return { manque: 'loyer_ou_taux' };
+  return { montant: (a.loyerHc + (a.charges ?? 0)) * a.tauxGestionBien / 100 };
+}
+const mensuelsDe = (a: ActiviteCalcul): number => { const h = honorairesGestionDuBail(a); return 'montant' in h ? h.montant : 0; };
+
+/** « One shot » : la part gestion due À LA SIGNATURE = taux gestion × honoraires de gestion mensuels × 12 (la première année). */
+export function partGestionSignatureDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  if (a.apporteurId === null || modeApporteurDe(a, apporteurs) !== 'one_shot') return 0;
+  return tauxGestionApporteurDe(a, apporteurs) * mensuelsDe(a) * 12;
+}
+/** « Récurrent » : la part gestion due CHAQUE MOIS = taux gestion × honoraires de gestion mensuels (0 en « One shot »). */
+export function partGestionMensuelleDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  if (a.apporteurId === null || modeApporteurDe(a, apporteurs) !== 'recurrent') return 0;
+  return tauxGestionApporteurDe(a, apporteurs) * mensuelsDe(a);
+}
+export const estRecurrent = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean => partGestionMensuelleDe(a, apporteurs) > 0;
+
+/**
+ * Les mois (« AAAA-MM ») où la part gestion « Récurrent » est DUE : du mois de signature au mois en cours, et seulement AVANT le
+ * mois de la sortie de gestion du bien (arrêt à la sortie). PUR.
+ */
+export function moisDusRecurrent(a: Pick<ActiviteCalcul, 'dateSignature' | 'finGestion'>, aujourdhui: string): string[] {
+  const debut = a.dateSignature.slice(0, 7);
+  const finExclue = a.finGestion ? a.finGestion.slice(0, 7) : null;
+  const dernier = aujourdhui.slice(0, 7);
+  const sortie: string[] = [];
+  let [y, m] = debut.split('-').map(Number);
+  for (let mm = debut; mm <= dernier && (finExclue === null || mm < finExclue); ) {
+    sortie.push(mm);
+    m += 1; if (m > 12) { m = 1; y += 1; }
+    mm = `${y}-${String(m).padStart(2, '0')}`;
+  }
+  return sortie;
+}
+
+/** La part gestion « Récurrent » due sur ces mois, pour ces affaires. PUR. */
+export function duRecurrent(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], mois: readonly string[], aujourdhui: string): number {
+  let total = 0;
+  for (const a of lignes) {
+    const p = partGestionMensuelleDe(a, apporteurs);
+    if (p === 0) continue;
+    const dus = moisDusRecurrent(a, aujourdhui);
+    total += p * mois.filter((m) => dus.includes(m)).length;
+  }
+  return total;
+}
+
+/** Le jour de référence des dus « Récurrent » (le contexte, sinon aujourd'hui). */
+const jourDe = (ctx: Pick<ContexteCalcul, 'aujourdhui'>): string => ctx.aujourdhui ?? new Date().toISOString().slice(0, 10);
+/** Les affaires « Récurrent » du contexte, ou celles des lignes. */
+const recurrentsDe = (ctx: ContexteCalcul, lignes: readonly ActiviteCalcul[]): readonly ActiviteCalcul[] =>
+  (ctx.recurrents ?? lignes).filter((a) => estRecurrent(a, ctx.apporteurs));
+
+/** La commission d'apporteur DUE À LA SIGNATURE : part location + part gestion « One shot ». PUR. */
+export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  return partLocationDe(a, apporteurs) + partGestionSignatureDe(a, apporteurs);
 }
 
 /** Le taux de commission appliqué à la ligne (affichage) : celui du bail, sinon celui de l'apporteur à la date ; null sans apporteur. */
@@ -164,7 +272,12 @@ export interface Totaux {
   caProprietaire: number;
   caLocataire: number;
   primes: number;
+  /** Dû aux apporteurs HT : part location + part gestion (« One shot » à la signature ; « Récurrent » ajouté par période). */
   apporteurs: number;
+  /** 413 — dont part location, dont part gestion « One shot ». */
+  apporteursLocation: number;
+  apporteursGestion: number;
+  /** CA HT − part location des apporteurs (la formule du fichier). */
   caNet: number;
   /** Σ taux × CA net + primes, AVANT rétrocessions. */
   commissionAvantRetro: number;
@@ -174,15 +287,17 @@ export interface Totaux {
 }
 
 export function totaux(lignes: readonly ActiviteCalcul[], ctx: ContexteCalcul): Totaux {
-  const t: Totaux = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, ca: 0, caProprietaire: 0, caLocataire: 0, primes: 0, apporteurs: 0, caNet: 0, commissionAvantRetro: 0, avecGestion: 0, sansGestion: 0, ids: [] };
+  const t: Totaux = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, ca: 0, caProprietaire: 0, caLocataire: 0, primes: 0, apporteurs: 0,
+    apporteursLocation: 0, apporteursGestion: 0, caNet: 0, commissionAvantRetro: 0, avecGestion: 0, sansGestion: 0, ids: [] };
   for (const a of lignes) {
     const ca = caLigne(a);
-    const app = commissionApporteurDe(a, ctx.apporteurs);
+    const app = partLocationDe(a, ctx.apporteurs);
+    const gestion = partGestionSignatureDe(a, ctx.apporteurs);
     const prime = primeDe(a, ctx.regles);
     t.nb += 1;
     if (a.type === 'bail') t.nbBaux += 1; else if (a.type === 'avenant') t.nbAvenants += 1; else t.nbGestionSeule += 1;
     t.ca += ca; t.caProprietaire += a.honoProprietaireHt; t.caLocataire += a.honoLocataireHt;
-    t.primes += prime; t.apporteurs += app; t.caNet += ca - app;
+    t.primes += prime; t.apporteurs += app + gestion; t.apporteursLocation += app; t.apporteursGestion += gestion; t.caNet += ca - app;
     t.commissionAvantRetro += tauxNegociateurDe(a, ctx.regles) * (ca - app) + prime;
     if (a.avecGestion) t.avecGestion += ca; else t.sansGestion += ca;
     t.ids.push(a.id);
@@ -197,7 +312,8 @@ const moisDe = (annee: number, m: number): string => `${annee}-${String(m).padSt
 // ── A — le mois, comparé au même mois de l'année précédente ─────────────────────────────────────────────────────────
 
 export interface Periode { annee: number; mois: number | null }
-export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number }
+/** `apporteursRecurrents` : la part gestion « Récurrent » due sur la période (déjà comprise dans `apporteurs`). */
+export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number; apporteursRecurrents: number }
 
 /** Les lignes d'une période : l'année entière (`mois` null) ou un mois. */
 export function lignesDePeriode(activites: readonly ActiviteCalcul[], p: Periode): ActiviteCalcul[] {
@@ -209,7 +325,10 @@ export function totauxPeriode(activites: readonly ActiviteCalcul[], ctx: Context
   const t = totaux(lignesDePeriode(activites, p), ctx);
   const mois = p.mois === null ? Array.from({ length: 12 }, (_, i) => moisDe(p.annee, i + 1)) : [moisDe(p.annee, p.mois)];
   const retrocessions = retrocessionsDe(ctx, mois, negociateur);
-  return { ...t, retrocessions, commission: t.commissionAvantRetro - retrocessions };
+  // 413 — la part gestion « Récurrent » due sur les mois de la période (affaires de toutes les années, celles du négociateur s'il est donné).
+  const recurrents = recurrentsDe(ctx, activites).filter((a) => !negociateur || cleNegociateur(a) === negociateur);
+  const apporteursRecurrents = duRecurrent(recurrents, ctx.apporteurs, mois, jourDe(ctx));
+  return { ...t, apporteurs: t.apporteurs + apporteursRecurrents, apporteursRecurrents, retrocessions, commission: t.commissionAvantRetro - retrocessions };
 }
 
 export interface SectionMois { courant: TotauxPeriode; precedent: TotauxPeriode; variationCa: number | null; variationNb: number | null }
@@ -306,9 +425,18 @@ export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: Con
     l.nb += 1; l.ca += caLigne(a); l.commissions += commissionApporteurDe(a, ctx.apporteurs); l.ids.push(a.id);
     parCle.set(cle, l);
   }
+  // 413 — la part gestion « Récurrent » due sur les mois de la période, à l'apporteur de chaque affaire (toutes années).
+  for (const a of recurrentsDe(ctx, activites)) {
+    const du = duRecurrent([a], ctx.apporteurs, mois, jourDe(ctx));
+    if (du === 0) continue;
+    const cle = `id:${a.apporteurId}`;
+    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, coutsFixes: 0, net: 0, coutParEuro: null, ids: [] };
+    l.commissions += du;
+    parCle.set(cle, l);
+  }
   return [...parCle.values()]
     .map((l) => ({ ...l, net: l.ca - l.commissions - l.coutsFixes, coutParEuro: l.ca === 0 ? null : (l.commissions + l.coutsFixes) / l.ca }))
-    .filter((l) => l.nb > 0 || l.coutsFixes > 0)
+    .filter((l) => l.nb > 0 || l.coutsFixes > 0 || l.commissions > 0)
     .sort((a, b) => b.ca - a.ca || a.nom.localeCompare(b.nom));
 }
 
@@ -462,6 +590,8 @@ export interface DonneesTableau {
   historique?: AnneeHistorique[];
   /** 408 — les écarts expliqués avec le fichier, de l'année (notes de la feuille du mois). */
   ecartsFichier?: EcartFichier[];
+  /** 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois en gestion. */
+  recurrents?: ActiviteLue[];
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
@@ -478,13 +608,20 @@ export function historiqueAnnees(activites: readonly ActiviteCalcul[], ctx: Cont
 
 // ── 407 — LA FEUILLE DU MOIS ─────────────────────────────────────────────────────────────────────────────────────────
 
-/** `nb` : les affaires (avenants compris) ; `avenants` : dont avenants ; `ca` : honoraires HT ; `commission` : dû à l'apporteur HT. */
-export interface CumulAffaires { nb: number; avenants: number; ca: number; commission: number; ids: (number | string)[] }
-const cumulVide = (): CumulAffaires => ({ nb: 0, avenants: 0, ca: 0, commission: 0, ids: [] });
+/**
+ * `nb` : les affaires (avenants compris) ; `avenants` : dont avenants ; `ca` : honoraires HT ; `commission` : dû à l'apporteur HT —
+ * 413 : dont `location`, dont `gestion` (« One shot », à la signature), dont `recurrente` (« Récurrent », mois par mois).
+ */
+export interface CumulAffaires { nb: number; avenants: number; ca: number; commission: number; location: number; gestion: number; recurrente: number; ids: (number | string)[] }
+const cumulVide = (): CumulAffaires => ({ nb: 0, avenants: 0, ca: 0, commission: 0, location: 0, gestion: 0, recurrente: 0, ids: [] });
 const ajouter = (c: CumulAffaires, a: ActiviteCalcul, apporteurs: readonly Apporteur[]): void => {
-  c.nb += 1; c.ca += caLigne(a); c.commission += commissionApporteurDe(a, apporteurs); c.ids.push(a.id);
+  const location = partLocationDe(a, apporteurs);
+  const gestion = partGestionSignatureDe(a, apporteurs);
+  c.nb += 1; c.ca += caLigne(a); c.commission += location + gestion; c.location += location; c.gestion += gestion; c.ids.push(a.id);
   if (a.type === 'avenant') c.avenants += 1;
 };
+/** 413 — ajouter un dû « Récurrent » (ni affaire, ni CA : seulement le dû). */
+const ajouterDu = (c: CumulAffaires, du: number): void => { c.commission += du; c.recurrente += du; };
 
 export interface ApporteurDuMois extends CumulAffaires { apporteurId: number | null; nom: string; aRattacher: boolean }
 export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: string }
@@ -493,22 +630,35 @@ export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: st
  * Les apporteurs d'un ensemble de lignes (nombre d'affaires, CA apporté, honoraires d'apporteur), et pour chaque COLLÈGUE le
  * cumul des affaires apportées par SES apporteurs (collègue à la date de chaque affaire ; « à rattacher » à part). PUR.
  */
-export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[]): { apporteurs: ApporteurDuMois[]; collegues: CollegueDuMois[] } {
+export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[],
+  /** 413 — les affaires « Récurrent » (toutes années) et les mois : leur part gestion due ces mois-là s'ajoute au dû. */
+  recurrent?: { lignes: readonly ActiviteCalcul[]; mois: readonly string[]; aujourdhui: string }): { apporteurs: ApporteurDuMois[]; collegues: CollegueDuMois[] } {
   const parApp = new Map<string, ApporteurDuMois>();
   const parCol = new Map<string, CollegueDuMois>();
-  for (const a of lignes) {
-    if (a.apporteurId === null && a.apporteurNom === null) continue;
+  const lignesDe = (a: ActiviteCalcul): { ligneA: ApporteurDuMois; ligneC: CollegueDuMois | null } => {
     const ap = a.apporteurId === null ? undefined : apporteurs.find((x) => x.id === a.apporteurId);
     const cleA = a.apporteurId !== null ? `id:${a.apporteurId}` : `nom:${(a.apporteurNom ?? '').toLowerCase()}`;
     const ligneA = parApp.get(cleA) ?? { ...cumulVide(), apporteurId: a.apporteurId, nom: ap?.nom ?? a.apporteurNom ?? '—', aRattacher: ap !== undefined && ap.collegues !== undefined && ap.collegues.length === 0 };
-    ajouter(ligneA, a, apporteurs);
     parApp.set(cleA, ligneA);
     const col = collegueDeLigne({ ...a, origineContact: 'apporteur' }, apporteurs);
-    if (col === null) continue;
+    if (col === null) return { ligneA, ligneC: null };
     const cleC = 'aRattacher' in col ? 'a-rattacher' : col.cle;
     const ligneC = parCol.get(cleC) ?? { ...cumulVide(), cle: cleC, libelle: 'aRattacher' in col ? 'À rattacher' : col.libelle };
-    ajouter(ligneC, a, apporteurs);
     parCol.set(cleC, ligneC);
+    return { ligneA, ligneC };
+  };
+  for (const a of lignes) {
+    if (a.apporteurId === null && a.apporteurNom === null) continue;
+    const { ligneA, ligneC } = lignesDe(a);
+    ajouter(ligneA, a, apporteurs);
+    if (ligneC !== null) ajouter(ligneC, a, apporteurs);
+  }
+  for (const a of recurrent?.lignes ?? []) {
+    const du = duRecurrent([a], apporteurs, recurrent!.mois, recurrent!.aujourdhui);
+    if (du === 0) continue;
+    const { ligneA, ligneC } = lignesDe(a);
+    ajouterDu(ligneA, du);
+    if (ligneC !== null) ajouterDu(ligneC, du);
   }
   const tri = <T extends { ca: number; nom?: string; libelle?: string }>(x: T[]): T[] => x.sort((p, q) => q.ca - p.ca || String(p.nom ?? p.libelle).localeCompare(String(q.nom ?? q.libelle)));
   return { apporteurs: tri([...parApp.values()]), collegues: tri([...parCol.values()]) };
@@ -518,20 +668,25 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
  * Le cumul d'UN apporteur (fiche de l'annuaire) : le TOTAL depuis le début (Arno, 23/10/2026), puis par année et par mois — les
  * mêmes lignes et les mêmes règles que le Suivi (lignes reprises du fichier comprises, rattachées ou non à un bail). PUR.
  */
-export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number):
+export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number, aujourdhui?: string):
   { total: CumulAffaires; parAnnee: (CumulAffaires & { annee: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
   const siennes = activites.filter((a) => a.apporteurId === apporteurId);
   const total = cumulVide();
   for (const a of siennes) ajouter(total, a, apporteurs);
   const an = new Map<number, CumulAffaires & { annee: number }>();
   const mo = new Map<string, CumulAffaires & { mois: string }>();
+  const annee = (y: number) => { const l = an.get(y) ?? { ...cumulVide(), annee: y }; an.set(y, l); return l; };
+  const duMois = (m: string) => { const l = mo.get(m) ?? { ...cumulVide(), mois: m }; mo.set(m, l); return l; };
   for (const a of siennes) {
-    const y = Number(a.dateSignature.slice(0, 4));
-    const m = a.dateSignature.slice(0, 7);
-    const ly = an.get(y) ?? { ...cumulVide(), annee: y };
-    const lm = mo.get(m) ?? { ...cumulVide(), mois: m };
-    ajouter(ly, a, apporteurs); ajouter(lm, a, apporteurs);
-    an.set(y, ly); mo.set(m, lm);
+    ajouter(annee(Number(a.dateSignature.slice(0, 4))), a, apporteurs); ajouter(duMois(a.dateSignature.slice(0, 7)), a, apporteurs);
+  }
+  // 413 — la part gestion « Récurrent », due mois par mois jusqu'au mois en cours (ou jusqu'à la sortie de gestion).
+  for (const a of siennes) {
+    const p = partGestionMensuelleDe(a, apporteurs);
+    if (p === 0) continue;
+    for (const m of moisDusRecurrent(a, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
+      ajouterDu(total, p); ajouterDu(annee(Number(m.slice(0, 4))), p); ajouterDu(duMois(m), p);
+    }
   }
   return { total, parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
 }
@@ -539,15 +694,18 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
 export type TotalApporteur = Omit<CumulAffaires, 'ids'>;
 
 /** Les totaux de CHAQUE apporteur depuis le début (liste de l'annuaire : dossiers, honoraires HT, dû HT). PUR. */
-export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[]): Record<number, TotalApporteur> {
+export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui?: string): Record<number, TotalApporteur> {
   const par = new Map<number, CumulAffaires>();
   for (const a of activites) {
     if (a.apporteurId === null) continue;
     const c = par.get(a.apporteurId) ?? cumulVide();
     ajouter(c, a, apporteurs);
+    // 413 — la part gestion « Récurrent » due jusqu'au mois en cours.
+    const p = partGestionMensuelleDe(a, apporteurs);
+    if (p > 0) ajouterDu(c, p * moisDusRecurrent(a, aujourdhui ?? new Date().toISOString().slice(0, 10)).length);
     par.set(a.apporteurId, c);
   }
-  return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission }]));
+  return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission, location: c.location, gestion: c.gestion, recurrente: c.recurrente }]));
 }
 
 /** Une entrée en gestion ou une sortie (mandat perdu), avec le loyer et le taux qui font ses honoraires de gestion. */

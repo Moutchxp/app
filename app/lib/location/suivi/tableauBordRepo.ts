@@ -3,9 +3,9 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDeCategorie } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
-import type { ModePrime, OrigineContact } from './suivi';
-import { annuaireDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+import { estRecurrent, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
+import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
+import { annuaireDisponible, commissionGestionDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
@@ -24,6 +24,8 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   const avecAssurance = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_id');
   const avec407 = await annuaireDisponible();
   const avec411 = await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision');
+  const avec413 = await commissionGestionDisponible();
+  const avecStatut = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
   const { rows } = await query<Record<string, unknown>>(
     `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
             a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
@@ -34,6 +36,9 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie,
             ${avec407 ? 'a.origine_contact, a.collegue_id, a.collegue_libelle, a.prime_mode' : 'NULL::text AS origine_contact, NULL::bigint AS collegue_id, NULL::text AS collegue_libelle, NULL::text AS prime_mode'},
             ${avec411 ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision'},
+            ${avec413 ? 'a.apporteur_mode, a.apporteur_taux_gestion, a.taux_gestion_bien_ht' : 'NULL::text AS apporteur_mode, NULL::numeric AS apporteur_taux_gestion, NULL::numeric AS taux_gestion_bien_ht'},
+            ${avecStatut ? `(SELECT min(t.effet_le) FROM gestion_bien_statut_transition t
+                              WHERE t.lot_id = a.lot_id AND t.avant = 'en_gestion' AND t.apres <> 'en_gestion' AND t.effet_le >= a.date_signature)` : 'NULL::date'} AS fin_gestion,
             ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
               WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
@@ -58,6 +63,9 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     origineContact: (r.origine_contact as OrigineContact | null) ?? null, collegueId: nOuNull(r.collegue_id),
     collegueLibelle: (r.collegue_libelle as string | null) ?? null, primeMode: (r.prime_mode as ModePrime | null) ?? null,
     origineContactPrecision: (r.origine_contact_precision as string | null) ?? null,
+    apporteurMode: r.apporteur_mode === 'recurrent' || r.apporteur_mode === 'one_shot' ? r.apporteur_mode as ModeApporteur : null,
+    apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
+    finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
   }));
 }
 
@@ -169,13 +177,15 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const visibles = activites;
   // L'historique de toutes les années (Suivi annuel, « année par année ») : calculé ici, seules les sommes partent.
   const toutes = annees.length > 0 ? await lireActivites(annees) : [];
-  const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions }, voirCommissions);
+  // 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois tant que le bien est en gestion.
+  const recurrents = toutes.filter((x) => estRecurrent(x, apporteurs));
+  const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions, recurrents, aujourdhui }, voirCommissions);
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
-    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique,
+    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique, recurrents,
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),

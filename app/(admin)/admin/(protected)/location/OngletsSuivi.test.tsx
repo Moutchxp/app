@@ -57,14 +57,35 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
   it('Apporteurs : le taux EN VIGUEUR aujourd’hui et l’historique ; « Nouveau taux » crée une version datée', async () => {
     await ouvrir('apporteurs');
     const ligne = container.querySelector('[data-apporteur="3"]')!;
-    expect(ligne.textContent).toContain('Taux 12 % · coût fixe 50,00 € / mois (depuis le 01/06/2026)');
-    expect(ligne.textContent).toContain('Historique : 01/01/2026 → 10 %');
+    // 413 — les règles d'avant se lisent « One shot — location X %, gestion 0 % ».
+    expect(ligne.textContent).toContain('One shot — location 12 %, gestion 0 % · coût fixe 50,00 € / mois (depuis le 01/06/2026)');
+    expect(ligne.textContent).toContain('Historique : 01/01/2026 → One shot — location 10 %, gestion 0 %');
     await clic(ligne.querySelector('[data-nouveau-taux="3"]')!);
     const champs = ligne.querySelectorAll('[data-nouvelle-version] input');
     await saisir(champs[0] as HTMLInputElement, '15');
-    await saisir(champs[2] as HTMLInputElement, '2026-11-01');
+    await saisir(champs[3] as HTMLInputElement, '2026-11-01');
     await clic(ligne.querySelector('[data-enregistrer-version]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'bareme-apporteur', apporteurId: 3, bareme: { taux: '15', coutFixe: '50', depuis: '2026-11-01' } });
+  });
+
+  it('Arno (24/10/2026, 413) — « Nouveau taux » commence par le choix One shot / Récurrent, puis les deux taux ; la règle se lit en clair', async () => {
+    suivi = { ...suivi, apporteurs: [{ id: 3, nom: 'Kin Immo', type: 'agence', archive: false,
+      baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0, mode: 'recurrent', tauxGestion: 0.1 }] }] };
+    await ouvrir('apporteurs');
+    const ligne = container.querySelector('[data-apporteur="3"]')!;
+    expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('Récurrent — location 10 %, gestion 10 % / mois (depuis le 01/01/2026)');
+    await clic(ligne.querySelector('[data-nouveau-taux="3"]')!);
+    const form = ligne.querySelector('[data-nouvelle-version]')!;
+    // le formulaire COMMENCE par le choix du mode (pré-rempli avec la règle en vigueur)
+    expect(form.firstElementChild?.hasAttribute('data-mode-apporteur')).toBe(true);
+    expect(form.querySelector('[data-mode="recurrent"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect([...form.querySelectorAll('label > span')].map((x) => x.textContent)).toEqual(['Taux sur la location (%)', 'Taux sur la gestion (%)', 'Coût fixe mensuel (€)', 'Applicable à partir du']);
+    await clic(form.querySelector('[data-mode="one_shot"]')!);
+    expect(form.querySelector('[data-mode="one_shot"]')?.getAttribute('aria-pressed')).toBe('true');
+    await saisir(form.querySelector('[data-version-taux-gestion]') as HTMLInputElement, '20');
+    await saisir(form.querySelectorAll('input')[3] as HTMLInputElement, '2026-11-01');
+    await clic(ligne.querySelector('[data-enregistrer-version]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'bareme-apporteur', apporteurId: 3, bareme: { mode: 'one_shot', taux: '10', tauxGestion: '20', depuis: '2026-11-01' } });
   });
 
   it('Apporteurs : « + Ajouter l’apporteur »', async () => {
@@ -72,7 +93,7 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     await saisir(container.querySelector('[data-nom-apporteur]') as HTMLInputElement, 'Leboncoin');
     await saisir(container.querySelector('[data-taux-apporteur]') as HTMLInputElement, '0');
     await clic(container.querySelector('[data-ajouter-apporteur]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'creer-apporteur', apporteur: { nom: 'Leboncoin', type: 'partenaire', taux: '0' } });
+    expect(posts.at(-1)).toMatchObject({ action: 'creer-apporteur', apporteur: { nom: 'Leboncoin', type: 'partenaire', taux: '0', mode: 'one_shot', tauxGestion: '' } });
   });
 
   it('Commissions : la règle en vigueur ; une rétrocession s’ajoute, et s’ANNULE (jamais supprimée)', async () => {
@@ -148,7 +169,7 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(tot('dossiers')).toBe('Dossiers7dont 1 avenant');
     expect(tot('ht')).toBe('Honoraires apportés HT5 825,03 €');
     expect(tot('ttc')).toBe('Honoraires apportés TTC6 990,04 €TVA 20 %');
-    expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €');
+    expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €dont location 582,50 € · dont gestion (one shot) 0,00 € · dont gestion récurrente 0,00 €');
     expect(tot('net')).toBe('Net pour l’agence HT5 242,53 €');
     expect(container.textContent).not.toMatch(/versé/i);
     // Le tableau : la ligne « Depuis le début » en tête, puis les années et les mois (rien n'est retiré).

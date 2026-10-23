@@ -42,12 +42,12 @@ export async function GET(request: Request): Promise<Response> {
     if (url.searchParams.get('vue') === 'cumul-apporteur') {
       const id = Number(url.searchParams.get('id'));
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
-      return json({ etat: 'ok', data: cumulApporteur(await lireActivites(annees), apporteurs, id) });
+      return json({ etat: 'ok', data: cumulApporteur(await lireActivites(annees), apporteurs, id, aujourdhuiParis()) });
     }
     // Arno (23/10/2026) — les totaux de chaque apporteur depuis le début (liste de l'annuaire).
     if (url.searchParams.get('vue') === 'totaux-apporteurs') {
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
-      return json({ etat: 'ok', data: totauxApporteurs(await lireActivites(annees), apporteurs) });
+      return json({ etat: 'ok', data: totauxApporteurs(await lireActivites(annees), apporteurs, aujourdhuiParis()) });
     }
     if (url.searchParams.get('vue') === 'tableau') {
       const jour = aujourdhuiParis();

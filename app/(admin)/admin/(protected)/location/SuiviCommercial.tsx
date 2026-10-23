@@ -9,6 +9,11 @@ import {
   type SaisieActivite, ttcVersHt, TYPES_APPORTEUR, type TypeApporteur, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { ModaleAnnuaireApporteurs } from './ModaleAnnuaireApporteurs';
+import { InfoBulle } from '../InfoBulle';
+import {
+  type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
+} from '../../../../lib/location/suivi/tableauBord';
+import { LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, type ModeApporteur } from '../../../../lib/location/suivi/suivi';
 
 /**
  * ══ LOCATION — « SUIVI COMMERCIAL » DU BAIL (Arno, 22/10/2026, migration 406) ══════════════════════════════════════════════
@@ -52,6 +57,7 @@ export const SUIVI_VIDE = (): SaisieSuivi => ({
   type: 'bail', dateSignature: aujourdhuiParis(), honoProprietaireHt: '', honoLocataireHt: '', negociateurId: null, apporteurId: null,
   apporteurTaux: '', mandatGestion: false, avecGestion: false, origineProprietaire: null, origineLocataire: null, categoriePrime: null,
   origineContact: null, collegueId: null, commissionApporteur: '', primeMode: 'aucune', primeMontant: '', origineContactPrecision: '',
+  apporteurMode: null, apporteurTauxGestion: '',
 });
 
 /** « 500 » → « 500,00 » (l'écriture des cases en euros de l'écran). */
@@ -115,9 +121,11 @@ interface Props {
   onTtcProprietaire: (ttc: string) => void;
   onTtcLocataire: (ttc: string) => void;
   manque: React.ReactNode;
+  /** 413 — le loyer mensuel des « Conditions d'entrée » (texte saisi) : la base de la part gestion de l'apporteur, en direct. */
+  loyer?: { principal: string; provisions: string };
 }
 
-export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque }: Props) {
+export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer }: Props) {
   const lu = parametres.lu;
   const poser = (p: Partial<SaisieSuivi>): void => onChange({ ...s, ...p });
   // Le HT affiché est celui du TTC (une seule vérité) ; pendant la frappe, la case garde ce qui est tapé.
@@ -137,7 +145,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   // Ce que le serveur déduit : la gestion du bien, la catégorie de prime, l'origine des clients à la date de signature.
   const [propose, setPropose] = useState<{ cle: string; avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null; enGestionAvant?: boolean;
     /* 🔴 Arno (24/10/2026) — la situation du bien (première location en gestion, relocation, prime déjà versée, hors gestion). */
-    cas?: CasGestion; primeDejaVersee?: { date: string; bail: string } | null } | null>(null);
+    cas?: CasGestion; primeDejaVersee?: { date: string; bail: string } | null;
+    /** 413 — le taux de gestion HT du bien (en %). */
+    tauxGestionBien?: number | null } | null>(null);
   const cle = lotId !== null && /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? `${lotId}|${locataireIds.join(',')}|${s.dateSignature}` : null;
   useEffect(() => {
     if (cle === null || lu?.disponible !== true) return;
@@ -210,6 +220,23 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const categorie: CategoriePrime = s.categoriePrime ?? deduit?.categoriePrime ?? 'logement';
   const primeRegle = regleDuJour === null ? 150 : montantPrime(regleDuJour, categorie);
   const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  /* 🔴 Arno (24/10/2026, 413) — LA COMMISSION DE L'APPORTEUR, EN DIRECT : la même règle que le Suivi (`tableauBord`), sur ce que l'écran
+     porte (honoraires HT, loyer des conditions d'entrée, taux du bail ou de la règle, taux de gestion du bien). */
+  const modeRegle: ModeApporteur = baremeDuJour?.mode ?? 'one_shot';
+  const tauxGestionSaisi = lireTauxPourcent(s.apporteurTauxGestion ?? '');
+  const ligneDirecte: ActiviteCalcul | null = apporteur === null ? null : {
+    id: 'direct', type: s.type, dateSignature: dateRef, libelleProprietaire: '', libelleLocataire: '',
+    honoProprietaireHt: lireMontant(htProprietaire) ?? 0, honoLocataireHt: lireMontant(htLocataire) ?? 0, primeSaisie: null,
+    mandatGestion: s.mandatGestion, categoriePrime: null, apporteurId: apporteur.id, apporteurNom: apporteur.nom,
+    apporteurTaux: (() => { const t = lireTauxPourcent(s.apporteurTaux); return t === undefined ? null : t; })(),
+    commissionSaisie: (() => { const c = lireMontant(s.commissionApporteur ?? ''); return c === undefined ? null : c; })(),
+    negociateurId: null, negociateurLibelle: '', avecGestion: s.avecGestion, origineProprietaire: null, origineLocataire: null,
+    loyerHc: (() => { const l = lireMontant(loyer?.principal ?? ''); return l === undefined ? null : l; })(),
+    charges: (() => { const c = lireMontant(loyer?.provisions ?? ''); return c === undefined ? null : c; })(),
+    assurance: null, parking: false, vacanceJours: null, rattachement: 'rattache',
+    apporteurMode: s.apporteurMode ?? null, apporteurTauxGestion: tauxGestionSaisi === undefined ? null : tauxGestionSaisi,
+    tauxGestionBien: deduit?.tauxGestionBien ?? null,
+  };
 
   const primeBloquee = deduit?.primeDejaVersee ?? null;
   /* 🔴 Arno (24/10/2026) — les deux cases sont EXCLUSIVES : cocher l'une décoche l'autre. La prime suit « Nouveau mandat ». */
@@ -312,7 +339,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
                   return { id: a.id, libelle: `${a.nom} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, mention: bloque ? ' — à rattacher' : undefined };
                 }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
                 libelle="Apporteur d’affaires" teinte="rouge" donnees={{ 'data-apporteur': '' }}
-                onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '' }); }} />
+                onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />
               {annuaire && apporteur !== null && <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>}</label>
           )}
           {avecApporteur && apporteur !== null && (
@@ -320,6 +347,19 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
                 placeholder={baremeDuJour === null ? 'aucun taux à cette date' : pourcent(baremeDuJour.taux).replace(' %', '')} />
               <small className="loc-muet">{baremeDuJour === null ? 'Aucun taux daté à la signature : saisissez-le.' : `Vide = le taux de l’apporteur à la signature (${pourcent(baremeDuJour.taux)}).`}</small></label>
+          )}
+          {avecApporteur && apporteur !== null && (
+            <label className="loc-champ">{libelle('Mode de commission')}
+              <ListeChoix options={MODES_APPORTEUR.map((m) => ({ id: m, libelle: LIBELLE_MODE_APPORTEUR[m] }))} valeur={s.apporteurMode ?? modeRegle} vide={null}
+                libelle="Mode de commission" teinte="rouge" onChange={(v) => poser({ apporteurMode: v === 'recurrent' ? 'recurrent' : 'one_shot' })}
+                donnees={{ 'data-apporteur-mode': '' }} />
+              <small className="loc-muet">Proposé par la règle de l’apporteur ({LIBELLE_MODE_APPORTEUR[modeRegle]}) — modifiable pour ce bail.</small></label>
+          )}
+          {avecApporteur && apporteur !== null && (
+            <label className="loc-champ">{libelle('Taux sur la gestion (%)')}
+              <input inputMode="decimal" value={s.apporteurTauxGestion ?? ''} onChange={(e) => poser({ apporteurTauxGestion: e.target.value })} data-apporteur-taux-gestion
+                placeholder={pourcent(baremeDuJour?.tauxGestion ?? 0).replace(' %', '')} />
+              <small className="loc-muet">Vide = le taux de l’apporteur à la signature ({pourcent(baremeDuJour?.tauxGestion ?? 0)}).</small></label>
           )}
           {avecApporteur && apporteur !== null && annuaire && (
             <label className="loc-champ">{libelle('Honoraires d’apporteur (€)')}
@@ -329,6 +369,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           )}
         </div>
       )}
+      {avecApporteur && ligneDirecte !== null && <EncartCommission a={ligneDirecte} apporteur={apporteur!} euros={euros} />}
       {annuaireOuvert && (
         <ModaleAnnuaireApporteurs
           onFermer={() => { setAnnuaireOuvert(false); parametres.rafraichir(); }}
@@ -374,7 +415,58 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   );
 }
 
+/**
+ * 🔴 Arno (24/10/2026, 413) — L'ENCART « COMMISSION DE L'APPORTEUR », sous la ligne Origine / Apporteur, sur trame grise, recalculé à
+ * chaque frappe : « One shot » → part location · part gestion (1ʳᵉ année) · prime apporteur (la somme) ; « Récurrent » → part
+ * location (une fois) · part gestion par mois tant que le bien est en gestion. Le détail du calcul en info-bulle.
+ */
+export function EncartCommission({ a, apporteur, euros: eurosTexte }: { a: ActiviteCalcul; apporteur: Apporteur; euros: (x: number) => string }) {
+  // Un montant ne se coupe jamais de son « € » (espace insécable), même au téléphone.
+  const euros = (x: number): string => eurosTexte(x).replace(/ €$/, '\u00a0€');
+  const aps = [apporteur];
+  const location = partLocationDe(a, aps);
+  const h = honorairesGestionDuBail(a);
+  const mode = a.apporteurMode ?? versionADate(apporteur.baremes, a.dateSignature)?.mode ?? 'one_shot';
+  const tauxGestion = a.apporteurTauxGestion ?? versionADate(apporteur.baremes, a.dateSignature)?.tauxGestion ?? 0;
+  const tauxLocation = a.apporteurTaux ?? versionADate(apporteur.baremes, a.dateSignature)?.taux ?? 0;
+  const pct = (x: number): string => pourcent(x);
+  const ca = a.honoProprietaireHt + a.honoLocataireHt;
+  const gestionUneFois = partGestionSignatureDe(a, aps);
+  const gestionMois = partGestionMensuelleDe(a, aps);
+  const detail = (
+    <span className="loc-bulle-calcul" data-detail-calcul="commission-apporteur">
+      <span>Honoraires de location HT : {euros(a.honoProprietaireHt)} + {euros(a.honoLocataireHt)} = <strong>{euros(ca)}</strong></span>
+      <span>Part location : {a.commissionSaisie !== null ? <>montant saisi = <strong>{euros(location)}</strong></> : <>{euros(ca)} × {pct(tauxLocation)} = <strong>{euros(location)}</strong></>}</span>
+      {'montant' in h ? (
+        <>
+          <span>Honoraires de gestion mensuels HT : ({euros(a.loyerHc ?? 0)} + {euros(a.charges ?? 0)}) × {String(a.tauxGestionBien).replace('.', ',')} % = <strong>{euros(h.montant)}</strong></span>
+          <span>Part gestion : {mode === 'one_shot'
+            ? <>{euros(h.montant)} × 12 × {pct(tauxGestion)} = <strong>{euros(gestionUneFois)}</strong></>
+            : <>{euros(h.montant)} × {pct(tauxGestion)} = <strong>{euros(gestionMois)}</strong> / mois</>}</span>
+        </>
+      ) : <span>Part gestion : 0 € — {MOT_MANQUE_GESTION[h.manque]}.</span>}
+    </span>
+  );
+  return (
+    <div className="loc-suivi-ligne loc-suivi-commission" data-commission-apporteur-direct={mode} aria-live="polite">
+      <p className="loc-suivi-commission-texte">
+        <strong>{LIBELLE_MODE_APPORTEUR[mode]}</strong>{' — '}
+        {mode === 'one_shot' ? (
+          <span data-commission-texte>Part location : {euros(location)} · Part gestion (1<sup>re</sup> année) : {euros(gestionUneFois)} · Prime apporteur : {euros(location + gestionUneFois)}</span>
+        ) : (
+          <span data-commission-texte>Part location (une fois) : {euros(location)} · Part gestion : {euros(gestionMois)} / mois tant que le bien est en gestion</span>
+        )}
+        <InfoBulle libelle="Commission de l’apporteur" etiquette="Détail du calcul" cible="commission-apporteur" contenu={detail} dansLEcran />
+      </p>
+      {'manque' in h && <small className="loc-muet" data-commission-manque>Part gestion : 0 € — {MOT_MANQUE_GESTION[h.manque]}.</small>}
+    </div>
+  );
+}
+
 export const CSS_SUIVI_COMMERCIAL = `
+.loc-suivi-commission{display:flex;flex-direction:column;gap:6px}
+.loc-suivi-commission-texte{margin:0;color:var(--color-svv-ink);font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+.loc-suivi-commission-texte .svv-ib,.loc-suivi-commission-texte > span:last-child{margin-left:6px;vertical-align:middle}
 .loc-suivi{display:flex;flex-direction:column;gap:12px}
 :where(.loc-suivi) select,:where(.loc-suivi) input:not([type=checkbox]){min-height:44px}
 /* Arno (24/10/2026) — PRESENTATION HOMOGENE : les libelles d'une ligne sur la meme ligne de base (meme boite, meme hauteur), les
