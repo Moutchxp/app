@@ -20,8 +20,8 @@ interface Lu {
   apporteurs: Apporteur[];
   regles: RegleCommission[];
   retrocessions: { id: number; negociateurLibelle: string; negociateurId: number | null; mois: string; montant: number; libelle: string }[];
-  negociateurs: { id: number; libelle: string }[];
-  collegues: { id: number; libelle: string }[];
+  negociateurs: { id: number; libelle: string; actif?: boolean }[];
+  collegues: { id: number; libelle: string; actif?: boolean }[];
   annuaire: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');

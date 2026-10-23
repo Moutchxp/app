@@ -40,8 +40,8 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); document.body.innerHTML = ''; vi.restoreAllMocks(); });
 
-function Banc({ lu, lotId }: { lu: ParametresSuivi; lotId: number | null }) {
-  const [v, setV] = useState<SaisieSuivi>({ ...SUIVI_VIDE(), dateSignature: '2026-10-24' });
+function Banc({ lu, lotId, depart }: { lu: ParametresSuivi; lotId: number | null; depart?: Partial<SaisieSuivi> }) {
+  const [v, setV] = useState<SaisieSuivi>({ ...SUIVI_VIDE(), dateSignature: '2026-10-24', ...depart });
   dernier = v;
   return createElement(BlocSuiviCommercial, {
     valeur: v, onChange: setV, parametres: { lu, erreur: null, rafraichir: () => { rafraichi += 1; } }, lotId, locataireIds: [],
@@ -49,7 +49,7 @@ function Banc({ lu, lotId }: { lu: ParametresSuivi; lotId: number | null }) {
   });
 }
 const calmer = async () => { await act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); }); };
-const monter = async (lotId: number | null = 7, lu = LU()) => { await act(async () => { root.render(createElement(Banc, { lu, lotId })); }); await calmer(); };
+const monter = async (lotId: number | null = 7, lu = LU(), depart?: Partial<SaisieSuivi>) => { await act(async () => { root.render(createElement(Banc, { lu, lotId, depart })); }); await calmer(); };
 const q = <T extends Element = HTMLElement>(s: string) => document.querySelector(s) as T | null;
 const coche = (s: string) => (q<HTMLInputElement>(s))!.checked;
 const clic = async (el: Element | null) => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
@@ -283,5 +283,23 @@ describe('🔴 Arno (24/10/2026, après e60149af) — date, aide « à rattacher
     expect(css).toContain('.loc-ample .loc-suivi .loc-champ input[type=date]{height:58px;min-height:58px;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px;font-size:1.1rem;font-weight:400}');
     expect(css).toContain('.loc-suivi input[type=date]::-webkit-calendar-picker-indicator{position:absolute;top:50%;right:10px;transform:translateY(-50%);margin:0;padding:0;width:16px;height:16px;');
     expect(css).toContain('.loc-ample .loc-suivi input[type=date]::-webkit-calendar-picker-indicator{right:16px}');   // la marge du chevron
+  });
+});
+
+describe('🔴 Arno (24/10/2026) — les listes de collègues : tous les comptes, administrateurs compris', () => {
+  const COMPTES = [{ id: 2, libelle: 'Arnaud Jorel', actif: true }, { id: 9, libelle: 'Cédric Jullien', actif: true }, { id: 3, libelle: 'Ancien Compte', actif: false },
+    { id: 5, libelle: 'Jean-Baptiste PONS', actif: true }];
+  it('« Négociateur » et « Collègue » : l’administrateur proposé, le compte désactivé écarté', async () => {
+    await monter(null, LU({ negociateurs: COMPTES, collegues: COMPTES }));
+    expect((await optionsDe('[data-negociateur]')).map((o) => o.texte)).toEqual(['— aucun —', 'Arnaud Jorel', 'Cédric Jullien', 'Jean-Baptiste PONS']);
+    await choisir('[data-origine-contact]', 'collegue');
+    expect((await optionsDe('[data-collegue]')).map((o) => o.texte)).toEqual(['— choisir —', 'Arnaud Jorel', 'Cédric Jullien', 'Jean-Baptiste PONS']);
+    await choisir('[data-collegue]', '9');
+    expect(dernier.collegueId).toBe(9);
+  });
+  it('un compte désactivé DÉJÀ choisi reste affiché, marqué « désactivé »', async () => {
+    await monter(null, LU({ negociateurs: COMPTES, collegues: COMPTES }), { negociateurId: 3 });
+    expect(q('[data-negociateur]')!.textContent).toBe('Ancien Compte (désactivé)');
+    expect((await optionsDe('[data-negociateur]')).find((o) => o.id === '3')?.texte).toBe('Ancien Compte (désactivé)');
   });
 });

@@ -34,10 +34,10 @@ import { API_SUIVI, posterSuivi } from './suiviApi';
 export interface ParametresSuivi {
   disponible: boolean;
   apporteurs: Apporteur[];
-  negociateurs: { id: number; libelle: string }[];
+  negociateurs: { id: number; libelle: string; actif?: boolean }[];
   moi: number | null;
   /** 407 — les collègues (comptes ayant accès à la Location), la règle de prime, et la migration est-elle là ? */
-  collegues: { id: number; libelle: string }[];
+  collegues: { id: number; libelle: string; actif?: boolean }[];
   regles: RegleCommission[];
   annuaire: boolean;
   /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */
@@ -130,7 +130,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
 
   // Le négociateur : par défaut, la personne connectée.
   useEffect(() => {
-    if (lu === null || s.negociateurId !== null || lu.moi === null || !lu.negociateurs.some((n) => n.id === lu.moi)) return;
+    if (lu === null || s.negociateurId !== null || lu.moi === null || !lu.negociateurs.some((n) => n.id === lu.moi && n.actif !== false)) return;
     onChange({ ...s, negociateurId: lu.moi });
   }, [lu, s, onChange]);
 

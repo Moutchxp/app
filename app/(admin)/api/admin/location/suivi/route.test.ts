@@ -10,7 +10,7 @@ vi.mock('../../../../../lib/location/garde', () => ({ exigerLocation: (...a: unk
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 5, libelle: 'Jean-Baptiste PONS' }) }));
 const repo = {
   ajouterBaremeApporteur: vi.fn(), ajouterRegle: vi.fn(), ajouterRetrocession: vi.fn(), annulerRetrocession: vi.fn(), creerApporteur: vi.fn(),
-  enregistrerActiviteBail: vi.fn(), lireApporteurs: vi.fn(), lireNegociateurs: vi.fn(), lireRegles: vi.fn(), lireRetrocessions: vi.fn(),
+  enregistrerActiviteBail: vi.fn(), lireApporteurs: vi.fn(), lireRegles: vi.fn(), lireRetrocessions: vi.fn(),
   peutVoirCommissions: vi.fn(), proposerActivite: vi.fn(), suiviDisponible: vi.fn(),
   annuaireDisponible: vi.fn(), lireCollegues: vi.fn(), modifierActivite: vi.fn(), modifierApporteur: vi.fn(), rattacherApporteur: vi.fn(),
   /* Arno (24/10/2026, 411) — l'origine « Personnalisé » peut-elle être proposée ? */
@@ -29,7 +29,6 @@ beforeEach(() => {
   repo.suiviDisponible.mockResolvedValue(true);
   repo.lireApporteurs.mockResolvedValue([]);
   repo.lireRegles.mockResolvedValue([]);
-  repo.lireNegociateurs.mockResolvedValue([]);
   repo.lireCollegues.mockResolvedValue([]);
   repo.annuaireDisponible.mockResolvedValue(true);
   repo.lireRetrocessions.mockResolvedValue([{ id: 1, montant: 200 }]);
@@ -39,6 +38,14 @@ beforeEach(() => {
 });
 
 describe('/api/admin/location/suivi', () => {
+  it('🔴 Arno (24/10/2026) — UNE seule liste de collègues : négociateurs = collègues (administrateur compris, désactivé marqué)', async () => {
+    const comptes = [{ id: 2, libelle: 'Arnaud Jorel', actif: true }, { id: 9, libelle: 'Cédric Jullien', actif: true }, { id: 3, libelle: 'Ancien Compte', actif: false }];
+    repo.lireCollegues.mockResolvedValue(comptes);
+    const d = (await (await GET(new Request('http://x/api/admin/location/suivi'))).json()) as { data: { negociateurs: unknown; collegues: unknown } };
+    expect(d.data.negociateurs).toEqual(comptes);
+    expect(d.data.collegues).toEqual(comptes);
+    expect(repo.lireCollegues).toHaveBeenCalledTimes(1);
+  });
   it('🔴 un collaborateur Location ne crée NI barème, NI règle, NI rétrocession (garde administrateur)', async () => {
     exigerAdministrateur.mockResolvedValue(REFUS());
     for (const action of ['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur']) {

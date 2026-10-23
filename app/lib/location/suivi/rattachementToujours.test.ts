@@ -39,7 +39,7 @@ describe('🔴 Rattachement « depuis toujours »', () => {
   });
 });
 
-describe('🔴 La liste des collègues : tous les comptes actifs, triés par nom ; un désactivé seulement s’il est déjà rattaché', () => {
+describe('🔴 La liste des collègues : TOUS les comptes (administrateurs compris), triés par nom ; les désactivés marqués', () => {
   vi.mock('server-only', () => ({}));
   vi.mock('../../db/client', () => ({
     query: vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -51,13 +51,16 @@ describe('🔴 La liste des collègues : tous les comptes actifs, triés par nom
   }));
   vi.mock('../sondeLocation', () => ({ colonneExisteMemo: async () => true }));
   beforeEach(() => { appels.length = 0; });
-  it('aucune condition de droit (Location / Gestion) : seulement « actif », ou déjà rattaché ; tri par nom', async () => {
+  it('aucune condition de rôle ni de droit : tous les comptes, les désactivés marqués `actif: false` (la liste les écarte) ; tri par nom', async () => {
     const { lireCollegues } = await import('./suiviRepo');
     expect(await lireCollegues()).toEqual([{ id: 7, libelle: 'Alice Martin', actif: true }, { id: 3, libelle: 'Ancien Compte', actif: false }]);
     const sql = appels.at(-1)!.sql;
-    expect(sql).toContain('WHERE u.actif OR EXISTS (SELECT 1 FROM gestion_location_apporteur_collegue c WHERE c.collegue_id = u.id)');
-    expect(sql).not.toContain('perm_location');
-    expect(sql).not.toContain("role = 'administrateur'");
+    // Arno (24/10/2026) — Cédric Jullien, administrateur, absent : AUCUN filtre sur le rôle ni sur les droits, ni sur `actif`
+    // (le désactivé est rendu marqué, pour qu'un choix déjà fait reste lisible).
+    expect(sql).toContain('FROM admin_utilisateur u ORDER BY');
+    expect(sql).not.toContain('WHERE');
+    expect(sql).not.toContain('perm_');
+    expect(sql).not.toContain('role');
     expect(sql).toContain('ORDER BY lower(coalesce(nullif(btrim(u.nom)');
   });
 });

@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
-  lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
+  lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
   proposerActivite, rattacherApporteur, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
@@ -55,10 +55,12 @@ export async function GET(request: Request): Promise<Response> {
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
-    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable] = await Promise.all([
-      suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
+    const [disponible, apporteurs, regles, retrocessions, collegues, annuaire, personnalisable] = await Promise.all([
+      suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]),
       lireCollegues(), annuaireDisponible(), personnalisableDisponible(),
     ]);
+    // 🔴 Arno (24/10/2026) — UNE seule liste de collègues : les négociateurs sont les mêmes comptes (administrateurs compris).
+    const negociateurs = collegues;
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable } });
   } catch (e) {
