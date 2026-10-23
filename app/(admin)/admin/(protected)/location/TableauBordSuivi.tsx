@@ -9,7 +9,6 @@ import {
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
-import { OuvrirAnnuaireApporteurs } from './ParametresLocation';
 import { ListeChoix } from './ListeChoix';
 
 /** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
@@ -62,7 +61,9 @@ type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string
  * Arno (23/10/2026) — DEUX BRIQUES : `vue="mois"` (« Suivi du mois » : onglets des mois, section A et la feuille du mois) et
  * `vue="annee"` (« Suivi annuel » : sections B à G). Les filtres, les 4 tuiles et la liste qui s'ouvre sont dans les deux.
  */
-export function TableauBordSuivi({ vue = 'annee', administrateur = false }: { vue?: 'mois' | 'annee'; administrateur?: boolean }) {
+// `administrateur` : reçu de la page ; le lien « Gérer les apporteurs → » qu'il ouvrait est retiré (Arno, 23/10/2026 : la brique
+// « Annuaire des apporteurs » de l'accueil des Outils de suivi le remplace).
+export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; administrateur?: boolean }) {
   const jour = aujourdhuiParis();
   const [n, setN] = useState(0);
   // Arno (23/10/2026) — l'année et le mois se gardent dans l'adresse (?annee=2025&mois=9) : un rechargement ou un lien garde la
@@ -183,10 +184,7 @@ export function TableauBordSuivi({ vue = 'annee', administrateur = false }: { vu
             <option value="">Tous</option>
             <option value="aucun">Sans apporteur</option>
             {d.apporteurs.filter((a) => !a.archive).map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}
-          </select>
-          {/* Arno (23/10/2026) — l'annuaire à portée de main : la modale de la roue, ouverte sur « Apporteurs » (administrateurs). */}
-          {administrateur && <OuvrirAnnuaireApporteurs onFerme={() => setN((x) => x + 1)} rendu={(ouvrir) => (
-            <button type="button" className="tdb-lien-annuaire" onClick={ouvrir} data-gerer-apporteurs>Gérer les apporteurs →</button>)} />}</label>
+          </select></label>
         <label className="tdb-champ">Gestion
           <select value={filtre.gestion ?? ''} onChange={(e) => poser({ gestion: e.target.value === 'avec' || e.target.value === 'sans' ? e.target.value : null })} data-filtre="gestion">
             <option value="">Avec et sans</option>
@@ -731,7 +729,6 @@ export const CSS_TABLEAU_BORD = `
 .tdb-bulle-montant{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tdb-bulle-pied{border-top:1px solid var(--color-svv-line);margin-top:4px !important;padding-top:4px;color:var(--color-svv-ink)}
 @media (hover:none){ .tdb-bulle-ancre{display:none} }
-.tdb-lien-annuaire{align-self:flex-start;background:none;border:0;padding:6px 0;min-height:44px;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-red);cursor:pointer;text-decoration:underline}
 .tdb-barre-entree{fill:var(--color-svv-green-ink)}
 .tdb-barre-sortie{fill:var(--color-svv-amber)}
 .tdb-cible{fill:transparent;cursor:pointer}

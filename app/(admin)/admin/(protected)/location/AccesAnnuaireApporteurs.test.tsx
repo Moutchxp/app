@@ -9,8 +9,8 @@ const { TableauBordSuivi } = await import('./TableauBordSuivi');
 
 /**
  * 🔴 Arno (23/10/2026) — l'annuaire des apporteurs à portée de main : une 3ᵉ brique sur l'accueil des Outils de suivi (avec le
- * nombre d'apporteurs et ceux « à rattacher »), un lien « Gérer les apporteurs → » à côté du filtre « Apporteur ». Les deux
- * ouvrent la MÊME modale que la roue, directement sur l'onglet « Apporteurs ». Route simulée : rien n'est écrit.
+ * nombre d'apporteurs et ceux « à rattacher »), qui ouvre la MÊME modale que la roue, directement sur l'onglet « Apporteurs ».
+ * Le lien « Gérer les apporteurs → » des deux suivis est retiré (décision d'Arno, 23/10/2026). Route simulée : rien n'est écrit.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const json = (corps: unknown) => ({ ok: true, status: 200, json: async () => corps }) as unknown as Response;
@@ -58,17 +58,14 @@ describe('🔴 Accès à l’annuaire des apporteurs', () => {
     expect(container.querySelector('button[data-brique="annuaire"]')).toBeNull();
   });
 
-  it('« Gérer les apporteurs → » à côté du filtre « Apporteur », dans le Suivi du mois et dans le Suivi annuel', async () => {
+  it('Arno (23/10/2026) : le lien « Gérer les apporteurs → » est RETIRÉ des deux suivis (la brique le remplace) ; le filtre « Apporteur » reste', async () => {
     for (const vue of ['mois', 'annee'] as const) {
       await monter(createElement(TableauBordSuivi, { vue, administrateur: true }));
-      const lien = container.querySelector('[data-gerer-apporteurs]') as HTMLButtonElement;
-      expect(lien.closest('label')?.querySelector('[data-filtre="apporteur"]')).not.toBeNull();
-      await act(async () => { lien.click(); });
-      await calmer();
-      expect(ongletOuvert()).toBe('apporteurs');
+      expect(container.querySelector('[data-gerer-apporteurs]')).toBeNull();
+      expect(container.textContent).not.toContain('Gérer les apporteurs');
+      const filtre = container.querySelector('[data-filtre="apporteur"]')!;
+      expect([...filtre.closest('label')!.children].map((x) => x.tagName)).toEqual(['SELECT']);   // rien sous le filtre
       act(() => { root.unmount(); }); root = createRoot(container);
     }
-    await monter(createElement(TableauBordSuivi, { vue: 'annee', administrateur: false }));
-    expect(container.querySelector('[data-gerer-apporteurs]')).toBeNull();
   });
 });
