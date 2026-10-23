@@ -30,7 +30,7 @@ import { LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, type ModeApporteur } from '../
  * est proposée quand le bien était déjà en gestion avant le bail. LA PRIME DE GESTION : « 150 € » (par défaut quand un mandat
  * de gestion est signé), « Personnalisé » (montant libre) ou « Aucune ». Sans la 407 : comme avant (ni origine, ni menu).
  *
- * 🔴 Arno (24/10/2026) — TOUS LES MENUS du bloc sont la liste maison (`ListeChoix`, teinte ROUGE) : ouverte exactement sous le
+ * 🔴 Arno (24/10/2026) — TOUS LES MENUS du bloc sont la liste maison (`ListeChoix`, VERTE — Arno, 24/10/2026, après le rouge du matin) : ouverte exactement sous le
  * champ, de sa largeur ; clavier, Échap et toucher comme partout. La prime de nouvelle gestion : Logement · Local · Parking.
  */
 export { API_SUIVI, posterSuivi } from './suiviApi';
@@ -123,9 +123,14 @@ interface Props {
   manque: React.ReactNode;
   /** 413 — le loyer mensuel des « Conditions d'entrée » (texte saisi) : la base de la part gestion de l'apporteur, en direct. */
   loyer?: { principal: string; provisions: string };
+  /**
+   * Arno (24/10/2026) — le « Type de bien » d'après les LOTS LOUÉS cochés (`typeDeBienDesLots`) : « Parking » n'est proposé que si
+   * tous les lots loués sont des parkings. null : pas encore de lots ; absent : un hôte sans lots (toutes les valeurs proposées).
+   */
+  typeBien?: { type: CategoriePrime; parkingPermis: boolean } | null;
 }
 
-export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer }: Props) {
+export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien }: Props) {
   const lu = parametres.lu;
   const poser = (p: Partial<SaisieSuivi>): void => onChange({ ...s, ...p });
   // Le HT affiché est celui du TTC (une seule vérité) ; pendant la frappe, la case garde ce qui est tapé.
@@ -217,7 +222,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const caHt = (lireMontant(htProprietaire) ?? 0) + (lireMontant(htLocataire) ?? 0);
   const commissionProposee = tauxRetenu === null ? null : caHt * tauxRetenu;
   const regleDuJour = versionADate(lu.regles, dateRef);
-  const categorie: CategoriePrime = s.categoriePrime ?? deduit?.categoriePrime ?? 'logement';
+  const categorie: CategoriePrime = s.categoriePrime ?? typeBien?.type ?? deduit?.categoriePrime ?? 'logement';
+  const parkingPermis = typeBien === undefined || typeBien?.parkingPermis === true || (typeBien === null && categorie === 'parking');
   const primeRegle = regleDuJour === null ? 150 : montantPrime(regleDuJour, categorie);
   const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
   /* 🔴 Arno (24/10/2026, 413) — LA COMMISSION DE L'APPORTEUR, EN DIRECT : la même règle que le Suivi (`tableauBord`), sur ce que l'écran
@@ -254,10 +260,10 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         <label className="loc-champ">{libelle('Date de signature du bail', true)}
           <input type="date" value={s.dateSignature} required onChange={(e) => poser({ dateSignature: e.target.value })} data-date-signature /></label>
         <label className="loc-champ">{libelle('Nature')}
-          <ListeChoix options={NATURES} valeur={s.type} vide={null} libelle="Nature" teinte="rouge"
+          <ListeChoix options={NATURES} valeur={s.type} vide={null} libelle="Nature"
             onChange={(v) => poser({ type: v === 'avenant' ? 'avenant' : 'bail' })} donnees={{ 'data-type-activite': '' }} /></label>
         <label className="loc-champ">{libelle('Négociateur')}
-          <ListeChoix options={lu.negociateurs} valeur={s.negociateurId === null || s.negociateurId === undefined ? '' : String(s.negociateurId)} vide="— aucun —" libelle="Négociateur" teinte="rouge"
+          <ListeChoix options={lu.negociateurs} valeur={s.negociateurId === null || s.negociateurId === undefined ? '' : String(s.negociateurId)} vide="— aucun —" libelle="Négociateur"
             onChange={(v) => poser({ negociateurId: v === '' ? null : Number(v) })} donnees={{ 'data-negociateur': '' }} /></label>
       </div>
       {/* ── Ligne 2 : les deux cases (exclusives) · prime de gestion · prime de nouvelle gestion (toujours visibles) ── */}
@@ -275,12 +281,14 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         {annuaire && (
           <label className="loc-champ">{libelle('Prime de gestion')}
             <ListeChoix options={[{ id: 'regle', libelle: euros(primeRegle).replace(',00', '') }, { id: 'personnalise', libelle: 'Personnalisé' }, { id: 'aucune', libelle: 'Aucune' }]}
-              valeur={s.mandatGestion ? s.primeMode ?? 'aucune' : 'aucune'} vide={null} libelle="Prime de gestion" teinte="rouge" desactive={!s.mandatGestion}
+              valeur={s.mandatGestion ? s.primeMode ?? 'aucune' : 'aucune'} vide={null} libelle="Prime de gestion" desactive={!s.mandatGestion}
               onChange={(v) => poser({ primeMode: v as ModePrime })} donnees={{ 'data-prime-mode': '' }} /></label>
         )}
-        <label className="loc-champ">{libelle('Prime de nouvelle gestion')}
-          <ListeChoix options={CATEGORIES_PRIME.map((c) => ({ id: c, libelle: LIBELLE_CATEGORIE_PRIME[c] }))} valeur={categorie} vide={null}
-            libelle="Prime de nouvelle gestion" teinte="rouge" desactive={!s.mandatGestion || (annuaire && s.primeMode !== 'regle')}
+        {/* 🔴 Arno (24/10/2026) — « Prime de nouvelle gestion » devient « TYPE DE BIEN » : pré-rempli d'après les lots loués ;
+            « Parking » seulement si tous les lots loués sont des parkings. */}
+        <label className="loc-champ">{libelle('Type de bien')}
+          <ListeChoix options={CATEGORIES_PRIME.filter((c) => c !== 'parking' || parkingPermis).map((c) => ({ id: c, libelle: LIBELLE_CATEGORIE_PRIME[c] }))} valeur={categorie} vide={null}
+            libelle="Type de bien" desactive={!s.mandatGestion || (annuaire && s.primeMode !== 'regle')}
             onChange={(v) => poser({ categoriePrime: (CATEGORIES_PRIME as readonly string[]).includes(v) ? v as CategoriePrime : 'logement' })} donnees={{ 'data-categorie-prime': '' }} /></label>
         {annuaire && s.mandatGestion && s.primeMode === 'personnalise' && (
           <label className="loc-champ">{libelle('Montant de la prime (€)', true)}
@@ -306,7 +314,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           {annuaire && (
             <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
               <ListeChoix options={originesProposees(lu.personnalisable === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o] }))} valeur={s.origineContact ?? ''}
-                libelle="Origine du contact propriétaire" teinte="rouge" donnees={{ 'data-origine-contact': '' }}
+                libelle="Origine du contact propriétaire" donnees={{ 'data-origine-contact': '' }}
                 onChange={(x) => {
                   const v = x === '' ? null : x as OrigineContact;
                   poser({ origineContact: v, ...(v !== 'apporteur' ? { apporteurId: null, apporteurTaux: '', commissionApporteur: '' } : {}), ...(v !== 'collegue' ? { collegueId: null } : {}),
@@ -322,7 +330,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           )}
           {annuaire && s.origineContact === 'collegue' && (
             <label className="loc-champ">{libelle('Collègue', true)}
-              <ListeChoix options={lu.collegues} valeur={s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId)} libelle="Collègue" teinte="rouge"
+              <ListeChoix options={lu.collegues} valeur={s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId)} libelle="Collègue"
                 onChange={(v) => poser({ collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-collegue': '' }} /></label>
           )}
           {avecApporteur && (
@@ -338,7 +346,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
                   const bloque = annuaire && aRattacher(a);
                   return { id: a.id, libelle: `${a.nom} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, mention: bloque ? ' — à rattacher' : undefined };
                 }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
-                libelle="Apporteur d’affaires" teinte="rouge" donnees={{ 'data-apporteur': '' }}
+                libelle="Apporteur d’affaires" donnees={{ 'data-apporteur': '' }}
                 onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />
               {annuaire && apporteur !== null && <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>}</label>
           )}
@@ -351,7 +359,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Mode de commission')}
               <ListeChoix options={MODES_APPORTEUR.map((m) => ({ id: m, libelle: LIBELLE_MODE_APPORTEUR[m] }))} valeur={s.apporteurMode ?? modeRegle} vide={null}
-                libelle="Mode de commission" teinte="rouge" onChange={(v) => poser({ apporteurMode: v === 'recurrent' ? 'recurrent' : 'one_shot' })}
+                libelle="Mode de commission" onChange={(v) => poser({ apporteurMode: v === 'recurrent' ? 'recurrent' : 'one_shot' })}
                 donnees={{ 'data-apporteur-mode': '' }} />
               <small className="loc-muet">Proposé par la règle de l’apporteur ({LIBELLE_MODE_APPORTEUR[modeRegle]}) — modifiable pour ce bail.</small></label>
           )}
@@ -385,14 +393,14 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           <div className="loc-grille">
             <label className="loc-champ">Nom<input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} data-nouvel-apporteur-nom /></label>
             <label className="loc-champ">Type
-              <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur" teinte="rouge"
+              <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur"
                 onChange={(v) => setNouveau({ ...nouveau, type: v as TypeApporteur })} donnees={{ 'data-nouvel-apporteur-type': '' }} /></label>
             <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} /></label>
             <label className="loc-champ">Coût fixe mensuel (€, facultatif)<input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
             {annuaire && (
               <>
                 <label className="loc-champ"><span>Collègue de rattachement <span className="loc-oblig">*</span></span>
-                  <ListeChoix options={lu.collegues} valeur={nouveau.collegueId === null || nouveau.collegueId === undefined ? '' : String(nouveau.collegueId)} libelle="Collègue de rattachement" teinte="rouge"
+                  <ListeChoix options={lu.collegues} valeur={nouveau.collegueId === null || nouveau.collegueId === undefined ? '' : String(nouveau.collegueId)} libelle="Collègue de rattachement"
                     onChange={(v) => setNouveau({ ...nouveau, collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-nouvel-apporteur-collegue': '' }} /></label>
                 <label className="loc-champ">Société (facultatif)<input value={nouveau.societe} onChange={(e) => setNouveau({ ...nouveau, societe: e.target.value })} /></label>
                 <label className="loc-champ">Téléphone (facultatif)<input inputMode="tel" value={nouveau.telephone} onChange={(e) => setNouveau({ ...nouveau, telephone: e.target.value })} /></label>
@@ -491,6 +499,9 @@ export const CSS_SUIVI_COMMERCIAL = `
 .loc-suivi-annuaire:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .loc-suivi .lch-champ{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;font-size:inherit}
 .loc-ample .loc-suivi .lch-champ{min-height:58px;font-size:1.1rem;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px}
+/* Arno (24/10/2026) — sur cette page, les listes maison sont VERTES (surlignage vert pale, texte et coche vert fonce, contour du champ
+   ouvert vert), en clair comme en sombre (jetons du theme) : plus aucun rouge dans ces listes. */
+.loc-suivi .lch-champ:focus-visible,.loc-suivi .lch-champ[aria-expanded="true"]{outline-color:var(--color-svv-green-ink)}
 .loc-suivi select:disabled{opacity:.6;cursor:not-allowed}
 /* Arno (24/10/2026) — LA DATE DE SIGNATURE a EXACTEMENT l'allure de « Nature » et « Négociateur » (la liste maison .lch-champ) :
    meme hauteur, bordure, rayon, police, marge interieure ; l'icone calendrier a droite, a la place du chevron (16 px du bord). */

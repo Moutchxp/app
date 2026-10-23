@@ -11,6 +11,7 @@ import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, motifSuivi, posterSuivi, SUI
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
+import { typeDeBienDesLots } from '../../../../lib/location/suivi/suivi';
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
 import { MOTIF_MONTANT_SAISI, montantHonorairesSaisi, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
@@ -21,16 +22,21 @@ import { explicationEchec, type CauseEchec } from '../../../../lib/location/issu
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
-  porte: string | null; place: boolean; occupants: number[]; noms: string[] }
+  porte: string | null; place: boolean; occupants: number[]; noms: string[]; categorie?: string | null }
 
 /**
  * Arno (19/10/2026) — « LOTS LOUÉS » : une ligne par lot du bien choisi (le logement et chaque annexe), avec type, étage,
  * n° de lot, n° de porte ou de place et son état écrit en toutes lettres. Tous les lots LIBRES sont cochés d'office ; un
  * lot loué à quelqu'un d'autre est affiché, non cochable, « loué à X ». Au moins un lot doit être coché.
  */
-export function LotsLoues({ lotId, coches, onCoches }: { lotId: number; coches: number[] | null; onCoches: (c: number[]) => void }) {
+export function LotsLoues({ lotId, coches, onCoches, onLots }: { lotId: number; coches: number[] | null; onCoches: (c: number[]) => void;
+  /** Arno (24/10/2026) — les lots lus, pour l'hôte (le « Type de bien » du suivi commercial suit les lots loués). */
+  onLots?: (lots: LotLu[]) => void }) {
   const lu = useLecture<{ lots: LotLu[]; sorte: string; origineLibelle: string }>(`lotsBail=${lotId}`);
   const lots = useMemo(() => (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data.lots) ? lu.etat.data.lots : []), [lu.etat]);
+  // Seulement une fois les lots LUS : pendant la lecture, l'état est recréé à chaque rendu (une liste vide signalée en boucle).
+  const lus = lu.etat.etat === 'ok';
+  useEffect(() => { if (lus) onLots?.(lots); }, [lus, lots, onLots]);
   // Tous les lots libres cochés par défaut, à la première lecture.
   useEffect(() => { if (coches === null && lots.length > 0) onCoches(lots.filter((l) => l.occupants.length === 0).map((l) => l.id)); }, [coches, lots, onCoches]);
   if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
@@ -128,11 +134,26 @@ export function CreationLocataire() {
   /* Arno (24/10/2026) — « CARACTÉRISTIQUES DU BIEN » : la fiche du bien (le formulaire « Modifier le bien ») en grande modale ;
      enregistrée, le bien est relu (fiche, honoraires au barème, lots) — `versionBien` remonte la liste des lots. */
   const [caracteristiquesOuvertes, setCaracteristiquesOuvertes] = useState(false);
+  // Sans bien : visible, inactif (`aria-disabled` plutôt que `disabled`, pour que l'info-bulle s'affiche).
+  const boutonCaracteristiques = (ou: 'bien-loue' | 'conditions'): React.ReactNode => (
+    <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" data-caracteristiques-bien={ou}
+      aria-disabled={bien === null} title={bien === null ? 'Choisissez d’abord le bien' : undefined}
+      onClick={() => { if (bien !== null) setCaracteristiquesOuvertes(true); }}>Caractéristiques du bien</button>
+  );
   const [versionBien, setVersionBien] = useState(0);
   /* Arno (22/10/2026, 406) — BLOC 4 « SUIVI COMMERCIAL » : le suivi mensuel de l'activité (date de signature, honoraires HT,
      négociateur, apporteur, gestion, origine client), enregistré sur le bail créé, juste après lui. */
   const [suivi, setSuivi] = useState<SaisieSuivi>(SUIVI_VIDE);
   const parametresSuivi = useParametresSuivi();
+  /* 🔴 Arno (24/10/2026) — LE NÉGOCIATEUR PAR DÉFAUT = la personne connectée (le compte de la session), toujours modifiable. Posé
+     ici par une mise à jour FONCTIONNELLE (elle ne peut être écrasée par une autre mise à jour du bloc dans le même rendu). */
+  useEffect(() => {
+    const lu = parametresSuivi.lu;
+    if (lu === null || lu.moi === null || !lu.negociateurs.some((n) => n.id === lu.moi && n.actif !== false)) return;
+    setSuivi((v) => (v.negociateurId === null || v.negociateurId === undefined ? { ...v, negociateurId: lu.moi } : v));
+  }, [parametresSuivi.lu]);
+  /* 🔴 Arno (24/10/2026) — les lots du bien choisi : le « Type de bien » du suivi commercial suit les lots loués cochés. */
+  const [lotsDuBien, setLotsDuBien] = useState<{ lotId: number; lots: LotLu[] } | null>(null);
   const avecSuivi = parametresSuivi.lu?.disponible === true;
   // Arno (20/10/2026) — partie par partie, ce que la base sait enregistrer : le bloc est TOUJOURS montré ; ce qui manque est dit
   // par un bandeau (« migration NNN ») et seule l'écriture de la partie concernée est désactivée.
@@ -197,6 +218,17 @@ export function CreationLocataire() {
   const hono = useLecture<CalculHonoraires>(bien !== null
     ? `honorairesProprietaire=${bien.id}${/^\d{4}-\d{2}-\d{2}$/.test(entree) ? `&entree=${entree}` : ''}` : null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
+  const idBien = bien?.id ?? null;
+  const onLots = useCallback((lots: LotLu[]) => { if (idBien !== null) setLotsDuBien({ lotId: idBien, lots }); }, [idBien]);
+  const typeBien = bien === null || lotsDuBien === null || lotsDuBien.lotId !== bien.id ? null
+    : typeDeBienDesLots(lotsDuBien.lots.filter((l) => (coches ?? []).includes(l.id)));
+  // Le « Type de bien » SUIT les lots loués : posé à chaque changement de la sélection (mise à jour fonctionnelle) ; un choix à la main
+  // tient jusqu'au prochain changement de lots.
+  const typeAuto = typeBien?.type ?? null;
+  useEffect(() => {
+    if (typeAuto === null) return;
+    setSuivi((v) => (v.categoriePrime === typeAuto ? v : { ...v, categoriePrime: typeAuto }));
+  }, [typeAuto]);
   /* Arno (20/10/2026, 393) — GARANTS ET CONTACTS RATTACHÉS. Les locataires de l'écran (cartes validées puis fiches retenues, l'ordre
      du serveur) ; chaque contact validé dit à qui il se rattache : un garant « Garantit : » (tous cochés par défaut), un autre
      contact « Contact de : » (le premier par défaut). Un seul locataire : d'office, rien à choisir. */
@@ -366,8 +398,10 @@ export function CreationLocataire() {
         <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} confirmerRetrait sousContact={sousContact} />
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-l2">
+      <section className="loc-section loc-section--bouton-bien" aria-labelledby="loc-l2" data-bloc-bien-loue>
         <h3 id="loc-l2"><span className="loc-num">2</span>Bien loué</h3>
+        {/* 🔴 Arno (24/10/2026) — « Caractéristiques du bien » LÀ OÙ L'ON CHOISIT LE BIEN, à droite du titre (et toujours au bloc 3). */}
+        {boutonCaracteristiques('bien-loue')}
         {bien !== null ? (
           <p>Bien : <a href={`/admin/location/bien/${bien.id}`}><strong>{bien.titre}</strong></a>{' '}
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setBien(null); setCoches(null); setRecap(null); }}>Changer de bien</button></p>
@@ -389,7 +423,7 @@ export function CreationLocataire() {
               ))}
           </>
         )}
-        {bien !== null && <LotsLoues key={`${bien.id}-${versionBien}`} lotId={bien.id} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
+        {bien !== null && <LotsLoues key={`${bien.id}-${versionBien}`} lotId={bien.id} onLots={onLots} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
         <div className="loc-grille">
           {/* Arno (20/10/2026) : la date d'entrée est OBLIGATOIRE — le dossier Drive du bail porte la date (« BAIL 01/09/2024 MARTIN »). */}
           <label className="loc-champ"><span>Date d’entrée <span className="loc-oblig">*</span></span><input form={idForm} type="date" value={entree} required
@@ -401,9 +435,7 @@ export function CreationLocataire() {
         <h3 id="loc-l3"><span className="loc-num">3</span>Conditions d’entrée</h3>
         {/* Arno (24/10/2026) — sur la première ligne du bloc, à droite : la fiche du bien en grande modale. Sans bien : inactif, et
             l'info-bulle le dit (`aria-disabled` plutôt que `disabled`, pour que la bulle s'affiche). */}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" data-caracteristiques-bien
-          aria-disabled={bien === null} title={bien === null ? 'Choisissez d’abord le bien' : undefined}
-          onClick={() => { if (bien !== null) setCaracteristiquesOuvertes(true); }}>Caractéristiques du bien</button>
+        {boutonCaracteristiques('conditions')}
         {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : (
           <>
             {schema !== null && !avecConditions && (
@@ -442,7 +474,7 @@ export function CreationLocataire() {
           ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
           onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
           onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t } }))}
-          manque={manqueDe('suivi')} loyer={conditions.loyer} />
+          manque={manqueDe('suivi')} loyer={conditions.loyer} typeBien={typeBien} />
       </section>
 
       {recap !== null && (

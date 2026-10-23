@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { libelleRegleApporteur, verifierActivite, verifierApporteur, type Apporteur } from './suivi';
+import { libelleRegleApporteur, typeDeBienDesLots, verifierActivite, verifierApporteur, type Apporteur } from './suivi';
 import {
   type ActiviteCalcul, apporteursEtCollegues, commissionApporteurDe, cumulApporteur, honorairesGestionDuBail, moisDusRecurrent, partGestionMensuelleDe,
   partGestionSignatureDe, partLocationDe, sectionApporteurs, totaux, totauxApporteurs, totauxPeriode,
@@ -156,5 +156,20 @@ describe('🔴 la saisie', () => {
     const vide = verifierActivite(base);
     expect(vide.ok && [vide.valeurs.apporteurMode, vide.valeurs.apporteurTauxGestion]).toEqual([null, null]);
     expect(verifierActivite({ ...base, apporteurTauxGestion: '120' }).ok).toBe(false);
+  });
+});
+
+describe('🔴 Arno (24/10/2026) — le « Type de bien » d’après les lots loués', () => {
+  const L = (role: 'logement' | 'annexe', categorie: string | null, place = false) => ({ role, categorie, place });
+  it('Parking seulement si TOUS les lots loués sont des parkings ; sinon la famille du lot principal', () => {
+    expect(typeDeBienDesLots([])).toBeNull();
+    expect(typeDeBienDesLots([L('annexe', 'parking', true)])).toEqual({ type: 'parking', parkingPermis: true });
+    expect(typeDeBienDesLots([L('annexe', 'box', true), L('annexe', 'parking', true)])).toEqual({ type: 'parking', parkingPermis: true });
+    expect(typeDeBienDesLots([L('logement', 'logement'), L('annexe', 'parking', true)])).toEqual({ type: 'logement', parkingPermis: false });
+    expect(typeDeBienDesLots([L('logement', 'local'), L('annexe', 'parking', true)])).toEqual({ type: 'local', parkingPermis: false });
+    expect(typeDeBienDesLots([L('annexe', 'cave'), L('annexe', 'parking', true)])).toEqual({ type: 'logement', parkingPermis: false });
+    expect(typeDeBienDesLots([L('logement', null)])).toEqual({ type: 'logement', parkingPermis: false });
+    // le lot principal : le logement de la fiche, même après une annexe « local »
+    expect(typeDeBienDesLots([L('annexe', 'local'), L('logement', 'logement')])).toEqual({ type: 'logement', parkingPermis: false });
   });
 });

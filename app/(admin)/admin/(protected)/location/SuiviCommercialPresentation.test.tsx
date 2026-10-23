@@ -74,7 +74,7 @@ describe('🔴 ordre des lignes et présentation homogène', () => {
   it('ligne 1 date · nature · négociateur ; ligne 2 les deux cases + les deux primes ; ligne 3 honoraires ; ligne 4 origine du contact propriétaire', async () => {
     await monter(null);
     expect(libelles(1)).toEqual(['Date de signature du bail *', 'Nature', 'Négociateur']);
-    expect(libelles(2)).toEqual(['Portefeuille de gestion', 'Nouvelle gestion', 'Prime de gestion', 'Prime de nouvelle gestion']);
+    expect(libelles(2)).toEqual(['Portefeuille de gestion', 'Nouvelle gestion', 'Prime de gestion', 'Type de bien']);   // Arno (24/10/2026) : « Type de bien »
     expect(libelles(3)).toEqual(['Honoraires propriétaire HT (€)', 'Honoraires locataire HT (€)']);
     expect(libelles(4)).toEqual(['Origine du contact propriétaire *']);
     const ordre = [...container.querySelectorAll('[data-suivi-ligne]')].map((l) => l.getAttribute('data-suivi-ligne'));
@@ -261,14 +261,14 @@ describe('🔴 Arno (24/10/2026, après e60149af) — date, aide « à rattacher
     await choisir('[data-apporteur]', '+');
     expect(q('[data-nouvel-apporteur]')).not.toBeNull();
   });
-  it('tous les menus du bloc sont la liste maison, teinte ROUGE ; aucun menu natif', async () => {
+  it('tous les menus du bloc sont la liste maison, VERTE (Arno, 24/10/2026, après le rouge) ; aucun menu natif', async () => {
     await monter();
     await choisir('[data-origine-contact]', 'apporteur');
     await choisir('[data-apporteur]', '+');
     expect(container.querySelector('select')).toBeNull();
     for (const s of ['[data-type-activite]', '[data-negociateur]', '[data-prime-mode]', '[data-categorie-prime]', '[data-origine-contact]', '[data-apporteur]', '[data-nouvel-apporteur-type]', '[data-nouvel-apporteur-collegue]']) {
       expect(q(s)?.getAttribute('role'), s).toBe('combobox');
-      expect(q(s)!.closest('.lch')!.className, s).toBe('lch lch--rouge');
+      expect(q(s)!.closest('.lch')!.className, s).toBe('lch');                    // la teinte verte (par défaut)
     }
     await choisir('[data-type-activite]', 'avenant');
     expect(dernier.type).toBe('avenant');
@@ -359,5 +359,17 @@ describe('🔴 Arno (24/10/2026, 413) — la commission de l’apporteur, en dir
     await choisir('[data-origine-contact]', 'apporteur');
     await choisir('[data-apporteur]', '3');
     expect(q('[data-commission-manque]')?.textContent).toBe('Part gestion : 0 € — loyer ou taux de gestion manquant.');
+  });
+});
+
+describe('🔴 Arno (24/10/2026) — les listes de la page en VERT, contour compris ; « Type de bien »', () => {
+  it('le contour du champ ouvert est vert sur cette page (jetons du thème, clair et sombre) ; aucun rouge dans les listes', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/SuiviCommercial.tsx', 'utf8');
+    expect(src).toContain('.loc-suivi .lch-champ:focus-visible,.loc-suivi .lch-champ[aria-expanded="true"]{outline-color:var(--color-svv-green-ink)}');
+    expect(src).not.toContain('teinte="rouge"');
+  });
+  it('sans lots fournis par l’hôte (typeBien absent) : toutes les valeurs', async () => {
+    await monter(7);                                    // première location d'un nouveau mandat : « Nouveau mandat » coché d'office
+    expect((await optionsDe('[data-categorie-prime]')).map((o) => o.id)).toEqual(['logement', 'local', 'parking']);
   });
 });

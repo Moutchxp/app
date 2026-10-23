@@ -34,3 +34,25 @@ describe('🔴 la règle d’un apporteur, écrite', () => {
     expect(appels.some((a) => a.sql.includes('INSERT'))).toBe(false);
   });
 });
+
+describe('🔴 Arno (24/10/2026) — « Type de bien » Parking : le serveur refuse si un lot loué n’est pas un parking', () => {
+  it('refus lu AVANT d’écrire ; avec seulement des parkings, l’écriture passe le contrôle', async () => {
+    const { query, withTransaction } = await import('../../db/client');
+    let tous = false;
+    vi.mocked(query).mockImplementation((async (sql: string, params: unknown[] = []) => {
+      appels.push({ sql: sql.replace(/\s+/g, ' '), params });
+      if (sql.includes('FROM gestion_bail b JOIN gestion_annuaire_lot l')) return { rows: [{ lot_id: '7', proprietaire_id: null, proprio: 'P', categorie: 'parking' }], rowCount: 1 };
+      if (sql.includes('bool_and(l.categorie')) return { rows: [{ tous }], rowCount: 1 };
+      if (sql.includes('INSERT INTO gestion_location_activite')) return { rows: [{ id: '1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    }) as never);
+    vi.mocked(withTransaction).mockImplementation((async (fn: (q: typeof query) => unknown) => fn(query)) as never);
+    const { enregistrerActiviteBail, MOT_PARKING_SEUL } = await import('./suiviRepo');
+    const corps = { dateSignature: '2026-10-24', honoProprietaireHt: '', honoLocataireHt: '', apporteurTaux: '', origineContact: 'internet', categoriePrime: 'parking' };
+    expect(await enregistrerActiviteBail(99, corps, AUTEUR)).toEqual({ etat: 'refus', motif: MOT_PARKING_SEUL });
+    expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_location_activite'))).toBe(false);
+    tous = true; appels.length = 0;
+    await enregistrerActiviteBail(99, corps, AUTEUR).catch(() => null);
+    expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_location_activite'))).toBe(true);
+  });
+});

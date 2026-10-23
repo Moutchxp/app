@@ -105,6 +105,7 @@ export async function primeDejaVersee(q: typeof query, lotId: number, exclure: {
       ORDER BY a.date_signature, a.id LIMIT 1`, [lotId, exclure.bailId ?? null, exclure.activiteId ?? null]);
   return rows[0] ? { date: rows[0].date_signature.slice(0, 10), bail: rows[0].bail } : null;
 }
+export const MOT_PARKING_SEUL = 'Type de bien « Parking » : seulement quand le seul lot loué est un parking (pas de logement ni de local).';
 const MOT_UNE_SEULE_PRIME = 'un bien ne génère qu’une seule prime de nouvelle gestion dans toute sa vie de gestion.';
 
 // ── Apporteurs ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -468,6 +469,13 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
     const negociateur = v.valeurs.negociateurId === null ? null
       : (await q<{ libelle: string }>(`SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant, '') AS libelle FROM admin_utilisateur WHERE id = $1`,
         [v.valeurs.negociateurId])).rows[0]?.libelle ?? null;
+    // 🔴 Arno (24/10/2026) — « Parking » seulement si TOUS les lots loués par ce bail sont des parkings (place ou box) : lu avant d'écrire.
+    if (categoriePrime === 'parking' && await colonneExisteMemo('gestion_annuaire_lot', 'categorie')) {
+      const lots = await q<{ tous: boolean | null }>(
+        `SELECT bool_and(l.categorie IN ('parking', 'box')) AS tous FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot l ON l.id = o.lot_id
+          WHERE o.bail_id = $1`, [id]);
+      if (lots.rows[0]?.tous === false) return { etat: 'refus', motif: MOT_PARKING_SEUL } as const;
+    }
     const prime: CategoriePrime = await categorieEnregistrable(categoriePrime ?? categoriePrimeDeFamille(familleDeCategorie(b.categorie)));
     const a: ActiviteVerifiee = v.valeurs;
     // 🔴 Arno (24/10/2026) — UNE seule prime de nouvelle gestion par bien : le serveur refuse la seconde (lu AVANT d'écrire).

@@ -34,6 +34,23 @@ export type CategoriePrime = typeof CATEGORIES_PRIME[number];
 /** Arno (24/10/2026) — « Local » (local commercial ou bureaux) : Logement · Local · Parking. */
 export const LIBELLE_CATEGORIE_PRIME: Record<CategoriePrime, string> = { logement: 'Logement', local: 'Local', parking: 'Parking' };
 /** La catégorie de prime d'une famille de bien (logement → Logement, local → Local, parking → Parking). PUR. */
+/**
+ * 🔴 Arno (24/10/2026) — LE « TYPE DE BIEN » (anciennement « Prime de nouvelle gestion ») d'après les LOTS LOUÉS cochés :
+ *   · « Parking » n'est proposé — et alors pré-sélectionné — QUE si TOUS les lots loués sont des parkings (place ou box) ;
+ *   · sinon, la famille du LOT PRINCIPAL loué : le logement de la fiche s'il est coché, sinon le premier lot qui n'est pas un
+ *     parking — « Local » pour un local, « Logement » pour tout le reste (une cave, une catégorie inconnue).
+ * `null` : aucun lot coché (on garde la famille du bien). PUR.
+ */
+export function typeDeBienDesLots(lots: readonly { role: 'logement' | 'annexe'; categorie?: string | null; place: boolean }[]):
+  { type: CategoriePrime; parkingPermis: boolean } | null {
+  if (lots.length === 0) return null;
+  const estParking = (l: (typeof lots)[number]): boolean => l.place || l.categorie === 'parking' || l.categorie === 'box';
+  if (lots.every(estParking)) return { type: 'parking', parkingPermis: true };
+  const autres = lots.filter((l) => !estParking(l));
+  const principal = autres.find((l) => l.role === 'logement') ?? autres[0];
+  return { type: principal.categorie === 'local' ? 'local' : 'logement', parkingPermis: false };
+}
+
 export const categoriePrimeDeFamille = (f: string | null | undefined): CategoriePrime => (f === 'parking' ? 'parking' : f === 'local' ? 'local' : 'logement');
 
 /** Arno (23/10/2026, 407) — L'ORIGINE DU CONTACT : liste fixe, obligatoire pour toute nouvelle location. */

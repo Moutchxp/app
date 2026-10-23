@@ -22,7 +22,11 @@ let root: Root;
 let posts: Record<string, unknown>[];
 let calcul: unknown;
 let parametres: unknown;
+const LOT = (id: number, role: 'logement' | 'annexe', categorie: string | null, place = false) => ({ id, role, libelle: categorie ?? 'lot', type: null, etage: null,
+  numeroLot: null, porte: null, place, occupants: [], noms: [], categorie });
+let lotsBail: unknown[];
 beforeEach(() => {
+  lotsBail = [LOT(7, 'logement', null)];
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   posts = []; calcul = CALCUL_OK;
   parametres = { disponible: true, moi: 5, negociateurs: [{ id: 5, libelle: 'Jean-Baptiste PONS' }, { id: 2, libelle: 'Arnaud Jorel' }],
@@ -41,7 +45,7 @@ beforeEach(() => {
     if (u.includes('schemaConditionsEntree')) return ok({ conditions: true, loyer: true, manquantes: [] });
     if (u.includes('honorairesProprietaire=7')) return ok(calcul);
     if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement', loue: false }]);
-    if (u.includes('lotsBail=7')) return ok({ lots: [{ id: 7, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
+    if (u.includes('lotsBail=7')) return ok({ lots: lotsBail, sorte: 'simple', origineLibelle: '' });
     if (u.includes('lot=7')) return ok({ bien: { id: 7, categorie: 'logement' }, complements: { entretienAPrevoir: null, entretiens: [] } });
     return ok([]);
   }) as unknown as typeof fetch;
@@ -200,5 +204,57 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     await saisir(container.querySelector('input[data-prime-montant]') as HTMLInputElement, '15');
     await soumettre(); await soumettre();
     expect(posts.find((p) => p.action === 'enregistrer-activite')).toMatchObject({ activite: { origineContact: 'collegue', collegueId: 2, primeMode: 'personnalise', primeMontant: '15', mandatGestion: true } });
+  });
+});
+
+describe('🔴 Arno (24/10/2026) — « Type de bien » d’après les lots loués ; négociateur = la personne connectée', () => {
+  const typeBien = () => container.querySelector('[data-categorie-prime]')!;
+  const optionsType = async () => {
+    await clic(typeBien());
+    const o = [...container.querySelectorAll('[data-liste-choix] li[role="option"]')].map((l) => l.getAttribute('data-option'));
+    await clic(typeBien());
+    return o;
+  };
+  const avecMandat = async () => { await clic(container.querySelector('input[data-mandat-gestion]')!); await calmer(); };
+  it('le libellé est « Type de bien » (plus « Prime de nouvelle gestion »)', async () => {
+    await preparer();
+    expect(typeBien().closest('label')?.querySelector('.loc-suivi-libelle')?.textContent).toBe('Type de bien');
+    expect(container.textContent).not.toContain('Prime de nouvelle gestion');
+  });
+  it('logement + parking loués : « Logement », et « Parking » n’est pas proposé', async () => {
+    lotsBail = [LOT(7, 'logement', 'logement'), LOT(8, 'annexe', 'parking', true)];
+    await preparer();
+    expect(typeBien().getAttribute('data-valeur')).toBe('logement');
+    await avecMandat();
+    expect(await optionsType()).toEqual(['logement', 'local']);
+  });
+  it('un local : « Local »', async () => {
+    lotsBail = [LOT(7, 'logement', 'local')];
+    await preparer();
+    expect(typeBien().getAttribute('data-valeur')).toBe('local');
+  });
+  it('le SEUL lot loué est un parking : « Parking » proposé et pré-sélectionné', async () => {
+    lotsBail = [LOT(7, 'logement', 'logement'), LOT(8, 'annexe', 'box', true)];
+    await preparer();
+    // on décoche le logement : il ne reste que le box
+    await clic(container.querySelector('[data-coche-lot="7"]')!); await calmer();
+    expect(typeBien().getAttribute('data-valeur')).toBe('parking');
+    await avecMandat();
+    expect(await optionsType()).toEqual(['logement', 'local', 'parking']);
+    // on recoche le logement : retour à « Logement », « Parking » n'est plus proposé
+    await clic(container.querySelector('[data-coche-lot="7"]')!); await calmer();
+    expect(typeBien().getAttribute('data-valeur')).toBe('logement');
+    expect(await optionsType()).toEqual(['logement', 'local']);
+  });
+  it('« Négociateur » : la personne connectée par défaut (compte de la session), modifiable', async () => {
+    parametres = { ...(parametres as object), moi: 2 };
+    await preparer();
+    const nego = container.querySelector('[data-negociateur]')!;
+    expect(nego.getAttribute('data-valeur')).toBe('2');
+    expect(nego.textContent).toBe('Arnaud Jorel');
+    await clic(nego);
+    await clic(container.querySelector('[data-liste-choix] li[data-option="5"]')!);
+    await calmer();
+    expect(container.querySelector('[data-negociateur]')!.getAttribute('data-valeur')).toBe('5');
   });
 });

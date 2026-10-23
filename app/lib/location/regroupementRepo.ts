@@ -52,6 +52,7 @@ async function lireLots(q: Lecteur, ids: readonly number[], roleDe: (id: number)
       libelle: libelleLot({ categorie: r?.categorie ?? null, nature: r?.nature ?? null, typeBien: r?.type_bien ?? null, porte: r?.porte ?? null, role }),
       type: [r?.nature, r?.type_bien].filter((x) => x && x.trim() !== '').join(' ') || (r?.categorie ?? null),
       etage: r?.etage ?? null, numeroLot: r === undefined || r.wippimmo_id.startsWith('app-') ? null : r.wippimmo_id, porte: r?.porte ?? null, place,
+      categorie: r?.categorie ?? null,
       occupants: [...new Set(occupants.map((o) => Number(o.locataire_id)))].sort((a, b) => a - b),
       noms: [...new Set(occupants.map((o) => o.nom))],
     };

@@ -24,6 +24,8 @@ export interface LotDeFiche {
   numeroLot: string | null;
   porte: string | null;
   place: boolean;
+  /** Arno (24/10/2026) — la catégorie du lot (logement, local, parking, box, cave…) : la famille des lots loués (« Type de bien »). */
+  categorie?: string | null;
   /** Les locataires EN PLACE (identifiants triés) et leurs noms. Vide = libre. */
   occupants: number[];
   noms: string[];

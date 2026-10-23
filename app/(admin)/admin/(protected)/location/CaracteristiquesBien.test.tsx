@@ -88,7 +88,8 @@ const saisir = async (el: HTMLInputElement | HTMLTextAreaElement, v: string) => 
   await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
   await calmer();
 };
-const bouton = () => q('[data-caracteristiques-bien]') as HTMLButtonElement;
+const bouton = () => q('[data-caracteristiques-bien="bien-loue"]') as HTMLButtonElement;
+const boutonConditions = () => q('[data-caracteristiques-bien="conditions"]') as HTMLButtonElement;
 const montant = () => q('[data-hono-montant] input') as HTMLInputElement;
 const mention = () => q('[data-hono-mention]')?.textContent ?? '';
 const surface = () => {
@@ -114,19 +115,25 @@ const enregistrerSurface = async (v: string) => {
 };
 
 describe('🔴 « Caractéristiques du bien » — Nouveau locataire', () => {
-  it('sur la première ligne du bloc 3, à droite du titre ; sans bien : inactif, « Choisissez d’abord le bien », rien ne s’ouvre', async () => {
+  it('à droite du titre du bloc « Bien loué » (Arno, 24/10/2026) ET du bloc 3 ; sans bien : visible, inactif, « Choisissez d’abord le bien »', async () => {
     await monter();
-    const b = bouton();
-    expect(b.textContent).toBe('Caractéristiques du bien');
-    // la première ligne du bloc « Conditions d'entrée » : juste après son titre, qui reste l'enfant direct de la section
-    expect(b.previousElementSibling?.matches('section[data-bloc-conditions] > h3')).toBe(true);
-    expect(b.getAttribute('aria-disabled')).toBe('true');
-    expect(b.title).toBe('Choisissez d’abord le bien');
-    await clic(b);
-    expect(q('[data-modale-caracteristiques-bien]')).toBeNull();
+    // là où l'on choisit le bien : juste après le titre du bloc 2, qui reste l'enfant direct de la section
+    expect(bouton().previousElementSibling?.matches('section[data-bloc-bien-loue] > h3')).toBe(true);
+    expect(bouton().previousElementSibling?.textContent).toBe('2Bien loué');
+    expect(boutonConditions().previousElementSibling?.matches('section[data-bloc-conditions] > h3')).toBe(true);
+    for (const b of [bouton(), boutonConditions()]) {
+      expect(b.textContent).toBe('Caractéristiques du bien');
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.title).toBe('Choisissez d’abord le bien');
+      await clic(b);
+      expect(q('[data-modale-caracteristiques-bien]')).toBeNull();
+    }
     await choisirBien();
     expect(bouton().getAttribute('aria-disabled')).toBe('false');
     expect(bouton().title).toBe('');
+    // celui du bloc 3 ouvre la même modale
+    await clic(boutonConditions());
+    expect(q('[data-modale-caracteristiques-bien]')).not.toBeNull();
   });
 
   it('ouvre en grande modale LE formulaire « Modifier le bien » (même composant), sans le bloc 1 « Propriétaire(s) », pré-rempli', async () => {
