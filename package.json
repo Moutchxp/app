@@ -139,7 +139,8 @@
     "gestion:documents:ranger": "tsx app/scripts/ranger-documents-auto.ts",
     "gestion:documents:adresses": "tsx app/scripts/adresses-inconnues-documents.ts",
     "gestion:documents:hors-biens": "tsx app/scripts/retirer-documents-des-biens.ts",
-    "gestion:reparer-clotures": "tsx app/scripts/reparer-clotures-ouvertes.ts"
+    "gestion:reparer-clotures": "tsx app/scripts/reparer-clotures-ouvertes.ts",
+    "gestion:reparer-ouvertures": "tsx app/scripts/reparer-ouvertures.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
