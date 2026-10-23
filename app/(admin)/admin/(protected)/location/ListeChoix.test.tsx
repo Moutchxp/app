@@ -42,6 +42,13 @@ describe('🔴 ListeChoix', () => {
     expect(sel.getAttribute('data-option')).toBe('4');
     expect(sel.className).toContain('lch-option--choisi');
     expect(sel.querySelector('.lch-coche')?.textContent).toBe('✓');
+    // Arno (23/10/2026) : le surlignage est VERT — celui de l'entrée active du menu (vert pâle / vert foncé) ; le contour reste rouge.
+    const css = container.querySelector('style')?.textContent ?? '';
+    expect(css).toContain('.lch-liste>.lch-option--actif{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-green-ink)');
+    expect(css).toContain('.lch-champ[aria-expanded="true"]{outline:2px solid var(--color-svv-red)');
+    expect(css).not.toMatch(/red-soft|red-dark/);
   });
 
   it('clavier : flèches, Entrée, Échap (ne ferme que la liste) ; recherche par frappe', async () => {

@@ -8,6 +8,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
  * sélection dans le rouge de l'interface, une coche rouge sur l'élément choisi ; clavier (flèches, Début / Fin, Entrée, Échap —
  * qui ne ferme QUE la liste, jamais la fenêtre autour), recherche par frappe ; rôles ARIA (combobox / listbox / option) ; des
  * lignes de 44 px au doigt. Un compte désactivé n'est montré que s'il est déjà choisi, marqué « désactivé ».
+ * Arno (23/10/2026) : le surlignage est VERT — celui de l'entrée active du menu de gauche (fond vert pâle, texte vert foncé).
  * Réutilisable : collègue de rattachement, « collègue directement », négociateur.
  */
 export interface OptionChoix { id: number | string; libelle: string; actif?: boolean }
@@ -114,8 +115,8 @@ export const CSS_LISTE_CHOIX = `
 .lch-liste{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;margin:0;padding:4px;list-style:none;max-height:264px;overflow:auto;background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:10px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
 /* « .lch-liste > » : la liste vit parfois dans une autre liste (les fiches de l'annuaire) — leurs styles de <li> ne s'y appliquent pas. */
 .lch-liste>.lch-option{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;padding:0 8px;border:0;border-radius:8px;background:none;box-shadow:none;cursor:pointer;color:var(--color-svv-ink);font-size:.95rem;font-weight:400}
-.lch-liste>.lch-option--actif{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
-.lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-red)}
+.lch-liste>.lch-option--actif{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-green-ink)}
 .lch-liste>.lch-option--desactive{cursor:not-allowed;color:var(--color-svv-muted)}
-.lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-red);font-weight:800}
+.lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-green-ink);font-weight:800}
 `;
