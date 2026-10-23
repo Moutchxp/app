@@ -217,17 +217,22 @@ function sqlRangDesBornes(carte: string): string {
  * passe un `VALUES` littéral, la production lui passe `sqlBornesDeLEvenement`. Même pli, deux sources. C'est le
  * procédé de `sqlEvenementsDesMessages` dans `historiqueRepo`, et pour la même raison.
  */
+// Arno (23/10/2026) — `carte_du` / `carte_au` : la CARTE qui ouvre et celle qui ferme la période (0 = l'ouverture dérivée de
+// `ouvert_le`). L'heure et l'auteur de chaque geste se lisent sur elle (`cree_le`, `cree_par_libelle`). Les mêmes bornes, le
+// même ordre que la frise : rien du pli n'est réécrit. (Aucun accent DANS le SQL émis : garde du lot 19d3c67d.)
 export function sqlPeriodes(sourceDesBornes: string): string {
   return `WITH svv_bornes AS (${sourceDesBornes}),
                svv_cycles AS (
-                 SELECT svv_b.quand, svv_b.sens,
+                 SELECT svv_b.quand, svv_b.sens, svv_b.rang, svv_b.carte,
                         coalesce(sum(CASE WHEN svv_b.sens = 'ferme' THEN 1 ELSE 0 END)
                                  OVER (ORDER BY svv_b.quand, svv_b.rang, svv_b.carte
                                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS cycle
                    FROM svv_bornes svv_b)
           SELECT cycle,
                  min(quand) FILTER (WHERE sens = 'ouvre') AS du,
-                 min(quand) FILTER (WHERE sens = 'ferme') AS au
+                 min(quand) FILTER (WHERE sens = 'ferme') AS au,
+                 (array_agg(carte ORDER BY quand, rang, carte) FILTER (WHERE sens = 'ouvre'))[1] AS carte_du,
+                 (array_agg(carte ORDER BY quand, rang, carte) FILTER (WHERE sens = 'ferme'))[1] AS carte_au
             FROM svv_cycles
            GROUP BY cycle
           HAVING min(quand) FILTER (WHERE sens = 'ouvre') IS NOT NULL`;

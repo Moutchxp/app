@@ -135,13 +135,13 @@ describe('🔴🔴 b) le flux sur 12 mois', () => {
   });
 
   /**
-   * 🔴🔴 LES PÉRIODES, ET NON LES ÉVÉNEMENTS : l'événement 3 a été ouvert en juillet, clos en juillet, puis
-   * ROUVERT en septembre. Il compte donc DEUX ouvertures sur l'année. Un flux qui compterait les événements
-   * raterait toutes les réouvertures — exactement ce qu'un responsable veut voir.
+   * 🔴🔴 Arno (23/10/2026) — « un événement rouvert compte à la date de sa RÉOUVERTURE, jamais à sa première ouverture ».
+   * L'événement 3 a été ouvert en juillet, clos en juillet, puis ROUVERT en septembre : il compte UNE fois, en septembre.
+   * Juillet ne le compte plus (avant ce lot : une ouverture et une clôture par période).
    */
-  it('🔴🔴 une réouverture compte comme une ouverture de plus', () => {
+  it('🔴🔴 un événement rouvert compte UNE fois, au mois de sa réouverture', () => {
     const mois = Object.fromEntries(TB.flux.map((m) => [m.mois, { o: m.ouverts, c: m.clos }]));
-    expect(mois['2026-07']).toEqual({ o: 1, c: 1 });
+    expect(mois['2026-07']).toEqual({ o: 0, c: 0 });
     expect(mois['2026-08']).toEqual({ o: 1, c: 1 });
     expect(mois['2026-09']).toEqual({ o: 2, c: 0 });
     expect(mois['2026-10']).toEqual({ o: 2, c: 1 });

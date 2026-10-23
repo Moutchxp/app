@@ -46,7 +46,10 @@ export interface FaitsEvenement {
   urgence: string | null;
   /** Ouvert AU SENS DE LA FRISE (lot ETAT-PAR-LA-FRISE) : il reste une période sans borne haute. */
   ouvert: boolean;
-  /** La PREMIÈRE borne ouvrante — le début de la première période. C'est « l'ouverture » de tous les délais. */
+  /**
+   * Le début de la DERNIÈRE période — Arno (23/10/2026) : « un événement rouvert compte à la date de sa réouverture, jamais à
+   * sa première ouverture ». (Avant ce lot : la première borne ouvrante.)
+   */
   ouvertureLe: string | null;
   /** La DERNIÈRE borne fermante quand l'événement est clos, `null` sinon. */
   clotureLe: string | null;
@@ -309,9 +312,30 @@ export function douzeMois(maintenant: Date): string[] {
    LE PLI — des faits aux indicateurs
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * LE TEMPS OUVERT JUSQU'À UN JALON, période par période (Arno, 23/10/2026 : « les durées se calculent période par période, sans
+ * compter les intervalles fermés »). Un jalon antérieur à la première ouverture est écarté (voir plus bas). PUR.
+ */
+export function tempsOuvertJusqua(periodes: readonly PeriodeEvenement[], jalon: string): number | null {
+  const tries = [...periodes].sort((a, b) => Date.parse(a.du) - Date.parse(b.du));
+  if (tries.length === 0 || Date.parse(jalon) < Date.parse(tries[0].du)) return null;
+  const fin = Date.parse(jalon);
+  let total = 0;
+  for (const p of tries) {
+    const du = Date.parse(p.du);
+    if (du >= fin) break;
+    const au = p.au === null ? fin : Math.min(Date.parse(p.au), fin);
+    if (au > du) total += au - du;
+  }
+  return total / 86_400_000;
+}
+
 /** Le délai entre l'ouverture et un jalon, quand les deux existent et que le jalon ne précède pas l'ouverture. */
-function delaiVers(f: FaitsEvenement, jalon: string | null): number | null {
-  if (f.ouvertureLe === null || jalon === null) return null;
+function delaiVers(f: FaitsEvenement, jalon: string | null, periodes?: readonly PeriodeEvenement[]): number | null {
+  if (jalon === null) return null;
+  // Avec ses périodes : le temps OUVERT jusqu'au jalon, les intervalles fermés retirés.
+  if (periodes !== undefined && periodes.length > 0) return tempsOuvertJusqua(periodes, jalon);
+  if (f.ouvertureLe === null) return null;
   const j = ecartJours(f.ouvertureLe, jalon);
   /* ⚠️ UN JALON ANTÉRIEUR À L'OUVERTURE EST ÉCARTÉ, et c'est une décision : il existe (une carte peut porter
      n'importe quelle date, saisie à la main), mais un délai négatif n'a pas de sens dans une moyenne — il
@@ -319,9 +343,9 @@ function delaiVers(f: FaitsEvenement, jalon: string | null): number | null {
   return j < 0 ? null : j;
 }
 
-function delaisDe(faits: readonly FaitsEvenement[]): Delais {
+function delaisDe(faits: readonly FaitsEvenement[], parEvenement: ReadonlyMap<number, PeriodeEvenement[]> = new Map()): Delais {
   const serie = (jalon: (f: FaitsEvenement) => string | null): Delai =>
-    delaiDe(faits.map((f) => delaiVers(f, jalon(f))).filter((v): v is number => v !== null));
+    delaiDe(faits.map((f) => delaiVers(f, jalon(f), parEvenement.get(f.id))).filter((v): v is number => v !== null));
   return {
     premierDevis: serie((f) => f.premierDevisLe),
     acceptation: serie((f) => f.acceptationLe),
@@ -348,11 +372,19 @@ export function tableauBordEvenements(
   const mois = douzeMois(maintenant);
   const ouvertsParMois = new Map<string, number>();
   const closParMois = new Map<string, number>();
-  for (const p of periodes) {
-    const mo = moisDe(p.du);
+  /**
+   * 🔴 Arno (23/10/2026) — « Pour tout comptage ou statistique, un événement rouvert compte à la date de sa RÉOUVERTURE, jamais à
+   * sa première ouverture. » Le flux compte donc chaque événement UNE fois : ouvert au mois du début de sa DERNIÈRE période, clos
+   * au mois de la fin de cette période si elle est close. (Avant ce lot : une ouverture et une clôture par période.)
+   */
+  const parEvenement = new Map<number, PeriodeEvenement[]>();
+  for (const p of periodes) parEvenement.set(p.evenementId, [...(parEvenement.get(p.evenementId) ?? []), p]);
+  for (const liste of parEvenement.values()) {
+    const derniere = [...liste].sort((a, b) => Date.parse(a.du) - Date.parse(b.du))[liste.length - 1];
+    const mo = moisDe(derniere.du);
     ouvertsParMois.set(mo, (ouvertsParMois.get(mo) ?? 0) + 1);
-    if (p.au !== null) {
-      const mc = moisDe(p.au);
+    if (derniere.au !== null) {
+      const mc = moisDe(derniere.au);
       closParMois.set(mc, (closParMois.get(mc) ?? 0) + 1);
     }
   }
@@ -407,7 +439,7 @@ export function tableauBordEvenements(
       clos: closParMois.get(m) ?? 0,
     })),
     delais: {
-      global: delaisDe(faits),
+      global: delaisDe(faits, parEvenement),
       /* ⚠️ LES TYPES SANS AUCUN ÉVÉNEMENT SORTENT DE LA LISTE : quatre colonnes de tirets n'apprennent rien, et
          font défiler. Le type « non précisé », lui, reste s'il est peuplé — c'est une information. */
       parType: [...TYPES_EVENEMENT, { cle: CLE_SANS_TYPE, mot: 'Non précisé' }]
@@ -416,7 +448,7 @@ export function tableauBordEvenements(
           faits: faits.filter((f) => (f.type ?? CLE_SANS_TYPE) === t.cle),
         }))
         .filter((t) => t.faits.length > 0)
-        .map((t) => ({ cle: t.cle, mot: t.mot, delais: delaisDe(t.faits) })),
+        .map((t) => ({ cle: t.cle, mot: t.mot, delais: delaisDe(t.faits, parEvenement) })),
     },
     argent: {
       attenteCents: faits.reduce((s, f) => s + f.montantAttenteCents, 0),

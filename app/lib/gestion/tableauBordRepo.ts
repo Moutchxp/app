@@ -113,8 +113,8 @@ interface LigneFaits {
  * Les faits de TOUS les événements. Une requête, une ligne par événement.
  *
  * ⚠️ `ouverture_le` ET `cloture_le` VIENNENT DES PÉRIODES, pas de la colonne `ouvert_le` : un événement rouvert
- * a plusieurs périodes, et c'est la PREMIÈRE ouverture et la DERNIÈRE clôture qui bornent son histoire. La
- * colonne, elle, ne connaît que la première — et `etat`, depuis le lot ETAT-PAR-LA-FRISE, ne fait plus foi.
+ * a plusieurs périodes. Arno (23/10/2026) : il compte à la date de sa RÉOUVERTURE (le début de sa dernière période),
+ * jamais à sa première ouverture ; sa clôture est la DERNIÈRE. Les délais se calculent période par période (pli pur).
  */
 export async function faitsDesEvenements(): Promise<FaitsEvenement[]> {
   const { rows } = await query<LigneFaits>(
@@ -122,7 +122,8 @@ export async function faitsDesEvenements(): Promise<FaitsEvenement[]> {
             e.categorie AS type,
             e.urgence,
             ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
-            (SELECT min(svv_p.du) FROM (${sqlPeriodesDeLEvenement('e')}) svv_p) AS ouverture_le,
+            /* Arno (23/10/2026) : un événement rouvert compte à la date de sa RÉOUVERTURE — le début de sa dernière période. */
+            (SELECT max(svv_p.du) FROM (${sqlPeriodesDeLEvenement('e')}) svv_p) AS ouverture_le,
             (SELECT CASE WHEN bool_and(svv_p.au IS NOT NULL) THEN max(svv_p.au) END
                FROM (${sqlPeriodesDeLEvenement('e')}) svv_p) AS cloture_le,
             ${premiereCarte(['devis_recu'])} AS premier_devis_le,
@@ -168,8 +169,8 @@ export async function faitsDesEvenements(): Promise<FaitsEvenement[]> {
 /**
  * Toutes les périodes de tous les événements — la matière du flux mensuel.
  *
- * ⚠️ UNE LIGNE PAR PÉRIODE, ET NON PAR ÉVÉNEMENT : un dossier ouvert en mars, clos en avril, rouvert en juin
- * et reclos en juillet compte DEUX ouvertures et DEUX clôtures sur l'année. C'est ce que le flux doit montrer.
+ * UNE LIGNE PAR PÉRIODE : le pli s'en sert pour les délais (temps ouvert, intervalles fermés retirés) et pour le
+ * flux, où chaque événement compte UNE fois, au mois de sa dernière (ré)ouverture (Arno, 23/10/2026).
  */
 export async function periodesDesEvenements(): Promise<PeriodeEvenement[]> {
   const { rows } = await query<{ evenement_id: string; du: string; au: string | null }>(

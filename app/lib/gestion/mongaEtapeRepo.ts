@@ -19,7 +19,7 @@ import {
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
 import { evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
-import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlPeriodesDeLEvenement } from './etatParLaFrise';
 
 /** Une étape telle que l'écran la reçoit. */
 export interface EtapeEcran {
@@ -633,6 +633,14 @@ export async function evenementsDuBien(cleBien: string): Promise<{
    * niveau : les deux se lisent pareil à l'écran, et c'est juste dans les deux cas.
    */
   urgence: string | null;
+  /** Arno (23/10/2026) — le type de l'événement (sa catégorie), pour l'Historique des événements ; `null` sans la 268. */
+  categorie: string | null;
+  /**
+   * Arno (23/10/2026) — LES PÉRIODES de l'événement, de la plus ancienne à la plus récente : du … au … (`au` null = en cours),
+   * et pour chaque geste QUAND il a été fait et PAR QUI (la carte de borne qui l'a posé ; l'ouverture d'origine : l'événement).
+   * Une réouverture = une nouvelle période ; les intervalles fermés ne sont dans aucune.
+   */
+  periodes: PeriodeDuBien[];
 }[]> {
   /* 🔴 LOT URGENCE-EVENEMENT — `urgence` n'est NOMMÉE que si la migration 268 est là. Sans elle, la colonne
      n'existe pas et la nommer ferait échouer TOUTE la lecture du bloc « Événements », pas seulement son niveau.
@@ -641,7 +649,7 @@ export async function evenementsDuBien(cleBien: string): Promise<{
   const { rows } = await query<{
     id: string; reference: string; objet: string; etat: string; ouvert: boolean;
     ouvert_le: string; traite_le: string | null; clos_le: string | null;
-    monga_refs: string[] | null; urgence: string | null;
+    monga_refs: string[] | null; urgence: string | null; categorie: string | null; periodes: PeriodeDuBien[] | null;
   }>(
     `WITH par_partie AS (
         SELECT DISTINCT p.evenement_id
@@ -664,7 +672,18 @@ export async function evenementsDuBien(cleBien: string): Promise<{
             (SELECT array_agg(l.reference ORDER BY l.reference)
                FROM (SELECT DISTINCT reference FROM gestion_monga_lien
                       WHERE evenement_id = e.id AND retire_le IS NULL) l) AS monga_refs,
-            ${avecUrgence ? 'e.urgence' : 'NULL::text AS urgence'}
+            ${avecUrgence ? 'e.urgence' : 'NULL::text AS urgence'},
+            ${avecUrgence ? 'e.categorie' : 'NULL::text AS categorie'},
+            (SELECT json_agg(json_build_object(
+                      'du', svv_p.du, 'au', svv_p.au,
+                      'ouvertLe', CASE WHEN svv_p.carte_du = 0 THEN e.ouvert_le ELSE svv_od.cree_le END,
+                      'ouvertPar', CASE WHEN svv_p.carte_du = 0 THEN e.ouvert_par_libelle ELSE svv_od.cree_par_libelle END,
+                      'ouvertSource', CASE WHEN svv_p.carte_du = 0 THEN 'evenement' ELSE svv_od.source END,
+                      'closLe', svv_fa.cree_le, 'closPar', svv_fa.cree_par_libelle, 'closSource', svv_fa.source)
+                    ORDER BY svv_p.du, svv_p.cycle)
+               FROM (${sqlPeriodesDeLEvenement('e')}) svv_p
+               LEFT JOIN gestion_monga_etape svv_od ON svv_od.id = svv_p.carte_du AND svv_p.carte_du <> 0
+               LEFT JOIN gestion_monga_etape svv_fa ON svv_fa.id = svv_p.carte_au) AS periodes
        FROM gestion_evenement e
       WHERE e.id IN (SELECT evenement_id FROM par_partie
                      UNION SELECT evenement_id FROM par_mail)
@@ -676,6 +695,16 @@ export async function evenementsDuBien(cleBien: string): Promise<{
        « colonne absente ». Un événement sans Monga est le cas ordinaire, et de très loin. */
     mongaRefs: r.monga_refs ?? [],
     urgence: r.urgence,
+    categorie: r.categorie,
+    periodes: r.periodes ?? [],
   }));
+}
+
+/** Une période d'un événement, telle que la fiche du bien la montre (Arno, 23/10/2026). */
+export interface PeriodeDuBien {
+  du: string; au: string | null;
+  /** L'instant et l'auteur du geste qui a ouvert / fermé la période (`source` : manuelle, monga, ou l'événement lui-même). */
+  ouvertLe: string | null; ouvertPar: string | null; ouvertSource: string | null;
+  closLe: string | null; closPar: string | null; closSource: string | null;
 }
 

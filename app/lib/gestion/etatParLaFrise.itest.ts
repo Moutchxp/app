@@ -265,3 +265,26 @@ describe('🔴 ⑤ ce que la règle dit des événements de la base locale', () 
     }
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑳ ARNO (23/10/2026) — REPRISE DES ÉVÉNEMENTS EXISTANTS, SANS MIGRATION : chaque événement a DÉJÀ ses périodes, lues
+   sur ses bornes — l'ouverture d'origine (dérivée de `ouvert_le`, carte 0) et, s'il est clos, sa carte Clôture. Le pli
+   rend aussi la CARTE qui ouvre et celle qui ferme chaque période : l'heure et l'auteur du geste se lisent sur elle.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ⑳ reprise : une période par événement, avec sa date d’ouverture d’origine et, s’il est clos, sa clôture', () => {
+  const cartes = async (source: string) => (await query<{ du: string; au: string | null; carte_du: string; carte_au: string | null }>(
+    `SELECT p.du::date::text AS du, p.au::date::text AS au, p.carte_du::text, p.carte_au::text FROM (${sqlPeriodes(source)}) p ORDER BY p.du`)).rows;
+  it('ouvert, sans borne enregistrée : UNE période depuis son ouverture d’origine (carte 0 = ouvert_le)', async () => {
+    expect(await cartes(`SELECT * FROM (VALUES ('2026-09-23'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint)) v(quand, sens, rang, carte)`))
+      .toEqual([{ du: '2026-09-23', au: null, carte_du: '0', carte_au: null }]);
+  });
+  it('déjà clos : UNE période close, sa carte Clôture désignée ; rouvert ensuite : une seconde période', async () => {
+    expect(await cartes(`SELECT * FROM (VALUES ('2026-03-01'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
+      ('2026-04-02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`))
+      .toEqual([{ du: '2026-03-01', au: '2026-04-02', carte_du: '0', carte_au: '11' }]);
+    expect(await cartes(`SELECT * FROM (VALUES ('2026-03-01'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
+      ('2026-04-02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11), ('2026-10-23'::timestamptz, 'ouvre', ${rangEtape('reouverture')}, 12)) v(quand, sens, rang, carte)`))
+      .toEqual([{ du: '2026-03-01', au: '2026-04-02', carte_du: '0', carte_au: '11' }, { du: '2026-10-23', au: null, carte_du: '12', carte_au: null }]);
+  });
+});
