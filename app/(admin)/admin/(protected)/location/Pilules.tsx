@@ -6,11 +6,13 @@
  * Partagé par « Ajouter un nouveau bien » et le bloc « Conditions d'entrée » de « Nouveau locataire » (Arno, 20/10/2026 :
  * « mêmes composants de boutons, mêmes tailles, mêmes états »).
  */
-export function Pilules<T extends string>({ etiquette, options, libelle, valeur, onChoix }: {
+export function Pilules<T extends string>({ etiquette, options, libelle, valeur, onChoix, variante }: {
   etiquette: string; options: readonly T[]; libelle: Record<T, string>; valeur: T | null; onChoix: (v: T | null) => void;
+  /** Une variante de mise en page (`loc-pilules--<variante>`), ex. « jour » : les 4 jours de prélèvement sur UNE ligne. Absente ⇒ d'avant. */
+  variante?: string;
 }) {
   return (
-    <div className="loc-pilules" role="group" aria-label={etiquette}>
+    <div className={`loc-pilules${variante ? ` loc-pilules--${variante}` : ''}`} role="group" aria-label={etiquette}>
       {options.map((o) => <button key={o} type="button" aria-pressed={valeur === o} onClick={() => onChoix(valeur === o ? null : o)}>{libelle[o]}</button>)}
     </div>
   );

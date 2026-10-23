@@ -221,6 +221,23 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(barre()).not.toContain('au 10 ou au 15');
   });
 
+  /**
+   * 🔴 Arno (23/10/2026) — les 4 jours sur UNE SEULE LIGNE, quelle que soit la largeur (390 px compris) : largeur égale, texte qui
+   * suit la ligne, 44 px de haut (jamais sous 40) ; même pilule, même rouge, même coche. Oui / Non au-dessus ne changent pas.
+   * (Mesuré dans Chrome sur des lignes de 220 à 700 px : une ligne, rien ne déborde, texte de 11,5 à 16,8 px.)
+   */
+  it('les 4 jours tiennent sur une ligne : la variante « jour », seulement sur ce choix', async () => {
+    await preparer();
+    await clic(pilule('Prélèvement', 'Oui'));
+    expect(container.querySelector('[aria-label="Jour du prélèvement"]')?.className).toBe('loc-pilules loc-pilules--jour');
+    expect(container.querySelector('[aria-label="Prélèvement"]')?.className).toBe('loc-pilules');   // Oui / Non inchangés
+    expect(CSS_PILULES).toContain('.loc-pilules--jour{flex-wrap:nowrap;gap:4px;container-type:inline-size;width:100%}');
+    expect(CSS_PILULES).toContain('.loc-pilules--jour button{flex:1 1 0;min-width:0;min-height:44px;padding:0 2px;white-space:nowrap;font-size:clamp(.72rem,4.2cqi,1.05rem)}');
+    // la coche de sélection reste (avant le mot) ; seule la coche de fin, invisible, est retirée pour gagner la place
+    expect(CSS_PILULES).toContain('.loc-pilules--jour button[aria-pressed]::after{content:none}');
+    expect(CSS_PILULES).toContain('.loc-pilules button[aria-pressed="true"]::before{visibility:visible}');
+  });
+
   it('« préciser » : GLI et Autre ouvrent un champ obligatoire ; changer de choix le referme', async () => {
     await preparer();
     await toutRepondre();

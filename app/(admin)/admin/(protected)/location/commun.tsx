@@ -269,6 +269,12 @@ export const CSS_PILULES = `
    ET la même place À DROITE (toujours invisible). Écarts gauche et droit égaux ; aucune largeur ne change au clic. */
 .loc-pilules button[aria-pressed]::after{content:" ✓";visibility:hidden}
 .loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
+/* Arno (23/10/2026) — les 4 JOURS DE PRÉLÈVEMENT sur UNE ligne, quelle que soit la largeur (390 px compris) : largeur égale, texte
+   qui suit la largeur de la ligne (cqi), 44 px de haut (jamais sous 40). Même pilule, même rouge, même coche ; la coche de fin,
+   invisible et seulement là pour centrer, est retirée pour gagner la place. */
+.loc-pilules--jour{flex-wrap:nowrap;gap:4px;container-type:inline-size;width:100%}
+.loc-pilules--jour button{flex:1 1 0;min-width:0;min-height:44px;padding:0 2px;white-space:nowrap;font-size:clamp(.72rem,4.2cqi,1.05rem)}
+.loc-pilules--jour button[aria-pressed]::after{content:none}
 `;
 
 export const CSS_LOCATION_CREATION = `

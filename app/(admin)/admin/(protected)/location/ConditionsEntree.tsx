@@ -163,7 +163,7 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         {s.prelevement === true && (
           <div className="loc-cond-sous" data-cond-jour>
             <span className="loc-cond-mot">Jour du prélèvement <span className="loc-oblig">*</span></span>
-            <Pilules etiquette="Jour du prélèvement" options={JOURS_PRELEVEMENT} libelle={LIBELLE_JOUR} valeur={s.jour} onChoix={(v) => maj({ jour: v })} />
+            <Pilules etiquette="Jour du prélèvement" options={JOURS_PRELEVEMENT} libelle={LIBELLE_JOUR} valeur={s.jour} onChoix={(v) => maj({ jour: v })} variante="jour" />
           </div>
         )}
         {manque('prelevement')}{manque('jour')}
