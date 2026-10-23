@@ -1,4 +1,4 @@
-import {
+import { montantPrime,
   type Apporteur, type CategoriePrime, collegueADate, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -91,7 +91,7 @@ export function primeDe(a: ActiviteCalcul, regles: readonly RegleCommission[]): 
   if (!a.mandatGestion && a.primeMode !== 'regle') return 0;
   const r = versionADate(regles, a.dateSignature);
   if (r === null) return 0;
-  return (a.categoriePrime ?? (a.parking ? 'parking' : 'logement')) === 'parking' ? r.primeParking : r.primeLogement;
+  return montantPrime(r, a.categoriePrime ?? (a.parking ? 'parking' : 'logement'));
 }
 
 export function tauxApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {

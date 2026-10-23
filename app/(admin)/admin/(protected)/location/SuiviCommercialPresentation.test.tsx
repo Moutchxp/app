@@ -53,10 +53,19 @@ const monter = async (lotId: number | null = 7, lu = LU()) => { await act(async 
 const q = <T extends Element = HTMLElement>(s: string) => document.querySelector(s) as T | null;
 const coche = (s: string) => (q<HTMLInputElement>(s))!.checked;
 const clic = async (el: Element | null) => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
+// Arno (24/10/2026) — les menus du bloc sont la liste maison (ListeChoix) : on l'ouvre, on clique le choix ; sa valeur se lit sur `data-valeur`.
 const choisir = async (s: string, v: string) => {
-  const el = q<HTMLSelectElement>(s)!;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
-  await calmer();
+  await clic(q(s));
+  await clic(q(s)!.closest('.lch')!.querySelector(`li[data-option="${v}"]`));
+};
+const valeur = (s: string) => q(s)!.getAttribute('data-valeur');
+const inactif = (s: string) => q<HTMLButtonElement>(s)!.disabled;
+const optionsDe = async (s: string) => {
+  await clic(q(s));
+  const lis = [...q(s)!.closest('.lch')!.querySelectorAll('li[role="option"]')];
+  const r = lis.map((l) => ({ id: l.getAttribute('data-option'), texte: l.lastElementChild?.textContent ?? '', bloque: l.hasAttribute('data-bloque') }));
+  await clic(q(s));
+  return r;
 };
 const libelles = (n: number) => [...container.querySelectorAll(`[data-suivi-ligne="${n}"] > .loc-champ > .loc-suivi-libelle`)].map((l) => l.textContent?.replace(/\s+/g, ' ').trim());
 
@@ -78,9 +87,9 @@ describe('🔴 ordre des lignes et présentation homogène', () => {
     await monter(null);
     expect(q('[data-avec-gestion]')!.closest('label')!.className).toBe('loc-suivi-case');
     expect(q('[data-mandat-gestion]')!.closest('label')!.className).toBe('loc-suivi-case');
-    expect(q<HTMLSelectElement>('[data-prime-mode]')!.disabled).toBe(true);
-    expect(q<HTMLSelectElement>('[data-prime-mode]')!.value).toBe('aucune');
-    expect(q<HTMLSelectElement>('[data-categorie-prime]')!.disabled).toBe(true);
+    expect(inactif('[data-prime-mode]')).toBe(true);
+    expect(valeur('[data-prime-mode]')).toBe('aucune');
+    expect(inactif('[data-categorie-prime]')).toBe(true);
   });
 });
 
@@ -89,9 +98,9 @@ describe('🔴 cases exclusives et pré-remplissage selon le bien', () => {
     await monter();
     expect(coche('[data-mandat-gestion]')).toBe(true);
     expect(coche('[data-avec-gestion]')).toBe(false);
-    expect(q<HTMLSelectElement>('[data-prime-mode]')!.value).toBe('regle');
-    expect(q<HTMLSelectElement>('[data-prime-mode]')!.selectedOptions[0].textContent).toBe('150 €');
-    expect(q<HTMLSelectElement>('[data-categorie-prime]')!.disabled).toBe(false);
+    expect(valeur('[data-prime-mode]')).toBe('regle');
+    expect(q('[data-prime-mode]')!.textContent).toBe('150 €');
+    expect(inactif('[data-categorie-prime]')).toBe(false);
     expect(q('[data-mandat-gestion]')!.closest('label')!.className).toBe('loc-suivi-case loc-suivi-case--cochee');
   });
   it('relocation : « Relocation » (portefeuille de gestion), aucune prime, origine « Relocation (portefeuille de gestion) »', async () => {
@@ -100,7 +109,7 @@ describe('🔴 cases exclusives et pré-remplissage selon le bien', () => {
     expect(coche('[data-avec-gestion]')).toBe(true);
     expect(coche('[data-mandat-gestion]')).toBe(false);
     expect(dernier.primeMode).toBe('aucune');
-    expect(q<HTMLSelectElement>('[data-origine-contact]')!.value).toBe('relocation');
+    expect(valeur('[data-origine-contact]')).toBe('relocation');
   });
   it('hors gestion : aucune case, aucune prime', async () => {
     proposition = { ...proposition, avecGestion: false, cas: 'hors_gestion' };
@@ -108,7 +117,7 @@ describe('🔴 cases exclusives et pré-remplissage selon le bien', () => {
     expect(coche('[data-avec-gestion]')).toBe(false);
     expect(coche('[data-mandat-gestion]')).toBe(false);
     expect(dernier.primeMode).toBe('aucune');
-    expect(q<HTMLSelectElement>('[data-origine-contact]')!.value).toBe('');
+    expect(valeur('[data-origine-contact]')).toBe('');
   });
   it('exclusives : cocher l’une décoche l’autre (et la prime suit)', async () => {
     await monter();
@@ -134,7 +143,7 @@ describe('🔴 cases exclusives et pré-remplissage selon le bien', () => {
 describe('🔴 origine « Personnalisé »', () => {
   it('en fin de liste ; choisi, un texte obligatoire de 80 caractères au plus', async () => {
     await monter(null);
-    const options = [...q<HTMLSelectElement>('[data-origine-contact]')!.options].map((o) => o.textContent);
+    const options = (await optionsDe('[data-origine-contact]')).map((o) => o.texte);
     expect(options.at(-1)).toBe('Personnalisé');
     await choisir('[data-origine-contact]', 'personnalise');
     const champ = q<HTMLInputElement>('[data-origine-precision]')!;
@@ -143,7 +152,7 @@ describe('🔴 origine « Personnalisé »', () => {
   });
   it('sans la migration 411 : pas proposé', async () => {
     await monter(null, LU({ personnalisable: undefined }));
-    expect([...q<HTMLSelectElement>('[data-origine-contact]')!.options].map((o) => o.value)).not.toContain('personnalise');
+    expect((await optionsDe('[data-origine-contact]')).map((o) => o.id)).not.toContain('personnalise');
   });
 });
 
@@ -161,7 +170,7 @@ describe('🔴 l’annuaire des apporteurs en modale', () => {
     expect(modale.querySelector('[data-ajout-apporteur]')).not.toBeNull();        // création comprise
     await clic(modale.querySelector('[data-choisir-apporteur="3"]'));
     expect(q('[data-modale-annuaire-apporteurs]')).toBeNull();
-    expect(q<HTMLSelectElement>('[data-apporteur]')!.value).toBe('3');
+    expect(valeur('[data-apporteur]')).toBe('3');
     expect(dernier.origineContact).toBe('apporteur');
     expect(rafraichi).toBeGreaterThan(0);                                          // la liste du champ est relue
   });
@@ -191,7 +200,7 @@ describe('🔴 Arno (24/10/2026, 00:34) — libellés, ligne Origine / Apporteur
     expect(champs.map((c) => c.querySelector('.loc-suivi-libelle')?.firstChild?.textContent?.trim())).toEqual(['Origine du contact propriétaire', 'Apporteur d’affaires *']);
     const lib = champs[1].querySelector('.loc-suivi-libelle')!;
     expect(lib.querySelector('[data-ouvrir-annuaire]')).not.toBeNull();     // le bouton est DANS la ligne du libellé
-    expect(champs[1].querySelector('select + small, select ~ small')).toBeNull();   // aucune aide tant qu'aucun apporteur n'est « à rattacher »
+    expect(champs[1].querySelector('small')).toBeNull();   // aucune aide sous le champ
     await choisir('[data-origine-contact]', 'personnalise');
     expect([...ligne.children].map((c) => c.querySelector('.loc-suivi-libelle')?.textContent?.replace(/\s+/g, ' ').trim()))
       .toEqual(['Origine du contact propriétaire *', 'Origine personnalisée *']);
@@ -219,5 +228,60 @@ describe('🔴 Arno (24/10/2026, 00:34) — libellés, ligne Origine / Apporteur
     const tb = readFileSync('app/lib/location/suivi/tableauBordRepo.ts', 'utf8').replace(/\s+/g, ' ');
     expect(tb).toContain('coalesce(a.origine_proprietaire_saisie, a.origine_proprietaire_deduite) AS origine_proprietaire');
     expect(dernier === undefined || dernier.origineProprietaire === null).toBe(true);
+  });
+});
+
+describe('🔴 Arno (24/10/2026, après e60149af) — date, aide « à rattacher », prime « Local », menus maison rouges', () => {
+  it('la prime de nouvelle gestion : Logement · Local · Parking ; pré-remplie selon le bien (local → Local) ; le montant de la règle', async () => {
+    proposition = { ...proposition, categoriePrime: 'local' };
+    await monter(7, LU({ regles: [{ depuis: '2026-01-01', tauxNegociateur: 0.1, primeLogement: 150, primeParking: 50, primeLocal: 160 }] }));
+    expect((await optionsDe('[data-categorie-prime]')).map((o) => o.texte)).toEqual(['Logement', 'Local', 'Parking']);
+    expect(valeur('[data-categorie-prime]')).toBe('local');
+    expect(q('[data-categorie-prime]')!.textContent).toBe('Local');
+    expect(q('[data-prime-mode]')!.textContent).toBe('160 €');          // le montant « local » de la règle
+    await choisir('[data-categorie-prime]', 'parking');
+    expect(dernier.categoriePrime).toBe('parking');
+    expect(q('[data-prime-mode]')!.textContent).toBe('50 €');
+  });
+  it('une règle sans montant local : le local vaut le logement (150 €)', async () => {
+    proposition = { ...proposition, categoriePrime: 'local' };
+    await monter();
+    expect(q('[data-prime-mode]')!.textContent).toBe('150 €');
+  });
+  it('l’aide « Un apporteur “à rattacher” … » est retirée ; la mention « à rattacher » reste dans la liste, non choisissable', async () => {
+    await monter(null, LU({ apporteurs: [APPORTEUR as never, { id: 4, nom: 'Leboncoin', type: 'partenaire', archive: false, baremes: [], collegues: [] } as never] }));
+    await choisir('[data-origine-contact]', 'apporteur');
+    expect(container.textContent).not.toContain('se rattache à un collègue dans l’annuaire avant d’être choisi');
+    const opts = await optionsDe('[data-apporteur]');
+    expect(opts.find((o) => o.id === '4')).toEqual({ id: '4', texte: 'Leboncoin (Partenaire externe) — à rattacher', bloque: true });
+    expect(opts.at(-1)?.texte).toBe('+ Nouvel apporteur…');
+    await choisir('[data-apporteur]', '4');
+    expect(valeur('[data-apporteur]')).toBe('');                        // pas choisissable
+    await choisir('[data-apporteur]', '+');
+    expect(q('[data-nouvel-apporteur]')).not.toBeNull();
+  });
+  it('tous les menus du bloc sont la liste maison, teinte ROUGE ; aucun menu natif', async () => {
+    await monter();
+    await choisir('[data-origine-contact]', 'apporteur');
+    await choisir('[data-apporteur]', '+');
+    expect(container.querySelector('select')).toBeNull();
+    for (const s of ['[data-type-activite]', '[data-negociateur]', '[data-prime-mode]', '[data-categorie-prime]', '[data-origine-contact]', '[data-apporteur]', '[data-nouvel-apporteur-type]', '[data-nouvel-apporteur-collegue]']) {
+      expect(q(s)?.getAttribute('role'), s).toBe('combobox');
+      expect(q(s)!.closest('.lch')!.className, s).toBe('lch lch--rouge');
+    }
+    await choisir('[data-type-activite]', 'avenant');
+    expect(dernier.type).toBe('avenant');
+    // Échap ferme la liste seule
+    await clic(q('[data-type-activite]'));
+    expect(q('[data-type-activite]')!.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => { q('[data-type-activite]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(q('[data-type-activite]')!.getAttribute('aria-expanded')).toBe('false');
+  });
+  it('la date de signature a l’allure de la liste maison (hauteur, bordure, rayon, police, marge ; icône à droite)', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/location/SuiviCommercial.tsx', 'utf8');
+    expect(css).toContain('.loc-ample .loc-suivi .lch-champ{min-height:58px;font-size:1.1rem;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px}');
+    expect(css).toContain('.loc-ample .loc-suivi .loc-champ input[type=date]{height:58px;min-height:58px;border:2px solid var(--color-svv-line);border-radius:16px;padding:0 16px;font-size:1.1rem;font-weight:400}');
+    expect(css).toContain('.loc-suivi input[type=date]::-webkit-calendar-picker-indicator{position:absolute;top:50%;right:10px;transform:translateY(-50%);margin:0;padding:0;width:16px;height:16px;');
+    expect(css).toContain('.loc-ample .loc-suivi input[type=date]::-webkit-calendar-picker-indicator{right:16px}');   // la marge du chevron
   });
 });

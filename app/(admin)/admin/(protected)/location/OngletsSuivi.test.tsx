@@ -77,13 +77,23 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
 
   it('Commissions : la règle en vigueur ; une rétrocession s’ajoute, et s’ANNULE (jamais supprimée)', async () => {
     await ouvrir('commissions');
-    expect(container.querySelector('[data-regle="2026-01-01"]')?.textContent).toContain('Taux 15 % · prime logement 150,00 € · prime parking 15,00 €');
+    expect(container.querySelector('[data-regle="2026-01-01"]')?.textContent).toContain('Taux 15 % · prime logement 150,00 € · prime local 150,00 € · prime parking 15,00 €');
     expect(container.querySelector('[data-retrocession="8"]')?.textContent).toContain('Alex Coms — 200,00 €');
     await clic(container.querySelector('[data-annuler-retrocession="8"]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'annuler-retrocession', id: 8 });
     expect(container.querySelector('[data-enregistrer-parametres]')).toBeNull();   // chaque ligne a son bouton
     await clic(container.querySelector('[data-onglet="baremes"]')!);
     expect(container.querySelector('[data-enregistrer-parametres]')).not.toBeNull();   // les autres onglets gardent le leur
+  });
+
+  it('Arno (24/10/2026) — « Nouvelle règle » : la prime LOCAL pré-remplie au montant en vigueur (le logement s’il n’y en a pas), envoyée', async () => {
+    await ouvrir('commissions');
+    await clic(container.querySelector('[data-nouvelle-regle]')!);
+    const local = container.querySelector('[data-prime-local]') as HTMLInputElement;
+    expect(local.closest('label')?.textContent).toContain('Prime nouvelle gestion — local (€)');
+    expect(local.value).toBe('150');
+    await clic(container.querySelector('[data-enregistrer-regle]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'regle', regle: { primeLogement: '150', primeLocal: '150', primeParking: '15' } });
   });
 
   it('sans la migration 406 : le dit, rien à saisir', async () => {

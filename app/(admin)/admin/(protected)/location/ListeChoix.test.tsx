@@ -48,7 +48,9 @@ describe('🔴 ListeChoix', () => {
     expect(css).toContain('.lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-green-ink)}');
     expect(css).toContain('.lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-green-ink)');
     expect(css).toContain('.lch-champ[aria-expanded="true"]{outline:2px solid var(--color-svv-red)');
-    expect(css).not.toMatch(/red-soft|red-dark/);
+    // Arno (24/10/2026) — le rouge n'existe que sous la teinte « rouge » (bloc « Suivi commercial ») ; par défaut, la liste n'en a pas.
+    expect(css.split('\n').filter((l) => /red-soft|red-dark/.test(l)).every((l) => l.startsWith('.lch--rouge '))).toBe(true);
+    expect(container.querySelector('.lch')?.className).toBe('lch');
   });
 
   it('clavier : flèches, Entrée, Échap (ne ferme que la liste) ; recherche par frappe', async () => {

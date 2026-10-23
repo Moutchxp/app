@@ -66,7 +66,12 @@ describe('saisies vérifiées (navigateur et serveur)', () => {
   });
   it('règle de commission : 15 %, primes 150 / 15', () => {
     expect(verifierRegle({ depuis: '2026-01-01', tauxNegociateur: '15', primeLogement: '150', primeParking: '15' }))
-      .toEqual({ ok: true, regle: { depuis: '2026-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 } });
+      .toEqual({ ok: true, regle: { depuis: '2026-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15, primeLocal: null } });
+    // Arno (24/10/2026) — le local : facultatif (vide = le logement), lu en euros s'il est saisi, refusé s'il est illisible.
+    expect(verifierRegle({ depuis: '2026-11-01', tauxNegociateur: '15', primeLogement: '150', primeParking: '15', primeLocal: '150' }))
+      .toEqual({ ok: true, regle: { depuis: '2026-11-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15, primeLocal: 150 } });
+    expect(verifierRegle({ depuis: '2026-11-01', tauxNegociateur: '15', primeLogement: '150', primeParking: '15', primeLocal: '' }).ok).toBe(true);
+    expect(verifierRegle({ depuis: '2026-11-01', tauxNegociateur: '15', primeLogement: '150', primeParking: '15', primeLocal: 'cent' }).ok).toBe(false);
     expect(verifierRegle({ depuis: '2026-01-01', tauxNegociateur: '', primeLogement: '150', primeParking: '15' }).ok).toBe(false);
   });
   it('rétrocession : mois, montant > 0, libellé, négociateur', () => {

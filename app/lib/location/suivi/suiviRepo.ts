@@ -6,7 +6,7 @@ import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
-  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion,
+  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille,
 } from './suivi';
 
 /**
@@ -30,6 +30,19 @@ export function suiviDisponible(): Promise<boolean> {
 /** La migration 407 (origine du contact, annuaire des apporteurs rattachés à un collègue, choix de prime) est-elle appliquée ? */
 export function annuaireDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_activite', 'origine_contact');
+}
+
+/**
+ * Arno (24/10/2026) — la migration 412 (la prime d'un LOCAL : montant dans la règle, catégorie « local » admise) est-elle appliquée ?
+ * Sans elle : le montant local se lit comme celui du logement (vide), et une affaire « Local » s'enregistre en « logement » — le même
+ * montant, la base n'admettant pas encore la valeur.
+ */
+export function primeLocalDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_commission_regle', 'prime_gestion_local');
+}
+/** La catégorie ENREGISTRABLE : « local » seulement avec la 412. */
+async function categorieEnregistrable(c: CategoriePrime): Promise<CategoriePrime> {
+  return c === 'local' && !(await primeLocalDisponible()) ? 'logement' : c;
 }
 
 /** Arno (24/10/2026) — la migration 411 (origine « Personnalisé » et son texte) est-elle appliquée ? */
@@ -206,19 +219,23 @@ export async function rattacherApporteur(apporteurId: unknown, brut: unknown, au
 
 export async function lireRegles(): Promise<RegleCommission[]> {
   if (!(await suiviDisponible())) return [];
-  const { rows } = await query<{ depuis: Date; taux_negociateur: string; prime_gestion_logement: string; prime_gestion_parking: string }>(
-    'SELECT depuis, taux_negociateur, prime_gestion_logement, prime_gestion_parking FROM gestion_location_commission_regle ORDER BY depuis');
-  return rows.map((r) => ({ depuis: iso(r.depuis), tauxNegociateur: num(r.taux_negociateur), primeLogement: num(r.prime_gestion_logement), primeParking: num(r.prime_gestion_parking) }));
+  const local = await primeLocalDisponible();
+  const { rows } = await query<{ depuis: Date; taux_negociateur: string; prime_gestion_logement: string; prime_gestion_parking: string; prime_gestion_local: string | null }>(
+    `SELECT depuis, taux_negociateur, prime_gestion_logement, prime_gestion_parking, ${local ? 'prime_gestion_local' : 'NULL::numeric AS prime_gestion_local'}
+       FROM gestion_location_commission_regle ORDER BY depuis`);
+  return rows.map((r) => ({ depuis: iso(r.depuis), tauxNegociateur: num(r.taux_negociateur), primeLogement: num(r.prime_gestion_logement), primeParking: num(r.prime_gestion_parking),
+    primeLocal: numOuNull(r.prime_gestion_local) }));
 }
 
 export async function ajouterRegle(brut: unknown, auteur: Auteur): Promise<Reponse> {
   if (!(await suiviDisponible())) return INDISPONIBLE;
   const v = verifierRegle(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  const local = await primeLocalDisponible();
   const r = await query(
-    `INSERT INTO gestion_location_commission_regle (depuis, taux_negociateur, prime_gestion_logement, prime_gestion_parking, saisi_par_libelle)
-     VALUES ($1, $2, $3, $4, $5) ON CONFLICT (depuis) DO NOTHING`,
-    [v.regle.depuis, v.regle.tauxNegociateur, v.regle.primeLogement, v.regle.primeParking, auteur.libelle]);
+    `INSERT INTO gestion_location_commission_regle (depuis, taux_negociateur, prime_gestion_logement, prime_gestion_parking, saisi_par_libelle${local ? ', prime_gestion_local' : ''})
+     VALUES ($1, $2, $3, $4, $5${local ? ', $6' : ''}) ON CONFLICT (depuis) DO NOTHING`,
+    [v.regle.depuis, v.regle.tauxNegociateur, v.regle.primeLogement, v.regle.primeParking, auteur.libelle, ...(local ? [v.regle.primeLocal ?? null] : [])]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Une règle existe déjà à cette date : choisissez une autre date d’effet.' };
 }
 
@@ -386,7 +403,7 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
   const v = verifierActivite(brut, { origineObligatoire: avecAnnuaire });
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const br = (brut ?? {}) as Record<string, unknown>;
-  const categoriePrime = br.categoriePrime === 'parking' ? 'parking' : br.categoriePrime === 'logement' ? 'logement' : null;
+  const categoriePrime: CategoriePrime | null = br.categoriePrime === 'parking' || br.categoriePrime === 'logement' || br.categoriePrime === 'local' ? br.categoriePrime : null;
   // Les loyers viennent des champs « Loyer mensuel » de l'écran (déjà saisis) : repris tels quels, illisibles → non renseignés.
   const loyerHc = lireMontant(br.loyerHc) ?? null;
   const charges = lireMontant(br.charges) ?? null;
@@ -407,7 +424,7 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
     const negociateur = v.valeurs.negociateurId === null ? null
       : (await q<{ libelle: string }>(`SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant, '') AS libelle FROM admin_utilisateur WHERE id = $1`,
         [v.valeurs.negociateurId])).rows[0]?.libelle ?? null;
-    const prime: CategoriePrime = categoriePrime ?? (familleDeCategorie(b.categorie) === 'parking' ? 'parking' : 'logement');
+    const prime: CategoriePrime = await categorieEnregistrable(categoriePrime ?? categoriePrimeDeFamille(familleDeCategorie(b.categorie)));
     const a: ActiviteVerifiee = v.valeurs;
     // 🔴 Arno (24/10/2026) — UNE seule prime de nouvelle gestion par bien : le serveur refuse la seconde (lu AVANT d'écrire).
     const veutUnePrime = a.primeMode === 'aucune' ? false : a.primeMode === 'personnalise' ? (a.primeMontant ?? 0) > 0
@@ -498,7 +515,7 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
     etat: 'ok',
     data: {
       avecGestion: enGestion,
-      categoriePrime: familleDeCategorie(rows[0].categorie) === 'parking' ? 'parking' : 'logement',
+      categoriePrime: categoriePrimeDeFamille(familleDeCategorie(rows[0].categorie)),
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
       cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
     },

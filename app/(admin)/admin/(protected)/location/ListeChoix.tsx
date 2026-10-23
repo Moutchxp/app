@@ -11,11 +11,19 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
  * Arno (23/10/2026) : le surlignage est VERT — celui de l'entrée active du menu de gauche (fond vert pâle, texte vert foncé).
  * Réutilisable : collègue de rattachement, « collègue directement », négociateur.
  */
-export interface OptionChoix { id: number | string; libelle: string; actif?: boolean }
+export interface OptionChoix {
+  id: number | string; libelle: string; actif?: boolean;
+  /**
+   * Arno (24/10/2026) — un choix MONTRÉ mais pas choisissable (ex. un apporteur « à rattacher »), suivi de sa `mention`. À la
+   * différence d'un compte désactivé (`actif: false`), il est toujours dans la liste : l'information reste visible.
+   */
+  bloque?: boolean;
+  mention?: string;
+}
 
 const norm = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-export function ListeChoix({ options, valeur, onChange, vide = '— choisir —', libelle, classe, donnees }: {
+export function ListeChoix({ options, valeur, onChange, vide = '— choisir —', libelle, classe, donnees, desactive = false, teinte = 'vert' }: {
   options: readonly OptionChoix[];
   /** L'id choisi ('' : aucun). */
   valeur: string;
@@ -28,6 +36,10 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
   classe?: string;
   /** Les attributs `data-…` du champ (les repères des tests et du banc). */
   donnees?: Record<string, string>;
+  /** Arno (24/10/2026) — le champ inactif (ex. une prime sans « Nouvelle gestion ») : ni ouverture, ni clavier. */
+  desactive?: boolean;
+  /** Arno (24/10/2026) — le surlignage et la coche : VERT (défaut, annuaire), ou ROUGE (le bloc « Suivi commercial »). */
+  teinte?: 'vert' | 'rouge';
 }) {
   const id = useId();
   const [ouvert, setOuvert] = useState(false);
@@ -37,13 +49,15 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
   const liste = useRef<HTMLUListElement | null>(null);
   const champ = useRef<HTMLButtonElement | null>(null);
   // Les choix : « aucun » (si permis), les comptes actifs, et un compte désactivé seulement s'il est le choix en cours.
-  const choix: { id: string; libelle: string; desactive: boolean }[] = [
+  const choix: { id: string; libelle: string; desactive: boolean; bloque?: boolean }[] = [
     ...(vide === null ? [] : [{ id: '', libelle: vide, desactive: false }]),
-    ...options.filter((o) => o.actif !== false || String(o.id) === valeur).map((o) => ({ id: String(o.id), libelle: o.libelle, desactive: o.actif === false })),
+    ...options.filter((o) => o.actif !== false || String(o.id) === valeur).map((o) => ({
+      id: String(o.id), libelle: `${o.libelle}${o.actif === false ? ' (désactivé)' : ''}${o.mention ?? ''}`, desactive: o.actif === false || o.bloque === true, ...(o.bloque === true ? { bloque: true } : {}),
+    })),
   ];
   const courant = choix.find((c) => c.id === valeur);
   // Le champ prend le focus à l'ouverture (Safari ne le donne pas à un bouton cliqué) : le clavier et Échap vont à la liste.
-  const ouvrir = (): void => { setActif(Math.max(0, choix.findIndex((c) => c.id === valeur))); setOuvert(true); champ.current?.focus(); };
+  const ouvrir = (): void => { if (desactive) return; setActif(Math.max(0, choix.findIndex((c) => c.id === valeur))); setOuvert(true); champ.current?.focus(); };
   const choisir = (i: number): void => { const c = choix[i]; if (c && !c.desactive) onChange(c.id); setOuvert(false); };
   useEffect(() => {
     if (!ouvert) return;
@@ -82,21 +96,21 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
     }
   };
   return (
-    <div className="lch" ref={racine}>
+    <div className={`lch${teinte === 'rouge' ? ' lch--rouge' : ''}`} ref={racine}>
       <style>{CSS_LISTE_CHOIX}</style>
-      <button type="button" ref={champ} className={`lch-champ ${classe ?? ''}`} role="combobox" aria-haspopup="listbox" aria-expanded={ouvert} aria-controls={`${id}-liste`}
+      <button type="button" ref={champ} className={`lch-champ ${classe ?? ''}`} disabled={desactive} data-valeur={valeur} role="combobox" aria-haspopup="listbox" aria-expanded={ouvert} aria-controls={`${id}-liste`}
         aria-label={libelle} aria-activedescendant={ouvert ? `${id}-${actif}` : undefined} onClick={() => (ouvert ? setOuvert(false) : ouvrir())} onKeyDown={clavier} {...donnees}>
-        <span className={courant === undefined || courant.id === '' ? 'lch-vide' : undefined}>{courant === undefined ? (vide ?? '') : `${courant.libelle}${courant.desactive ? ' (désactivé)' : ''}`}</span>
+        <span className={courant === undefined || courant.id === '' ? 'lch-vide' : undefined}>{courant === undefined ? (vide ?? '') : courant.libelle}</span>
         <svg className="lch-chevron" viewBox="0 0 12 8" width="12" height="8" aria-hidden="true"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
       </button>
       {ouvert && (
         <ul className="lch-liste" role="listbox" id={`${id}-liste`} aria-label={libelle} ref={liste} data-liste-choix>
           {choix.map((c, i) => (
-            <li key={c.id || 'vide'} id={`${id}-${i}`} role="option" aria-selected={c.id === valeur} aria-disabled={c.desactive || undefined} data-index={i} data-option={c.id}
+            <li key={c.id || 'vide'} id={`${id}-${i}`} role="option" aria-selected={c.id === valeur} aria-disabled={c.desactive || undefined} data-index={i} data-option={c.id} data-bloque={c.bloque ? '' : undefined}
               className={['lch-option', i === actif ? 'lch-option--actif' : '', c.id === valeur ? 'lch-option--choisi' : '', c.desactive ? 'lch-option--desactive' : '', c.id === '' ? 'lch-vide' : ''].filter(Boolean).join(' ')}
               onMouseEnter={() => setActif(i)} onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); choisir(i); }}>
               <span className="lch-coche" aria-hidden="true">{c.id === valeur ? '✓' : ''}</span>
-              <span>{c.libelle}{c.desactive ? ' (désactivé)' : ''}</span>
+              <span>{c.libelle}</span>
             </li>
           ))}
         </ul>
@@ -119,4 +133,10 @@ export const CSS_LISTE_CHOIX = `
 .lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-green-ink)}
 .lch-liste>.lch-option--desactive{cursor:not-allowed;color:var(--color-svv-muted)}
 .lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-green-ink);font-weight:800}
+.lch-champ:disabled{opacity:.6;cursor:not-allowed}
+/* Arno (24/10/2026) — la teinte ROUGE (le rouge de l'interface), pour le bloc « Suivi commercial » ; le vert reste ailleurs. */
+.lch--rouge .lch-liste>.lch-option--actif{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.lch--rouge .lch-liste>.lch-option--choisi{color:var(--color-svv-red)}
+.lch--rouge .lch-coche{color:var(--color-svv-red)}
+.lch--rouge .lch-liste>.lch-option--desactive{background:none;color:var(--color-svv-muted)}
 `;

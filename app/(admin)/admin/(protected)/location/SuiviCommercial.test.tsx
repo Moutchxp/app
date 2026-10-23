@@ -91,8 +91,10 @@ const toutRepondre = async () => {
 
 const htProprio = () => container.querySelector('input[data-hono-proprietaire-ht]') as HTMLInputElement;
 const htLocataire = () => container.querySelector('input[data-hono-locataire-ht]') as HTMLInputElement;
-const choisir = async (el: HTMLSelectElement, v: string) => {
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
+// Arno (24/10/2026) — les menus du bloc sont la liste maison (ListeChoix) : on l'ouvre, on clique le choix ; sa valeur est `data-valeur`.
+const choisir = async (el: Element, v: string) => {
+  await clic(el);
+  await clic(el.closest('.lch')!.querySelector(`li[data-option="${v}"]`)!);
 };
 
 describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
@@ -112,7 +114,7 @@ describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
     await saisir(htProprio(), '416,67');
     await act(async () => { htProprio().dispatchEvent(new FocusEvent('blur', { bubbles: false })); });
     await saisir(htLocataire(), '226,95');
-    await choisir(container.querySelector('select[data-apporteur]') as HTMLSelectElement, '3');
+    await choisir(container.querySelector('[data-apporteur]')!, '3');
     expect((container.querySelector('input[data-apporteur-taux]') as HTMLInputElement).placeholder).toBe('10');
     await saisir(container.querySelector('input[data-date-signature]') as HTMLInputElement, '2026-10-20');
     await calmer();
@@ -167,12 +169,14 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
   it('« Apporteur d’affaires » : un apporteur « à rattacher » n’est pas choisissable ; le collègue s’affiche ; la commission est proposée au taux', async () => {
     avec407();
     await preparer();
-    await choisir(container.querySelector('select[data-origine-contact]') as HTMLSelectElement, 'apporteur');
-    const options = [...container.querySelectorAll('select[data-apporteur] option')] as HTMLOptionElement[];
-    expect(options.find((o) => o.value === '4')?.disabled).toBe(true);
-    expect(options.find((o) => o.value === '4')?.textContent).toContain('à rattacher');
-    expect(options.find((o) => o.value === '3')?.disabled).toBe(false);
-    await choisir(container.querySelector('select[data-apporteur]') as HTMLSelectElement, '3');
+    await choisir(container.querySelector('[data-origine-contact]')!, 'apporteur');
+    await clic(container.querySelector('[data-apporteur]')!);
+    const options = [...container.querySelectorAll('[data-liste-choix] li[role="option"]')];
+    expect(options.find((o) => o.getAttribute('data-option') === '4')?.getAttribute('aria-disabled')).toBe('true');
+    expect(options.find((o) => o.getAttribute('data-option') === '4')?.textContent).toContain('à rattacher');
+    expect(options.find((o) => o.getAttribute('data-option') === '3')?.hasAttribute('aria-disabled')).toBe(false);
+    await clic(container.querySelector('[data-apporteur]')!);
+    await choisir(container.querySelector('[data-apporteur]')!, '3');
     expect(container.querySelector('[data-collegue-rattache]')?.textContent).toBe('Collègue de rattachement : Arnaud Jorel');
     await saisir(htProprio(), '400');
     await saisir(htLocataire(), '200');
@@ -182,14 +186,14 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     avec407();
     await preparer();
     await toutRepondre();
-    await choisir(container.querySelector('select[data-origine-contact]') as HTMLSelectElement, 'collegue');
+    await choisir(container.querySelector('[data-origine-contact]')!, 'collegue');
     await clic(container.querySelector('button[data-collegue]')!);
     await clic(container.querySelector('[data-liste-choix] [data-option="2"]')!);
-    const prime = () => container.querySelector('select[data-prime-mode]') as HTMLSelectElement;
-    expect(prime().value).toBe('aucune');
+    const prime = () => container.querySelector('[data-prime-mode]')!;
+    expect(prime().getAttribute('data-valeur')).toBe('aucune');
     await clic(container.querySelector('input[data-mandat-gestion]')!);
-    expect(prime().value).toBe('regle');
-    expect(prime().selectedOptions[0].textContent).toBe('150 €');
+    expect(prime().getAttribute('data-valeur')).toBe('regle');
+    expect(prime().textContent).toBe('150 €');
     await choisir(prime(), 'personnalise');
     await soumettre();
     expect(container.querySelector('[data-suivi-commercial] .loc-manque')?.textContent).toBe('Prime de gestion personnalisée : saisissez le montant (ex. 15).');

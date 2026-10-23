@@ -29,8 +29,12 @@ export const ORIGINES = ['nouveau', 'deja'] as const;
 export type Origine = typeof ORIGINES[number];
 export const LIBELLE_ORIGINE: Record<Origine, string> = { nouveau: 'Nouveau client', deja: 'Déjà client' };
 
-export const CATEGORIES_PRIME = ['logement', 'parking'] as const;
+export const CATEGORIES_PRIME = ['logement', 'local', 'parking'] as const;
 export type CategoriePrime = typeof CATEGORIES_PRIME[number];
+/** Arno (24/10/2026) — « Local » (local commercial ou bureaux) : Logement · Local · Parking. */
+export const LIBELLE_CATEGORIE_PRIME: Record<CategoriePrime, string> = { logement: 'Logement', local: 'Local', parking: 'Parking' };
+/** La catégorie de prime d'une famille de bien (logement → Logement, local → Local, parking → Parking). PUR. */
+export const categoriePrimeDeFamille = (f: string | null | undefined): CategoriePrime => (f === 'parking' ? 'parking' : f === 'local' ? 'local' : 'logement');
 
 /** Arno (23/10/2026, 407) — L'ORIGINE DU CONTACT : liste fixe, obligatoire pour toute nouvelle location. */
 export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'passage_agence', 'campagne', 'personnalise'] as const;
@@ -141,7 +145,17 @@ export function versionADate<T extends Datee>(versions: readonly T[], dateIso: s
   return retenue;
 }
 
-export interface RegleCommission extends Datee { tauxNegociateur: number; primeLogement: number; primeParking: number }
+export interface RegleCommission extends Datee {
+  tauxNegociateur: number; primeLogement: number; primeParking: number;
+  /** Arno (24/10/2026, migration 412) — la prime d'un LOCAL. Vide (versions d'avant, ou sans la 412) : celle du logement. */
+  primeLocal?: number | null;
+}
+/** Le montant de la prime de nouvelle gestion d'une catégorie, selon une version de la règle. Jamais rétroactif. PUR. */
+export function montantPrime(r: RegleCommission, c: CategoriePrime): number {
+  if (c === 'parking') return r.primeParking;
+  if (c === 'local') return r.primeLocal ?? r.primeLogement;
+  return r.primeLogement;
+}
 export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number }
 /** Le collègue de rattachement d'un apporteur, daté (407) : la version en vigueur à la date d'une affaire fait foi. */
 export interface CollegueDate extends Datee { collegueId: number | null; collegueLibelle: string }
@@ -331,7 +345,10 @@ export function verifierRegle(brut: unknown): { ok: true; regle: RegleCommission
   const pp = lireMontant(b.primeParking);
   if (pl === undefined || pl === null) return { ok: false, motif: 'Prime de nouvelle gestion (logement) : un montant en euros.' };
   if (pp === undefined || pp === null) return { ok: false, motif: 'Prime de nouvelle gestion (parking) : un montant en euros.' };
-  return { ok: true, regle: { depuis: b.depuis, tauxNegociateur: taux, primeLogement: pl, primeParking: pp } };
+  // Arno (24/10/2026) — le local : facultatif (vide = le montant du logement), un montant en euros s'il est saisi.
+  const plo = lireMontant(b.primeLocal);
+  if (plo === undefined) return { ok: false, motif: 'Prime de nouvelle gestion (local) : un montant en euros.' };
+  return { ok: true, regle: { depuis: b.depuis, tauxNegociateur: taux, primeLogement: pl, primeParking: pp, primeLocal: plo } };
 }
 
 /** Vérifie une rétrocession (négociateur, mois, montant > 0, libellé). */

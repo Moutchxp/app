@@ -331,7 +331,7 @@ export function OngletCommissions() {
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
   const enVigueur = lu === null ? null : versionADate(lu.regles, jour);
-  const [regle, setRegle] = useState<{ depuis: string; tauxNegociateur: string; primeLogement: string; primeParking: string } | null>(null);
+  const [regle, setRegle] = useState<{ depuis: string; tauxNegociateur: string; primeLogement: string; primeLocal: string; primeParking: string } | null>(null);
   const [retro, setRetro] = useState({ negociateurId: '', mois: jour.slice(0, 7), montant: '', libelle: '' });
   return (
     <section data-onglet-commissions>
@@ -346,19 +346,22 @@ export function OngletCommissions() {
                 <p className="plo-version-titre"><strong>Applicable à partir du {dateFr(r.depuis)}</strong>
                   {enVigueur?.depuis === r.depuis && <span className="plo-pastille plo-pastille--vigueur">en vigueur</span>}
                   {r.depuis > jour && <span className="plo-pastille">à venir</span>}</p>
-                <p className="plo-version-valeurs">Taux {pourcent(r.tauxNegociateur)} · prime logement {euros(r.primeLogement)} · prime parking {euros(r.primeParking)}</p>
+                <p className="plo-version-valeurs">Taux {pourcent(r.tauxNegociateur)} · prime logement {euros(r.primeLogement)} · prime local {euros(r.primeLocal ?? r.primeLogement)} · prime parking {euros(r.primeParking)}</p>
               </li>
             ))}
           </ol>
           {regle === null ? (
             <button type="button" className="svv-btn svv-btn-outline gst-btn plo-ajout" data-nouvelle-regle
               onClick={() => { g.effacer(); setRegle({ depuis: jour, tauxNegociateur: enVigueur ? String(Math.round(enVigueur.tauxNegociateur * 1000000) / 10000).replace('.', ',') : '',
-                primeLogement: enVigueur ? String(enVigueur.primeLogement).replace('.', ',') : '', primeParking: enVigueur ? String(enVigueur.primeParking).replace('.', ',') : '' }); }}>
+                primeLogement: enVigueur ? String(enVigueur.primeLogement).replace('.', ',') : '',
+                // Arno (24/10/2026) — le local : la valeur en vigueur, ou celle du logement tant qu'aucune version ne l'a posée.
+                primeLocal: enVigueur ? String(enVigueur.primeLocal ?? enVigueur.primeLogement).replace('.', ',') : '', primeParking: enVigueur ? String(enVigueur.primeParking).replace('.', ',') : '' }); }}>
               Nouvelle règle</button>
           ) : (
             <div className="plo-grille" data-saisie-regle onKeyDown={echap(() => setRegle(null))}>
               <label className="plo-champ"><span>Taux du négociateur (%)</span><input inputMode="decimal" value={regle.tauxNegociateur} onChange={(e) => setRegle({ ...regle, tauxNegociateur: e.target.value })} /></label>
               <label className="plo-champ"><span>Prime nouvelle gestion — logement (€)</span><input inputMode="decimal" value={regle.primeLogement} onChange={(e) => setRegle({ ...regle, primeLogement: e.target.value })} /></label>
+              <label className="plo-champ"><span>Prime nouvelle gestion — local (€)</span><input inputMode="decimal" value={regle.primeLocal} data-prime-local onChange={(e) => setRegle({ ...regle, primeLocal: e.target.value })} /></label>
               <label className="plo-champ"><span>Prime nouvelle gestion — parking (€)</span><input inputMode="decimal" value={regle.primeParking} onChange={(e) => setRegle({ ...regle, primeParking: e.target.value })} /></label>
               <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={regle.depuis} onChange={(e) => setRegle({ ...regle, depuis: e.target.value })} /></label>
               <span className="plo-boutons">
