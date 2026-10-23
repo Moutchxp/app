@@ -174,11 +174,18 @@ function blocsEnTete(cellules: Record<string, CelluleLue>, rang: number): Colonn
   });
 }
 
+/**
+ * Les DÉCISIONS d'Arno sur un onglet (23/10/2026) : `mois` — un onglet qui n'est pas nommé comme un mois est lu comme ce
+ * mois de l'année du fichier (« Feuil2 » de 2024 → décembre 2024) ; `fusionnerSecondBloc` — les lignes d'un second
+ * négociateur sont importées avec celles du fichier (au taux de son négociateur), l'effet sur la commission étant dit.
+ */
+export interface OptionsLecture { mois?: number; fusionnerSecondBloc?: boolean }
+
 /** Lit UN onglet de mois. `annee` : l'année du fichier (2026 pour CA_JBP_2026) — celle du nom de l'onglet l'emporte. */
-export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
-  const m = numeroMois(f.nom);
+export function lireFeuille(f: FeuilleLue, annee: number, o: OptionsLecture = {}): MoisExcel | null {
+  const m = o.mois ?? numeroMois(f.nom);
   if (m === null) return null;
-  const mois = `${anneeDeFeuille(f.nom, annee)}-${String(m).padStart(2, '0')}`;
+  const mois = `${o.mois === undefined ? anneeDeFeuille(f.nom, annee) : annee}-${String(m).padStart(2, '0')}`;
   const c = (adresse: string): CelluleLue | undefined => f.cellules[adresse];
   const rangs = [...new Set(Object.keys(f.cellules).map((a) => Number(a.replace(/^[A-Z]+/, ''))))].sort((a, b) => a - b);
   const rangOu = (re: RegExp, col = 'A'): number | null => rangs.find((r) => re.test(norm(texte(c(`${col}${r}`))))) ?? null;
@@ -204,8 +211,6 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
   const rSans = rangOu(/^location sans gestion/);
   const avecF = rAvec === null ? undefined : c(`B${rAvec}`)?.f;
   const sansF = rSans === null ? undefined : c(`B${rSans}`)?.f;
-  const avec = new Set(lignesDe(avecF, col.ca ?? 'E'));
-  const sans = new Set(lignesDe(sansF, col.ca ?? 'E'));
   const estEnTete = (t: string): boolean => /^(proprietaires?|locataires?|gestion perdu|loyers? cc|commentaires?)$/.test(norm(t));
 
   const lireLignes = (k: Colonnes, depuis: number, jusque: number, cleDe: (r: number) => string, notes: string[]): LigneExcel[] => {
@@ -238,7 +243,8 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
       if (commission > 0 && h?.f === undefined) notes.push(`Ligne ${r} (${proprietaire}) : commission d’apporteur saisie à la main (${euros(commission)}, sans formule).`);
       const prime = nombre(c(`${k.prime}${r}`)) ?? 0;
       if (prime !== 0 && prime !== 150 && prime !== 15) notes.push(`Ligne ${r} (${proprietaire}) : prime de nouvelle gestion de ${euros(prime)} (ni 150 ni 15).`);
-      const avecGestion = avec.has(r) && k === col ? true : sans.has(r) && k === col ? false : null;
+      const caK = k.ca ?? 'E';
+      const avecGestion = lignesDe(avecF, caK).includes(r) ? true : lignesDe(sansF, caK).includes(r) ? false : null;
       out.push({
         cle: cleDe(r), mois, rang: r, proprietaire, locataire, honoProprietaireHt: hp, honoLocataireHt: hl, caFichier, prime,
         apporteurTexte, commission, tauxCommission, avenant: /\(avenant\)/i.test(proprietaire),
@@ -285,12 +291,31 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
     const l = lignes.find((x) => x.rang === h.rang);
     anomalies.push(`Ligne ${h.rang}${l ? ` (${l.proprietaire})` : ''} : la formule de commission la retire de sa base (=${fBase}) — ${euros(h.montant)} comptés au CA, sans commission du négociateur.`);
   }
-  // La ventilation : la somme des lignes QUE CE BLOC cite (un second négociateur peut s'y mêler : il est retiré et dit).
+  // Un second négociateur (bloc à droite) : lu à part.
+  let autreBloc: MoisExcel['autreBloc'] = null;
+  let blocFusionne: { ca: string; lignes: LigneExcel[]; nom: string; commission: number; taux: number | null } | null = null;
+  if (blocs.length > 1) {
+    const b = blocs[1];
+    const notes: string[] = [];
+    const nom = texte(c(`${b.prop}1`)) || 'second négociateur';
+    const lignesB = lireLignes(b, debut, rFin, (r) => `${mois}#${b.prop}${r}`, notes);
+    const rT = rangOu(/^total (ca )?ht$/, b.prop);
+    const rC = rangOu(/^coms/, b.prop);
+    const cC = rC === null ? undefined : enLigne(rC, [decaler(b.prop, 2), decaler(b.prop, 1), decaler(b.prop, 3)]);
+    autreBloc = { negociateur: nom, lignes: lignesB, caHt: rT === null ? 0 : nombre(enLigne(rT, [decaler(b.prop, 1), decaler(b.prop, 2)])) ?? 0,
+      commissionBrute: nombre(cC) ?? 0, tauxNegociateur: tauxDeFormule(cC?.f) };
+    anomalies.push(o.fusionnerSecondBloc
+      ? `Second négociateur dans l’onglet (« ${nom} », colonnes ${b.prop} → ${decaler(b.prop, 7)}) : ${lignesB.length} ligne(s), CA ${euros(autreBloc.caHt)} — IMPORTÉES avec les lignes de ce fichier (décision d’Arno, 23/10/2026), au taux de son négociateur.`
+      : `Second négociateur dans l’onglet (« ${nom} », colonnes ${b.prop} → ${decaler(b.prop, 7)}) : ${lignesB.length} ligne(s), CA ${euros(autreBloc.caHt)} — lues, NON importées avec les lignes de ce fichier.`);
+    if (o.fusionnerSecondBloc) { blocFusionne = { ca: b.ca ?? 'O', lignes: lignesB, nom, commission: autreBloc.commissionBrute, taux: autreBloc.tauxNegociateur }; }
+  }
+  // La ventilation : la somme des lignes QUE CE BLOC cite (un second négociateur peut s'y mêler : il est retiré et dit,
+  // sauf quand ses lignes sont importées avec celles du fichier — elles comptent alors dans la ventilation).
   const ventilation = (r: number | null, formule: string | undefined): number | null => {
     if (r === null) return null;
     const total = nombre(c(`B${r}`)) ?? 0;
     const refs = lignesDe(formule, col.ca ?? 'E');
-    const autres = formule === undefined ? [] : [...formule.matchAll(/\b([A-Z])(\d+)\b/g)].filter((x) => x[1] !== (col.ca ?? 'E'));
+    const autres = formule === undefined ? [] : [...formule.matchAll(/\b([A-Z])(\d+)\b/g)].filter((x) => x[1] !== (col.ca ?? 'E') && x[1] !== blocFusionne?.ca);
     if (autres.length === 0) return total;
     const propre = refs.reduce((s, x) => s + (nombre(c(`${col.ca ?? 'E'}${x}`)) ?? 0), 0);
     anomalies.push(`Ventilation (ligne ${r}) : cite aussi ${autres.map((x) => `${x[1]}${x[2]}`).join(', ')} (hors des lignes de ${negociateur || 'ce négociateur'}) — ${euros(total)} dans le fichier, ${euros(propre)} pour ce bloc.`);
@@ -314,6 +339,16 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
   oubli(cTotal, 'ca', (l) => l.caFichier, (l) => [col.ca === null ? `${col.hp}${l.rang}` : `${col.ca}${l.rang}`, `${col.hp}${l.rang}`, `${col.hl}${l.rang}`], 'Le TOTAL CA HT');
   if (col.commission !== null) oubli(c(`${col.commission}${rTotal}`), 'apporteurs', (l) => l.commission, (l) => [`${col.commission}${l.rang}`], 'Le total des apporteurs');
   if (tPrimes) oubli(c(`${tPrimes.col}${tPrimes.rang}`), 'primes', (l) => l.prime, (l) => [`${col.prime}${l.rang}`], 'Le total des primes');
+  if (blocFusionne !== null && blocFusionne.lignes.length > 0) {
+    const ls = blocFusionne.lignes;
+    const ca = ls.reduce((t, l) => t + l.caFichier, 0);
+    const app = ls.reduce((t, l) => t + l.commission, 0);
+    const pr = ls.reduce((t, l) => t + l.prime, 0);
+    const com = taux * (ca - app) + pr;
+    ecarts.push({ libelle: `${ls.length} ligne(s) du second bloc (« ${blocFusionne.nom} ») importée(s) avec celles du fichier : CA ${euros(ca)} ; commission au taux de ce négociateur (${(taux * 100).toLocaleString('fr-FR')} %) : +${euros(com)} — le fichier lui comptait à part ${euros(blocFusionne.commission)}${blocFusionne.taux === null ? '' : ` (${(blocFusionne.taux * 100).toLocaleString('fr-FR')} %)`}, non ajoutés`,
+      ca, apporteurs: app, primes: pr, commission: com });
+    lignes.push(...ls);
+  }
   for (const a of ajouts) ecarts.push({ libelle: `La commission du fichier AJOUTE ${euros(a.montant)} hors location (ligne ${a.rang}${a.libelle ? ` : « ${a.libelle} »` : ''}) — non compté par l’outil`, ca: 0, apporteurs: 0, primes: 0, commission: -a.montant });
   for (const e of ecarts) anomalies.push(`Écart expliqué — ${e.libelle}.`);
   const totaux: TotauxExcel = {
@@ -344,20 +379,6 @@ export function lireFeuille(f: FeuilleLue, annee: number): MoisExcel | null {
     .map((r) => ({ r, nom: texte(c(`${col.perdu}${r}`)) })).filter((x) => x.nom !== '' && !estEnTete(x.nom))
     .map((x) => ({ mois, rang: x.r, proprietaire: x.nom, loyersCc: col.loyers === null ? null : nombre(c(`${col.loyers}${x.r}`)), commentaire: col.commentaire === null ? '' : texte(c(`${col.commentaire}${x.r}`)) }));
 
-  // Un second négociateur (bloc à droite) : lu à part.
-  let autreBloc: MoisExcel['autreBloc'] = null;
-  if (blocs.length > 1) {
-    const b = blocs[1];
-    const notes: string[] = [];
-    const nom = texte(c(`${b.prop}1`)) || 'second négociateur';
-    const lignesB = lireLignes(b, debut, rFin, (r) => `${mois}#${b.prop}${r}`, notes);
-    const rT = rangOu(/^total (ca )?ht$/, b.prop);
-    const rC = rangOu(/^coms/, b.prop);
-    const cC = rC === null ? undefined : enLigne(rC, [decaler(b.prop, 2), decaler(b.prop, 1), decaler(b.prop, 3)]);
-    autreBloc = { negociateur: nom, lignes: lignesB, caHt: rT === null ? 0 : nombre(enLigne(rT, [decaler(b.prop, 1), decaler(b.prop, 2)])) ?? 0,
-      commissionBrute: nombre(cC) ?? 0, tauxNegociateur: tauxDeFormule(cC?.f) };
-    anomalies.push(`Second négociateur dans l’onglet (« ${nom} », colonnes ${b.prop} → ${decaler(b.prop, 7)}) : ${lignesB.length} ligne(s), CA ${euros(autreBloc.caHt)} — lues, NON importées avec les lignes de ce fichier.`);
-  }
   return { mois, nomFeuille: f.nom, negociateur, lignes, totaux, anomalies, gestionsPerdues, autreBloc };
 }
 
@@ -369,11 +390,14 @@ export function lireClasseur(classeur: ClasseurLu, annee: number): MoisExcel[] {
 }
 
 /** Le classeur, avec ce qui n'est PAS lu comme un mois : onglets ignorés (« Feuil1 », « Feuil2 ») et mois en double. */
-export function lireClasseurDetaille(classeur: ClasseurLu, annee: number): { mois: MoisExcel[]; ignorees: FeuilleIgnoree[]; doublons: string[] } {
+export function lireClasseurDetaille(classeur: ClasseurLu, annee: number, o: { ongletsMois?: Readonly<Record<string, number>>; fusionnerSecondBloc?: boolean } = {}):
+  { mois: MoisExcel[]; ignorees: FeuilleIgnoree[]; doublons: string[] } {
   const ignorees: FeuilleIgnoree[] = [];
   const lus: MoisExcel[] = [];
   for (const f of classeur.feuilles) {
-    const m = lireFeuille(f, annee);
+    const force = o.ongletsMois?.[f.nom.trim()];
+    const m = lireFeuille(f, annee, { ...(force === undefined ? {} : { mois: force }), fusionnerSecondBloc: o.fusionnerSecondBloc === true });
+    if (m !== null && force !== undefined) m.anomalies.unshift(`Onglet « ${f.nom.trim()} » lu comme ${m.mois} (décision d’Arno, 23/10/2026).`);
     if (m !== null) { lus.push(m); continue; }
     // Pas un mois : on le lit COMME un mois (pour dire ce qu'il contient), sans jamais le rattacher.
     const essai = lireFeuille({ ...f, nom: 'Janv' }, annee);

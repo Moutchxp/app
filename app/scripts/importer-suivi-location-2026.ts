@@ -40,6 +40,7 @@ import { rapprocher } from '../lib/location/suivi/rapprochementImport';
 import { canoniserApporteurs, type ApporteurLu } from '../lib/location/suivi/repriseExcel';
 import { anneeDuFichier, controler, planifier, reglesDesFichiers, retrocessionsDuMois, sourceDe, tableauControle, texteRapportImport, versActivite, type ControleMois, type LignePlan } from '../lib/location/suivi/planImport';
 import type { ActiviteCalcul } from '../lib/location/suivi/tableauBord';
+import { ecarterApporteurs, FUSIONNER_SECOND_BLOC, notesEcarts, ONGLETS_MOIS, rapprocherGestionsPerdues, type NoteEcart, type PerteRapprochee } from '../lib/location/suivi/decisionsHistorique';
 
 const P = '[location:importer-suivi-2026]';
 const NOM_SCRIPT = 'importer-suivi-location-2026';
@@ -66,13 +67,16 @@ export function tauxParApporteur(plan: readonly LignePlan[]): Map<string, number
   return new Map([...comptes].map(([cle, m]) => [cle, [...m].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]]));
 }
 
-interface Fichier { chemin: string; annee: number; source: string; mois: MoisExcel[]; ignorees: FeuilleIgnoree[]; doublons: string[] }
+interface Fichier { chemin: string; annee: number; source: string; mois: MoisExcel[]; ignorees: FeuilleIgnoree[]; doublons: string[]; ecartes: { lignes: number; commission: number } }
 
+/** Un fichier lu AVEC les décisions d'Arno (23/10/2026) : onglets lus comme un mois, second bloc importé, apporteurs écartés. */
 async function lireFichier(chemin: string, annee: number): Promise<Fichier> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(chemin);
-  const d = lireClasseurDetaille(depuisExcelJs(wb as never), annee);
-  return { chemin, annee, source: sourceDe(annee), ...d };
+  const source = sourceDe(annee);
+  const d = lireClasseurDetaille(depuisExcelJs(wb as never), annee, { ongletsMois: ONGLETS_MOIS[source], fusionnerSecondBloc: FUSIONNER_SECOND_BLOC });
+  const e = ecarterApporteurs(d.mois);
+  return { chemin, annee, source, ...d, mois: e.mois, ecartes: { lignes: e.lignes, commission: e.commission } };
 }
 
 /** Le script (exporté pour l'épreuve `--reel` en transaction annulée sur la base d'essai). */
@@ -101,7 +105,8 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
     }
     const disponible = await repo.importDisponible();
     if (reel && !disponible) throw new Error('migration 406 absente : rien ne peut être écrit (lancer à blanc pour voir le plan et le contrôle).');
-    const [candidats, comptes, existants] = await Promise.all([repo.lireCandidats(), repo.lireComptes(), repo.lireExistants()]);
+    const [candidats, comptes, existants, biens, reglage, ecartesAnnuaire, avec408] = await Promise.all([repo.lireCandidats(), repo.lireComptes(), repo.lireExistants(),
+      repo.lireBiensPerte(), repo.lireReglageGestion(), repo.lireApporteursEcartes(), repo.historiqueDisponible()]);
     // Le négociateur : l'en-tête de l'onglet (« Jean-Baptiste ») → le compte actif de même prénom, s'il est unique.
     const entete = tousMois.find((m) => m.negociateur !== '')?.negociateur ?? PRENOM_PAR_DEFAUT;
     const memePrenom = comptes.filter((c) => norm(c.prenom) === norm(entete));
@@ -137,13 +142,22 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
       new Map(fichiers.map((f) => [f.source, controler(f.mois, acts, reglesControle, retrocessions)]));
     let controles = controleDe(activites);
     const juste = (): boolean => [...controles.values()].flat().every((c) => c.auCentime);
+    // Décision 5 : les gestions perdues du fichier ; décision 3 : les notes d'écart de la feuille du mois (sur le contrôle à blanc).
+    const pertes: PerteRapprochee[] = fichiers.flatMap((f) => rapprocherGestionsPerdues(f.mois.flatMap((m) => m.gestionsPerdues ?? []), biens, reglage, f.source));
+    const notes: NoteEcart[] = fichiers.flatMap((f) => notesEcarts(f.mois, controles.get(f.source) ?? [], f.source));
+    // Décision 4 : un apporteur écarté déjà dans l'annuaire est retiré s'il n'est lié à aucune ligne ; sinon c'est dit.
+    const aRetirer = ecartesAnnuaire.filter((x) => !x.lie).map((x) => x.id);
+    const lies = ecartesAnnuaire.filter((x) => x.lie).map((x) => x.id);
     let bilan = '';
     if (reel && !juste()) {
       bilan = '⚠ UN MOIS AU MOINS NE TOMBE PAS AU CENTIME : RIEN N’A ÉTÉ ÉCRIT (--reel refusé).';
+    } else if (reel && !avec408 && (pertes.length > 0 || notes.length > 0)) {
+      bilan = '⚠ MIGRATION 408 ABSENTE : les gestions perdues et les notes d’écart ne pourraient pas être écrites — RIEN N’A ÉTÉ ÉCRIT (appliquer la 408, puis relancer).';
+      process.exitCode = 3;
     } else if (reel) {
       const b = await repo.ecrireImport({ plan, annee: ANNEE, negociateur, tauxApporteurs: tauxParApporteur(plan), retrocessions, auteur: `import ${NOM_SCRIPT}`,
-        depuisApporteurs, regles: reglesAAjouter });
-      bilan = `ÉCRIT : ${b.activites} ligne(s) d'activité, ${b.apporteurs} apporteur(s), ${b.retrocessions} rétrocession(s), ${b.regles} règle(s) de commission. Contrôle refait sur la base relue.`;
+        depuisApporteurs, regles: reglesAAjouter, pertes, notes, retirerApporteurs: aRetirer });
+      bilan = `ÉCRIT : ${b.activites} ligne(s) d'activité, ${b.apporteurs} apporteur(s), ${b.retrocessions} rétrocession(s), ${b.regles} règle(s) de commission, ${b.pertes} gestion(s) perdue(s), ${b.notes} note(s) d'écart, ${b.apporteursRetires} apporteur(s) écarté(s) retiré(s) de l'annuaire. Contrôle refait sur la base relue.`;
       const relu = await repo.relireImport(fichiers.map((f) => f.source));
       const parCle = new Map(plan.map((p) => [p.importCle, p]));
       activites = relu.filter((r) => parCle.has(r.cle)).map((r) => ({ ...versActivite(parCle.get(r.cle)!, negociateur), type: r.type as ActiviteCalcul['type'], dateSignature: r.date,
@@ -188,11 +202,20 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
       'ONGLETS QUI NE SONT PAS UN MOIS (jamais rattachés) :',
       ...(fichiers.some((f) => f.ignorees.length) ? fichiers.flatMap((f) => f.ignorees.map((g) => `  · ${basename(f.chemin)} « ${g.nom} » : ${g.lignes === 0 ? 'vide — ignoré' : `${g.lignes} ligne(s), CA ${euros(g.caHt)} — À ARBITRER PAR ARNO (${g.apercu.join(' ; ')}${g.lignes > 3 ? ' ; …' : ''})`}`)) : ['  (aucun)']),
       '',
-      'SECOND NÉGOCIATEUR DANS UN ONGLET (lu, NON importé) :',
-      ...(tousMois.some((m) => m.autreBloc) ? tousMois.filter((m) => m.autreBloc).map((m) => `  · ${m.mois} « ${m.autreBloc!.negociateur} » : ${m.autreBloc!.lignes.map((l) => `${l.proprietaire} / ${l.locataire} ${euros(l.caFichier)}`).join(' ; ')} — CA ${euros(m.autreBloc!.caHt)}, commission ${euros(m.autreBloc!.commissionBrute)}${m.autreBloc!.tauxNegociateur === null ? '' : ` (${(m.autreBloc!.tauxNegociateur * 100).toLocaleString('fr-FR')} %)`}`) : ['  (aucun)']),
+      `SECOND NÉGOCIATEUR DANS UN ONGLET (${FUSIONNER_SECOND_BLOC ? `IMPORTÉ sous ${negociateur.libelle}, à sa règle de commission — décision d’Arno` : 'lu, NON importé'}) :`,
+      ...(tousMois.some((m) => m.autreBloc) ? tousMois.filter((m) => m.autreBloc).map((m) => {
+        const e = (m.totaux.ecarts ?? []).find((x) => x.libelle.includes('second bloc'));
+        return `  · ${m.mois} « ${m.autreBloc!.negociateur} » : ${m.autreBloc!.lignes.map((l) => `${l.proprietaire} / ${l.locataire} ${euros(l.caFichier)}`).join(' ; ')} — CA ${euros(m.autreBloc!.caHt)} ; commission du fichier pour ce bloc ${euros(m.autreBloc!.commissionBrute)}${m.autreBloc!.tauxNegociateur === null ? '' : ` (${(m.autreBloc!.tauxNegociateur * 100).toLocaleString('fr-FR')} %)`}, NON ajoutée${e ? ` ; EFFET sur la commission de ${negociateur.libelle} : +${euros(e.commission)} (au taux du mois)` : ''}`;
+      }) : ['  (aucun)']),
       '',
-      'GESTIONS PERDUES NOTÉES DANS LE FICHIER (« GESTION PERDU » / « Loyers cc » — NON écrites : pas de place pour elles dans l’outil) :',
-      ...(tousMois.some((m) => (m.gestionsPerdues ?? []).length) ? tousMois.flatMap((m) => (m.gestionsPerdues ?? []).map((g) => `  · ${g.mois} ligne ${g.rang} : ${g.proprietaire}${g.loyersCc === null ? '' : ` — loyers ${euros(g.loyersCc)} cc`}${g.commentaire ? ` — « ${g.commentaire} »` : ''}`)) : ['  (aucune)']),
+      `APPORTEURS ÉCARTÉS (décision d’Arno — 3 noms, jamais créés, nom gardé nulle part) : ${fichiers.reduce((t, f) => t + f.ecartes.lignes, 0)} ligne(s) importée(s) sans apporteur ni origine, commission d’apporteur gardée pour le contrôle ${euros(fichiers.reduce((t, f) => t + f.ecartes.commission, 0))}`,
+      `  déjà dans l’annuaire : ${ecartesAnnuaire.length === 0 ? 'aucun' : `${aRetirer.length} non lié(s) → retiré(s) au --reel (fiche ${aRetirer.join(', ') || '—'}) ; ${lies.length} LIÉ(S) à une ligne → gardé(s), À VOIR (fiche ${lies.join(', ') || '—'})`}`,
+      '',
+      `GESTIONS PERDUES (« Mandats de gestion perdus » du Suivi du mois — migration 408 ${avec408 ? 'appliquée' : 'NON appliquée sur cette base'}) : ${pertes.length}`,
+      ...(pertes.length ? pertes.map((p) => `  · ${p.perte.mois} ligne ${p.perte.rang} : ${p.perte.proprietaire} — ${p.lotId === null ? 'NON RATTACHÉE' : `bien ${p.lotId} (${p.libelleBien}, ${p.proprietaire})`} — loyers ${p.perte.loyersCc === null ? '—' : `${euros(p.perte.loyersCc)} cc`} — honoraires perdus ${p.honorairesMensuels === null ? '—' : `${euros(p.honorairesMensuels)} / mois · ${euros(p.honorairesMensuels * 12)} / an`} · ${p.notes.join(' · ')}${p.perte.commentaire ? ` — « ${p.perte.commentaire} »` : ''}`) : ['  (aucune)']),
+      '',
+      `NOTES D’ÉCART DE LA FEUILLE DU MOIS (${notes.length}) :`,
+      ...(notes.length ? notes.map((e) => `  · ${e.mois} [${e.champ}] fichier ${euros(e.fichier)} → outil ${euros(e.outil)} — ${e.libelle}`) : ['  (aucune)']),
       '',
       bilan,
     ].join('\n');

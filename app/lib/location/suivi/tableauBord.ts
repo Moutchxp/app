@@ -406,6 +406,8 @@ export interface DonneesTableau {
   annuaire?: boolean;
   /** Arno (23/10/2026, historique 2019 → 2025) — chaque année d'activité, sans filtre : baux, CA, CA net, commission (droit). */
   historique?: AnneeHistorique[];
+  /** 408 — les écarts expliqués avec le fichier, de l'année (notes de la feuille du mois). */
+  ecartsFichier?: EcartFichier[];
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
@@ -474,10 +476,19 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
 
 /** Une entrée en gestion ou une sortie (mandat perdu), avec le loyer et le taux qui font ses honoraires de gestion. */
 export interface LigneGestion {
-  lotId: number; libelle: string; proprietaire: string; effetLe: string; avant: string | null; apres: string;
+  /** null : une gestion perdue du suivi mensuel que l'outil n'a pas rattachée à un bien (408). */
+  lotId: number | null; libelle: string; proprietaire: string; effetLe: string; avant: string | null; apres: string;
   loyerHc: number | null; provisions: number | null; base: 'cc' | 'hc' | null; tauxHt: number | null;
+  /** 408 — « fichier » : notée dans le suivi mensuel (colonnes « GESTION PERDU » / « Loyers cc »), mois supposé au 1er. */
+  origine?: 'fichier';
+  /** 408 — d'où vient le taux retenu (toujours dit : c'est une valeur DÉDUITE), et le commentaire du fichier. */
+  tauxSource?: 'conditions' | 'wippimmo' | 'reglage' | null;
+  commentaire?: string | null;
 }
-export const STATUT_ARRIVEE: Record<string, string> = { ancienne_gestion: 'Ancienne gestion', location_seule: 'Location seule', en_gestion: 'En gestion' };
+export const STATUT_ARRIVEE: Record<string, string> = { ancienne_gestion: 'Ancienne gestion', location_seule: 'Location seule', en_gestion: 'En gestion', perdue_fichier: 'Perdue (suivi mensuel)' };
+
+/** 408 — un écart expliqué entre un total du fichier et le calcul de l'outil, montré en note dans la feuille du mois. */
+export interface EcartFichier { mois: string; champ: 'ca' | 'apporteurs' | 'primes' | 'commission'; fichier: number; outil: number; libelle: string }
 
 /** Les honoraires de gestion mensuels HT d'une ligne : (loyer HC + provisions si base « charges comprises ») × taux ; null sans loyer ni taux. */
 export function honorairesGestionMensuels(l: Pick<LigneGestion, 'loyerHc' | 'provisions' | 'base' | 'tauxHt'>): number | null {
