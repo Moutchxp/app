@@ -62,7 +62,6 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
   const [titre, setTitre] = useState('');
   const [categorie, setCategorie] = useState('');
   const [urgence, setUrgence] = useState('');
-  const [ouvertLe, setOuvertLe] = useState('');
   const [closLe, setClosLe] = useState('');
   const [note, setNote] = useState('');
   const [concernes, setConcernes] = useState<ChoixConcernes | null>(null);
@@ -118,11 +117,10 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
   const proprietaires = [...new Set((fiche?.biens ?? []).flatMap((b) => (b.personnes ?? [])
     .filter((x) => x.role === 'proprietaire').map((x) => x.nom)))];
   const jourDuMail = fiche?.enTete?.recuLe == null ? null : jourParis(new Date(fiche.enTete.recuLe));
-  /* Le titre et la date d'ouverture se préremplissent UNE fois, quand la fiche arrive. */
+  /* Le titre se préremplit UNE fois, quand la fiche arrive (l'ouverture, elle, est l'instant de la création — Arno, 23/10/2026). */
   useEffect(() => {
     if (fiche === null) return;
     setTitre((t) => (t === '' ? titrePrerempli(biens.map((b) => b.libelle), fiche.enTete?.objet) : t));
-    setOuvertLe((o) => (o === '' ? (jourDuMail ?? jourParis(new Date())) : o));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fiche]);
 
@@ -156,12 +154,12 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
     }
   };
 
-  const bornes = bornesEvenement(ouvertLe, closLe);
+  const bornes = bornesEvenement(jourParis(new Date()), closLe);
   const creerPossible = titre.trim() !== '' && bornes.refus === null && !occupe;
   const creer = () => {
     if (!creerPossible) { setErreur(bornes.refus ?? 'Donnez un titre à l’événement.'); return; }
     void ecrire('POST', corpsCreation({
-      objet: titre, categorie, urgence, ouvertLe: bornes.ouvertLe, closLe: bornes.closLe,
+      objet: titre, categorie, urgence, closLe: bornes.closLe,
       note: note.trim() === '' ? null : note.trim(), concernes,
     }, lu?.qualifie === true, partiesDesBiensFiche(fiche?.biens ?? [], biens)), 'Événement créé à partir de ce mail.');
   };
@@ -289,7 +287,6 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
               urgence={urgence} onUrgence={setUrgence}
               qualifieDisponible={lu?.qualifie === true}
               libellesDesBiens={biens.map((b) => b.libelle)}
-              ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
               closLe={closLe} onClosLe={setClosLe}
               note={note} onNote={setNote}
               bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes}

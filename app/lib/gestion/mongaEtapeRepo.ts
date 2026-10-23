@@ -16,6 +16,7 @@ import {
   etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
   type Certitude, type TypeEtape,
 } from './mongaEtape';
+import { sqlJamaisDansLeFutur } from './ouvertureEvenement';
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
 import { evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
@@ -107,7 +108,8 @@ export async function enregistrerEtapesDuMail(m: {
       `INSERT INTO gestion_monga_etape
          (reference, type, survenu_le, heure_connue, heure_fin, numero, rang, texte, auteur,
           source, message_id, message_cle, certitude)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'monga',$10,$11,$12)
+       VALUES ($1,$2,CASE WHEN $2 = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,
+               $4,$5,$6,$7,$8,$9,'monga',$10,$11,$12)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [m.reference, e.type, survenu, e.heure !== null, e.heure?.a ?? null,
@@ -141,7 +143,7 @@ export async function poserOuvertureDeRepli(reference: string): Promise<boolean>
   const e = ouvertureDeRepli(premier);
   const r = await query(
     `INSERT INTO gestion_monga_etape (reference, type, survenu_le, texte, source, certitude)
-     VALUES ($1,'ouverture',$2,$3,'monga','a_confirmer') RETURNING id`,
+     VALUES ($1,'ouverture',${sqlJamaisDansLeFutur('$2::timestamptz')},$3,'monga','a_confirmer') RETURNING id`,
     [reference, premier, e.texte]);
   return (r.rowCount ?? 0) > 0;
 }
@@ -287,7 +289,8 @@ export async function ajouterEtapeManuelle(a: {
   if (sensDeLaBorne(a.type) !== null && a.type !== 'ouverture') {
     throw new Error('Une Clôture ou une Réouverture se pose par poserCarteDeBorne.');
   }
-  return insererEtapeManuelle(query, a, '$3');
+  /* 🔴 Arno (23/10/2026) — une carte Ouverture n'est JAMAIS datée dans le futur (midi du jour de pose, plafonné à maintenant). */
+  return insererEtapeManuelle(query, a, a.type === 'ouverture' ? sqlJamaisDansLeFutur('$3::timestamptz') : '$3');
 }
 
 /** L'INSERTION d'une carte manuelle, partagée par `ajouterEtapeManuelle` et `poserCarteDeBorne`. `dateSql` = l'expression de `survenu_le`. */
@@ -451,7 +454,9 @@ export async function poserCarteDeBorne(a: {
     if (rows.length === 0) return { ok: false, motif: 'inconnu' };
     const ouvertAvant = await ouvertDansLaTransaction(q, a.evenementId);
     if (a.type === 'cloture' && !ouvertAvant) return { ok: false, motif: 'deja_clos' };
-    const instant = await instantDeCloture(q, [a.evenementId], -1, a.jourDePose, null);
+    /* 🔴 Arno (23/10/2026) — une RÉOUVERTURE s'ouvre à la date ET À L'HEURE où on la pose (jamais midi, jamais le futur). */
+    const voulu = a.type === 'reouverture' ? new Date().toISOString() : a.jourDePose;
+    const instant = await instantDeCloture(q, [a.evenementId], -1, voulu, null);
     if (a.type === 'cloture') await ramenerLesOuvertures(q, a.evenementId, instant, -1, a.parLibelle);
     const id = await insererEtapeManuelle(q, {
       evenementId: a.evenementId, type: a.type, survenuLe: instant, heureConnue: false, jourConnu: true,
@@ -570,11 +575,13 @@ export async function modifierEtapeManuelle(a: {
     await verrouillerEvenements(q, evts);
     const ouvertAvant = evts.length === 0 ? null : await ouvertDansLaTransaction(q, evts[0]);
     if (devientBorne && a.type === 'cloture' && ouvertAvant === false) return { ok: false, motif: 'deja_clos' };
-    const instant = devientBorne ? await instantDeCloture(q, evts, a.id, a.jourDePose, null) : null;
+    const instant = devientBorne
+      ? await instantDeCloture(q, evts, a.id, a.type === 'reouverture' ? new Date().toISOString() : a.jourDePose, null) : null;
     if (instant !== null && a.type === 'cloture') {
       for (const e of evts) await ramenerLesOuvertures(q, e, instant, a.id, a.parLibelle);
     }
-    const date = instant !== null ? '$3::timestamptz' : '$3';
+    const date = instant !== null ? '$3::timestamptz'
+      : a.type === 'ouverture' ? sqlJamaisDansLeFutur('$3::timestamptz') : '$3';   // jamais une ouverture future
     await q(
       `UPDATE gestion_monga_etape
           SET type = $2, survenu_le = ${date}, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,

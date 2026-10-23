@@ -13,6 +13,7 @@
  *    côté de son identifiant : il restera lisible des années après, même si le compte est désactivé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { jourParis as jourDeCreation, MOT_OUVERTURE_NON_MODIFIABLE } from './ouvertureEvenement';
 import { ecrireConcernes } from './evenementConcerneRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
@@ -167,7 +168,9 @@ async function creerEvenementDansTransaction(
    * 🔴🔴 LES BORNES SONT VALIDÉES AVANT D'ÉCRIRE, par le module PUR, et un refus LÈVE : laisser passer une
    * clôture antérieure à l'ouverture aurait faussé tout compte de durée, et la carte serait restée fausse.
    */
-  const bornes = bornesEvenement(n.ouvertLe, n.closLe);
+  /* 🔴 Arno (23/10/2026, option A) — l'ouverture EST la création : toute date d'ouverture fournie est IGNORÉE, et une date de
+     clôture se juge contre le jour de la création. Voir `ouvertureEvenement.ts`. */
+  const bornes = bornesEvenement(jourDeCreation(), n.closLe);
   if (bornes.refus !== null) throw new Error(bornes.refus);
   const reference = await prochaineReference(q, anneeParis(new Date())); // année de PARIS, quel que soit le fuseau de la machine
   /**
@@ -212,9 +215,10 @@ async function creerEvenementDansTransaction(
     qualifie
       ? [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
         auteur.id, auteur.libelle, categorieValide(n.categorie), urgenceValide(n.urgence),
-        bornes.ouvertLe, bornes.closLe, noteEvenement(n.note)]
+        /* ouverture : NULL ⇒ coalesce(…, now()) — l'instant de la création, jamais une date saisie */
+        null, bornes.closLe, noteEvenement(n.note)]
       : [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
-        auteur.id, auteur.libelle, bornes.ouvertLe, bornes.closLe, noteEvenement(n.note)]);
+        auteur.id, auteur.libelle, null, bornes.closLe, noteEvenement(n.note)]);
   const id = rows[0].id;
   await journaliser(q, 'evenement', id, 'ouverture', auteur, `carte ${reference} ouverte depuis un échange`);
 
@@ -660,25 +664,12 @@ export async function modifierEvenement(evenementId: number, champs: ChampsEvene
  * des permis, pour exactement cette raison.
  */
 export async function deplacerOuvertureEvenement(
-  evenementId: number, jour: string, auteur: Auteur,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature gardée pour la route : le geste est refusé
+  _evenementId: number, _jour: string, _auteur: Auteur,
 ): Promise<Issue> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) {
-    return { ok: false, motif: 'Date d’ouverture attendue (AAAA-MM-JJ).' };
-  }
-  return withTransaction(async (q) => {
-    const { rows } = await q<{ ouvert_le: string; reference: string }>(
-      `SELECT ouvert_le::text, reference FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [evenementId]);
-    if (!rows[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
-    const avant = rows[0].ouvert_le;
-    if (avant.slice(0, 10) === jour) return { ok: true, evenementId };
-    await q(
-      `UPDATE gestion_evenement SET ouvert_le = ($2::date + time '12:00') AT TIME ZONE 'Europe/Paris',
-              maj_le = now()
-        WHERE id = $1`, [evenementId, jour]);
-    await journaliser(q, 'evenement', evenementId, 'ouverture', auteur,
-      `date d’ouverture de ${rows[0].reference} corrigée à la main`, avant, jour);
-    return { ok: true, evenementId };
-  });
+  /* 🔴🔴 Arno (23/10/2026, option A, accord explicite) — LA DATE D'OUVERTURE NE SE MODIFIE PLUS : c'est celle de la création.
+     Le geste est REFUSÉ ici, pour l'écran comme pour l'API, et la réponse dit où noter une date à venir. Rien n'est écrit. */
+  return { ok: false, motif: MOT_OUVERTURE_NON_MODIFIABLE };
 }
 
 /**

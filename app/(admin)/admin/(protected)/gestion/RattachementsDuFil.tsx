@@ -792,7 +792,6 @@ function RattachementsDuFilMail({
   const [evtCategorie, setEvtCategorie] = useState('');
   const [evtUrgence, setEvtUrgence] = useState('');
   /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note de la carte neuve (accord d'Arno). */
-  const [evtOuvertLe, setEvtOuvertLe] = useState('');
   const [evtClosLe, setEvtClosLe] = useState('');
   const [evtNote, setEvtNote] = useState('');
   /**
@@ -1055,17 +1054,7 @@ function RattachementsDuFilMail({
    * `onCochesChange`), et les deux cartes de noms se superposent — les rattachés d'abord, les cochés ensuite.
    */
   const libellesDuMail: Record<string, string> = { ...libellesCoches, ...libellesConnus };
-  /**
-   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LE JOUR DU MAIL DE CETTE FENÊTRE, `AAAA-MM-JJ`.
-   *
-   * Il préremplit la date d'ouverture d'une carte neuve (« préremplie à la date du mail », Arno). Il vient de
-   * l'en-tête que le serveur a rendu — la même source que la phrase « Gestion · mercredi 30 septembre… ».
-   *
-   * ⚠️ `null` TANT QUE LA FICHE N'A PAS RÉPONDU, et le formulaire retombe alors sur aujourd'hui : on ne devine
-   * pas une date, et un champ vide se lirait comme un oubli.
-   */
-  const jourDuMailDeLaFenetre = fiche?.enTete?.recuLe == null
-    ? null : jourParis(new Date(fiche.enTete.recuLe));
+  /* 🔴 Arno (23/10/2026, option A) — le jour du mail ne préremplit plus d'ouverture : l'ouverture est l'instant de la création. */
 
   /**
    * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — Y A-T-IL UNE MODIFICATION ? Une case cochée ou décochée, un bien
@@ -2017,11 +2006,6 @@ function RattachementsDuFilMail({
                                fois sur dix. Il reste entièrement modifiable. */
                             const premiere = (selection ?? clesDuMail)[0];
                             setEvtTitre(premiere === undefined ? '' : (libellesDuMail[premiere] ?? premiere));
-                            /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — « préremplie à la date du mail quand on
-                               vient d'un mail, sinon aujourd'hui » (Arno). Cette fenêtre porte TOUJOURS sur un
-                               mail, et son en-tête en donne la date ; le repli n'existe que si la fiche n'a pas
-                               encore répondu. */
-                            setEvtOuvertLe(jourDuMailDeLaFenetre ?? jourParis(new Date()));
                             setEvtClosLe('');
                             setEvtNote('');
                             setPanneauEvt('creer');
@@ -2075,7 +2059,6 @@ function RattachementsDuFilMail({
                         urgence={evtUrgence} onUrgence={setEvtUrgence}
                         qualifieDisponible={evtDuMail?.qualifie === true}
                         libellesDesBiens={(selection ?? clesDuMail).map((c) => libellesDuMail[c] ?? c)}
-                        ouvertLe={evtOuvertLe} onOuvertLe={setEvtOuvertLe}
                         closLe={evtClosLe} onClosLe={setEvtClosLe}
                         note={evtNote} onNote={setEvtNote}
                         bienCles={selection ?? clesDuMail} concernes={evtConcernes} onConcernes={setEvtConcernes} />
@@ -2087,13 +2070,14 @@ function RattachementsDuFilMail({
                         </button>
                         {/* 🔴 IL NE CRÉE PAS : il NOTE. La création part avec « Valider le suivi ». */}
                         <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                          disabled={evtTitre.trim() === '' || bornesEvenement(evtOuvertLe, evtClosLe).refus !== null}
+                          disabled={evtTitre.trim() === '' || bornesEvenement(jourParis(new Date()), evtClosLe).refus !== null}
                           onClick={() => {
-                            const bornes = bornesEvenement(evtOuvertLe, evtClosLe);
+                            /* 🔴 Arno (23/10/2026, option A) — l'ouverture est l'instant de la création. */
+                            const bornes = bornesEvenement(jourParis(new Date()), evtClosLe);
                             if (bornes.refus !== null) { setErreur(bornes.refus); return; }
                             setEvtVoulu({
                               sorte: 'creer', objet: evtTitre, categorie: evtCategorie, urgence: evtUrgence,
-                              ouvertLe: bornes.ouvertLe,
+                              ouvertLe: null,
                               closLe: bornes.closLe,
                               note: evtNote.trim() === '' ? null : evtNote.trim(),
                               concernes: evtConcernes,

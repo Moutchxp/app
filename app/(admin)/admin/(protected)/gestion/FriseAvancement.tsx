@@ -38,6 +38,7 @@ import { jourParis } from '../../../../lib/temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
    qui précède sa pose. Deux formulations auraient fini par dire deux choses du même geste. */
 import { questionAvantRetrait, retraitCloturerait } from '../../../../lib/gestion/etatParLaFrise';
+import { AIDE_DATE_A_VENIR, MOT_LIEN_RDV } from '../../../../lib/gestion/ouvertureEvenement';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
 /* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
@@ -709,9 +710,14 @@ export function FriseAvancement({
                 bulleTexte.entrerCible(`i${x.id}`);
               }}
               saisie={carteSaisie} onSaisir={lectureSeule ? undefined : saisirLaCarte} onPoignee={lectureSeule ? undefined : saisirParLaPoignee}
-              onOuverture={(j) => void agir(
-                `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
-                { geste: 'ouverture', survenuLe: j })}
+              /* 🔴 Arno (23/10/2026, option A) — la date d'ouverture ne se corrige plus ; le lien sous elle ouvre DIRECTEMENT
+                 l'ajout d'une carte « RDV intervention », où se note une date à venir. Absent en lecture seule, ou
+                 sur un événement clos (seule une Réouverture peut alors être posée). */
+              onRdvIntervention={lectureSeule || vue.d.ouvert === false ? undefined : () => {
+                ouvrirReservoir(aujourdhui);
+                setTypePose('rdv_intervention');
+                setAjout(true);
+              }}
             />
           ))}
         </ol>
@@ -971,8 +977,8 @@ function ElementDeLaFrise(p: {
    */
   onAjouter: (jour: string, apresId?: number | 'debut', forme?: 'etape' | 'information') => void;
   aujourdhui: string;
-  /** Corriger la date d'ouverture de l'événement (Arno, point 1 : « modifiable »). */
-  onOuverture: (jour: string) => void;
+  /** 🔴 Arno (23/10/2026) — ouvrir l'ajout d'une carte RDV intervention (le lien sous la date d'ouverture). Absent ⇒ pas de lien. */
+  onRdvIntervention?: () => void;
   /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ce qui ne concerne que les carrés traverse sans être lu ici. */
   horsChronologie?: boolean;
   saisie?: number | null;
@@ -1097,7 +1103,7 @@ function Point({
 
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
-  onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
+  onOuvrirFil, onConfirmer, onMontant, onRetirer, onRdvIntervention,
   horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
   enEdition = null,
 }: {
@@ -1108,7 +1114,7 @@ function Carre({
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
-  onOuverture: (jour: string) => void;
+  onRdvIntervention?: () => void;
   /** 🔴 POINT 10 — cette carte n'est plus à sa place chronologique : sa ligne « créée le » passe à l'orange. */
   horsChronologie?: boolean;
   /** L'identifiant de la carte actuellement saisie au clic maintenu, ou `null`. */
@@ -1168,8 +1174,15 @@ function Carre({
     return (
       <li className="fav-el fav-el--carre" ref={moi} data-fixe="oui">
         <div className={`fav-carre fav-carre--dans${CLASSE_COULEUR[couleurDeLaCarte(c.type)]}`}>
-          <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} occupe={occupe} onPoser={onOuverture} />
+          <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} />
         </div>
+        {/* 🔴 Arno (23/10/2026, option A) — « Pour une date à venir, ajoutez une carte RDV intervention. », avec le lien. */}
+        {onRdvIntervention !== undefined && (
+          <p className="fav-aide-ouverture" data-aide-ouverture="">
+            {AIDE_DATE_A_VENIR}{' '}
+            <button type="button" className="fav-lien" data-lien-rdv="" disabled={occupe} onClick={onRdvIntervention}>{MOT_LIEN_RDV}</button>
+          </p>
+        )}
         {/**
           * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES — « SANS EXCEPTION » L'INCLUT, ELLE AUSSI ═══════════
           *
@@ -1688,51 +1701,17 @@ function ChampMontant({
    — une date qui part à chaque frappe enverrait trois dates fausses avant la bonne.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-function ChampOuverture({
-  jour, mot, occupe, onPoser,
-}: { jour: string; mot: string; occupe: boolean; onPoser: (jour: string) => void }) {
-  const [saisie, setSaisie] = useState(jour);
-  const [edite, setEdite] = useState(false);
-  const lecture = useContext(FriseLectureSeule);
-  /* ⚠️ LA SAISIE SUIT LA DONNÉE quand elle change ailleurs (un enregistrement, une relecture) : sans cela, le
-     champ garderait l'ancienne date après coup, et donnerait à croire que rien n'a été pris. */
-  useEffect(() => { setSaisie(jour); }, [jour]);
-
-  if (lecture) {
-    return (
-      <span className="fav-carre-clic fav-carre-clic--borne">
-        <span className="fav-titre fav-titre--centree">{mot}</span>
-        <span className="fav-date fav-date--centree">{`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}</span>
-      </span>
-    );
-  }
-  if (!edite) {
-    return (
-      <button type="button" className="fav-carre-clic fav-carre-clic--borne" onClick={() => setEdite(true)}
-        title="Corriger la date d’ouverture de l’événement">
-        {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — titre centré comme la date, sur toutes les bornes. */}
-        <span className="fav-titre fav-titre--centree">{mot}</span>
-        {/* 🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — « Ouverture » est une carte de BORNE : sa date s'écrit en
-            gras, au centre. Même classe que la carte d'ouverture ENREGISTRÉE, pour le même rendu. */}
-        <span className="fav-date fav-date--centree">
-          {`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}
-        </span>
-        <span className="fav-sr">date d’ouverture de l’événement, modifiable</span>
-      </button>
-    );
-  }
+function ChampOuverture({ jour, mot }: { jour: string; mot: string }) {
+  /**
+   * 🔴🔴 Arno (23/10/2026, option A, accord explicite) — LA DATE D'OUVERTURE EST EN LECTURE SEULE : c'est celle de la création de
+   * l'événement. Plus de champ « Date d'ouverture », plus de geste « Corriger la date d'ouverture ». Même rendu que la carte en
+   * lecture seule (Historique des événements), sur toutes les frises.
+   */
   return (
-    <span className="fav-ouverture-edit">
+    <span className="fav-carre-clic fav-carre-clic--borne" data-ouverture-lecture="">
       <span className="fav-titre fav-titre--centree">{mot}</span>
-      <input type="date" className="fav-champ fav-champ--mini" value={saisie} aria-label="Date d’ouverture"
-        onChange={(ev) => setSaisie(ev.target.value)} />
-      <span className="fav-ouverture-gestes">
-        <button type="button" className="fav-mini fav-mini--neutre" disabled={occupe || saisie === ''}
-          title="Enregistrer la date d’ouverture"
-          onClick={() => { onPoser(saisie); setEdite(false); }}>✓<span className="fav-sr"> enregistrer</span></button>
-        <button type="button" className="fav-mini fav-mini--neutre" title="Annuler"
-          onClick={() => { setSaisie(jour); setEdite(false); }}>✕<span className="fav-sr"> annuler</span></button>
-      </span>
+      <span className="fav-date fav-date--centree">{`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}</span>
+      <span className="fav-sr">date d’ouverture de l’événement : celle de sa création</span>
     </span>
   );
 }
@@ -2348,6 +2327,8 @@ function AjouterEtape({
    desormais toute intersection entre les deux feuilles.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 const CSS_FRISE_AVANCEMENT = `
+.fav-aide-ouverture{margin:4px 0 0;max-width:150px;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted);text-align:center;overflow-wrap:anywhere}
+.fav-aide-ouverture .fav-lien{font-size:.72rem;min-height:32px}
 .fav{margin:0}
 
 /* Le cadre porte les fleches ; la piste defile sous elles. */

@@ -841,23 +841,19 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
    * 🔴🔴 ET ELLE EST MODIFIABLE, SUR UNE SEULE VÉRITÉ : le geste écrit `gestion_evenement.ouvert_le`, journalisé,
    * et non une étape d'ouverture copiée à côté — qui aurait pu diverger de l'événement qu'elle prétend dater.
    */
-  it('🔴🔴 la corriger corrige l’ÉVÉNEMENT, et le journalise', () => {
-    expect(FRISE).toContain("{ geste: 'ouverture', survenuLe: j }");
-    /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le PATCH porte DEUX gestes désormais (« ouverture » et « ordre ») :
-       le refus de tout autre geste est donc écrit après le second, pas en tête. Le verdict ne change pas : un
-       geste inconnu est toujours refusé, et la correction de la date d'ouverture passe toujours par ici. */
-    expect(ROUTE_FRISE).toContain("if (geste !== 'ouverture') {");
+  /**
+   * 🔴🔴 Arno (23/10/2026, option A, accord explicite) — LA DATE D'OUVERTURE NE SE CORRIGE PLUS : c'est celle de la création. La
+   * carte l'affiche en lecture seule ; le geste « ouverture » du PATCH est refusé par le dépôt, pour l'écran comme pour l'API.
+   */
+  it('🔴🔴 la date d’ouverture ne se corrige plus : la route refuse, la carte est en lecture seule', () => {
+    expect(FRISE).not.toContain("{ geste: 'ouverture', survenuLe: j }");
     expect(ROUTE_FRISE).toContain('deplacerOuvertureEvenement(evenementId, jour, auteur)');
     const gestes = readFileSync('app/lib/gestion/gestes.ts', 'utf8');
     const i = gestes.indexOf('export async function deplacerOuvertureEvenement');
     const bloc = gestes.slice(i, gestes.indexOf('\n}\n', i));
-    expect(bloc).toContain('UPDATE gestion_evenement SET ouvert_le');
-    expect(bloc).toContain("journaliser(q, 'evenement', evenementId, 'ouverture', auteur");
-    /* ⚠️ LIRE AVANT D'ÉCRIRE : `withTransaction` commite au retour, donc un refus rendu après une écriture
-       serait un refus qui a écrit. Piège déjà consigné dans ce dépôt. */
-    expect(bloc).toContain('FOR UPDATE');
-    /* ⚠️ MIDI, ET NON MINUIT : minuit en heure locale bascule la veille vu d'un fuseau en retard. */
-    expect(bloc).toContain("time '12:00'");
+    expect(bloc).toContain('return { ok: false, motif: MOT_OUVERTURE_NON_MODIFIABLE };');
+    expect(bloc).not.toContain('UPDATE gestion_evenement');
+    expect(FRISE).toContain('<ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} />');
   });
 
   /**

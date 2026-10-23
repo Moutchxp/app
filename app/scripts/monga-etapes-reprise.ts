@@ -23,6 +23,7 @@
 
 import { query, closePool } from '../lib/db/client';
 import { etapesDuMailMonga, ouvertureDeRepli, motEtape, type TypeEtape } from '../lib/gestion/mongaEtape';
+import { sqlJamaisDansLeFutur } from '../lib/gestion/ouvertureEvenement';
 
 const APPLIQUER = process.argv.includes('--appliquer');
 
@@ -78,7 +79,8 @@ async function main(): Promise<void> {
           `INSERT INTO gestion_monga_etape
              (reference, type, survenu_le, heure_connue, heure_fin, numero, rang, texte, auteur,
               source, message_id, message_cle, certitude)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'monga',$10,$11,$12)
+           VALUES ($1,$2,CASE WHEN $2 = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,
+                   $4,$5,$6,$7,$8,$9,'monga',$10,$11,$12)
            ON CONFLICT DO NOTHING`,
           [m.reference, e.type, survenu, e.heure !== null, e.heure?.a ?? null,
             e.numero, e.rang, e.texte, e.auteur, Number(m.id), m.message_id, e.certitude]);
@@ -95,7 +97,7 @@ async function main(): Promise<void> {
       const e = ouvertureDeRepli(r.premier);
       await query(
         `INSERT INTO gestion_monga_etape (reference, type, survenu_le, texte, source, certitude)
-         SELECT $1,'ouverture',$2,$3,'monga','a_confirmer'
+         SELECT $1,'ouverture',${sqlJamaisDansLeFutur('$2::timestamptz')},$3,'monga','a_confirmer'
           WHERE NOT EXISTS (SELECT 1 FROM gestion_monga_etape
                              WHERE reference = $1 AND type = 'ouverture' AND statut = 'vif')`,
         [ref, r.premier, e.texte]);

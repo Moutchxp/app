@@ -112,7 +112,7 @@ describe('🔴🔴 A) lier ce mail à un événement déjà ouvert (one shot)', 
 });
 
 describe('🔴🔴 B) créer un événement à partir de ce mail', () => {
-  it('titre prérempli (adresse — lot), ouverture = date du mail ; « Créer l’événement » → le mail est le 1er de la carte', async () => {
+  it('titre prérempli (adresse — lot), aucune ouverture envoyée (création = ouverture) ; « Créer l’événement » → le mail est le 1er de la carte', async () => {
     await monter();
     await cliquer(bouton('Créer un événement à partir de ce mail'));
     const titre = container.querySelector('.bev-saisie') as HTMLInputElement;
@@ -124,7 +124,8 @@ describe('🔴🔴 B) créer un événement à partir de ce mail', () => {
     const e = ecritures[0] as { url: string; methode: string; corps: { nouveau: Record<string, unknown> } };
     expect([e.url, e.methode]).toEqual([`/api/admin/gestion/messages/${MAIL}/affectation`, 'POST']);
     expect(e.corps.nouveau.objet).toBe('1 rue du Banc, 92400 COURBEVOIE — lot 1');
-    expect(e.corps.nouveau.ouvertLe).toBe('2026-09-24');
+    expect(e.corps.nouveau).not.toHaveProperty('ouvertLe');   // Arno (23/10/2026, option A) : l'ouverture est la création
+    expect(container.querySelector('input[type="date"]')).not.toBeNull();   // la date de clôture reste saisissable
     expect(e.corps.nouveau.parties).toEqual([
       { sorte: 'lot', cle: 'L-1', libelle: '1 rue du Banc, 92400 COURBEVOIE — lot 1' },
       { sorte: 'proprietaire', cle: 'P-9', libelle: 'PROPRIO Banc' },
@@ -205,7 +206,8 @@ describe('🔒 le module pur', () => {
     expect(corpsCreation({ objet: ' T ', categorie: '', urgence: 'haute', ouvertLe: '2026-01-01', closLe: null, note: null,
       concernes: { modifie: true, choix: [{ sorte: 'libre', nom: 'X' }] } }, true, parties).nouveau)
       .toEqual({ objet: 'T', categorie: null, urgence: 'haute', parties: [{ sorte: 'lot', cle: 'L', libelle: 'Lot' }],
-        concernes: [{ sorte: 'libre', nom: 'X' }], ouvertLe: '2026-01-01', closLe: null, note: null });
+        /* Arno (23/10/2026, option A) — l'ouverture n'est plus envoyée : c'est l'instant de la création. */
+        concernes: [{ sorte: 'libre', nom: 'X' }], closLe: null, note: null });
     expect(Object.keys(corpsCreation({ objet: 'T', categorie: 'x', urgence: 'y', ouvertLe: null, closLe: null, note: null },
       false, []).nouveau)).not.toContain('categorie');
   });

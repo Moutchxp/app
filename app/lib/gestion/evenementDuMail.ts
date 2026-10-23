@@ -64,7 +64,8 @@ export interface EvenementACreer {
   objet: string;
   categorie: string;
   urgence: string;
-  ouvertLe: string | null;
+  /** 🔴 Arno (23/10/2026, option A) — n'est plus envoyée : l'ouverture est l'instant de la création (le serveur l'ignore). */
+  ouvertLe?: string | null;
   closLe: string | null;
   note: string | null;
   concernes?: { modifie: boolean; choix: unknown[] } | null;
@@ -88,7 +89,6 @@ export function corpsCreation(
       ...(qualifie ? { urgence: v.urgence === '' ? null : v.urgence } : {}),
       parties: modifie ? parties.filter((p) => p.sorte !== 'locataire') : [...parties],
       ...(modifie ? { concernes: v.concernes?.choix ?? [] } : {}),
-      ouvertLe: v.ouvertLe,
       closLe: v.closLe,
       note: v.note,
     },

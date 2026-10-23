@@ -17,6 +17,7 @@ import {
 /* 🔴 LE JOUR D'AUJOURD'HUI À PARIS, par la fonction PURE qui le dit déjà dans ce dépôt — jamais `toISOString()`,
    qui rend le jour UTC et change de date une heure par nuit. */
 import { jourParis } from '../../../../lib/gestion/historiqueBien';
+import { MOT_OUVERTURE_CREATION_COURT } from '../../../../lib/gestion/ouvertureEvenement';
 
 /**
  * 🔴 LOT CONTACTS-ET-EVENEMENT — LE BLOC « ÉVÉNEMENT RATTACHÉ », EN TÊTE DE L'ENCART.
@@ -100,7 +101,6 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
    * vient d'un mail, sinon aujourd'hui ». Ce bloc vit TOUJOURS sous un mail — il a donc toujours la date — mais
    * la propriété reste facultative pour que rien ne casse si un écran le monte sans elle.
    */
-  const [ouvertLe, setOuvertLe] = useState('');
   const [closLe, setClosLe] = useState('');
   const [note, setNote] = useState('');
 
@@ -173,7 +173,8 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
     /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — le refus des bornes vient du module PUR, et il ARRÊTE le geste
        avant la requête. Le serveur le refuserait aussi (la contrainte de base est la dernière garde), mais une
        phrase sous les deux champs se lit mieux qu'une erreur après l'envoi. */
-    const bornes = bornesEvenement(ouvertLe, closLe);
+    /* 🔴 Arno (23/10/2026, option A) — l'ouverture est l'instant de la création : la clôture se juge contre aujourd'hui. */
+    const bornes = bornesEvenement(jourParis(new Date()), closLe);
     if (bornes.refus !== null) { setErreur(bornes.refus); return; }
     await agir('POST', {
       nouveau: {
@@ -183,7 +184,6 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
         parties: partiesDesBiens(),
         /* ⚠️ ON ENVOIE LES JOURS TELS QUELS : c'est le SQL qui les ancre à midi, heure de Paris, et c'est la
            seule place où cette règle doit vivre. */
-        ouvertLe: bornes.ouvertLe,
         closLe: bornes.closLe,
         note: note.trim() === '' ? null : note.trim(),
         /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — envoyé SEULEMENT si le choix a été modifié. */
@@ -231,9 +231,6 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
                 setErreur(null);
                 // Le titre part du bien classé : c'est ce qu'on écrirait à la main neuf fois sur dix.
                 setTitre(biens[0] ? biens[0].libelle : '');
-                /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — « préremplie à la date du mail quand on vient d'un
-                   mail, sinon aujourd'hui » (Arno). Ce bloc vit sous un mail : c'est donc sa date. */
-                setOuvertLe(jourDuMail ?? jourParis(new Date()));
                 setClosLe('');
                 setNote('');
                 setPanneau('creer');
@@ -298,7 +295,6 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
             urgence={urgence} onUrgence={setUrgence}
             qualifieDisponible={qualifieDisponible}
             libellesDesBiens={biens.map((b) => b.libelle)}
-            ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
             closLe={closLe} onClosLe={setClosLe}
             note={note} onNote={setNote}
             bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes} />
@@ -343,7 +339,7 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
  */
 export function ChampsEvenement({
   titre, onTitre, categorie, onCategorie, urgence, onUrgence, qualifieDisponible, libellesDesBiens,
-  ouvertLe, onOuvertLe, closLe, onClosLe, note, onNote, bienCles, concernes = null, onConcernes,
+  closLe, onClosLe, note, onNote, bienCles, concernes = null, onConcernes,
   enBlocs = false, proprietaires = [], jourReference = null, mentionPremierMail = false,
 }: {
   titre: string;
@@ -369,8 +365,6 @@ export function ChampsEvenement({
    * 🔴 DES JOURS CIVILS `AAAA-MM-JJ` (champs `type="date"`), jamais des instants : c'est une date qu'on DÉCLARE,
    * et le SQL l'ancre à midi, heure de Paris.
    */
-  ouvertLe: string;
-  onOuvertLe: (v: string) => void;
   closLe: string;
   onClosLe: (v: string) => void;
   note: string;
@@ -397,7 +391,8 @@ export function ChampsEvenement({
   mentionPremierMail?: boolean;
 }) {
   /* 🔴 LE REFUS EST DIT ICI, SOUS LES DEUX CHAMPS QU'IL CONCERNE — et c'est le module PUR qui le formule. */
-  const refus = bornesEvenement(ouvertLe, closLe).refus;
+  /* 🔴 Arno (23/10/2026, option A) — l'ouverture est l'instant de la création : la clôture se juge contre aujourd'hui. */
+  const refus = bornesEvenement(jourParis(new Date()), closLe).refus;
   const parties = bienCles !== undefined && bienCles.length > 0 && onConcernes !== undefined ? (
     <LocatairesConcernes bienCles={bienCles} libellesDesBiens={libellesDesBiens} valeur={concernes} onChange={onConcernes}
       proprietaires={proprietaires} jour={jourReference} />
@@ -416,10 +411,11 @@ export function ChampsEvenement({
               placeholder="Ce dont il s’agit, en une ligne" />
           </label>
           <div className="bev-deux">
-            <label className="bev-champ">
+<div className="bev-champ" data-ouverture-auto="">
               <span className="bev-label">Date d’ouverture</span>
-              <input className="bev-saisie" type="date" value={ouvertLe} onChange={(e) => onOuvertLe(e.target.value)} />
-            </label>
+              {/* 🔴 Arno (23/10/2026, option A) — plus de champ : l'ouverture est l'instant de la création. */}
+              <span className="bev-note">{MOT_OUVERTURE_CREATION_COURT}</span>
+            </div>
             <label className="bev-champ">
               <span className="bev-label">Date de clôture (facultative)</span>
               <input className="bev-saisie" type="date" value={closLe} onChange={(e) => onClosLe(e.target.value)} />
@@ -492,11 +488,11 @@ export function ChampsEvenement({
           ⚠️ LA CLÔTURE EST FACULTATIVE, ET SON ABSENCE EST DITE : sans ce mot, un champ de date vide se lit
           comme un champ qu'on a oublié de remplir. */}
       <div className="bev-deux">
-        <label className="bev-champ">
-          <span className="bev-label">Date d’ouverture</span>
-          <input className="bev-saisie" type="date" value={ouvertLe}
-            onChange={(e) => onOuvertLe(e.target.value)} />
-        </label>
+<div className="bev-champ" data-ouverture-auto="">
+            <span className="bev-label">Date d’ouverture</span>
+            {/* 🔴 Arno (23/10/2026, option A) — plus de champ : l'ouverture est l'instant de la création. */}
+            <span className="bev-note">{MOT_OUVERTURE_CREATION_COURT}</span>
+          </div>
         <label className="bev-champ">
           <span className="bev-label">Date de clôture (facultative)</span>
           <input className="bev-saisie" type="date" value={closLe}

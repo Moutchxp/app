@@ -156,7 +156,8 @@ describe('🔴🔴 le seul chemin d’écriture nomme les trois colonnes', () =>
 
   /** 🔴 ET LE REFUS DU MODULE PUR ARRÊTE L'ÉCRITURE AVANT LA REQUÊTE. */
   it('🔴 les bornes sont validées avant d’écrire', () => {
-    expect(SRC).toContain('const bornes = bornesEvenement(n.ouvertLe, n.closLe);');
+    /* Arno (23/10/2026, option A) — l'ouverture est la création : la clôture se juge contre le jour de la création. */
+    expect(SRC).toContain('const bornes = bornesEvenement(jourDeCreation(), n.closLe);');
     expect(SRC).toContain('if (bornes.refus !== null) throw new Error(bornes.refus);');
   });
 });
@@ -180,9 +181,9 @@ describe('🔴🔴 les deux écrans montent le même formulaire, avec les trois 
     expect(RDF).toContain('<ChampsEvenement titre={evtTitre}');
   });
 
-  it('🔴🔴 les deux écrans passent les trois valeurs au formulaire', () => {
+  it('🔴🔴 les deux écrans passent les valeurs saisissables au formulaire (plus de date d’ouverture : option A d’Arno)', () => {
     for (const src of [BEV, RDF]) {
-      expect(src).toMatch(/ouvertLe=\{\w+\} onOuvertLe=\{set\w+\}/);
+      expect(src).not.toMatch(/onOuvertLe=/);
       expect(src).toMatch(/closLe=\{\w+\} onClosLe=\{set\w+\}/);
       expect(src).toMatch(/note=\{\w+\} onNote=\{set\w+\}/);
     }
@@ -192,9 +193,15 @@ describe('🔴🔴 les deux écrans montent le même formulaire, avec les trois 
    * 🔴🔴 LE PRÉREMPLISSAGE EST CELUI D'ARNO : la date du MAIL quand on vient d'un mail, sinon aujourd'hui — et
    * par `jourParis`, jamais `toISOString()`, qui rend le jour UTC et change de date une heure par nuit.
    */
-  it('🔴🔴 la date d’ouverture est préremplie à la date du mail, sinon aujourd’hui', () => {
-    expect(BEV).toContain('setOuvertLe(jourDuMail ?? jourParis(new Date()));');
-    expect(RDF).toContain('setEvtOuvertLe(jourDuMailDeLaFenetre ?? jourParis(new Date()));');
+  /**
+   * 🔴🔴 Arno (23/10/2026, option A) — LA DATE D'OUVERTURE N'EST PLUS PRÉREMPLIE NI SAISIE : c'est l'instant de la création. La
+   * clôture saisie se juge contre le jour de Paris (`jourParis`, jamais `toISOString()`, qui rend le jour UTC).
+   */
+  it('🔴🔴 plus de date d’ouverture préremplie : la clôture se juge contre aujourd’hui (Paris)', () => {
+    expect(BEV).not.toContain('setOuvertLe(');
+    expect(RDF).not.toContain('setEvtOuvertLe(');
+    expect(BEV).toContain('bornesEvenement(jourParis(new Date()), closLe)');
+    expect(RDF).toContain('bornesEvenement(jourParis(new Date()), evtClosLe)');
     for (const src of [BEV, RDF]) expect(src).not.toContain('toISOString().slice(0, 10)');
   });
 
