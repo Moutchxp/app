@@ -7,7 +7,7 @@ import { estDoublon, phraseDoublon, type BienComparable } from './doublonBien';
 import { verifierCoordonnees, type CoordonneeSaisie } from '../gestion/annuaireEdition';
 import { creerPersonne, type ChampsPersonne } from '../gestion/annuaireEditionRepo';
 import type { Auteur } from '../gestion/gestes';
-import { verifierBienComplet, verifierComplements, type ComplementsBien, type ComplementsFiche, type SaisieBien } from './bienComplet';
+import { verifierAnnexesSaisies, verifierBienComplet, verifierComplements, type ComplementsBien, type ComplementsFiche, type SaisieBien } from './bienComplet';
 export type { ComplementsFiche } from './bienComplet';
 import type { ChampsBien, Categorie } from './locationBien';
 import { analyserTermePortefeuille, type ResultatPortefeuille } from './recherchePortefeuille';
@@ -610,6 +610,66 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    throw e;
+  }
+}
+
+/**
+ * Arno (23/10/2026) — LES ANNEXES AJOUTÉES DANS « MODIFIER » LA FICHE ENTIÈRE : exactement l'écriture des annexes de « Nouveau
+ * bien » (mêmes contrôles `verifierAnnexesSaisies`, mêmes colonnes : autre adresse, parking, nom, annotation, « Détachée »), sous
+ * un bien EXISTANT : ses propriétaires (titulaire et co-propriétaires en cours), son adresse pour « Même adresse », son « en
+ * gestion » (une annexe suit son bien). Une transaction ; journalisé sur le bien. Un bien qui est lui-même une annexe n'en a pas.
+ */
+export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly Record<string, unknown>[], auteur: Auteur): Promise<Issue<{ ids: number[] }>> {
+  if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
+  const v = verifierAnnexesSaisies(brutes.slice(0, 20));
+  if (!v.ok) return { etat: 'refus', motif: v.motif };
+  if (v.annexes.length === 0) return { etat: 'ok', data: { ids: [] } };
+  const avec378 = await annexeNomPnoDisponible();
+  const avec379 = await entretienDisponible();
+  const avec390 = await bienEnGestionDisponible();
+  const avecCo = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
+  try {
+    return await withTransaction(async (q) => {
+      const { rows } = await q<{ proprietaire_id: string | null; nom: string | null; adresse: string | null; code_postal: string | null; commune: string | null;
+        en_gestion: boolean | null; categorie: string | null }>(
+        `SELECT lo.proprietaire_id::text, p.nom_complet AS nom, lo.adresse, lo.code_postal, lo.commune, lo.categorie,
+                ${avec390 ? 'lo.en_gestion' : 'NULL::boolean AS en_gestion'}
+           FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire p ON p.id = lo.proprietaire_id
+          WHERE lo.id = $1 FOR UPDATE OF lo`, [parentId]);
+      const parent = rows[0];
+      if (parent === undefined) return { etat: 'inconnu' as const };
+      if (parent.proprietaire_id === null) throw new Refus('Ce bien n’a pas de propriétaire rattaché : son annexe ne saurait à qui appartenir.');
+      if (parent.categorie === 'parking' || parent.categorie === 'box') throw new Refus('Un parking nu n’a pas d’annexe.');
+      const { rows: co } = avecCo ? await q<{ id: string; nom: string }>(
+        `SELECT lp.proprietaire_id::text AS id, p.nom_complet AS nom FROM gestion_annuaire_lot_proprietaire lp
+           JOIN gestion_annuaire_proprietaire p ON p.id = lp.proprietaire_id
+          WHERE lp.lot_id = $1 AND lp.jusqu_a IS NULL AND lp.proprietaire_id <> $2 ORDER BY lp.rang, lp.proprietaire_id`, [parentId, parent.proprietaire_id]) : { rows: [] };
+      const proprietaires = [{ id: Number(parent.proprietaire_id), nom: parent.nom ?? '' }, ...co.map((c) => ({ id: Number(c.id), nom: c.nom }))];
+      const statut = avec390 && parent.en_gestion !== null ? { en_gestion: parent.en_gestion } : {};
+      const ids: number[] = [];
+      for (const a of v.annexes) {
+        const adresse = a.autreAdresse ? { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }
+          : { adresse: parent.adresse, codePostal: parent.code_postal, commune: parent.commune };
+        const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
+          adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
+          ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
+          ...statut,
+          ...(avec379 ? { annotation: a.annotation ?? null, ...(a.detachee === true ? { annexe_detachee_le: new Date().toISOString(), annexe_detachee_par_libelle: auteur.libelle } : {}) } : {}),
+        }, auteur);
+        await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
+        ids.push(id);
+      }
+      await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee',
+        `${ids.length} annexe(s) ajoutée(s) dans « Modifier » de la fiche (formulaire complet) : ${ids.join(', ')}`, auteur);
+      return { etat: 'ok' as const, data: { ids } };
+    });
+  } catch (e) {
+    if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    const m = e instanceof Error ? e.message : '';
+    if (/annexe d'annexe|a déjà des annexes|gestion_lot_annexe_unique_uq|gestion_lot_annexe_soi_chk/.test(m)) {
+      return { etat: 'refus', motif: 'Ce bien ne peut pas recevoir d’annexe (il est lui-même une annexe).' };
+    }
     throw e;
   }
 }

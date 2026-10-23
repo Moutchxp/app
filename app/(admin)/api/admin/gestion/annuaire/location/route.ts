@@ -1,6 +1,6 @@
 import 'server-only';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
-import { arbreDisponible, creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
+import { creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { enregistrerConditions } from '../../../../../../lib/gestion/honorairesGestionRepo';
@@ -17,7 +17,9 @@ import { creerBrancheBail } from '../../../../../../lib/location/brancheBailDriv
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
-import { changerStatutBien, lireStatutBien, transitionsDuBien } from '../../../../../../lib/gestion/statutBienRepo';
+import { lireStatutBien, transitionsDuBien } from '../../../../../../lib/gestion/statutBienRepo';
+import { transitionStatutAvecSuites } from '../../../../../../lib/gestion/statutBienSuites';
+import { lireFicheEntiere, modifierFicheEntiere, versionDuBien } from '../../../../../../lib/location/ficheBienEntiereRepo';
 import { requeteDepuisLaLocation } from '../../../../../../lib/gestion/contexteLocation';
 
 /**
@@ -63,6 +65,12 @@ export async function GET(request: Request): Promise<Response> {
     // Arno (21/10/2026) — L'ENCART DU BIEN MODIFIABLE : ses valeurs fraîches (une seule source), et ses modifications (Historique).
     const enc = identifiant(url.searchParams.get('encart'));
     if (enc !== null) return Response.json(await lireEncartBien(enc), { headers: ENTETES });
+    // Arno (23/10/2026) — LA FICHE ENTIÈRE pour le formulaire « Modifier » (valeurs, annexes, statut, empreinte), et sa seule
+    // empreinte (la mise à jour automatique de la fiche ouverte, toutes les quelques secondes).
+    const fe = identifiant(url.searchParams.get('ficheEntiere'));
+    if (fe !== null) return Response.json(await lireFicheEntiere(fe), { headers: ENTETES });
+    const vb = identifiant(url.searchParams.get('versionBien'));
+    if (vb !== null) return Response.json(await versionDuBien(vb), { headers: ENTETES });
     const me = identifiant(url.searchParams.get('modifsEncart'));
     if (me !== null) return Response.json({ etat: 'ok', data: await modificationsEncart(me) }, { headers: ENTETES });
     // Arno (21/10/2026, 404) — l'état du dossier Drive du bien (à sa place, à créer, à déplacer) ; `null` sans la 404.
@@ -142,18 +150,17 @@ export async function POST(request: Request): Promise<Response> {
       // suit le statut : sortie de gestion → mail de sortie ; passage / retour en gestion → mail d'entrée (jamais bloquant).
       case 'statut-bien': {
         if (id === null) return incomplet();
-        const r = await changerStatutBien(id, { vers: corps.vers, effetLe: corps.effetLe, motif: corps.motif, mandat: corps.mandat }, auteur);
-        if (r.etat !== 'ok') return repondre(r);
-        const { avant, apres, lots } = r.data;
-        const ev = avant === 'en_gestion'
-          ? { sens: 'sortie' as const, proprietaireId: null, lotIds: lots, origine: null }
-          : apres === 'en_gestion' ? { sens: 'entree' as const, reactivation: avant === 'ancienne_gestion', proprietaireId: null, lotIds: lots, origine: null } : null;
-        const avecMailEnvoye = await avecMail(r, ev, { auteur, tuile: requeteDepuisLaLocation(request) ? 'Location' : 'Gestion' });
         // Arno (21/10/2026, 404) — le dossier Drive du bien DÉPLACÉ entier vers l'arbre du nouveau statut ; un échec n'annule rien
-        // (le statut reste enregistré) : la fiche dit « Dossier Drive à déplacer » et « Déplacer maintenant » rejoue.
-        if (!(await arbreDisponible().catch(() => false))) return repondre(avecMailEnvoye);
-        const d = await deplacerDossierDuBien(lots[0], auteur.libelle).catch((e: unknown) => ({ ok: false as const, motif: (e as Error)?.message ?? 'Le Drive n’a pas répondu.' }));
-        return repondre({ ...avecMailEnvoye, drive: d.ok ? { ok: true, motif: null } : { ok: false, motif: d.motif } });
+        // (le statut reste enregistré) : la fiche dit « Dossier Drive à déplacer » et « Déplacer maintenant » rejoue. Le mécanisme
+        // est commun au formulaire « Modifier » de la fiche entière (`statutBienSuites.ts`).
+        return repondre(await transitionStatutAvecSuites(id, { vers: corps.vers, effetLe: corps.effetLe, motif: corps.motif, mandat: corps.mandat }, auteur,
+          requeteDepuisLaLocation(request) ? 'Location' : 'Gestion'));
+      }
+      // Arno (23/10/2026) — « MODIFIER » LA FICHE ENTIÈRE (le formulaire « Nouveau bien » pré-rempli) : version contrôlée, puis les
+      // MÊMES écritures que les gestes de la fiche (encart, annexes, statut et ses suites Drive / mail).
+      case 'modifier-fiche-bien': {
+        if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
+        return repondre(await modifierFicheEntiere(id, corps.saisie as Record<string, unknown>, auteur, requeteDepuisLaLocation(request) ? 'Location' : 'Gestion'));
       }
       // Arno (21/10/2026) — UN GROUPE DE L'ENCART modifié sur place (après contre-validation), par les écritures de « Nouveau bien ».
       case 'modifier-encart': {

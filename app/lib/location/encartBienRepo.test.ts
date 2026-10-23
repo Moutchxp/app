@@ -10,7 +10,7 @@ const modifierBien = vi.fn(async (..._a: unknown[]) => ({ etat: 'ok', data: unde
 let fiche: unknown;
 vi.mock('./locationRepo', () => ({ ficheBienLocation: async () => fiche, modifierBien: (...a: unknown[]) => modifierBien(...a) }));
 const modifierComplementsBien = vi.fn(async (..._a: unknown[]) => ({ etat: 'ok', data: undefined }) as { etat: string; data?: undefined; motif?: string });
-vi.mock('./creationBienRepo', () => ({ modifierComplementsBien: (...a: unknown[]) => modifierComplementsBien(...a) }));
+vi.mock('./creationBienRepo', () => ({ modifierComplementsBien: (...a: unknown[]) => modifierComplementsBien(...a), annexeNomPnoDisponible: async () => true }));
 const rattacherSyndicAuBien = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as { ok: boolean; motif?: string });
 vi.mock('./syndicLocationRepo', async (orig) => ({ ...(await orig<object>()), rattacherSyndicAuBien: (...a: unknown[]) => rattacherSyndicAuBien(...a) }));
 const { modifierEncartBien, lireEncartBien } = await import('./encartBienRepo');

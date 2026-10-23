@@ -15,13 +15,19 @@ import type { BienLocation } from './locationBien';
  *
  * Toutes les valeurs sont tenues en TEXTE dans la saisie (comme « Nouveau bien ») : '' = non renseigné ; 'oui' / 'non' pour un choix.
  */
-export type GroupeEncart = 'caracteristiques' | 'situation' | 'copropriete' | 'dpe' | 'commentaire';
+export type GroupeEncart = 'bien' | 'caracteristiques' | 'situation' | 'copropriete' | 'dpe' | 'commentaire';
 export const TITRE_GROUPE: Record<GroupeEncart, string> = {
-  caracteristiques: 'Caractéristiques', situation: 'Situation et accès', copropriete: 'Copropriété', dpe: 'DPE et entretiens', commentaire: 'Commentaire',
+  bien: 'Le bien et son adresse', caracteristiques: 'Caractéristiques', situation: 'Situation et accès', copropriete: 'Copropriété', dpe: 'DPE et entretiens', commentaire: 'Commentaire',
 };
 
 /** Les valeurs de l'encart, en texte. */
 export interface ValeursEncart {
+  /**
+   * Arno (23/10/2026) — LA FICHE ENTIÈRE se modifie dans le formulaire « Nouveau bien » : la famille (catégorie du bien) et
+   * l'adresse (base, `modifierBien` — l'adresse seulement pour un bien créé dans l'application), et l'assurance PNO (compléments).
+   */
+  categorie: string; adresse: string; codePostal: string; commune: string;
+  assurancePno: string; pnoDateAnniversaire: string;
   // base (`modifierBien`)
   etage: string; porte: string; numLotCopro: string; surfaceCarrezM2: string; surfaceExterieureM2: string;
   // compléments (`modifierComplementsBien`)
@@ -40,15 +46,18 @@ export interface ValeursEncart {
 export type CleEncart = keyof ValeursEncart;
 
 /** Les champs de BASE (écrits par `modifierBien`) ; les autres sont des compléments. */
-export const CHAMPS_BASE: readonly CleEncart[] = ['etage', 'porte', 'numLotCopro', 'surfaceCarrezM2', 'surfaceExterieureM2'];
+export const CHAMPS_BASE: readonly CleEncart[] = ['categorie', 'adresse', 'codePostal', 'commune', 'etage', 'porte', 'numLotCopro', 'surfaceCarrezM2', 'surfaceExterieureM2'];
 
 const t = (v: string | number | null | undefined): string => (v === null || v === undefined ? '' : String(v));
 const nombre = (v: number | null | undefined): string => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 const on = (v: boolean | null | undefined): string => (v === true ? 'oui' : v === false ? 'non' : '');
 
 /** Les valeurs ACTUELLES, lues à la source (le bien et ses compléments). PUR. */
-export function valeursDepuis(b: Pick<BienLocation, 'etage' | 'porte' | 'numLotCopro' | 'surfaceCarrezM2' | 'surfaceExterieureM2'>, c: ComplementsFiche): ValeursEncart {
+export function valeursDepuis(b: Pick<BienLocation, 'etage' | 'porte' | 'numLotCopro' | 'surfaceCarrezM2' | 'surfaceExterieureM2'>
+  & Partial<Pick<BienLocation, 'categorie' | 'adresse' | 'codePostal' | 'commune'>>, c: ComplementsFiche): ValeursEncart {
   return {
+    categorie: t(b.categorie), adresse: t(b.adresse), codePostal: t(b.codePostal), commune: t(b.commune),
+    assurancePno: on(c.assurancePno), pnoDateAnniversaire: c.assurancePno === true ? t(c.pnoDateAnniversaire) : '',
     etage: t(b.etage), porte: t(b.porte), numLotCopro: t(b.numLotCopro), surfaceCarrezM2: nombre(b.surfaceCarrezM2), surfaceExterieureM2: nombre(b.surfaceExterieureM2),
     typeLogement: t(c.typeLogement), typeLocal: t(c.typeLocal), parkingSituation: t(c.parkingSituation), parkingType: t(c.parkingType),
     meuble: on(c.meuble), nombrePieces: t(c.nombrePieces), surfaceHabitableM2: nombre(c.surfaceHabitableM2), surfaceM2: nombre(c.surfaceM2),
@@ -69,12 +78,33 @@ export function entretiensEnTexte(l: readonly { sorte: string; nom?: string | nu
 
 interface Champ { cle: CleEncart; mot: string; mots?: Record<string, string> }
 const OUI_NON: Record<string, string> = { oui: 'oui', non: 'non' };
+/** La catégorie du bien, en mots (la famille de « Nouveau bien » ; une annexe garde la sienne). */
+export const LIBELLE_CATEGORIE: Record<string, string> = {
+  logement: 'Logement', local: 'Local', parking: 'Parking nu', box: 'Parking nu (box)', cave: 'Cave', autre: 'Autre annexe',
+};
+
+/** Ce que la fiche montre (et donc ce que la saisie peut changer). */
+export interface PorteeEncart {
+  famille: Famille | null; annexe: boolean; avecIdFiscal: boolean; avecCharges: boolean; avecAg: boolean; avecEntretien: boolean;
+  /** L'adresse d'un bien CRÉÉ DANS L'APPLICATION (celle d'un bien importé est tenue par WIPPIMMO) — absent : non modifiable. */
+  adresseModifiable?: boolean;
+  /** L'assurance PNO (migration 378), jamais sur une annexe — absent : non montrée. */
+  avecPno?: boolean;
+}
+
+/** TOUS les groupes, dans l'ordre du formulaire « Nouveau bien ». */
+export const GROUPES_FICHE: readonly GroupeEncart[] = ['bien', 'caracteristiques', 'situation', 'copropriete', 'dpe', 'commentaire'];
 
 /** Les champs d'un groupe, pour la famille du bien (logement, local, parking) et ce que la fiche montre. PUR. */
-export function champsDuGroupe(g: GroupeEncart, f: { famille: Famille | null; annexe: boolean; avecIdFiscal: boolean; avecCharges: boolean; avecAg: boolean; avecEntretien: boolean }): Champ[] {
+export function champsDuGroupe(g: GroupeEncart, f: PorteeEncart): Champ[] {
   const parking = f.famille === 'parking';
   const local = f.famille === 'local';
   switch (g) {
+    case 'bien': return [
+      // La famille ne se choisit que pour un bien principal (une annexe garde sa catégorie).
+      ...(!f.annexe ? [{ cle: 'categorie' as const, mot: 'Famille du bien', mots: LIBELLE_CATEGORIE }] : []),
+      ...(f.adresseModifiable === true ? [{ cle: 'adresse' as const, mot: 'Adresse' }, { cle: 'codePostal' as const, mot: 'Code postal' }, { cle: 'commune' as const, mot: 'Commune' }] : []),
+    ];
     case 'caracteristiques': return [
       ...(f.famille === 'logement' ? [{ cle: 'typeLogement' as const, mot: 'Type de logement', mots: LIBELLE_TYPE_LOGEMENT as Record<string, string> },
         { cle: 'meuble' as const, mot: 'Meublé', mots: OUI_NON }] : []),
@@ -104,6 +134,7 @@ export function champsDuGroupe(g: GroupeEncart, f: { famille: Famille | null; an
     case 'dpe': return [
       { cle: 'dpeClasse', mot: 'DPE (classe)' }, { cle: 'dpeDate', mot: 'DPE (date)' },
       ...(f.avecEntretien ? [{ cle: 'entretienAPrevoir' as const, mot: 'Entretien à prévoir', mots: OUI_NON }, { cle: 'entretiens' as const, mot: 'Entretiens' }] : []),
+      ...(f.avecPno === true && !f.annexe ? [{ cle: 'assurancePno' as const, mot: 'Assurance PNO', mots: OUI_NON }, { cle: 'pnoDateAnniversaire' as const, mot: 'Assurance PNO (date anniversaire)' }] : []),
     ];
     case 'commentaire': return [{ cle: 'commentaire', mot: 'Commentaire libre' }];
   }
@@ -128,7 +159,7 @@ export function libelleValeur(ch: Champ, v: ValeursEncart): string {
   if (x === '') return 'non renseigné';
   if (ch.cle === 'dpeClasse' && x === DPE_NON_SOUMIS) return LIBELLE_DPE_NON_SOUMIS;
   if (ch.mots) return ch.mots[x] ?? x;
-  if (ch.cle === 'dpeDate' || ch.cle === 'derniereAg') return dateFr(x);
+  if (ch.cle === 'dpeDate' || ch.cle === 'derniereAg' || ch.cle === 'pnoDateAnniversaire') return dateFr(x);
   if (/^surface/.test(ch.cle)) return `${x} m²`;
   return x;
 }
@@ -166,4 +197,4 @@ export function changementsEncart(champs: readonly Champ[], avant: ValeursEncart
 }
 
 /** La ligne de l'Historique et de la contre-validation. PUR. */
-export const phraseChangement = (c: ChangementEncart): string => `${c.champ} : ${c.avant} → ${c.apres}`;
+export const phraseChangement = (c: Pick<ChangementEncart, 'champ' | 'avant' | 'apres'>): string => `${c.champ} : ${c.avant} → ${c.apres}`;

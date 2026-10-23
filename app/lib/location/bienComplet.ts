@@ -387,6 +387,16 @@ export function verifierBienComplet(s: SaisieBien):
     dpeNonSoumis: famille === 'parking' ? null : c.dpeNonSoumis,
   };
 
+  const annexes = verifierAnnexesSaisies(brutes);
+  if (!annexes.ok) return annexes;
+  return { ok: true, proprietaireIds: ids, famille, annexes: annexes.annexes, logement, enGestion: s.enGestion !== false };
+}
+
+/**
+ * Les ANNEXES saisies (« Nouveau bien », et les annexes ajoutées dans « Modifier » de la fiche — Arno, 23/10/2026) : chacune
+ * vérifiée comme à la création. PUR.
+ */
+export function verifierAnnexesSaisies(brutes: readonly Record<string, unknown>[]): { ok: true; annexes: AnnexeSaisie[] } | { ok: false; motif: string } {
   const annexes: AnnexeSaisie[] = [];
   for (const a of brutes) {
     const autre = ouiNon(a.autreAdresse) === true;
@@ -406,5 +416,5 @@ export function verifierBienComplet(s: SaisieBien):
       parkingType: parking ? dans(TYPES_PARKING, a.parkingType) : null,
     });
   }
-  return { ok: true, proprietaireIds: ids, famille, annexes, logement, enGestion: s.enGestion !== false };
+  return { ok: true, annexes };
 }
