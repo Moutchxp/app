@@ -315,3 +315,33 @@ describe('🔴 ㉑ une clôture posée ferme TOUJOURS la période en cours', () 
     expect(rows.every((r) => r.ok)).toBe(true);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ㉒ ARNO (23/10/2026) — « UNE CLÔTURE N'EST JAMAIS DATÉE DANS LE FUTUR » : si l'ouverture est postérieure, c'est elle qui est
+   ramenée une seconde avant la clôture (GES-2026-000010 : ouverture déplacée au 02/11/2026). LECTURE SEULE.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ㉒ une clôture n’est jamais datée dans le futur', () => {
+  it('l’instant calculé sur la vraie base ne dépasse jamais maintenant, même avec une borne voulue en 2099', async () => {
+    const { instantDeCloture } = await import('./mongaEtapeRepo');
+    const { rows } = await query<{ id: string }>('SELECT id::text FROM gestion_evenement ORDER BY id LIMIT 3');
+    for (const r of rows) {
+      const t = await instantDeCloture(query, [Number(r.id)], -1, '2099-01-01T12:00', null);
+      const { rows: c } = await query<{ ok: boolean }>('SELECT $1::timestamptz <= now() AS ok', [t]);
+      expect(c[0].ok).toBe(true);
+    }
+  });
+  it('la sélection des ouvertures à ramener s’exécute (instant lointain : rien à ramener, donc rien n’est écrit)', async () => {
+    const { ramenerLesOuvertures } = await import('./mongaEtapeRepo');
+    const { rows } = await query<{ id: string }>('SELECT min(id)::text AS id FROM gestion_evenement');
+    expect(await ramenerLesOuvertures(query, Number(rows[0].id), '2999-01-01 00:00:00+00', -1, 'itest')).toEqual([]);
+  });
+  const ouverte = async (source: string) => (await query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM (${sqlPeriodes(source)}) p WHERE p.au IS NULL`)).rows[0].n !== '0';
+  it('le cas de prod : ouverture au 02/11, clôture au 23/10 → restait ouvert ; ouverture ramenée au 23/10 − 1 s → fermé', async () => {
+    expect(await ouverte(`SELECT * FROM (VALUES ('2026-11-02 12:00:00+01'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
+      ('2026-10-23 12:02:11+02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`)).toBe(true);
+    expect(await ouverte(`SELECT * FROM (VALUES ('2026-10-23 12:02:11+02'::timestamptz - interval '1 second', 'ouvre'::text, 999::numeric, 0::bigint),
+      ('2026-10-23 12:02:11+02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`)).toBe(false);
+  });
+});

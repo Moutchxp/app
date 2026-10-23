@@ -20,7 +20,8 @@ import {
 import { evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
 import {
-  sensDeLaBorne, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne, sqlPeriodesDeLEvenement,
+  sensDeLaBorne, sqlBornesDeLEvenement, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne,
+  sqlPeriodesDeLEvenement,
 } from './etatParLaFrise';
 
 /** Une étape telle que l'écran la reçoit. */
@@ -381,6 +382,59 @@ async function ouvertDansLaTransaction(q: RequeteTx, evenementId: number): Promi
   return rows[0]?.ouvert === true;
 }
 
+/**
+ * ══ 🔴🔴 UNE CLÔTURE N'EST JAMAIS DATÉE DANS LE FUTUR (Arno, 23/10/2026, après la reprise à blanc en prod) ═════════════════
+ *
+ * CONSTAT : GES-2026-000010 avait son ouverture déplacée au 02/11/2026 (la date d'intervention prévue, saisie comme ouverture) ;
+ * « une seconde après la dernière borne » aurait daté sa clôture du 02/11/2026 12:00:01. LA RÈGLE D'ARNO : « une clôture n'est
+ * JAMAIS datée dans le futur. Si la dernière ouverture est postérieure au moment de la clôture, la clôture est datée du moment
+ * réel (ou, pour la reprise, de la date du passage à “Clôture”), et c'est l'ouverture qui est ramenée à cette même date moins
+ * une seconde. »
+ *
+ * `instantDeCloture` : LEAST(plafond, GREATEST(voulu, dernière borne + 1 s)) — `plafond` vaut `now()` sur le chemin normal (midi
+ * reste le plancher : le jour affiché ne change pas), la date du passage à « Clôture » pour la reprise. `ramenerLesOuvertures`
+ * ramène ensuite à `instant − 1 s` toute borne qui OUVRE à cet instant ou après (l'ouverture d'origine `ouvert_le`, une carte
+ * Ouverture ou Réouverture). 🔴 LA DATE D'ORIGINE N'EST PAS PERDUE : chaque déplacement écrit une ligne au journal append-only
+ * (`gestion_journal`, entité « evenement », action « ouverture »), l'ancienne date en `valeur_avant`. C'est aussi là que
+ * `deplacerOuvertureEvenement` range déjà la date saisie à la main.
+ */
+export async function instantDeCloture(
+  q: RequeteTx, evenements: readonly number[], carteExclue: number, voulu: string, plafond: string | null,
+): Promise<string> {
+  const { rows } = await q<{ t: string }>(
+    `SELECT (LEAST(coalesce($4::timestamptz, now()),
+                   ${sqlInstantDeBorne('SELECT unnest($1::bigint[])', '$2', '$3::timestamptz')}))::text AS t`,
+    [evenements, carteExclue, voulu, plafond]);
+  return rows[0].t;
+}
+
+export const MOTIF_OUVERTURE_RAMENEE = 'ouverture datée après la clôture : ramenée une seconde avant elle (date d’origine en valeur_avant)';
+
+export async function ramenerLesOuvertures(
+  q: RequeteTx, evenementId: number, instant: string, carteExclue: number, auteurLibelle: string,
+): Promise<{ carte: number; avant: string }[]> {
+  const { rows } = await q<{ carte: string; avant: string }>(
+    `SELECT b.carte::text AS carte, b.quand::text AS avant
+       FROM gestion_evenement e CROSS JOIN LATERAL (${sqlBornesDeLEvenement('e')}) b
+      WHERE e.id = $1 AND b.sens = 'ouvre' AND b.quand >= $2::timestamptz AND b.carte <> $3
+      ORDER BY b.quand, b.carte`, [evenementId, instant, carteExclue]);
+  for (const r of rows) {
+    if (r.carte === '0') {
+      await q(`UPDATE gestion_evenement SET ouvert_le = $2::timestamptz - interval '1 second', maj_le = now() WHERE id = $1`,
+        [evenementId, instant]);
+    } else {
+      await q(`UPDATE gestion_monga_etape SET survenu_le = $2::timestamptz - interval '1 second', maj_le = now(), maj_par_libelle = $3
+                WHERE id = $1`, [Number(r.carte), instant, auteurLibelle]);
+    }
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_libelle)
+       VALUES ('evenement', $1, 'ouverture', $2, ($3::timestamptz - interval '1 second')::text, $4, $5)`,
+      [evenementId, r.avant, instant,
+        `${MOTIF_OUVERTURE_RAMENEE}${r.carte === '0' ? '' : ` — carte n° ${r.carte}`}`, auteurLibelle]);
+  }
+  return rows.map((r) => ({ carte: Number(r.carte), avant: r.avant }));
+}
+
 /** Après l'écriture : la clôture a-t-elle bien fermé, la réouverture bien rouvert ? Sinon on jette (et tout est annulé). */
 function exigerEffet(type: TypeEtape, ouvertApres: boolean): void {
   if (type === 'cloture' && ouvertApres) throw new Error('Clôture sans effet : la période reste ouverte (rien n’est écrit).');
@@ -397,11 +451,13 @@ export async function poserCarteDeBorne(a: {
     if (rows.length === 0) return { ok: false, motif: 'inconnu' };
     const ouvertAvant = await ouvertDansLaTransaction(q, a.evenementId);
     if (a.type === 'cloture' && !ouvertAvant) return { ok: false, motif: 'deja_clos' };
+    const instant = await instantDeCloture(q, [a.evenementId], -1, a.jourDePose, null);
+    if (a.type === 'cloture') await ramenerLesOuvertures(q, a.evenementId, instant, -1, a.parLibelle);
     const id = await insererEtapeManuelle(q, {
-      evenementId: a.evenementId, type: a.type, survenuLe: a.jourDePose, heureConnue: false, jourConnu: true,
+      evenementId: a.evenementId, type: a.type, survenuLe: instant, heureConnue: false, jourConnu: true,
       texte: a.texte, montantCents: null, pieceNom: a.pieceNom, titre: null, parId: a.parId, parLibelle: a.parLibelle,
       insererApres: a.insererApres,
-    }, sqlInstantDeBorne('$1', '-1', '$3::timestamptz'));
+    }, '$3::timestamptz');
     const ouvertApres = await ouvertDansLaTransaction(q, a.evenementId);
     exigerEffet(a.type, ouvertApres);
     return { ok: true, id, ouvertAvant, ouvertApres };
@@ -514,15 +570,17 @@ export async function modifierEtapeManuelle(a: {
     await verrouillerEvenements(q, evts);
     const ouvertAvant = evts.length === 0 ? null : await ouvertDansLaTransaction(q, evts[0]);
     if (devientBorne && a.type === 'cloture' && ouvertAvant === false) return { ok: false, motif: 'deja_clos' };
-    const date = devientBorne
-      ? sqlInstantDeBorne(`SELECT svv_c.evenement_id FROM gestion_monga_etape svv_c WHERE svv_c.id = $1`, '$1', '$3::timestamptz')
-      : '$3';
+    const instant = devientBorne ? await instantDeCloture(q, evts, a.id, a.jourDePose, null) : null;
+    if (instant !== null && a.type === 'cloture') {
+      for (const e of evts) await ramenerLesOuvertures(q, e, instant, a.id, a.parLibelle);
+    }
+    const date = instant !== null ? '$3::timestamptz' : '$3';
     await q(
       `UPDATE gestion_monga_etape
           SET type = $2, survenu_le = ${date}, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
               piece_nom = $8, maj_le = now(), maj_par_libelle = $9, jour_connu = $10
         WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
-      [a.id, a.type, devientBorne ? a.jourDePose : a.survenuLe, devientBorne ? false : a.heureConnue, a.texte, a.montantCents,
+      [a.id, a.type, instant ?? a.survenuLe, devientBorne ? false : a.heureConnue, a.texte, a.montantCents,
         a.titre, a.pieceNom, a.parLibelle, devientBorne ? true : a.jourConnu]);
     const ouvertApres = evts.length === 0 ? null : await ouvertDansLaTransaction(q, evts[0]);
     if (devientBorne && ouvertApres !== null) exigerEffet(a.type, ouvertApres);
@@ -618,19 +676,21 @@ export async function trancherEtape(
    * (`sqlInstantDeBorne`) — sans quoi une clôture antérieure à la dernière ouverture serait « confirmée » sans rien fermer.
    */
   return withTransaction(async (q) => {
-    const { rows } = await q<{ type: TypeEtape }>(
-      `SELECT type FROM gestion_monga_etape WHERE id = $1 AND certitude = 'a_confirmer' FOR UPDATE`, [id]);
+    const { rows } = await q<{ type: TypeEtape; survenu_le: string }>(
+      `SELECT type, survenu_le::text FROM gestion_monga_etape WHERE id = $1 AND certitude = 'a_confirmer' FOR UPDATE`, [id]);
     if (rows.length === 0) return { fait: false, etatChange: false, ouvertApres: null };
     const borne = sensDeLaBorne(rows[0].type) !== null;
     const evts = borne ? await evenementsDeLaCarte(q, id) : [];
     await verrouillerEvenements(q, evts);
     const avant: boolean[] = [];
     for (const e of evts) avant.push(await ouvertDansLaTransaction(q, e));
-    const date = rows[0].type === 'cloture' ? sqlInstantDeBorne(SQL_EVENEMENTS_DE_LA_CARTE, '$1', 'survenu_le') : 'survenu_le';
+    const instant = rows[0].type === 'cloture' ? await instantDeCloture(q, evts, id, rows[0].survenu_le, null) : null;
+    if (instant !== null) for (const e of evts) await ramenerLesOuvertures(q, e, instant, id, parLibelle);
     await q(
       `UPDATE gestion_monga_etape
-          SET certitude = 'confirmee', confirme_le = now(), confirme_par_libelle = $2, survenu_le = ${date}
-        WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle]);
+          SET certitude = 'confirmee', confirme_le = now(), confirme_par_libelle = $2,
+              survenu_le = coalesce($3::timestamptz, survenu_le)
+        WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle, instant]);
     const apres: boolean[] = [];
     for (const e of evts) apres.push(await ouvertDansLaTransaction(q, e));
     if (rows[0].type === 'cloture') for (const o of apres) exigerEffet('cloture', o);

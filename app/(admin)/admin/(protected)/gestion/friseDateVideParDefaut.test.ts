@@ -34,6 +34,7 @@ vi.mock('../../../../lib/db/client', () => {
       if (params[1] === 'cloture') clos = true;
       return { rows: [{ id: '501' }], rowCount: 1 };
     }
+    if (sql.includes(')::text AS t')) return { rows: [{ t: '2026-10-23 12:00:00+02' }], rowCount: 1 };
     if (sql.includes('FROM gestion_evenement WHERE id = $1 FOR UPDATE')) return { rows: [{ id: String(params[0]) }], rowCount: 1 };
     if (sql.includes('SELECT type FROM gestion_monga_etape')) return { rows: [{ type: 'devis_recu' }], rowCount: 1 };
     return { rows: [], rowCount: 0 };

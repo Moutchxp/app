@@ -31,7 +31,8 @@ export function texteRapportReprise(p: PasseReprise, o: { base: string }): strin
     return [
       `  · ${c.reference ?? `événement ${c.evenementId}`} — ${c.objet ?? '(sans intitulé)'}`,
       `      bien : ${c.bien ?? '(aucun bien déclaré)'}`,
-      `      date retenue : ${dateFr(c.dateRetenue)} (${MOT_ORIGINE[c.origine]})${c.dateFinale !== c.dateRetenue ? ` → posée le ${dateFr(c.dateFinale)}, une seconde après la dernière ouverture` : ''}`,
+      `      date retenue : ${dateFr(c.dateRetenue)} (${MOT_ORIGINE[c.origine]}) → clôture au ${dateFr(c.dateFinale)}`,
+      ...c.ouverturesRamenees.map((o) => `      ouverture datée du ${dateFr(o)} (à la clôture ou après) → ramenée une seconde avant la clôture ; date d’origine gardée au journal`),
       `      auteur : ${c.auteur ?? '(inconnu)'} · carte n° ${c.carteId} (${c.source === 'monga' ? 'Monga' : 'manuelle'}${c.certitude === 'a_confirmer' ? ', à confirmer' : ''}) datée aujourd’hui du ${dateFr(c.dateActuelle)} — ${issue}`,
     ].join('\n');
   };

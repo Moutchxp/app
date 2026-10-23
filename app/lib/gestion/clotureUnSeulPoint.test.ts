@@ -19,9 +19,19 @@ let ouvert = true;
 let fermeApresInsertion = true;
 let rollback = 0;
 let typeLu = 'devis_recu';
+/* Arno (23/10/2026) — l'instant calculé par la base (LEAST(plafond, GREATEST(voulu, dernière borne + 1 s))) et les bornes qui
+   ouvrent à cet instant ou après (une ouverture datée dans le futur). */
+let instantRendu = '2026-10-23 12:00:00+02';
+let ouverturesApres: { carte: string; avant: string }[] = [];
 vi.mock('../db/client', () => {
   const query = async (sql: string, params: unknown[] = []) => {
     emis.push({ sql, params });
+    if (sql.includes(')::text AS t')) return { rows: [{ t: instantRendu }], rowCount: 1 };
+    if (sql.includes('b.carte::text AS carte')) {
+      const l = ouverturesApres; ouverturesApres = [];   // ramenées : elles ne ressortent plus
+      if (l.length > 0 && fermeApresInsertion) ouvert = true;
+      return { rows: l, rowCount: l.length };
+    }
     if (sql.includes('AS ouvert')) return { rows: [{ ouvert }], rowCount: 1 };
     if (sql.includes('INSERT INTO gestion_monga_etape')) {
       if (params[1] === 'cloture' && fermeApresInsertion) ouvert = false;
@@ -33,7 +43,9 @@ vi.mock('../db/client', () => {
       return { rows: [], rowCount: 1 };
     }
     if (sql.includes('FROM gestion_evenement WHERE id = $1 FOR UPDATE')) return { rows: [{ id: String(params[0]) }], rowCount: 1 };
-    if (sql.includes('SELECT type FROM gestion_monga_etape')) return { rows: [{ type: typeLu }], rowCount: 1 };
+    if (/SELECT type(, survenu_le::text)? FROM gestion_monga_etape/.test(sql)) {
+      return { rows: [{ type: typeLu, survenu_le: '2026-02-10 12:00:00+01' }], rowCount: 1 };
+    }
     if (sql.includes('evenement_id::text FROM (')) return { rows: [{ evenement_id: '5' }], rowCount: 1 };
     return { rows: [], rowCount: 0 };
   };
@@ -46,7 +58,10 @@ vi.mock('../db/client', () => {
 });
 const { ajouterEtapeManuelle, modifierEtapeManuelle, poserCarteDeBorne, trancherEtape } = await import('./mongaEtapeRepo');
 
-beforeEach(() => { emis.length = 0; ouvert = true; fermeApresInsertion = true; rollback = 0; typeLu = 'devis_recu'; });
+beforeEach(() => {
+  emis.length = 0; ouvert = true; fermeApresInsertion = true; rollback = 0; typeLu = 'devis_recu';
+  instantRendu = '2026-10-23 12:00:00+02'; ouverturesApres = [];
+});
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const B = (id: number, type: BorneDeFrise['type'], survenuLe: string, certitude = 'fiable'): BorneDeFrise => ({ id, type, certitude, survenuLe });
 
@@ -85,8 +100,11 @@ describe('🔴 ② le SEUL point d’entrée de la clôture : poserCarteDeBorne'
     const ins = emis.findIndex((e) => e.sql.includes('INSERT INTO gestion_monga_etape'));
     expect(verrou).toBeGreaterThanOrEqual(0);
     expect(verrou).toBeLessThan(ins);
-    expect(norm(emis[ins].sql)).toContain("VALUES ($1,$2,GREATEST($3::timestamptz, (SELECT max(svv_db.quand) + interval '1 second'");
-    expect(emis[ins].params[2]).toBe('2026-10-23T12:00');
+    expect(norm(emis[ins].sql)).toContain('VALUES ($1,$2,$3::timestamptz,');
+    expect(emis[ins].params[2]).toBe('2026-10-23 12:00:00+02');   // l'instant calculé, jamais la date envoyée
+    const t = emis.find((e) => e.sql.includes(')::text AS t'))!;
+    expect(norm(t.sql)).toContain("SELECT (LEAST(coalesce($4::timestamptz, now()), GREATEST($3::timestamptz, (SELECT max(svv_db.quand) + interval '1 second'");
+    expect(t.params).toEqual([[5], -1, '2026-10-23T12:00', null]);   // plafond = maintenant
     expect(emis[ins].params[10]).toBe(true);   // une borne a toujours sa date
     expect(emis.slice(ins + 1).some((e) => e.sql.includes('AS ouvert'))).toBe(true);
   });
@@ -122,9 +140,10 @@ describe('🔴 ③ les autres chemins vers « Clôture » passent par la même r
   it('une carte qui DEVIENT une Clôture : datée après la dernière borne, l’effet vérifié', async () => {
     expect(await modifier('cloture')).toEqual({ ok: true, ouvertAvant: true, ouvertApres: false });
     const maj = emis.find((e) => e.sql.includes('UPDATE gestion_monga_etape'))!;
-    expect(norm(maj.sql)).toContain('survenu_le = GREATEST($3::timestamptz,');
-    expect(norm(maj.sql)).toContain('svv_db.carte <> $1');   // la carte réécrite ne compte pas parmi les bornes
-    expect(maj.params[2]).toBe('2026-10-23T12:00');
+    expect(norm(maj.sql)).toContain('survenu_le = $3::timestamptz,');
+    expect(maj.params[2]).toBe('2026-10-23 12:00:00+02');
+    const t = emis.find((e) => e.sql.includes(')::text AS t'))!;
+    expect(t.params).toEqual([[5], 41, '2026-10-23T12:00', null]);   // la carte réécrite ne compte pas parmi les bornes
   });
   it('… et si elle ne fermait pas, rien n’est écrit', async () => {
     fermeApresInsertion = false;
@@ -142,13 +161,15 @@ describe('🔴 ③ les autres chemins vers « Clôture » passent par la même r
     expect(await trancherEtape(31, 'confirmer', 'arno@x.test')).toEqual({ fait: true, etatChange: true, ouvertApres: false });
     const maj = emis.find((e) => e.sql.includes('UPDATE gestion_monga_etape'))!;
     expect(norm(maj.sql)).toContain("certitude = 'confirmee'");
-    expect(norm(maj.sql)).toContain('survenu_le = GREATEST(survenu_le,');
+    expect(norm(maj.sql)).toContain('survenu_le = coalesce($3::timestamptz, survenu_le)');
+    expect(maj.params[2]).toBe('2026-10-23 12:00:00+02');
   });
   it('confirmer une autre étape ne déplace pas sa date', async () => {
     typeLu = 'devis_recu';
     await trancherEtape(32, 'confirmer', 'arno@x.test');
     const maj = emis.find((e) => e.sql.includes('UPDATE gestion_monga_etape'))!;
-    expect(norm(maj.sql)).toContain('survenu_le = survenu_le');
+    expect(maj.params[2]).toBeNull();   // coalesce(NULL, survenu_le) : la date ne bouge pas
+    expect(emis.some((e) => e.sql.includes(')::text AS t'))).toBe(false);
   });
   it('retirer une Réouverture qui referme : l’écran le sait AVANT (la modale)', () => {
     const cartes = [B(51, 'cloture', '2026-03-01T12:00'), B(52, 'reouverture', '2026-06-01T12:00')];
@@ -160,6 +181,48 @@ describe('🔴 ③ les autres chemins vers « Clôture » passent par la même r
     expect((repo.match(/'manuelle','fiable'/g) ?? []).length).toBe(1);
     expect(readFileSync('app/(admin)/api/admin/gestion/evenements/[id]/frise/route.ts', 'utf8'))
       .toContain("if (type === 'cloture' || type === 'reouverture') {\n      const issue = await poserCarteDeBorne({");
+  });
+});
+
+describe('🔴 ⑤ une clôture n’est JAMAIS datée dans le futur : l’ouverture future est ramenée (Arno, 23/10/2026)', () => {
+  const poser = () => poserCarteDeBorne({
+    evenementId: 10, type: 'cloture', jourDePose: '2026-10-23T12:00', texte: null, pieceNom: null, parId: null, parLibelle: 'arno@x.test',
+  });
+  it('ouverture au 02/11/2026 : la clôture prend l’instant (plafonné à maintenant), l’ouverture passe une seconde avant', async () => {
+    instantRendu = '2026-10-23 15:00:00+02';   // LEAST(now(), …) : maintenant, et non le 02/11
+    ouverturesApres = [{ carte: '0', avant: '2026-11-02 12:00:00+01' }];
+    fermeApresInsertion = false;   // tant que l'ouverture n'est pas ramenée, la clôture ne fermerait rien…
+    ouvert = true;
+    const sel = emis.length;
+    fermeApresInsertion = true;
+    expect(await poser()).toMatchObject({ ok: true, ouvertApres: false });
+    const apres = emis.slice(sel);
+    const ram = apres.findIndex((e) => e.sql.includes("UPDATE gestion_evenement SET ouvert_le = $2::timestamptz - interval '1 second'"));
+    const journal = apres.findIndex((e) => e.sql.includes('INSERT INTO gestion_journal'));
+    const ins = apres.findIndex((e) => e.sql.includes('INSERT INTO gestion_monga_etape'));
+    expect(ram).toBeGreaterThanOrEqual(0);
+    expect(apres[ram].params).toEqual([10, '2026-10-23 15:00:00+02']);
+    // la date d'origine n'est pas perdue : le journal la garde en valeur_avant
+    expect(apres[journal].params.slice(0, 3)).toEqual([10, '2026-11-02 12:00:00+01', '2026-10-23 15:00:00+02']);
+    expect(String(apres[journal].params[3])).toContain('date d’origine en valeur_avant');
+    expect(ram).toBeLessThan(ins);
+    expect(apres[ins].params[2]).toBe('2026-10-23 15:00:00+02');   // la clôture : maintenant, jamais le 02/11
+  });
+  it('une carte Ouverture (ou Réouverture) future est ramenée de même, sur la carte', async () => {
+    ouverturesApres = [{ carte: '88', avant: '2026-10-30 12:00:00+01' }];
+    await poser();
+    const maj = emis.find((e) => e.sql.includes("UPDATE gestion_monga_etape SET survenu_le = $2::timestamptz - interval '1 second'"))!;
+    expect(maj.params).toEqual([88, '2026-10-23 12:00:00+02', 'arno@x.test']);
+  });
+  it('la sélection des ouvertures à ramener : celles qui OUVRENT à l’instant de la clôture ou après', async () => {
+    await poser();
+    const sel = emis.find((e) => e.sql.includes('b.carte::text AS carte'))!;
+    expect(norm(sel.sql)).toContain("WHERE e.id = $1 AND b.sens = 'ouvre' AND b.quand >= $2::timestamptz AND b.carte <> $3");
+  });
+  it('une Réouverture ne ramène rien (seule la clôture déplace une ouverture)', async () => {
+    ouvert = false;
+    await poserCarteDeBorne({ evenementId: 10, type: 'reouverture', jourDePose: '2026-10-23T12:00', texte: null, pieceNom: null, parId: null, parLibelle: 'x' });
+    expect(emis.some((e) => e.sql.includes('b.carte::text AS carte'))).toBe(false);
   });
 });
 

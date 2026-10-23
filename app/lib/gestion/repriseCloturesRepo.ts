@@ -1,5 +1,6 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { sqlEvenementOuvertParLaFrise, sqlInstantDeBorne } from './etatParLaFrise';
+import { sqlBornesDeLEvenement, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { instantDeCloture, ramenerLesOuvertures } from './mongaEtapeRepo';
 
 /**
  * ══ 🔴🔴 REPRISE — LES ÉVÉNEMENTS À L'ÉTAPE « CLÔTURE » DONT LA PÉRIODE N'EST PAS FERMÉE (Arno, 23/10/2026) ═══════════════
@@ -13,9 +14,10 @@ import { sqlEvenementOuvertParLaFrise, sqlInstantDeBorne } from './etatParLaFris
  *
  * 🔴 COMMENT : AUCUNE CARTE AJOUTÉE, AUCUNE SUPPRIMÉE. La carte Clôture déjà posée est simplement REDATÉE : sa date devient celle
  * du passage à « Clôture » (`cree_le` de la carte ; pour une Clôture Monga confirmée, `confirme_le`), sinon sa dernière
- * modification (`maj_le`) — et, si cette date ne vient pas après la dernière borne de l'événement, une seconde après elle
- * (`sqlInstantDeBorne`, la règle du point d'entrée unique). L'auteur de la clôture reste celui de la carte. `maj_le` /
- * `maj_par_libelle` disent que la reprise est passée.
+ * modification (`maj_le`). 🔴 JAMAIS DANS LE FUTUR, ET JAMAIS APRÈS CETTE DATE (Arno, 23/10/2026) : si une ouverture est datée
+ * à cette date ou après (GES-2026-000010 : ouverture déplacée au 02/11/2026), c'est l'OUVERTURE qui est ramenée une seconde
+ * avant la clôture (`ramenerLesOuvertures`, la date d'origine gardée au journal), et la clôture garde la date du passage.
+ * L'auteur de la clôture reste celui de la carte. `maj_le` / `maj_par_libelle` disent que la reprise est passée.
  *
  * ⚠️ UNE CLÔTURE MONGA « À CONFIRMER » N'EST PAS UNE CLÔTURE DÉCIDÉE : elle n'est confirmée (puis redatée) qu'avec
  * `avecAConfirmer`, sinon elle est seulement LISTÉE. Le bloc « Événements » l'écarte déjà par sécurité.
@@ -39,8 +41,12 @@ export interface ClotureOuverte {
   dateRetenue: string;
   origine: 'passage' | 'confirmation' | 'modification';
   auteur: string | null;
-  /** La date que la carte prendra : `dateRetenue`, ou une seconde après la dernière borne si elle ne vient pas après. */
+  /** La date que la carte prendra : la date retenue, jamais plus tard. */
   dateFinale: string;
+  /** La même, en horodatage complet (rejoué tel quel par la passe réelle). */
+  instant: string;
+  /** Les ouvertures datées à la clôture ou après (souvent dans le futur), ramenées une seconde avant elle. */
+  ouverturesRamenees: string[];
 }
 
 const HORS_CARTE = "'facture','rappel_devis','contact_injoignable','commentaire','note'";
@@ -55,7 +61,7 @@ export async function listerCloturesOuvertes(q: RequeteTx = query): Promise<Clot
   const { rows } = await q<{
     evenement_id: string; reference: string | null; objet: string | null; bien: string | null; carte_id: string;
     source: 'monga' | 'manuelle'; certitude: string; date_actuelle: string; date_retenue: string; origine: ClotureOuverte['origine'];
-    auteur: string | null; date_finale: string;
+    auteur: string | null; date_finale: string; instant: string; ouvertures: string[] | null;
   }>(
     `WITH cand AS (
        SELECT e.id,
@@ -78,7 +84,11 @@ export async function listerCloturesOuvertes(q: RequeteTx = query): Promise<Clot
                  WHEN c.cree_le IS NOT NULL THEN 'passage' ELSE 'modification' END AS origine,
             CASE WHEN c.certitude = 'confirmee' THEN coalesce(c.confirme_par_libelle, c.cree_par_libelle)
                  ELSE coalesce(c.cree_par_libelle, c.auteur) END AS auteur,
-            to_char(${sqlInstantDeBorne('e.id', 'c.id', SQL_DATE_RETENUE)} AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS date_finale
+            to_char(${SQL_DATE_RETENUE} AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS date_finale,
+            (${SQL_DATE_RETENUE})::text AS instant,
+            (SELECT array_agg(to_char(b.quand AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') ORDER BY b.quand)
+               FROM (${sqlBornesDeLEvenement('e')}) b
+              WHERE b.sens = 'ouvre' AND b.quand >= ${SQL_DATE_RETENUE} AND b.carte <> c.id) AS ouvertures
        FROM cand
        JOIN gestion_evenement e ON e.id = cand.id
        JOIN gestion_monga_etape c ON c.id IN (cand.par_date, cand.par_pose)
@@ -87,7 +97,7 @@ export async function listerCloturesOuvertes(q: RequeteTx = query): Promise<Clot
   return rows.map((r) => ({
     evenementId: Number(r.evenement_id), reference: r.reference, objet: r.objet, bien: r.bien, carteId: Number(r.carte_id),
     source: r.source, certitude: r.certitude, dateActuelle: r.date_actuelle, dateRetenue: r.date_retenue, origine: r.origine,
-    auteur: r.auteur, dateFinale: r.date_finale,
+    auteur: r.auteur, dateFinale: r.date_finale, instant: r.instant, ouverturesRamenees: r.ouvertures ?? [],
   }));
 }
 
@@ -113,15 +123,18 @@ export async function passerReprise(o: { reel: boolean; avecAConfirmer: boolean 
     const reparees: number[] = [];
     for (const c of trouvees.filter((x) => aTraiter(x, o.avecAConfirmer))) {
       await q(`SELECT id FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [c.evenementId]);
+      /* La clôture prend la date du passage, plafonnée à elle-même : jamais plus tard, jamais dans le futur. */
+      const instant = await instantDeCloture(q, [c.evenementId], c.carteId, c.instant, c.instant);
+      await ramenerLesOuvertures(q, c.evenementId, instant, c.carteId, AUTEUR_REPRISE);
       await q(
         `UPDATE gestion_monga_etape c
             SET certitude = CASE WHEN c.certitude = 'a_confirmer' THEN 'confirmee' ELSE c.certitude END,
                 confirme_le = CASE WHEN c.certitude = 'a_confirmer' THEN now() ELSE c.confirme_le END,
                 confirme_par_libelle = CASE WHEN c.certitude = 'a_confirmer' THEN $3 ELSE c.confirme_par_libelle END,
-                survenu_le = ${sqlInstantDeBorne('$2', '$1', SQL_DATE_RETENUE)},
+                survenu_le = $2::timestamptz,
                 maj_le = now(), maj_par_libelle = $3
           WHERE c.id = $1 AND c.type = 'cloture' AND c.statut = 'vif'`,
-        [c.carteId, c.evenementId, AUTEUR_REPRISE]);
+        [c.carteId, instant, AUTEUR_REPRISE]);
       const { rows } = await q<{ ouvert: boolean }>(
         `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`, [c.evenementId]);
       if (rows[0]?.ouvert !== false) throw new Error(`L’événement ${c.evenementId} reste ouvert après la reprise : tout est annulé.`);
