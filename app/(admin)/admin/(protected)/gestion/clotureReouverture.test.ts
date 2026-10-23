@@ -173,7 +173,7 @@ describe('🔴🔴 ④ la confirmation, avant de poser', () => {
   /** 🔴 LES MOTS D'ARNO, ET LES DEUX BOUTONS QU'IL NOMME. */
   // Arno (23/10/2026) : la confirmation est une MODALE de l'application (style habituel Location / Gestion), Annuler / Clôturer.
   it('🔴🔴 les deux questions sont posées dans une modale de l’application, pas dans une boîte du navigateur', () => {
-    expect(FRISE).toContain('const demande = modifie === null ? confirmationCarte(type) : null;');
+    expect(FRISE).toContain('const demande = modifie === null || modifie.type !== type ? confirmationCarte(type) : null;');
     expect(FRISE).toContain('if (demande !== null && !confirme) { setConfirme(true); return; }');
     expect(FRISE).toContain('<ModaleIssue sorte="attention" titre={demande.titre} onFermer={() => setConfirme(false)} notes={[demande.question]}');
     expect(FRISE).toContain("{ libelle: 'Annuler', onClick: () => setConfirme(false), repere: 'annuler-carte-borne' },");
@@ -184,11 +184,11 @@ describe('🔴🔴 ④ la confirmation, avant de poser', () => {
   });
 
   /**
-   * ⚠️ ELLE NE S'APPLIQUE PAS À UNE MODIFICATION : corriger la date d'une Clôture déjà posée ne referme rien,
-   * l'état a changé le jour où la carte a été posée.
+   * ⚠️ ELLE NE S'APPLIQUE PAS À UNE MODIFICATION QUI GARDE LE TYPE : corriger le texte d'une Clôture déjà posée ne referme rien.
+   * 🔴 Arno (23/10/2026) — mais une carte qui DEVIENT une Clôture est un passage à la clôture : la modale revient.
    */
-  it('⚠️ modifier une carte existante ne redemande rien', () => {
-    expect(FRISE).toContain('modifie === null ? confirmationCarte(type) : null');
+  it('⚠️ modifier une carte existante ne redemande rien, sauf si elle devient une Clôture', () => {
+    expect(FRISE).toContain('modifie === null || modifie.type !== type ? confirmationCarte(type) : null');
   });
 
   /** ⚠️ ET CHANGER DE TYPE REDEMANDE : une confirmation ne vaut jamais pour la carte suivante. */

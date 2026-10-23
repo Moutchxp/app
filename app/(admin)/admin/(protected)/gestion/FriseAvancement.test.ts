@@ -1223,7 +1223,9 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
     expect(code).not.toContain('evb-etat');
     expect(code).not.toContain('changerEtat');
     /* 🔴 ET LA PORTE D'ÉCRITURE DE LA VUE DE L'ÉVÉNEMENT RESTE : l'état n'est pas devenu immuable. */
-    expect(CARTE).toContain("onEtat={(e) => void agir({ etat: e }");
+    /* Arno (23/10/2026) — « Traité » ouvre la modale de clôture ; « À traiter » / « En cours » s'écrivent comme avant. */
+    expect(CARTE).toContain("if (e === 'traite') { setClotureDemandee(true); return; }");
+    expect(CARTE).toContain("void agir({ etat: e }");
   });
 });
 
@@ -1425,10 +1427,11 @@ describe('㉑ la vignette d’un événement', () => {
    */
   it('🔴🔴 la lecture suit les mêmes règles que la frise', () => {
     /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — le texte vit dans `derniereEtapeSql.ts` (module pur), que `fileRepo` lie. */
-    expect(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8')).toContain("import { sqlDerniereEtape } from './derniereEtapeSql';");
+    expect(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8')).toContain("import { sqlDerniereEtape, sqlEtapeCouranteEstCloture } from './derniereEtapeSql';");
     const repo = readFileSync('app/lib/gestion/derniereEtapeSql.ts', 'utf8');
     expect(repo).toContain('OR x.reference IN (SELECT reference FROM gestion_monga_lien');
-    expect(repo).toContain("x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')");
+    expect(repo).toContain(`const TYPES_HORS_CARTE = "'facture','rappel_devis','contact_injoignable','commentaire','note'";`);
+    expect(repo).toContain('x.type NOT IN (${TYPES_HORS_CARTE})');
     /* ⚠️ LA DERNIÈRE PAR DATE, puis par identifiant — exactement l'ordre de `construireFrise`. */
     expect(repo).toContain('ORDER BY x.survenu_le DESC, x.id DESC');
     expect(repo).toContain("x.statut = 'vif'");

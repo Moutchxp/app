@@ -37,7 +37,7 @@ import {
 import { jourParis } from '../../../../lib/temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
    qui précède sa pose. Deux formulations auraient fini par dire deux choses du même geste. */
-import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';
+import { questionAvantRetrait, retraitCloturerait } from '../../../../lib/gestion/etatParLaFrise';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
 /* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
@@ -518,6 +518,35 @@ export function FriseAvancement({
     }
   };
 
+  /**
+   * ══ 🔴🔴 Arno (23/10/2026) — TOUT PASSAGE À LA CLÔTURE DEMANDE LA MÊME MODALE ═══════════════════════════════════════════
+   *
+   * « Passer un événement à l'étape “Clôture”, PAR QUELQUE CHEMIN QUE CE SOIT […], déclenche la MÊME clôture : d'abord la
+   * modale de confirmation […] Annuler : rien ne change. » Deux chemins de la frise n'y passaient pas : CONFIRMER (✓) une
+   * Clôture venue de Monga, et RETIRER une Réouverture (ou l'Ouverture) dont le retrait remet l'événement à « Clôture ». Ils
+   * attendent ici la réponse ; seul « Clôturer » envoie le geste.
+   */
+  const [clotureEnAttente, setClotureEnAttente] = useState<{ sorte: 'confirmer' | 'retirer'; id: number } | null>(null);
+  const lues = vue.v === 'ok' ? vue.d : null;
+  const bornesAffichees = (lues?.etapes ?? []).map((x) => ({ id: x.id, type: x.type, certitude: x.certitude, survenuLe: x.survenuLe }));
+  const retirerCarte = (id: number): void => {
+    if (retraitCloturerait(bornesAffichees, lues?.ouvertLe ?? null, id)) { setClotureEnAttente({ sorte: 'retirer', id }); return; }
+    void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE');
+  };
+  const trancherCarte = (id: number, g: 'confirmer' | 'ecarter'): void => {
+    const carte = (lues?.etapes ?? []).find((x) => x.id === id);
+    if (g === 'confirmer' && carte?.type === 'cloture') { setClotureEnAttente({ sorte: 'confirmer', id }); return; }
+    void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g });
+  };
+  const cloturerEnAttente = (): void => {
+    const c = clotureEnAttente;
+    setClotureEnAttente(null);
+    if (c === null) return;
+    if (c.sorte === 'retirer') void agir(`/api/admin/gestion/etapes/${c.id}`, 'DELETE');
+    else void agir(`/api/admin/gestion/etapes/${c.id}`, 'PATCH', { geste: 'confirmer' });
+  };
+  const questionCloture = confirmationCarte('cloture');
+
   agirRef.current = agir;
 
   if (vue.v === 'charge') return <p className="gst-info" role="status">Lecture de la frise…</p>;
@@ -590,6 +619,13 @@ export function FriseAvancement({
       data-lecture-seule={lectureSeule ? 'oui' : undefined}>
       <style>{CSS_FRISE_AVANCEMENT}</style>
       {(vue.d.taches ?? []).length > 0 && <style>{CSS_POINT_TACHE_FRISE}</style>}
+      {clotureEnAttente !== null && questionCloture !== null && (
+        <ModaleIssue sorte="attention" titre={questionCloture.titre} onFermer={() => setClotureEnAttente(null)} notes={[questionCloture.question]}
+          actions={[
+            { libelle: 'Annuler', onClick: () => setClotureEnAttente(null), repere: 'annuler-carte-borne' },
+            { libelle: questionCloture.valider, onClick: cloturerEnAttente, principal: true, repere: 'confirmer-carte-borne' },
+          ]} />
+      )}
       {tacheOuverte !== null && (
         <FenetreTache mode={{ sorte: 'detail', id: tacheOuverte }} onFermer={() => { setTacheOuverte(null); void charger(); }} />
       )}
@@ -647,9 +683,9 @@ export function FriseAvancement({
                  Le contrat du point ne change pas ; ce qu'on en fait, oui. */
               onSurvol={(c) => { if (c === null) bulle.quitterCible(); else bulle.entrerCible(c); }}
               onOuvrirFil={onOuvrirFil}
-              onConfirmer={(id, g) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g })}
+              onConfirmer={trancherCarte}
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
-              onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
+              onRetirer={retirerCarte}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
               onModifier={lectureSeule ? undefined : crayonDeLaCarte}
@@ -744,7 +780,7 @@ export function FriseAvancement({
               question={questionAvantRetrait(detailApercu.type, vue.d.ouvert !== false)}
               onModifier={crayonDeLaCarte}
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
-              onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
+              onRetirer={retirerCarte}
               onFermer={() => { bulle.fermer(); }}
             />
           </div>
@@ -860,7 +896,7 @@ export function FriseAvancement({
             question={questionAvantRetrait(detailFixe.type, vue.d.ouvert !== false)}
             onModifier={crayonDeLaCarte}
             onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
-            onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
+            onRetirer={retirerCarte}
             onFermer={() => setFixe(null)}
             mot={motDuDetail} />
         </div>
@@ -2044,7 +2080,9 @@ function AjouterEtape({
    * ⚠️ ELLE NE S'APPLIQUE PAS À UNE MODIFICATION : corriger la date d'une Clôture déjà posée ne referme rien,
    * l'état a changé le jour où la carte a été posée. `modifie === null` borne donc la question à l'AJOUT.
    */
-  const demande = modifie === null ? confirmationCarte(type) : null;
+  /* 🔴 Arno (23/10/2026) — SAUF si la modification CHANGE LE TYPE en Clôture (ou en Réouverture) : c'est alors un passage à la
+     clôture comme un autre, et la même modale le précède. */
+  const demande = modifie === null || modifie.type !== type ? confirmationCarte(type) : null;
   const [confirme, setConfirme] = useState(false);
   /* ⚠️ CHANGER DE TYPE REDEMANDE : sans cela, une confirmation donnée pour une Clôture vaudrait pour la carte
      suivante, qu'on n'a jamais confirmée. */

@@ -24,7 +24,7 @@ import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, j
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
 import type { TypeEtape } from './mongaEtape';
-import { sqlDerniereEtape } from './derniereEtapeSql';
+import { sqlDerniereEtape, sqlEtapeCouranteEstCloture } from './derniereEtapeSql';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
 import {
@@ -721,7 +721,8 @@ export async function lireEvenements(
      comptes du même ensemble auraient pu se contredire le temps d'une écriture entre les deux. */
   const { rows: t } = await query<{ n: number; ouverts: number }>(
     `SELECT count(*)::int AS n,
-            count(*) FILTER (WHERE ${sqlEvenementOuvertParLaFrise('e')})::int AS ouverts
+            count(*) FILTER (WHERE ${sqlEvenementOuvertParLaFrise('e')}
+                               AND NOT ${sqlEtapeCouranteEstCloture('e')})::int AS ouverts
        FROM gestion_evenement e`);
   /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — une lecture groupée pour la page ; vide sans la 343. */
   const concernes = await lireConcernes(rows.map((r) => Number(r.evenement_id)));

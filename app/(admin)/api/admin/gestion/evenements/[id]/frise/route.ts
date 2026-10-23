@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import {
-  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, reordonnerCartes,
+  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, reordonnerCartes,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
    imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
@@ -25,7 +25,7 @@ import {
  */
 import { deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
 import {
-  etatApresCarteSelonLaFrise, motCarteDeBorne, sqlEvenementOuvertParLaFrise,
+  etatApresCarteSelonLaFrise, jourDePoseParis, motCarteDeBorne, sqlEvenementOuvertParLaFrise,
 } from '../../../../../../../lib/gestion/etatParLaFrise';
 import { query } from '../../../../../../../lib/db/client';
 /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches rattachées à l'événement : un point rouge à la date de leur mission. */
@@ -171,8 +171,11 @@ export async function POST(
    *
    * ⚠️ MIDI, ET NON MINUIT : une carte de borne n'a pas d'heure, et l'ancrer à minuit la fait basculer la veille
    * pour un lecteur dans un fuseau en retard. Convention du dépôt, déjà retenue pour `ouvert_le`.
+   *
+   * 🔴 Arno (23/10/2026) — MIDI N'EST QU'UN PLANCHER pour une Clôture ou une Réouverture : `poserCarteDeBorne` la pose une seconde
+   * après la dernière borne si celle-ci est plus tardive (un événement créé à 14 h 05 et clos le même jour). Voir plus bas.
    */
-  const jourDePose = `${new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' })}T12:00`;
+  const jourDePose = jourDePoseParis();
   const survenuLe = dateAuCentre(type) ? jourDePose : String(corps.survenuLe ?? '');
   if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?/.test(survenuLe)) {
     return Response.json({ erreur: 'Date d’étape attendue (AAAA-MM-JJ, heure facultative).' }, { status: 400 });
@@ -235,6 +238,35 @@ export async function POST(
       return Response.json({
         erreur: 'Cet événement est clos : posez d’abord une carte « Réouverture » pour le reprendre.',
       }, { status: 409 });
+    }
+
+    /**
+     * ══ 🔴🔴 Arno (23/10/2026) — UNE CLÔTURE (OU UNE RÉOUVERTURE) PASSE PAR LE SEUL POINT D'ENTRÉE DU SERVEUR ══════════════
+     *
+     * `poserCarteDeBorne` date la carte APRÈS la dernière borne (midi du jour, ou une seconde après la dernière borne si elle
+     * est plus tardive), et vérifie dans la même transaction que la période est bien fermée (ou rouverte). La cause du constat
+     * d'Arno — une clôture datée de midi, sur un événement créé le même jour après midi, qui laissait la période ouverte — ne
+     * peut donc plus se produire.
+     */
+    if (type === 'cloture' || type === 'reouverture') {
+      const issue = await poserCarteDeBorne({
+        evenementId, type, jourDePose,
+        texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
+        pieceNom: typeof corps.pieceNom === 'string' && corps.pieceNom !== '' ? corps.pieceNom : null,
+        parId: auteur.id === null ? null : Number(auteur.id), parLibelle: auteur.libelle,
+        insererApres: placeDemandee(corps.insererApres),
+      });
+      if (!issue.ok) {
+        return issue.motif === 'inconnu'
+          ? Response.json({ erreur: 'Événement inconnu.' }, { status: 404 })
+          : Response.json({ erreur: 'Cet événement est déjà clos.' }, { status: 409 });
+      }
+      const change = issue.ouvertApres !== issue.ouvertAvant;
+      return Response.json({
+        etat: 'ok', id: issue.id,
+        message: motCarteDeBorne(issue.ouvertAvant, issue.ouvertApres),
+        etatEvenement: change ? etatApresCarteSelonLaFrise(issue.ouvertApres) : null,
+      });
     }
 
     const idEtape = await ajouterEtapeManuelle({

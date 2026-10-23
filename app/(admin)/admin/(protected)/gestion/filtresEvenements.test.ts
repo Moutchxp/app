@@ -270,7 +270,7 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
   it('🔴🔴 le plein écran compte le total, la page partagée les en cours ; le tri ne masque rien', () => {
     expect((VUE.match(/\{d\.evenementsTotal\}/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(VUE).toContain('Événements <span className="gst-compte">{d.evenementsOuverts}</span>');
-    expect(VUE).toContain("const evenementsEnCours = evenementsRanges.filter((e) => e.etat !== 'traite');");
+    expect(VUE).toContain('const evenementsEnCours = evenementsRanges.filter((e) => !auStadeCloture(e));');
     /* 🔴 LE TRI RANGE LA LISTE ENTIÈRE : aucune restriction sur ce chemin-là. */
     expect(VUE).toContain('const evenementsRanges = trierEvenements(d.evenements, tri);');
     /**

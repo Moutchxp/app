@@ -5,7 +5,7 @@ import {
   completerMontant, dateDeLEtape, etapePourRetrait, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
 } from '../../../../../../lib/gestion/mongaEtapeRepo';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — retirer une carte de BORNE change l'état, et l'écran doit l'apprendre. */
-import { etatApresCarteSelonLaFrise, sensDeLaBorne } from '../../../../../../lib/gestion/etatParLaFrise';
+import { etatApresCarteSelonLaFrise, jourDePoseParis, sensDeLaBorne } from '../../../../../../lib/gestion/etatParLaFrise';
 import { evenementOuvertParLaFrise } from '../../../../../../lib/gestion/evenementEtatRepo';
 import { TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : le crayon ne touche
@@ -48,14 +48,18 @@ export async function PATCH(
   try {
     /* ── CONFIRMER / ÉCARTER une étape « à confirmer » (Arno : deux boutons) ──────────────────────────────── */
     if (geste === 'confirmer' || geste === 'ecarter') {
-      const fait = await trancherEtape(etapeId, geste, auteur.libelle);
-      if (!fait) {
+      const issue = await trancherEtape(etapeId, geste, auteur.libelle);
+      if (!issue.fait) {
         return Response.json(
           { erreur: 'Cette étape n’attend plus de confirmation.' }, { status: 409 });
       }
+      /* 🔴 Arno (23/10/2026) — confirmer une Clôture venue de Monga CLÔTURE l'événement : l'écran doit le relire. */
       return Response.json({
         etat: 'ok',
-        message: geste === 'confirmer' ? 'Étape confirmée.' : 'Étape écartée.',
+        message: issue.etatChange && issue.ouvertApres === false
+          ? 'Clôture confirmée : l’événement est clôturé.'
+          : (geste === 'confirmer' ? 'Étape confirmée.' : 'Étape écartée.'),
+        etatEvenement: issue.etatChange && issue.ouvertApres !== null ? etatApresCarteSelonLaFrise(issue.ouvertApres) : null,
       });
     }
 
@@ -135,13 +139,23 @@ export async function PATCH(
         pieceNom: typeof corps.pieceNom === 'string' && corps.pieceNom.trim() !== ''
           ? corps.pieceNom.trim() : null,
         parLibelle: auteur.libelle,
+        /* 🔴 Arno (23/10/2026) — si la carte DEVIENT une Clôture (ou une Réouverture), le dépôt la date après la dernière
+           borne et vérifie que la période est bien fermée : le même passage à la clôture que la carte neuve. */
+        jourDePose: jourDePoseParis(),
       });
-      if (!fait) {
+      if (!fait.ok) {
         /* 🔴 LE MESSAGE DIT LA RÈGLE, et ne se contente pas d'un refus : c'est ainsi qu'on l'apprend. */
         return Response.json(
-          { erreur: 'Modification impossible : une étape venue de Monga ne se modifie pas.' }, { status: 409 });
+          { erreur: fait.motif === 'deja_clos' ? 'Cet événement est déjà clos.'
+            : 'Modification impossible : une étape venue de Monga ne se modifie pas.' }, { status: 409 });
       }
-      return Response.json({ etat: 'ok', message: 'Étape modifiée.' });
+      const change = fait.ouvertAvant !== null && fait.ouvertApres !== null && fait.ouvertAvant !== fait.ouvertApres;
+      return Response.json({
+        etat: 'ok',
+        message: change ? (fait.ouvertApres ? 'Étape modifiée : l’événement est rouvert.' : 'Étape modifiée : l’événement est clôturé.')
+          : 'Étape modifiée.',
+        etatEvenement: change ? etatApresCarteSelonLaFrise(fait.ouvertApres as boolean) : null,
+      });
     }
 
     return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });

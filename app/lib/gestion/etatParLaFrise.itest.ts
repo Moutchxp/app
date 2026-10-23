@@ -26,7 +26,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
-import { sqlPeriodes } from './etatParLaFrise';
+import { sqlBornesDeLEvenement, sqlInstantDeBorne, sqlPeriodes } from './etatParLaFrise';
 import { rangEtape } from './mongaEtape';
 
 afterAll(async () => { await closePool(); });
@@ -286,5 +286,32 @@ describe('🔴 ⑳ reprise : une période par événement, avec sa date d’ouve
     expect(await cartes(`SELECT * FROM (VALUES ('2026-03-01'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
       ('2026-04-02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11), ('2026-10-23'::timestamptz, 'ouvre', ${rangEtape('reouverture')}, 12)) v(quand, sens, rang, carte)`))
       .toEqual([{ du: '2026-03-01', au: '2026-04-02', carte_du: '0', carte_au: '11' }, { du: '2026-10-23', au: null, carte_du: '12', carte_au: null }]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ㉑ ARNO (23/10/2026) — « UN ÉVÉNEMENT À L'ÉTAPE “CLÔTURE” NE DOIT JAMAIS RESTER DANS LE BLOC “ÉVÉNEMENTS” ». LECTURE SEULE.
+   La cause, rejouée sur des bornes littérales : un événement créé à 14 h 05 et clos le même jour par une carte datée de MIDI
+   restait ouvert. La correction : la clôture est datée une seconde après la dernière borne (`sqlInstantDeBorne`).
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ㉑ une clôture posée ferme TOUJOURS la période en cours', () => {
+  const ouverte = async (source: string) => (await query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM (${sqlPeriodes(source)}) p WHERE p.au IS NULL`)).rows[0].n !== '0';
+  it('la cause : clôture datée de midi, ouverture à 14 h 05 le même jour → la période restait ouverte', async () => {
+    expect(await ouverte(`SELECT * FROM (VALUES ('2026-10-23 14:05:00+02'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
+      ('2026-10-23 12:00:00+02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`)).toBe(true);
+  });
+  it('la correction : GREATEST(midi, dernière borne + 1 s) → la période est fermée', async () => {
+    expect(await ouverte(`SELECT * FROM (VALUES ('2026-10-23 14:05:00+02'::timestamptz, 'ouvre'::text, 999::numeric, 0::bigint),
+      (GREATEST('2026-10-23 12:00:00+02'::timestamptz, '2026-10-23 14:05:00+02'::timestamptz + interval '1 second'), 'ferme', ${rangEtape('cloture')}, 11))
+      v(quand, sens, rang, carte)`)).toBe(false);
+  });
+  it('sur les vrais événements de la base : l’instant calculé vient après TOUTES leurs bornes (lecture seule)', async () => {
+    const { rows } = await query<{ ok: boolean }>(
+      `SELECT ${sqlInstantDeBorne('e.id', '-1', "'2000-01-01'::timestamptz")}
+                > coalesce((SELECT max(b.quand) FROM (${sqlBornesDeLEvenement('e')}) b), '2000-01-01'::timestamptz) AS ok
+         FROM gestion_evenement e`);
+    expect(rows.every((r) => r.ok)).toBe(true);
   });
 });

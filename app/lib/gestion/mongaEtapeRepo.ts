@@ -11,7 +11,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import {
   etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
   type Certitude, type TypeEtape,
@@ -19,7 +19,9 @@ import {
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
 import { evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
-import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlPeriodesDeLEvenement } from './etatParLaFrise';
+import {
+  sensDeLaBorne, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne, sqlPeriodesDeLEvenement,
+} from './etatParLaFrise';
 
 /** Une étape telle que l'écran la reçoit. */
 export interface EtapeEcran {
@@ -280,6 +282,17 @@ export async function ajouterEtapeManuelle(a: {
    */
   insererApres?: number | 'debut';
 }): Promise<number> {
+  /* 🔴 Arno (23/10/2026) — une Clôture ou une Réouverture ne passe JAMAIS par ici : `poserCarteDeBorne` est leur seul chemin. */
+  if (sensDeLaBorne(a.type) !== null && a.type !== 'ouverture') {
+    throw new Error('Une Clôture ou une Réouverture se pose par poserCarteDeBorne.');
+  }
+  return insererEtapeManuelle(query, a, '$3');
+}
+
+/** L'INSERTION d'une carte manuelle, partagée par `ajouterEtapeManuelle` et `poserCarteDeBorne`. `dateSql` = l'expression de `survenu_le`. */
+async function insererEtapeManuelle(
+  q: RequeteTx, a: Parameters<typeof ajouterEtapeManuelle>[0], dateSql: string,
+): Promise<number> {
   /**
    * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — LA CARTE NEUVE SE POSE AU BOUT À DROITE ════════════════════════
    *
@@ -336,14 +349,79 @@ export async function ajouterEtapeManuelle(a: {
     a.pieceNom, a.titre, a.parId, a.parLibelle, a.jourConnu];
   if (rangChoisi === null) params.push(a.insererApres);
 
-  const { rows } = await query<{ id: string }>(
+  const { rows } = await q<{ id: string }>(
     `INSERT INTO gestion_monga_etape
        (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom, titre,
         source, certitude, cree_par, cree_par_libelle, rang_pose, pose_choisie, jour_connu)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10, ${sql}, ${a.insererApres !== undefined}, $11)
+     VALUES ($1,$2,${dateSql},$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10, ${sql}, ${a.insererApres !== undefined}, $11)
      RETURNING id`,
     params);
   return Number(rows[0].id);
+}
+
+/**
+ * ══ 🔴🔴 LE SEUL POINT D'ENTRÉE D'UNE CLÔTURE (ET D'UNE RÉOUVERTURE) POSÉE À LA MAIN (Arno, 23/10/2026) ═══════════════════
+ *
+ * « Passer un événement à l'étape “Clôture”, PAR QUELQUE CHEMIN QUE CE SOIT […], déclenche la MÊME clôture. » Côté serveur,
+ * ce chemin est celui-ci, et lui seul : la carte neuve (POST de la frise), le changement de type d'une carte en « Clôture »
+ * (`modifierEtapeManuelle`) et la confirmation d'une clôture venue de Monga (`trancherEtape`) passent tous par
+ * `sqlInstantDeBorne` et par la même vérification.
+ *
+ * 🔴 UNE SEULE TRANSACTION, L'ÉVÉNEMENT VERROUILLÉ : on lit l'état, on pose la carte datée APRÈS la dernière borne, on relit.
+ * Une Clôture qui laisserait la période ouverte (ou une Réouverture qui ne rouvrirait pas) est une incohérence : on JETTE, et
+ * `withTransaction` annule tout — rien n'est écrit. (On lit avant d'écrire : un refus rendu après un INSERT écrirait quand même.)
+ */
+export type IssueBorne =
+  | { ok: true; id: number; ouvertAvant: boolean; ouvertApres: boolean }
+  | { ok: false; motif: 'inconnu' | 'deja_clos' };
+
+async function ouvertDansLaTransaction(q: RequeteTx, evenementId: number): Promise<boolean> {
+  const { rows } = await q<{ ouvert: boolean }>(
+    `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
+  return rows[0]?.ouvert === true;
+}
+
+/** Après l'écriture : la clôture a-t-elle bien fermé, la réouverture bien rouvert ? Sinon on jette (et tout est annulé). */
+function exigerEffet(type: TypeEtape, ouvertApres: boolean): void {
+  if (type === 'cloture' && ouvertApres) throw new Error('Clôture sans effet : la période reste ouverte (rien n’est écrit).');
+  if (type === 'reouverture' && !ouvertApres) throw new Error('Réouverture sans effet : l’événement reste clos (rien n’est écrit).');
+}
+
+export async function poserCarteDeBorne(a: {
+  evenementId: number; type: 'cloture' | 'reouverture'; jourDePose: string;
+  texte: string | null; pieceNom: string | null; parId: number | null; parLibelle: string;
+  insererApres?: number | 'debut';
+}): Promise<IssueBorne> {
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string }>(`SELECT id::text FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [a.evenementId]);
+    if (rows.length === 0) return { ok: false, motif: 'inconnu' };
+    const ouvertAvant = await ouvertDansLaTransaction(q, a.evenementId);
+    if (a.type === 'cloture' && !ouvertAvant) return { ok: false, motif: 'deja_clos' };
+    const id = await insererEtapeManuelle(q, {
+      evenementId: a.evenementId, type: a.type, survenuLe: a.jourDePose, heureConnue: false, jourConnu: true,
+      texte: a.texte, montantCents: null, pieceNom: a.pieceNom, titre: null, parId: a.parId, parLibelle: a.parLibelle,
+      insererApres: a.insererApres,
+    }, sqlInstantDeBorne('$1', '-1', '$3::timestamptz'));
+    const ouvertApres = await ouvertDansLaTransaction(q, a.evenementId);
+    exigerEffet(a.type, ouvertApres);
+    return { ok: true, id, ouvertAvant, ouvertApres };
+  });
+}
+
+/** Les événements dont une carte est sur la frise (posée dessus, ou par sa référence Monga reliée). SQL, carte en `$1`. */
+const SQL_EVENEMENTS_DE_LA_CARTE = `SELECT svv_c.evenement_id FROM gestion_monga_etape svv_c WHERE svv_c.id = $1 AND svv_c.evenement_id IS NOT NULL
+   UNION SELECT svv_l.evenement_id FROM gestion_monga_etape svv_c
+           JOIN gestion_monga_lien svv_l ON svv_l.reference = svv_c.reference AND svv_l.retire_le IS NULL
+          WHERE svv_c.id = $1`;
+
+async function evenementsDeLaCarte(q: RequeteTx, id: number): Promise<number[]> {
+  const { rows } = await q<{ evenement_id: string }>(
+    `SELECT evenement_id::text FROM (${SQL_EVENEMENTS_DE_LA_CARTE}) x ORDER BY 1`, [id]);
+  return rows.map((r) => Number(r.evenement_id));
+}
+
+async function verrouillerEvenements(q: RequeteTx, ids: readonly number[]): Promise<void> {
+  if (ids.length > 0) await q(`SELECT id FROM gestion_evenement WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE`, [ids]);
 }
 
 /**
@@ -417,15 +495,39 @@ export async function modifierEtapeManuelle(a: {
    * ⚠️ `null` EFFACE, et c'est voulu : un intitulé posé par erreur doit pouvoir partir.
    */
   pieceNom: string | null; parLibelle: string;
-}): Promise<boolean> {
-  const r = await query(
-    `UPDATE gestion_monga_etape
-        SET type = $2, survenu_le = $3, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
-            piece_nom = $8, maj_le = now(), maj_par_libelle = $9, jour_connu = $10
-      WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
-    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.pieceNom, a.parLibelle,
-      a.jourConnu]);
-  return (r.rowCount ?? 0) > 0;
+  /**
+   * 🔴 Arno (23/10/2026) — le jour de pose (`AAAA-MM-JJT12:00`, Paris). Il ne sert que si la carte DEVIENT une Clôture ou une
+   * Réouverture : c'est alors un passage à la clôture comme un autre, daté par `sqlInstantDeBorne` (après la dernière borne).
+   */
+  jourDePose: string;
+}): Promise<
+  | { ok: true; ouvertAvant: boolean | null; ouvertApres: boolean | null }
+  | { ok: false; motif: 'monga' | 'deja_clos' }
+> {
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ type: TypeEtape }>(
+      `SELECT type FROM gestion_monga_etape WHERE id = $1 AND source = 'manuelle' AND statut = 'vif' FOR UPDATE`, [a.id]);
+    if (rows.length === 0) return { ok: false, motif: 'monga' };
+    const devientBorne = (a.type === 'cloture' || a.type === 'reouverture') && rows[0].type !== a.type;
+    const touche = devientBorne || sensDeLaBorne(rows[0].type) !== null;
+    const evts = touche ? await evenementsDeLaCarte(q, a.id) : [];
+    await verrouillerEvenements(q, evts);
+    const ouvertAvant = evts.length === 0 ? null : await ouvertDansLaTransaction(q, evts[0]);
+    if (devientBorne && a.type === 'cloture' && ouvertAvant === false) return { ok: false, motif: 'deja_clos' };
+    const date = devientBorne
+      ? sqlInstantDeBorne(`SELECT svv_c.evenement_id FROM gestion_monga_etape svv_c WHERE svv_c.id = $1`, '$1', '$3::timestamptz')
+      : '$3';
+    await q(
+      `UPDATE gestion_monga_etape
+          SET type = $2, survenu_le = ${date}, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
+              piece_nom = $8, maj_le = now(), maj_par_libelle = $9, jour_connu = $10
+        WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
+      [a.id, a.type, devientBorne ? a.jourDePose : a.survenuLe, devientBorne ? false : a.heureConnue, a.texte, a.montantCents,
+        a.titre, a.pieceNom, a.parLibelle, devientBorne ? true : a.jourConnu]);
+    const ouvertApres = evts.length === 0 ? null : await ouvertDansLaTransaction(q, evts[0]);
+    if (devientBorne && ouvertApres !== null) exigerEffet(a.type, ouvertApres);
+    return { ok: true, ouvertAvant, ouvertApres };
+  });
 }
 
 /**
@@ -502,17 +604,40 @@ export async function etapePourRetrait(
  */
 export async function trancherEtape(
   id: number, geste: 'confirmer' | 'ecarter', parLibelle: string,
-): Promise<boolean> {
-  const r = geste === 'confirmer'
-    ? await query(
-      `UPDATE gestion_monga_etape
-          SET certitude = 'confirmee', confirme_le = now(), confirme_par_libelle = $2
-        WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle])
-    : await query(
+): Promise<{ fait: boolean; etatChange: boolean; ouvertApres: boolean | null }> {
+  if (geste === 'ecarter') {
+    const r = await query(
       `UPDATE gestion_monga_etape
           SET certitude = 'ecartee', statut = 'retire', retire_le = now(), retire_par_libelle = $2
         WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle]);
-  return (r.rowCount ?? 0) > 0;
+    return { fait: (r.rowCount ?? 0) > 0, etatChange: false, ouvertApres: null };
+  }
+  /**
+   * 🔴 Arno (23/10/2026) — CONFIRMER UNE CLÔTURE VENUE DE MONGA EST UN PASSAGE À LA CLÔTURE comme un autre : elle doit fermer la
+   * période. Sa date (celle du mail) est gardée si elle vient après la dernière borne ; sinon elle passe juste après
+   * (`sqlInstantDeBorne`) — sans quoi une clôture antérieure à la dernière ouverture serait « confirmée » sans rien fermer.
+   */
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ type: TypeEtape }>(
+      `SELECT type FROM gestion_monga_etape WHERE id = $1 AND certitude = 'a_confirmer' FOR UPDATE`, [id]);
+    if (rows.length === 0) return { fait: false, etatChange: false, ouvertApres: null };
+    const borne = sensDeLaBorne(rows[0].type) !== null;
+    const evts = borne ? await evenementsDeLaCarte(q, id) : [];
+    await verrouillerEvenements(q, evts);
+    const avant: boolean[] = [];
+    for (const e of evts) avant.push(await ouvertDansLaTransaction(q, e));
+    const date = rows[0].type === 'cloture' ? sqlInstantDeBorne(SQL_EVENEMENTS_DE_LA_CARTE, '$1', 'survenu_le') : 'survenu_le';
+    await q(
+      `UPDATE gestion_monga_etape
+          SET certitude = 'confirmee', confirme_le = now(), confirme_par_libelle = $2, survenu_le = ${date}
+        WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle]);
+    const apres: boolean[] = [];
+    for (const e of evts) apres.push(await ouvertDansLaTransaction(q, e));
+    if (rows[0].type === 'cloture') for (const o of apres) exigerEffet('cloture', o);
+    return {
+      fait: true, etatChange: apres.some((o, i) => o !== avant[i]), ouvertApres: apres.length === 0 ? null : apres[0],
+    };
+  });
 }
 
 /**

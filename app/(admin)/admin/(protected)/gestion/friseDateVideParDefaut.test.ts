@@ -23,15 +23,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /* ── Pilote de base : on capture ce qui part, on ne fabrique que ce que la route lit. ─────────────────────────── */
 const emis: { sql: string; params: unknown[] }[] = [];
-vi.mock('../../../../lib/db/client', () => ({
-  query: async (sql: string, params: unknown[] = []) => {
+/* Arno (23/10/2026) — la clôture et la modification passent par une transaction (`poserCarteDeBorne`) : le pilote la simule,
+   et une Clôture insérée ferme l'événement, comme en vrai. */
+let clos = false;
+vi.mock('../../../../lib/db/client', () => {
+  const query = async (sql: string, params: unknown[] = []) => {
     emis.push({ sql, params });
-    if (sql.includes('AS ouvert')) return { rows: [{ ouvert: true }], rowCount: 1 };
-    if (sql.includes('INSERT INTO gestion_monga_etape')) return { rows: [{ id: '501' }], rowCount: 1 };
+    if (sql.includes('AS ouvert')) return { rows: [{ ouvert: !clos }], rowCount: 1 };
+    if (sql.includes('INSERT INTO gestion_monga_etape')) {
+      if (params[1] === 'cloture') clos = true;
+      return { rows: [{ id: '501' }], rowCount: 1 };
+    }
+    if (sql.includes('FROM gestion_evenement WHERE id = $1 FOR UPDATE')) return { rows: [{ id: String(params[0]) }], rowCount: 1 };
+    if (sql.includes('SELECT type FROM gestion_monga_etape')) return { rows: [{ type: 'devis_recu' }], rowCount: 1 };
     return { rows: [], rowCount: 0 };
-  },
-  withTransaction: async () => { throw new Error('non utilisé ici'); },
-}));
+  };
+  return { query, withTransaction: async (fn: (q: typeof query) => unknown) => fn(query) };
+});
 vi.mock('../../../../lib/admin/garde', () => ({ exigerCompteActif: async () => null }));
 vi.mock('../../../../lib/gestion/auteur', () => ({
   auteurDeLaRequete: async () => ({ id: null, libelle: 'Épreuve' }),
@@ -57,7 +65,7 @@ const carte = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   ...p,
 } as EtapeAAfficher);
 
-beforeEach(() => { emis.length = 0; });
+beforeEach(() => { emis.length = 0; clos = false; });
 
 describe('🔴🔴 ① le formulaire s’ouvre VIDE, pour toutes les cartes', () => {
   /** 🔴 Chaque type du réservoir ET des informations : aucun ne pré-remplit ni Date ni Heure. */
@@ -202,7 +210,7 @@ describe('🔴 ⑤ le dépôt écrit `jour_connu` à la bonne place', () => {
   it('🔴 la modification réécrit le drapeau', async () => {
     await modifierEtapeManuelle({
       id: 9, type: 'devis_recu', survenuLe: '2026-10-09', heureConnue: false, jourConnu: false,
-      texte: null, montantCents: null, titre: null, pieceNom: null, parLibelle: 'Épreuve',
+      texte: null, montantCents: null, titre: null, pieceNom: null, parLibelle: 'Épreuve', jourDePose: '2026-10-23T12:00',
     });
     const maj = emis.find((e) => e.sql.includes('UPDATE gestion_monga_etape'))!;
     expect(maj.sql.replace(/\s+/g, ' ')).toContain('jour_connu = $10');

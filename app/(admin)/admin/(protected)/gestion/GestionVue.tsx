@@ -36,7 +36,7 @@ import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches'
 /* 🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — la ligne de filtres et de tris du plein écran Événements, et son module PUR. */
 import { LigneFiltresEvenements } from './LigneFiltresEvenements';
 import {
-  appliquerFiltres, basculer, choisirTri, ecrireLigne, LIGNE_PAR_DEFAUT, ligneParDefaut, lireLigne, trierLigne,
+  appliquerFiltres, auStadeCloture, basculer, choisirTri, ecrireLigne, LIGNE_PAR_DEFAUT, ligneParDefaut, lireLigne, trierLigne,
   type EtatLigne,
 } from '../../../../lib/gestion/ligneFiltresEvenements';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — la barre de recherche de l'annuaire, sur l'accueil. */
@@ -1037,7 +1037,8 @@ export function GestionVue({ intro }: {
   const evenementsRanges = trierEvenements(d.evenements, tri);
   /* Arno (23/10/2026) — la colonne « Événements » de la page partagée ne montre que les événements EN COURS (lus sur la frise :
      `etatAffiche` rend « traite » pour un événement clos). Le plein écran garde la liste entière (filtres, tableau de bord). */
-  const evenementsEnCours = evenementsRanges.filter((e) => e.etat !== 'traite');
+  /* 🔴 Et, par sécurité (Arno, 23/10/2026), jamais un événement dont l'étape courante est « Clôture » (`auStadeCloture`). */
+  const evenementsEnCours = evenementsRanges.filter((e) => !auStadeCloture(e));
   /**
    * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LA LISTE RESTREINTE PAR UN CHIFFRE DU TABLEAU DE BORD ═══════════
    *

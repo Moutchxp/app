@@ -405,7 +405,7 @@ describe('🔴🔴 ⑥ une seule règle, lue par tous les écrans d’Arno', () 
   it('🔴🔴 le module de la règle est pur, et peut donc servir à l’écran', () => {
     expect(MODULE).not.toContain("from '../db/client'");
     expect(MODULE).not.toContain('server-only');
-    expect(FRISE).toContain("import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';");
+    expect(FRISE).toContain("import { questionAvantRetrait, retraitCloturerait } from '../../../../lib/gestion/etatParLaFrise';");
   });
 
   /**

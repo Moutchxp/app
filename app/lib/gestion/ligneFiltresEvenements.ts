@@ -187,11 +187,22 @@ export function choisirTri(e: EtatLigne, cle: string): EtatLigne {
  * ⚠️ UNE CLÉ QUE LES ENSEMBLES NE CONNAISSENT PAS NE RESTREINT RIEN, plutôt que de tout masquer : une adresse
  * d'hier ne doit pas rendre un écran vide et inexplicable.
  */
+/**
+ * 🔴 Arno (23/10/2026) — « un événement à l'étape “Clôture” ne doit JAMAIS rester dans le bloc “Événements” ». Le filtre de
+ * SÉCURITÉ, en plus de la frise : clos (`etat` = « traite », lu sur la frise) OU dont l'étape courante (la miniature) est une
+ * Clôture. PUR ; la colonne de la page partagée et le plein écran « En cours » le lisent tous les deux.
+ */
+export function auStadeCloture(c: Pick<CarteEvenement, 'etat' | 'derniereEtape'>): boolean {
+  return c.etat === 'traite' || c.derniereEtape?.type === 'cloture';
+}
+
 export function appliquerFiltres(
   cartes: readonly CarteEvenement[],
   e: EtatLigne,
   ids: Record<string, number[]> | null,
 ): CarteEvenement[] {
+  /* « En cours » n'affiche jamais un événement à l'étape « Clôture », même avant l'arrivée des ensembles. */
+  if (e.etat === 'encours') cartes = cartes.filter((c) => !auStadeCloture(c));
   if (ids === null) return [...cartes];
   const dans = (cle: string): Set<number> | null => {
     const l = ids[cle];

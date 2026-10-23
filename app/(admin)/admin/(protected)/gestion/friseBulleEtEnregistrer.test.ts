@@ -230,7 +230,8 @@ describe('🔴🔴 ④ la bulle de survol se laisse atteindre', () => {
        une BASCULE (ouvrir, changer de carte, ou refermer en demandant). C'est le MÊME geste, écrit une fois au
        lieu de trois — et la bulle flottante le partage avec les deux autres crayons, ce qui est le point ici. */
     expect(bloc).toContain('onModifier={crayonDeLaCarte}');
-    expect(bloc).toContain("onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}");
+    /* Arno (23/10/2026) — le retrait passe par `retirerCarte`, qui demande la modale de clôture si le retrait referme. */
+    expect(bloc).toContain('onRetirer={retirerCarte}');
     expect(bloc).toContain('onOuvrirFil={onOuvrirFil}');
   });
 

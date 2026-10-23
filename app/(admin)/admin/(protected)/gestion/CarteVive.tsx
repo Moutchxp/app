@@ -10,7 +10,8 @@ import type { CarteDetail } from '../../../../lib/gestion/carteRepo';
 import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
-import { motEtape } from '../../../../lib/gestion/mongaEtape';
+import { confirmationCarte, motEtape } from '../../../../lib/gestion/mongaEtape';
+import { ModaleIssue } from '../location/ModaleIssue';
 import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268).
    🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — et sa COULEUR, et le mot de l'absence de type, et la LISTE pour le choisir :
@@ -634,6 +635,35 @@ function CorpsCarte({ evenementId, onDetail, onGeste, partage, onOuvrirBien, dej
     }
   }, [occupe, evenementId, onGeste, lire]);
 
+  /**
+   * ══ 🔴🔴 Arno (23/10/2026) — « TRAITÉ » EST UN PASSAGE À LA CLÔTURE COMME UN AUTRE ═══════════════════════════════════════
+   *
+   * « Passer un événement à l'étape “Clôturé / Clôture”, PAR QUELQUE CHEMIN QUE CE SOIT […], déclenche la MÊME clôture : d'abord
+   * la modale de confirmation […] ». Le troisième bouton du sélecteur d'état répondait par un refus (« posez une carte Clôture ») :
+   * il ouvre maintenant la MÊME modale, et « Clôturer » pose la carte Clôture par la MÊME route que la frise (le point d'entrée
+   * unique du serveur, `poserCarteDeBorne`). « Annuler » : rien ne change.
+   */
+  const [clotureDemandee, setClotureDemandee] = useState(false);
+  const cloturer = useCallback(async (reference: string) => {
+    setClotureDemandee(false);
+    if (occupe) return;
+    setOccupe(true);
+    try {
+      const res = await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'cloture' }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { etat?: string; erreur?: string };
+      if (!res.ok || data.etat !== 'ok') { onGeste(data.erreur ?? 'Clôture impossible.'); return; }
+      onGeste(`Événement ${reference} : clôturé.`);
+      await lire();
+    } catch {
+      onGeste('Clôture impossible : le serveur n’a pas répondu.');
+    } finally {
+      setOccupe(false);
+    }
+  }, [occupe, evenementId, onGeste, lire]);
+  const questionCloture = confirmationCarte('cloture');
+
   if (etatVue.v === 'charge') return <p className="gst-info" role="status">Chargement du dossier…</p>;
   if (etatVue.v === 'erreur') {
     return (
@@ -716,7 +746,17 @@ function CorpsCarte({ evenementId, onDetail, onGeste, partage, onOuvrirBien, dej
         */}
       {partage ? null : (
         <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
-          onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />
+          onEtat={(e) => {
+            if (e === 'traite') { setClotureDemandee(true); return; }
+            void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`);
+          }} />
+      )}
+      {clotureDemandee && questionCloture !== null && (
+        <ModaleIssue sorte="attention" titre={questionCloture.titre} onFermer={() => setClotureDemandee(false)} notes={[questionCloture.question]}
+          actions={[
+            { libelle: 'Annuler', onClick: () => setClotureDemandee(false), repere: 'annuler-carte-borne' },
+            { libelle: questionCloture.valider, onClick: () => { void cloturer(d.reference); }, principal: true, repere: 'confirmer-carte-borne' },
+          ]} />
       )}
     </div>
   );

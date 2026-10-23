@@ -209,7 +209,9 @@ describe('🔴🔴 ③ Ouverture, Clôture, Réouverture : date du jour, centré
    */
   it('🔴🔴 la route impose le jour de pose à une carte de borne', () => {
     expect(ROUTE_FRISE).toContain('const survenuLe = dateAuCentre(type) ? jourDePose : String(corps.survenuLe ?? \'\');');
-    expect(ROUTE_FRISE).toContain("timeZone: 'Europe/Paris'");
+    /* Arno (23/10/2026) — le jour de pose (midi, Paris) vient de `jourDePoseParis`, partagé avec la route de modification. */
+    expect(ROUTE_FRISE).toContain('const jourDePose = jourDePoseParis();');
+    expect(readFileSync('app/lib/gestion/etatParLaFrise.ts', 'utf8')).toContain("timeZone: 'Europe/Paris'");
   });
 
   /** 🔴 ET LE CRAYON NE LA CHANGE PAS — la date enregistrée est relue et réécrite telle quelle (point 7). */

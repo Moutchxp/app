@@ -179,6 +179,29 @@ export function sqlBornesDeLEvenement(alias: string): string {
               AND (${sqlCarteDeLEvenement('svv_brn', alias)})`;
 }
 
+/**
+ * ══ 🔴🔴 L'INSTANT D'UNE BORNE POSÉE À LA MAIN : TOUJOURS APRÈS LA DERNIÈRE BORNE (Arno, 23/10/2026) ═══════════════
+ *
+ * CONSTAT D'ARNO EN PRODUCTION : « Avis de passage désinsectisation » était à l'étape « Clôture 23/10/2026 » et restait dans le
+ * bloc « Événements ». LA CAUSE : une borne était datée du jour de sa pose À MIDI. L'événement avait été créé le même jour APRÈS
+ * midi : son ouverture (14 h 05) venait donc APRÈS la clôture (12 h 00) dans l'ordre des bornes, et la période restait ouverte.
+ *
+ * 🔴 LA RÈGLE : l'instant voulu (midi du jour de pose), ou une seconde après la dernière borne de l'événement si elle est plus
+ * tardive. Une clôture posée ferme donc TOUJOURS la période en cours. `evenements` est une liste SQL d'identifiants
+ * d'événements (une carte Monga peut en avoir plusieurs) ; `carteExclue` est la carte qu'on réécrit (`-1` pour une carte neuve —
+ * JAMAIS 0 : 0 est l'ouverture dérivée de `ouvert_le`, celle-là même du constat d'Arno, qui doit compter). `GREATEST` ignore un `NULL` (aucune borne). Aucun accent dans le SQL émis.
+ */
+export function jourDePoseParis(maintenant: Date = new Date()): string {
+  return `${maintenant.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' })}T12:00`;
+}
+
+export function sqlInstantDeBorne(evenements: string, carteExclue: string, voulu: string): string {
+  return `GREATEST(${voulu}, (SELECT max(svv_db.quand) + interval '1 second'
+                                FROM gestion_evenement svv_ev
+                                CROSS JOIN LATERAL (${sqlBornesDeLEvenement('svv_ev')}) svv_db
+                               WHERE svv_ev.id IN (${evenements}) AND svv_db.carte <> ${carteExclue}))`;
+}
+
 /** « Cette carte est sur la frise de cet événement » — les deux voies, écrites une fois. */
 function sqlCarteDeLEvenement(carte: string, alias: string): string {
   return `${carte}.evenement_id = ${alias}.id
@@ -376,6 +399,42 @@ export function etatApresCarteSelonLaFrise(ouvertApres: boolean): 'traite' | 'en
 export function questionAvantRetrait(type: TypeEtape, evenementOuvert: boolean): string | null {
   if (sensDeLaBorne(type) !== 'ferme' || evenementOuvert) return null;
   return 'Supprimer cette clôture rouvrira l’événement.';
+}
+
+/**
+ * ══ 🔴🔴 LE PLI, EN TYPESCRIPT PUR : « CE RETRAIT CLÔTURERAIT-IL L'ÉVÉNEMENT ? » (Arno, 23/10/2026) ═════════════════
+ *
+ * Retirer une Réouverture (ou l'Ouverture) peut remettre l'événement à l'étape « Clôture » : c'est un passage à la clôture
+ * comme un autre, et il demande la même modale. L'écran le sait AVANT d'agir, sur les cartes qu'il affiche.
+ *
+ * 🔴 LA MÊME RÈGLE QUE LE SQL (`sqlBornesDeLEvenement` + `sqlPeriodes`) : bornes vives non écartées, clôture « à confirmer »
+ * ignorée, ouverture dérivée (`ouvertLe`, rang 999, carte 0) tant qu'aucune carte Ouverture ne compte ; ordre (instant, rang,
+ * carte). Le pli se résume alors à une phrase : l'événement est ouvert ssi sa DERNIÈRE borne ouvre.
+ */
+export interface BorneDeFrise { id: number; type: TypeEtape; certitude: string; survenuLe: string }
+
+/** Un horodatage de la base (`2026-10-23 12:00:00+02`) lu partout — Safari refuse l'espace et le fuseau sur deux chiffres. */
+function instantDe(s: string): number {
+  const iso = s.trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+  const n = Date.parse(iso);
+  return Number.isNaN(n) ? Date.parse(s) : n;
+}
+
+export function ouvertSelonLesBornes(cartes: readonly BorneDeFrise[], ouvertLe: string | null): boolean {
+  const comptees = cartes.filter((c) => borneCompte(c.type, c.certitude))
+    .map((c) => ({ quand: instantDe(c.survenuLe), rang: rangDeLaBorne(c.type), carte: c.id, sens: sensDeLaBorne(c.type) }));
+  const ouvertureCarte = cartes.some((c) => c.type === 'ouverture' && c.certitude !== CERTITUDE_ECARTEE);
+  if (!ouvertureCarte && ouvertLe !== null) {
+    comptees.push({ quand: instantDe(ouvertLe), rang: RANG_OUVERTURE_DERIVEE, carte: 0, sens: 'ouvre' });
+  }
+  if (comptees.length === 0) return false;
+  comptees.sort((a, b) => a.quand - b.quand || a.rang - b.rang || a.carte - b.carte);
+  return comptees[comptees.length - 1].sens === 'ouvre';
+}
+
+/** Vrai si retirer la carte `id` fait passer l'événement d'ouvert à clos. */
+export function retraitCloturerait(cartes: readonly BorneDeFrise[], ouvertLe: string | null, id: number): boolean {
+  return ouvertSelonLesBornes(cartes, ouvertLe) && !ouvertSelonLesBornes(cartes.filter((c) => c.id !== id), ouvertLe);
 }
 
 /**
