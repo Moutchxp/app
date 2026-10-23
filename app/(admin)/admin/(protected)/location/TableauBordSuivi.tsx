@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
@@ -584,14 +584,75 @@ export function MouvementsGestion({ periode, nouveaux, sortis }: { periode: stri
   );
 }
 
-function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
+/**
+ * Arno (23/10/2026) — « Année par année » DÉFILE quand les années ne tiennent plus : la largeur d'une année est FIXE (celle d'aujourd'hui,
+ * avec 8 années : (640 − 56 − 12) / 8 unités du dessin) — on n'écrase jamais les barres. Tant que tout tient, rien ne change.
+ */
+export const PAS_ANNEE_FIXE = (640 - 56 - 12) / 8;
+/** Le graphique défile-t-il ? Oui dès que les barres, à leur largeur fixe, dépassent le dessin. PUR. */
+export const histogrammeDefile = (nbBarres: number, pasFixe: number | undefined): boolean => pasFixe !== undefined && 56 + 12 + nbBarres * pasFixe > 640 + 1e-9;
+
+export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe }: {
   barres: readonly Barre[]; courante: number; onChoisir: (cle: number) => void; attribut: string; legende?: { courant: string; n1: string | null }; aria: string;
+  /** La largeur FIXE d'une barre (unités du dessin) : au-delà de ce qui tient, le graphique défile (« Année par année »). */
+  pasFixe?: number;
 }) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
   const [survol, setSurvol] = useState<number | null>(null);
   const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null);
+  // L'échelle est calculée sur TOUTES les barres, défilement ou non.
   const max = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
-  const pas = (L - m.g - m.d) / barres.length;
+  const defile = histogrammeDefile(barres.length, pasFixe);
+  const pas = defile ? (pasFixe as number) : (L - m.g - m.d) / barres.length;
+  /* ── LE DÉFILEMENT (Arno, 23/10/2026) : glisser à la souris, molette / pavé horizontal et doigt (natifs), flèches ‹ ›, clavier. */
+  const piste = useRef<HTMLDivElement | null>(null);
+  const [bords, setBords] = useState({ g: false, d: false });
+  const mesurer = useCallback((): void => {
+    const el = piste.current;
+    if (el === null) return;
+    setBords({ g: el.scrollLeft > 1, d: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
+  }, []);
+  const allerA = useCallback((gauche: number): void => {
+    const el = piste.current;
+    if (el === null) return;
+    const x = Math.max(0, Math.min(gauche, el.scrollWidth - el.clientWidth));
+    if (typeof el.scrollTo === 'function') el.scrollTo({ left: x }); else el.scrollLeft = x;
+    mesurer();
+  }, [mesurer]);
+  const iCourante = barres.findIndex((b) => b.cle === courante);
+  const largeurDessin = barres.length * pas + m.d;
+  // À l'ouverture, et chaque fois que la période choisie change (filtre, tableau, barre) : le graphique se pose sur elle.
+  useEffect(() => {
+    if (!defile || piste.current === null || iCourante < 0) return;
+    const el = piste.current;
+    allerA(((iCourante * pas + pas / 2) / largeurDessin) * el.scrollWidth - el.clientWidth / 2);
+  }, [defile, iCourante, pas, largeurDessin, allerA]);
+  useEffect(() => {
+    if (!defile) return undefined;
+    const surTaille = (): void => mesurer();
+    window.addEventListener('resize', surTaille);
+    return () => window.removeEventListener('resize', surTaille);
+  }, [defile, mesurer]);
+  const tire = useRef<{ x: number; depart: number; bouge: boolean } | null>(null);
+  const [enTirage, setEnTirage] = useState(false);
+  const commencerTirage = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || piste.current === null) return;
+    tire.current = { x: e.clientX, depart: piste.current.scrollLeft, bouge: false };
+    const bouger = (ev: PointerEvent): void => {
+      const t = tire.current; const el = piste.current;
+      if (t === null || el === null) return;
+      if (Math.abs(ev.clientX - t.x) > 4) { t.bouge = true; setEnTirage(true); }
+      if (t.bouge) { el.scrollLeft = t.depart - (ev.clientX - t.x); mesurer(); }
+    };
+    const lacher = (): void => {
+      window.removeEventListener('pointermove', bouger); window.removeEventListener('pointerup', lacher);
+      setEnTirage(false);
+      // Le clic qui suit un glisser n'ouvre pas la barre sous la souris.
+      setTimeout(() => { tire.current = null; }, 0);
+    };
+    window.addEventListener('pointermove', bouger); window.addEventListener('pointerup', lacher);
+  };
+  const pasPx = (): number => (piste.current === null ? 0 : piste.current.scrollWidth / Math.max(1, barres.length));
   const y = (v: number): number => H - m.b - (v * (H - m.h - m.b)) / max;
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
   const largeur = pas * (avecN1 ? 0.36 : 0.64);
@@ -599,6 +660,65 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
   const iSurvol = survol === null ? -1 : barres.findIndex((b) => b.cle === survol);
   // Arno (23/10/2026) — le détail À DROITE du graphique : la période choisie par défaut, la barre survolée tant qu'on la survole.
   const detail = iSurvol >= 0 ? barres[iSurvol] : choisie;
+  if (defile) {
+    // Le dessin des barres commence à 0 : l'axe des montants est dessiné À PART, fixe à gauche, à la même échelle.
+    const yD = y;
+    return (
+      <figure className="tdb-courbe tdb-histo" data-courbe={attribut.replace(/^data-barre-/, '')} data-histo-defile="oui">
+        <div className="tdb-histo-rangee" data-histo-rangee>
+        <div className="tdb-histo-graphe">
+          <div className="tdb-histo-defile" style={{ gridTemplateColumns: `${(m.g / L) * 100}% minmax(0,1fr)` }}>
+            <svg className="tdb-histo-axe" viewBox={`0 0 ${m.g} ${H}`} aria-hidden="true" data-histo-axe>
+              {graduations.map((g) => <text key={g} x={m.g - 6} y={yD(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text>)}
+            </svg>
+            <div className="tdb-histo-cadre">
+              <button type="button" className="tdb-fleche-histo tdb-fleche-histo--g" aria-label="Années précédentes" disabled={!bords.g} data-histo-fleche="g"
+                onClick={() => allerA((piste.current?.scrollLeft ?? 0) - pasPx() * 3)}>‹</button>
+              <div className={`tdb-histo-piste${enTirage ? ' tdb-histo-piste--tire' : ''}`} ref={piste} tabIndex={0} role="group" data-histo-piste
+                aria-label={`${aria} — faire défiler avec les flèches`} onScroll={mesurer} onPointerDown={commencerTirage}
+                onClickCapture={(e) => { if (tire.current?.bouge) { e.stopPropagation(); e.preventDefault(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); allerA((piste.current?.scrollLeft ?? 0) + (e.key === 'ArrowLeft' ? -1 : 1) * pasPx()); }
+                }}>
+                <div className="tdb-histo-zone" style={{ width: `${(largeurDessin / (L - m.g)) * 100}%` }} onMouseLeave={() => setSurvol(null)}>
+                  <svg viewBox={`0 0 ${largeurDessin} ${H}`} role="img" aria-label={aria}>
+                    <defs><pattern id={`hachures-${attribut}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                      <rect width="6" height="6" className="tdb-barre-n1-fond" /><line x1="0" y1="0" x2="0" y2="6" className="tdb-barre-n1-trait" /></pattern></defs>
+                    {graduations.map((g) => <line key={g} x1={0} x2={largeurDessin - m.d} y1={yD(g)} y2={yD(g)} className="tdb-grille" />)}
+                    {barres.map((b, i) => {
+                      const x0 = i * pas + pas * (avecN1 ? 0.12 : 0.18);
+                      return (
+                        <g key={b.cle} className="tdb-barre-annee" onClick={() => onChoisir(b.cle)} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+                          <rect x={i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
+                          {avecN1 && b.n1 !== undefined && b.n1 !== null && (
+                            <rect x={x0 + largeur} y={yD(b.n1)} width={largeur} height={Math.max(0, H - m.b - yD(b.n1))} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
+                          )}
+                          {b.valeur !== null && <rect x={x0} y={yD(b.valeur)} width={largeur} height={Math.max(0, H - m.b - yD(b.valeur))}
+                            className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />}
+                          <text x={i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{b.libelle}</text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                  {iSurvol >= 0 && (
+                    <div className="tdb-bulle-ancre" style={{ left: `${Math.min(92, Math.max(8, ((iSurvol * pas + pas / 2) / largeurDessin) * 100))}%` }} role="tooltip">
+                      <BulleBarre info={barres[iSurvol].info} />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button type="button" className="tdb-fleche-histo tdb-fleche-histo--d" aria-label="Années suivantes" disabled={!bords.d} data-histo-fleche="d"
+                onClick={() => allerA((piste.current?.scrollLeft ?? 0) + pasPx() * 3)}>›</button>
+            </div>
+          </div>
+          {legende && <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
+            {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
+        </div>
+        {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
+        </div>
+      </figure>
+    );
+  }
   return (
     <figure className="tdb-courbe tdb-histo" data-courbe={attribut.replace(/^data-barre-/, '')}>
       <div className="tdb-histo-rangee" data-histo-rangee>
@@ -642,8 +762,9 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
 }
 
 /** H — le CA HT de chaque année d'activité (barres) ; l'année affichée est en couleur ; une barre ouvre son année. */
-function CourbeAnnees({ lignes, annee, onAnnee }: { lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void }) {
-  return <Histogramme attribut="data-barre-annee" courante={annee} onChoisir={onAnnee} aria={`CA HT par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
+export function CourbeAnnees({ lignes, annee, onAnnee }: { lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void }) {
+  // Arno (23/10/2026) : une largeur d'année FIXE — chaque nouvelle année ajoute une barre, et le graphique défile quand elles ne tiennent plus.
+  return <Histogramme attribut="data-barre-annee" courante={annee} onChoisir={onAnnee} pasFixe={PAS_ANNEE_FIXE} aria={`CA HT par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
     barres={lignes.map((l, i) => {
       const p = i > 0 && lignes[i - 1].annee === l.annee - 1 ? lignes[i - 1] : null;
       return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre: `Année ${l.annee}`, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux },
@@ -740,6 +861,19 @@ export const CSS_TABLEAU_BORD = `
 .tdb-histo{max-width:none}
 .tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;align-items:start}
 .tdb-histo-graphe{min-width:0}
+.tdb-histo-defile{display:grid;align-items:start;min-width:0}
+.tdb-histo-axe{width:100%;height:auto;display:block}
+.tdb-histo-cadre{position:relative;min-width:0}
+.tdb-histo-piste{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;cursor:grab;overscroll-behavior-x:contain}
+.tdb-histo-piste:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.tdb-histo-piste--tire{cursor:grabbing;user-select:none}
+.tdb-histo-piste .tdb-histo-zone{position:relative}
+.tdb-fleche-histo{position:absolute;top:38%;z-index:3;width:36px;height:44px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;font-weight:800;cursor:pointer;box-shadow:0 6px 16px -8px color-mix(in srgb, var(--color-svv-ink) 40%, transparent)}
+.tdb-fleche-histo--g{left:4px}
+.tdb-fleche-histo--d{right:4px}
+.tdb-fleche-histo:disabled{opacity:.35;cursor:default;box-shadow:none}
+.tdb-fleche-histo:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+@media (max-width:640px){ .tdb-fleche-histo{width:30px;height:40px;top:22%;font-size:1.1rem;background:color-mix(in srgb, var(--color-svv-surface) 85%, transparent)} .tdb-fleche-histo:disabled{opacity:.25} }
 .tdb-histo-detail .tdb-bulle--sous{display:block;margin-top:0;width:100%;box-sizing:border-box;font-size:.88rem}
 @media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);gap:8px} }
 /* Les signes : les memes vert / rouge / gris que le reste de l'interface (jetons du theme). */
