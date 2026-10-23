@@ -71,6 +71,31 @@ const saisir = async (el: Element | null, v: string) => {
   });
 };
 
+describe('🔴 Arno (23/10/2026) — les gestes de statut sur la LIGNE DU TITRE, alignés à droite', () => {
+  it('dans chaque statut, les boutons sont dans la ligne « Statut du bien » + pastille + « depuis le » ; « Dossier Drive » reste dessous', async () => {
+    drive = { disponible: true, etat: { etat: 'ok', libelleAttendu: 'Biens en gestion › N5' } };
+    for (const [statut, attendus] of [['en_gestion', ['Sortie de gestion']], ['location_seule', ['Passer en gestion']],
+      ['ancienne_gestion', ['Reprendre en gestion', 'Remettre en location seule']]] as const) {
+      act(() => racine.unmount()); racine = createRoot(hote);
+      lu = { statut };
+      await monter();
+      const ligne = hote.querySelector('.sdb-ligne')!;
+      expect([...ligne.querySelectorAll('[data-geste-statut]')].map((b) => b.textContent)).toEqual(attendus);
+      expect(gestes()).toEqual(attendus);   // aucun bouton ailleurs, aucun perdu
+      const enfants = [...hote.querySelector('.sdb')!.children].filter((e) => e.tagName !== 'STYLE');
+      expect(enfants[0]).toBe(ligne);
+      const drive = hote.querySelector('[data-drive-etat]');
+      if (drive !== null) expect(enfants.indexOf(drive)).toBeGreaterThan(0);
+    }
+  });
+  it('le style : poussé à droite, un peu moins haut ; sur téléphone, sous le titre, pleine largeur (44 px)', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/StatutDuBien.tsx', 'utf8');
+    expect(css).toContain('.sdb-gestes--tete{margin-left:auto;justify-content:flex-end;align-items:center}');
+    expect(css).toContain('.sdb-gestes--tete .sdb-geste{min-height:36px;padding-top:4px;padding-bottom:4px}');
+    expect(css).toContain('@media (max-width:600px){.sdb-gestes--tete{flex-basis:100%;margin-left:0}.sdb-gestes--tete .sdb-geste{width:100%;min-height:44px}}');
+  });
+});
+
 describe('🔴 le statut du bien sur sa fiche', () => {
   it('la pastille et sa teinte, la date ; chaque statut offre SES gestes', async () => {
     await monter();

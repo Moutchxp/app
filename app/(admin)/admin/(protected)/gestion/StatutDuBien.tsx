@@ -91,6 +91,18 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
         <PastilleStatut statut={lu.statut} archive={lu.archiveLe === undefined ? undefined : lu.archiveLe !== null} />
         {lu.depuis !== null && <span className="sdb-depuis">depuis le {dateFr(lu.depuis)}</span>}
         {lu.statut === 'ancienne_gestion' && lu.archiveLe && <span className="sdb-depuis">· archivé le {dateFr(lu.archiveLe)}</span>}
+        {/* 🔴 Arno (23/10/2026) — les gestes de statut (« Sortie de gestion », « Reprendre en gestion », …) sur la LIGNE DU TITRE,
+            alignés à droite et centrés avec lui : la ligne qu'ils occupaient disparaît. Sur téléphone, sous le titre, pleine largeur.
+            Mêmes boutons, mêmes gestes : seule leur place change. */}
+        {modifiable && lu.gestes.length > 0 && (
+          <div className="sdb-gestes sdb-gestes--tete">
+            {lu.gestes.map((g) => (
+              <button key={g.cle} type="button" className="svv-btn svv-btn-outline gst-btn sdb-geste" data-geste-statut={g.cle} onClick={() => setGeste(g)}>
+                {g.libelle}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {lu.suitLot !== null && (
         <p className="sdb-suit" data-statut-suit={lu.suitLot.id}>
@@ -98,15 +110,6 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
           {' '}{onOuvrir ? <button type="button" className="sdb-lien" onClick={() => onOuvrir(lu.suitLot!.id)}>{lu.suitLot.adresse ?? `bien ${lu.suitLot.id}`}</button>
             : <strong>{lu.suitLot.adresse ?? `bien ${lu.suitLot.id}`}</strong>}.
         </p>
-      )}
-      {modifiable && lu.gestes.length > 0 && (
-        <div className="sdb-gestes">
-          {lu.gestes.map((g) => (
-            <button key={g.cle} type="button" className="svv-btn svv-btn-outline gst-btn sdb-geste" data-geste-statut={g.cle} onClick={() => setGeste(g)}>
-              {g.libelle}
-            </button>
-          ))}
-        </div>
       )}
       {lu.suitLot === null && <DossierDriveDuBien key={cleDrive} lotId={lotId} modifiable={modifiable} />}
       {note.length > 0 && <div className="sdb-notes" role="status">{note.map((n) => <p key={n}>{n}</p>)}</div>}
@@ -320,6 +323,9 @@ export const CSS_STATUT_DU_BIEN = `
 .sdb-lien{background:none;border:0;padding:0;color:var(--color-svv-ink);font-weight:700;text-decoration:underline;cursor:pointer;font:inherit}
 .sdb-gestes{display:flex;flex-wrap:wrap;gap:8px}
 .sdb-gestes .sdb-geste{min-height:44px;width:auto;margin:0}
+.sdb-gestes--tete{margin-left:auto;justify-content:flex-end;align-items:center}
+.sdb-gestes--tete .sdb-geste{min-height:36px;padding-top:4px;padding-bottom:4px}
+@media (max-width:600px){.sdb-gestes--tete{flex-basis:100%;margin-left:0}.sdb-gestes--tete .sdb-geste{width:100%;min-height:44px}}
 .sdb-notes p{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-ink);overflow-wrap:anywhere}
 .sdb-notes{display:flex;flex-direction:column;gap:6px}
 .sdb-form{display:flex;flex-direction:column;gap:12px;min-width:0}
