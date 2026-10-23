@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { assainirHtml, htmlVersTexte } from '../../../../lib/gestion/htmlMail';
 // 🔴 LOT SOMBRE-ET-RECHERCHE — relever le texte sombre À L'ÉCRAN, et le retirer de tout ce qui remonte.
 import { CSS_LISIBILITE_SOMBRE, htmlSansMarques, useLisibiliteSombre } from './lisibiliteSombre';
+import { natureDuCollage } from '../../../../lib/gestion/depotPieces';
 
 /**
  * LOT REDACTION-GMAIL — LE CORPS EN TEXTE MIS EN FORME, ET SA BARRE D'OUTILS.
@@ -277,6 +278,9 @@ export function EditeurRiche({
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const texte = e.clipboardData.getData('text/plain');
+    /* 🔴 Arno (23/10/2026) — une image ou un fichier collé n'est PAS du texte : il devient une pièce jointe (le bloc d'écriture le
+       reçoit, `useDepotPieces`). On n'insère rien — surtout pas le nom du fichier que le Finder met en texte brut. */
+    if (natureDuCollage({ nbFichiers: e.clipboardData.files?.length ?? 0, html }) === 'fichiers') return;
     if (html.trim() !== '') {
       agir('insertHTML', assainirHtml(html));
     } else if (texte !== '') {

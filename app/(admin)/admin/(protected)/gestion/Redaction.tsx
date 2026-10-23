@@ -10,7 +10,8 @@ import {
   DELTA_BROUILLON_ABANDONNE, DELTA_BROUILLON_CORBEILLE, DELTA_BROUILLON_RESTAURE, DELTA_ENVOI,
   type DeltaCompteurs,
 } from '../../../../lib/gestion/compteursColonne';
-import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
+import { CSS_PIECES_BROUILLON, PiecesBrouillon, type PoigneePieces } from './PiecesBrouillon';
+import { CSS_DEPOT_PIECES, useDepotPieces } from './DepotPieces';
 /* 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la MÊME visionneuse que la lecture d'un mail, ouverte par
    l'œil d'une vignette de l'éditeur. En écrire une seconde aurait fait deux écrans à corriger au premier défaut. */
 import { ApercuFichierDrive } from './ApercuFichierDrive';
@@ -1129,6 +1130,16 @@ export function Redaction({
    * pendant qu'on écrit, et le curseur reviendrait au début du texte.
    */
   const racine = useRef<HTMLElement | null>(null);
+  /**
+   * 🔴🔴 Arno (23/10/2026) — GLISSER-DÉPOSER ET COLLER DES FICHIERS N'IMPORTE OÙ SUR LE BLOC (texte, objet, destinataires) : ils
+   * rejoignent les pièces jointes par le MÊME ajout que « Joindre » (`PiecesBrouillon`, sa poignée). Actif seulement quand la base
+   * sait garder les pièces — exactement la condition qui affiche le bouton.
+   */
+  const poigneePieces = useRef<PoigneePieces | null>(null);
+  const depot = useDepotPieces({
+    actif: contexte.piecesDisponibles === true,
+    onFichiers: (f) => poigneePieces.current?.deposer(f),
+  });
   const [ouvre, setOuvre] = useState(true);
   /**
    * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LES TROIS CLÉS DE L'ÉDITEUR LISENT LE MODE DE NAISSANCE. Elles lisaient
@@ -2329,9 +2340,11 @@ export function Redaction({
   const unBienChoisi = ((brouillon.cibles ?? []) as CibleBrouillon[]).some((c) => c.sorte === 'lot');
 
   return (
-    <section className={`red${ouvre ? ' red--ouvre' : ''}${plein ? ' red--plein' : ''}`}
-      aria-label={titre} ref={racine}>
+    <section className={`red pjd-cible${ouvre ? ' red--ouvre' : ''}${plein ? ' red--plein' : ''}`}
+      aria-label={titre} ref={racine} {...depot.proprietes}>
       <style>{CSS_REDACTION}</style>
+      <style>{CSS_DEPOT_PIECES}</style>
+      {depot.calque}
       <style>{CSS_EDITEUR_RICHE}</style>
       <style>{CSS_CHAMP_CLASSEMENT}</style>
       <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
@@ -2709,6 +2722,7 @@ export function Redaction({
           joindre un fichier qu'on ne saurait pas retenir ferait perdre le fichier ET le message. */}
       {contexte.piecesDisponibles && (
         <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes}
+          poignee={poigneePieces} depotExterieur
           onBesoinDeBrouillon={assurerBrouillon}
           /* 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — les pièces reprises du message d'origine ne vivent qu'en
              Transférer. Elles n'existent que sur un brouillon qui a été un transfert : ailleurs, rien ne change. */

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { motDoublon, sansDoublons } from '../../../../lib/gestion/depotPieces';
 import {
   AIDE_PIECE_INDISPONIBLE, MENTION_NON_ENVOYEE, MENTION_PIECE_INDISPONIBLE, motCasesPieces, motToutCocher,
   piecesCochees, tailleQuiPartira, TAILLE_MAX_TOTALE, taillePourHumain, verifierPiece,
@@ -42,6 +43,12 @@ import { Oeil } from './Oeil';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * 🔴 Arno (23/10/2026) — LA POIGNÉE DU DÉPÔT : le bloc d'écriture (`Redaction`, crochet `useDepotPieces`) y verse les fichiers
+ * glissés ou collés n'importe où sur lui. Ils passent par le MÊME ajout que le bouton « Joindre », doublons écartés.
+ */
+export interface PoigneePieces { deposer: (fichiers: File[]) => void }
+
 /** Une pièce déjà envoyée depuis l'ordinateur, telle que la route des « Récents » la rend. */
 interface PieceRecente {
   cle: string;
@@ -50,7 +57,16 @@ interface PieceRecente {
   tailleOctets: number | null;
 }
 
-export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions, onVisualiser, masquerReprises = false }: {
+export function PiecesBrouillon({
+  brouillonId, onChange, onBesoinDeBrouillon, actions, onVisualiser, masquerReprises = false, poignee, depotExterieur = false,
+}: {
+  /** 🔴 Arno (23/10/2026) — reçoit les fichiers déposés / collés sur tout le bloc d'écriture. Absent ⇒ comportement d'avant. */
+  poignee?: React.Ref<PoigneePieces>;
+  /**
+   * Vrai ⇒ le glisser-déposer est tenu par le bloc d'écriture entier (qui l'englobe) : cette zone ne le traite plus elle-même,
+   * sans quoi un fichier lâché ici serait joint deux fois. Le dépôt sur cette zone marche toujours — c'est le bloc qui le reçoit.
+   */
+  depotExterieur?: boolean;
   /**
    * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LES PIÈCES REPRISES DU MESSAGE D'ORIGINE N'EXISTENT QU'EN TRANSFÉRER.
    * Vrai ⇒ elles ne sont ni montrées, ni comptées, ni pesées (l'envoi ne les prend pas non plus : voir
@@ -140,7 +156,7 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
     return (await onBesoinDeBrouillon?.()) ?? null;
   };
 
-  const ajouter = async (fichiers: FileList | File[]): Promise<void> => {
+  const ajouter = async (fichiers: FileList | File[], o: { sansDoublon?: boolean } = {}): Promise<void> => {
     /**
      * 🔴 LA LISTE EST COPIÉE AVANT TOUT `await`, ET CE N'EST PAS UNE PRÉCAUTION DÉCORATIVE.
      *
@@ -151,9 +167,16 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
      * demande, il y a un `await` avant : sans cette copie, la liste était VIDE au moment de la lire, aucune
      * requête ne partait, et l'écran n'affichait ni pièce ni erreur. Mesuré dans Chrome avant correction.
      */
-    const lot = Array.from(fichiers);
+    const tous = Array.from(fichiers);
+    /* 🔴 Arno (23/10/2026) — déposé ou collé : pas de doublon (même nom, même taille qu'une pièce jointe ou du même dépôt). */
+    const { gardes, doublons } = o.sansDoublon === true
+      ? sansDoublons(tous, pieces.map((p) => ({ nom: p.nom, taille: p.taille })))
+      : { gardes: tous, doublons: [] as File[] };
+    const motifs: string[] = doublons.map((f) => motDoublon(f.name));
+    const lot = gardes;
     setOccupe(true);
     setMessage(null);
+    if (lot.length === 0) { setMessage(motifs.join(' ')); setOccupe(false); return; }
     const id = await brouillonPret();
     if (id === null) {
       setMessage('Le brouillon n’a pas pu être créé : la pièce n’a pas été jointe.');
@@ -164,21 +187,24 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
     for (const f of lot) {
       // ① LA RÈGLE, AVANT L'ENVOI : inutile de pousser 30 Mo pour se les faire refuser.
       const verdict = verifierPiece({ nom: f.name, taille: f.size, dejaJoint: courant });
-      if (!verdict.ok) { setMessage(verdict.motif); continue; }
+      if (!verdict.ok) { motifs.push(verdict.motif); continue; }
       const corps = new FormData();
       corps.append('fichier', f);
       try {
         const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
         const d = (await res.json()) as { etat?: string; message?: string };
-        if (d.etat !== 'ok') { setMessage(d.message ?? 'Cette pièce n’a pas pu être jointe.'); continue; }
+        if (d.etat !== 'ok') { motifs.push(d.message ?? 'Cette pièce n’a pas pu être jointe.'); continue; }
         courant += f.size;
       } catch {
-        setMessage('La pièce n’a pas pu être jointe : le serveur n’a pas répondu.');
+        motifs.push('La pièce n’a pas pu être jointe : le serveur n’a pas répondu.');
       }
     }
+    /* Plusieurs fichiers d'un coup : CHAQUE refus est dit (avant, seul le dernier restait affiché). */
+    if (motifs.length > 0) setMessage(motifs.join(' '));
     await relire();
     setOccupe(false);
   };
+  useImperativeHandle(poignee, () => ({ deposer: (f: File[]) => { void ajouter(f, { sansDoublon: true }); } }));
 
   /**
    * REJOINDRE UNE PIÈCE DÉJÀ ENVOYÉE. Les octets sont chez nous : on ne redemande rien au Mac.
@@ -259,9 +285,9 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
   return (
     <div
       className={`pjb${survol ? ' pjb--survol' : ''}`}
-      onDragOver={(e) => { e.preventDefault(); setSurvol(true); }}
-      onDragLeave={() => setSurvol(false)}
-      onDrop={(e) => {
+      onDragOver={depotExterieur ? undefined : (e) => { e.preventDefault(); setSurvol(true); }}
+      onDragLeave={depotExterieur ? undefined : () => setSurvol(false)}
+      onDrop={depotExterieur ? undefined : (e) => {
         e.preventDefault();
         setSurvol(false);
         if (e.dataTransfer.files.length > 0) void ajouter(e.dataTransfer.files);
