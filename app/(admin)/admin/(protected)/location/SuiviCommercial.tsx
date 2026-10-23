@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  aRattacher, aujourdhuiParis, type Apporteur, type CasGestion, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
+  aRattacher, aujourdhuiParis, type Apporteur, type CasGestion, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
   lireMontant, lireTauxPourcent, type ModePrime, motPrimeDejaVersee, type Origine, originesProposees, type OrigineContact, pourcent,
   PRECISION_ORIGINE_MAX, preremplissageGestion, type RegleCommission,
   type SaisieActivite, ttcVersHt, TYPES_APPORTEUR, type TypeApporteur, verifierActivite, versionADate,
@@ -204,22 +204,6 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const regleDuJour = versionADate(lu.regles, dateRef);
   const primeRegle = regleDuJour === null ? 150 : (s.categoriePrime ?? deduit?.categoriePrime ?? 'logement') === 'parking' ? regleDuJour.primeParking : regleDuJour.primeLogement;
   const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-  const origine = (cote: 'proprietaire' | 'locataire') => {
-    const d = cote === 'proprietaire' ? deduit?.origineProprietaire ?? null : deduit?.origineLocataire ?? null;
-    const saisie = cote === 'proprietaire' ? s.origineProprietaire : s.origineLocataire;
-    return (
-      <label className="loc-champ" data-origine={cote}>{cote === 'proprietaire' ? 'Propriétaire' : 'Locataire'}
-        <select value={saisie ?? ''} onChange={(e) => {
-          const v = e.target.value === '' ? null : e.target.value as Origine;
-          poser(cote === 'proprietaire' ? { origineProprietaire: v } : { origineLocataire: v });
-        }}>
-          <option value="">{d === null ? 'Déduit à l’enregistrement' : `Déduit : ${LIBELLE_ORIGINE[d]}`}</option>
-          <option value="nouveau">{LIBELLE_ORIGINE.nouveau} (corrigé)</option>
-          <option value="deja">{LIBELLE_ORIGINE.deja} (corrigé)</option>
-        </select>
-      </label>
-    );
-  };
 
   const primeBloquee = deduit?.primeDejaVersee ?? null;
   /* 🔴 Arno (24/10/2026) — les deux cases sont EXCLUSIVES : cocher l'une décoche l'autre. La prime suit « Nouveau mandat ». */
@@ -247,12 +231,12 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       </div>
       {/* ── Ligne 2 : les deux cases (exclusives) · prime de gestion · prime de nouvelle gestion (toujours visibles) ── */}
       <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="2">
-        <div className="loc-champ">{libelle('Gestion')}
+        <div className="loc-champ">{libelle('Portefeuille de gestion')}
           <label className={`loc-suivi-case${s.avecGestion ? ' loc-suivi-case--cochee' : ''}`}>
             <input type="checkbox" checked={s.avecGestion} onChange={(e) => cocherGestion(e.target.checked)} data-avec-gestion />
-            <span>Bien en gestion chez nous</span></label>
+            <span>Relocation</span></label>
           {deduit !== null && <small className="loc-muet">D’après la fiche du bien : {deduit.avecGestion ? 'en gestion' : 'pas en gestion'}.</small>}</div>
-        <div className="loc-champ">{libelle('Nouveau mandat')}
+        <div className="loc-champ">{libelle('Nouvelle gestion')}
           <label className={`loc-suivi-case${s.mandatGestion ? ' loc-suivi-case--cochee' : ''}${primeBloquee !== null && !s.mandatGestion ? ' loc-suivi-case--inactive' : ''}`}>
             <input type="checkbox" checked={s.mandatGestion} disabled={primeBloquee !== null && !s.mandatGestion} onChange={(e) => cocherMandat(e.target.checked)} data-mandat-gestion />
             <span>Nouveau mandat de gestion signé (prime)</span></label>
@@ -291,7 +275,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       </div>
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
-        <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
+        <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
           {annuaire && (
             <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
               <select value={s.origineContact ?? ''} required data-origine-contact
@@ -387,10 +371,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           </div>
         </div>
       )}
-      <fieldset className="loc-suivi-origine">
-        <legend>Origine client</legend>
-        <div className="loc-grille">{origine('proprietaire')}{origine('locataire')}</div>
-      </fieldset>
+      {/* 🔴 Arno (24/10/2026, accord explicite) — le bloc « Origine client » (Propriétaire / Locataire) est retiré du formulaire :
+          l'origine client reste DÉDUITE à l'enregistrement (`deduireOrigines`), affichée et filtrable dans le Suivi et les exports. */}
       {manque}
     </div>
   );
@@ -398,11 +380,23 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
 
 export const CSS_SUIVI_COMMERCIAL = `
 .loc-suivi{display:flex;flex-direction:column;gap:12px}
-.loc-suivi select,.loc-suivi input:not([type=checkbox]){min-height:44px}
+:where(.loc-suivi) select,:where(.loc-suivi) input:not([type=checkbox]){min-height:44px}
 /* Arno (24/10/2026) — PRESENTATION HOMOGENE : les libelles d'une ligne sur la meme ligne de base (meme boite, meme hauteur), les
    champs alignes en haut ; la liste du negociateur (ListeChoix) et les cases prennent l'allure des autres champs du bloc. */
-.loc-suivi-ligne{align-items:start}
-.loc-suivi-libelle{display:flex;align-items:center;gap:8px;min-height:1.6em;line-height:1.3}
+.loc-suivi-ligne,.loc-ample .loc-grille.loc-suivi-ligne{align-items:start}
+/* Arno (24/10/2026) — RELIEF : chaque ligne sur une trame gris clair arrondie (en sombre : un peu plus claire que le fond) ; les
+   champs restent sur leur fond (blanc en clair). */
+.loc-suivi-ligne{background:var(--color-svv-field);border-radius:16px;padding:12px 14px}
+/* La ligne 4 (origine du contact propriétaire / apporteur) : DEUX colonnes fixes — l'origine garde sa demi-ligne, que l'apporteur
+   (ou le texte de « Personnalisé ») soit là ou non ; rien ne saute. Une colonne au telephone. */
+.loc-suivi-ligne--deux,.loc-ample .loc-grille.loc-suivi-ligne--deux{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:640px){.loc-suivi-ligne--deux,.loc-ample .loc-grille.loc-suivi-ligne--deux{grid-template-columns:minmax(0,1fr)}}
+/* Tous les libelles ont la MEME hauteur, celle du bouton « Ouvrir l'annuaire » : les libelles d'une ligne restent sur la meme ligne
+   de base et les champs a la meme hauteur, bouton ou non. */
+.loc-suivi-libelle{display:flex;align-items:center;gap:8px;min-height:32px;line-height:1.3}
+/* Au repos (et apres un choix a la souris), la bordure grise des autres champs ; l'encre n'apparait qu'au focus clavier. */
+.loc-ample .loc-suivi .loc-champ input:focus:not(:focus-visible),.loc-ample .loc-suivi .loc-champ select:focus:not(:focus-visible){border-color:var(--color-svv-line)}
+.loc-suivi .loc-champ small{font-size:.78rem}
 .loc-suivi-libelle--action{justify-content:space-between}
 .loc-suivi-annuaire{appearance:none;border:1px solid var(--color-svv-line-strong);border-radius:999px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.8rem;font-weight:700;min-height:32px;padding:0 12px;cursor:pointer;white-space:nowrap}
 .loc-suivi-annuaire:hover{border-color:var(--color-svv-ink)}
@@ -418,6 +412,4 @@ export const CSS_SUIVI_COMMERCIAL = `
 .loc-suivi-case--inactive{opacity:.55;cursor:not-allowed}
 .loc-suivi-case input[type=checkbox],.loc-ample .loc-suivi-case input[type=checkbox]{width:22px;height:22px;min-height:0;margin:0;padding:0;border:0;flex:0 0 auto;accent-color:var(--color-svv-red)}
 .loc-suivi-nouveau{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px dashed var(--color-svv-line-strong);border-radius:12px}
-.loc-suivi-origine{border:1px solid var(--color-svv-line);border-radius:12px;padding:8px 12px 12px;margin:0}
-.loc-suivi-origine legend{font-weight:800;font-size:.85rem;padding:0 4px}
 `;

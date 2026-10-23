@@ -63,10 +63,10 @@ export const cleTotauxOrigine = (o: OrigineContact | null | undefined): OrigineC
  *
  *   · « nouveau_mandat » : sous mandat de gestion et JAMAIS loué par nous depuis l'entrée en gestion (première location d'un nouveau
  *     mandat, y compris un nouveau bien d'un propriétaire déjà client) → « Nouveau mandat de gestion signé (prime) », prime 150 € ;
- *   · « relocation » : déjà loué dans notre portefeuille de gestion, il revient à la location → « Bien en gestion chez nous », aucune
+ *   · « relocation » : déjà loué dans notre portefeuille de gestion, il revient à la location → « Relocation » (portefeuille de gestion), aucune
  *     prime, origine « Relocation (portefeuille de gestion) » ;
  *   · « deja_prime » : en gestion, jamais reloué depuis son (re)entrée, mais SA prime a déjà été versée (un bien n'en génère qu'UNE
- *     dans toute sa vie de gestion, même s'il sort puis revient) → « Bien en gestion chez nous », aucune prime, case Nouveau mandat
+ *     dans toute sa vie de gestion, même s'il sort puis revient) → « Relocation » (portefeuille de gestion), aucune prime, case Nouveau mandat
  *     désactivée ;
  *   · « hors_gestion » : location seule → aucune case, aucune prime. PUR.
  */
@@ -233,7 +233,7 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
   const type = dans(TYPES_ACTIVITE, b.type) ?? 'bail';
   if (!dateIsoValide(b.dateSignature)) return { ok: false, motif: 'La date de signature du bail est obligatoire.' };
   // Arno (24/10/2026) — les deux cases sont EXCLUSIVES.
-  if (b.mandatGestion === true && b.avecGestion === true) return { ok: false, motif: 'Cochez « Bien en gestion chez nous » OU « Nouveau mandat de gestion signé (prime) », pas les deux.' };
+  if (b.mandatGestion === true && b.avecGestion === true) return { ok: false, motif: 'Cochez « Relocation » (portefeuille de gestion) OU « Nouveau mandat de gestion signé (prime) » (nouvelle gestion), pas les deux.' };
   const c = verifierCommercial(b, o.origineObligatoire ?? true);
   if (!c.ok) return c;
   const hp = lireMontant(b.honoProprietaireHt);
