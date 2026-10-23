@@ -156,6 +156,24 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(fermee).not.toHaveBeenCalled();
     expect(posts).toEqual([]);
   });
+  it('🔴 Arno (23/10/2026) : « À rattacher (N) » en tête de liste ne montre que les apporteurs sans collègue', async () => {
+    avec407();
+    await ouvrir('apporteurs');
+    const filtre = container.querySelector('[data-filtre-a-rattacher]') as HTMLButtonElement;
+    expect(filtre.textContent).toBe('À rattacher (1)');
+    expect(container.querySelectorAll('[data-apporteur]')).toHaveLength(2);
+    await clic(filtre);
+    expect([...container.querySelectorAll('[data-apporteur]')].map((x) => x.getAttribute('data-apporteur'))).toEqual(['4']);
+    expect(filtre.getAttribute('aria-pressed')).toBe('true');
+    await clic(filtre);
+    expect(container.querySelectorAll('[data-apporteur]')).toHaveLength(2);
+  });
+  it('la modale s’ouvre directement sur un onglet choisi', async () => {
+    avec407();
+    await act(async () => { root.render(createElement(ModaleParametresLocation, { onFermer: () => {}, ongletInitial: 'apporteurs' })); });
+    await calmer();
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-onglet')).toBe('apporteurs');
+  });
   it('un nouvel apporteur part avec son collègue de rattachement', async () => {
     avec407();
     await ouvrir('apporteurs');

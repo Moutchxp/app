@@ -448,6 +448,49 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(container.querySelector('[data-historique-annees] thead')?.textContent).not.toContain('Commission');
   });
 
+  describe('🔴 Arno (23/10/2026) — Suivi du mois : l’histogramme mois par mois', () => {
+    const barre = (m: number) => container.querySelector(`[data-barre-mois="${m}"]`)!;
+    const valeur = (m: number) => barre(m).querySelector('[data-valeur]')?.getAttribute('data-valeur') ?? null;
+
+    it('12 mois ; le mois de l’onglet en rouge ; N−1 à côté ; les mois à venir sans barre ; un mois passé sans activité à 0', async () => {
+      await monter('mois');
+      const h = container.querySelector('[data-bloc="histogramme-mois"]')!;
+      expect(h.compareDocumentPosition(container.querySelector('[data-section="A"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // avant « Le mois »
+      expect(container.querySelectorAll('[data-barre-mois]')).toHaveLength(12);
+      expect(barre(10).querySelector('.tdb-barre--courante')).not.toBeNull();   // octobre, le mois en cours
+      expect(container.querySelectorAll('.tdb-barre--courante')).toHaveLength(1);
+      expect(Number(valeur(9))).toBeCloseTo(15471.7, 2);
+      expect(valeur(10)).toBe('0');                                          // passé (en cours), sans activité : 0
+      expect([valeur(11), valeur(12)]).toEqual([null, null]);                 // à venir : pas de barre
+      expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(12);
+      expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
+      expect(nbsp(h.querySelector('figcaption')?.textContent)).toBe(' 2026 ·  2025');
+      expect(nbsp(barre(9).querySelector('title')?.textContent)).toBe('Septembre 2026 : 15 471,70 € HT, 17 bail(s) · 2025 : 2 000,00 € HT, 1 bail(s) · écart +13 471,70 € (+673,6 %)');
+      expect(nbsp(h.querySelector('[data-histo-detail]')?.textContent)).toContain('Octobre 2026 : 0,00 € HT');
+    });
+
+    it('un clic sur une barre ouvre l’onglet de ce mois ; le détail s’écrit sous le graphique (lisible au toucher)', async () => {
+      await monter('mois');
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      expect(container.querySelector('[data-onglet-mois="9"]')?.getAttribute('aria-selected')).toBe('true');
+      expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2026-09');
+      expect(barre(9).querySelector('.tdb-barre--courante')).not.toBeNull();
+      expect(nbsp(container.querySelector('[data-histo-detail]')?.textContent)).toContain('Septembre 2026 : 15 471,70 € HT');
+    });
+
+    it('les filtres s’appliquent ; N−1 absente : pas de barre N−1, pas de légende N−1', async () => {
+      await monter('mois');
+      await choisir('gestion', 'sans');
+      expect(Number(valeur(9))).toBeCloseTo(1158.34, 2);
+      act(() => { root.unmount(); }); root = createRoot(container);
+      donnees = { ...donnees, activites: donnees.activites.filter((a) => a.dateSignature.startsWith('2026-')) };
+      await monter('mois');
+      expect(container.querySelectorAll('[data-barre-n1]')).toHaveLength(0);
+      expect(nbsp(container.querySelector('[data-bloc="histogramme-mois"] figcaption')?.textContent)).toBe(' 2026');
+      expect(nbsp(barre(9).querySelector('title')?.textContent)).toContain('2025 : non importé');
+    });
+  });
+
   it('sans la migration 406 : le dit', async () => {
     donnees = { ...donnees, disponible: false, activites: [] };
     await monter();

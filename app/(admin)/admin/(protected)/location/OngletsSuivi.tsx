@@ -119,6 +119,8 @@ export function OngletApporteurs() {
   const [ouverte, setOuverte] = useState<number | null>(null);
   const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur }>({ societe: '', telephone: '', email: '', type: 'partenaire' });
   const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string }>({ collegueId: '', depuis: jour });
+  /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
+  const [seulementARattacher, setSeulementARattacher] = useState(false);
   const annuaire = lu?.annuaire === true;
   const ouvrir = (a: Apporteur) => {
     g.effacer();
@@ -139,8 +141,14 @@ export function OngletApporteurs() {
             <p className="plo-alerte" role="status" data-alerte-a-rattacher>
               {lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length} apporteur(s) « à rattacher » : tant qu’ils n’ont pas de collègue, ils ne peuvent pas être choisis pour une nouvelle location.</p>
           )}
+          {annuaire && (
+            <p className="plo-filtre-rattacher">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-pressed={seulementARattacher} onClick={() => setSeulementARattacher((x) => !x)} data-filtre-a-rattacher>
+                {seulementARattacher ? 'Tous les apporteurs' : `À rattacher (${lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length})`}</button>
+            </p>
+          )}
           <ol className="plo-versions" data-liste-apporteurs>
-            {lu.apporteurs.filter((a) => !a.archive).map((a) => {
+            {lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))).map((a) => {
               const enVigueur = versionADate(a.baremes, jour);
               const orphelin = annuaire && aRattacher(a);
               const collegue = collegueADate(a, jour);
@@ -334,6 +342,8 @@ export const CSS_ONGLETS_SUIVI = `
 .plo-a-rattacher{border-color:var(--color-svv-amber) !important;background:var(--color-svv-amber-soft)}
 .plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
 .plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}
+.plo-filtre-rattacher{margin:0 0 8px}
+.plo-filtre-rattacher .svv-btn[aria-pressed="true"]{border-color:var(--color-svv-amber);color:var(--color-svv-amber)}
 .plo-fiche{margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-svv-line-strong);display:flex;flex-direction:column;gap:8px}
 .plo-h4{margin:6px 0 0;font-size:.92rem}
 .plo-cumul{width:100%;border-collapse:collapse;font-size:.88rem}

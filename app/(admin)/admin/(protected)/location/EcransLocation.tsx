@@ -3,6 +3,9 @@
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 import { TableauBordSuivi } from './TableauBordSuivi';
+import { OuvrirAnnuaireApporteurs } from './ParametresLocation';
+import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi';
+import { useEffect, useState } from 'react';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -104,15 +107,48 @@ export const BRIQUES_SUIVI = [
     phrase: 'Le cumul de l’année et ses courbes, les apporteurs, la gestion récurrente, les indicateurs, les négociateurs et l’export .xlsx.' },
 ] as const;
 
+/**
+ * Arno (23/10/2026) — la 3ᵉ brique : l'ANNUAIRE DES APPORTEURS (la même modale que la roue, ouverte sur « Apporteurs »), avec le
+ * nombre d'apporteurs et, en orange, ceux « à rattacher ». Comme la roue : réservé aux administrateurs (le serveur l'exige).
+ */
+function BriqueAnnuaire({ administrateur }: { administrateur: boolean }) {
+  const [compte, setCompte] = useState<{ total: number; aRattacher: number } | null | 'erreur'>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!administrateur) return;
+    let vivant = true;
+    fetch('/api/admin/location/suivi', { cache: 'no-store' }).then((r) => r.json()).then((d: { etat?: string; data?: { apporteurs?: Apporteur[]; annuaire?: boolean } }) => {
+      if (!vivant) return;
+      const ap = Array.isArray(d.data?.apporteurs) ? d.data!.apporteurs!.filter((a) => !a.archive) : null;
+      setCompte(d.etat === 'ok' && ap !== null ? { total: ap.length, aRattacher: d.data?.annuaire === true ? ap.filter(aRattacher).length : 0 } : 'erreur');
+    }).catch(() => { if (vivant) setCompte('erreur'); });
+    return () => { vivant = false; };
+  }, [administrateur, n]);
+  if (!administrateur) {
+    return <div className="loc-case" data-brique="annuaire"><span className="loc-case-titre">Annuaire des apporteurs</span>
+      <span className="loc-case-phrase">Réservé aux administrateurs (création d’un apporteur, collègue de rattachement).</span></div>;
+  }
+  return (
+    <OuvrirAnnuaireApporteurs onFerme={() => setN((x) => x + 1)} rendu={(ouvrir) => (
+      <button type="button" className="loc-case loc-case--bouton" onClick={ouvrir} data-brique="annuaire">
+        <span className="loc-case-titre">Annuaire des apporteurs</span>
+        <span className="loc-case-phrase">Créer un apporteur, le rattacher à un collègue, voir son cumul.</span>
+        <span className="loc-case-phrase" data-compte-apporteurs>{compte === null ? 'Lecture…' : compte === 'erreur' ? 'Nombre indisponible.' : (
+          <>{compte.total} apporteur{compte.total > 1 ? 's' : ''}{compte.aRattacher > 0 && <> · <strong className="loc-orange" data-compte-a-rattacher>{compte.aRattacher} à rattacher</strong></>}</>)}</span>
+      </button>
+    )} />
+  );
+}
+
 /** « Suivi du mois » / « Suivi annuel » : le tableau de bord, dans sa vue. */
-export function EcranSuiviActivite({ vue }: { vue: 'mois' | 'annee' }) {
+export function EcranSuiviActivite({ vue, administrateur = false }: { vue: 'mois' | 'annee'; administrateur?: boolean }) {
   return (
     <div className="loc-page loc-ample">
       <style>{CSS_LOCATION_ECRANS}</style>
       <p className="loc-retour" style={{ margin: 0 }}><a href="/admin/location/outils">← Outils de suivi</a></p>
       <EnTeteLocation retour={false} titre={vue === 'mois' ? 'Suivi du mois' : 'Suivi annuel'}
         sous={vue === 'mois' ? 'La feuille d’un mois, sur le modèle du suivi mensuel.' : 'L’année : cumul, apporteurs, gestion, indicateurs, négociateurs, export.'} />
-      <TableauBordSuivi vue={vue} />
+      <TableauBordSuivi vue={vue} administrateur={administrateur} />
     </div>
   );
 }
@@ -124,7 +160,7 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
       <EnTeteLocation titre="Outils de suivi" sous="Le tableau de bord de l’activité location, et les outils de pilotage." />
       {/* Arno (23/10/2026) — DEUX GROSSES BRIQUES, le style des cases de l'accueil Location : « Suivi du mois » (section A et la
           feuille du mois) et « Suivi annuel » (sections B à G). Le tableau de bord du 22/10 y est RÉPARTI, rien n'est retiré. */}
-      <ul className="loc-cases loc-cases--accueil loc-cases--deux" aria-label="Le suivi de l’activité">
+      <ul className="loc-cases loc-cases--accueil" aria-label="Le suivi de l’activité">
         {BRIQUES_SUIVI.map((b) => (
           <li key={b.href}>
             <a className="loc-case" href={b.href} data-brique={b.cle}>
@@ -133,6 +169,7 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
             </a>
           </li>
         ))}
+        <li><BriqueAnnuaire administrateur={administrateur} /></li>
       </ul>
       <h3 style={{ margin: '8px 0 0', fontSize: '1.05rem' }}>Autres outils</h3>
       <ul className="loc-cases">

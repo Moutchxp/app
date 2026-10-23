@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { DELAI_MAX_MOIS, DELAI_MIN_MOIS, dureeMois, verifierDelai } from '../../../../lib/gestion/finGestion';
 import { usePathname } from 'next/navigation';
 import { verifierDestinataires, type Destinataire } from '../../../../lib/location/mailNouvelleLocation';
@@ -29,7 +29,7 @@ interface Parametres {
   destinataires: Destinataire[]; destinatairesSaisis: { le: string; par: string } | null;
   versions: VersionBareme[]; aujourdhui: string; manquantes: string[];
 }
-type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions';
+export type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions';
 /** Arno (22/10/2026, 406) — les onglets du suivi de l'activité enregistrent par leurs propres boutons (une ligne = un geste). */
 const ONGLETS_SUIVI: readonly Onglet[] = ['apporteurs', 'commissions'];
 interface SaisieBareme { depuis: string; tresTendue: string; tendue: string; autre: string; etatDesLieux: string; source: string }
@@ -37,6 +37,20 @@ interface SaisieBareme { depuis: string; tresTendue: string; tendue: string; aut
 const dateFr = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
 const virgule = (t: string): string => t.replace('.', ',');
 let compteur = 0;
+
+/**
+ * Arno (23/10/2026) — l'ANNUAIRE DES APPORTEURS à portée de main : la MÊME modale que la roue, ouverte sur l'onglet « Apporteurs »
+ * (création, collègue de rattachement). Un seul écran à maintenir. `rendu` dessine le déclencheur (une brique, un lien).
+ */
+export function OuvrirAnnuaireApporteurs({ rendu, onFerme }: { rendu: (ouvrir: () => void) => ReactNode; onFerme?: () => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <>
+      {rendu(() => setOuvert(true))}
+      {ouvert && <ModaleParametresLocation ongletInitial="apporteurs" onFermer={() => { setOuvert(false); onFerme?.(); }} />}
+    </>
+  );
+}
 
 /** La roue (dans la barre du haut) : rien hors de l'accueil Location, rien pour un compte qui n'est pas administrateur. */
 export function RoueParametresLocation({ administrateur }: { administrateur: boolean }) {
@@ -56,9 +70,9 @@ export function RoueParametresLocation({ administrateur }: { administrateur: boo
   );
 }
 
-export function ModaleParametresLocation({ onFermer }: { onFermer: () => void }) {
+export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinataires' }: { onFermer: () => void; ongletInitial?: Onglet }) {
   const titre = useId();
-  const [onglet, setOnglet] = useState<Onglet>('destinataires');
+  const [onglet, setOnglet] = useState<Onglet>(ongletInitial);
   const [lu, setLu] = useState<Parametres | null>(null);
   const [lecture, setLecture] = useState<string | null>(null);
   const [n, setN] = useState(0);
