@@ -26,7 +26,10 @@ beforeEach(() => {
     retrocessions: [{ id: 8, negociateurId: 5, negociateurLibelle: 'Jean-Baptiste PONS', mois: '2026-08-01', montant: 200, libelle: 'Alex Coms' }] };
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     if (init?.method === 'POST') { posts.push({ ...JSON.parse(String(init.body)) as Record<string, unknown>, url: String(url) }); return json({ etat: 'ok' }); }
-    if (String(url).includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: { parAnnee: [{ annee: 2026, nb: 5, ca: 3941.03, commission: 394.1 }], parMois: [{ mois: '2026-09', nb: 5, ca: 3941.03, commission: 394.1 }] } });
+    if (String(url).includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: { total: { nb: 7, avenants: 1, ca: 5825.03, commission: 582.5 },
+      parAnnee: [{ annee: 2026, nb: 5, avenants: 1, ca: 3941.03, commission: 394.1 }, { annee: 2025, nb: 2, avenants: 0, ca: 1884, commission: 188.4 }],
+      parMois: [{ mois: '2026-09', nb: 5, avenants: 1, ca: 3941.03, commission: 394.1 }, { mois: '2025-11', nb: 2, avenants: 0, ca: 1884, commission: 188.4 }] } });
+    if (String(url).includes('vue=totaux-apporteurs')) return json({ etat: 'ok', data: { 3: { nb: 9, avenants: 0, ca: 1200, commission: 600 }, 4: { nb: 7, avenants: 1, ca: 5825.03, commission: 582.5 } } });
     if (String(url).includes('/suivi')) return json({ etat: 'ok', data: suivi });
     return json({ etat: 'ok', data: { destinataires: [], destinatairesSaisis: null, versions: [], aujourdhui: '2026-10-22', manquantes: [], archivage: { mois: 24, disponible: true } } });
   }) as unknown as typeof fetch;
@@ -129,7 +132,23 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await saisir(f.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Repris SARL');
     await clic(f.querySelector('[data-enregistrer-fiche]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 4, fiche: { societe: 'Repris SARL' } });
-    expect(container.querySelector('[data-cumul-apporteur]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toContain('Année 202653 941,03 €394,10 €septembre 202653 941,03 €394,10 €');
+    const n = (t: string | null | undefined) => (t ?? '').replace(/[\u202f\u00a0]/g, ' ');
+    // Arno (23/10/2026) : « Total depuis le début » en 5 chiffres, au-dessus du cumul.
+    const tot = (k: string) => n(container.querySelector(`[data-total-apporteur="${k}"]`)?.textContent);
+    expect(tot('dossiers')).toBe('Dossiers7dont 1 avenant');
+    expect(tot('ht')).toBe('Honoraires apportés HT5 825,03 €');
+    expect(tot('ttc')).toBe('Honoraires apportés TTC6 990,04 €TVA 20 %');
+    expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €');
+    expect(tot('net')).toBe('Net pour l’agence HT5 242,53 €');
+    expect(container.textContent).not.toMatch(/versé/i);
+    // Le tableau : la ligne « Depuis le début » en tête, puis les années et les mois (rien n'est retiré).
+    const lignes = [...container.querySelectorAll('[data-cumul-apporteur] tbody tr')].map((r) => n(r.textContent));
+    expect(lignes[0]).toBe('Depuis le début75 825,03 €6 990,04 €582,50 €5 242,53 €');
+    expect(container.querySelector('[data-cumul-ligne="total"]')?.className).toBe('plo-cumul-total');
+    expect(lignes.slice(1)).toEqual(['Année 202653 941,03 €4 729,24 €394,10 €3 546,93 €', 'Année 202521 884,00 €2 260,80 €188,40 €1 695,60 €',
+      'septembre 202653 941,03 €4 729,24 €394,10 €3 546,93 €', 'novembre 202521 884,00 €2 260,80 €188,40 €1 695,60 €']);
+    expect([...container.querySelectorAll('[data-cumul-apporteur] thead th')].map((x) => x.textContent))
+      .toEqual(['Période', 'Dossiers', 'Honoraires HT', 'Honoraires TTC', 'Dû à l’apporteur HT', 'Net agence HT']);
   });
   it('🔴 Arno (23/10/2026) : la fiche, le nouveau taux et la nouvelle règle se ferment quand on veut (bouton ou Échap), sans rien écrire', async () => {
     avec407();
@@ -181,6 +200,26 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await act(async () => { root.render(createElement(ModaleParametresLocation, { onFermer: () => {}, ongletInitial: 'apporteurs' })); });
     await calmer();
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-onglet')).toBe('apporteurs');
+  });
+  it('🔴 Arno (23/10/2026) : la liste montre dossiers, honoraires HT et dû HT ; tri par honoraires HT décroissants, puis au choix', async () => {
+    avec407();
+    await ouvrir('apporteurs');
+    const ordre = () => [...container.querySelectorAll('[data-apporteur]')].map((x) => x.getAttribute('data-apporteur'));
+    expect(ordre()).toEqual(['4', '3']);   // 5 825,03 € avant 1 200 €
+    expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €');
+    const tri = container.querySelector('[data-tri]') as HTMLSelectElement;
+    expect([...tri.options].map((o) => o.value)).toEqual(['ca', 'commission', 'nb', 'nom']);
+    const trier = async (v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri, v); tri.dispatchEvent(new Event('change', { bubbles: true })); }); };
+    await trier('nb');
+    expect(ordre()).toEqual(['3', '4']);   // 9 dossiers avant 7
+    await trier('commission');
+    expect(ordre()).toEqual(['3', '4']);   // 600 € dus avant 582,50 €
+    await trier('nom');
+    expect(ordre()).toEqual(['4', '3']);   // « Apporteur Repris » avant « Kin Immo »
+    await trier('ca');
+    // Le filtre « À rattacher » garde le tri et ne change pas.
+    await clic(container.querySelector('[data-filtre-a-rattacher]')!);
+    expect(ordre()).toEqual(['4']);
   });
   it('un nouvel apporteur part avec son collègue de rattachement', async () => {
     avec407();

@@ -460,10 +460,12 @@ export function historiqueAnnees(activites: readonly ActiviteCalcul[], ctx: Cont
 
 // ── 407 — LA FEUILLE DU MOIS ─────────────────────────────────────────────────────────────────────────────────────────
 
-export interface CumulAffaires { nb: number; ca: number; commission: number; ids: (number | string)[] }
-const cumulVide = (): CumulAffaires => ({ nb: 0, ca: 0, commission: 0, ids: [] });
+/** `nb` : les affaires (avenants compris) ; `avenants` : dont avenants ; `ca` : honoraires HT ; `commission` : dû à l'apporteur HT. */
+export interface CumulAffaires { nb: number; avenants: number; ca: number; commission: number; ids: (number | string)[] }
+const cumulVide = (): CumulAffaires => ({ nb: 0, avenants: 0, ca: 0, commission: 0, ids: [] });
 const ajouter = (c: CumulAffaires, a: ActiviteCalcul, apporteurs: readonly Apporteur[]): void => {
   c.nb += 1; c.ca += caLigne(a); c.commission += commissionApporteurDe(a, apporteurs); c.ids.push(a.id);
+  if (a.type === 'avenant') c.avenants += 1;
 };
 
 export interface ApporteurDuMois extends CumulAffaires { apporteurId: number | null; nom: string; aRattacher: boolean }
@@ -494,9 +496,15 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
   return { apporteurs: tri([...parApp.values()]), collegues: tri([...parCol.values()]) };
 }
 
-/** Le cumul d'UN apporteur, par année et par mois (fiche de l'annuaire). PUR. */
-export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number): { parAnnee: (CumulAffaires & { annee: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
+/**
+ * Le cumul d'UN apporteur (fiche de l'annuaire) : le TOTAL depuis le début (Arno, 23/10/2026), puis par année et par mois — les
+ * mêmes lignes et les mêmes règles que le Suivi (lignes reprises du fichier comprises, rattachées ou non à un bail). PUR.
+ */
+export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number):
+  { total: CumulAffaires; parAnnee: (CumulAffaires & { annee: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
   const siennes = activites.filter((a) => a.apporteurId === apporteurId);
+  const total = cumulVide();
+  for (const a of siennes) ajouter(total, a, apporteurs);
   const an = new Map<number, CumulAffaires & { annee: number }>();
   const mo = new Map<string, CumulAffaires & { mois: string }>();
   for (const a of siennes) {
@@ -507,7 +515,21 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
     ajouter(ly, a, apporteurs); ajouter(lm, a, apporteurs);
     an.set(y, ly); mo.set(m, lm);
   }
-  return { parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
+  return { total, parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
+}
+
+export type TotalApporteur = Omit<CumulAffaires, 'ids'>;
+
+/** Les totaux de CHAQUE apporteur depuis le début (liste de l'annuaire : dossiers, honoraires HT, dû HT). PUR. */
+export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[]): Record<number, TotalApporteur> {
+  const par = new Map<number, CumulAffaires>();
+  for (const a of activites) {
+    if (a.apporteurId === null) continue;
+    const c = par.get(a.apporteurId) ?? cumulVide();
+    ajouter(c, a, apporteurs);
+    par.set(a.apporteurId, c);
+  }
+  return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission }]));
 }
 
 /** Une entrée en gestion ou une sortie (mandat perdu), avec le loyer et le taux qui font ses honoraires de gestion. */

@@ -8,7 +8,7 @@ import {
   proposerActivite, rattacherApporteur, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
-import { cumulApporteur } from '../../../../../lib/location/suivi/tableauBord';
+import { cumulApporteur, totauxApporteurs } from '../../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 
 /**
@@ -21,7 +21,8 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
  *   POST action=bareme-apporteur | regle | retrocession | annuler-retrocession   (ADMINISTRATEUR : la roue Paramètres).
  *   407 : POST action=modifier-activite {id, champs}  la feuille du mois corrige origine, collègue, apporteur, prime (Location) ;
  *         POST action=modifier-apporteur | rattacher-apporteur  la fiche de l'annuaire, le collègue daté (ADMINISTRATEUR) ;
- *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur, par mois et par an.
+ *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur : total, par an, par mois ;
+ *         GET  ?vue=totaux-apporteurs                          les totaux de chaque apporteur depuis le début (dossiers, HT, dû).
  * Les rétrocessions (montants de commission) ne sont lues que par qui peut « Voir les commissions ».
  */
 export const runtime = 'nodejs';
@@ -42,6 +43,11 @@ export async function GET(request: Request): Promise<Response> {
       const id = Number(url.searchParams.get('id'));
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
       return json({ etat: 'ok', data: cumulApporteur(await lireActivites(annees), apporteurs, id) });
+    }
+    // Arno (23/10/2026) — les totaux de chaque apporteur depuis le début (liste de l'annuaire).
+    if (url.searchParams.get('vue') === 'totaux-apporteurs') {
+      const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
+      return json({ etat: 'ok', data: totauxApporteurs(await lireActivites(annees), apporteurs) });
     }
     if (url.searchParams.get('vue') === 'tableau') {
       const jour = aujourdhuiParis();

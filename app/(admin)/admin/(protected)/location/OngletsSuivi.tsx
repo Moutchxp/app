@@ -3,7 +3,7 @@
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  type Apporteur, aRattacher, collegueADate, depuisLibelle, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './SuiviCommercial';
 
@@ -82,9 +82,15 @@ function useGeste(relire: () => void) {
 const echap = (fermer: () => void) => (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); fermer(); } };
 
 const VIDE_APPORTEUR =(jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
-type Cumul = { parAnnee: { annee: number; nb: number; ca: number; commission: number }[]; parMois: { mois: string; nb: number; ca: number; commission: number }[] };
+type Chiffres = { nb: number; avenants?: number; ca: number; commission: number };
+type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number })[]; parMois: (Chiffres & { mois: string })[] };
+const ttc = (ht: number): number => ht * (1 + TAUX_TVA);
 
-/** Le cumul d'un apporteur (affaires, CA apporté, honoraires d'apporteur), par an et par mois — lu à l'ouverture de sa fiche. */
+/**
+ * Le cumul d'un apporteur (Arno, 23/10/2026) : « Total depuis le début » en 5 chiffres — dossiers (dont avenants), honoraires
+ * apportés HT et TTC (TVA 20 %), DÛ à l'apporteur HT (l'outil n'enregistre pas les paiements : « dû », jamais « versé »), net
+ * pour l'agence HT — puis le tableau par période, avec la ligne « Depuis le début » en tête. Les règles du Suivi : mêmes lignes.
+ */
 function CumulApporteur({ id }: { id: number }) {
   const [c, setC] = useState<Cumul | null | 'erreur'>(null);
   useEffect(() => {
@@ -97,19 +103,39 @@ function CumulApporteur({ id }: { id: number }) {
   if (c === null) return <p className="plo-muet plo-petit-texte" role="status">Lecture du cumul…</p>;
   if (c === 'erreur') return <p className="plo-muet plo-petit-texte">Cumul indisponible.</p>;
   if (c.parAnnee.length === 0) return <p className="plo-muet plo-petit-texte" data-cumul-vide>Aucune affaire apportée pour l’instant.</p>;
-  const ligne = (mot: string, x: { nb: number; ca: number; commission: number }) => (
-    <tr key={mot}><th scope="row">{mot}</th><td data-mot="Affaires">{x.nb}</td><td data-mot="CA apporté">{euros(x.ca)}</td><td data-mot="Honoraires d’apporteur">{euros(x.commission)}</td></tr>
+  const t: Chiffres = c.total ?? c.parAnnee.reduce((s, x) => ({ nb: s.nb + x.nb, avenants: (s.avenants ?? 0) + (x.avenants ?? 0), ca: s.ca + x.ca, commission: s.commission + x.commission }), { nb: 0, avenants: 0, ca: 0, commission: 0 });
+  const ligne = (mot: string, x: Chiffres, total = false) => (
+    <tr key={mot} className={total ? 'plo-cumul-total' : undefined} data-cumul-ligne={total ? 'total' : mot}>
+      <th scope="row">{mot}</th><td data-mot="Dossiers">{x.nb}</td><td data-mot="Honoraires HT">{euros(x.ca)}</td><td data-mot="Honoraires TTC">{euros(ttc(x.ca))}</td>
+      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td><td data-mot="Net agence HT">{euros(x.ca - x.commission)}</td></tr>
   );
   return (
-    <table className="plo-cumul" data-cumul-apporteur>
-      <thead><tr><th scope="col">Période</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Honoraires d’apporteur</th></tr></thead>
-      <tbody>
-        {c.parAnnee.map((a) => ligne(`Année ${a.annee}`, a))}
-        {c.parMois.map((m) => ligne(moisFr(`${m.mois}-01`), m))}
-      </tbody>
-    </table>
+    <>
+      <h4 className="plo-h4">Total depuis le début</h4>
+      <ul className="plo-totaux" data-totaux-apporteur>
+        <li data-total-apporteur="dossiers"><span className="plo-total-mot">Dossiers</span><strong>{t.nb}</strong>
+          {(t.avenants ?? 0) > 0 && <span className="plo-total-note">dont {t.avenants} avenant{(t.avenants ?? 0) > 1 ? 's' : ''}</span>}</li>
+        <li data-total-apporteur="ht"><span className="plo-total-mot">Honoraires apportés HT</span><strong>{euros(t.ca)}</strong></li>
+        <li data-total-apporteur="ttc"><span className="plo-total-mot">Honoraires apportés TTC</span><strong>{euros(ttc(t.ca))}</strong><span className="plo-total-note">TVA 20 %</span></li>
+        <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong></li>
+        <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(t.ca - t.commission)}</strong></li>
+      </ul>
+      <h4 className="plo-h4">Cumul</h4>
+      <table className="plo-cumul" data-cumul-apporteur>
+        <thead><tr><th scope="col">Période</th><th scope="col">Dossiers</th><th scope="col">Honoraires HT</th><th scope="col">Honoraires TTC</th>
+          <th scope="col">Dû à l’apporteur HT</th><th scope="col">Net agence HT</th></tr></thead>
+        <tbody>
+          {ligne('Depuis le début', t, true)}
+          {c.parAnnee.map((a) => ligne(`Année ${a.annee}`, a))}
+          {c.parMois.map((m) => ligne(moisFr(`${m.mois}-01`), m))}
+        </tbody>
+      </table>
+    </>
   );
 }
+
+type Tri = 'ca' | 'commission' | 'nb' | 'nom';
+const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom (A → Z)' };
 
 export function OngletApporteurs() {
   const { lu, erreur, relire } = useSuiviParametres();
@@ -123,6 +149,16 @@ export function OngletApporteurs() {
   const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string; toujours: boolean }>({ collegueId: '', depuis: jour, toujours: false });
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
   const [seulementARattacher, setSeulementARattacher] = useState(false);
+  /** Arno (23/10/2026) — les totaux de chaque apporteur (dossiers, honoraires HT, dû HT), et le tri de la liste. */
+  const [totaux, setTotaux] = useState<Record<number, Chiffres> | null>(null);
+  const [tri, setTri] = useState<Tri>('ca');
+  useEffect(() => {
+    let vivant = true;
+    fetch(`${API_SUIVI}?vue=totaux-apporteurs`, { cache: 'no-store' }).then((r) => r.json())
+      .then((d: { etat?: string; data?: Record<number, Chiffres> }) => { if (vivant && d.etat === 'ok' && d.data) setTotaux(d.data); })
+      .catch(() => { /* les totaux manquent : la liste reste, sans eux */ });
+    return () => { vivant = false; };
+  }, [lu]);
   const annuaire = lu?.annuaire === true;
   const ouvrir = (a: Apporteur) => {
     g.effacer();
@@ -143,6 +179,10 @@ export function OngletApporteurs() {
             <p className="plo-alerte" role="status" data-alerte-a-rattacher>
               {lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length} apporteur(s) « à rattacher » : tant qu’ils n’ont pas de collègue, ils ne peuvent pas être choisis pour une nouvelle location.</p>
           )}
+          <label className="plo-champ plo-tri" data-tri-apporteurs><span>Trier par</span>
+            <select className="plo-select" value={tri} onChange={(e) => setTri(e.target.value as Tri)} data-tri>
+              {(Object.keys(LIBELLE_TRI) as Tri[]).map((k) => <option key={k} value={k}>{LIBELLE_TRI[k]}</option>)}
+            </select></label>
           {annuaire && (
             <p className="plo-filtre-rattacher">
               <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-pressed={seulementARattacher} onClick={() => setSeulementARattacher((x) => !x)} data-filtre-a-rattacher>
@@ -150,7 +190,12 @@ export function OngletApporteurs() {
             </p>
           )}
           <ol className="plo-versions" data-liste-apporteurs>
-            {lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))).map((a) => {
+            {lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))).sort((x, y) => {
+              if (tri === 'nom') return x.nom.localeCompare(y.nom, 'fr');
+              const vx = totaux?.[x.id]?.[tri] ?? 0;
+              const vy = totaux?.[y.id]?.[tri] ?? 0;
+              return vy - vx || x.nom.localeCompare(y.nom, 'fr');
+            }).map((a) => {
               const enVigueur = versionADate(a.baremes, jour);
               const orphelin = annuaire && aRattacher(a);
               const collegue = collegueADate(a, jour);
@@ -162,6 +207,13 @@ export function OngletApporteurs() {
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
                   {annuaire && !orphelin && collegue !== null && (
                     <p className="plo-muet plo-petit-texte" data-rattache-libelle>Rattaché à {collegue.collegueLibelle} {depuisLibelle(collegue)}</p>
+                  )}
+                  {totaux !== null && (
+                    <dl className="plo-totaux-ligne" data-totaux-ligne={a.id}>
+                      <div><dt>Dossiers</dt><dd>{totaux[a.id]?.nb ?? 0}</dd></div>
+                      <div><dt>Honoraires HT</dt><dd>{euros(totaux[a.id]?.ca ?? 0)}</dd></div>
+                      <div><dt>Dû HT</dt><dd>{euros(totaux[a.id]?.commission ?? 0)}</dd></div>
+                    </dl>
                   )}
                   {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
                   <p className="plo-version-valeurs">{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
@@ -222,7 +274,6 @@ export function OngletApporteurs() {
                         onClick={() => { void g.faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: rattachement.collegueId === '' ? null : Number(rattachement.collegueId), ...(rattachement.toujours ? { depuisToujours: true } : { depuis: rattachement.depuis }) } },
                           `${a.nom} est rattaché à ${lu.collegues.find((c) => String(c.id) === rattachement.collegueId)?.libelle ?? 'son collègue'}.`); }}>
                         {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
-                      <h4 className="plo-h4">Cumul</h4>
                       <CumulApporteur id={a.id} />
                       <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" onClick={() => { g.effacer(); setOuverte(null); }} data-fermer-fiche={a.id}>Fermer la fiche</button>
                     </div>
@@ -346,6 +397,19 @@ export const CSS_ONGLETS_SUIVI = `
 .plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
 .plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}
 .plo-filtre-rattacher{margin:0 0 8px}
+.plo-tri{max-width:320px;margin:0 0 8px}
+.plo-totaux{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.plo-totaux li{display:flex;flex-direction:column;gap:2px;align-items:flex-end;text-align:right;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px}
+.plo-totaux strong{font-size:1.05rem;color:var(--color-svv-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.plo-total-mot{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
+.plo-total-note{font-size:.72rem;color:var(--color-svv-muted)}
+.plo-cumul-total th,.plo-cumul-total td{font-weight:800;color:var(--color-svv-ink)}
+.plo-cumul td{font-variant-numeric:tabular-nums;white-space:nowrap}
+.plo-totaux-ligne{display:flex;flex-wrap:wrap;gap:4px 18px;margin:4px 0}
+.plo-totaux-ligne div{display:flex;gap:6px;align-items:baseline}
+.plo-totaux-ligne dt{font-size:.78rem;font-weight:700;color:var(--color-svv-muted)}
+.plo-totaux-ligne dd{margin:0;font-weight:700;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+@media (max-width:640px){ .plo-totaux{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px} .plo-totaux li{padding:8px 6px} .plo-totaux strong{font-size:.74rem;letter-spacing:-.01em} .plo-total-mot{font-size:.68rem} }
 .plo-case{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;cursor:pointer}
 .plo-case input{width:20px;height:20px;accent-color:var(--color-svv-red)}
 .plo-champ input[type=date]:disabled{opacity:.5}
