@@ -26,11 +26,12 @@
  *   npm run location:importer-suivi-2026 -- --reel                         (écrit)
  *   npm run location:importer-suivi -- --tous                              (à blanc, tous les fichiers 2020 → 2026)
  *   … -- --fichier=/chemin/CA_JBP_2023.xlsx [--annee=2023] · --rapport=/chemin/fichier-ou-dossier
+ *   … -- --tous --dossier=/home/ubuntu/sansvisavis/shared/import-location   (les fichiers ailleurs que dans .captures/suivi-location/)
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
 import { readdirSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import ExcelJS from 'exceljs';
 import { estPointEntree } from '../lib/scripts/pointEntree';
 import { cheminRapport, optionLigne, RACINE_PROJET } from '../lib/ops/rapportScript';
@@ -46,6 +47,19 @@ const P = '[location:importer-suivi-2026]';
 const NOM_SCRIPT = 'importer-suivi-location-2026';
 const ANNEE = 2026;
 const DOSSIER = join(RACINE_PROJET, '.captures/suivi-location');
+
+/**
+ * Arno (23/10/2026) — `--dossier=<chemin>` (ou `--dossier <chemin>`) : le dossier des fichiers CA_JBP_<année>*.xlsx, pour `--tous` et
+ * pour le fichier 2026 par défaut. Absent : `.captures/suivi-location/` du projet (comme avant). En production, les fichiers sont posés
+ * HORS des versions (`/home/ubuntu/sansvisavis/shared/import-location/`). PUR.
+ */
+export function dossierDesFichiers(argv: readonly string[]): string {
+  const egal = optionLigne(argv, 'dossier');
+  if (egal !== null && egal.trim() !== '') return resolve(egal.trim());
+  const i = argv.indexOf('--dossier');
+  if (i >= 0 && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) return resolve(argv[i + 1]);
+  return DOSSIER;
+}
 /** Les collègues nommés dans le fichier (Arno, 23/10/2026) — en plus des comptes actifs. */
 export const COLLEGUES_CONNUS = ['Arnaud Jorel', 'Jean-Baptiste Pons', 'Cédric Jullien'];
 /** Les fichiers « JBP » : le négociateur des lignes est Jean-Baptiste, même quand l'onglet ne le nomme pas (2020 → 2022). */
@@ -85,9 +99,10 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
   const tous = argv.includes('--tous');
   const anneeForcee = optionLigne(argv, 'annee');
   const unFichier = optionLigne(argv, 'fichier');
+  const dossier = dossierDesFichiers(argv);
   const chemins = tous
-    ? readdirSync(DOSSIER).filter((f) => /^CA_JBP_20\d{2}.*\.xlsx$/i.test(f)).map((f) => join(DOSSIER, f)).sort()
-    : [unFichier ?? join(DOSSIER, 'CA_JBP_2026.xlsx')];
+    ? readdirSync(dossier).filter((f) => /^CA_JBP_20\d{2}.*\.xlsx$/i.test(f)).map((f) => join(dossier, f)).sort()
+    : [unFichier ?? join(dossier, 'CA_JBP_2026.xlsx')];
   const { closePool } = await import('../lib/db/client');
   const repo = await import('../lib/location/suivi/importSuiviRepo');
   const base = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '?';
