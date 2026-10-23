@@ -175,6 +175,29 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-activite', id: '2026-09#3', champs: { origineContact: 'apporteur', apporteurId: 3, primeMode: 'aucune' } });
   });
 
+  it('🔴 Arno (23/10/2026) — les cases de la ligne : « % » et « € » en suffixe ; l’apporteur choisi garde son nom entier, « à rattacher » en badge', async () => {
+    donnees = { ...donnees, annuaire: true, collegues: [{ id: 2, libelle: 'Arnaud Jorel' }],
+      apporteurs: [{ id: 4, nom: 'Frédéric Rousseau', type: 'partenaire', archive: false, baremes: [], collegues: [] }] };
+    const ligne = lignes2026.find((a) => a.dateSignature.startsWith('2026-09'))!;
+    donnees = { ...donnees, activites: donnees.activites.map((a) => (a === ligne ? { ...a, origineContact: 'apporteur', apporteurId: 4, commissionSaisie: 45.74, apporteurTaux: 0.1 } : a)) };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(ligne.id)}"]`) as HTMLButtonElement).click(); });
+    const taux = container.querySelector('[data-edition-taux]') as HTMLInputElement;
+    const hono = container.querySelector('[data-edition-commission]') as HTMLInputElement;
+    expect(taux.closest('.fdm-saisie')?.querySelector('.fdm-unite')?.textContent).toBe('%');
+    expect(hono.closest('.fdm-saisie')?.querySelector('.fdm-unite')?.textContent).toBe('€');
+    expect(hono.value).toBe('45,74');
+    expect(hono.disabled || hono.readOnly).toBe(false);   // toujours modifiable
+    const sel = container.querySelector('[data-edition-apporteur]') as HTMLSelectElement;
+    expect(sel.selectedOptions[0].textContent).toBe('Frédéric Rousseau');
+    expect(container.querySelector('[data-edition-apporteur-a-rattacher]')?.textContent).toBe('à rattacher');
+    // Aucun champ ne disparaît : origine, apporteur, taux, honoraires, prime, Fermer, Enregistrer.
+    for (const q of ['[data-edition-origine]', '[data-edition-apporteur]', '[data-edition-taux]', '[data-edition-commission]', '[data-edition-prime]', '[data-edition-fermer]', '[data-edition-enregistrer]']) {
+      expect(container.querySelector(q)).not.toBeNull();
+    }
+  });
+
   describe('🔴 Arno (23/10/2026) — la ligne en édition se ferme quand on veut, sans condition', () => {
     const sansOrigine = lignes2026.find((a) => a.dateSignature.startsWith('2026-09') && a.origineContact === null)!;
     const id = String(sansOrigine.id);

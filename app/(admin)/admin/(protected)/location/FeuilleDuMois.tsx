@@ -28,7 +28,8 @@ const API = '/api/admin/location/suivi';
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %`;
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
-const saisie = (x: number | null): string => (x === null ? '' : String(x).replace('.', ','));
+/** Une valeur en base, dans une case : virgule française, sans le bruit des flottants (64,362 et non 64,36200000000001) — jamais arrondie. */
+const saisie = (x: number | null): string => (x === null ? '' : String(Number(x.toPrecision(12))).replace('.', ','));
 
 interface Props {
   d: DonneesTableau;
@@ -230,17 +231,18 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       setEnvoi(false);
     }
   };
+  const apporteurChoisi = ctx.apporteurs.find((x) => String(x.id) === v.apporteurId);
   const poser = (p: Partial<typeof v>) => { setV({ ...v, ...p }); setMotif(null); if (p.origineContact) setSansOrigine(false); };
   return (
     <div className="fdm-edition-corps" data-edition-ligne={String(a.id)}>
-      <label className="tdb-champ">Origine du contact *
+      <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Origine du contact *</span>
         <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} aria-invalid={sansOrigine} data-edition-origine>
           <option value="">— choisir —</option>
           {ORIGINES_CONTACT.map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
         </select>
         {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
       {v.origineContact === 'collegue' && (
-        <label className="tdb-champ">Collègue *
+        <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Collègue *</span>
           <select value={v.collegueId} onChange={(e) => poser({ collegueId: e.target.value })} data-edition-collegue>
             <option value="">— choisir —</option>
             {(d.collegues ?? []).map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
@@ -248,31 +250,41 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       )}
       {v.origineContact === 'apporteur' && (
         <>
-          <label className="tdb-champ">Apporteur *
+          <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Apporteur *</span>
             <select value={v.apporteurId} onChange={(e) => poser({ apporteurId: e.target.value })} data-edition-apporteur>
               <option value="">— choisir dans l’annuaire —</option>
               {ctx.apporteurs.filter((x) => !x.archive).map((x) => {
                 const bloque = aRattacher(x) && String(x.id) !== String(a.apporteurId ?? '');
-                return <option key={x.id} value={x.id} disabled={bloque}>{x.nom}{aRattacher(x) ? ' — à rattacher' : ''}</option>;
+                // L'apporteur CHOISI s'affiche par son seul nom (jamais tronqué) ; « à rattacher » passe alors en badge sous le champ.
+                const choisi = String(x.id) === v.apporteurId;
+                return <option key={x.id} value={x.id} disabled={bloque}>{x.nom}{aRattacher(x) && !choisi ? ' — à rattacher' : ''}</option>;
               })}
-            </select></label>
-          <label className="tdb-champ">Taux (%)<input inputMode="decimal" value={v.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} /></label>
-          <label className="tdb-champ">Hono. d’apporteur (€)<input inputMode="decimal" value={v.commissionApporteur} placeholder="ex. 64,39 (vide = au taux)" onChange={(e) => poser({ commissionApporteur: e.target.value })} data-edition-commission /></label>
+            </select>
+            {apporteurChoisi !== undefined && aRattacher(apporteurChoisi) && <span className="fdm-badge-orange" data-edition-apporteur-a-rattacher>à rattacher</span>}</label>
+          <label className="tdb-champ fdm-champ-court"><span className="fdm-libelle">Taux (%)</span>
+            <span className="fdm-saisie"><input inputMode="decimal" value={v.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-edition-taux /><span className="fdm-unite" aria-hidden="true">%</span></span></label>
+          <label className="tdb-champ"><span className="fdm-libelle">Hono. d’apporteur (€)</span>
+            <span className="fdm-saisie"><input inputMode="decimal" value={v.commissionApporteur} placeholder="ex. 64,39 (vide = au taux)" onChange={(e) => poser({ commissionApporteur: e.target.value })} data-edition-commission /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
         </>
       )}
-      <label className="tdb-champ">Prime de gestion
+      <label className="tdb-champ"><span className="fdm-libelle">Prime de gestion</span>
         <select value={v.primeMode} onChange={(e) => poser({ primeMode: e.target.value as ModePrime })} data-edition-prime>
           <option value="regle">{`${versionADate(ctx.regles, a.dateSignature)?.primeLogement ?? 150} €`}</option>
           <option value="personnalise">Personnalisé</option>
           <option value="aucune">Aucune</option>
         </select></label>
-      {v.primeMode === 'personnalise' && <label className="tdb-champ">Montant (€) *<input inputMode="decimal" value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /></label>}
+      {v.primeMode === 'personnalise' && (
+        <label className="tdb-champ"><span className="fdm-libelle">Montant (€) *</span>
+          <span className="fdm-saisie"><input inputMode="decimal" value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
+      )}
       <div className="fdm-edition-gestes">
-        {motif !== null && <p className="gst-erreur" role="alert">{motif}</p>}
+        {/* Une cale de la hauteur d'un libellé : les boutons s'alignent sur les cases, pas sur les libellés. */}
+        <span className="fdm-libelle fdm-cale" aria-hidden="true">&nbsp;</span>
         <span className="fdm-edition-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-edition-fermer>Fermer</button>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-edition-enregistrer>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
         </span>
+        {motif !== null && <p className="gst-erreur" role="alert">{motif}</p>}
       </div>
     </div>
   );
@@ -304,11 +316,23 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-orange{color:var(--color-svv-amber);font-weight:800}
 .fdm-orange-ligne th{color:var(--color-svv-amber)}
 .fdm-edition td{background:var(--color-svv-field)}
-.fdm-edition-corps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end;text-align:left;padding:6px 0;position:sticky;left:0;width:100cqi;box-sizing:border-box}
+.fdm-edition-corps{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;text-align:left;padding:6px 0;position:sticky;left:0;width:100cqi;box-sizing:border-box}
 .fdm-defile{position:relative;overflow-x:auto;container-type:inline-size}
-.fdm-edition-gestes{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
-.fdm-edition-gestes .gst-btn{width:auto;min-height:44px}
-.fdm-edition-boutons{display:flex;flex-wrap:wrap;gap:8px}
+.fdm-edition-corps>.tdb-champ{flex:1 1 150px}
+.fdm-edition-corps>.fdm-champ-large{flex-basis:190px}
+.fdm-edition-corps>.fdm-champ-court{flex-basis:110px}
+.fdm-edition-gestes{flex:0 0 auto;display:flex;flex-direction:column;gap:4px;align-items:stretch}
+@container (max-width:560px){ .fdm-edition-corps>*{flex-basis:100% !important} }
+.fdm-edition-gestes .gst-btn{width:auto;min-height:44px;height:44px;padding-top:0;padding-bottom:0;flex:1 1 0;white-space:nowrap}
+.fdm-edition-boutons{display:flex;gap:8px}
+.fdm-libelle{display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fdm-edition-corps select{height:44px}
+.fdm-saisie{display:flex;align-items:center;gap:6px;height:44px;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px 0 8px;background:var(--color-svv-surface);min-width:0}
+.fdm-saisie input{flex:1 1 auto;min-width:0;height:100%;border:0;outline:0;background:transparent;padding:0;font:inherit;font-size:.92rem;font-weight:400;color:var(--color-svv-ink);box-shadow:none;appearance:none}
+.fdm-saisie input::placeholder{color:var(--color-svv-muted);font-weight:400}
+.fdm-unite{color:var(--color-svv-muted);font-size:.92rem;font-weight:600}
+.fdm-edition-corps select:focus-visible,.fdm-saisie:focus-within{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.fdm-badge-orange{align-self:flex-start;margin-top:4px;padding:2px 8px;border-radius:999px;background:var(--color-svv-amber);color:var(--color-svv-surface);font-size:.72rem;font-weight:800}
 .fdm-edition-corps .fdm-manque{display:block;margin-top:4px;color:var(--color-svv-red);font-size:.8rem;font-weight:700}
 .fdm-totaux{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 18px;margin:0}
 .fdm-totaux div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
