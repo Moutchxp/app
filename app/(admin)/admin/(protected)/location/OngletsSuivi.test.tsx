@@ -123,6 +123,39 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 4, fiche: { societe: 'Repris SARL' } });
     expect(container.querySelector('[data-cumul-apporteur]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toContain('Année 202653 941,03 €394,10 €septembre 202653 941,03 €394,10 €');
   });
+  it('🔴 Arno (23/10/2026) : la fiche, le nouveau taux et la nouvelle règle se ferment quand on veut (bouton ou Échap), sans rien écrire', async () => {
+    avec407();
+    const fermee = vi.fn();
+    await act(async () => { root.render(createElement(ModaleParametresLocation, { onFermer: fermee })); });
+    await calmer();
+    await clic(container.querySelector('[data-onglet="apporteurs"]')!);
+    const echap = async (el: Element) => { await act(async () => { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); };
+    // La fiche : saisie abandonnée par « Fermer la fiche » ; rouverte, elle revient aux valeurs en base.
+    await clic(container.querySelector('[data-ouvrir-fiche="3"]')!);
+    await saisir(container.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Autre SAS');
+    await clic(container.querySelector('[data-fermer-fiche="3"]')!);
+    expect(container.querySelector('[data-fiche-apporteur]')).toBeNull();
+    await clic(container.querySelector('[data-ouvrir-fiche="3"]')!);
+    expect((container.querySelector('[data-fiche-societe]') as HTMLInputElement).value).toBe('Kin SAS');
+    // Échap dans la fiche : la fiche se ferme, pas la roue.
+    await echap(container.querySelector('[data-fiche-societe]')!);
+    expect(container.querySelector('[data-fiche-apporteur]')).toBeNull();
+    expect(fermee).not.toHaveBeenCalled();
+    // Le nouveau taux : Annuler, puis Échap.
+    await clic(container.querySelector('[data-nouveau-taux="3"]')!);
+    await clic(container.querySelector('[data-annuler-version]')!);
+    expect(container.querySelector('[data-nouvelle-version]')).toBeNull();
+    await clic(container.querySelector('[data-nouveau-taux="3"]')!);
+    await echap(container.querySelector('[data-nouvelle-version] input')!);
+    expect(container.querySelector('[data-nouvelle-version]')).toBeNull();
+    // La nouvelle règle : Échap.
+    await clic(container.querySelector('[data-onglet="commissions"]')!);
+    await clic(container.querySelector('[data-nouvelle-regle]')!);
+    await echap(container.querySelector('[data-saisie-regle] input')!);
+    expect(container.querySelector('[data-saisie-regle]')).toBeNull();
+    expect(fermee).not.toHaveBeenCalled();
+    expect(posts).toEqual([]);
+  });
   it('un nouvel apporteur part avec son collègue de rattachement', async () => {
     avec407();
     await ouvrir('apporteurs');

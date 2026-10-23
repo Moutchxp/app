@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import {
   type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
 } from '../../../../lib/location/suivi/suivi';
@@ -74,7 +74,13 @@ function useGeste(relire: () => void) {
   return { envoi, faire, retour, effacer: () => { setMotif(null); setInfo(null); } };
 }
 
-const VIDE_APPORTEUR = (jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
+/**
+ * 🔴 Arno (23/10/2026) — une saisie ouverte dans une ligne (fiche, nouveau taux, nouvelle règle) se ferme QUAND ON VEUT, sans
+ * condition : son bouton « Annuler » / « Fermer la fiche » ou Échap (qui ne ferme alors que la ligne, pas la roue).
+ */
+const echap = (fermer: () => void) => (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); fermer(); } };
+
+const VIDE_APPORTEUR =(jour: string) => ({ nom: '', type: 'partenaire' as TypeApporteur, taux: '', coutFixe: '', depuis: jour, collegueId: '', societe: '', telephone: '', email: '' });
 type Cumul = { parAnnee: { annee: number; nb: number; ca: number; commission: number }[]; parMois: { mois: string; nb: number; ca: number; commission: number }[] };
 
 /** Le cumul d'un apporteur (affaires, CA apporté, honoraires d'apporteur), par an et par mois — lu à l'ouverture de sa fiche. */
@@ -151,12 +157,12 @@ export function OngletApporteurs() {
                     <p className="plo-muet plo-petit-texte">Historique : {a.baremes.map((b) => `${dateFr(b.depuis)} → ${pourcent(b.taux)}${b.coutFixeMensuel > 0 ? ` + ${euros(b.coutFixeMensuel)}/mois` : ''}`).join(' · ')}</p>
                   )}
                   {version?.id === a.id ? (
-                    <div className="plo-grille" data-nouvelle-version={a.id}>
+                    <div className="plo-grille" data-nouvelle-version={a.id} onKeyDown={echap(() => setVersion(null))}>
                       <label className="plo-champ"><span>Taux (%)</span><input inputMode="decimal" value={version.taux} onChange={(e) => setVersion({ ...version, taux: e.target.value })} /></label>
                       <label className="plo-champ"><span>Coût fixe mensuel (€)</span><input inputMode="decimal" value={version.coutFixe} onChange={(e) => setVersion({ ...version, coutFixe: e.target.value })} /></label>
                       <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={version.depuis} onChange={(e) => setVersion({ ...version, depuis: e.target.value })} /></label>
                       <span className="plo-boutons" style={{ alignItems: 'end' }}>
-                        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setVersion(null)} disabled={g.envoi}>Annuler</button>
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setVersion(null)} data-annuler-version>Annuler</button>
                         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={g.envoi} data-enregistrer-version
                           onClick={() => { void g.faire({ action: 'bareme-apporteur', apporteurId: a.id, bareme: { taux: version.taux, coutFixe: version.coutFixe, depuis: version.depuis } },
                             `Nouveau taux de ${a.nom} enregistré.`).then((ok) => { if (ok) setVersion(null); }); }}>Enregistrer</button>
@@ -172,7 +178,7 @@ export function OngletApporteurs() {
                     </span>
                   )}
                   {annuaire && ouverte === a.id && (
-                    <div className="plo-fiche" data-fiche-apporteur={a.id}>
+                    <div className="plo-fiche" data-fiche-apporteur={a.id} onKeyDown={echap(() => { g.effacer(); setOuverte(null); })}>
                       <h4 className="plo-h4">Fiche</h4>
                       <div className="plo-grille">
                         <label className="plo-champ"><span>Société</span><input value={fiche.societe} onChange={(e) => setFiche({ ...fiche, societe: e.target.value })} data-fiche-societe /></label>
@@ -203,6 +209,7 @@ export function OngletApporteurs() {
                         {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
                       <h4 className="plo-h4">Cumul</h4>
                       <CumulApporteur id={a.id} />
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" onClick={() => { g.effacer(); setOuverte(null); }} data-fermer-fiche={a.id}>Fermer la fiche</button>
                     </div>
                   )}
                 </li>
@@ -276,13 +283,13 @@ export function OngletCommissions() {
                 primeLogement: enVigueur ? String(enVigueur.primeLogement).replace('.', ',') : '', primeParking: enVigueur ? String(enVigueur.primeParking).replace('.', ',') : '' }); }}>
               Nouvelle règle</button>
           ) : (
-            <div className="plo-grille" data-saisie-regle>
+            <div className="plo-grille" data-saisie-regle onKeyDown={echap(() => setRegle(null))}>
               <label className="plo-champ"><span>Taux du négociateur (%)</span><input inputMode="decimal" value={regle.tauxNegociateur} onChange={(e) => setRegle({ ...regle, tauxNegociateur: e.target.value })} /></label>
               <label className="plo-champ"><span>Prime nouvelle gestion — logement (€)</span><input inputMode="decimal" value={regle.primeLogement} onChange={(e) => setRegle({ ...regle, primeLogement: e.target.value })} /></label>
               <label className="plo-champ"><span>Prime nouvelle gestion — parking (€)</span><input inputMode="decimal" value={regle.primeParking} onChange={(e) => setRegle({ ...regle, primeParking: e.target.value })} /></label>
               <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={regle.depuis} onChange={(e) => setRegle({ ...regle, depuis: e.target.value })} /></label>
               <span className="plo-boutons">
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRegle(null)} disabled={g.envoi}>Annuler</button>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRegle(null)} data-annuler-regle>Annuler</button>
                 <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={g.envoi} data-enregistrer-regle
                   onClick={() => { void g.faire({ action: 'regle', regle }, 'Nouvelle règle de commission enregistrée.').then((ok) => { if (ok) setRegle(null); }); }}>Enregistrer</button>
               </span>

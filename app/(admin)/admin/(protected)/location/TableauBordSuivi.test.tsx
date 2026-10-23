@@ -175,6 +175,87 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-activite', id: '2026-09#3', champs: { origineContact: 'apporteur', apporteurId: 3, primeMode: 'aucune' } });
   });
 
+  describe('🔴 Arno (23/10/2026) — la ligne en édition se ferme quand on veut, sans condition', () => {
+    const sansOrigine = lignes2026.find((a) => a.dateSignature.startsWith('2026-09') && a.origineContact === null)!;
+    const id = String(sansOrigine.id);
+    let posts: Record<string, unknown>[];
+    const ouvrirLigne = async (cle = id) => {
+      donnees = { ...donnees, annuaire: true, collegues: [{ id: 2, libelle: 'Arnaud Jorel' }] };
+      posts = [];
+      global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+        if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+        return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as unknown as Response;
+      }) as unknown as typeof fetch;
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${cle}"]`) as HTMLButtonElement).click(); });
+      expect(container.querySelector(`[data-edition-ligne="${cle}"]`)).not.toBeNull();
+    };
+    const prime = async (v: string) => {
+      const el = container.querySelector('[data-edition-prime]') as HTMLSelectElement;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    };
+    const cellule = (mot: string) => container.querySelector(`[data-ligne-feuille="${id}"] td[data-mot="${mot}"]`)?.textContent;
+
+    it('ouvrir puis « Fermer » sans rien toucher (ligne « à renseigner ») : la ligne se ferme, rien n’est écrit', async () => {
+      await ouvrirLigne();
+      expect(cellule('Origine du contact')).toBe('à renseigner');
+      await act(async () => { (container.querySelector('[data-edition-fermer]') as HTMLButtonElement).click(); });
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(posts).toEqual([]);
+      expect(cellule('Origine du contact')).toBe('à renseigner');
+      // Le bouton de tête de ligne (« Fermer ») referme de même.
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(posts).toEqual([]);
+    });
+
+    it('ouvrir, modifier la prime, puis « Fermer » : la saisie est abandonnée, l’ancienne valeur revient, rien n’est écrit', async () => {
+      await ouvrirLigne();
+      const avant = (container.querySelector('[data-edition-prime]') as HTMLSelectElement).value;
+      const primeAvant = cellule('Prime de gestion');
+      await prime(avant === 'aucune' ? 'regle' : 'aucune');
+      await act(async () => { (container.querySelector('[data-edition-fermer]') as HTMLButtonElement).click(); });
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(cellule('Prime de gestion')).toBe(primeAvant);
+      expect(posts).toEqual([]);
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+      expect((container.querySelector('[data-edition-prime]') as HTMLSelectElement).value).toBe(avant);
+    });
+
+    it('Échap : même chose', async () => {
+      await ouvrirLigne();
+      await prime('aucune');
+      await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(posts).toEqual([]);
+    });
+
+    it('« Modifier » sur une autre ligne referme la première, sans rien écrire', async () => {
+      await ouvrirLigne();
+      const autre = lignes2026.find((a) => a.dateSignature.startsWith('2026-09') && a.id !== sansOrigine.id)!;
+      await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(autre.id)}"]`) as HTMLButtonElement).click(); });
+      expect([...container.querySelectorAll('[data-edition-ligne]')].map((e) => e.getAttribute('data-edition-ligne'))).toEqual([String(autre.id)]);
+      expect(posts).toEqual([]);
+    });
+
+    it('« Enregistrer » sans origine : bloqué, message sous le champ, rien d’envoyé, la ligne reste ouverte', async () => {
+      await ouvrirLigne();
+      expect(container.querySelector('[data-edition-sans-origine]')).toBeNull();   // pas de contrôle à l'ouverture
+      await act(async () => { (container.querySelector('[data-edition-enregistrer]') as HTMLButtonElement).click(); });
+      await calmer();
+      expect(container.querySelector('[data-edition-sans-origine]')?.textContent).toBe('L’origine du contact est obligatoire.');
+      expect(container.querySelector('[data-edition-origine]')?.closest('label')?.querySelector('[data-edition-sans-origine]')).not.toBeNull();
+      expect(container.querySelector(`[data-edition-ligne="${id}"]`)).not.toBeNull();
+      expect(posts).toEqual([]);
+      // … et « Fermer » referme quand même, aussitôt.
+      await act(async () => { (container.querySelector('[data-edition-fermer]') as HTMLButtonElement).click(); });
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(posts).toEqual([]);
+    });
+  });
+
   it('apporteurs du mois : par apporteur, et par collègue (les affaires de SES apporteurs, à la date de l’affaire)', async () => {
     const ids = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09') && a.apporteurNom === 'Apporteur A');
     donnees = { ...donnees, activites: donnees.activites.map((a) => (ids.includes(a) ? { ...a, apporteurId: 9 } : a)),

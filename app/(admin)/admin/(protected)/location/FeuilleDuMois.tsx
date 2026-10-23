@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   type ActiviteLue, apporteursEtCollegues, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
@@ -20,6 +20,9 @@ import {
  *   · le bas de feuille du fichier : TOTAL CA HT, apporteurs, CA − apporteurs, primes, rétrocessions et commission brute par
  *     négociateur (droit « Voir les commissions »), ventilation avec / sans gestion, balance de gestion récurrente ;
  *   · « Apporteurs du mois » : par apporteur, et par collègue (les affaires de SES apporteurs).
+ * 🔴 Arno (23/10/2026) — LA LIGNE EN ÉDITION SE FERME QUAND ON VEUT, SANS CONDITION : « Fermer » (en tête de ligne ou sous la
+ * saisie), la touche Échap, ou « Modifier » sur une autre ligne la referment aussitôt et abandonnent la saisie (la ligne revient
+ * aux valeurs en base ; rien n'est écrit). L'origine du contact obligatoire ne se contrôle qu'au clic sur « Enregistrer ».
  */
 const API = '/api/admin/location/suivi';
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -46,6 +49,15 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs);
   const [edition, setEdition] = useState<number | string | null>(null);
+  // Échap referme la ligne en édition — sauf quand une fenêtre (confirmation, roue) est ouverte : Échap est alors à elle.
+  useEffect(() => {
+    if (edition === null) return;
+    const clavier = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && document.querySelector('[role="dialog"][aria-modal="true"]') === null) setEdition(null);
+    };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [edition]);
   const nom = `${NOMS_MOIS[mois - 1]} ${annee}`;
   const annuaire = d.annuaire === true;
 
@@ -55,51 +67,53 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>
         {!annuaire && <p className="loc-alerte loc-alerte--orange" role="status" data-feuille-sans-407>Mise à jour de la base à appliquer (migration 407) : l’origine du contact, le collègue et le choix de prime ne s’affichent ni ne se corrigent encore.</p>}
         {duMois.length === 0 ? <p className="loc-muet">Aucun bail signé ce mois-ci.</p> : (
-          <table className="fdm-table fdm-table--large">
-            <thead><tr>
-              <th scope="col">Propriétaire(s)</th><th scope="col">Locataire(s)</th><th scope="col">Hono. propriétaire HT</th><th scope="col">Hono. locataire HT</th>
-              <th scope="col">Total HT</th><th scope="col">Gestion</th><th scope="col">Origine du contact</th><th scope="col">Apporteur</th><th scope="col">Collègue</th>
-              <th scope="col">Hono. d’apporteur</th><th scope="col">Prime de gestion</th><th scope="col">Négociateur</th><th scope="col">Client</th><th scope="col"><span className="fdm-cache">Gestes</span></th>
-            </tr></thead>
-            <tbody>
-              {duMois.map((a) => {
-                const col = collegueDeLigne(a, ctx.apporteurs);
-                const taux = tauxAffichage(a, ctx.apporteurs);
-                const prime = primeDe(a, ctx.regles);
-                const aRat = col !== null && 'aRattacher' in col;
-                return [
-                  <tr key={String(a.id)} data-ligne-feuille={String(a.id)} className={a.rattachement !== 'rattache' ? 'fdm-historique' : undefined}>
-                    <th scope="row" data-mot="Propriétaire(s)">
-                      {a.lotId !== null ? <a href={`/admin/location/bien/${a.lotId}`} data-ouvrir-bail>{a.libelleProprietaire || '—'}</a> : <span>{a.libelleProprietaire || '—'}</span>}
-                      {a.type !== 'bail' && <span className="loc-pastille">{a.type === 'avenant' ? 'Avenant' : 'Gestion seule'}</span>}
-                      {a.rattachement !== 'rattache' && <span className="loc-pastille" title="Ligne reprise du suivi mensuel, sans bail de l’outil">{a.rattachement === 'douteux' ? 'à vérifier' : 'historique'}</span>}
-                    </th>
-                    <td data-mot="Locataire(s)">{a.libelleLocataire || '—'}</td>
-                    <td data-mot="Hono. propriétaire HT">{eur(a.honoProprietaireHt)}</td>
-                    <td data-mot="Hono. locataire HT">{eur(a.honoLocataireHt)}</td>
-                    <td data-mot="Total HT" className="tdb-fort">{eur(caLigne(a))}</td>
-                    <td data-mot="Gestion">{a.avecGestion ? 'avec' : 'sans'}</td>
-                    <td data-mot="Origine du contact">{a.origineContact ? LIBELLE_ORIGINE_CONTACT[a.origineContact] : <span className="loc-muet">à renseigner</span>}</td>
-                    <td data-mot="Apporteur">{a.apporteurNom ?? '—'}</td>
-                    <td data-mot="Collègue">{col === null ? '—' : aRat ? <span className="fdm-orange">à rattacher</span> : (col as { libelle: string }).libelle}</td>
-                    <td data-mot="Hono. d’apporteur">{a.apporteurNom === null && a.apporteurId === null ? '—' : `${eur(commissionApporteurDe(a, ctx.apporteurs))}${taux === null ? '' : ` (${pct(taux)})`}`}</td>
-                    <td data-mot="Prime de gestion">{prime === 0 ? 'Aucune' : eur(prime)}</td>
-                    <td data-mot="Négociateur">{a.negociateurLibelle || '—'}</td>
-                    <td data-mot="Client">{a.origineProprietaire ? LIBELLE_ORIGINE[a.origineProprietaire] : '—'}</td>
-                    <td data-mot="">{annuaire && (
-                      <button type="button" className="tdb-pilule fdm-modifier" aria-expanded={edition === a.id} onClick={() => setEdition(edition === a.id ? null : a.id)} data-modifier-ligne={String(a.id)}>
-                        {edition === a.id ? 'Fermer' : 'Modifier'}</button>
-                    )}</td>
-                  </tr>,
-                  edition === a.id && (
-                    <tr key={`${String(a.id)}-edition`} className="fdm-edition"><td colSpan={14}>
-                      <EditionLigne a={a} d={d} ctx={ctx} onFini={() => { setEdition(null); onRelire(); }} />
-                    </td></tr>
-                  ),
-                ];
-              })}
-            </tbody>
-          </table>
+          <div className="fdm-defile" data-defile-locations>
+            <table className="fdm-table fdm-table--large">
+              <thead><tr>
+                <th scope="col">Propriétaire(s)</th><th scope="col">Locataire(s)</th><th scope="col">Hono. propriétaire HT</th><th scope="col">Hono. locataire HT</th>
+                <th scope="col">Total HT</th><th scope="col">Gestion</th><th scope="col">Origine du contact</th><th scope="col">Apporteur</th><th scope="col">Collègue</th>
+                <th scope="col">Hono. d’apporteur</th><th scope="col">Prime de gestion</th><th scope="col">Négociateur</th><th scope="col">Client</th><th scope="col"><span className="fdm-cache">Gestes</span></th>
+              </tr></thead>
+              <tbody>
+                {duMois.map((a) => {
+                  const col = collegueDeLigne(a, ctx.apporteurs);
+                  const taux = tauxAffichage(a, ctx.apporteurs);
+                  const prime = primeDe(a, ctx.regles);
+                  const aRat = col !== null && 'aRattacher' in col;
+                  return [
+                    <tr key={String(a.id)} data-ligne-feuille={String(a.id)} className={a.rattachement !== 'rattache' ? 'fdm-historique' : undefined}>
+                      <th scope="row" data-mot="Propriétaire(s)">
+                        {a.lotId !== null ? <a href={`/admin/location/bien/${a.lotId}`} data-ouvrir-bail>{a.libelleProprietaire || '—'}</a> : <span>{a.libelleProprietaire || '—'}</span>}
+                        {a.type !== 'bail' && <span className="loc-pastille">{a.type === 'avenant' ? 'Avenant' : 'Gestion seule'}</span>}
+                        {a.rattachement !== 'rattache' && <span className="loc-pastille" title="Ligne reprise du suivi mensuel, sans bail de l’outil">{a.rattachement === 'douteux' ? 'à vérifier' : 'historique'}</span>}
+                      </th>
+                      <td data-mot="Locataire(s)">{a.libelleLocataire || '—'}</td>
+                      <td data-mot="Hono. propriétaire HT">{eur(a.honoProprietaireHt)}</td>
+                      <td data-mot="Hono. locataire HT">{eur(a.honoLocataireHt)}</td>
+                      <td data-mot="Total HT" className="tdb-fort">{eur(caLigne(a))}</td>
+                      <td data-mot="Gestion">{a.avecGestion ? 'avec' : 'sans'}</td>
+                      <td data-mot="Origine du contact">{a.origineContact ? LIBELLE_ORIGINE_CONTACT[a.origineContact] : <span className="loc-muet">à renseigner</span>}</td>
+                      <td data-mot="Apporteur">{a.apporteurNom ?? '—'}</td>
+                      <td data-mot="Collègue">{col === null ? '—' : aRat ? <span className="fdm-orange">à rattacher</span> : (col as { libelle: string }).libelle}</td>
+                      <td data-mot="Hono. d’apporteur">{a.apporteurNom === null && a.apporteurId === null ? '—' : `${eur(commissionApporteurDe(a, ctx.apporteurs))}${taux === null ? '' : ` (${pct(taux)})`}`}</td>
+                      <td data-mot="Prime de gestion">{prime === 0 ? 'Aucune' : eur(prime)}</td>
+                      <td data-mot="Négociateur">{a.negociateurLibelle || '—'}</td>
+                      <td data-mot="Client">{a.origineProprietaire ? LIBELLE_ORIGINE[a.origineProprietaire] : '—'}</td>
+                      <td data-mot="">{annuaire && (
+                        <button type="button" className="tdb-pilule fdm-modifier" aria-expanded={edition === a.id} onClick={() => setEdition(edition === a.id ? null : a.id)} data-modifier-ligne={String(a.id)}>
+                          {edition === a.id ? 'Fermer' : 'Modifier'}</button>
+                      )}</td>
+                    </tr>,
+                    edition === a.id && (
+                      <tr key={`${String(a.id)}-edition`} className="fdm-edition"><td colSpan={14}>
+                        <EditionLigne a={a} d={d} ctx={ctx} onFermer={() => setEdition(null)} onFini={() => { setEdition(null); onRelire(); }} />
+                      </td></tr>
+                    ),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -188,7 +202,7 @@ function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; per
 }
 
 /** Corriger dans la ligne : origine, collègue, apporteur, commission, prime. La confirmation est celle de la tuile. */
-function EditionLigne({ a, d, ctx, onFini }: { a: ActiviteLue; d: DonneesTableau; ctx: ContexteCalcul; onFini: () => void }) {
+function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: DonneesTableau; ctx: ContexteCalcul; onFermer: () => void; onFini: () => void }) {
   const [v, setV] = useState({
     origineContact: (a.origineContact ?? '') as OrigineContact | '', collegueId: a.collegueId === null || a.collegueId === undefined ? '' : String(a.collegueId),
     apporteurId: a.apporteurId === null ? '' : String(a.apporteurId), apporteurTaux: a.apporteurTaux === null ? '' : saisie(Math.round(a.apporteurTaux * 1000000) / 10000),
@@ -198,7 +212,10 @@ function EditionLigne({ a, d, ctx, onFini }: { a: ActiviteLue; d: DonneesTableau
   });
   const [envoi, setEnvoi] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
+  const [sansOrigine, setSansOrigine] = useState(false);
   const enregistrer = async (): Promise<void> => {
+    // Contrôlée ICI, au clic sur « Enregistrer » seulement : rien n'est envoyé, la ligne reste ouverte, le message est sous le champ.
+    if (v.origineContact === '') { setSansOrigine(true); return; }
     setEnvoi(true); setMotif(null);
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'modifier-activite', id: a.id, champs: {
@@ -213,14 +230,15 @@ function EditionLigne({ a, d, ctx, onFini }: { a: ActiviteLue; d: DonneesTableau
       setEnvoi(false);
     }
   };
-  const poser = (p: Partial<typeof v>) => { setV({ ...v, ...p }); setMotif(null); };
+  const poser = (p: Partial<typeof v>) => { setV({ ...v, ...p }); setMotif(null); if (p.origineContact) setSansOrigine(false); };
   return (
     <div className="fdm-edition-corps" data-edition-ligne={String(a.id)}>
       <label className="tdb-champ">Origine du contact *
-        <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} data-edition-origine>
+        <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} aria-invalid={sansOrigine} data-edition-origine>
           <option value="">— choisir —</option>
           {ORIGINES_CONTACT.map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
-        </select></label>
+        </select>
+        {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
       {v.origineContact === 'collegue' && (
         <label className="tdb-champ">Collègue *
           <select value={v.collegueId} onChange={(e) => poser({ collegueId: e.target.value })} data-edition-collegue>
@@ -251,7 +269,10 @@ function EditionLigne({ a, d, ctx, onFini }: { a: ActiviteLue; d: DonneesTableau
       {v.primeMode === 'personnalise' && <label className="tdb-champ">Montant (€) *<input inputMode="decimal" value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /></label>}
       <div className="fdm-edition-gestes">
         {motif !== null && <p className="gst-erreur" role="alert">{motif}</p>}
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-edition-enregistrer>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+        <span className="fdm-edition-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-edition-fermer>Fermer</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-edition-enregistrer>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+        </span>
       </div>
     </div>
   );
@@ -283,9 +304,12 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-orange{color:var(--color-svv-amber);font-weight:800}
 .fdm-orange-ligne th{color:var(--color-svv-amber)}
 .fdm-edition td{background:var(--color-svv-field)}
-.fdm-edition-corps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end;text-align:left;padding:6px 0}
+.fdm-edition-corps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end;text-align:left;padding:6px 0;position:sticky;left:0;width:100cqi;box-sizing:border-box}
+.fdm-defile{position:relative;overflow-x:auto;container-type:inline-size}
 .fdm-edition-gestes{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
 .fdm-edition-gestes .gst-btn{width:auto;min-height:44px}
+.fdm-edition-boutons{display:flex;flex-wrap:wrap;gap:8px}
+.fdm-edition-corps .fdm-manque{display:block;margin-top:4px;color:var(--color-svv-red);font-size:.8rem;font-weight:700}
 .fdm-totaux{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 18px;margin:0}
 .fdm-totaux div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
 .fdm-totaux dt{color:var(--color-svv-muted)}
