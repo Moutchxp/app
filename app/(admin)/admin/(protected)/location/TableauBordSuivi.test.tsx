@@ -41,6 +41,13 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
+/** La tuile « Biens en gestion » : la période, les comptes, le solde et son sens (sa couleur). */
+const gestion = () => {
+  const t = container.querySelector('[data-tuile="gestion"]')!;
+  return { periode: t.querySelector('.tdb-gestion-periode')?.textContent, nouveaux: t.querySelector('[data-gestion-nouveaux]')?.textContent,
+    sortis: t.querySelector('[data-gestion-sortis]')?.textContent, solde: t.querySelector('[data-gestion-solde]')?.textContent,
+    sens: t.querySelector('[data-gestion-solde]')?.getAttribute('data-gestion-solde') };
+};
 const monter = async (vue: 'mois' | 'annee' = 'annee') => { await act(async () => { root.render(createElement(TableauBordSuivi, { vue })); }); await calmer(); };
 const choisir = async (filtre: string, v: string) => {
   const el = container.querySelector(`[data-filtre="${filtre}"]`) as HTMLSelectElement;
@@ -61,7 +68,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(tuile('baux-mois').querySelector('.tdb-tuile-valeur')?.textContent).toBe('17');
     expect(nbsp(tuile('ca-cumul').querySelector('.tdb-tuile-valeur')?.textContent)).toBe('94 612,61 €');
     expect(tuile('gestion').querySelector('.tdb-tuile-valeur')?.textContent).toBe('121');
-    expect(tuile('gestion').querySelector('.tdb-tuile-n1')?.textContent).toContain('+1 / −0');
+    // Arno (23/10/2026) : nouveaux en vert, sortis en rouge, le solde en gros (vert / rouge / gris).
+    expect(gestion()).toEqual({ periode: 'Sept. 2026 :', nouveaux: '+1', sortis: '−0', solde: '+1', sens: 'positif' });
   });
 
   it('un chiffre s’ouvre sur la liste de ses baux ; Échap la ferme', async () => {
@@ -113,7 +121,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(mot('ca-net-annee')).toBe('CA net d’apporteurs 2026 (janv. → oct.)');
       expect(val('ca-net-annee')).toBe('90 538,16 €');
       expect(val('gestion')).toBe('120');
-      expect(n1('gestion')).toBe('2026 (janv. → oct.) : +0 / −0 · récurrent +0,00 € / −0,00 € par mois');
+      expect(gestion()).toEqual({ periode: '2026 (janv. → oct.) :', nouveaux: '+0', sortis: '−0', solde: '0', sens: 'nul' });
+      expect(n1('gestion')).toBe('récurrent +0,00 € / −0,00 € par mois');
       // Le mois choisi borne la période : à fin mars, seul le CA de janvier à mars compte (n−1 : janv. → mars 2025).
       await choisir('mois', '3');
       expect(mot('ca-annee')).toBe('CA HT 2026 (janv. → mars)');
@@ -138,7 +147,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
         { lotId: 9, libelle: 'C', proprietaire: 'R', effetLe: '2026-11-02', avant: 'en_gestion', apres: 'ancienne_gestion', loyerHc: 800, provisions: 0, base: 'hc', tauxHt: 5 },
       ] };
       await monter('annee');
-      expect(n1('gestion')).toBe('2026 (janv. → oct.) : +1 / −1 · récurrent +66,00 € / −40,00 € par mois');   // novembre : hors période
+      expect(gestion()).toEqual({ periode: '2026 (janv. → oct.) :', nouveaux: '+1', sortis: '−1', solde: '0', sens: 'nul' });   // novembre : hors période
+      expect(n1('gestion')).toBe('récurrent +66,00 € / −40,00 € par mois');
       await choisir('gestion', 'sans');
       expect(val('ca-annee')).not.toBe('94 612,61 €');
       const filtrees = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-') && !a.avecGestion);
@@ -496,6 +506,19 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const sous = h.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
       expect(sous.querySelector('.tdb-bulle-titre')?.textContent).toBe('Octobre');
       expect(nbsp(sous.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT0,00 €Baux0');
+    });
+
+    it('Arno (23/10/2026) : le détail est À DROITE du graphique, dans la même carte ; il montre le mois choisi et suit la barre survolée', async () => {
+      await monter('mois');
+      const rangee = container.querySelector('[data-bloc="histogramme-mois"] [data-histo-rangee]')!;
+      expect([...rangee.children].map((e) => e.className)).toEqual(['tdb-histo-graphe', 'tdb-histo-detail']);
+      const titre = () => container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent;
+      expect(titre()).toBe('Octobre');
+      await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      expect(titre()).toBe('Septembre');
+      expect(container.querySelector('[data-histo-detail] [data-ecart]')?.getAttribute('data-ecart')).toBe('positif');   // +13 471,70 € : vert
+      await act(async () => { container.querySelector('.tdb-histo-zone')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
+      expect(titre()).toBe('Octobre');
     });
 
     it('un clic sur une barre ouvre l’onglet de ce mois ; le détail s’écrit sous le graphique (lisible au toucher)', async () => {

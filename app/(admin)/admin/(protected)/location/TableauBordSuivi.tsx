@@ -217,9 +217,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             onClick={() => setDetail({ titre: `Gestion — ${annee}${T.complete ? '' : ` (${periodeT})`}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
             <span className="tdb-tuile-mot">Biens en gestion</span>
             <strong className="tdb-tuile-valeur">{d.gestion.disponible ? d.gestion.stock : '—'}</strong>
-            <span className="tdb-tuile-n1">{d.gestion.disponible
-              ? `${annee}${T.complete ? '' : ` (${periodeT})`} : +${T.gestion.nouvelles} / −${T.gestion.perdues} · récurrent ${ecartEur(T.gestion.gagneMensuel)} / −${eur(T.gestion.perduMensuel)} par mois${T.gestion.sansLoyer > 0 ? ` (${T.gestion.sansLoyer} sans loyer saisi, non comptés)` : ''}`
-              : 'statut du bien : migration 403'}</span></button></li>
+            {d.gestion.disponible ? <>
+              <MouvementsGestion periode={`${annee}${T.complete ? '' : ` (${periodeT})`}`} nouveaux={T.gestion.nouvelles} sortis={T.gestion.perdues} />
+              <span className="tdb-tuile-n1 tdb-gestion-recurrent">récurrent {ecartEur(T.gestion.gagneMensuel)} / −{eur(T.gestion.perduMensuel)} par mois{T.gestion.sansLoyer > 0 ? ` (${T.gestion.sansLoyer} sans loyer saisi, non comptés)` : ''}</span>
+            </> : <span className="tdb-tuile-n1">statut du bien : migration 403</span>}</button></li>
         </ul>
       ) : (
       <ul className="tdb-tuiles" aria-label="L’essentiel">
@@ -239,7 +240,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           onClick={() => setDetail({ titre: `Gestion — ${NOMS_MOIS[Number(Dm.mois.slice(5)) - 1].toLowerCase()} ${Dm.mois.slice(0, 4)}`, lots: [{ titre: 'Entrés en gestion', ids: Dm.lotsEntres }, { titre: 'Sortis de la gestion', ids: Dm.lotsSortis }] })}>
           <span className="tdb-tuile-mot">Biens en gestion</span>
           <strong className="tdb-tuile-valeur">{d.gestion.disponible ? Dm.stock : '—'}</strong>
-          <span className="tdb-tuile-n1">{d.gestion.disponible ? `${moisCourt(Dm.mois)} : +${Dm.entrees} / −${Dm.sorties} (solde ${Dm.solde >= 0 ? '+' : '−'}${Math.abs(Dm.solde)})` : 'statut du bien : migration 403'}</span></button></li>
+          {d.gestion.disponible ? <MouvementsGestion periode={moisCourt(Dm.mois)} nouveaux={Dm.entrees} sortis={Dm.sorties} />
+            : <span className="tdb-tuile-n1">statut du bien : migration 403</span>}</button></li>
       </ul>
       )}
 
@@ -524,13 +526,18 @@ function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: Retur
  * L'HISTOGRAMME du suivi (Arno, 23/10/2026) — une barre par période (année du Suivi annuel, mois du Suivi du mois) ; la période
  * affichée en rouge, les autres en gris ; à côté, une barre claire hachurée pour N−1 quand elle existe ; une période sans valeur
  * (un mois à venir) n'a PAS de barre. Au survol, une BULLE structurée (la période ; en rouge l'année affichée ; en gris N−1 ;
- * l'écart en pied) ; un clic (ou un toucher) ouvre la période, et la même bulle s'écrit sous le graphique — lisible sur téléphone.
+ * l'écart en pied) ; un clic (ou un toucher) ouvre la période. Arno (23/10/2026) : le DÉTAIL s'écrit À DROITE du graphique, dans la
+ * même carte, aligné en haut (largeur fixe ; le graphique prend le reste) — la période choisie, ou la barre survolée ; au téléphone,
+ * sous le graphique, pleine largeur.
  */
 interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
 export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre }
 
-/** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (neutre) — ou « N−1 non importée ». */
+/** Le sens d'un nombre, pour sa couleur : positif (vert), négatif (rouge), nul (gris). PUR. */
+export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'positif' : x < 0 ? 'negatif' : 'nul');
+
+/** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
   const { courant: c, precedent: p } = info;
   const ecart = c.ca !== null && p !== null && p.ca !== null ? c.ca - p.ca : null;
@@ -551,8 +558,29 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
       <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? 'N−1 non importée'
-        : ecart === null ? 'Écart : —' : <><span>Écart</span><span className="tdb-bulle-montant">{ecartEur(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
+        : ecart === null ? 'Écart : —' : <><span>Écart</span>
+          {/* Arno (23/10/2026) : l'écart positif en vert, négatif en rouge, nul en gris (montant et pourcentage) ; « Écart » reste neutre. */}
+          <span className={`tdb-bulle-montant tdb-signe tdb-signe--${sensDe(ecart)}`} data-ecart={sensDe(ecart)}>{ecartEur(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
     </div>
+  );
+}
+
+/**
+ * Arno (23/10/2026) — LA TUILE « BIENS EN GESTION » : les nouveaux mandats de la période en VERT (« +N »), les sortis en ROUGE
+ * (« −N »), et le SOLDE (nouveaux − sortis) en gros sur la place restante : vert s'il est positif, rouge s'il est négatif, gris s'il
+ * est nul. Aucun calcul ne change : ce sont les mêmes comptes, colorés.
+ */
+export function MouvementsGestion({ periode, nouveaux, sortis }: { periode: string; nouveaux: number; sortis: number }) {
+  const solde = nouveaux - sortis;
+  return (
+    <span className="tdb-gestion" data-gestion-mouvements>
+      <span className="tdb-gestion-comptes"><span className="tdb-gestion-periode">{periode} :</span>
+        <span className="tdb-signe tdb-signe--positif" data-gestion-nouveaux>+{nouveaux}</span>
+        <span className="tdb-signe tdb-signe--negatif" data-gestion-sortis>−{sortis}</span></span>
+      <span className="tdb-gestion-solde"><span className="tdb-gestion-solde-mot">Solde</span>
+        <strong className={`tdb-gestion-solde-valeur tdb-signe tdb-signe--${sensDe(solde)}`} data-gestion-solde={sensDe(solde)}>
+          {solde > 0 ? '+' : solde < 0 ? '−' : ''}{Math.abs(solde)}</strong></span>
+    </span>
   );
 }
 
@@ -569,8 +597,12 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
   const largeur = pas * (avecN1 ? 0.36 : 0.64);
   const choisie = barres.find((b) => b.cle === courante);
   const iSurvol = survol === null ? -1 : barres.findIndex((b) => b.cle === survol);
+  // Arno (23/10/2026) — le détail À DROITE du graphique : la période choisie par défaut, la barre survolée tant qu'on la survole.
+  const detail = iSurvol >= 0 ? barres[iSurvol] : choisie;
   return (
     <figure className="tdb-courbe tdb-histo" data-courbe={attribut.replace(/^data-barre-/, '')}>
+      <div className="tdb-histo-rangee" data-histo-rangee>
+      <div className="tdb-histo-graphe">
       <div className="tdb-histo-zone" onMouseLeave={() => setSurvol(null)}>
         <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={aria}>
           <defs><pattern id={`hachures-${attribut}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -602,7 +634,9 @@ function Histogramme({ barres, courante, onChoisir, attribut, legende, aria }: {
       </div>
       {legende && <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
         {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
-      {choisie && <div data-histo-detail><BulleBarre info={choisie.info} sous /></div>}
+      </div>
+      {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
+      </div>
     </figure>
   );
 }
@@ -701,6 +735,25 @@ export const CSS_TABLEAU_BORD = `
 .tdb-indicateurs .tdb-chiffre,.tdb-indic{font-size:1.4rem;font-weight:800;padding:2px 0}
 .tdb-courbe{margin:0 0 10px}
 .tdb-courbe{max-width:860px}
+/* Arno (23/10/2026) — l'histogramme et son detail cote a cote dans la carte : detail a largeur fixe a droite, aligne en haut ;
+   au telephone, dessous, pleine largeur. */
+.tdb-histo{max-width:none}
+.tdb-histo-rangee{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;align-items:start}
+.tdb-histo-graphe{min-width:0}
+.tdb-histo-detail .tdb-bulle--sous{display:block;margin-top:0;width:100%;box-sizing:border-box;font-size:.88rem}
+@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr);gap:8px} }
+/* Les signes : les memes vert / rouge / gris que le reste de l'interface (jetons du theme). */
+.tdb-signe--positif{color:var(--color-svv-green-ink)}
+.tdb-signe--negatif{color:var(--color-svv-red)}
+.tdb-signe--nul{color:var(--color-svv-muted)}
+.tdb-tuile:has(.tdb-gestion){min-height:11rem}
+.tdb-gestion{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;width:100%}
+.tdb-gestion-comptes{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:.9rem;font-weight:800}
+.tdb-gestion-periode{color:var(--color-svv-muted);font-weight:700}
+.tdb-gestion-solde{display:flex;align-items:baseline;gap:8px;flex:1 1 auto}
+.tdb-gestion-solde-mot{font-size:.8rem;font-weight:700;color:var(--color-svv-muted)}
+.tdb-gestion-solde-valeur{font-size:2.4rem;font-weight:800;line-height:1}
+.tdb-gestion-recurrent{font-size:.78rem}
 .tdb-courbe svg{width:100%;height:auto;display:block}
 .tdb-grille{stroke:var(--color-svv-line);stroke-width:1}
 .tdb-axe{fill:var(--color-svv-muted);font-size:11px}
