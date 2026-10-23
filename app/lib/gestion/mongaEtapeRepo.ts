@@ -22,7 +22,7 @@ import { evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
 import {
   sensDeLaBorne, sqlBornesDeLEvenement, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne,
-  sqlPeriodesDeLEvenement,
+  sqlPeriodesDeLEvenement, sqlRattacheDepuis,
 } from './etatParLaFrise';
 
 /** Une étape telle que l'écran la reçoit. */
@@ -804,6 +804,8 @@ export async function biensNommesDeLEvenement(evenementId: number): Promise<{
 
 export async function evenementsDuBien(cleBien: string): Promise<{
   id: number; reference: string; objet: string; etat: string; ouvertLe: string; traiteLe: string | null;
+  /** 🔴 Arno (23/10/2026) — la date de début de rattachement des mails (`null` sans la migration 410 : elle vaut l'ouverture). */
+  rattacheDepuis?: string | null;
   /**
    * 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se DÉDUIT des cartes de borne, plus de `etat` ni de `traite_le`.
    * Les deux colonnes restent rendues (l'écran affiche l'avancement et la vieille date), mais c'est CE champ
@@ -840,7 +842,7 @@ export async function evenementsDuBien(cleBien: string): Promise<{
   const avecUrgence = await evenementQualifieDisponible();
   const { rows } = await query<{
     id: string; reference: string; objet: string; etat: string; ouvert: boolean;
-    ouvert_le: string; traite_le: string | null; clos_le: string | null;
+    ouvert_le: string; traite_le: string | null; clos_le: string | null; rattache_depuis: string | null;
     monga_refs: string[] | null; urgence: string | null; categorie: string | null; periodes: PeriodeDuBien[] | null;
   }>(
     `WITH par_partie AS (
@@ -858,6 +860,7 @@ export async function evenementsDuBien(cleBien: string): Promise<{
      )
      SELECT e.id, e.reference, e.objet, e.etat, ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
             e.ouvert_le::text, e.traite_le::text, ${sqlClosLeParLaFrise('e')}::text AS clos_le,
+            ${sqlRattacheDepuis('e')}::text AS rattache_depuis,
             /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — « si l'événement est suivi par Monga (au moins une
                référence MNG reliée) : une vignette MONGA […] avec la référence au survol » (Arno). On rend
                les références reliées, dans l'ordre, et l'écran décide quoi en montrer. */
@@ -882,7 +885,7 @@ export async function evenementsDuBien(cleBien: string): Promise<{
       ORDER BY e.ouvert_le DESC`, [cleBien]);
   return rows.map((r) => ({
     id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.ouvert,
-    ouvertLe: r.ouvert_le, traiteLe: r.traite_le, closLe: r.clos_le,
+    ouvertLe: r.ouvert_le, traiteLe: r.traite_le, closLe: r.clos_le, rattacheDepuis: r.rattache_depuis,
     /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran ne doit pas avoir à distinguer « aucune référence » de
        « colonne absente ». Un événement sans Monga est le cas ordinaire, et de très loin. */
     mongaRefs: r.monga_refs ?? [],

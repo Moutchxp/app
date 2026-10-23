@@ -19,7 +19,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit de la frise, et la cloture ne s'ecrit plus a la main. */
 import { MOTIF_CLOTURE_PAR_LA_FRISE, etatDeTravail, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
-import { deplacementsDeMailsDisponibles, evenementQualifieDisponible } from './schema';
+import { deplacementsDeMailsDisponibles, evenementQualifieDisponible, rattacheDepuisDisponible } from './schema';
 import { ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
 import {
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
@@ -120,6 +120,12 @@ export interface NouvelEvenement {
   closLe?: string | null;
   note?: string | null;
   /**
+   * 🔴 Arno (23/10/2026) — LE MAIL D'ORIGINE, quand la carte est créée sur toute la conversation (`affecter`) : sa date devient la
+   * date de début de rattachement (`rattache_depuis`). Il n'est retenu que s'il appartient bien à l'échange affecté. Absent ⇒ la
+   * date de création. (« Ce mail seul » — `deplacerMessageVersNouveau` — connaît déjà son mail.)
+   */
+  messageOrigine?: number | null;
+  /**
    * 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix des personnes concernées, envoyé SEULEMENT quand il a
    * été modifié (relu par `concernesDepuisJson`). Absent : le comportement d'avant, à l'identique.
    */
@@ -162,6 +168,8 @@ export type { EvenementDuMail } from './evenementQualite';
  */
 async function creerEvenementDansTransaction(
   q: RequeteTx, n: NouvelEvenement, auteur: Auteur, qualifie: boolean,
+  /** 🔴 Arno (23/10/2026) — le mail d'origine et l'échange qu'il doit porter (`null` = tout mail), si la migration 410 est là. */
+  origine: { messageId: number | null; filId: number | null; disponible: boolean } = { messageId: null, filId: null, disponible: false },
 ): Promise<{ id: number; reference: string }> {
   const objet = texte(nettoyerObjet(texte(n.objet)));
   /**
@@ -221,6 +229,21 @@ async function creerEvenementDansTransaction(
         auteur.id, auteur.libelle, null, bornes.closLe, noteEvenement(n.note)]);
   const id = rows[0].id;
   await journaliser(q, 'evenement', id, 'ouverture', auteur, `carte ${reference} ouverte depuis un échange`);
+  /**
+   * 🔴🔴 Arno (23/10/2026) — LA DATE DE DÉBUT DE RATTACHEMENT : la date du mail d'origine (jamais dans le futur), sinon la date de
+   * création. Distincte de l'ouverture (= la création) : elle ne sert qu'à dire quels mails du fil comptent dans l'événement
+   * (`sqlDansUnePeriodeOuverte`), jamais aux statistiques. Écrite seulement si la migration 410 est appliquée.
+   */
+  if (origine.disponible) {
+    await q(
+      `UPDATE gestion_evenement e
+          SET rattache_depuis = coalesce(
+                (SELECT LEAST(m.recu_le, now()) FROM gestion_message m
+                  WHERE m.id = $2::bigint AND ($3::bigint IS NULL OR m.fil_id = $3::bigint)),
+                e.ouvert_le)
+        WHERE e.id = $1`,
+      [id, origine.messageId, origine.filId]);
+  }
 
   /**
    * 🔴 SUR QUOI PORTE CETTE CARTE : le bien, son propriétaire, son locataire — demande d'Arno. Ce n'est pas un
@@ -256,6 +279,7 @@ export async function affecter(
   const surLEchange = await seulementLEchange(); // sondé HORS transaction, cf. le commentaire de la fonction
   // LOT CONTACTS-ET-EVENEMENT — la 268 est-elle là ? Sondée HORS transaction, pour la même raison.
   const qualifie = await evenementQualifieDisponible();
+  const rattacheDispo = await rattacheDepuisDisponible();   // sondé HORS transaction, comme les autres
   return withTransaction(async (q) => {
     const { rows: fil } = await q<{ id: number; etat: string }>(
       `SELECT id::int AS id, etat FROM gestion_fil WHERE id = $1`, [filId]);
@@ -265,7 +289,10 @@ export async function affecter(
     let reference: string | undefined;
     if (evenementId === undefined) {
       const n = cible.nouveau!;
-      const cree = await creerEvenementDansTransaction(q, n, auteur, qualifie);
+      const cree = await creerEvenementDansTransaction(q, n, auteur, qualifie, {
+        messageId: Number.isSafeInteger(n.messageOrigine) && (n.messageOrigine as number) > 0 ? n.messageOrigine as number : null,
+        filId, disponible: rattacheDispo,
+      });
       evenementId = cree.id;
       reference = cree.reference;
     } else {
@@ -422,8 +449,11 @@ export async function deplacerMessageVersNouveau(
     return { ok: false, motif: 'Donnez un objet au nouvel événement.' };
   }
   const qualifie = await evenementQualifieDisponible(); // sondé HORS transaction, comme partout dans ce fichier
+  const rattacheDispo = await rattacheDepuisDisponible();
   return withTransaction(async (q) => {
-    const cree = await creerEvenementDansTransaction(q, nouveau, auteur, qualifie);
+    /* 🔴 Arno (23/10/2026) — « ce mail seul » : CE mail est le mail d'origine, et sa date le début de rattachement. */
+    const cree = await creerEvenementDansTransaction(q, nouveau, auteur, qualifie,
+      { messageId, filId: null, disponible: rattacheDispo });
     return lierLeMail(q, messageId, cree.id, auteur, motif);
   });
 }

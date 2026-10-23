@@ -1312,3 +1312,11 @@ export function envoiFileRattachementDisponible(): Promise<boolean> {
 export function envoiClassementDisponible(): Promise<boolean> {
   return memoiser('table.gestion_envoi_classement', () => tableExiste('gestion_envoi_classement'));
 }
+
+/**
+ * 🔴 Arno (23/10/2026) — la migration 410 (`gestion_evenement.rattache_depuis`, la date de début de rattachement des mails) est-elle
+ * appliquée ? Sans elle, la création n'écrit pas la colonne, et la règle des périodes la lit par `to_jsonb` (NULL ⇒ règle d'avant).
+ */
+export function rattacheDepuisDisponible(): Promise<boolean> {
+  return memoiser('evenement.rattache_depuis', () => colonneExiste('gestion_evenement', 'rattache_depuis'));
+}

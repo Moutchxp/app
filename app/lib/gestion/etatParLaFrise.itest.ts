@@ -26,7 +26,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
-import { sqlBornesDeLEvenement, sqlInstantDeBorne, sqlPeriodes } from './etatParLaFrise';
+import { sqlBornesDeLEvenement, sqlDansUnePeriodeOuverte, sqlInstantDeBorne, sqlPeriodes } from './etatParLaFrise';
 import { rangEtape } from './mongaEtape';
 
 afterAll(async () => { await closePool(); });
@@ -343,5 +343,29 @@ describe('🔴 ㉒ une clôture n’est jamais datée dans le futur', () => {
       ('2026-10-23 12:02:11+02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`)).toBe(true);
     expect(await ouverte(`SELECT * FROM (VALUES ('2026-10-23 12:02:11+02'::timestamptz - interval '1 second', 'ouvre'::text, 999::numeric, 0::bigint),
       ('2026-10-23 12:02:11+02'::timestamptz, 'ferme', ${rangEtape('cloture')}, 11)) v(quand, sens, rang, carte)`)).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ㉓ ARNO (23/10/2026) — DEUX DATES : l'ouverture (la création) et le début de rattachement (le mail d'origine). LECTURE SEULE :
+   l'événement est une ligne LITTÉRALE d'identifiant -1 (aucune carte), lue par la VRAIE règle `sqlDansUnePeriodeOuverte`.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ㉓ créé le 23/10 depuis un mail du 20/10 : les mails du fil comptent depuis le 20/10', () => {
+  const dans = async (rattache: string | null, mail: string) => (await query<{ ok: boolean }>(
+    `SELECT ${sqlDansUnePeriodeOuverte('e', '$1::timestamptz')} AS ok
+       FROM (SELECT -1::bigint AS id, '2026-10-23 10:15:00+02'::timestamptz AS ouvert_le,
+                    $2::timestamptz AS rattache_depuis) e`, [mail, rattache])).rows[0].ok;
+  it('début de rattachement 20/10 09:00 : le mail du 20/10 (inclus) et les suivants comptent ; pas celui du 19/10', async () => {
+    const r = '2026-10-20 09:00:00+02';
+    expect(await dans(r, '2026-10-19 18:00:00+02')).toBe(false);
+    expect(await dans(r, '2026-10-20 09:00:00+02')).toBe(true);   // la date du mail d'origine, incluse
+    expect(await dans(r, '2026-10-21 14:00:00+02')).toBe(true);
+    expect(await dans(r, '2026-10-24 08:00:00+02')).toBe(true);   // après la création : comme avant
+  });
+  it('sans mail d’origine (ou sans la migration 410) : la règle d’avant, depuis l’ouverture', async () => {
+    expect(await dans(null, '2026-10-21 14:00:00+02')).toBe(false);
+    expect(await dans(null, '2026-10-23 11:00:00+02')).toBe(true);
+    expect(await dans('2026-10-23 10:15:00+02', '2026-10-21 14:00:00+02')).toBe(false);   // même date : rien ne change
   });
 });

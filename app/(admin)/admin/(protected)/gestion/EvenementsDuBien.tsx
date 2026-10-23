@@ -17,7 +17,7 @@ import { SelecteurUrgence } from './SelecteurUrgence';
 import { ModaleIssue } from '../location/ModaleIssue';
 import { motCategorie } from '../../../../lib/gestion/evenementQualite';
 import {
-  motCloture, motOuverture, motPeriode, motReouvertures, nbReouvertures, ordreHistorique, type PeriodeLue,
+  motCloture, motOuverture, motPeriode, motRattacheDepuis, motReouvertures, nbReouvertures, ordreHistorique, type PeriodeLue,
 } from '../../../../lib/gestion/historiqueEvenements';
 
 /**
@@ -57,6 +57,8 @@ interface EvenementDuBien {
   objet: string;
   etat: string;
   ouvertLe: string;
+  /** 🔴 Arno (23/10/2026) — la date de début de rattachement des mails (absente sans la migration 410). */
+  rattacheDepuis?: string | null;
   traiteLe: string | null;
   /**
    * 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA DATE DE LA DERNIÈRE CARTE CLÔTURE, ou `null` si l'événement est ouvert.
@@ -389,6 +391,10 @@ export function EvenementsDuBien({
                     </span>
                   )}
                 </span>
+                {/* 🔴 Arno (23/10/2026) — la date de début de rattachement, quand elle diffère de l'ouverture : discrète, sous « ouvert le ». */}
+                {motRattacheDepuis(e.ouvertLe, e.rattacheDepuis ?? null) !== null && (
+                  <span className="evb-rattache" data-rattache-depuis="">{motRattacheDepuis(e.ouvertLe, e.rattacheDepuis ?? null)}</span>
+                )}
               </button>
               {ouvert && (<>
                 {/**
@@ -553,6 +559,7 @@ const CSS_EVENEMENTS_DU_BIEN = `
 .evb-tete:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .evb-objet{font-size:.88rem;font-weight:700;overflow-wrap:anywhere}
 .evb-bas{font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.evb-rattache{display:block;margin-top:2px;font-size:.74rem;color:var(--color-svv-muted);font-style:italic;overflow-wrap:anywhere}
 .evb-ref{font-weight:700}
 .evb-etape{color:var(--color-svv-ink)}
 .evb-frise{margin-top:6px;padding-top:6px;border-top:1px solid var(--color-svv-line)}

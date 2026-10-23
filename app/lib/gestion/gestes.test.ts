@@ -16,6 +16,8 @@ const migration268 = vi.fn(async () => false);
 vi.mock('./schema', () => ({
   deplacementsDeMailsDisponibles: () => migration234(),
   evenementQualifieDisponible: () => migration268(),
+  /* Arno (23/10/2026) — la migration 410 (date de début de rattachement) : absente ici, la création est celle d'avant. */
+  rattacheDepuisDisponible: async () => false,
   oublierSchema: () => {},
 }));
 

@@ -93,3 +93,13 @@ export function ordreHistorique<T extends { clos: boolean; closLe: string | null
   return evenements.filter((e) => e.clos)
     .sort((a, b) => (Date.parse(b.closLe ?? '') || 0) - (Date.parse(a.closLe ?? '') || 0) || b.id - a.id);
 }
+
+/**
+ * 🔴 Arno (23/10/2026) — « Mails rattachés depuis le … », sous « Ouvert le … », QUAND LES DEUX DATES DIFFÈRENT (jour civil) : la date de
+ * début de rattachement (le mail d'origine) peut précéder l'ouverture (la création). `null` sinon, ou si elle est inconnue. PUR.
+ */
+export function motRattacheDepuis(ouvertLe: string, rattacheDepuis: string | null): string | null {
+  if (rattacheDepuis === null || rattacheDepuis.trim() === '') return null;
+  if (rattacheDepuis.slice(0, 10) === ouvertLe.slice(0, 10)) return null;
+  return `Mails rattachés depuis le ${jourDe(rattacheDepuis)}`;
+}

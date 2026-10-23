@@ -182,6 +182,9 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
         ...(qualifieDisponible ? { categorie: categorie === '' ? null : categorie } : {}),
         ...(qualifieDisponible ? { urgence: urgence === '' ? null : urgence } : {}),
         parties: partiesDesBiens(),
+        /* 🔴 Arno (23/10/2026) — le mail sous lequel ce bloc vit : sa date devient la date de début de rattachement (le serveur
+           vérifie qu'il appartient à l'échange). L'ouverture, elle, reste l'instant de la création. */
+        messageOrigine: messageId,
         /* ⚠️ ON ENVOIE LES JOURS TELS QUELS : c'est le SQL qui les ancre à midi, heure de Paris, et c'est la
            seule place où cette règle doit vivre. */
         closLe: bornes.closLe,

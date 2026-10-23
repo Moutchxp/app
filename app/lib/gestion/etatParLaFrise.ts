@@ -316,8 +316,34 @@ export function sqlClosLeParLaFrise(alias: string): string {
  * la clôture appartient encore au dossier qu'il clôt — c'est souvent LUI qui l'a clos.
  */
 export function sqlDansUnePeriodeOuverte(alias: string, instant: string): string {
-  return `EXISTS (SELECT 1 FROM (${sqlPeriodesDeLEvenement(alias)}) svv_p
-                   WHERE ${instant} >= svv_p.du AND (svv_p.au IS NULL OR ${instant} <= svv_p.au))`;
+  return `(EXISTS (SELECT 1 FROM (${sqlPeriodesDeLEvenement(alias)}) svv_p
+                    WHERE ${instant} >= svv_p.du AND (svv_p.au IS NULL OR ${instant} <= svv_p.au))
+           OR ${sqlAvantLaPremiereOuverture(alias, instant)})`;
+}
+
+/**
+ * ══ 🔴🔴 LA DATE DE DÉBUT DE RATTACHEMENT (Arno, 23/10/2026) ═══════════════════════════════════════════════════════════════════
+ *
+ * « On garde DEUX dates distinctes. ① Date d'ouverture = date et heure de CRÉATION de l'événement (carte Ouverture, statistiques).
+ * ② Date de début de rattachement = date du MAIL à partir duquel l'événement a été créé. Tous les mails du fil reçus ou envoyés à
+ * partir de cette date (incluse) portent la capsule “Événement en cours” et comptent dans l'événement, même s'ils sont antérieurs
+ * à la date de création. » Sans mail d'origine, elle vaut la date de création.
+ *
+ * 🔴 ELLE N'ÉLARGIT QUE LA PREMIÈRE PÉRIODE, VERS LE PASSÉ : un mail daté entre le début de rattachement et la toute première
+ * ouverture compte. Les réouvertures gardent leur propre date ; les périodes et les statistiques ne bougent pas (elles lisent
+ * `sqlPeriodes`, que cette règle ne touche pas).
+ *
+ * ⚠️ LA COLONNE (`rattache_depuis`, migration 410) EST LUE PAR `to_jsonb(alias) ->> 'rattache_depuis'` : sans la migration, la clé
+ * est absente, la valeur est NULL et la règle est exactement celle d'avant — aucune requête ne nomme une colonne qui n'existe pas.
+ */
+export function sqlRattacheDepuis(alias: string): string {
+  return `(to_jsonb(${alias}) ->> 'rattache_depuis')::timestamptz`;
+}
+
+function sqlAvantLaPremiereOuverture(alias: string, instant: string): string {
+  return `(${sqlRattacheDepuis(alias)} IS NOT NULL AND ${instant} >= ${sqlRattacheDepuis(alias)}
+           AND EXISTS (SELECT 1 FROM (${sqlPeriodesDeLEvenement(alias)}) svv_p1)
+           AND NOT EXISTS (SELECT 1 FROM (${sqlPeriodesDeLEvenement(alias)}) svv_p2 WHERE svv_p2.du <= ${instant}))`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
