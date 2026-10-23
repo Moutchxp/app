@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "tsx app/scripts/purger-cache-next.ts",
     "dev": "NEXT_TURBO=0 next dev",
     "recette": "bash scripts/recette.sh",
+    "predev:https": "tsx app/scripts/purger-cache-next.ts",
     "dev:https": "NEXT_TURBO=0 next dev --experimental-https --experimental-https-key ./certificates/localhost-key.pem --experimental-https-cert ./certificates/localhost.pem",
     "build": "next build",
     "start": "next start",

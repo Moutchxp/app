@@ -509,6 +509,21 @@ définitive avant de figer les couleurs dans le code.
   le 01/10/2026) va désormais dans `.captures/adresses-inconnues-documents/`. Un garde
   (`app/lib/ops/rapportScript.test.ts`) refuse tout script qui nomme encore le Bureau.
 
+### 🔴🔴 OBLIGATOIRE — L'AGENT EFFACE SES FICHIERS DE TRAVAIL À LA FIN DE CHAQUE LOT
+
+> **À la fin de chaque lot, l'agent supprime LUI-MÊME ses copies de serveur (`.captures/devcopie` et toute copie du projet),
+> ses dumps et copies de base, et ses profils Chrome temporaires (dossiers `enc-*` du dossier temporaire). Il ne fait JAMAIS
+> de copie de base (dump) dans le dossier temporaire.**
+
+- **Décision d'Arno du 23/10/2026**, après que le disque du Mac s'est rempli : `.next` à 119 Go, plus les fichiers de travail
+  laissés par l'agent (une copie complète du serveur, un dump de base de recette, des centaines de profils Chrome, plus de 4 Go au
+  total). Plus aucune écriture n'était possible, ni pour l'agent ni pour l'application.
+- Pour vérifier à l'écran : le serveur d'Arno en lecture (ouvrir, saisir, contre-validation, puis abandonner — jamais
+  « Confirmer »), ou un serveur lancé pour l'occasion et effacé ensuite. Jamais de copie de base pour une vérification.
+- Les captures livrées à Arno (`.captures/<nom-du-lot>/`) restent : ce sont des livrables, pas des fichiers de travail.
+- Garde-fou associé : `npm run dev` vide le cache de `.next` au-delà de 10 Go avant de démarrer (`app/scripts/purger-cache-next.ts`,
+  note dans `.captures/surveiller-next/`).
+
 ### 🔴🔴 INTERDIT — JAMAIS `npm run test:integration` EN ENTIER
 
 > **Pour le contrôle de fin, ne JAMAIS lancer `npm run test:integration` en entier. Lancer UNIQUEMENT les fichiers
