@@ -1,6 +1,6 @@
 'use client';
 
-import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
@@ -9,6 +9,7 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee, useDossiersApporteur } from './ReglageApporteur';
+import { ecrireEtatModale } from './etatModaleParametres';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { dusParDossier } from '../../../../lib/location/suivi/tableauBord';
@@ -169,7 +170,9 @@ const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', c
  * `onChoisir` (Arno, 24/10/2026) — ouvert depuis « Nouveau locataire » (modale « Ouvrir l'annuaire ») : chaque apporteur porte
  * « Choisir cet apporteur », qui le pose sur le bail et ferme la modale. Absent ⇒ l'annuaire de la roue, à l'identique.
  */
-export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => void } = {}) {
+export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: Apporteur) => void;
+  /** 🔴 Arno (24/10/2026) — la carte et le panneau ouverts suivent l'adresse (`?apporteur=…&panneau=…`) : un rechargement les rouvre. */
+  url?: boolean } = {}) {
   const { lu, erreur, relire } = useSuiviParametres();
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
@@ -177,7 +180,14 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   /** 419 — un refus dit AVANT l'envoi (le serveur refuse pareil) : externe sans collègue, durée illisible (création). */
   const [refusLocal, setRefusLocal] = useState<string | null>(null);
   /** 🔴 Arno (24/10/2026) — le panneau ouvert de chaque carte (au plus un par carte). */
-  const [panneaux, setPanneaux] = useState<Record<number, Panneau>>({});
+  const [panneaux, setPanneaux] = useState<Record<number, Panneau>>(() => {
+    if (!url || typeof window === 'undefined') return {};
+    const p = new URLSearchParams(window.location.search);
+    const id = Number(p.get('apporteur')); const pan = p.get('panneau') as Panneau | null;
+    return Number.isSafeInteger(id) && id > 0 && pan !== null && PANNEAUX.includes(pan) ? { [id]: pan } : {};
+  });
+  /** La carte rouverte par l'adresse : amenée sous les yeux une fois l'annuaire lu (une seule fois). */
+  const aRetrouver = useRef<number | null>(url && typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('apporteur')) || null : null);
   /**
    * 🔴 Arno (24/10/2026) — RESTER SUR PLACE : un geste d'une carte se confirme SUR la carte (message près du bouton) — pas par la
    * fenêtre verte de la tuile, dont « Voir la fiche » rechargeait la page et faisait quitter l'annuaire. Les données se relisent sans
@@ -211,6 +221,12 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const basculer = (id: number, p: Panneau): void => {
     g.effacer(); setRefusLocal(null); setMessages((m) => { const n = { ...m }; delete n[id]; return n; });
     setPanneaux((x) => { const n = { ...x }; if (n[id] === p) delete n[id]; else n[id] = p; return n; });
+    if (url) {
+      const ouvre = panneaux[id] !== p;
+      const enAdresse = Number(new URLSearchParams(window.location.search).get('apporteur'));
+      if (ouvre) ecrireEtatModale({ apporteur: String(id), panneau: p });
+      else if (enAdresse === id) ecrireEtatModale({ apporteur: null, panneau: null });
+    }
   };
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
   const [seulementARattacher, setSeulementARattacher] = useState(false);
@@ -226,6 +242,16 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
     return () => { vivant = false; };
   }, [lu]);
   const annuaire = lu?.annuaire === true;
+  useEffect(() => {
+    if (lu === null || aRetrouver.current === null) return;
+    const id = aRetrouver.current;
+    aRetrouver.current = null;
+    // Seul le corps de la modale défile : un scrollIntoView ferait aussi glisser la fenêtre (overflow: hidden) et cacherait les onglets.
+    const carte = document.querySelector<HTMLElement>(`[data-apporteur="${id}"]`);
+    const corps = carte?.closest<HTMLElement>('.plo-corps');
+    if (carte && corps) corps.scrollTop += carte.getBoundingClientRect().top - corps.getBoundingClientRect().top;
+    else carte?.scrollIntoView?.({ block: 'start' });
+  }, [lu]);
   return (
     <section data-onglet-apporteurs>
       <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission : un taux sur la <strong>location</strong> (honoraires HT du bail) et un taux sur la <strong>gestion</strong>
