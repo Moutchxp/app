@@ -168,12 +168,25 @@ export async function depuisToujoursDisponible(): Promise<boolean> {
 }
 
 /**
- * 🔴 LA LISTE DES COLLÈGUES — UNE SEULE pour toute la tuile Location (Arno, 23 puis 24/10/2026) : « Négociateur », « Collègue »
- * (origine « Collègue directement »), collègue de rattachement de l'annuaire des apporteurs, feuille du mois, rétrocessions.
- * TOUS les comptes de l'interface d'administration, quels que soient leur rôle (administrateurs compris) et leurs droits —
- * aucune condition sur `role` ni sur les `perm_*` —, triés par NOM. Les comptes désactivés sont rendus marqués `actif: false` :
- * la liste (`ListeChoix`) ne les propose jamais, et ne montre l'un d'eux, « désactivé », que s'il est déjà le choix en cours.
+ * 🔴 LES LISTES DE COLLÈGUES — DEUX RÈGLES (Arno, 24/10/2026, après 56700ffb) :
+ *   · `lireCollegues` — « Collègue » (origine « Collègue directement »), collègue de rattachement d'un apporteur, feuille du mois :
+ *     TOUS les comptes de l'interface d'administration, quels que soient leur profil et leurs droits ;
+ *   · `lireNegociateurs` — « Négociateur » (et les rétrocessions, qui sont les siennes) : les comptes qui ont ACCÈS À LA TUILE
+ *     LOCATION (droit `perm_location`) OU un profil ADMINISTRATEUR. Sans la colonne du droit Location, la tuile est réservée aux
+ *     administrateurs (`exigerLocation`) : la liste aussi.
+ * Triés par NOM. Les comptes désactivés sont rendus marqués `actif: false` : la liste (`ListeChoix`) ne les propose jamais, et ne
+ * montre l'un d'eux, « désactivé », que s'il est déjà le choix en cours.
  */
+export async function lireNegociateurs(): Promise<Negociateur[]> {
+  const location = (await colonneExisteMemo('admin_utilisateur', 'perm_location')) ? ' OR u.perm_location IS TRUE' : '';
+  const { rows } = await query<{ id: string; libelle: string; actif: boolean }>(
+    `SELECT u.id, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant, 'compte ' || u.id) AS libelle, u.actif
+       FROM admin_utilisateur u
+      WHERE u.role = 'administrateur'${location}
+      ORDER BY lower(coalesce(nullif(btrim(u.nom), ''), u.prenom, u.identifiant, '')), lower(coalesce(u.prenom, '')), u.id`);
+  return rows.map((r) => ({ id: num(r.id), libelle: r.libelle, actif: r.actif === true }));
+}
+
 export async function lireCollegues(): Promise<Negociateur[]> {
   const { rows } = await query<{ id: string; libelle: string; actif: boolean }>(
     `SELECT u.id, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant, 'compte ' || u.id) AS libelle, u.actif

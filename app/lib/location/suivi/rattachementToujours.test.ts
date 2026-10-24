@@ -64,3 +64,15 @@ describe('🔴 La liste des collègues : TOUS les comptes (administrateurs compr
     expect(sql).toContain('ORDER BY lower(coalesce(nullif(btrim(u.nom)');
   });
 });
+
+describe('🔴 Arno (24/10/2026, après 56700ffb) — « Négociateur » : accès à la tuile Location OU administrateur', () => {
+  it('la condition porte sur le profil administrateur et le droit Location, rien d’autre ; tous les comptes concernés, désactivés marqués', async () => {
+    const { lireNegociateurs } = await import('./suiviRepo');
+    appels.length = 0;
+    await lireNegociateurs();
+    const sql = appels.at(-1)!.sql;
+    expect(sql).toContain("WHERE u.role = 'administrateur' OR u.perm_location IS TRUE");
+    expect(sql).not.toContain('u.actif AND');                       // les désactivés sont rendus (marqués), la liste les écarte
+    expect(sql).toContain('ORDER BY lower(coalesce(nullif(btrim(u.nom)');
+  });
+});
