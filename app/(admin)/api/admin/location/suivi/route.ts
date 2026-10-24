@@ -5,7 +5,7 @@ import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
-  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible,
+  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
 import { cumulApporteur, totauxApporteurs } from '../../../../../lib/location/suivi/tableauBord';
@@ -26,6 +26,7 @@ import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
  *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur : total, par an, par mois ;
  *         GET  ?vue=totaux-apporteurs                          les totaux de chaque apporteur depuis le début (dossiers, HT, dû).
  *   POST action=fiche-apporteur {apporteurId, fiche, version}  le panneau « Fiche » d'un externe (ADMINISTRATEUR ; 409 : conflit).
+ *   POST action=passer-interne {apporteurId, compteId}  un externe devient interne (ADMINISTRATEUR, 422).
  *   GET ?vue=dossiers-apporteur&id=N : les dossiers d'un apporteur (calcul en direct, cascade).
  *   419 : POST action=remuneration-collegue {apporteurId, remuneration}  la rémunération du collègue de rattachement (ADMINISTRATEUR).
  * Les rétrocessions (montants de commission) ne sont lues que par qui peut « Voir les commissions ».
@@ -67,9 +68,9 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
-    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
-      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(),
+      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(), passageDisponible(),
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
@@ -82,14 +83,16 @@ export async function GET(request: Request): Promise<Response> {
       // 420 — « Depuis toujours » enregistrable ?
       toujours,
       // 421 — la fiche d'identité complète d'un externe ?
-      identite } });
+      identite,
+      // 422 — « Passer en interne » enregistrable ?
+      passage } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);
   }
 }
 
-const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur']);
+const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne']);
 
 export async function POST(request: Request): Promise<Response> {
   let corps: Record<string, unknown>;
@@ -121,6 +124,9 @@ export async function POST(request: Request): Promise<Response> {
           () => enregistrerFicheApporteur(corps.apporteurId, { fiche: corps.fiche, version: corps.version }, auteur));
         return json(r, r.etat === 'conflit' ? 409 : 200);
       }
+      // 🔴 Arno (24/10/2026, 422) — « Passer en interne » (la règle du script ; journal avec compte, session, écran).
+      case 'passer-interne': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
+        () => passerApporteurEnInterne(corps.apporteurId, corps.compteId, auteur)));
       case 'remuneration-collegue': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
         () => ajouterRemunerationCollegue(corps.apporteurId, corps.remuneration, auteur)));
       default: return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);

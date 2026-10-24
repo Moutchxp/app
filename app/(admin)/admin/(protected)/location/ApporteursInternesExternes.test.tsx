@@ -62,9 +62,10 @@ describe('🔴 l’annuaire : internes et externes', () => {
     await annuaire();
     const c = container.querySelector('[data-apporteur="9"]')!;
     expect(c.querySelector('[data-badge-apporteur]')?.textContent).toBe('INTERNE');
-    expect(c.querySelector('[data-compte-apporteur]')?.textContent).toBe('Lié à son compte de l’interface — rattaché à personne.');
     expect(c.querySelector('[data-a-rattacher], [data-collegue-apporteur], [data-collegue-remuneration], [data-du-collegue]')).toBeNull();
-    expect(c.textContent).toContain('Récurrent — location 5 %, gestion 10 % / mois, pendant 1 an');
+    // Carte allégée : la règle est au panneau « Taux ».
+    await clic(c.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="taux"]')!);
+    expect(c.querySelector('[data-regle-apporteur="9"]')?.textContent).toContain('Récurrent — location 5 %, gestion 10 % / mois, pendant 1 an');
     // Le seul champ qui disparaît pour un interne (voulu par Arno) : le collègue de rattachement.
     await clic(c.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="rattachement"]')!);
     expect(c.querySelector('[data-rattacher], [data-rattacher-collegue], [data-remuneration-collegue]')).toBeNull();
@@ -73,15 +74,19 @@ describe('🔴 l’annuaire : internes et externes', () => {
     await clic(c.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="fiche"]')!);
     expect(c.querySelector('[data-fiche-interne] dd')?.textContent).toBe('Interne — Collaborateur');
     expect(c.querySelector('[data-fiche-interne-mention]')?.textContent).toContain('modifiable dans la gestion des comptes');
+    expect(c.querySelector('[data-compte-apporteur]')?.textContent).toBe('Lié à son compte de l’interface — rattaché à personne.');
     expect(c.querySelector('[data-fiche-interne] input')).toBeNull();
   });
   it('la carte EXTERNE : badge, « Collègue : <nom> — <rémunération résumée> », « Dû au collègue HT »', async () => {
     await annuaire();
     const c = container.querySelector('[data-apporteur="4"]')!;
     expect(c.querySelector('[data-badge-apporteur]')?.textContent).toBe('PARTENAIRE EXTERNE');
-    expect(c.querySelector('[data-collegue-remuneration="4"]')?.textContent).toBe('Collègue : Jean-Baptiste Pons — Récurrent — location 5 %, gestion 10 % / mois, pendant 3 ans');
     expect(n(c.querySelector('[data-du-collegue="4"]')?.textContent)).toBe('Dû au collègue HT130,00 €');
     expect(n(c.querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT2 000,00 €Dû HT200,00 €Dû au collègue HT130,00 €');
+    // Carte allégée : « Collègue : … — rémunération » est au panneau « Rattachement ».
+    expect(c.querySelector('[data-collegue-remuneration="4"]')).toBeNull();
+    await clic(c.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
+    expect(c.querySelector('[data-collegue-remuneration="4"]')?.textContent).toBe('Collègue : Jean-Baptiste Pons — Récurrent — location 5 %, gestion 10 % / mois, pendant 3 ans');
   });
   it('la rémunération du collègue : « Rémunération », Récurrent, ses taux, 3 ans, une date d’effet → une version datée envoyée', async () => {
     await annuaire();

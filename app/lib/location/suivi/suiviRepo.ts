@@ -12,6 +12,10 @@ import {
 import { colonnesTrace } from '../../gestion/traceJournal';
 import { motifConflitFiche } from '../../gestion/traceFiche';
 import { changementsFiche, ficheDe, verifierFiche } from './ficheApporteur';
+import { passageInterneDisponible, passerEnInterne, type IssuePassage } from './passageInterne';
+
+/** 422 — « Passer en interne » peut-il s'enregistrer (date du passage, entité de journal) ? */
+export const passageDisponible = (): Promise<boolean> => passageInterneDisponible(query);
 import { honorairesGestionDisponible } from '../../gestion/schema';
 import { lireReglages } from '../../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../../gestion/honorairesGestion';
@@ -174,15 +178,17 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const avec419 = await interneDisponible();
   const avec420 = await toujoursDisponible();
   const avec421 = await ficheIdentiteDisponible();
+  const avec422 = await colonneExisteMemo('gestion_location_apporteur', 'interne_depuis');
   const [a, b, c, rem] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
       nom_famille: string | null; prenom: string | null; compte_id: string | null; civilite: string | null; adresse: string | null; notes: string | null;
-      telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null }>(
+      telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null; interne_depuis: string | null }>(
       `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'},
               ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'},
               ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'},
               ${avec421 ? 'civilite, adresse, notes, telephones_autres, emails_autres' : 'NULL::text AS civilite, NULL::text AS adresse, NULL::text AS notes, NULL::text[] AS telephones_autres, NULL::text[] AS emails_autres'},
               ${avecAnnuaire ? 'modifie_le::text' : 'NULL::text'} AS version,
+              ${avec422 ? 'interne_depuis::text' : 'NULL::text'} AS interne_depuis,
               ${avec419 ? `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_libelle,
               (SELECT u.identifiant FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_identifiant`
     : 'NULL::text AS compte_libelle, NULL::text AS compte_identifiant'}
@@ -235,6 +241,8 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     // 421 — la fiche d'identité ; la version (dernière modification) ; le compte d'un interne.
     civilite: r.civilite ?? null, adresse: r.adresse ?? null, notes: r.notes ?? null, telephonesAutres: r.telephones_autres ?? [], emailsAutres: r.emails_autres ?? [],
     version: r.version ?? null, compteLibelle: r.compte_libelle ?? null, compteIdentifiant: r.compte_identifiant ?? null,
+    // 422 — le jour du passage en interne (les dossiers d'avant gardent collègue et rémunération du collègue).
+    interneDepuis: r.interne_depuis ? r.interne_depuis.slice(0, 10) : null,
   }));
 }
 
@@ -505,6 +513,19 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
     }
     return { etat: 'ok', data: { changements: changements.map(({ champ, avant, apres }) => ({ champ, avant, apres })) } } as const;
   });
+}
+
+/**
+ * 🔴 Arno (24/10/2026, 422) — « PASSER EN INTERNE » (panneau « Fiche ») : la règle du script `location:apporteurs-internes`
+ * (`passerEnInterne`), dans une transaction ; à compter d'aujourd'hui (Paris).
+ */
+export async function passerApporteurEnInterne(apporteurId: unknown, compteId: unknown, auteur: Auteur): Promise<IssuePassage> {
+  const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
+  const compte = typeof compteId === 'number' && Number.isInteger(compteId) && compteId > 0 ? compteId : null;
+  if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
+  if (compte === null) return { etat: 'refus', motif: 'Choisissez le compte de l’interface.' };
+  if (!(await interneDisponible())) return { etat: 'indisponible', motif: MOT_SANS_419 };
+  return withTransaction((q) => passerEnInterne(q as typeof query, { apporteurId: id, compteId: compte, jour: aujourdhuiParis(), raison: 'bouton « Passer en interne » de la fiche', auteur }));
 }
 
 /** Le collègue de rattachement, DATÉ : une nouvelle version à partir de `depuis` ; les affaires d'avant restent au collègue d'alors. */

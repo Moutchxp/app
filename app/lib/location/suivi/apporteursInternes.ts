@@ -40,6 +40,13 @@ function clesApporteur(a: ApporteurExamine): string[] {
   const n = normaliserNom(a.nomFamille);
   return [...new Set([normaliserNom(a.nom), ...(n !== '' ? [`${p} ${n}`.trim(), `${n} ${p}`.trim()] : [])].filter((x) => x !== ''))];
 }
+/** Le nom de l'apporteur correspond-il à celui du compte (la règle du script : accents, casse, tirets, ordre ignorés) ? PUR. */
+export function nomCorrespond(nomApporteur: string, compte: { prenom: string | null; nom: string | null }): boolean {
+  const a = normaliserNom(nomApporteur);
+  const p = normaliserNom(compte.prenom); const n = normaliserNom(compte.nom);
+  return a !== '' && (a === `${p} ${n}`.trim() || a === `${n} ${p}`.trim());
+}
+
 /** Le libellé d'un compte (« Prénom Nom », sinon l'identifiant). */
 export const libelleCompte = (c: CompteInterface): string => [c.prenom, c.nom].filter((x) => x && x.trim() !== '').join(' ').trim() || c.identifiant || `compte ${c.id}`;
 

@@ -6,12 +6,13 @@
  * d'un compte ; liste les cas DOUTEUX (plusieurs comptes, seul le nom de famille, compte déjà lié) sans les toucher
  * (`planPassageInterne`). REJOUABLE : un apporteur déjà interne n'est plus examiné.
  *
- * Un passage écrit `compte_id` (et le type « Collaborateur ») sur la fiche de l'apporteur. Rien d'autre : ses taux, ses dossiers et son
- * historique de rattachement restent tels quels (les dossiers d'avant gardent le collègue de l'époque).
+ * Un passage s'écrit par `passerEnInterne` — la règle du bouton « Passer en interne » de la fiche : `compte_id`, type « Collaborateur »,
+ * `interne_depuis` = aujourd'hui (422) ; le rattachement et la rémunération du collègue prennent fin ce jour-là, les dossiers déjà signés
+ * gardent leur calcul, l'historique est conservé.
  *
  * 🔴 ESSAI PAR DÉFAUT : il lit et écrit son rapport, aucune écriture en base. `--reel` passe les apporteurs « à passer », dans UNE
- *    transaction, et journalise chaque passage (`gestion_journal`, entité « location_apporteur » — migration 419 requise : sans elle,
- *    `--reel` est refusé). `--lier=12:5,14:7` : des liens apporteur → compte tranchés à la main (cas douteux).
+ *    transaction, et journalise chaque passage (`gestion_journal`, entité « location_apporteur » — migrations 419 et 422 requises : sans
+ *    elles, `--reel` est refusé). `--lier=12:5,14:7` : des liens apporteur → compte tranchés à la main (cas douteux).
  * 🔴 Le rapport va dans `.captures/apporteurs-internes/` (jamais sur le Bureau).
  *
  * Usage :
@@ -25,7 +26,7 @@ import '../lib/chargerEnv';
 import { writeFileSync } from 'node:fs';
 import { estPointEntree } from '../lib/scripts/pointEntree';
 import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
-import { libelleCompte, lireLiens, planPassageInterne, textePassageInterne, type ApporteurExamine, type CompteInterface } from '../lib/location/suivi/apporteursInternes';
+import { lireLiens, planPassageInterne, textePassageInterne, type ApporteurExamine, type CompteInterface } from '../lib/location/suivi/apporteursInternes';
 
 const P = '[location:apporteurs-internes]';
 const NOM_SCRIPT = 'apporteurs-internes';
@@ -54,23 +55,17 @@ async function principal(): Promise<void> {
     const plan = planPassageInterne(apporteurs, comptes, forces);
     let ecrits = 0;
     if (reel) {
-      const { rows: k } = await query<{ def: string | null }>(
-        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'gestion_journal_entite_chk' AND conrelid = 'gestion_journal'::regclass`);
-      if (!avec419 || !(k[0]?.def ?? '').includes("'location_apporteur'")) throw new Error('migration 419 absente : le passage en interne et son journal ne peuvent pas être écrits — appliquez-la, puis relancez.');
+      // 🔴 La MÊME règle que le bouton « Passer en interne » de la fiche (`passerEnInterne`) : interne à compter d'aujourd'hui, rattachement
+      // et rémunération du collègue clos ce jour-là (dossiers déjà signés inchangés), journalisé. Migrations 419 et 422 requises.
+      const { passerEnInterne, passageInterneDisponible, MOT_SANS_422 } = await import('../lib/location/suivi/passageInterne');
+      if (!avec419 || !(await passageInterneDisponible(query))) throw new Error(`migration 419 ou 422 absente — ${MOT_SANS_422}`);
+      const jour = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
       ecrits = await withTransaction(async (q) => {
         let n = 0;
         for (const d of plan) {
           if (d.sorte !== 'passer') continue;
-          // Relu et verrouillé : seulement s'il est encore externe et que le compte n'est l'apporteur de personne.
-          const r = await q(`UPDATE gestion_location_apporteur SET compte_id = $2, type = 'collaborateur', modifie_le = now(), modifie_par_libelle = $3
-                              WHERE id = $1 AND compte_id IS NULL AND archive_le IS NULL
-                                AND NOT EXISTS (SELECT 1 FROM gestion_location_apporteur x WHERE x.compte_id = $2 AND x.archive_le IS NULL)`, [d.apporteur.id, d.compte.id, AUTEUR]);
-          if ((r.rowCount ?? 0) === 0) continue;
-          await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
-                   VALUES ('location_apporteur', $1, 'location_apporteur_passe_interne', $2, $3, $4, NULL, $5)`,
-            [d.apporteur.id, `externe (${d.apporteur.type})`, `interne — compte n° ${d.compte.id} ${libelleCompte(d.compte)}`,
-              `Apporteur « ${d.apporteur.nom} » passé en interne (${d.raison})`, AUTEUR]);
-          n += 1;
+          const r = await passerEnInterne(q as typeof query, { apporteurId: d.apporteur.id, compteId: d.compte.id, jour, raison: d.raison, auteur: { id: null, libelle: AUTEUR } });
+          if (r.etat === 'ok') n += 1; else console.log(`${P} apporteur n° ${d.apporteur.id} non passé : ${r.motif}`);
         }
         return n;
       });

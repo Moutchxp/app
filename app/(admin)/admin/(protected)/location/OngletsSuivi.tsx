@@ -3,12 +3,12 @@
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
-  libelleRegleApporteur, type ModeApporteur, libelleApporteur, trierApporteurs,
-  badgeApporteur, estInterne, libelleRemuneration, remunerationADate, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE, baremeADate,
+  type Apporteur, aRattacher, collegueADate, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  type ModeApporteur, libelleApporteur, trierApporteurs,
+  badgeApporteur, estInterne, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
-import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, depuisRegle, dureeEnvoyee, historiqueRegles, useDossiersApporteur } from './ReglageApporteur';
+import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee, useDossiersApporteur } from './ReglageApporteur';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { dusParDossier } from '../../../../lib/location/suivi/tableauBord';
@@ -37,6 +37,8 @@ interface Lu {
   toujours?: boolean;
   /** 421 — la fiche d'identité complète d'un externe (civilité, adresse, notes, autres téléphones et e-mails) ? */
   identite?: boolean;
+  /** 422 — « Passer en interne » ? */
+  passage?: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -54,7 +56,7 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
         retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
-        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true, identite: x.identite === true });
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true, identite: x.identite === true, passage: x.passage === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -223,7 +225,6 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               const rang = new Map(alpha.map((a, i) => [a.id, i]));
               return tri === 'nom' ? alpha : [...alpha].sort((x, y) => (totaux?.[y.id]?.[tri] ?? 0) - (totaux?.[x.id]?.[tri] ?? 0) || (rang.get(x.id)! - rang.get(y.id)!));
             })().map((a) => {
-              const enVigueur = baremeADate(a, jour);
               const orphelin = annuaire && aRattacher(a);
               // 419 — un INTERNE n'est rattaché à personne : ni pastille de collègue, ni « à rattacher », ni rémunération.
               const interne = estInterne(a);
@@ -236,14 +237,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                     {annuaire && !interne && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
-                  {interne && <p className="plo-muet plo-petit-texte" data-compte-apporteur>Lié à son compte de l’interface — rattaché à personne.</p>}
-                  {annuaire && !orphelin && collegue !== null && (
-                    <p className="plo-muet plo-petit-texte" data-rattache-libelle>Rattaché à {collegue.collegueLibelle} {depuisLibelle(collegue)}</p>
-                  )}
-                  {/* 419 — « Collègue : <nom> — <rémunération résumée> » (un externe rattaché). */}
-                  {annuaire && !interne && collegue !== null && (
-                    <p className="plo-version-valeurs" data-collegue-remuneration={a.id}>Collègue : {collegue.collegueLibelle} — {libelleRemuneration(remunerationADate(a, jour))}</p>
-                  )}
+                  {/* 🔴 Arno (24/10/2026) — CARTE ALLÉGÉE : nom + badges, la synthèse, puis les 4 boutons. « Rattaché à … », « Collègue : … —
+                      rémunération » et « Lié à son compte » sont au panneau Rattachement / Fiche ; coordonnées → Fiche ; règle et historique → Taux. */}
                   {totaux !== null && (
                     <dl className="plo-totaux-ligne" data-totaux-ligne={a.id}>
                       <div><dt>Dossiers</dt><dd>{totaux[a.id]?.nb ?? 0}</dd></div>
@@ -256,13 +251,6 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                   {totaux !== null && (
                     <CascadeHonoraires repere={String(a.id)} ca={totaux[a.id]?.ca ?? 0} apporteur={totaux[a.id]?.commission ?? 0}
                       collegue={interne ? null : totaux[a.id]?.collegue ?? 0} nomApporteur={libelleApporteur(a)} nomCollegue={collegue?.collegueLibelle ?? 'à rattacher'} />
-                  )}
-                  {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
-                  {/* 413 — « One shot — location 10 %, gestion 20 % (depuis le …) » / « Récurrent — location 10 %, gestion 10 % / mois (depuis le …) ». */}
-                  <p className="plo-version-valeurs" data-regle-apporteur={a.id}>{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
-                    : `${libelleRegleApporteur(enVigueur)} (${depuisRegle(enVigueur)})`}</p>
-                  {a.baremes.length > 1 && (
-                    <p className="plo-muet plo-petit-texte" data-historique-regles-apporteur>Historique : {historiqueRegles(a)}</p>
                   )}
                   {/* 🔴 Arno (24/10/2026) — QUATRE boutons : Fiche · Rattachement · Taux · Cumul (ils remplacent « Nouveau taux » et « Fiche et
                       cumul », dont tout le contenu est redistribué) ; un seul panneau ouvert par carte ; un second clic le referme. */}
@@ -282,6 +270,7 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                     <div id={`plo-panneau-${a.id}`} data-panneau-ouvert={panneaux[a.id]} onKeyDown={echap(() => basculer(a.id, panneaux[a.id] as Panneau))}>
                       {panneaux[a.id] === 'fiche' && (
                         <PanneauFiche key={`${a.id}-${a.version ?? ''}`} a={a} nomPrenom={lu.nomPrenom === true} identite={lu.identite === true} orphelin={orphelin}
+                          comptes={lu.collegues} apporteurs={lu.apporteurs} passage={lu.passage === true}
                           onEnregistre={() => { g.effacer(); relire(); }} />
                       )}
                       {panneaux[a.id] === 'rattachement' && (

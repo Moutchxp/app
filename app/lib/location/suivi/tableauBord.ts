@@ -1,4 +1,4 @@
-import { montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, estInterne, remunerationADate, type RemunerationCollegue,
+import { montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -237,7 +237,8 @@ const recurrentsDe = (ctx: ContexteCalcul, lignes: readonly ActiviteCalcul[]): r
 export function remunerationCollegueDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): { collegue: { cle: string; libelle: string }; regle: RemunerationCollegue } | null {
   if (a.apporteurId === null) return null;
   const ap = apporteurs.find((x) => x.id === a.apporteurId);
-  if (ap === undefined || estInterne(ap)) return null;
+  // 422 — un apporteur passé interne garde, pour les dossiers signés AVANT son passage, son collègue et la rémunération de ce collègue.
+  if (ap === undefined || interneADate(ap, a.dateSignature)) return null;
   const regle = remunerationADate(ap, a.dateSignature);
   if (regle === null || !regle.remunere) return null;
   // Le collègue de rattachement À LA SIGNATURE (la même lecture que la colonne « Collègue »).
@@ -302,8 +303,9 @@ export function collegueDeLigne(a: ActiviteCalcul, apporteurs: readonly Apporteu
   if (ap === undefined || ap.collegues === undefined) return null;
   // 419 — un INTERNE n'est rattaché à personne : ses affaires sont les siennes (son compte). Un rattachement daté d'AVANT son passage
   // en interne reste celui de l'époque (jamais rétroactif).
-  if (estInterne(ap)) {
-    const avant = versionADate(ap.collegues, a.dateSignature);
+  if (interneADate(ap, a.dateSignature)) {
+    // 422 — passé interne le J : à partir de J, le rattachement a pris fin (ses dossiers sont les siens).
+    const avant = ap.interneDepuis ? null : versionADate(ap.collegues, a.dateSignature);
     if (avant !== null) return { cle: avant.collegueId !== null ? `id:${avant.collegueId}` : `nom:${avant.collegueLibelle.toLowerCase()}`, libelle: avant.collegueLibelle };
     return { cle: `id:${ap.compteId}`, libelle: ap.nom };
   }

@@ -61,11 +61,13 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     const ligne = container.querySelector('[data-apporteur="3"]')!;
     // 413 — les règles d'avant se lisent « One shot — location X %, gestion 0 % ».
     // 🔴 Arno (24/10/2026) — le coût fixe mensuel n'existe plus : ni affiché (même s'il en reste un en base), ni saisi, ni envoyé.
-    expect(ligne.textContent).toContain('One shot — location 12 %, gestion 0 % (depuis le 01/06/2026)');
-    expect(ligne.textContent).toContain('Historique : 01/01/2026 → One shot — location 10 %, gestion 0 %');
-    expect(ligne.textContent).not.toMatch(/coût fixe|\/mois/i);
+    // 🔴 Arno (24/10/2026) — carte allégée : la règle en vigueur et l'historique sont au panneau « Taux ».
+    expect(ligne.textContent).not.toMatch(/coût fixe|\/mois|Historique/i);
     await clic(bouton(3, 'taux'));
-    expect(ligne.querySelector('[data-panneau="taux"]')?.textContent).not.toMatch(/coût fixe/i);
+    const taux = ligne.querySelector('[data-panneau="taux"]')!;
+    expect(taux.textContent).toContain('One shot — location 12 %, gestion 0 % (depuis le 01/06/2026)');
+    expect(taux.textContent).toContain('Historique : 01/01/2026 → One shot — location 10 %, gestion 0 %');
+    expect(taux.textContent).not.toMatch(/coût fixe/i);
     await saisir(ligne.querySelector('[data-version-taux]') as HTMLInputElement, '15');
     await saisir(ligne.querySelector('[data-application="version"] [data-application-date]') as HTMLInputElement, '2026-11-01');
     await clic(ligne.querySelector('[data-enregistrer-version]')!);
@@ -80,8 +82,8 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
       baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0, mode: 'recurrent', tauxGestion: 0.1 }] }] };
     await ouvrir('apporteurs');
     const ligne = container.querySelector('[data-apporteur="3"]')!;
-    expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('Récurrent — location 10 %, gestion 10 % / mois, durée indéterminée (depuis le 01/01/2026)');
     await clic(bouton(3, 'taux'));
+    expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('En vigueur : Récurrent — location 10 %, gestion 10 % / mois, durée indéterminée (depuis le 01/01/2026)');
     const form = ligne.querySelector('[data-nouvelle-version]')!;
     // le formulaire COMMENCE par le choix du mode (pré-rempli avec la règle en vigueur)
     expect(form.firstElementChild?.hasAttribute('data-mode-apporteur')).toBe(true);

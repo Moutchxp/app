@@ -5,8 +5,10 @@ import { ListeChoix } from './ListeChoix';
 import { posterSuivi } from './suiviApi';
 import { BlocRemuneration, depuisRegle, FormulaireNouveauTaux, historiqueRegles } from './ReglageApporteur';
 import {
-  type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleRegleApporteur, TYPES_APPORTEUR,
+  type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, libelleRegleApporteur, libelleRemuneration,
+  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis,
 } from '../../../../lib/location/suivi/suivi';
+import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
 
 /**
@@ -42,7 +44,76 @@ function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string
  * d'abord le RÉCAPITULATIF des seuls champs modifiés ; le serveur refuse si la fiche a changé depuis son ouverture (conflit), et
  * journalise chaque champ (compte, session). INTERNE : l'identité de son compte, en lecture seule.
  */
-export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre }: { a: Apporteur; nomPrenom: boolean; identite: boolean; orphelin: boolean; onEnregistre: () => void }) {
+/**
+ * 🔴 Arno (24/10/2026, 422) — « PASSER EN INTERNE » : le compte de l'interface (ceux déjà liés à un autre apporteur sont montrés, non
+ * choisissables, avec la mention), puis le récapitulatif, puis Confirmer / Revenir. Le serveur applique la règle du script
+ * `location:apporteurs-internes` (`passerEnInterne`) et journalise.
+ */
+function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Apporteur; comptes: readonly { id: number; libelle: string; actif?: boolean }[];
+  apporteurs: readonly Apporteur[]; possible: boolean; onFait: () => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [compte, setCompte] = useState('');
+  const [recap, setRecap] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const jour = aujourdhuiParis();
+  const collegue = collegueADate(a, jour);
+  const choisi = comptes.find((c) => String(c.id) === compte) ?? null;
+  const options = comptes.map((c) => {
+    const lie = apporteurs.find((x) => !x.archive && x.compteId === c.id && x.id !== a.id);
+    return { ...c, ...(lie ? { bloque: true, mention: ` — déjà l’apporteur interne « ${libelleApporteur(lie)} »` } : {}) };
+  });
+  const [prenom, ...nomParts] = (choisi?.libelle ?? '').split(' ');
+  const confirmer = async (): Promise<void> => {
+    setEnvoi(true);
+    const r = await posterSuivi({ action: 'passer-interne', apporteurId: a.id, compteId: Number(compte) });
+    setEnvoi(false);
+    if (r.motif !== null) { setMotif(r.motif); setRecap(false); return; }
+    onFait();
+  };
+  if (!ouvert) {
+    return (
+      <p className="plo-passer-interne">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" disabled={!possible} title={possible ? undefined : 'Mise à jour de la base à appliquer (migration 422)'}
+          onClick={() => { setOuvert(true); setMotif(null); }} data-passer-interne={a.id}>Passer en interne</button>
+        {!possible && <small className="plo-muet"> Mise à jour de la base à appliquer (migration 422).</small>}
+      </p>
+    );
+  }
+  return (
+    <div className="plo-remuneration" data-passage-interne={a.id}>
+      <h4 className="plo-h4">Passer en interne</h4>
+      <div className="plo-grille">
+        <label className="plo-champ"><span>Compte de l’interface</span>
+          <ListeChoix options={options} valeur={compte} libelle="Compte de l’interface" onChange={(v) => { setCompte(v); setRecap(false); setMotif(null); }} donnees={{ 'data-passage-compte': '' }} /></label>
+      </div>
+      {recap && choisi !== null ? (
+        <div className="plo-recap" role="alertdialog" aria-label="Récapitulatif du passage en interne" data-recap-passage>
+          <span data-recap-passage-texte>{libelleApporteur(a)} devient apporteur INTERNE lié au compte {choisi.libelle}.
+            {' '}{collegue !== null
+              ? `Le rattachement à ${collegue.collegueLibelle} et la rémunération de ce collègue (${libelleRemuneration(remunerationADate(a, jour))}) prennent fin à compter d’aujourd’hui ; les dossiers déjà signés gardent leur calcul.`
+              : 'Il n’avait pas de collègue de rattachement ; les dossiers déjà signés gardent leur calcul.'}</span>
+          {!nomCorrespond(a.nom, { prenom: prenom ?? null, nom: nomParts.join(' ') || null }) && (
+            <span className="plo-effet-reste" data-passage-nom-different>Le nom de l’apporteur (« {a.nom} ») n’est pas celui du compte : vérifiez qu’il s’agit bien de la même personne.</span>
+          )}
+          <span className="plo-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRecap(false)} data-recap-revenir>Revenir</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void confirmer(); }} data-recap-confirmer>Confirmer</button>
+          </span>
+        </div>
+      ) : (
+        <span className="plo-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setCompte(''); }} data-passage-annuler>Annuler</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={choisi === null} onClick={() => setRecap(true)} data-passage-continuer>Continuer</button>
+        </span>
+      )}
+      {motif !== null && <p className="plo-erreur" role="alert" data-passage-motif>{motif}</p>}
+    </div>
+  );
+}
+
+export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
+  orphelin: boolean; onEnregistre: () => void; comptes?: readonly { id: number; libelle: string; actif?: boolean }[]; apporteurs?: readonly Apporteur[]; passage?: boolean }) {
   const [f, setF] = useState<FicheApporteur>(() => ficheDe(a));
   const [recap, setRecap] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -55,7 +126,10 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre }:
           <div><dt>Type</dt><dd>Interne — {LIBELLE_TYPE_APPORTEUR[a.type]}</dd></div>
           <div><dt>Nom</dt><dd>{a.compteLibelle ?? a.nom}</dd></div>
           <div><dt>Identifiant (e-mail)</dt><dd>{a.compteIdentifiant ?? '—'}</dd></div>
+          {/* Les coordonnées de la fiche (venues de la carte) : en lecture, quand il y en a. */}
+          {(a.societe || a.telephone || a.email) && <div><dt>Coordonnées</dt><dd data-fiche-interne-coordonnees>{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</dd></div>}
         </dl>
+        <p className="plo-muet plo-petit-texte" data-compte-apporteur>Lié à son compte de l’interface — rattaché à personne{a.interneDepuis ? ` (interne depuis le ${a.interneDepuis.split('-').reverse().join('/')})` : ''}.</p>
         <p className="plo-muet plo-petit-texte" data-fiche-interne-mention>Identité lue depuis son compte de l’interface — modifiable dans la gestion des comptes.</p>
       </div>
     );
@@ -123,6 +197,7 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre }:
       )}
       {motif !== null && <p className="plo-erreur" role="alert" data-refus-local>{motif}</p>}
       {conflit && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onEnregistre} data-recharger-fiche>Recharger</button>}
+      <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />
     </div>
   );
 }
@@ -137,11 +212,25 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
   collegues: readonly { id: number; libelle: string; actif?: boolean }[]; jour: string; faire: Faire; envoi: boolean; avec419: boolean; toujoursPossible: boolean; cle: unknown }) {
   // Arno (23/10/2026, 409) — « Depuis toujours » proposé d'office au 1er rattachement.
   const [r, setR] = useState(() => ({ collegueId: '', depuis: jour, toujours: (a.collegues ?? []).length === 0 }));
-  if (estInterne(a)) return <div className="plo-panneau" data-panneau="rattachement"><p className="plo-muet" data-rattachement-interne>Apporteur interne — pas de rattachement.</p></div>;
+  if (estInterne(a)) {
+    return (
+      <div className="plo-panneau" data-panneau="rattachement">
+        <p className="plo-muet" data-rattachement-interne>Apporteur interne — pas de rattachement.</p>
+        {/* 422 — l'historique d'avant le passage en interne est conservé (lecture seule) : les dossiers d'alors en dépendent. */}
+        {(a.collegues ?? []).length > 0 && (
+          <p className="plo-muet plo-petit-texte" data-historique-collegues-clos>Rattachements clos{a.interneDepuis ? ` le ${a.interneDepuis.split('-').reverse().join('/')}` : ''} : {(a.collegues ?? []).map((c) => `${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}
+            {(a.remunerations ?? []).length > 0 ? ` — rémunérations : ${(a.remunerations ?? []).map((v) => libelleRemuneration(v)).join(' · ')}` : ''}</p>
+        )}
+      </div>
+    );
+  }
   const collegue = collegueADate(a, jour);
   return (
     <div className="plo-panneau" data-panneau="rattachement" data-fiche-apporteur={a.id}>
       <h4 className="plo-h4">Collègue de rattachement</h4>
+      {/* 🔴 Arno (24/10/2026) — venues de la carte : le rattachement en cours et le résumé de la rémunération du collègue. */}
+      {collegue !== null && <p className="plo-version-valeurs" data-rattache-libelle>Rattaché à {collegue.collegueLibelle} {depuisLibelle(collegue)}</p>}
+      {collegue !== null && <p className="plo-version-valeurs" data-collegue-remuneration={a.id}>Collègue : {collegue.collegueLibelle} — {libelleRemuneration(remunerationADate(a, jour))}</p>}
       {(a.collegues ?? []).length === 0
         ? <p className="plo-alerte" role="status">À rattacher : choisissez le collègue et la date à partir de laquelle ses affaires lui reviennent.</p>
         : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
@@ -173,8 +262,8 @@ export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujo
   const v = baremeADate(a, jour);
   return (
     <div className="plo-panneau" data-panneau="taux">
-      <p className="plo-version-valeurs" data-taux-en-vigueur>En vigueur : {v === null ? 'aucun taux aujourd’hui.' : `${libelleRegleApporteur(v)} (${depuisRegle(v)})`}</p>
-      {a.baremes.length > 0 && <p className="plo-muet plo-petit-texte" data-historique-taux>Historique : {historiqueRegles(a)}</p>}
+      <p className="plo-version-valeurs" data-taux-en-vigueur data-regle-apporteur={a.id}>En vigueur : {v === null ? 'aucun taux aujourd’hui.' : `${libelleRegleApporteur(v)} (${depuisRegle(v)})`}</p>
+      {a.baremes.length > 0 && <p className="plo-muet plo-petit-texte" data-historique-taux data-historique-regles-apporteur>Historique : {historiqueRegles(a)}</p>}
       <h4 className="plo-h4">Nouveau taux</h4>
       <FormulaireNouveauTaux key={`${a.id}-${a.baremes.length}`} a={a} apporteurs={apporteurs} collegue={null} jour={jour} envoi={envoi} faire={faire}
         refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={toujoursPossible} cle={cle} onFermer={onFermer} />

@@ -313,10 +313,18 @@ export interface Apporteur {
   version?: string | null;
   /** 419 — un INTERNE : le libellé et l'identifiant de son compte (lecture seule). */
   compteLibelle?: string | null; compteIdentifiant?: string | null;
+  /** 422 — le jour où cet apporteur, EXTERNE jusque-là, est passé INTERNE (null : interne dès sa création, ou externe). */
+  interneDepuis?: string | null;
 }
 
 /** 419 — l'apporteur est-il INTERNE (lié à un compte de l'interface) ? PUR. */
 export const estInterne = (a: Pick<Apporteur, 'compteId'>): boolean => a.compteId !== null && a.compteId !== undefined;
+/**
+ * 🔴 Arno (24/10/2026, 422) — INTERNE À UNE DATE : un apporteur passé interne le J (« Passer en interne ») était EXTERNE pour les dossiers
+ * signés avant J — ils gardent son collègue de rattachement et la rémunération de ce collègue. PUR.
+ */
+export const interneADate = (a: Pick<Apporteur, 'compteId' | 'interneDepuis'>, dateIso: string): boolean =>
+  estInterne(a) && (a.interneDepuis === null || a.interneDepuis === undefined || dateIso >= a.interneDepuis);
 /** Le badge : « INTERNE » / « PARTENAIRE EXTERNE ». */
 export const badgeApporteur = (a: Pick<Apporteur, 'compteId'>): string => (estInterne(a) ? 'INTERNE' : 'PARTENAIRE EXTERNE');
 
@@ -369,8 +377,8 @@ export function trierApporteurs<T extends Pick<Apporteur, 'id' | 'nom' | 'type' 
 export const aRattacher = (a: Pick<Apporteur, 'collegues' | 'compteId'>): boolean => !estInterne(a) && a.collegues !== undefined && a.collegues.length === 0;
 
 /** 419 — la rémunération du collègue EN VIGUEUR à une date (null : aucune version, ou un interne). PUR. */
-export function remunerationADate(a: Pick<Apporteur, 'remunerations' | 'compteId'>, dateIso: string): RemunerationCollegue | null {
-  if (estInterne(a)) return null;
+export function remunerationADate(a: Pick<Apporteur, 'remunerations' | 'compteId' | 'interneDepuis'>, dateIso: string): RemunerationCollegue | null {
+  if (interneADate(a, dateIso)) return null;
   return versionADate(versionsEffectives(a.remunerations ?? []), dateIso);
 }
 
