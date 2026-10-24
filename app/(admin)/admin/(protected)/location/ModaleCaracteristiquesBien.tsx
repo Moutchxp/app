@@ -39,7 +39,7 @@ export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre }: { 
     <div className="mcb-voile">
       <style>{CSS_MODALE_CARACTERISTIQUES}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-caracteristiques-bien={lotId}>
-        <h2 id={titre} className="mcb-titre-cache">Caractéristiques du bien</h2>
+        <h2 id={titre} className="mcb-titre-cache">Caractéristiques du bien loué</h2>
         <section className="gst-page">
           <ModifierFicheBien lotId={lotId} retour={{ href: `/admin/location/bien/${lotId}`, mot: 'Nouveau locataire' }}
             modale={{ onFermer: fermer, onEnregistre }} />

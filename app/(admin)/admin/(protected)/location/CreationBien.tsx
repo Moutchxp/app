@@ -137,7 +137,7 @@ export interface ModificationBien {
   /** Le lien « ← … » de l'en-tête : la fiche du bien d'où l'on vient (Gestion ou Location). */
   retour: { href: string; mot: string };
   /**
-   * Arno (24/10/2026) — le formulaire ouvert DANS UNE MODALE (« Caractéristiques du bien » de « Nouveau locataire ») : le lien de
+   * Arno (24/10/2026) — le formulaire ouvert DANS UNE MODALE (« Caractéristiques du bien loué » de « Nouveau locataire ») : le lien de
    * l'en-tête referme la modale (comme « Annuler », avec la question si la saisie a changé) au lieu de quitter la page.
    */
   dansModale?: boolean;

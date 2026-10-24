@@ -13,7 +13,7 @@ import type { ComplementsFiche } from '../../../../lib/location/bienComplet';
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
 
 /**
- * 🔴 Arno (24/10/2026) — « Nouveau locataire », bloc 3 « Conditions d'entrée » : le bouton « Caractéristiques du bien » (première
+ * 🔴 Arno (24/10/2026) — « Nouveau locataire », bloc 3 « Conditions d'entrée » : le bouton « Caractéristiques du bien loué » (première
  * ligne, à droite) ouvre la fiche du bien — le formulaire « Modifier le bien » de d822613a, le MÊME composant, sans le bloc 1
  * « Propriétaire(s) » — dans une grande modale. Enregistrée : la modale se ferme, le bien est relu, les honoraires propriétaire au
  * barème sont recalculés — sauf un montant saisi à la main, jamais écrasé (l'écart est dit). Annuler / Échap : rien d'écrit.
@@ -90,6 +90,7 @@ const saisir = async (el: HTMLInputElement | HTMLTextAreaElement, v: string) => 
 };
 const bouton = () => q('[data-caracteristiques-bien="bien-loue"]') as HTMLButtonElement;
 const boutonConditions = () => q('[data-caracteristiques-bien="conditions"]') as HTMLButtonElement;
+const boutonSommes = () => q('[data-caracteristiques-bien="sommes"]') as HTMLButtonElement;
 const montant = () => q('[data-hono-montant] input') as HTMLInputElement;
 const mention = () => q('[data-hono-mention]')?.textContent ?? '';
 const surface = () => {
@@ -114,15 +115,19 @@ const enregistrerSurface = async (v: string) => {
   await clic('[data-fermer-succes-modification]');
 };
 
-describe('🔴 « Caractéristiques du bien » — Nouveau locataire', () => {
+describe('🔴 « Caractéristiques du bien loué » — Nouveau locataire', () => {
   it('à droite du titre du bloc « Bien loué » (Arno, 24/10/2026) ET du bloc 3 ; sans bien : visible, inactif, « Choisissez d’abord le bien »', async () => {
     await monter();
     // là où l'on choisit le bien : juste après le titre du bloc 2, qui reste l'enfant direct de la section
     expect(bouton().previousElementSibling?.matches('section[data-bloc-bien-loue] > h3')).toBe(true);
     expect(bouton().previousElementSibling?.textContent).toBe('2Bien loué');
     expect(boutonConditions().previousElementSibling?.matches('section[data-bloc-conditions] > h3')).toBe(true);
-    for (const b of [bouton(), boutonConditions()]) {
-      expect(b.textContent).toBe('Caractéristiques du bien');
+    // Arno (24/10/2026) — le MÊME bouton, compact, sur la ligne du titre « Sommes dues à l'entrée », à droite
+    expect(boutonSommes().previousElementSibling?.outerHTML).toBe('<h4>Sommes dues à l’entrée</h4>');
+    expect(boutonSommes().parentElement?.className).toBe('loc-cond-tete');
+    expect(boutonSommes().className).toContain('loc-bouton-compact');
+    for (const b of [bouton(), boutonConditions(), boutonSommes()]) {
+      expect(b.textContent).toBe('Caractéristiques du bien loué');
       expect(b.getAttribute('aria-disabled')).toBe('true');
       expect(b.title).toBe('Choisissez d’abord le bien');
       await clic(b);
@@ -131,9 +136,12 @@ describe('🔴 « Caractéristiques du bien » — Nouveau locataire', () => {
     await choisirBien();
     expect(bouton().getAttribute('aria-disabled')).toBe('false');
     expect(bouton().title).toBe('');
-    // celui du bloc 3 ouvre la même modale
+    // celui du bloc 3 et celui des sommes dues ouvrent la même modale
     await clic(boutonConditions());
     expect(q('[data-modale-caracteristiques-bien]')).not.toBeNull();
+    await clic('[data-modale-caracteristiques-bien] [data-annuler-modification]');
+    await clic(boutonSommes());
+    expect(q('[data-modale-caracteristiques-bien] .loc-titre')?.textContent).toBe('Modifier le bien');
   });
 
   it('ouvre en grande modale LE formulaire « Modifier le bien » (même composant), sans le bloc 1 « Propriétaire(s) », pré-rempli', async () => {

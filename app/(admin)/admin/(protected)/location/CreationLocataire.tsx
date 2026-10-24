@@ -135,10 +135,10 @@ export function CreationLocataire() {
      enregistrée, le bien est relu (fiche, honoraires au barème, lots) — `versionBien` remonte la liste des lots. */
   const [caracteristiquesOuvertes, setCaracteristiquesOuvertes] = useState(false);
   // Sans bien : visible, inactif (`aria-disabled` plutôt que `disabled`, pour que l'info-bulle s'affiche).
-  const boutonCaracteristiques = (ou: 'bien-loue' | 'conditions'): React.ReactNode => (
-    <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" data-caracteristiques-bien={ou}
+  const boutonCaracteristiques = (ou: 'bien-loue' | 'conditions' | 'sommes'): React.ReactNode => (
+    <button type="button" className={`svv-btn svv-btn-outline gst-btn ${ou === 'sommes' ? 'loc-bouton-compact' : 'loc-bouton-bien'}`} data-caracteristiques-bien={ou}
       aria-disabled={bien === null} title={bien === null ? 'Choisissez d’abord le bien' : undefined}
-      onClick={() => { if (bien !== null) setCaracteristiquesOuvertes(true); }}>Caractéristiques du bien</button>
+      onClick={() => { if (bien !== null) setCaracteristiquesOuvertes(true); }}>Caractéristiques du bien loué</button>
   );
   const [versionBien, setVersionBien] = useState(0);
   /* Arno (22/10/2026, 406) — BLOC 4 « SUIVI COMMERCIAL » : le suivi mensuel de l'activité (date de signature, honoraires HT,
@@ -400,7 +400,7 @@ export function CreationLocataire() {
 
       <section className="loc-section loc-section--bouton-bien" aria-labelledby="loc-l2" data-bloc-bien-loue>
         <h3 id="loc-l2"><span className="loc-num">2</span>Bien loué</h3>
-        {/* 🔴 Arno (24/10/2026) — « Caractéristiques du bien » LÀ OÙ L'ON CHOISIT LE BIEN, à droite du titre (et toujours au bloc 3). */}
+        {/* 🔴 Arno (24/10/2026) — « Caractéristiques du bien loué » LÀ OÙ L'ON CHOISIT LE BIEN, à droite du titre (et toujours au bloc 3). */}
         {boutonCaracteristiques('bien-loue')}
         {bien !== null ? (
           <p>Bien : <a href={`/admin/location/bien/${bien.id}`}><strong>{bien.titre}</strong></a>{' '}
@@ -447,7 +447,7 @@ export function CreationLocataire() {
             <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
               garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
               loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
-              dateEntree={entree}
+              dateEntree={entree} actionSommes={boutonCaracteristiques('sommes')}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
                 charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}`,
                 saisie: { ...honoSaisie, onChange: setHonoSaisie, erreur: manqueDe('honorairesProprietaireMontant') } }}
@@ -571,7 +571,7 @@ const CSS_LOTS_LOUES = `
 `;
 
 /**
- * AUCUN ACCENT GRAVE DANS CE LITTERAL. Arno (24/10/2026) — le bouton « Caractéristiques du bien » sur la ligne du titre du bloc 3,
+ * AUCUN ACCENT GRAVE DANS CE LITTERAL. Arno (24/10/2026) — le bouton « Caractéristiques du bien loué » sur la ligne du titre du bloc 3,
  * a droite : le titre reste l'enfant direct de la section (`.loc-section > h3`) ; la section passe en grille a deux colonnes, tout le
  * reste sur la largeur. Au telephone, le bouton passe sous le titre, a droite.
  */
@@ -579,6 +579,6 @@ export const CSS_BOUTON_BIEN = `
 .loc-section.loc-section--bouton-bien{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:18px;align-items:center}
 .loc-section--bouton-bien > *:not(h3):not(.loc-bouton-bien){grid-column:1 / -1}
 .loc-section--bouton-bien > .loc-bouton-bien{justify-self:end;width:auto;margin:0;min-height:44px}
-.loc-bouton-bien[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
+.loc-bouton-bien[aria-disabled="true"],.loc-bouton-compact[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
 @media (max-width:520px){ .loc-section--bouton-bien > .loc-bouton-bien{grid-column:1 / -1} }
 `;

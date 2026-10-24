@@ -66,7 +66,7 @@ function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -87,6 +87,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   loyer?: { note?: string | null; indisponible?: boolean };
   /** La date d'entrée dans les lieux (bloc 2), « AAAA-MM-JJ » : la base des deux proratas calculés. */
   dateEntree?: string | null;
+  /** Arno (24/10/2026) — un geste COMPACT à droite du titre « Sommes dues à l'entrée » (« Caractéristiques du bien loué »). */
+  actionSommes?: ReactNode;
 }) {
   const s = valeur;
   // ══ LES PRORATAS (Arno, 20/10/2026) : loyer principal / provision × jours d'occupation ÷ jours du mois d'entrée, recalculés
@@ -250,7 +252,9 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
       </div>
 
       <div className="loc-cond-bloc" data-cond="sommes">
-        <h4>Sommes dues à l’entrée</h4>
+        {actionSommes === undefined ? <h4>Sommes dues à l’entrée</h4> : (
+          <div className="loc-cond-tete"><h4>Sommes dues à l’entrée</h4>{actionSommes}</div>
+        )}
         <div className="loc-grille loc-grille-sommes">
           {SOMMES.map((k) => {
             const calcule = (k === 'prorataLoyer' || k === 'prorataCharges') && dateEntree !== undefined;
@@ -316,7 +320,7 @@ export interface SaisieHonoraires { valeur: string; manuel: boolean; onChange: (
 
 /**
  * Arno (24/10/2026) — un montant SAISI À LA MAIN n'est jamais écrasé par le calcul (même après une surface modifiée dans
- * « Caractéristiques du bien ») : l'écart avec le barème est DIT — « au barème : 935,03 € (écart : +64,97 €) ». `null` : pas de
+ * « Caractéristiques du bien loué ») : l'écart avec le barème est DIT — « au barème : 935,03 € (écart : +64,97 €) ». `null` : pas de
  * calcul, montant illisible, ou aucun écart. PUR.
  */
 export function ecartHonoraires(saisie: string, cible: string): string | null {
@@ -463,7 +467,10 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + `
 @media (min-width:900px){ .loc-cond{grid-template-columns:repeat(2,minmax(0,1fr))} .loc-cond-bloc--large,.loc-cond-bloc[data-cond="sommes"],.loc-cond-bloc[data-cond="entretien"],.loc-cond-bloc[data-cond="honoraires-proprietaire"],.loc-cond-total--general{grid-column:1 / -1} }
 .loc-cond-bloc{display:flex;flex-direction:column;gap:12px;min-width:0;border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field);box-sizing:border-box}
 @media (max-width:480px){ .loc-cond-bloc{padding:16px 12px} }
-.loc-cond-bloc > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
+.loc-cond-bloc > h4,.loc-cond-tete > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
+/* Arno (24/10/2026) — le titre et son geste compact sur UNE ligne : le bouton ne grandit pas la ligne (marges negatives) ni ne decale le titre. */
+.loc-cond-tete{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
+.loc-cond-tete > .loc-bouton-compact{min-height:30px;height:30px;margin:-5px 0;padding:0 12px;font-size:.82rem;width:auto;line-height:1;white-space:nowrap}
 .loc-cond-bloc[data-cond="entretien"] > .loc-sous-section{padding-top:0}
 .loc-cond-sous{display:flex;flex-direction:column;gap:8px;min-width:0}
 .loc-cond-mot{font-weight:700;color:var(--color-svv-ink)}

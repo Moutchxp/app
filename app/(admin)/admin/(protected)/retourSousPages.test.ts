@@ -17,7 +17,7 @@ import { liensVisibles } from './menuAdmin';
 const RACINE = 'app/(admin)/admin/(protected)';
 const L = `${RACINE}/location`;
 // EnTeteLocation (retour par défaut : « ← Location » ; Arno, 23/10/2026 : « Modifier » la fiche du bien y passe le retour vers la fiche).
-// Arno (24/10/2026) — le lien peut refermer une modale (`surClic`, « Caractéristiques du bien ») : il reste le même lien.
+// Arno (24/10/2026) — le lien peut refermer une modale (`surClic`, « Caractéristiques du bien loué ») : il reste le même lien.
 const RETOUR_LOCATION = { fichier: `${L}/commun.tsx`, lien: "<a href={retourVers?.href ?? '/admin/location'}\n        onClick={retourVers?.surClic === undefined ? undefined : (e) => { e.preventDefault(); retourVers.surClic?.(); }}>← {retourVers?.mot ?? 'Location'}</a>" };
 /** Arno (23/10/2026) — « Modifier » la fiche du bien : « ← Fiche du bien », vers la fiche de la tuile d'où l'on vient. */
 const RETOUR_FICHE_BIEN = [RETOUR_LOCATION, { fichier: `${L}/CreationBien.tsx`, lien: '<EnTeteLocation titre="Modifier le bien" retourVers={modification.dansModale === true ? { ...modification.retour, surClic: annulerModification } : modification.retour}' }];

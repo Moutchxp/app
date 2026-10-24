@@ -23,7 +23,7 @@ import { annoncerBienModifie, useVersionBien, type ImportBien } from './EditionE
 const API = '/api/admin/gestion/annuaire/location';
 
 /**
- * Arno (24/10/2026) — `modale` : le MÊME formulaire ouvert dans une grande modale (« Caractéristiques du bien » de « Nouveau
+ * Arno (24/10/2026) — `modale` : le MÊME formulaire ouvert dans une grande modale (« Caractéristiques du bien loué » de « Nouveau
  * locataire ») ; « Annuler », Échap et le lien de l'en-tête la referment sans rien écrire, l'enregistrement la referme et prévient
  * l'hôte (qui relit le bien). Absent : la page, qui revient à la fiche (comportement inchangé).
  */

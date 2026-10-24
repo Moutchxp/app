@@ -131,7 +131,7 @@ export function EnTeteLocation({ titre, sous, actions, retour = true, retourVers
 }) {
   return (
     <header className="loc-tete">
-      {/* Arno (24/10/2026) — `surClic` : le lien referme une modale au lieu de quitter la page (« Caractéristiques du bien »). */}
+      {/* Arno (24/10/2026) — `surClic` : le lien referme une modale au lieu de quitter la page (« Caractéristiques du bien loué »). */}
       {retour && <p className="loc-retour"><a href={retourVers?.href ?? '/admin/location'}
         onClick={retourVers?.surClic === undefined ? undefined : (e) => { e.preventDefault(); retourVers.surClic?.(); }}>← {retourVers?.mot ?? 'Location'}</a></p>}
       <div className="loc-tete-ligne">
