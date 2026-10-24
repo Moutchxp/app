@@ -3,6 +3,9 @@ import { renommerBrancheBail, type DepsBrancheBail } from '../location/brancheBa
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusFamilleCarte } from './familleCarteRepo';
 import { carteEstComplete } from './carteComplete';
+import { colonnesTrace, modificationDepuis } from './traceJournal';
+import { MOT_COLONNE_PERSONNE, motifConflitFiche } from './traceFiche';
+import { colonneExisteMemo } from '../location/sondeLocation';
 import { annuaireModifiableDisponible, suppressionPersonneDisponible } from './schema';
 import { nomComplet, normaliserTexte } from './annuaire';
 // 🔴 LOT SUPPRIMER-CARTE — le motif du refus, écrit une fois : l'écran et le serveur disent la MÊME phrase.
@@ -54,7 +57,9 @@ export type IssueEdition<T = void> =
   | { etat: 'ok'; data: T }
   | { etat: 'sans_schema' }
   | { etat: 'inconnu' }
-  | { etat: 'refus'; motif: string; rang?: number };
+  | { etat: 'refus'; motif: string; rang?: number }
+  /** 🔴 Arno (24/10/2026, 417) — la fiche a été modifiée depuis son ouverture (repère `depuisJournalId`) : rien n'est écrit. */
+  | { etat: 'conflit'; motif: string };
 
 const TABLE: Record<Sujet, string> = {
   proprietaire: 'gestion_annuaire_proprietaire',
@@ -75,12 +80,15 @@ const TABLE: Record<Sujet, string> = {
 async function journaliser(q: RequeteTx, o: {
   personneId: number; action: string; avant: string | null; apres: string | null;
   commentaire: string; auteur: Auteur;
+  /** 🔴 417 — le sujet et le champ (une ligne par champ) ; avec eux, la session et l'écran quand le geste vient d'un écran tracé. */
+  sujet?: Sujet; champ?: string | null;
 }): Promise<void> {
+  const t = o.sujet === undefined ? { colonnes: '', marques: '', valeurs: [] } : await colonnesTrace({ sujet: o.sujet, champ: o.champ ?? null }, 8);
   await q(
     `INSERT INTO gestion_journal
-       (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
-     VALUES ('annuaire', $1, $2, $3, $4, $5, $6, $7)`,
-    [o.personneId, o.action, o.avant, o.apres, o.commentaire, o.auteur.id, o.auteur.libelle]);
+       (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+     VALUES ('annuaire', $1, $2, $3, $4, $5, $6, $7${t.marques})`,
+    [o.personneId, o.action, o.avant, o.apres, o.commentaire, o.auteur.id, o.auteur.libelle, ...t.valeurs]);
 }
 
 /**
@@ -133,6 +141,9 @@ export interface ChampsPersonne {
  */
 export async function modifierPersonne(
   sujet: Sujet, id: number, champs: ChampsPersonne, auteur: Auteur,
+  /** 🔴 Arno (24/10/2026, 417) — `depuisJournalId` : le repère du journal à l'ouverture de la fiche ; une modification postérieure
+   *  (par quelqu'un d'autre) fait refuser l'enregistrement, sans rien écraser. Absent : le geste d'avant (aucun contrôle). */
+  o: { depuisJournalId?: number } = {},
 ): Promise<IssueEdition> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
 
@@ -168,6 +179,10 @@ export async function modifierPersonne(
       `SELECT * FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
     const avant = rows[0];
     if (avant === undefined) return { etat: 'inconnu' as const };
+    if (o.depuisJournalId !== undefined) {
+      const autre = await modificationDepuis(q as never, sujet, id, o.depuisJournalId);
+      if (autre !== null) return { etat: 'conflit' as const, motif: motifConflitFiche(autre) };
+    }
 
     /* 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une modification qui retirerait le téléphone ou l'e-mail de la DERNIÈRE
        carte complète de sa famille est refusée, AVANT toute écriture. Une fiche archivée ne compte plus dans sa famille. */
@@ -212,7 +227,7 @@ export async function modifierPersonne(
       await journaliser(q, {
         personneId: id, action: `annuaire_${colonne}`,
         avant: avant[colonne] ?? null, apres: valeur,
-        commentaire: `${colonne} modifié dans la fiche`, auteur,
+        commentaire: `${colonne} modifié dans la fiche`, auteur, sujet, champ: MOT_COLONNE_PERSONNE[colonne] ?? colonne,
       });
     }
 
@@ -234,6 +249,21 @@ export async function modifierPersonne(
         `UPDATE gestion_annuaire_locataire SET nom_normalise = $2 WHERE id = $1`,
         [id, normaliserTexte(colonnes.nom ?? '')]);
     }
+    /**
+     * 🔴 Arno (24/10/2026) — LA COPIE DU NOM SUR LES LIGNES DU SUIVI DE LA LOCATION, DANS LA MÊME TRANSACTION. Une ligne SAISIE
+     * dans l'outil (`source = 'saisie'`) porte les locataires de son bail en texte (« prénom nom », séparés par « , », la formule de
+     * `enregistrerActivite`) : elle suit le nouveau nom. Une ligne REPRISE du fichier (`import`) garde le texte du fichier (on
+     * n'invente rien, et la règle d'Arno le dit pour les lignes sans bail).
+     */
+    if (sujet === 'locataire' && (colonnes.nom !== undefined || colonnes.prenom !== undefined)
+      && await colonneExisteMemo('gestion_location_activite', 'libelle_locataire') && await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id')) {
+      await q(
+        `UPDATE gestion_location_activite a SET libelle_locataire = (
+           SELECT coalesce(string_agg(coalesce(nullif(btrim(concat_ws(' ', lo.prenom, lo.nom)), ''), lo.nom, ''), ', ' ORDER BY lo.id), '')
+             FROM gestion_annuaire_occupation oc JOIN gestion_annuaire_locataire lo ON lo.id = oc.locataire_id WHERE oc.bail_id = a.bail_id)
+          WHERE a.source = 'saisie' AND a.bail_id IN (SELECT oc.bail_id FROM gestion_annuaire_occupation oc WHERE oc.locataire_id = $1 AND oc.bail_id IS NOT NULL)`,
+        [id]);
+    }
 
     // ── LES COORDONNÉES ───────────────────────────────────────────────────────────────────────────────────────
     if (retenues !== null && retenues.ok) {
@@ -250,7 +280,7 @@ export async function modifierPersonne(
         await journaliser(q, {
           personneId: id, action: 'annuaire_coordonnee_retiree',
           avant: `${a.sorte} ${a.valeur}`, apres: null,
-          commentaire: 'coordonnée retirée de la fiche (archivée, jamais supprimée)', auteur,
+          commentaire: 'coordonnée retirée de la fiche (archivée, jamais supprimée)', auteur, sujet, champ: 'Coordonnées',
         });
       }
 
@@ -278,7 +308,7 @@ export async function modifierPersonne(
         personneId: id, action: 'annuaire_coordonnees',
         avant: anciennes.map((a) => `${a.sorte} ${a.valeur}`).join(' · ') || null,
         apres: resume || null,
-        commentaire: 'coordonnées de la fiche modifiées', auteur,
+        commentaire: 'coordonnées de la fiche modifiées', auteur, sujet, champ: 'Coordonnées',
       });
     }
 

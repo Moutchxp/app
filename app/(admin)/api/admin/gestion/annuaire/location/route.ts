@@ -21,6 +21,8 @@ import { lireStatutBien, transitionsDuBien } from '../../../../../../lib/gestion
 import { transitionStatutAvecSuites } from '../../../../../../lib/gestion/statutBienSuites';
 import { lireFicheEntiere, modifierFicheEntiere, versionDuBien } from '../../../../../../lib/location/ficheBienEntiereRepo';
 import { requeteDepuisLaLocation } from '../../../../../../lib/gestion/contexteLocation';
+import { avecTrace, ecranDemande, historiqueFiche, repereJournal } from '../../../../../../lib/gestion/traceJournal';
+import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -67,6 +69,13 @@ export async function GET(request: Request): Promise<Response> {
     if (enc !== null) return Response.json(await lireEncartBien(enc), { headers: ENTETES });
     // Arno (23/10/2026) — LA FICHE ENTIÈRE pour le formulaire « Modifier » (valeurs, annexes, statut, empreinte), et sa seule
     // empreinte (la mise à jour automatique de la fiche ouverte, toutes les quelques secondes).
+    // 🔴 Arno (24/10/2026, 417) — LA TRACE D'UNE FICHE (« Suivi du mois ») : son historique (qui, quand, champ, avant, après), la
+    // dernière modification, et le REPÈRE du journal à l'ouverture (une modification postérieure fera refuser l'enregistrement).
+    const tf = /^(lot|locataire):(\d{1,12})$/.exec(url.searchParams.get('traceFiche') ?? '');
+    if (tf !== null) {
+      const [repere, historique] = await Promise.all([repereJournal(), historiqueFiche(tf[1] as 'lot' | 'locataire', Number(tf[2]))]);
+      return Response.json({ etat: 'ok', data: { repere, historique, derniere: historique[0] ?? null } }, { headers: ENTETES });
+    }
     const fe = identifiant(url.searchParams.get('ficheEntiere'));
     if (fe !== null) return Response.json(await lireFicheEntiere(fe), { headers: ENTETES });
     const vb = identifiant(url.searchParams.get('versionBien'));
@@ -160,7 +169,10 @@ export async function POST(request: Request): Promise<Response> {
       // MÊMES écritures que les gestes de la fiche (encart, annexes, statut et ses suites Drive / mail).
       case 'modifier-fiche-bien': {
         if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
-        return repondre(await modifierFicheEntiere(id, corps.saisie as Record<string, unknown>, auteur, requeteDepuisLaLocation(request) ? 'Location' : 'Gestion'));
+        // 🔴 Arno (24/10/2026, 417) — depuis un écran tracé (« Suivi du mois ») : la session et l'écran au journal (une ligne par champ).
+        const ecran = ecranDemande(corps.ecran);
+        const trace = ecran === null ? null : { sessionId: (await lireSessionCuration(request)).jti, ecran };
+        return repondre(await avecTrace(trace, () => modifierFicheEntiere(id, corps.saisie as Record<string, unknown>, auteur, requeteDepuisLaLocation(request) ? 'Location' : 'Gestion')));
       }
       // Arno (21/10/2026) — UN GROUPE DE L'ENCART modifié sur place (après contre-validation), par les écritures de « Nouveau bien ».
       case 'modifier-encart': {

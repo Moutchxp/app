@@ -610,7 +610,12 @@ export function filtreVersParams(f: Filtre): string {
 export const NOMS_MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 /** Une ligne d'activité telle que l'écran la reçoit : le bien et le bail pour ouvrir la fiche, la provenance. */
-export interface ActiviteLue extends ActiviteCalcul { lotId: number | null; bailId: number | null; source: string }
+export interface ActiviteLue extends ActiviteCalcul {
+  lotId: number | null; bailId: number | null; source: string;
+  /** 🔴 Arno (24/10/2026) — les locataires et les biens de la ligne, lus dans l'annuaire (raccourcis du panneau déplié). */
+  locataires?: { id: number; libelle: string }[];
+  lots?: { id: number; libelle: string }[];
+}
 
 /** Ce que `/api/admin/location/suivi?vue=tableau` rend (l'année demandée et la précédente). */
 export interface DonneesTableau {

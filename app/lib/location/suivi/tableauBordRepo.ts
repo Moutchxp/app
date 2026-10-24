@@ -19,6 +19,10 @@ const n = (v: unknown): number => Number(v);
 const nOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const iso = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : String(v).slice(0, 10));
 
+/** Une liste `json_agg` de { id, libelle } (absente : vide). */
+const fiches = (v: unknown): { id: number; libelle: string }[] => (Array.isArray(v) ? v : [])
+  .map((x: { id?: unknown; libelle?: unknown }) => ({ id: Number(x.id), libelle: String(x.libelle ?? '') })).filter((x) => Number.isSafeInteger(x.id) && x.id > 0);
+
 export async function lireActivites(annees: readonly number[]): Promise<ActiviteLue[]> {
   if (!(await suiviDisponible()) || annees.length === 0) return [];
   const avecAssurance = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_id');
@@ -26,6 +30,12 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   const avec411 = await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision');
   const avec413 = await commissionGestionDisponible();
   const avecStatut = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
+  const avecBailOcc = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
+  // 🔴 Arno (24/10/2026) — les LOCATAIRES et les BIENS de la ligne, lus dans l'annuaire (la source) : les raccourcis « Fiche
+  // locataire » / « Fiche du bien » du panneau déplié. Locataires : les occupants du bail, sinon le locataire de la ligne ; biens :
+  // le lot de la ligne et ceux des occupations du bail. Une ligne sans bail ni lot rattaché n'en a pas (« non rattaché »).
+  const nomLocataire = `coalesce(nullif(btrim(concat_ws(' ', lo.prenom, lo.nom)), ''), lo.nom)`;
+  const libelleLot = `coalesce(nullif(concat_ws(' — ', nullif(btrim(lt.nature), ''), nullif(btrim(concat_ws(' ', lt.adresse, lt.commune)), '')), ''), 'Bien n° ' || lt.id)`;
   const { rows } = await query<Record<string, unknown>>(
     `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
             a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
@@ -40,6 +50,11 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             ${avecStatut ? `(SELECT min(t.effet_le) FROM gestion_bien_statut_transition t
                               WHERE t.lot_id = a.lot_id AND t.avant = 'en_gestion' AND t.apres <> 'en_gestion' AND t.effet_le >= a.date_signature)` : 'NULL::date'} AS fin_gestion,
             ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
+            coalesce(${avecBailOcc ? `(SELECT json_agg(json_build_object('id', lo.id, 'libelle', ${nomLocataire}) ORDER BY lo.id)
+                FROM gestion_annuaire_locataire lo WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)), ` : ''}
+              (SELECT json_agg(json_build_object('id', lo.id, 'libelle', ${nomLocataire})) FROM gestion_annuaire_locataire lo WHERE lo.id = a.locataire_id)) AS locataires,
+            (SELECT json_agg(json_build_object('id', lt.id, 'libelle', ${libelleLot}) ORDER BY lt.id) FROM gestion_annuaire_lot lt
+              WHERE lt.id = a.lot_id${avecBailOcc ? ' OR lt.id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)' : ''}) AS lots,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
               WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
        FROM gestion_location_activite a
@@ -66,6 +81,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     apporteurMode: r.apporteur_mode === 'recurrent' || r.apporteur_mode === 'one_shot' ? r.apporteur_mode as ModeApporteur : null,
     apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
     finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
+    locataires: fiches(r.locataires), lots: fiches(r.lots),
   }));
 }
 

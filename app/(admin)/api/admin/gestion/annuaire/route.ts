@@ -8,6 +8,8 @@ import {
   rechercherPersonnes,
 } from '../../../../../lib/gestion/annuaireRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
+import { avecTrace, ecranDemande } from '../../../../../lib/gestion/traceJournal';
+import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
 import type { Auteur } from '../../../../../lib/gestion/gestes';
 import type { RepartitionCoordonnee } from '../../../../../lib/gestion/annuaireEdition';
 import {
@@ -158,7 +160,14 @@ export async function POST(request: Request): Promise<Response> {
     if (action === 'modifier') {
       if (sujet === null || id === null) return mauvaiseDemande();
       const champs = (corps.champs ?? {}) as Parameters<typeof modifierPersonne>[2];
-      return Response.json(await modifierPersonne(sujet, id, champs, auteur), { headers: ENTETES });
+      // 🔴 Arno (24/10/2026, 417) — depuis un écran tracé (« Suivi du mois ») : la session et l'écran au journal, et le repère
+      // d'ouverture (`depuisJournalId`) : une fiche modifiée depuis par quelqu'un d'autre n'est pas écrasée.
+      const ecran = ecranDemande(corps.ecran);
+      const depuis = typeof corps.depuisJournalId === 'number' && Number.isSafeInteger(corps.depuisJournalId) && corps.depuisJournalId >= 0
+        ? corps.depuisJournalId : undefined;
+      const trace = ecran === null ? null : { sessionId: (await lireSessionCuration(request)).jti, ecran };
+      const issue = await avecTrace(trace, () => modifierPersonne(sujet, id, champs, auteur, depuis === undefined ? {} : { depuisJournalId: depuis }));
+      return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
     }
     if (action === 'ordonner') {
       if (sujet === null || !Array.isArray(corps.ids)) return mauvaiseDemande();

@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { colonnesTrace, traceCourante } from '../gestion/traceJournal';
 import type { Auteur } from '../gestion/gestes';
 import { familleDeCategorie, type Famille } from './bienComplet';
 import { annexeNomPnoDisponible, modifierComplementsBien } from './creationBienRepo';
@@ -155,11 +156,18 @@ async function journaliserParGroupe(id: number, groupeDe: ReadonlyMap<string, Gr
 
 /** Une ligne de l'Historique du bien : « Champ : ancienne valeur → nouvelle valeur », qui et quand (horodatage de la base). */
 export async function journaliser(id: number, groupe: GroupeEncart | { titre: string }, changements: readonly Pick<ChangementEncart, 'champ' | 'avant' | 'apres'>[], auteur: Auteur): Promise<void> {
-  await query(
-    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
-     VALUES ('annuaire_lot', $1, 'location_encart_modifie', $2, $3, $4, $5, $6)`,
-    [id, changements.map((c) => `${c.champ} : ${c.avant}`).join('\n'), changements.map((c) => `${c.champ} : ${c.apres}`).join('\n'),
-      `${typeof groupe === 'string' ? TITRE_GROUPE[groupe] : groupe.titre} — ${changements.map(phraseChangement).join(' · ')}`, auteur.id, auteur.libelle]);
+  const titre = typeof groupe === 'string' ? TITRE_GROUPE[groupe] : groupe.titre;
+  // 🔴 Arno (24/10/2026, 417) — depuis un écran tracé (« Suivi du mois ») : UNE ligne par champ (champ, ancienne, nouvelle valeur),
+  // avec la session et l'écran ; sinon la ligne par groupe d'avant (l'Historique de la fiche les montre de la même façon).
+  const parChamp = traceCourante() !== null;
+  for (const lot of parChamp ? changements.map((c) => [c]) : [changements]) {
+    const t = await colonnesTrace({ sujet: 'lot', champ: parChamp ? lot[0].champ : null }, 7);
+    await query(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+       VALUES ('annuaire_lot', $1, 'location_encart_modifie', $2, $3, $4, $5, $6${t.marques})`,
+      [id, lot.map((c) => (parChamp ? c.avant : `${c.champ} : ${c.avant}`)).join('\n'), lot.map((c) => (parChamp ? c.apres : `${c.champ} : ${c.apres}`)).join('\n'),
+        `${titre} — ${lot.map(phraseChangement).join(' · ')}`, auteur.id, auteur.libelle, ...t.valeurs]);
+  }
 }
 
 /** Les modifications de l'encart journalisées pour CE bien (l'Historique), du plus récent. */
