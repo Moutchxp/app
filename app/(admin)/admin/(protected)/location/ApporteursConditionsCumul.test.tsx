@@ -167,28 +167,42 @@ const annuaire = async () => {
 };
 const carte = (id: number) => container.querySelector(`[data-apporteur="${id}"]`)!;
 
-describe('🔴 (2) la carte : le bloc « Conditions » à la place de la cascade', () => {
-  it('One shot : pastille, taux, « depuis le » ; les dossiers à d’autres conditions ; le collègue et sa rémunération ; plus de cascade', async () => {
+describe('🔴 (2) la carte : les conditions financières en grand ; le reste dans les panneaux', () => {
+  it('One shot : pastille et « Location 20 % · Gestion 0 % » — sans date, sans dossiers antérieurs, sans collègue ; tout cela est dans les panneaux', async () => {
     await annuaire();
     const c = carte(4).querySelector('[data-conditions="4"]')!;
     expect(c.querySelector('[data-mode-conditions]')?.textContent).toBe('One shot');
-    expect(n(c.querySelector('[data-conditions-texte]')?.textContent)).toBe('location 20 % · gestion 0 % · depuis le 23/10/2026');
-    expect([...c.querySelectorAll('[data-autres-conditions]')].map((x) => x.textContent)).toEqual([
-      '1 dossier calculé aux conditions antérieures (One shot 50 %)', '1 dossier : montants saisis à l’import (location 50 %, conformes à la version du 31/12/2020)']);
-    expect(c.querySelector('[data-conditions-collegue]')?.textContent).toBe('Collègue — Paul Collègue : One shot — location 5 %, gestion 10 % (depuis le 01/01/2021)');
+    expect(n(c.querySelector('[data-conditions-texte]')?.textContent)).toBe('Location 20 % · Gestion 0 %');
+    // 🔴 Arno (24/10/2026, accord explicite) — les trois éléments retirés de la carte…
+    expect(c.querySelector('[data-autres-conditions], [data-conditions-collegue]')).toBeNull();
+    expect(n(carte(4).textContent)).not.toMatch(/depuis le|depuis toujours|calculé aux conditions|saisis à l’import|Collègue —/);
     expect(carte(4).querySelector('[data-cascade]')).toBeNull();
     // La ligne de totaux reste au-dessus, inchangée.
     expect(n(carte(4).querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT1 421,00 €Dû à l’apporteur HT710,50 €Dû au collègue HT150,25 €Net agence HT560,25 €');
+    // … sont dans leur panneau : la date d'application et les dossiers à d'autres conditions en tête de « Taux » ;
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="taux"]')!);
+    const t = carte(4).querySelector('[data-panneau="taux"]')!;
+    expect(n(t.querySelector('[data-taux-en-vigueur]')?.textContent)).toBe('En vigueur : One shot — location 20 %, gestion 0 % (depuis le 23/10/2026)');
+    expect([...t.querySelectorAll('[data-autres-conditions]')].map((x) => x.textContent)).toEqual([
+      '1 dossier calculé aux conditions antérieures (One shot 50 %)', '1 dossier : montants saisis à l’import (location 50 %, conformes à la version du 31/12/2020)']);
+    expect(t.firstElementChild?.hasAttribute('data-taux-en-vigueur')).toBe(true);
+    // la rémunération du collègue au résumé de « Rattachement » (une seule fois).
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
+    const r = carte(4).querySelector('[data-panneau="rattachement"]')!;
+    expect(n(r.querySelector('[data-resume-rattachement="4"]')?.textContent)).toBe('Rattaché à Paul Collègue depuis toujours — One shot — location 5 %, gestion 10 %');
+    expect(r.querySelectorAll('[data-resume-rattachement]')).toHaveLength(1);
   });
-  it('Récurrent : pastille, taux, durée ; collègue « aucune rémunération » ; un interne : pas de ligne collègue', async () => {
+  it('Récurrent : pastille et « Location 10 % · Gestion 20 % · 3 ans » ; sa date au panneau « Taux » ; « aucune rémunération » au Rattachement', async () => {
     await annuaire();
     const c = carte(6).querySelector('[data-conditions="6"]')!;
     expect(c.querySelector('[data-mode-conditions]')?.getAttribute('data-mode-conditions')).toBe('recurrent');
     expect(c.querySelector('[data-mode-conditions]')?.textContent).toBe('Récurrent');
-    expect(n(c.querySelector('[data-conditions-texte]')?.textContent)).toBe('location 10 % · gestion 20 % · pendant 3 ans · depuis le 01/01/2024');
-    expect(c.querySelector('[data-autres-conditions]')).toBeNull();
-    expect(c.querySelector('[data-conditions-collegue]')?.textContent).toBe('Collègue — Paul Collègue : aucune rémunération');
-    expect(carte(9).querySelector('[data-conditions="9"] [data-conditions-collegue]')).toBeNull();
+    expect(n(c.querySelector('[data-conditions-texte]')?.textContent)).toBe('Location 10 % · Gestion 20 % · 3 ans');
+    await clic(container.querySelector('[data-apporteur-bouton="6"][data-panneau-bouton="taux"]')!);
+    expect(n(carte(6).querySelector('[data-taux-en-vigueur]')?.textContent)).toMatch(/\(depuis le 01\/01\/2024\)$/);
+    expect(carte(6).querySelector('[data-panneau="taux"] [data-autres-conditions]')).toBeNull();
+    await clic(container.querySelector('[data-apporteur-bouton="6"][data-panneau-bouton="rattachement"]')!);
+    expect(n(carte(6).querySelector('[data-resume-rattachement="6"]')?.textContent)).toBe('Rattaché à Paul Collègue depuis toujours — Aucune rémunération');
   });
 });
 
@@ -198,7 +212,7 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     await calmer();
     const lignes = [...container.querySelectorAll('[data-cumul-apporteur] tbody tr')].map((r) => n(r.textContent));
-    expect(lignes).toEqual(['Depuis le début21 421,00 €1 705,20 €710,50 €710,50 €', '▸Année 202521 421,00 €1 705,20 €710,50 €710,50 €']);
+    expect(lignes).toEqual(['Depuis le début21 421,00 €1 705,20 €710,50 €0,00 €710,50 €', '▸Année 202521 421,00 €1 705,20 €710,50 €0,00 €710,50 €']);
     const b = container.querySelector('[data-deplier-annee="2025"]')!;
     expect(b.getAttribute('aria-expanded')).toBe('false');
     expect(container.querySelector('[data-annee-detail]')).toBeNull();

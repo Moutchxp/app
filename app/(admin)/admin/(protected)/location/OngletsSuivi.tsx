@@ -262,7 +262,7 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                   )}
                   {/* 🔴 Arno (24/10/2026) — le bloc « Conditions » remplace la cascade sur la carte (accord d'Arno) : les conditions en vigueur,
                       les dossiers calculés à d'autres conditions, le collègue et sa rémunération. La cascade reste par dossier dans « Cumul ». */}
-                  <BlocConditions a={a} jour={jour} autres={totaux?.[a.id]?.autres ?? []} />
+                  <BlocConditions a={a} jour={jour} />
                   {/* 🔴 Arno (24/10/2026) — QUATRE boutons : Fiche · Rattachement · Taux · Cumul (ils remplacent « Nouveau taux » et « Fiche et
                       cumul », dont tout le contenu est redistribué) ; un seul panneau ouvert par carte ; un second clic le referme. */}
                   <span className="plo-gestes-ligne plo-boutons-carte" role="group" aria-label={`Panneaux — ${libelleApporteur(a)}`}>
@@ -289,7 +289,7 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                           avec419={lu.interne === true} toujoursPossible={lu.toujours === true} cle={lu} />
                       )}
                       {panneaux[a.id] === 'taux' && (
-                        <PanneauTaux a={a} apporteurs={lu.apporteurs} jour={jour} faire={faireCarte(a.id)} envoi={envoiCarte} orphelin={orphelin}
+                        <PanneauTaux a={a} apporteurs={lu.apporteurs} jour={jour} faire={faireCarte(a.id)} envoi={envoiCarte} orphelin={orphelin} autres={totaux?.[a.id]?.autres ?? []}
                           toujoursPossible={lu.toujours === true} cle={lu} onFermer={() => basculer(a.id, 'taux')} message={messageCarte(a.id)} />
                       )}
                       {panneaux[a.id] === 'cumul' && (

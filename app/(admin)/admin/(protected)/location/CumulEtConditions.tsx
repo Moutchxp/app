@@ -1,9 +1,9 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { type Apporteur, baremeADate, DEPUIS_TOUJOURS, LIBELLE_MODE_APPORTEUR, libelleApporteur, libelleDuree, TAUX_TVA } from '../../../../lib/location/suivi/suivi';
+import { type Apporteur, baremeADate, estInterne, LIBELLE_MODE_APPORTEUR, libelleApporteur, TAUX_TVA } from '../../../../lib/location/suivi/suivi';
 import {
-  type AutresConditions, type BlocDu, conditionsCollegue, detailDossier, type DetailDossier, type LigneDu, libelleSource, pctCourt, phraseAutresConditions,
+  type AutresConditions, type BlocDu, detailDossier, type DetailDossier, type LigneDu, libelleSource, pctCourt, phraseAutresConditions,
 } from '../../../../lib/location/suivi/detailDossier';
 import { cascadeAuCentime, dontAnneeBrut, repartirAuCentime } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI, aujourdhuiParis } from './suiviApi';
@@ -30,23 +30,33 @@ export const netAgence = (x: Pick<Chiffres, 'ca' | 'commission' | 'collegue'>): 
 export type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number; collegue?: number;
   autres?: AutresConditions[] };
 
-export function BlocConditions({ a, jour, autres }: { a: Apporteur; jour: string; autres: readonly AutresConditions[] }) {
+/** « 3 ans » / « 1 an » / « durée indéterminée » (la durée d'un récurrent, sur la carte). */
+const dureeCourte = (d: number | null | undefined): string => (d === null || d === undefined ? 'durée indéterminée' : `${d} an${d > 1 ? 's' : ''}`);
+
+/**
+ * 🔴 Arno (24/10/2026) — LES CONDITIONS FINANCIÈRES, EN GRAND : la pastille One shot / Récurrent, puis « Location x % · Gestion y % »
+ * (et la durée d'un récurrent). Retirés de la carte avec l'accord d'Arno, et toujours au panneau : la date d'application et les dossiers
+ * calculés à d'autres conditions (en tête du panneau « Taux »), la rémunération du collègue (résumé en tête du panneau « Rattachement »).
+ */
+export function BlocConditions({ a, jour }: { a: Apporteur; jour: string }) {
   const v = baremeADate(a, jour);
-  const col = conditionsCollegue(a, jour);
   const mode = v?.mode ?? 'one_shot';
   return (
     <div className="plo-conditions" data-conditions={a.id}>
       {v === null ? <p className="plo-conditions-ligne" data-conditions-apporteur>Aucune condition enregistrée.</p> : (
         <p className="plo-conditions-ligne" data-conditions-apporteur>
           <span className={`plo-pastille plo-pastille-mode plo-pastille-mode--${mode}`} data-mode-conditions={mode}>{LIBELLE_MODE_APPORTEUR[mode]}</span>
-          <span data-conditions-texte>location {pctCourt(v.taux)} · gestion {pctCourt(v.tauxGestion ?? 0)}{mode === 'recurrent' ? ` · ${libelleDuree(v.dureeAnnees)}` : ''} · {
-            v.toujours === true || v.depuis === DEPUIS_TOUJOURS ? 'depuis toujours' : `depuis le ${dateFr(v.depuis)}`}</span>
+          <span className="plo-conditions-taux" data-conditions-texte>Location {pctCourt(v.taux)} · Gestion {pctCourt(v.tauxGestion ?? 0)}{mode === 'recurrent' ? ` · ${dureeCourte(v.dureeAnnees)}` : ''}</span>
         </p>
       )}
-      {autres.map((x) => <p key={`${x.sorte}-${x.libelle}`} className="plo-conditions-autres" data-autres-conditions={x.sorte}>{phraseAutresConditions(x)}</p>)}
-      {col !== null && <p className="plo-conditions-collegue" data-conditions-collegue>Collègue — {col.texte}</p>}
     </div>
   );
+}
+
+/** Les dossiers calculés à d'AUTRES conditions que celles en vigueur (version antérieure, montants importés) : en tête du panneau « Taux ». */
+export function AutresConditionsTaux({ autres }: { autres: readonly AutresConditions[] }) {
+  if (autres.length === 0) return null;
+  return <>{autres.map((x) => <p key={`${x.sorte}-${x.libelle}`} className="plo-conditions-autres plo-petit-texte" data-autres-conditions={x.sorte}>{phraseAutresConditions(x)}</p>)}</>;
 }
 
 /** Une ligne de dû et, en petit, son taux et sa source. */
@@ -126,9 +136,14 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
   if (c === 'erreur') return <p className="plo-muet plo-petit-texte">Cumul indisponible.</p>;
   if (c.parAnnee.length === 0) return <p className="plo-muet plo-petit-texte" data-cumul-vide>Aucune affaire apportée pour l’instant.</p>;
   const t: Chiffres = c.total ?? c.parAnnee.reduce((s, x) => ({ nb: s.nb + x.nb, avenants: (s.avenants ?? 0) + (x.avenants ?? 0), ca: s.ca + x.ca, commission: s.commission + x.commission }), { nb: 0, avenants: 0, ca: 0, commission: 0 });
+  // 🔴 Arno (24/10/2026) — « Dû au collègue HT » : « — » pour un apporteur dont aucun collègue n'a jamais été rémunéré (ou un interne
+  // depuis toujours). Ligne par ligne : honoraires − dû à l'apporteur − dû au collègue = net agence, au centime (`netAgence`).
+  const sansCollegue = (estInterne(a) && !a.interneDepuis) || !(a.remunerations ?? []).some((r) => r.remunere);
   const cellules = (x: Chiffres) => (
     <><td data-mot="Dossiers">{x.nb}</td><td data-mot="Honoraires HT">{euros(x.ca)}</td><td data-mot="Honoraires TTC">{euros(ttc(x.ca))}</td>
-      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td><td data-mot="Net agence HT">{euros(netAgence(x))}</td></>
+      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td>
+      <td data-mot="Dû au collègue HT" data-du-collegue-cumul>{sansCollegue ? '—' : euros(x.collegue ?? 0)}</td>
+      <td data-mot="Net agence HT">{euros(netAgence(x))}</td></>
   );
   const jour = dossiers !== null && dossiers !== 'erreur' && dossiers.aujourdhui ? dossiers.aujourdhui : aujourdhuiParis();
   const nomApporteur = libelleApporteur(a);
@@ -149,7 +164,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
       <h4 className="plo-h4">Cumul</h4>
       <table className="plo-cumul" data-cumul-apporteur>
         <thead><tr><th scope="col">Période</th><th scope="col">Dossiers</th><th scope="col">Honoraires HT</th><th scope="col">Honoraires TTC</th>
-          <th scope="col">Dû à l’apporteur HT</th><th scope="col">Net agence HT</th></tr></thead>
+          <th scope="col">Dû à l’apporteur HT</th><th scope="col">Dû au collègue HT</th><th scope="col">Net agence HT</th></tr></thead>
         <tbody>
           <tr className="plo-cumul-total" data-cumul-ligne="total"><th scope="row">Depuis le début</th>{cellules(t)}</tr>
           {c.parAnnee.map((y) => {
@@ -177,7 +192,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
                 </tr>
                 {ouverte && (
                   <tr className="plo-cumul-detail" id={`plo-annee-${id}-${y.annee}`} data-annee-detail={y.annee}>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       {siens === null ? <p className="plo-muet plo-petit-texte" role="status">{dossiers === 'erreur' ? 'Dossiers indisponibles.' : 'Lecture des dossiers…'}</p>
                         : siens.length === 0 ? <p className="plo-muet plo-petit-texte">Aucun dossier.</p>
                         : <ol className="plo-dossiers" data-dossiers-annee={y.annee}>{siens.map((x) => (
@@ -195,9 +210,12 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
 }
 
 export const CSS_CUMUL_CONDITIONS = `
-.plo-conditions{margin:6px 0;padding:8px 12px;border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-field);display:flex;flex-direction:column;gap:4px;font-size:.88rem}
+.plo-conditions{margin:8px 0;padding:10px 14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-field);display:flex;flex-direction:column;gap:4px}
 .plo-conditions p{margin:0;overflow-wrap:anywhere}
-.plo-conditions-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--color-svv-ink);font-weight:700;font-variant-numeric:tabular-nums}
+.plo-conditions-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;color:var(--color-svv-ink);font-weight:800;font-variant-numeric:tabular-nums}
+.plo-conditions .plo-pastille-mode{font-size:.95rem;padding:4px 12px;letter-spacing:.03em}
+.plo-conditions-taux{font-size:1.3rem;line-height:1.25;font-weight:800;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+@media (max-width:640px){ .plo-conditions-taux{font-size:1.1rem} }
 .plo-pastille-mode{border-color:transparent}
 .plo-pastille-mode--one_shot{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .plo-pastille-mode--recurrent{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}

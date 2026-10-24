@@ -151,9 +151,9 @@ describe('🔴 la cascade et le badge', () => {
   it('la carte : plus de cascade, le bloc « Conditions » à sa place (interne : sans ligne collègue)', async () => {
     await annuaire();
     expect(container.querySelector('[data-apporteur="4"] [data-cascade]')).toBeNull();
-    expect(container.querySelector('[data-conditions="4"] [data-conditions-collegue]')?.textContent).toBe('Collègue — Paul Collègue : aucune rémunération');
+    // 🔴 Arno (24/10/2026) — la ligne « Collègue — … » a quitté la carte : la rémunération du collègue est au résumé du panneau Rattachement.
+    expect(container.querySelector('[data-conditions="4"] [data-conditions-collegue]')).toBeNull();
     expect(container.querySelector('[data-conditions="9"]')).not.toBeNull();
-    expect(container.querySelector('[data-conditions="9"] [data-conditions-collegue]')).toBeNull();
   });
   it('« Cumul » : la cascade de chaque dossier, dans son année dépliée', async () => {
     cumulAvecAnnees = true;

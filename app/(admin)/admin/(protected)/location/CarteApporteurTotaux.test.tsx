@@ -118,3 +118,31 @@ describe('🔴 la carte est un bloc ; les 4 boutons centrés', () => {
     expect(css).toMatch(/\.plo-versions\[data-liste-apporteurs\]>li\.plo-a-rattacher\{border-color:var\(--color-svv-line-strong\)!important;background:var\(--color-svv-amber-soft\)\}/);
   });
 });
+
+describe('🔴 Cumul : la colonne « Dû au collègue HT »', () => {
+  const centimes = (t: string | null | undefined): number => Math.round(Number(n(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  const lignes = () => [...container.querySelectorAll('[data-cumul-apporteur] tbody tr[data-cumul-ligne]')];
+  const cellule = (tr: Element, mot: string) => tr.querySelector(`[data-mot="${mot}"]`)?.textContent;
+  it('entre « Dû à l’apporteur HT » et « Net agence HT » ; ligne par ligne : honoraires − apporteur − collègue = net, au centime', async () => {
+    await annuaire();
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
+    await calmer();
+    expect([...container.querySelectorAll('[data-cumul-apporteur] thead th')].map((x) => x.textContent))
+      .toEqual(['Période', 'Dossiers', 'Honoraires HT', 'Honoraires TTC', 'Dû à l’apporteur HT', 'Dû au collègue HT', 'Net agence HT']);
+    expect(lignes().length).toBeGreaterThanOrEqual(3);   // « Depuis le début » + les années
+    for (const tr of lignes()) {
+      expect(cellule(tr, 'Dû au collègue HT')).toMatch(/€$/);
+      expect(centimes(cellule(tr, 'Honoraires HT')) - centimes(cellule(tr, 'Dû à l’apporteur HT')) - centimes(cellule(tr, 'Dû au collègue HT')), tr.getAttribute('data-cumul-ligne') ?? '')
+        .toBe(centimes(cellule(tr, 'Net agence HT')));
+    }
+    expect(centimes(cellule(lignes()[0], 'Dû au collègue HT'))).toBeGreaterThan(0);
+  });
+  it('un apporteur sans rémunération de collègue : « — »', async () => {
+    await annuaire();
+    await clic(container.querySelector('[data-apporteur-bouton="6"][data-panneau-bouton="cumul"]')!);
+    await calmer();
+    expect(lignes().map((tr) => cellule(tr, 'Dû au collègue HT'))).toEqual(['—', '—']);
+    expect(lignes().map((tr) => n(cellule(tr, 'Net agence HT')))).toEqual(['900,00 €', '900,00 €']);
+  });
+});
+

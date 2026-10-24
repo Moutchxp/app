@@ -5,6 +5,8 @@ import { ListeChoix } from './ListeChoix';
 import { posterSuivi } from './suiviApi';
 import { ChampApplication, ChampDuree, ChoixMode, champTaux, depuisRegle, dureeEnvoyee, EncartEffet, FormulaireNouveauTaux, historiqueRegles, remuDeSaisie, useDossiersApporteur } from './ReglageApporteur';
 import { effetReglage } from '../../../../lib/location/suivi/tableauBord';
+import type { AutresConditions } from '../../../../lib/location/suivi/detailDossier';
+import { AutresConditionsTaux } from './CumulEtConditions';
 import {
   type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, libelleRegleApporteur, libelleRemuneration,
   remunerationADate, TYPES_APPORTEUR, aujourdhuiParis, libelleHistorique, type ModeApporteur, trierHistorique, tauxVide,
@@ -380,12 +382,15 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
 // ── « TAUX » ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Le commissionnement de l'apporteur : la règle en vigueur, l'historique des versions, le formulaire (effet en direct, récapitulatif). */
-export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujoursPossible, cle, onFermer, message }: { a: Apporteur; apporteurs: readonly Apporteur[]; jour: string;
-  faire: Faire; envoi: boolean; orphelin: boolean; toujoursPossible: boolean; cle: unknown; onFermer: () => void; message?: React.ReactNode }) {
+export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujoursPossible, cle, onFermer, message, autres = [] }: { a: Apporteur; apporteurs: readonly Apporteur[]; jour: string;
+  faire: Faire; envoi: boolean; orphelin: boolean; toujoursPossible: boolean; cle: unknown; onFermer: () => void; message?: React.ReactNode;
+  /** 🔴 Arno (24/10/2026) — les dossiers calculés à d'autres conditions (venus de la carte) : en tête du panneau, sous la règle en vigueur. */
+  autres?: readonly AutresConditions[] }) {
   const v = baremeADate(a, jour);
   return (
     <div className="plo-panneau" data-panneau="taux">
       <p className="plo-version-valeurs" data-taux-en-vigueur data-regle-apporteur={a.id}>En vigueur : {v === null ? 'aucun taux aujourd’hui.' : `${libelleRegleApporteur(v)} (${depuisRegle(v)})`}</p>
+      <AutresConditionsTaux autres={autres} />
       {a.baremes.length > 0 && <p className="plo-muet plo-petit-texte" data-historique-taux data-historique-regles-apporteur>Historique : {historiqueRegles(a)}</p>}
       <h4 className="plo-h4">Nouveau taux</h4>
       <FormulaireNouveauTaux key={`${a.id}-${a.baremes.length}`} a={a} apporteurs={apporteurs} collegue={null} jour={jour} envoi={envoi} faire={faire}
