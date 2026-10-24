@@ -65,10 +65,15 @@ describe('🔴 l’annuaire : internes et externes', () => {
     expect(c.querySelector('[data-compte-apporteur]')?.textContent).toBe('Lié à son compte de l’interface — rattaché à personne.');
     expect(c.querySelector('[data-a-rattacher], [data-collegue-apporteur], [data-collegue-remuneration], [data-du-collegue]')).toBeNull();
     expect(c.textContent).toContain('Récurrent — location 5 %, gestion 10 % / mois, pendant 1 an');
-    await clic(c.querySelector('[data-ouvrir-fiche="9"]')!);
     // Le seul champ qui disparaît pour un interne (voulu par Arno) : le collègue de rattachement.
+    await clic(c.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="rattachement"]')!);
     expect(c.querySelector('[data-rattacher], [data-rattacher-collegue], [data-remuneration-collegue]')).toBeNull();
-    expect(c.querySelector('[data-fiche-type-interne]')?.textContent).toContain('Apporteur interne');
+    expect(c.querySelector('[data-rattachement-interne]')?.textContent).toBe('Apporteur interne — pas de rattachement.');
+    // Sa fiche : l'identité de son compte, en lecture seule.
+    await clic(c.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="fiche"]')!);
+    expect(c.querySelector('[data-fiche-interne] dd')?.textContent).toBe('Interne — Collaborateur');
+    expect(c.querySelector('[data-fiche-interne-mention]')?.textContent).toContain('modifiable dans la gestion des comptes');
+    expect(c.querySelector('[data-fiche-interne] input')).toBeNull();
   });
   it('la carte EXTERNE : badge, « Collègue : <nom> — <rémunération résumée> », « Dû au collègue HT »', async () => {
     await annuaire();
@@ -81,7 +86,7 @@ describe('🔴 l’annuaire : internes et externes', () => {
   it('la rémunération du collègue : « Rémunération », Récurrent, ses taux, 3 ans, une date d’effet → une version datée envoyée', async () => {
     await annuaire();
     const c = container.querySelector('[data-apporteur="4"]')!;
-    await clic(c.querySelector('[data-ouvrir-fiche="4"]')!);
+    await clic(c.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
     const b = c.querySelector('[data-remuneration-collegue="4"]')!;
     expect(b.querySelector('h4')?.textContent).toBe('Rémunération de Jean-Baptiste Pons (a apporté cet apporteur)');
     expect(b.querySelector('[data-remunere="oui"]')?.getAttribute('aria-pressed')).toBe('true');

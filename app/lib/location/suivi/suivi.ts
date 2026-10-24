@@ -213,7 +213,9 @@ export const MODES_APPORTEUR = ['one_shot', 'recurrent'] as const;
 export type ModeApporteur = (typeof MODES_APPORTEUR)[number];
 export const LIBELLE_MODE_APPORTEUR: Record<ModeApporteur, string> = { one_shot: 'One shot', recurrent: 'Récurrent' };
 export interface BaremeApporteur extends Datee {
-  taux: number; coutFixeMensuel: number; mode?: ModeApporteur; tauxGestion?: number;
+  taux: number; mode?: ModeApporteur; tauxGestion?: number;
+  /** @deprecated 🔴 Arno (24/10/2026) — le coût fixe mensuel n'existe pas dans l'organisation : jamais lu, jamais calculé. */
+  coutFixeMensuel?: number;
   /** 🔴 Arno (24/10/2026, 419) — la durée du « Récurrent », en années entières (≥ 1). null / absente : « Indéterminée ». */
   dureeAnnees?: number | null;
   /** 420 — voir `VersionToujours`. */
@@ -305,6 +307,12 @@ export interface Apporteur {
   compteId?: number | null;
   /** 419 — la rémunération du collègue de rattachement (externe), versions datées ; vide : aucune. */
   remunerations?: RemunerationCollegue[];
+  /** 421 — la fiche d'identité d'un externe : civilité, adresse, notes, téléphones et e-mails en plus des principaux. */
+  civilite?: string | null; adresse?: string | null; notes?: string | null; telephonesAutres?: string[]; emailsAutres?: string[];
+  /** La version de la fiche (dernière modification) : le contrôle de conflit. */
+  version?: string | null;
+  /** 419 — un INTERNE : le libellé et l'identifiant de son compte (lecture seule). */
+  compteLibelle?: string | null; compteIdentifiant?: string | null;
 }
 
 /** 419 — l'apporteur est-il INTERNE (lié à un compte de l'interface) ? PUR. */
@@ -542,9 +550,9 @@ export function verifierCommercial(b: Record<string, unknown>, origineObligatoir
   } };
 }
 
-/** Vérifie un apporteur nouveau (nom, type, taux par défaut en %, coût fixe mensuel en €, date d'effet). */
+/** Vérifie un apporteur nouveau (nom, type, taux par défaut en %, date d'effet). Le coût fixe mensuel n'existe plus (Arno, 24/10/2026). */
 export const MOT_COLLEGUE_OBLIGATOIRE = 'Un partenaire externe doit être rattaché à un collègue (de qui vient ce contact) : choisissez le collègue de rattachement.';
-export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: boolean } = {}): { ok: true; nom: string; type: TypeApporteur; taux: number; coutFixe: number; depuis: string;
+export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: boolean } = {}): { ok: true; nom: string; type: TypeApporteur; taux: number; depuis: string;
   societe: string | null; telephone: string | null; email: string | null; collegueId: number | null; mode: ModeApporteur; tauxGestion: number;
   /** 419 — un INTERNE (`compteId`, rattaché à personne) ; la durée du récurrent (null : indéterminée). */
   compteId: number | null; dureeAnnees: number | null } | { ok: false; motif: string } {
@@ -563,8 +571,6 @@ export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: bool
   if (type === null) return { ok: false, motif: 'Le type de l’apporteur : partenaire externe, agence, Internet ou collaborateur.' };
   const taux = lireTauxPourcent(b.taux);
   if (taux === undefined) return { ok: false, motif: 'Taux de commission : un pourcentage entre 0 et 100.' };
-  const cout = lireMontant(b.coutFixe);
-  if (cout === undefined) return { ok: false, motif: 'Coût fixe mensuel : un montant en euros.' };
   const depuis = dateIsoValide(b.depuis) ? b.depuis : null;
   if (depuis === null) return { ok: false, motif: 'La date d’effet du taux est obligatoire.' };
   // 413 — le mode (défaut « One shot ») et le taux sur la gestion (vide = 0 %).
@@ -574,7 +580,7 @@ export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: bool
   if (tauxGestion === undefined) return { ok: false, motif: 'Taux sur la gestion : un pourcentage entre 0 et 100.' };
   const dureeAnnees = mode === 'recurrent' ? lireDuree(b.dureeAnnees) : null;
   if (dureeAnnees === undefined) return { ok: false, motif: MOT_DUREE };
-  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId, mode, tauxGestion: tauxGestion ?? 0, compteId, dureeAnnees };
+  return { ok: true, nom, type, taux: taux ?? 0, depuis, ...coord.valeurs, collegueId, mode, tauxGestion: tauxGestion ?? 0, compteId, dureeAnnees };
 }
 
 const texteOuNull = (v: unknown): string | null => (typeof v === 'string' && v.replace(/\s+/g, ' ').trim() !== '' ? v.replace(/\s+/g, ' ').trim() : null);

@@ -3,14 +3,14 @@
 import { type KeyboardEvent, useEffect, useState } from 'react';
 import {
   type Apporteur, type BaremeApporteur, type ModeApporteur, type RemunerationCollegue, LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, baremeADate, libelleHistorique,
-  libelleRegleApporteur, libelleRemuneration, lireDuree, lireMontant, lireTauxPourcent, MOT_DUREE, remunerationADate,
+  libelleRegleApporteur, libelleRemuneration, lireDuree, lireTauxPourcent, MOT_DUREE, remunerationADate,
 } from '../../../../lib/location/suivi/suivi';
 import { type ActiviteCalcul, type EffetReglage, effetReglage } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI } from './suiviApi';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LE RÉGLAGE D'UN APPORTEUR : « NOUVEAU TAUX », RÉMUNÉRATION DU COLLÈGUE, EFFET EN DIRECT ═════════════════
- *   · « Nouveau taux » : mode, taux location / gestion, durée, coût fixe, date d'application — ou « Depuis toujours » (tous les
+ *   · « Nouveau taux » : mode, taux location / gestion, durée, date d'application — ou « Depuis toujours » (tous les
  *     dossiers, passés compris ; les versions d'avant restent dans l'historique) ;
  *   · pour un EXTERNE rattaché, la rémunération de son collègue DANS LE MÊME FORMULAIRE (et toujours dans « Fiche et cumul ») ;
  *   · « Effet de ce réglage », recalculé à chaque frappe SANS RIEN ENREGISTRER : dossiers concernés, dû avant → après (`effetReglage`,
@@ -66,14 +66,14 @@ function ChampApplication({ depuis, toujours, onChange, repere, possible }: { de
 
 // ── Les saisies et leur lecture ───────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface SaisieRegle { mode: ModeApporteur; taux: string; tauxGestion: string; coutFixe: string; depuis: string; toujours: boolean; indeterminee: boolean; duree: string }
+export interface SaisieRegle { mode: ModeApporteur; taux: string; tauxGestion: string; depuis: string; toujours: boolean; indeterminee: boolean; duree: string }
 export interface SaisieRemu { remunere: boolean; mode: ModeApporteur; taux: string; tauxGestion: string; depuis: string; toujours: boolean; indeterminee: boolean; duree: string }
 
 /** La saisie pré-remplie avec la règle en vigueur aujourd'hui (date : aujourd'hui). */
 export function saisieRegleDepuis(a: Apporteur, jour: string): SaisieRegle {
   const v = baremeADate(a, jour);
   return { mode: v?.mode ?? 'one_shot', taux: v === null ? '' : champTaux(v.taux), tauxGestion: v === null ? '' : champTaux(v.tauxGestion ?? 0),
-    coutFixe: v === null ? '' : String(v.coutFixeMensuel).replace('.', ','), depuis: jour, toujours: false,
+    depuis: jour, toujours: false,
     indeterminee: (v?.dureeAnnees ?? null) === null, duree: v?.dureeAnnees ? String(v.dureeAnnees) : '' };
 }
 export function saisieRemuDepuis(a: Apporteur, jour: string): SaisieRemu {
@@ -83,10 +83,10 @@ export function saisieRemuDepuis(a: Apporteur, jour: string): SaisieRemu {
 }
 /** La version que la saisie poserait (null : illisible — l'effet attend). PUR. */
 export function regleDeSaisie(s: SaisieRegle): BaremeApporteur | null {
-  const taux = lireTauxPourcent(s.taux); const tg = lireTauxPourcent(s.tauxGestion); const cout = lireMontant(s.coutFixe);
+  const taux = lireTauxPourcent(s.taux); const tg = lireTauxPourcent(s.tauxGestion);
   const duree = s.mode === 'recurrent' ? lireDuree(dureeEnvoyee(s)) : null;
-  if (taux === undefined || tg === undefined || cout === undefined || duree === undefined || (!s.toujours && !/^\d{4}-\d{2}-\d{2}$/.test(s.depuis))) return null;
-  return { depuis: s.depuis, taux: taux ?? 0, tauxGestion: tg ?? 0, coutFixeMensuel: cout ?? 0, mode: s.mode, dureeAnnees: duree, ...(s.toujours ? { toujours: true } : {}) };
+  if (taux === undefined || tg === undefined || duree === undefined || (!s.toujours && !/^\d{4}-\d{2}-\d{2}$/.test(s.depuis))) return null;
+  return { depuis: s.depuis, taux: taux ?? 0, tauxGestion: tg ?? 0, mode: s.mode, dureeAnnees: duree, ...(s.toujours ? { toujours: true } : {}) };
 }
 export function remuDeSaisie(s: SaisieRemu): RemunerationCollegue | null {
   if (!s.toujours && !/^\d{4}-\d{2}-\d{2}$/.test(s.depuis)) return null;
@@ -98,7 +98,7 @@ export function remuDeSaisie(s: SaisieRemu): RemunerationCollegue | null {
   return { depuis: s.depuis, remunere: true, mode: s.mode, taux: taux ?? 0, tauxGestion: tg ?? 0, dureeAnnees: duree, ...toujours };
 }
 /** Ce qui part au serveur (la date d'une « depuis toujours » est fixée par le serveur : le jour même). */
-const corpsRegle = (s: SaisieRegle, jour: string) => ({ mode: s.mode, taux: s.taux, tauxGestion: s.tauxGestion, coutFixe: s.coutFixe, depuis: s.toujours ? jour : s.depuis,
+const corpsRegle = (s: SaisieRegle, jour: string) => ({ mode: s.mode, taux: s.taux, tauxGestion: s.tauxGestion, depuis: s.toujours ? jour : s.depuis,
   ...(s.mode === 'recurrent' ? { dureeAnnees: dureeEnvoyee(s) } : {}), ...(s.toujours ? { toujours: true } : {}) });
 const corpsRemu = (s: SaisieRemu, jour: string) => ({ remunere: s.remunere, mode: s.mode, taux: s.taux, tauxGestion: s.tauxGestion, dureeAnnees: dureeEnvoyee(s),
   depuis: s.toujours ? jour : s.depuis, ...(s.toujours ? { toujours: true } : {}) });
@@ -167,14 +167,17 @@ function ChampsRemuneration({ s, onChange, toujoursPossible }: { s: SaisieRemu; 
 function RecapToujours({ effets, collegue, onConfirmer, onRevenir, envoi }: { effets: { regle: EffetReglage | null; remu: EffetReglage | null }; collegue: string;
   onConfirmer: () => void; onRevenir: () => void; envoi: boolean }) {
   const e = effets.regle ?? effets.remu;
+  // 🔴 Arno (24/10/2026) — le récapitulatif vaut pour TOUT enregistrement du panneau « Taux » : « Depuis toujours » ou une date.
+  const quand = e === null ? '' : e.toujours ? '« Depuis toujours »' : `À partir du ${dateFr(e.depuis)}`;
   return (
-    <div className="plo-recap plo-champ--large" role="alertdialog" aria-label="Récapitulatif « Depuis toujours »" data-recap-toujours>
-      <strong>« Depuis toujours » : {e === null ? '—' : `${Math.max(effets.regle?.changes ?? 0, effets.remu?.changes ?? 0)} dossier(s) sur ${e.total} changent`}</strong>
+    <div className="plo-recap plo-champ--large" role="alertdialog" aria-label="Récapitulatif avant enregistrement" data-recap-toujours={e?.toujours ? '' : undefined} data-recap-reglage>
+      <strong>{quand} : {e === null ? '—' : `${Math.max(effets.regle?.changes ?? 0, effets.remu?.changes ?? 0)} dossier(s) sur ${e.total} changent`}</strong>
       {effets.regle !== null && <span data-recap-ligne="apporteur">Dû à l’apporteur HT : {euros(effets.regle.avantApporteur)} → {euros(effets.regle.apresApporteur)}
         {' '}({effets.regle.apresApporteur - effets.regle.avantApporteur >= 0 ? '+' : '−'}{euros(Math.abs(effets.regle.apresApporteur - effets.regle.avantApporteur))})</span>}
       {effets.remu !== null && <span data-recap-ligne="collegue">Dû à {collegue} HT : {euros(effets.remu.avantCollegue)} → {euros(effets.remu.apresCollegue)}
         {' '}({effets.remu.apresCollegue - effets.remu.avantCollegue >= 0 ? '+' : '−'}{euros(Math.abs(effets.remu.apresCollegue - effets.remu.avantCollegue))})</span>}
-      <span className="plo-muet">Les versions précédentes ne sont pas effacées : elles restent dans l’historique, et le changement est journalisé (compte, session).</span>
+      <span className="plo-muet">{e?.toujours ? 'Les versions précédentes ne sont pas effacées : elles restent dans l’historique, et le changement est journalisé (compte, session).'
+        : 'Une nouvelle version datée : les dossiers signés avant gardent la leur.'}</span>
       <span className="plo-boutons">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRevenir} data-recap-revenir>Revenir</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={onConfirmer} data-recap-confirmer>Confirmer</button>
@@ -223,8 +226,8 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
     if (regle.mode === 'recurrent' && lireDuree(dureeEnvoyee(regle)) === undefined) { setRefus(MOT_DUREE); return; }
     if (remuTouchee && remu.remunere && remu.mode === 'recurrent' && lireDuree(dureeEnvoyee(remu)) === undefined) { setRefus(MOT_DUREE); return; }
     setRefus(null);
-    if (regle.toujours || (remuTouchee && remu.toujours)) { setRecap(true); return; }
-    void enregistrer();
+    // 🔴 Arno (24/10/2026) — un récapitulatif AVANT tout enregistrement (combien de dossiers changent, de combien).
+    setRecap(true);
   };
   return (
     <div className="plo-grille" data-nouvelle-version={a.id} onKeyDown={echap(onFermer)}>
@@ -232,7 +235,6 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
       <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={regle.taux} onChange={(e) => setRegle({ ...regle, taux: e.target.value })} data-version-taux /></label>
       <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={regle.tauxGestion} placeholder="ex. 20" onChange={(e) => setRegle({ ...regle, tauxGestion: e.target.value })} data-version-taux-gestion /></label>
       {regle.mode === 'recurrent' && <ChampDuree indeterminee={regle.indeterminee} duree={regle.duree} repere="version" onChange={(x) => setRegle({ ...regle, ...x })} />}
-      <label className="plo-champ"><span>Coût fixe mensuel (€)</span><input inputMode="decimal" value={regle.coutFixe} onChange={(e) => setRegle({ ...regle, coutFixe: e.target.value })} data-version-cout /></label>
       <ChampApplication depuis={regle.depuis} toujours={regle.toujours} repere="version" possible={toujoursPossible} onChange={(x) => setRegle({ ...regle, ...x })} />
       <EncartEffet effet={effetRegle} quoi="apporteur" nom={a.nom} attente={attente} />
       {collegue !== null && (
@@ -248,7 +250,7 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
       )}
       {refus !== null && <p className="plo-erreur plo-champ--large" role="alert" data-refus-local-version>{refus}</p>}
       {recap ? (
-        <RecapToujours effets={{ regle: regle.toujours ? effetRegle : null, remu: remuTouchee && remu.toujours ? effetRemu : null }} collegue={collegue ?? 'collègue'} envoi={envoi}
+        <RecapToujours effets={{ regle: effetRegle, remu: remuTouchee ? effetRemu : null }} collegue={collegue ?? 'collègue'} envoi={envoi}
           onRevenir={() => setRecap(false)} onConfirmer={() => { void enregistrer(); }} />
       ) : (
         <span className="plo-boutons plo-champ--large">
@@ -306,8 +308,8 @@ export function BlocRemuneration({ a, apporteurs, collegue, jour, disponible, to
 }
 
 /** L'historique des règles d'un apporteur (« remplacé depuis toujours par … » pour une version « depuis toujours »). */
-export function historiqueRegles(a: Apporteur, eurosTexte: (x: number) => string): string {
-  return a.baremes.map((b) => `${libelleHistorique(b, libelleRegleApporteur(b))}${b.coutFixeMensuel > 0 ? ` + ${eurosTexte(b.coutFixeMensuel)}/mois` : ''}`).join(' · ');
+export function historiqueRegles(a: Apporteur): string {
+  return a.baremes.map((b) => libelleHistorique(b, libelleRegleApporteur(b))).join(' · ');
 }
 /** La règle en vigueur : « (depuis le 01/01/2026) » ou « (depuis toujours, enregistrée le 24/10/2026) ». */
 export const depuisRegle = (v: BaremeApporteur): string => (v.toujoursLe ? `depuis toujours, enregistrée le ${dateFr(v.toujoursLe)}` : `depuis le ${dateFr(v.depuis)}`);

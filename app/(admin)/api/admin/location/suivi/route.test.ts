@@ -23,6 +23,8 @@ const repo = {
   interneDisponible: vi.fn(async () => false), ajouterRemunerationCollegue: vi.fn(),
   /* 420 — « Depuis toujours ». */
   toujoursDisponible: vi.fn(async () => false),
+  /* 421 — la fiche d'identité. */
+  ficheIdentiteDisponible: vi.fn(async () => false), enregistrerFicheApporteur: vi.fn(),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();

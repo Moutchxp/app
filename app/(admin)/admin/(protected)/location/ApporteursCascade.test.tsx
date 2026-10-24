@@ -71,7 +71,7 @@ const annuaire = async () => {
 };
 const formulaire = async (id: number) => {
   await annuaire();
-  await clic(container.querySelector(`[data-nouveau-taux="${id}"]`)!);
+  await clic(container.querySelector(`[data-apporteur-bouton="${id}"][data-panneau-bouton="taux"]`)!);
   await calmer();
   return container.querySelector(`[data-nouvelle-version="${id}"]`)!;
 };
@@ -105,25 +105,34 @@ describe('🔴 « Nouveau taux » : l’effet en direct', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ action: 'bareme-apporteur', apporteurId: 4, bareme: { taux: '20', toujours: true, depuis: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } });
   });
-  it('la rémunération du collègue DANS le formulaire (externe) : son effet en direct ; envoyée seulement si elle a été touchée', async () => {
-    const f = await formulaire(4);
-    const b = f.querySelector('[data-remuneration-formulaire="4"]')!;
+  it('la rémunération du collègue (panneau « Rattachement », externe) : son effet en direct ; « Depuis toujours » par le récapitulatif', async () => {
+    await annuaire();
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
+    const f = container.querySelector('[data-apporteur="4"] [data-panneau="rattachement"]')!;
+    const b = f.querySelector('[data-remuneration-collegue="4"]')!;
     expect(n(b.querySelector('h4')?.textContent)).toBe('Rémunération de Paul Collègue (a apporté cet apporteur)');
     await clic(b.querySelector('[data-remunere="oui"]')!);
     await saisir(b.querySelector('[data-remuneration-taux]')!, '5');
     await clic(b.querySelector('[data-application="remuneration"] [data-application-toujours]')!);
     expect(n(b.querySelector('[data-effet-reglage="collegue"] [data-effet-ligne]')?.textContent))
       .toBe('Dossiers concernés : 2 sur 2 (depuis toujours — tous les dossiers, passés compris) · Dû à Paul Collègue HT : avant 0,00 € → après 100,00 €');
-    await clic(f.querySelector('[data-enregistrer-version]')!);
+    await clic(f.querySelector('[data-enregistrer-remuneration]')!);
     expect(n(f.querySelector('[data-recap-ligne="collegue"]')?.textContent)).toBe('Dû à Paul Collègue HT : 0,00 € → 100,00 € (+100,00 €)');
     await clic(f.querySelector('[data-recap-confirmer]')!);
-    expect(posts.map((p) => p.action)).toEqual(['bareme-apporteur', 'remuneration-collegue']);
-    expect(posts[1]).toMatchObject({ remuneration: { remunere: true, taux: '5', toujours: true } });
+    expect(posts.map((p) => p.action)).toEqual(['remuneration-collegue']);
+    expect(posts[0]).toMatchObject({ remuneration: { remunere: true, taux: '5', toujours: true } });
+    // Le panneau « Taux » ne porte plus la rémunération (elle est au « Rattachement »).
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="taux"]')!);
+    expect(container.querySelector('[data-apporteur="4"] [data-remuneration-formulaire], [data-apporteur="4"] [data-remuneration-collegue]')).toBeNull();
   });
-  it('un INTERNE : pas de bloc de rémunération dans le formulaire (voulu)', async () => {
+  it('un INTERNE : « Rattachement » réduit (aucun champ), pas de rémunération ; son « Taux » a l’effet en direct', async () => {
     const f = await formulaire(9);
     expect(f.querySelector('[data-remuneration-formulaire]')).toBeNull();
     expect(f.querySelector('[data-effet-reglage="apporteur"]')).not.toBeNull();
+    await clic(container.querySelector('[data-apporteur-bouton="9"][data-panneau-bouton="rattachement"]')!);
+    const r = container.querySelector('[data-apporteur="9"] [data-panneau="rattachement"]')!;
+    expect(r.textContent).toBe('Apporteur interne — pas de rattachement.');
+    expect(r.querySelector('input, button, [role="combobox"]')).toBeNull();
   });
 });
 
@@ -137,9 +146,9 @@ describe('🔴 la cascade et le badge', () => {
     expect(int.querySelector('[data-cascade-ligne="collegue"]')).toBeNull();
     expect(t(int.querySelector('[data-cascade-ligne="net"]'))).toBe('= Net agence HT 950,00 €');
   });
-  it('« Fiche et cumul » : la cascade de chaque dossier', async () => {
+  it('« Cumul » : la cascade de chaque dossier', async () => {
     await annuaire();
-    await clic(container.querySelector('[data-ouvrir-fiche="4"]')!);
+    await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     await calmer();
     const d = [...container.querySelectorAll('[data-cascade-dossiers="4"] [data-cascade-dossier]')];
     expect(d).toHaveLength(2);

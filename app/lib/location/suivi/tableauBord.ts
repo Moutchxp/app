@@ -527,17 +527,11 @@ export interface LigneApporteur {
   nb: number;
   ca: number;
   commissions: number;
-  coutsFixes: number;
-  /** Ce qui reste à l'agence : CA apporté − commissions − coûts fixes. */
+  /** Ce qui reste à l'agence : CA apporté − commissions (🔴 Arno, 24/10/2026 : plus de coût fixe mensuel). */
   net: number;
-  /** Ce que coûte l'apporteur pour 1 € de CA apporté ; null sans CA. */
+  /** Ce que coûte l'apporteur (ses commissions) pour 1 € de CA apporté ; null sans CA. */
   coutParEuro: number | null;
   ids: (number | string)[];
-}
-
-/** Les coûts fixes mensuels d'un apporteur sur les mois de la période (la version en vigueur au 1er de chaque mois). */
-export function coutsFixesDe(ap: Apporteur, mois: readonly string[]): number {
-  return mois.reduce((s, m) => s + (baremeADate(ap, `${m}-01`)?.coutFixeMensuel ?? 0), 0);
 }
 
 export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode, moisEcoules?: readonly string[]): LigneApporteur[] {
@@ -545,11 +539,11 @@ export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: Con
   const mois = moisEcoules ?? (p.mois === null ? Array.from({ length: 12 }, (_, i) => moisDe(p.annee, i + 1)) : [moisDe(p.annee, p.mois)]);
   const parCle = new Map<string, LigneApporteur>();
   for (const ap of ctx.apporteurs.filter((x) => !x.archive)) {
-    parCle.set(`id:${ap.id}`, { apporteurId: ap.id, nom: ap.nom, type: ap.type, nb: 0, ca: 0, commissions: 0, coutsFixes: coutsFixesDe(ap, mois), net: 0, coutParEuro: null, ids: [] });
+    parCle.set(`id:${ap.id}`, { apporteurId: ap.id, nom: ap.nom, type: ap.type, nb: 0, ca: 0, commissions: 0, net: 0, coutParEuro: null, ids: [] });
   }
   for (const a of lignes) {
     const cle = a.apporteurId !== null ? `id:${a.apporteurId}` : `nom:${(a.apporteurNom ?? '').toLowerCase()}`;
-    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, coutsFixes: 0, net: 0, coutParEuro: null, ids: [] };
+    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, net: 0, coutParEuro: null, ids: [] };
     l.nb += 1; l.ca += caLigne(a); l.commissions += commissionApporteurDe(a, ctx.apporteurs); l.ids.push(a.id);
     parCle.set(cle, l);
   }
@@ -558,13 +552,13 @@ export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: Con
     const du = duRecurrent([a], ctx.apporteurs, mois, jourDe(ctx));
     if (du === 0) continue;
     const cle = `id:${a.apporteurId}`;
-    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, coutsFixes: 0, net: 0, coutParEuro: null, ids: [] };
+    const l = parCle.get(cle) ?? { apporteurId: a.apporteurId, nom: a.apporteurNom ?? '—', type: null, nb: 0, ca: 0, commissions: 0, net: 0, coutParEuro: null, ids: [] };
     l.commissions += du;
     parCle.set(cle, l);
   }
   return [...parCle.values()]
-    .map((l) => ({ ...l, net: l.ca - l.commissions - l.coutsFixes, coutParEuro: l.ca === 0 ? null : (l.commissions + l.coutsFixes) / l.ca }))
-    .filter((l) => l.nb > 0 || l.coutsFixes > 0 || l.commissions > 0)
+    .map((l) => ({ ...l, net: l.ca - l.commissions, coutParEuro: l.ca === 0 ? null : l.commissions / l.ca }))
+    .filter((l) => l.nb > 0 || l.commissions > 0)
     .sort((a, b) => b.ca - a.ca || a.nom.localeCompare(b.nom));
 }
 

@@ -206,7 +206,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const deduit = propose !== null && propose.cle === cle ? propose : null;
 
   // « + Nouvel apporteur » : une petite carte, enregistrée tout de suite (le référentiel), puis choisie.
-  const [nouveau, setNouveau] = useState<{ nom: string; type: TypeApporteur; taux: string; coutFixe: string; collegueId: number | null; societe: string; telephone: string; email: string } | null>(null);
+  const [nouveau, setNouveau] = useState<{ nom: string; type: TypeApporteur; taux: string; collegueId: number | null; societe: string; telephone: string; email: string } | null>(null);
   const [motifNouveau, setMotifNouveau] = useState<string | null>(null);
   const [envoiNouveau, setEnvoiNouveau] = useState(false);
   const creerApporteur = async (): Promise<void> => {
@@ -222,7 +222,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   };
   /* Arno (24/10/2026) — l'annuaire COMPLET en modale ; fermée, la liste du champ est relue (apporteur créé ou rattaché). */
   const [annuaireOuvert, setAnnuaireOuvert] = useState(false);
-  const nouvelApporteur = () => setNouveau({ nom: '', type: 'partenaire', taux: '', coutFixe: '', collegueId: lu?.moi ?? null, societe: '', telephone: '', email: '' });
+  const nouvelApporteur = () => setNouveau({ nom: '', type: 'partenaire', taux: '', collegueId: lu?.moi ?? null, societe: '', telephone: '', email: '' });
 
   if (lu === null) return <p className={parametres.erreur ? 'gst-erreur' : 'gst-info'} role={parametres.erreur ? 'alert' : 'status'}>{parametres.erreur ?? 'Chargement…'}</p>;
   if (!lu.disponible) {
@@ -445,7 +445,6 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur"
                 onChange={(v) => setNouveau({ ...nouveau, type: v as TypeApporteur })} donnees={{ 'data-nouvel-apporteur-type': '' }} /></label>
             <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} /></label>
-            <label className="loc-champ">Coût fixe mensuel (€, facultatif)<input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
             {annuaire && (
               <>
                 <label className="loc-champ"><span>Collègue de rattachement <span className="loc-oblig">*</span></span>

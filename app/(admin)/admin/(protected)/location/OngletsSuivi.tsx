@@ -4,17 +4,18 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
-  libelleRegleApporteur, type ModeApporteur, libelleApporteur, nomEtPrenom, trierApporteurs,
+  libelleRegleApporteur, type ModeApporteur, libelleApporteur, trierApporteurs,
   badgeApporteur, estInterne, libelleRemuneration, remunerationADate, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE, baremeADate,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
-import { BlocRemuneration, ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, depuisRegle, dureeEnvoyee, FormulaireNouveauTaux, historiqueRegles, useDossiersApporteur } from './ReglageApporteur';
+import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, depuisRegle, dureeEnvoyee, historiqueRegles, useDossiersApporteur } from './ReglageApporteur';
+import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { dusParDossier } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
- *   · « Apporteurs » : le référentiel (partenaire externe, agence, Internet, collaborateur) ; chaque taux et coût fixe mensuel
+ *   · « Apporteurs » : le référentiel (partenaire externe, agence, Internet, collaborateur) ; chaque taux
  *     est une VERSION DATÉE — « Nouveau taux » vaut pour les baux signés à partir de sa date, jamais en arrière ;
  *   · « Commissions » : la règle du négociateur (taux sur le CA net d'apporteurs, primes de nouvelle gestion logement /
  *     parking), datée elle aussi ; et les rétrocessions saisies à la main (annulables, jamais supprimées).
@@ -34,6 +35,8 @@ interface Lu {
   interne?: boolean;
   /** 420 — « Depuis toujours » s'enregistre-t-il ? */
   toujours?: boolean;
+  /** 421 — la fiche d'identité complète d'un externe (civilité, adresse, notes, autres téléphones et e-mails) ? */
+  identite?: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -51,7 +54,7 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
         retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
-        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true });
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true, identite: x.identite === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -94,7 +97,7 @@ const echap = (fermer: () => void) => (e: KeyboardEvent): void => { if (e.key ==
 
 /** 419 — `sorte` : apporteur INTERNE (un compte de l'interface) ou partenaire EXTERNE ; `duree` / `indeterminee` : la durée du récurrent. */
 const VIDE_APPORTEUR =(jour: string) => ({ sorte: 'externe' as 'externe' | 'interne', compteId: '', nom: '', type: 'partenaire' as TypeApporteur, mode: 'one_shot' as ModeApporteur, taux: '', tauxGestion: '',
-  duree: '', indeterminee: true, coutFixe: '', depuis: jour, collegueId: '', toujours: false, societe: '', telephone: '', email: '' });
+  duree: '', indeterminee: true, depuis: jour, collegueId: '', toujours: false, societe: '', telephone: '', email: '' });
 /** 413 — `location` / `gestion` / `recurrente` : le dû détaillé (part location, part gestion « One shot », part gestion « Récurrent »). 419 — `collegue` : dû au collègue. */
 type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number; collegue?: number };
 
@@ -156,9 +159,6 @@ function CumulApporteur({ id }: { id: number }) {
   );
 }
 
-/** 419 — « création ou modification d'un externe refusée sans collègue ». */
-const MOT_RATTACHER_DABORD = 'Partenaire externe « à rattacher » : rattachez-le d’abord à un collègue (bloc « Collègue de rattachement » ci-dessous), puis enregistrez.';
-
 type Tri = 'ca' | 'commission' | 'nb' | 'nom';
 const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom de famille (A → Z)' };
 
@@ -171,15 +171,14 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
   const [nouveau, setNouveau] = useState(VIDE_APPORTEUR(jour));
-  /** 🔴 Arno (24/10/2026) — l'apporteur dont le formulaire « Nouveau taux » est ouvert (la saisie vit dans `FormulaireNouveauTaux`). */
-  const [version, setVersion] = useState<{ id: number } | null>(null);
-  /** 419 — un refus dit AVANT l'envoi (le serveur refuse pareil) : externe sans collègue, durée illisible. */
+  /** 419 — un refus dit AVANT l'envoi (le serveur refuse pareil) : externe sans collègue, durée illisible (création). */
   const [refusLocal, setRefusLocal] = useState<string | null>(null);
-  const [ouverte, setOuverte] = useState<number | null>(null);
-  const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur; nomFamille: string; prenom: string }>(
-    { societe: '', telephone: '', email: '', type: 'partenaire', nomFamille: '', prenom: '' });
-  /** Arno (23/10/2026, 409) — `toujours` : « Depuis toujours » (tout l'historique et la suite), proposé d'office au 1er rattachement. */
-  const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string; toujours: boolean }>({ collegueId: '', depuis: jour, toujours: false });
+  /** 🔴 Arno (24/10/2026) — le panneau ouvert de chaque carte (au plus un par carte). */
+  const [panneaux, setPanneaux] = useState<Record<number, Panneau>>({});
+  const basculer = (id: number, p: Panneau): void => {
+    g.effacer(); setRefusLocal(null);
+    setPanneaux((x) => { const n = { ...x }; if (n[id] === p) delete n[id]; else n[id] = p; return n; });
+  };
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
   const [seulementARattacher, setSeulementARattacher] = useState(false);
   /** Arno (23/10/2026) — les totaux de chaque apporteur (dossiers, honoraires HT, dû HT), et le tri de la liste. */
@@ -194,14 +193,6 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
     return () => { vivant = false; };
   }, [lu]);
   const annuaire = lu?.annuaire === true;
-  const ouvrir = (a: Apporteur) => {
-    g.effacer(); setRefusLocal(null);
-    if (ouverte === a.id) { setOuverte(null); return; }
-    setOuverte(a.id);
-    const np = nomEtPrenom(a);   // 414 — la séparation enregistrée, sinon PROPOSÉE (dernier mot = nom de famille)
-    setFiche({ societe: a.societe ?? '', telephone: a.telephone ?? '', email: a.email ?? '', type: a.type, nomFamille: np?.nomFamille ?? '', prenom: np?.prenom ?? '' });
-    setRattachement({ collegueId: '', depuis: jour, toujours: (a.collegues ?? []).length === 0 });
-  };
   return (
     <section data-onglet-apporteurs>
       <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission : un taux sur la <strong>location</strong> (honoraires HT du bail) et un taux sur la <strong>gestion</strong>
@@ -269,84 +260,44 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                   {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
                   {/* 413 — « One shot — location 10 %, gestion 20 % (depuis le …) » / « Récurrent — location 10 %, gestion 10 % / mois (depuis le …) ». */}
                   <p className="plo-version-valeurs" data-regle-apporteur={a.id}>{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
-                    : `${libelleRegleApporteur(enVigueur)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (${depuisRegle(enVigueur)})`}</p>
+                    : `${libelleRegleApporteur(enVigueur)} (${depuisRegle(enVigueur)})`}</p>
                   {a.baremes.length > 1 && (
-                    <p className="plo-muet plo-petit-texte" data-historique-regles-apporteur>Historique : {historiqueRegles(a, euros)}</p>
+                    <p className="plo-muet plo-petit-texte" data-historique-regles-apporteur>Historique : {historiqueRegles(a)}</p>
                   )}
-                  {version?.id === a.id ? (
-                    <FormulaireNouveauTaux a={a} apporteurs={lu.apporteurs} collegue={!interne && collegue !== null && lu.interne === true ? collegue.collegueLibelle : null} jour={jour}
-                      envoi={g.envoi} faire={g.faire} refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={lu.toujours === true} cle={lu}
-                      onFermer={() => { setVersion(null); setRefusLocal(null); }} />
-                  ) : (
-                    <span className="plo-gestes-ligne">
-                      {onChoisir !== undefined && (
-                        <button type="button" className="svv-btn svv-btn-primary gst-btn plo-corriger" data-choisir-apporteur={a.id}
-                          disabled={orphelin} title={orphelin ? 'À rattacher à un collègue avant d’être choisi' : undefined}
-                          onClick={() => onChoisir(a)}>Choisir cet apporteur</button>
+                  {/* 🔴 Arno (24/10/2026) — QUATRE boutons : Fiche · Rattachement · Taux · Cumul (ils remplacent « Nouveau taux » et « Fiche et
+                      cumul », dont tout le contenu est redistribué) ; un seul panneau ouvert par carte ; un second clic le referme. */}
+                  <span className="plo-gestes-ligne plo-boutons-carte" role="group" aria-label={`Panneaux — ${libelleApporteur(a)}`}>
+                    {onChoisir !== undefined && (
+                      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-corriger" data-choisir-apporteur={a.id}
+                        disabled={orphelin} title={orphelin ? 'À rattacher à un collègue avant d’être choisi' : undefined}
+                        onClick={() => onChoisir(a)}>Choisir cet apporteur</button>
+                    )}
+                    {PANNEAUX.map((p) => (
+                      <button key={p} type="button" aria-pressed={panneaux[a.id] === p} aria-controls={`plo-panneau-${a.id}`} data-panneau-bouton={p} data-apporteur-bouton={a.id}
+                        className={`svv-btn svv-btn-outline gst-btn plo-corriger plo-bouton-panneau${p === 'rattachement' && orphelin ? ' plo-bouton-alerte' : ''}`}
+                        onClick={() => basculer(a.id, p)}>{LIBELLE_PANNEAU[p]}</button>
+                    ))}
+                  </span>
+                  {panneaux[a.id] !== undefined && (
+                    <div id={`plo-panneau-${a.id}`} data-panneau-ouvert={panneaux[a.id]} onKeyDown={echap(() => basculer(a.id, panneaux[a.id] as Panneau))}>
+                      {panneaux[a.id] === 'fiche' && (
+                        <PanneauFiche key={`${a.id}-${a.version ?? ''}`} a={a} nomPrenom={lu.nomPrenom === true} identite={lu.identite === true} orphelin={orphelin}
+                          onEnregistre={() => { g.effacer(); relire(); }} />
                       )}
-                      <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
-                        onClick={() => { g.effacer(); setRefusLocal(null); setVersion({ id: a.id }); }}>
-                        Nouveau taux</button>
-                      {annuaire && <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-expanded={ouverte === a.id} onClick={() => ouvrir(a)} data-ouvrir-fiche={a.id}>
-                        {ouverte === a.id ? 'Fermer la fiche' : 'Fiche et cumul'}</button>}
-                    </span>
-                  )}
-                  {annuaire && ouverte === a.id && (
-                    <div className="plo-fiche" data-fiche-apporteur={a.id} onKeyDown={echap(() => { g.effacer(); setOuverte(null); })}>
-                      <h4 className="plo-h4">Fiche</h4>
-                      {lu.nomPrenom === true ? (
-                        <div className="plo-grille" data-fiche-nom-prenom>
-                          <label className="plo-champ"><span>Nom de famille</span><input value={fiche.nomFamille} onChange={(e) => setFiche({ ...fiche, nomFamille: e.target.value })} data-fiche-nom-famille /></label>
-                          <label className="plo-champ"><span>Prénom</span><input value={fiche.prenom} onChange={(e) => setFiche({ ...fiche, prenom: e.target.value })} data-fiche-prenom /></label>
-                          <small className="plo-muet plo-champ--large">Affiché « NOM Prénom », trié par nom de famille. Une structure (agence, société) : videz les deux, son nom s’affiche tel quel.</small>
+                      {panneaux[a.id] === 'rattachement' && (
+                        <PanneauRattachement a={a} apporteurs={lu.apporteurs} collegues={lu.collegues} jour={jour} faire={g.faire} envoi={g.envoi}
+                          avec419={lu.interne === true} toujoursPossible={lu.toujours === true} cle={lu} />
+                      )}
+                      {panneaux[a.id] === 'taux' && (
+                        <PanneauTaux a={a} apporteurs={lu.apporteurs} jour={jour} faire={g.faire} envoi={g.envoi} orphelin={orphelin}
+                          toujoursPossible={lu.toujours === true} cle={lu} onFermer={() => basculer(a.id, 'taux')} />
+                      )}
+                      {panneaux[a.id] === 'cumul' && (
+                        <div className="plo-panneau" data-panneau="cumul">
+                          <CumulApporteur id={a.id} />
+                          <CascadeParDossier a={a} apporteurs={lu.apporteurs} cle={lu} collegue={interne ? null : collegue?.collegueLibelle ?? 'à rattacher'} />
                         </div>
-                      ) : <p className="plo-muet plo-petit-texte" data-nom-prenom-sans-migration>Nom de famille et prénom : la séparation est proposée (dernier mot = nom) ; mise à jour de la base à appliquer (migration 414) pour la corriger.</p>}
-                      <div className="plo-grille">
-                        <label className="plo-champ"><span>Société</span><input value={fiche.societe} onChange={(e) => setFiche({ ...fiche, societe: e.target.value })} data-fiche-societe /></label>
-                        {interne ? <p className="plo-champ" data-fiche-type-interne><span>Type</span><span>Apporteur interne — {LIBELLE_TYPE_APPORTEUR[a.type]}</span></p> : (
-                          <label className="plo-champ"><span>Type</span>
-                            <select className="plo-select" value={fiche.type} onChange={(e) => setFiche({ ...fiche, type: e.target.value as TypeApporteur })}>
-                              {TYPES_APPORTEUR.map((t) => <option key={t} value={t}>{LIBELLE_TYPE_APPORTEUR[t]}</option>)}
-                            </select></label>
-                        )}
-                        <label className="plo-champ"><span>Téléphone</span><input inputMode="tel" value={fiche.telephone} onChange={(e) => setFiche({ ...fiche, telephone: e.target.value })} /></label>
-                        <label className="plo-champ"><span>E-mail</span><input inputMode="email" value={fiche.email} onChange={(e) => setFiche({ ...fiche, email: e.target.value })} /></label>
-                      </div>
-                      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-enregistrer-fiche
-                        onClick={() => {
-                          // 🔴 419 — un externe sans collègue ne se modifie pas : rattacher d'abord (le serveur refuse pareil).
-                          if (orphelin) { setRefusLocal(MOT_RATTACHER_DABORD); return; }
-                          setRefusLocal(null);
-                          void g.faire({ action: 'modifier-apporteur', apporteurId: a.id, fiche }, `Fiche de ${a.nom} enregistrée.`);
-                        }}>Enregistrer la fiche</button>
-                      {refusLocal !== null && version === null && <p className="plo-erreur" role="alert" data-refus-local>{refusLocal}</p>}
-                      {!interne && (<>
-                      <h4 className="plo-h4">Collègue de rattachement</h4>
-                      {(a.collegues ?? []).length === 0
-                        ? <p className="plo-alerte" role="status">À rattacher : choisissez le collègue et la date à partir de laquelle ses affaires lui reviennent.</p>
-                        : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
-                      <div className="plo-grille">
-                        <label className="plo-champ"><span>Collègue</span>
-                          <ListeChoix options={lu.collegues} valeur={rattachement.collegueId} libelle="Collègue de rattachement"
-                            onChange={(v) => setRattachement({ ...rattachement, collegueId: v })} donnees={{ 'data-rattacher-collegue': '' }} /></label>
-                        <div className="plo-champ"><span>À partir du</span>
-                          <label className="plo-case"><input type="checkbox" checked={rattachement.toujours} onChange={(e) => setRattachement({ ...rattachement, toujours: e.target.checked })} data-rattacher-toujours />
-                            Depuis toujours <small className="plo-muet">(tout l’historique, et la suite)</small></label>
-                          <input type="date" aria-label="À partir du" value={rattachement.toujours ? '' : rattachement.depuis} disabled={rattachement.toujours}
-                            onChange={(e) => setRattachement({ ...rattachement, depuis: e.target.value })} data-rattacher-depuis /></div>
-                      </div>
-                      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-rattacher
-                        onClick={() => { void g.faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: rattachement.collegueId === '' ? null : Number(rattachement.collegueId), ...(rattachement.toujours ? { depuisToujours: true } : { depuis: rattachement.depuis }) } },
-                          `${a.nom} est rattaché à ${lu.collegues.find((c) => String(c.id) === rattachement.collegueId)?.libelle ?? 'son collègue'}.`); }}>
-                        {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
-                      {(a.collegues ?? []).length > 0 && (
-                        <BlocRemuneration key={`${a.id}-${(a.remunerations ?? []).length}`} a={a} apporteurs={lu.apporteurs} collegue={collegue?.collegueLibelle ?? null} jour={jour}
-                          disponible={lu.interne === true} toujoursPossible={lu.toujours === true} envoi={g.envoi} faire={g.faire} cle={lu} />
                       )}
-                      </>)}
-                      <CumulApporteur id={a.id} />
-                      <CascadeParDossier a={a} apporteurs={lu.apporteurs} cle={lu} collegue={interne ? null : collegue?.collegueLibelle ?? 'à rattacher'} />
-                      <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" onClick={() => { g.effacer(); setOuverte(null); }} data-fermer-fiche={a.id}>Fermer la fiche</button>
                     </div>
                   )}
                 </li>
@@ -388,7 +339,6 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
             <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
             <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={nouveau.tauxGestion} placeholder="ex. 20" onChange={(e) => setNouveau({ ...nouveau, tauxGestion: e.target.value })} data-taux-gestion-apporteur /></label>
             {nouveau.mode === 'recurrent' && <ChampDuree indeterminee={nouveau.indeterminee} duree={nouveau.duree} repere="nouveau" onChange={(x) => setNouveau({ ...nouveau, ...x })} />}
-            <label className="plo-champ"><span>Coût fixe mensuel (€, facultatif)</span><input inputMode="decimal" value={nouveau.coutFixe} onChange={(e) => setNouveau({ ...nouveau, coutFixe: e.target.value })} /></label>
             <label className="plo-champ"><span>Taux applicable à partir du</span><input type="date" value={nouveau.depuis} onChange={(e) => setNouveau({ ...nouveau, depuis: e.target.value })} /></label>
             {annuaire && (
               <>
@@ -398,18 +348,18 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               </>
             )}
           </div>
-          {refusLocal !== null && ouverte === null && version === null && <p className="plo-erreur" role="alert" data-refus-local-ajout>{refusLocal}</p>}
+          {refusLocal !== null && <p className="plo-erreur" role="alert" data-refus-local-ajout>{refusLocal}</p>}
           <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-ajouter-apporteur
             onClick={() => {
               // 🔴 419 — refusé ICI comme au serveur : un externe sans collègue, un interne sans compte, une durée illisible.
               const interne = nouveau.sorte === 'interne';
-              if (interne && nouveau.compteId === '') { setOuverte(null); setRefusLocal('Un apporteur interne est lié à son compte de l’interface : choisissez le compte.'); return; }
-              if (!interne && annuaire && nouveau.collegueId === '') { setOuverte(null); setRefusLocal(MOT_COLLEGUE_OBLIGATOIRE); return; }
-              if (nouveau.mode === 'recurrent' && lireDuree(dureeEnvoyee(nouveau)) === undefined) { setOuverte(null); setRefusLocal(MOT_DUREE); return; }
+              if (interne && nouveau.compteId === '') { setRefusLocal('Un apporteur interne est lié à son compte de l’interface : choisissez le compte.'); return; }
+              if (!interne && annuaire && nouveau.collegueId === '') { setRefusLocal(MOT_COLLEGUE_OBLIGATOIRE); return; }
+              if (nouveau.mode === 'recurrent' && lireDuree(dureeEnvoyee(nouveau)) === undefined) { setRefusLocal(MOT_DUREE); return; }
               setRefusLocal(null);
               const libelle = interne ? lu.collegues.find((c) => String(c.id) === nouveau.compteId)?.libelle ?? 'interne' : nouveau.nom.trim();
               void g.faire({ action: 'creer-apporteur', apporteur: {
-                nom: nouveau.nom, type: nouveau.type, mode: nouveau.mode, taux: nouveau.taux, tauxGestion: nouveau.tauxGestion, coutFixe: nouveau.coutFixe, depuis: nouveau.depuis,
+                nom: nouveau.nom, type: nouveau.type, mode: nouveau.mode, taux: nouveau.taux, tauxGestion: nouveau.tauxGestion, depuis: nouveau.depuis,
                 societe: nouveau.societe, telephone: nouveau.telephone, email: nouveau.email,
                 ...(nouveau.mode === 'recurrent' ? { dureeAnnees: dureeEnvoyee(nouveau) } : {}),
                 ...(interne ? { interne: true, compteId: Number(nouveau.compteId) }
@@ -527,7 +477,7 @@ function CascadeParDossier({ a, apporteurs, cle, collegue }: { a: Apporteur; app
   );
 }
 
-export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + `
+export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR + `
 .plo-champ--large{grid-column:1 / -1}
 .plo-modes{display:flex;flex-wrap:wrap;gap:8px}
 .plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}

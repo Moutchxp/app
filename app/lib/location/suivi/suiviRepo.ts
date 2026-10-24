@@ -10,6 +10,8 @@ import {
   type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
+import { motifConflitFiche } from '../../gestion/traceFiche';
+import { changementsFiche, ficheDe, verifierFiche } from './ficheApporteur';
 import { honorairesGestionDisponible } from '../../gestion/schema';
 import { lireReglages } from '../../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../../gestion/honorairesGestion';
@@ -171,15 +173,23 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const avecNomPrenom = await nomPrenomDisponible();
   const avec419 = await interneDisponible();
   const avec420 = await toujoursDisponible();
+  const avec421 = await ficheIdentiteDisponible();
   const [a, b, c, rem] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
-      nom_famille: string | null; prenom: string | null; compte_id: string | null }>(
+      nom_famille: string | null; prenom: string | null; compte_id: string | null; civilite: string | null; adresse: string | null; notes: string | null;
+      telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null }>(
       `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'},
               ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'},
-              ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'}
+              ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'},
+              ${avec421 ? 'civilite, adresse, notes, telephones_autres, emails_autres' : 'NULL::text AS civilite, NULL::text AS adresse, NULL::text AS notes, NULL::text[] AS telephones_autres, NULL::text[] AS emails_autres'},
+              ${avecAnnuaire ? 'modifie_le::text' : 'NULL::text'} AS version,
+              ${avec419 ? `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_libelle,
+              (SELECT u.identifiant FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_identifiant`
+    : 'NULL::text AS compte_libelle, NULL::text AS compte_identifiant'}
          FROM gestion_location_apporteur ORDER BY lower(nom), id`),
-    query<{ id: string; apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string; mode: string | null; taux_gestion: string | null; duree_annees: number | null; toujours: boolean | null }>(
-      `SELECT id, apporteur_id, depuis, taux, cout_fixe_mensuel, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'},
+    // 🔴 Arno (24/10/2026) — le coût fixe mensuel n'existe pas dans l'organisation : ni lu, ni calculé (la colonne reste, inutilisée).
+    query<{ id: string; apporteur_id: string; depuis: Date; taux: string; mode: string | null; taux_gestion: string | null; duree_annees: number | null; toujours: boolean | null }>(
+      `SELECT id, apporteur_id, depuis, taux, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'},
               ${avec419 ? 'duree_annees' : 'NULL::int AS duree_annees'}, ${avec420 ? 'toujours' : 'false AS toujours'}
          FROM gestion_location_apporteur_bareme ORDER BY depuis, id`),
     avecAnnuaire
@@ -196,7 +206,7 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   for (const r of b.rows) {
     const id = num(r.apporteur_id);
     // 413 — une règle d'avant (ou sans la 413) se lit « One shot — gestion 0 % ».
-    baremes.set(id, [...(baremes.get(id) ?? []), { depuis: iso(r.depuis), taux: num(r.taux), coutFixeMensuel: num(r.cout_fixe_mensuel),
+    baremes.set(id, [...(baremes.get(id) ?? []), { depuis: iso(r.depuis), taux: num(r.taux),
       mode: (r.mode === 'recurrent' ? 'recurrent' : 'one_shot') as ModeApporteur, tauxGestion: r.taux_gestion === null ? 0 : num(r.taux_gestion),
       // 419 — la durée du récurrent ; null : « Indéterminée » (toutes les règles d'avant).
       dureeAnnees: r.duree_annees === null || r.duree_annees === undefined ? null : num(r.duree_annees),
@@ -222,6 +232,9 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     ...(avecAnnuaire ? { societe: r.societe, telephone: r.telephone, email: r.email, collegues: collegues.get(num(r.id)) ?? [] } : {}),
     // 419 — interne (son compte) ; la rémunération du collègue (versions datées, vide : aucune).
     compteId: numOuNull(r.compte_id), remunerations: remunerations.get(num(r.id)) ?? [],
+    // 421 — la fiche d'identité ; la version (dernière modification) ; le compte d'un interne.
+    civilite: r.civilite ?? null, adresse: r.adresse ?? null, notes: r.notes ?? null, telephonesAutres: r.telephones_autres ?? [], emailsAutres: r.emails_autres ?? [],
+    version: r.version ?? null, compteLibelle: r.compte_libelle ?? null, compteIdentifiant: r.compte_identifiant ?? null,
   }));
 }
 
@@ -306,9 +319,9 @@ export async function creerApporteur(brut: unknown, auteur: Auteur): Promise<Rep
     }
     await ((await commissionGestionDisponible())
       ? q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle, mode, taux_gestion${avec419 ? ', duree_annees' : ''})
-           VALUES ($1, $2, $3, $4, $5, $6, $7${avec419 ? ', $8' : ''})`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle, v.mode, v.tauxGestion, ...(avec419 ? [v.dureeAnnees] : [])])
+           VALUES ($1, $2, $3, $4, $5, $6, $7${avec419 ? ', $8' : ''})`, [id, v.depuis, v.taux, 0, auteur.libelle, v.mode, v.tauxGestion, ...(avec419 ? [v.dureeAnnees] : [])])
       : q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle)
-           VALUES ($1, $2, $3, $4, $5)`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle]));
+           VALUES ($1, $2, $3, $4, $5)`, [id, v.depuis, v.taux, 0, auteur.libelle]));
     return { etat: 'ok', data: { id } } as const;
   });
 }
@@ -365,7 +378,7 @@ export async function ajouterRemunerationCollegue(apporteurId: unknown, brut: un
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Une version de la rémunération existe déjà à cette date : choisissez une autre date d’effet.' };
 }
 
-/** Nouvelle version datée du taux / coût fixe d'un apporteur (vaut pour les baux signés à partir de `depuis`). */
+/** Nouvelle version datée du taux d'un apporteur (coût fixe : 0, retiré de l'outil) (vaut pour les baux signés à partir de `depuis`). */
 export async function ajouterBaremeApporteur(apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse> {
   if (!(await suiviDisponible())) return INDISPONIBLE;
   const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
@@ -392,7 +405,7 @@ export async function ajouterBaremeApporteur(apporteurId: unknown, brut: unknown
       const r = await q(
         `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle, mode, taux_gestion, duree_annees, toujours)
          SELECT $1, $2, $3, $4, $5, $6, $7, $8, true WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
-         ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, jour, v.taux, v.coutFixe, auteur.libelle, v.mode, v.tauxGestion, v.dureeAnnees]);
+         ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, jour, v.taux, 0, auteur.libelle, v.mode, v.tauxGestion, v.dureeAnnees]);
       if (r.rowCount !== 1) return { etat: 'refus', motif: 'Une version existe déjà aujourd’hui pour cet apporteur : « Depuis toujours » ne peut pas s’ajouter le même jour.' } as const;
       await journaliserToujours(q as typeof query, { apporteurId: id, action: 'location_apporteur_regle_depuis_toujours', champ: 'Règle de l’apporteur', avant,
         apres: libelleRegleApporteur(v), auteur });
@@ -402,7 +415,7 @@ export async function ajouterBaremeApporteur(apporteurId: unknown, brut: unknown
   const r = await query(
     `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle${avecGestion ? ', mode, taux_gestion' : ''}${avec419 ? ', duree_annees' : ''})
      SELECT $1, $2, $3, $4, $5${avecGestion ? ', $6, $7' : ''}${avec419 ? (avecGestion ? ', $8' : ', $6') : ''} WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
-     ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, v.depuis, v.taux, v.coutFixe, auteur.libelle, ...(avecGestion ? [v.mode, v.tauxGestion] : []), ...(avec419 ? [v.dureeAnnees] : [])]);
+     ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, v.depuis, v.taux, 0, auteur.libelle, ...(avecGestion ? [v.mode, v.tauxGestion] : []), ...(avec419 ? [v.dureeAnnees] : [])]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Une version existe déjà à cette date (ou l’apporteur est inconnu) : choisissez une autre date d’effet.' };
 }
 
@@ -430,6 +443,68 @@ export async function modifierApporteur(apporteurId: unknown, brut: unknown, aut
       WHERE id = $1 AND archive_le IS NULL`,
     [id, c.valeurs.societe, c.valeurs.telephone, c.valeurs.email, type, auteur.libelle, ...(avecNomPrenom && nomFamille !== null ? [nomFamille, prenom === '' ? null : prenom] : [])]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Apporteur inconnu.' };
+}
+
+/** 421 — la fiche d'identité d'un externe (civilité, adresse, notes, autres téléphones et e-mails) est-elle en base ? */
+export function ficheIdentiteDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_apporteur', 'telephones_autres');
+}
+
+export type ReponseFiche = { etat: 'ok'; data: { changements: { champ: string; avant: string; apres: string }[] } } | { etat: 'refus'; motif: string }
+  | { etat: 'conflit'; motif: string } | { etat: 'indisponible'; motif: string };
+
+/**
+ * 🔴 Arno (24/10/2026) — LE PANNEAU « FICHE » d'un apporteur EXTERNE : tous les champs d'identité, avec le CONTRÔLE DE CONFLIT (la
+ * version lue à l'ouverture — dernière modification — doit être celle en base, sinon refus : qui et quand) et une ligne de JOURNAL par
+ * champ modifié (compte, session et écran par la trace ; entité « location_apporteur », 419). Un interne : refus (son identité est
+ * celle de son compte). Un externe « à rattacher » : refus (rattacher d'abord). Rien n'est écrit si rien n'a changé.
+ */
+export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<ReponseFiche> {
+  if (!(await annuaireDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 407) n’est pas encore appliquée.' };
+  const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
+  if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
+  const b = (brut ?? {}) as Record<string, unknown>;
+  const v = verifierFiche(b.fiche);
+  if (!v.ok) return { etat: 'refus', motif: v.motif };
+  const [avecNomPrenom, avec419, avec421, journal] = await Promise.all([nomPrenomDisponible(), interneDisponible(), ficheIdentiteDisponible(), journalApporteurDisponible()]);
+  const sans = await refusExterneSansCollegue(query, id);
+  if (sans !== null) return { etat: 'refus', motif: sans };
+  const actuel = (await lireApporteurs()).find((x) => x.id === id && !x.archive);
+  if (actuel === undefined) return { etat: 'refus', motif: 'Apporteur inconnu.' };
+  if (avec419 && actuel.compteId !== null && actuel.compteId !== undefined) return { etat: 'refus', motif: 'Un apporteur interne : son identité est celle de son compte, modifiable dans la gestion des comptes.' };
+  const version = typeof b.version === 'string' ? b.version : null;
+  if ((actuel.version ?? null) !== version) {
+    const { rows } = await query<{ par: string | null; quand: string | null }>('SELECT modifie_par_libelle AS par, modifie_le::text AS quand FROM gestion_location_apporteur WHERE id = $1', [id]);
+    return { etat: 'conflit', motif: motifConflitFiche(rows[0]?.quand ? { par: rows[0].par ?? '—', quand: rows[0].quand } : null) };
+  }
+  // Sans la 421, les champs nouveaux ne s'enregistrent pas : ils gardent la valeur lue (vide) — aucun changement n'est inventé.
+  const f = avec421 ? v.fiche : { ...v.fiche, civilite: '', adresse: '', notes: '', telephonesAutres: [], emailsAutres: [] };
+  const changements = changementsFiche(ficheDe(actuel), f);
+  if (changements.length === 0) return { etat: 'ok', data: { changements: [] } };
+  return withTransaction(async (q) => {
+    const nul = (x: string): string | null => (x === '' ? null : x);
+    const r = await q(
+      `UPDATE gestion_location_apporteur SET societe = $2, telephone = $3, email = $4, type = $5, modifie_le = now(), modifie_par_libelle = $6
+         ${avecNomPrenom ? ', nom_famille = $7, prenom = $8' : ''}
+         ${avec421 ? `, civilite = $${avecNomPrenom ? 9 : 7}, adresse = $${avecNomPrenom ? 10 : 8}, notes = $${avecNomPrenom ? 11 : 9},
+                      telephones_autres = $${avecNomPrenom ? 12 : 10}, emails_autres = $${avecNomPrenom ? 13 : 11}` : ''}
+        WHERE id = $1 AND archive_le IS NULL AND modifie_le::text IS NOT DISTINCT FROM $${avecNomPrenom ? (avec421 ? 14 : 9) : (avec421 ? 12 : 7)}`,
+      [id, nul(f.societe), nul(f.telephone), nul(f.email), f.type, auteur.libelle,
+        ...(avecNomPrenom ? [f.nomFamille, nul(f.prenom)] : []),
+        ...(avec421 ? [nul(f.civilite), nul(f.adresse), nul(f.notes), f.telephonesAutres, f.emailsAutres] : []), version]);
+    // Relu sous verrou : une modification arrivée entre la lecture et l'écriture est un conflit, rien n'est écrit.
+    if ((r.rowCount ?? 0) !== 1) return { etat: 'conflit', motif: motifConflitFiche(null) } as const;
+    if (journal) {
+      for (const c of changements) {
+        const tr = await colonnesTrace({ sujet: 'apporteur', champ: c.champ }, 7);
+        await q(
+          `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${tr.colonnes})
+           VALUES ('location_apporteur', $1, 'location_apporteur_fiche_modifiee', $2, $3, $4, $5, $6${tr.marques})`,
+          [id, c.avant, c.apres, `Fiche de l’apporteur — ${c.champ} : ${c.avant} → ${c.apres}`, auteur.id, auteur.libelle, ...tr.valeurs]);
+      }
+    }
+    return { etat: 'ok', data: { changements: changements.map(({ champ, avant, apres }) => ({ champ, avant, apres })) } } as const;
+  });
 }
 
 /** Le collègue de rattachement, DATÉ : une nouvelle version à partir de `depuis` ; les affaires d'avant restent au collègue d'alors. */

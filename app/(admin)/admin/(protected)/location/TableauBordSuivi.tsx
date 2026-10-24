@@ -507,7 +507,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         <h3 id="tdb-c">Les apporteurs — {libellePeriode}</h3>
         {C.length === 0 ? <p className="loc-muet">Aucun bail apporté sur la période.</p> : (
           <table className="tdb-table tdb-table--large">
-            <thead><tr><th scope="col">Apporteur</th><th scope="col">Baux</th><th scope="col">CA apporté HT</th><th scope="col">Commissions</th><th scope="col">Coûts fixes</th><th scope="col">Reste à l’agence</th><th scope="col">Coût pour 1 € de CA</th></tr></thead>
+            <thead><tr><th scope="col">Apporteur</th><th scope="col">Baux</th><th scope="col">CA apporté HT</th><th scope="col">Commissions</th><th scope="col">Reste à l’agence</th><th scope="col">Coût pour 1 € de CA</th></tr></thead>
             <tbody>
               {C.map((l) => (
                 <tr key={`${l.apporteurId ?? l.nom}`} data-apporteur-ligne={l.apporteurId ?? l.nom}>
@@ -515,7 +515,6 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                   <td data-mot="Baux">{chiffre(String(l.nb), `Baux apportés — ${l.nom}`, l.ids)}</td>
                   <td data-mot="CA apporté HT">{chiffre(eur(l.ca), `CA apporté — ${l.nom}`, l.ids)}</td>
                   <td data-mot="Commissions">{eur(l.commissions)}</td>
-                  <td data-mot="Coûts fixes">{eur(l.coutsFixes)}</td>
                   <td data-mot="Reste à l’agence">{eur(l.net)}</td>
                   <td data-mot="Coût pour 1 € de CA">{l.coutParEuro === null ? '—' : `${l.coutParEuro.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €`}</td>
                 </tr>

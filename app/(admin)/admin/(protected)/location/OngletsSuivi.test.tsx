@@ -41,6 +41,8 @@ const clic = async (el: Element) => { await act(async () => { el.dispatchEvent(n
 const saisir = async (el: HTMLInputElement, v: string) => {
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
 };
+/** 🔴 Arno (24/10/2026) — un des 4 boutons d'une carte (Fiche · Rattachement · Taux · Cumul). */
+const bouton = (id: number, p: string) => container.querySelector(`[data-apporteur-bouton="${id}"][data-panneau-bouton="${p}"]`)!;
 const ouvrir = async (onglet: string) => {
   await act(async () => { root.render(createElement(ModaleParametresLocation, { onFermer: () => {} })); });
   await calmer();
@@ -58,14 +60,19 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     await ouvrir('apporteurs');
     const ligne = container.querySelector('[data-apporteur="3"]')!;
     // 413 — les règles d'avant se lisent « One shot — location X %, gestion 0 % ».
-    expect(ligne.textContent).toContain('One shot — location 12 %, gestion 0 % · coût fixe 50,00 € / mois (depuis le 01/06/2026)');
+    // 🔴 Arno (24/10/2026) — le coût fixe mensuel n'existe plus : ni affiché (même s'il en reste un en base), ni saisi, ni envoyé.
+    expect(ligne.textContent).toContain('One shot — location 12 %, gestion 0 % (depuis le 01/06/2026)');
     expect(ligne.textContent).toContain('Historique : 01/01/2026 → One shot — location 10 %, gestion 0 %');
-    await clic(ligne.querySelector('[data-nouveau-taux="3"]')!);
-    const champs = ligne.querySelectorAll('[data-nouvelle-version] input');
-    await saisir(champs[0] as HTMLInputElement, '15');
-    await saisir(champs[3] as HTMLInputElement, '2026-11-01');
+    expect(ligne.textContent).not.toMatch(/coût fixe|\/mois/i);
+    await clic(bouton(3, 'taux'));
+    expect(ligne.querySelector('[data-panneau="taux"]')?.textContent).not.toMatch(/coût fixe/i);
+    await saisir(ligne.querySelector('[data-version-taux]') as HTMLInputElement, '15');
+    await saisir(ligne.querySelector('[data-application="version"] [data-application-date]') as HTMLInputElement, '2026-11-01');
     await clic(ligne.querySelector('[data-enregistrer-version]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'bareme-apporteur', apporteurId: 3, bareme: { taux: '15', coutFixe: '50', depuis: '2026-11-01' } });
+    expect(posts).toEqual([]);   // le récapitulatif d'abord
+    await clic(ligne.querySelector('[data-recap-confirmer]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'bareme-apporteur', apporteurId: 3, bareme: { taux: '15', depuis: '2026-11-01' } });
+    expect((posts.at(-1)!.bareme as Record<string, unknown>).coutFixe).toBeUndefined();
   });
 
   it('Arno (24/10/2026, 413) — « Nouveau taux » commence par le choix One shot / Récurrent, puis les deux taux ; la règle se lit en clair', async () => {
@@ -74,19 +81,20 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     await ouvrir('apporteurs');
     const ligne = container.querySelector('[data-apporteur="3"]')!;
     expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('Récurrent — location 10 %, gestion 10 % / mois, durée indéterminée (depuis le 01/01/2026)');
-    await clic(ligne.querySelector('[data-nouveau-taux="3"]')!);
+    await clic(bouton(3, 'taux'));
     const form = ligne.querySelector('[data-nouvelle-version]')!;
     // le formulaire COMMENCE par le choix du mode (pré-rempli avec la règle en vigueur)
     expect(form.firstElementChild?.hasAttribute('data-mode-apporteur')).toBe(true);
     expect(form.querySelector('[data-mode="recurrent"]')?.getAttribute('aria-pressed')).toBe('true');
-    expect([...form.querySelectorAll('label > span')].map((x) => x.textContent)).toEqual(['Taux sur la location (%)', 'Taux sur la gestion (%)', 'Coût fixe mensuel (€)']);
+    expect([...form.querySelectorAll('label > span')].map((x) => x.textContent)).toEqual(['Taux sur la location (%)', 'Taux sur la gestion (%)']);
     // Arno (24/10/2026, 420) — « Applicable à partir du » OU « Depuis toujours ».
     expect(form.querySelector('[data-application="version"] > span')?.textContent).toBe('Applicable à partir du');
     await clic(form.querySelector('[data-mode="one_shot"]')!);
     expect(form.querySelector('[data-mode="one_shot"]')?.getAttribute('aria-pressed')).toBe('true');
     await saisir(form.querySelector('[data-version-taux-gestion]') as HTMLInputElement, '20');
-    await saisir(form.querySelectorAll('input')[3] as HTMLInputElement, '2026-11-01');
+    await saisir(form.querySelector('[data-application="version"] [data-application-date]') as HTMLInputElement, '2026-11-01');
     await clic(ligne.querySelector('[data-enregistrer-version]')!);
+    await clic(ligne.querySelector('[data-recap-confirmer]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'bareme-apporteur', apporteurId: 3, bareme: { mode: 'one_shot', taux: '10', tauxGestion: '20', depuis: '2026-11-01' } });
   });
 
@@ -144,11 +152,14 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(container.querySelector('[data-apporteur="3"] [data-collegue-apporteur]')?.textContent).toBe('Arnaud Jorel');
     expect(container.querySelector('[data-alerte-a-rattacher]')?.textContent).toContain('1 apporteur(s) « à rattacher »');
   });
-  it('la fiche : coordonnées, rattachement (« depuis toujours » proposé d’office au 1er), cumul par an et par mois', async () => {
+  it('Rattachement (« depuis toujours » proposé d’office au 1er), Fiche (refusée tant que « à rattacher »), Cumul par an et par mois', async () => {
     avec407();
     await ouvrir('apporteurs');
-    await clic(container.querySelector('[data-ouvrir-fiche="4"]')!);
-    const f = container.querySelector('[data-fiche-apporteur="4"]')!;
+    // 🔴 Arno (24/10/2026) — « à rattacher » : le bouton Rattachement est mis en évidence.
+    expect(bouton(4, 'rattachement').className).toContain('plo-bouton-alerte');
+    expect(bouton(3, 'rattachement').className).not.toContain('plo-bouton-alerte');
+    await clic(bouton(4, 'rattachement'));
+    let f = container.querySelector('[data-apporteur="4"] [data-panneau="rattachement"]')!;
     await clic(f.querySelector('[data-rattacher-collegue]')!);
     await clic(container.querySelector('[data-liste-choix] [data-option="5"]')!);
     expect((f.querySelector('[data-rattacher-toujours]') as HTMLInputElement).checked).toBe(true);
@@ -163,12 +174,17 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await clic(f.querySelector('[data-rattacher]')!);
     expect(posts.at(-1)).toMatchObject({ rattachement: { collegueId: 5, depuis: '2026-11-01' } });
     // 🔴 419 — tant qu'il n'est pas rattaché (la relecture simulée le laisse « à rattacher »), sa fiche ne s'enregistre pas : refus dit, rien n'est envoyé.
+    await clic(bouton(4, 'fiche'));
+    expect(container.querySelector('[data-apporteur="4"] [data-panneau="rattachement"]')).toBeNull();   // un seul panneau par carte
+    f = container.querySelector('[data-apporteur="4"] [data-panneau="fiche"]')!;
     await saisir(f.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Repris SARL');
     const avant = posts.length;
     await clic(f.querySelector('[data-enregistrer-fiche]')!);
     expect(posts.length).toBe(avant);
     expect(f.querySelector('[data-refus-local]')?.textContent).toMatch(/rattachez-le d’abord à un collègue/);
     const n = (t: string | null | undefined) => (t ?? '').replace(/[\u202f\u00a0]/g, ' ');
+    await clic(bouton(4, 'cumul'));
+    expect(container.querySelector('[data-apporteur="4"] [data-panneau="fiche"]')).toBeNull();
     // Arno (23/10/2026) : « Total depuis le début » en 5 chiffres, au-dessus du cumul.
     const tot = (k: string) => n(container.querySelector(`[data-total-apporteur="${k}"]`)?.textContent);
     expect(tot('dossiers')).toBe('Dossiers7dont 1 avenant');
@@ -193,22 +209,24 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await calmer();
     await clic(container.querySelector('[data-onglet="apporteurs"]')!);
     const echap = async (el: Element) => { await act(async () => { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); };
-    // La fiche : saisie abandonnée par « Fermer la fiche » ; rouverte, elle revient aux valeurs en base.
-    await clic(container.querySelector('[data-ouvrir-fiche="3"]')!);
+    // La fiche : saisie abandonnée par un second clic sur « Fiche » ; rouverte, elle revient aux valeurs en base.
+    await clic(bouton(3, 'fiche'));
+    expect(bouton(3, 'fiche').getAttribute('aria-pressed')).toBe('true');
     await saisir(container.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Autre SAS');
-    await clic(container.querySelector('[data-fermer-fiche="3"]')!);
-    expect(container.querySelector('[data-fiche-apporteur]')).toBeNull();
-    await clic(container.querySelector('[data-ouvrir-fiche="3"]')!);
+    await clic(bouton(3, 'fiche'));
+    expect(container.querySelector('[data-panneau]')).toBeNull();
+    expect(bouton(3, 'fiche').getAttribute('aria-pressed')).toBe('false');
+    await clic(bouton(3, 'fiche'));
     expect((container.querySelector('[data-fiche-societe]') as HTMLInputElement).value).toBe('Kin SAS');
-    // Échap dans la fiche : la fiche se ferme, pas la roue.
+    // Échap dans la fiche : le panneau se ferme, pas la roue.
     await echap(container.querySelector('[data-fiche-societe]')!);
-    expect(container.querySelector('[data-fiche-apporteur]')).toBeNull();
+    expect(container.querySelector('[data-panneau]')).toBeNull();
     expect(fermee).not.toHaveBeenCalled();
-    // Le nouveau taux : Annuler, puis Échap.
-    await clic(container.querySelector('[data-nouveau-taux="3"]')!);
+    // Le taux : Annuler, puis Échap.
+    await clic(bouton(3, 'taux'));
     await clic(container.querySelector('[data-annuler-version]')!);
     expect(container.querySelector('[data-nouvelle-version]')).toBeNull();
-    await clic(container.querySelector('[data-nouveau-taux="3"]')!);
+    await clic(bouton(3, 'taux'));
     await echap(container.querySelector('[data-nouvelle-version] input')!);
     expect(container.querySelector('[data-nouvelle-version]')).toBeNull();
     // La nouvelle règle : Échap.
@@ -270,14 +288,17 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     const noms = () => [...container.querySelectorAll('[data-nom-apporteur-liste]')].map((x) => x.textContent);
     // par nom de famille (une structure par son nom) : Beketov, Immo, Kin Immo (agence), Repris
     expect(noms()).toEqual(['BEKETOV Hélène', 'IMMO Marjorie Arthur', 'Kin Immo', 'REPRIS Apporteur']);
-    await clic(container.querySelector('[data-ouvrir-fiche="5"]')!);
+    await clic(bouton(5, 'fiche'));
     const nf = container.querySelector('[data-fiche-nom-famille]') as HTMLInputElement;
     expect(nf.value).toBe('Immo');                                    // la reprise PROPOSE le dernier mot…
     expect((container.querySelector('[data-fiche-prenom]') as HTMLInputElement).value).toBe('Marjorie Arthur');
     await saisir(nf, 'Arthur');                                       // … corrigeable dans la fiche
     await saisir(container.querySelector('[data-fiche-prenom]') as HTMLInputElement, 'Marjorie');
     await clic(container.querySelector('[data-enregistrer-fiche]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 5, fiche: { nomFamille: 'Arthur', prenom: 'Marjorie' } });
+    // 🔴 le récapitulatif des SEULS champs modifiés, puis l'envoi (avec la version lue : contrôle de conflit).
+    expect([...container.querySelectorAll('[data-recap-fiche] [data-recap-champ]')].map((x) => x.textContent)).toEqual(['Nom de famille : Immo → Arthur', 'Prénom : Marjorie Arthur → Marjorie']);
+    await clic(container.querySelector('[data-recap-confirmer]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'fiche-apporteur', apporteurId: 5, fiche: { nomFamille: 'Arthur', prenom: 'Marjorie' }, version: null });
   });
 
   it('un nouvel apporteur part avec son collègue de rattachement', async () => {

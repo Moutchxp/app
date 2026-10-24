@@ -14,7 +14,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.includes('compte_id IS NOT NULL AS interne')) return { rows: [{ interne: false }], rowCount: 1 };
   if (s.includes('gestion_journal_entite_chk')) return { rows: [{ def: "CHECK ((entite = ANY (ARRAY['location_apporteur'::text, 'annuaire'::text])))" }], rowCount: 1 };
   if (s.startsWith('SELECT id, nom, type')) return { rows: [{ id: '12', nom: 'Michel Cohen', type: 'partenaire', archive_le: null, societe: null, telephone: null, email: null, nom_famille: null, prenom: null, compte_id: null }], rowCount: 1 };
-  if (s.startsWith('SELECT id, apporteur_id, depuis, taux, cout_fixe_mensuel')) return { rows: [{ id: '1', apporteur_id: '12', depuis: '2021-01-01', taux: '0.5', cout_fixe_mensuel: '0', mode: 'one_shot', taux_gestion: '0', duree_annees: null, toujours: false }], rowCount: 1 };
+  if (s.startsWith('SELECT id, apporteur_id, depuis, taux,')) return { rows: [{ id: '1', apporteur_id: '12', depuis: '2021-01-01', taux: '0.5', mode: 'one_shot', taux_gestion: '0', duree_annees: null, toujours: false }], rowCount: 1 };
   if (s.startsWith('SELECT id, apporteur_id, depuis, remunere')) return { rows: [], rowCount: 0 };
   return { rows: [], rowCount: 1 };
 });

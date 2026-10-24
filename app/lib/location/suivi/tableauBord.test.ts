@@ -161,9 +161,10 @@ describe('les sections', () => {
     expect(b[2]).toMatchObject({ mois: '2026-03', ca: 700, caCumule: 825, caCumuleN1: 600 });
     expect(b[11].caCumule).toBe(825);
   });
-  it('C : par apporteur — CA apporté, commissions, coûts fixes des mois écoulés, net', () => {
+  it('C : par apporteur — CA apporté, commissions, net ; 🔴 Arno (24/10/2026) : plus aucun coût fixe mensuel, même si une ancienne version en porte un', () => {
     const c = sectionApporteurs(lignes, CTX, { annee: 2026, mois: null }, ['2026-05', '2026-06', '2026-07']);
-    expect(c).toEqual([expect.objectContaining({ apporteurId: 3, nb: 1, ca: 600, commissions: 60, coutsFixes: 200, net: 340, ids: [1] })]);
+    expect(c).toEqual([expect.objectContaining({ apporteurId: 3, nb: 1, ca: 600, commissions: 60, net: 540, coutParEuro: 0.1, ids: [1] })]);
+    expect(c[0]).not.toHaveProperty('coutsFixes');
   });
   it('D : entrées, sorties, solde, et le portefeuille remonté depuis aujourd’hui', () => {
     const d = sectionGestion([
