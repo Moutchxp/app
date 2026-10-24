@@ -114,6 +114,10 @@ export default function AdminLoginPage() {
           <button type="submit" className="svv-btn svv-btn-primary" disabled={enCours} style={{ minHeight: 44 }}>
             {enCours ? 'Connexion…' : 'Se connecter'}
           </button>
+          {/* 🔴 Arno (24/10/2026, migration 416) — « Mot de passe oublié ? », sous « Se connecter » (comme l'espace client). */}
+          <a href="/admin/mot-de-passe-oublie" className="svv-link" style={{ minHeight: 44, textDecoration: 'none' }} data-mot-de-passe-oublie>
+            Mot de passe oublié ?
+          </a>
         </form>
       </div>
     </main>
