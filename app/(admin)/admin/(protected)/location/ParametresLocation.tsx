@@ -2,7 +2,7 @@
 
 import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ecrireEtatModale, lireEtatModale, PARAM_MODALE, useRechercheAdresse } from './etatModaleParametres';
+import { ecrireEtatModale, lireEtatModale, OUTILS_SUIVI, PARAM_MODALE, PARAM_PAGE, useRechercheAdresse } from './etatModaleParametres';
 import { DELAI_MAX_MOIS, DELAI_MIN_MOIS, dureeMois, verifierDelai } from '../../../../lib/gestion/finGestion';
 import { usePathname } from 'next/navigation';
 import { verifierDestinataires, type Destinataire } from '../../../../lib/location/mailNouvelleLocation';
@@ -87,9 +87,14 @@ export function RoueParametresLocation({ administrateur }: { administrateur: boo
   );
 }
 
-export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinataires', url = false }: { onFermer: () => void; ongletInitial?: Onglet;
+export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinataires', url = false, page = false }: { onFermer: () => void; ongletInitial?: Onglet;
   /** L'état (onglet, carte, panneau) suit l'adresse (voir `lireEtatModale`). */
-  url?: boolean }) {
+  url?: boolean;
+  /**
+   * 🔴 Arno (25/10/2026) — EN PAGE (depuis Outils de suivi) plutôt qu'en modale : le MÊME contenu, les mêmes onglets et comportements ;
+   * seule l'enveloppe change (ni voile, ni croix ; l'onglet dans `?onglet=`). « Annuler » ramène aux Outils de suivi (`onFermer`).
+   */
+  page?: boolean }) {
   const titre = useId();
   const [onglet, setOnglet] = useState<Onglet>(ongletInitial);
   const [lu, setLu] = useState<Parametres | null>(null);
@@ -124,7 +129,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
     }).catch(() => { if (vivant) setLecture('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
-  useEffect(() => { fermerRef.current?.focus(); }, []);
+  useEffect(() => { if (!page) fermerRef.current?.focus(); }, [page]);
   const fermer = useCallback(() => { if (!envoi) onFermer(); }, [envoi, onFermer]);
   /**
    * 🔴 Arno (24/10/2026) — la modale ne se ferme QUE par la croix, le clic en dehors ou « Annuler ». Échap ne ferme que l'élément
@@ -187,24 +192,24 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
     </label>
   );
 
-  return (
-    <div className="plo-voile" onMouseDown={(e) => { clicDehors.current = e.target === e.currentTarget; }}
-      onClick={(e) => { if (clicDehors.current && e.target === e.currentTarget) fermer(); clicDehors.current = false; }} data-voile-parametres>
-      <style>{CSS_PARAMETRES + CSS_ONGLETS_SUIVI}</style>
-      <div className="plo-fenetre" role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-parametres>
-        <header className="plo-tete">
-          <h2 id={titre}>Paramètres Location</h2>
-          <button ref={fermerRef} type="button" className="plo-x" aria-label="Fermer" onClick={fermer}>×</button>
-        </header>
+  const fenetre = (
+      <div className={page ? 'plo-fenetre plo-fenetre--page' : 'plo-fenetre'} {...(page ? { 'data-page-parametres': '' } : { role: 'dialog', 'aria-modal': true, 'data-modale-parametres': '' })}
+        aria-labelledby={titre}>
+        {page ? <h2 id={titre} className="plo-titre-page">Paramètres Location</h2> : (
+          <header className="plo-tete">
+            <h2 id={titre}>Paramètres Location</h2>
+            <button ref={fermerRef} type="button" className="plo-x" aria-label="Fermer" onClick={fermer}>×</button>
+          </header>
+        )}
         <div className="plo-onglets" role="tablist" aria-label="Paramètres">
           {([['destinataires', 'Destinataires du mail'], ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion'],
             ['apporteurs', 'Apporteurs'], ['commissions', 'Commissions']] as const).map(([k, mot]) => (
             <button key={k} type="button" role="tab" aria-selected={onglet === k} className="plo-onglet" data-onglet={k}
-              onClick={() => { setOnglet(k); setMotif(null); setInfo(null); if (url) ecrireEtatModale({ [PARAM_MODALE]: k, apporteur: null, panneau: null }); }}>{mot}</button>
+              onClick={() => { setOnglet(k); setMotif(null); setInfo(null); if (url || page) ecrireEtatModale({ [page ? PARAM_PAGE : PARAM_MODALE]: k, apporteur: null, panneau: null }); }}>{mot}</button>
           ))}
         </div>
         <div className="plo-corps" role="tabpanel">
-          {onglet === 'apporteurs' ? <OngletApporteurs url={url} /> : onglet === 'commissions' ? <OngletCommissions /> : lu === null ? <p className="plo-muet" role="status">{lecture ?? 'Lecture…'}</p> : (
+          {onglet === 'apporteurs' ? <OngletApporteurs url={url || page} /> : onglet === 'commissions' ? <OngletCommissions /> : lu === null ? <p className="plo-muet" role="status">{lecture ?? 'Lecture…'}</p> : (
             <>
               {lu.manquantes.length > 0 && <p className="plo-alerte" role="status" data-parametres-sans-migration>Mise à jour de la base à appliquer (migration {lu.manquantes.join(', ')}) :
                 la configuration se lit, mais rien ne s’enregistre tant qu’elle n’est pas appliquée.</p>}
@@ -301,6 +306,27 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
           </div>
         </footer>
       </div>
+  );
+  if (page) return <div className="plo-page"><style>{CSS_PARAMETRES + CSS_ONGLETS_SUIVI}</style>{fenetre}</div>;
+  return (
+    <div className="plo-voile" onMouseDown={(e) => { clicDehors.current = e.target === e.currentTarget; }}
+      onClick={(e) => { if (clicDehors.current && e.target === e.currentTarget) fermer(); clicDehors.current = false; }} data-voile-parametres>
+      <style>{CSS_PARAMETRES + CSS_ONGLETS_SUIVI}</style>
+      {fenetre}
+    </div>
+  );
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — LA PAGE « PARAMÈTRES LOCATION » (depuis Outils de suivi) : le contenu de la modale, en page, dans le gabarit
+ * de l'admin (colonne de gauche conservée), « ← Outils de suivi » en haut. L'onglet, la carte et le panneau suivent l'adresse
+ * (`?onglet=…&apporteur=…&panneau=…`). « Annuler » ramène aux Outils de suivi, sans rien enregistrer (comme fermer la modale).
+ */
+export function PageParametresLocation({ ongletInitial }: { ongletInitial: Onglet }) {
+  return (
+    <div data-page-parametres-location>
+      <p className="plo-retour-page"><a href={OUTILS_SUIVI} data-retour-outils>← Outils de suivi</a></p>
+      <ModaleParametresLocation page ongletInitial={ongletInitial} onFermer={() => { window.location.assign(OUTILS_SUIVI); }} />
     </div>
   );
 }
@@ -314,6 +340,13 @@ export const CSS_PARAMETRES = `
 .plo-roue:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px}
 .plo-voile{position:fixed;inset:0;z-index:80;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:24px}
 .plo-fenetre{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:18px;width:min(780px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;box-shadow:0 30px 60px -20px color-mix(in srgb, var(--color-svv-ink) 45%, transparent);overflow:hidden;text-align:left;font-weight:400}
+.plo-page{display:flex;flex-direction:column;gap:12px}
+.plo-fenetre--page{width:100%;max-height:none;overflow:visible;box-shadow:none;border:1px solid var(--color-svv-line);border-radius:16px}
+.plo-fenetre--page .plo-corps{overflow:visible}
+.plo-titre-page{margin:0;padding:16px 20px 8px;font-size:1.35rem}
+.plo-retour-page{margin:0 0 8px}
+.plo-retour-page a{color:var(--color-svv-ink);font-weight:700;text-decoration:none}
+.plo-retour-page a:hover{text-decoration:underline}
 .plo-tete{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px 8px}
 .plo-tete h2{margin:0;font-size:1.2rem}
 .plo-x{width:44px;height:44px;border:0;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font-size:1.4rem;cursor:pointer}

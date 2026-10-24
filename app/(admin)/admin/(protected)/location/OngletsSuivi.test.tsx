@@ -199,10 +199,11 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(container.querySelector('[data-apporteur="4"] [data-panneau="fiche"]')).toBeNull();
     // Arno (23/10/2026) : « Total depuis le début » en 5 chiffres, au-dessus du cumul.
     const tot = (k: string) => n(container.querySelector(`[data-total-apporteur="${k}"]`)?.textContent);
-    expect(tot('dossiers')).toBe('Dossiers7dont 1 avenant');
+    // 🔴 Arno (25/10/2026, accord) — chaque case : libellé + montant, sans mention dessous.
+    expect(tot('dossiers')).toBe('Dossiers7');
     expect(tot('ht')).toBe('Honoraires apportés HT5 825,03 €');
-    expect(tot('ttc')).toBe('Honoraires apportés TTC6 990,04 €TVA 20 %');
-    expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €dont location 582,50 € · dont gestion (one shot) 0,00 € · dont gestion récurrente 0,00 €');
+    expect(tot('ttc')).toBe('Honoraires apportés TTC6 990,04 €');
+    expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €');
     expect(tot('net')).toBe('Net pour l’agence HT5 242,53 €');
     expect(container.textContent).not.toMatch(/versé/i);
     // Le tableau : la ligne « Depuis le début » en tête, puis les années (🔴 Arno, 24/10/2026 : les lignes par mois retirées, avec son

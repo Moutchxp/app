@@ -156,15 +156,14 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
   return (
     <>
       <h4 className="plo-h4">Total depuis le début</h4>
-      <ul className="plo-totaux" data-totaux-apporteur>
-        <li data-total-apporteur="dossiers"><span className="plo-total-mot">Dossiers</span><strong>{t.nb}</strong>
-          {(t.avenants ?? 0) > 0 && <span className="plo-total-note">dont {t.avenants} avenant{(t.avenants ?? 0) > 1 ? 's' : ''}</span>}</li>
-        <li data-total-apporteur="ht"><span className="plo-total-mot">Honoraires apportés HT</span><strong>{euros(t.ca)}</strong></li>
-        <li data-total-apporteur="ttc"><span className="plo-total-mot">Honoraires apportés TTC</span><strong>{euros(ttc(t.ca))}</strong><span className="plo-total-note">TVA 20 %</span></li>
-        <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong>
-          {/* 413 — le détail du dû : la location, la gestion « One shot » (à la signature), la gestion « Récurrent » (mois par mois). */}
-          <span className="plo-total-note" data-du-detail>dont location {euros(t.location ?? t.commission)} · dont gestion (one shot) {euros(t.gestion ?? 0)} · dont gestion récurrente {euros(t.recurrente ?? 0)}</span></li>
-        <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(netAgence(t))}</strong></li>
+      {/* 🔴 Arno (25/10/2026, accord) — chaque case : le libellé et le montant, RIEN D'AUTRE (plus de « TVA 20 % », ni de « dont location…
+          » : la décomposition est dans les dossiers dépliés). Toutes les cases au même format (largeur, hauteur, centrage, taille). */}
+      <ul className="plo-totaux" data-totaux-apporteur style={{ '--plo-cases': sansCollegue ? 5 : 6 } as React.CSSProperties}>
+        {([['dossiers', 'Dossiers', String(t.nb)], ['ht', 'Honoraires apportés HT', euros(t.ca)], ['ttc', 'Honoraires apportés TTC', euros(ttc(t.ca))],
+          ['du', 'Dû à l’apporteur HT', euros(t.commission)], ...(sansCollegue ? [] : [['collegue', 'Dû au collègue HT', euros(t.collegue ?? 0)]]),
+          ['net', 'Net pour l’agence HT', euros(netAgence(t))]] as [string, string, string][]).map(([cle, mot, valeur]) => (
+          <li key={cle} data-total-apporteur={cle}><span className="plo-total-mot">{mot}</span><strong>{valeur}</strong></li>
+        ))}
       </ul>
       <h4 className="plo-h4">Cumul</h4>
       <table className="plo-cumul" data-cumul-apporteur>

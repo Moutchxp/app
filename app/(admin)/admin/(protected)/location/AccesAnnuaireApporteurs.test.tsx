@@ -36,18 +36,18 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
 const monter = async (el: ReturnType<typeof createElement>) => { await act(async () => { root.render(el); }); await calmer(); };
-const ongletOuvert = () => container.querySelector('[data-modale-parametres] [role="tab"][aria-selected="true"]')?.getAttribute('data-onglet');
 
 describe('🔴 Accès à l’annuaire des apporteurs', () => {
-  it('la 3ᵉ brique des Outils de suivi : le nombre d’apporteurs, « à rattacher » en orange ; un clic ouvre la modale sur « Apporteurs »', async () => {
+  it('la 3ᵉ brique des Outils de suivi : le nombre d’apporteurs, « à rattacher » en orange ; elle mène à la PAGE « Paramètres Location » (onglet Apporteurs)', async () => {
     await monter(createElement(EcranOutils, { administrateur: true }));
     expect([...container.querySelectorAll('[data-brique]')].map((b) => b.getAttribute('data-brique'))).toEqual(['mois', 'annee', 'annuaire']);
     expect(container.querySelector('[data-compte-apporteurs]')?.textContent).toBe('3 apporteurs · 2 à rattacher');
     expect(container.querySelector('[data-compte-a-rattacher]')?.className).toBe('loc-orange');
-    await act(async () => { (container.querySelector('[data-brique="annuaire"]') as HTMLButtonElement).click(); });
-    await calmer();
-    expect(ongletOuvert()).toBe('apporteurs');
-    expect(container.querySelector('[data-onglet-apporteurs]')).not.toBeNull();
+    // 🔴 Arno (25/10/2026) — depuis Outils de suivi : une PAGE (lien), plus une modale.
+    const brique = container.querySelector('[data-brique="annuaire"]')!;
+    expect(brique.tagName).toBe('A');
+    expect(brique.getAttribute('href')).toBe('/admin/location/outils/parametres?onglet=apporteurs');
+    expect(container.querySelector('[data-modale-parametres]')).toBeNull();
     // « Honoraires de gestion » est toujours là.
     expect(container.querySelector('[data-outil="honoraires"]')).not.toBeNull();
   });

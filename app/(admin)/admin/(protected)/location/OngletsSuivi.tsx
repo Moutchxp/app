@@ -194,7 +194,8 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
     // Seul le corps de la modale défile : un scrollIntoView ferait aussi glisser la fenêtre (overflow: hidden) et cacherait les onglets.
     const carte = document.querySelector<HTMLElement>(`[data-apporteur="${id}"]`);
     const corps = carte?.closest<HTMLElement>('.plo-corps');
-    if (carte && corps) corps.scrollTop += carte.getBoundingClientRect().top - corps.getBoundingClientRect().top;
+    // 🔴 Arno (25/10/2026) — en PAGE, le corps ne défile pas (c'est la page) : on amène la carte sous les yeux dans la page.
+    if (carte && corps && corps.scrollHeight > corps.clientHeight) corps.scrollTop += carte.getBoundingClientRect().top - corps.getBoundingClientRect().top;
     else carte?.scrollIntoView?.({ block: 'start' });
   }, [lu]);
   // 🔴 Arno (24/10/2026) — la ligne de totaux tient sur UNE ligne : une échelle de police commune à toutes les cartes (la carte la plus
@@ -509,10 +510,13 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-gestes-ligne{display:flex;flex-wrap:wrap;gap:8px}
 .plo-filtre-rattacher{margin:0 0 8px}
 .plo-tri{max-width:320px;margin:0 0 8px}
-.plo-totaux{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
-.plo-totaux li{display:flex;flex-direction:column;gap:2px;align-items:flex-end;text-align:right;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px}
-.plo-totaux strong{font-size:1.05rem;color:var(--color-svv-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
-.plo-total-mot{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
+/* 🔴 Arno (25/10/2026) — les cases du « Total depuis le début » : TOUTES au même format. Même largeur (colonnes égales), même hauteur
+   (sous-grille : la rangée des libellés prend la hauteur du plus long, une ligne si tous tiennent, deux sinon — partout), libellé et
+   montant centrés, même taille pour tous les montants (« Dossiers » compris). */
+.plo-totaux{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(var(--plo-cases),minmax(0,1fr));grid-auto-rows:auto;gap:4px 8px}
+.plo-totaux li{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:4px;justify-items:center;align-items:end;text-align:center;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 8px;min-width:0;margin-bottom:4px}
+.plo-totaux strong{align-self:start;font-size:1.05rem;color:var(--color-svv-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.plo-total-mot{font-size:.75rem;font-weight:700;color:var(--color-svv-muted);line-height:1.25}
 .plo-total-note{font-size:.72rem;color:var(--color-svv-muted)}
 .plo-cumul-total th,.plo-cumul-total td{font-weight:800;color:var(--color-svv-ink)}
 .plo-cumul td{font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -534,7 +538,8 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
   box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-ink) 8%, transparent),0 6px 16px -10px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
 .plo-versions[data-liste-apporteurs]>li.plo-a-rattacher{border-color:var(--color-svv-line-strong) !important;background:var(--color-svv-amber-soft)}
 .plo-versions[data-liste-apporteurs]>li [data-panneau]{background:var(--color-svv-surface)}
-@media (max-width:640px){ .plo-totaux{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px} .plo-totaux li{padding:8px 6px} .plo-totaux strong{font-size:.74rem;letter-spacing:-.01em} .plo-total-mot{font-size:.68rem} }
+/* À 600 px : une grille régulière de 3 colonnes, cases identiques (les libellés gardent 2 lignes partout, la même hauteur). */
+@media (max-width:640px){ .plo-totaux{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 6px} .plo-totaux li{padding:8px 6px} .plo-totaux strong{font-size:.8rem;letter-spacing:-.01em} .plo-total-mot{font-size:.68rem;min-height:2.5em;display:flex;align-items:flex-end} }
 .plo-case{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;cursor:pointer}
 .plo-case input{width:20px;height:20px;accent-color:var(--color-svv-red)}
 .plo-champ input[type=date]:disabled{opacity:.5}

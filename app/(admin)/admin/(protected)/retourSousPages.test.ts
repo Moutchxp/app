@@ -45,6 +45,9 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   // Arno (23/10/2026) — les deux briques des « Outils de suivi » : retour vers les outils.
   'location/outils/mois': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/outils">← Outils de suivi</a>' }],
   'location/outils/annee': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/outils">← Outils de suivi</a>' }],
+  // 🔴 Arno (25/10/2026) — « Paramètres Location » en page, depuis Outils de suivi (OUTILS_SUIVI = '/admin/location/outils').
+  'location/outils/parametres': [{ fichier: `${L}/ParametresLocation.tsx`, lien: '<a href={OUTILS_SUIVI} data-retour-outils>← Outils de suivi</a>' },
+    { fichier: `${L}/parametresAdresse.ts`, lien: "export const OUTILS_SUIVI = '/admin/location/outils';" }],
   'location/proprietaires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
   'location/proprietaires/supprimer': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/proprietaires">← Propriétaires et biens</a>' }],
   'location/proprietaires/archiver': [{ fichier: `${L}/ArchivageProprietaire.tsx`, lien: '<a href="/admin/location/proprietaires/supprimer">← Supprimer un propriétaire ou un bien</a>' }],

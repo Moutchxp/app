@@ -3,7 +3,7 @@
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 import { TableauBordSuivi } from './TableauBordSuivi';
-import { OuvrirAnnuaireApporteurs } from './ParametresLocation';
+import { PAGE_PARAMETRES } from './parametresAdresse';
 import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi';
 import { useEffect, useState } from 'react';
 
@@ -113,7 +113,6 @@ export const BRIQUES_SUIVI = [
  */
 function BriqueAnnuaire({ administrateur }: { administrateur: boolean }) {
   const [compte, setCompte] = useState<{ total: number; aRattacher: number } | null | 'erreur'>(null);
-  const [n, setN] = useState(0);
   useEffect(() => {
     if (!administrateur) return;
     let vivant = true;
@@ -123,20 +122,19 @@ function BriqueAnnuaire({ administrateur }: { administrateur: boolean }) {
       setCompte(d.etat === 'ok' && ap !== null ? { total: ap.length, aRattacher: d.data?.annuaire === true ? ap.filter(aRattacher).length : 0 } : 'erreur');
     }).catch(() => { if (vivant) setCompte('erreur'); });
     return () => { vivant = false; };
-  }, [administrateur, n]);
+  }, [administrateur]);
   if (!administrateur) {
     return <div className="loc-case" data-brique="annuaire"><span className="loc-case-titre">Annuaire des apporteurs</span>
       <span className="loc-case-phrase">Réservé aux administrateurs (création d’un apporteur, collègue de rattachement).</span></div>;
   }
+  // 🔴 Arno (25/10/2026) — depuis Outils de suivi, l'annuaire s'ouvre en PAGE (« Paramètres Location », onglet Apporteurs), plus en modale.
   return (
-    <OuvrirAnnuaireApporteurs onFerme={() => setN((x) => x + 1)} rendu={(ouvrir) => (
-      <button type="button" className="loc-case loc-case--bouton" onClick={ouvrir} data-brique="annuaire">
+      <a className="loc-case loc-case--bouton" href={`${PAGE_PARAMETRES}?onglet=apporteurs`} data-brique="annuaire">
         <span className="loc-case-titre">Annuaire des apporteurs</span>
         <span className="loc-case-phrase">Créer un apporteur, le rattacher à un collègue, voir son cumul.</span>
         <span className="loc-case-phrase" data-compte-apporteurs>{compte === null ? 'Lecture…' : compte === 'erreur' ? 'Nombre indisponible.' : (
           <>{compte.total} apporteur{compte.total > 1 ? 's' : ''}{compte.aRattacher > 0 && <> · <strong className="loc-orange" data-compte-a-rattacher>{compte.aRattacher} à rattacher</strong></>}</>)}</span>
-      </button>
-    )} />
+      </a>
   );
 }
 
