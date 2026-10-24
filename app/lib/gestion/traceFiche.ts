@@ -5,9 +5,9 @@
  *   · « Dernière modification : <nom>, le <date> à <heure> ».
  * PUR : aucune base, aucun réseau.
  */
-export const ECRANS_TRACES = ['Suivi du mois'] as const;
+export const ECRANS_TRACES = ['Suivi du mois', 'Dossier de location (Suivi du mois)'] as const;
 export type EcranTrace = typeof ECRANS_TRACES[number];
-export type SujetTrace = 'locataire' | 'proprietaire' | 'lot';
+export type SujetTrace = 'locataire' | 'proprietaire' | 'lot' | 'bail' | 'activite';
 
 const PARIS = 'Europe/Paris';
 /** « 24/10/2026 » et « 14:05 », à l'heure de Paris. PUR. */

@@ -23,6 +23,8 @@ import { lireFicheEntiere, modifierFicheEntiere, versionDuBien } from '../../../
 import { requeteDepuisLaLocation } from '../../../../../../lib/gestion/contexteLocation';
 import { avecTrace, ecranDemande, historiqueFiche, repereJournal } from '../../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
+import { lireDossierLocation, modifierDossierLocation } from '../../../../../../lib/location/dossierLocationRepo';
+import { ECRAN_DOSSIER } from '../../../../../../lib/location/dossierLocation';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -76,6 +78,9 @@ export async function GET(request: Request): Promise<Response> {
       const [repere, historique] = await Promise.all([repereJournal(), historiqueFiche(tf[1] as 'lot' | 'locataire', Number(tf[2]))]);
       return Response.json({ etat: 'ok', data: { repere, historique, derniere: historique[0] ?? null } }, { headers: ENTETES });
     }
+    // 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : les 4 blocs de « Nouveau locataire », lus pour une ligne de suivi rattachée.
+    const dl = identifiant(url.searchParams.get('dossierLocation'));
+    if (dl !== null) return Response.json(await lireDossierLocation(dl), { headers: ENTETES });
     const fe = identifiant(url.searchParams.get('ficheEntiere'));
     if (fe !== null) return Response.json(await lireFicheEntiere(fe), { headers: ENTETES });
     const vb = identifiant(url.searchParams.get('versionBien'));
@@ -167,6 +172,13 @@ export async function POST(request: Request): Promise<Response> {
       }
       // Arno (23/10/2026) — « MODIFIER » LA FICHE ENTIÈRE (le formulaire « Nouveau bien » pré-rempli) : version contrôlée, puis les
       // MÊMES écritures que les gestes de la fiche (encart, annexes, statut et ses suites Drive / mail).
+      // 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : la mise à jour (jamais une création), tracée (session, écran).
+      case 'modifier-dossier-location': {
+        if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
+        const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: ECRAN_DOSSIER };
+        const issue = await avecTrace(trace, () => modifierDossierLocation(id, corps.saisie as Record<string, unknown>, auteur));
+        return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
+      }
       case 'modifier-fiche-bien': {
         if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
         // 🔴 Arno (24/10/2026, 417) — depuis un écran tracé (« Suivi du mois ») : la session et l'écran au journal (une ligne par champ).

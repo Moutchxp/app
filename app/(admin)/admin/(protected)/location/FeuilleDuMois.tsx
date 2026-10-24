@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { ModaleFicheLocataire } from './ModaleFicheLocataire';
+import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
@@ -68,7 +69,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const [edition, setEdition] = useState<number | string | null>(null);
   // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
-  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot'; id: number; libelle: string } | null>(null);
+  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string } | null>(null);
   const ficheEnregistree = (): void => { setFiche(null); onRelire(); };
   // Les lignes dépliées (plusieurs à la fois). Replier une ligne en édition abandonne la saisie, comme « Fermer ».
   const [deplies, setDeplies] = useState<ReadonlySet<string>>(() => new Set());
@@ -91,6 +92,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
   return (
     <div className="fdm" data-feuille-mois={cle}>
+      {fiche !== null && fiche.sorte === 'dossier' && (
+        <ModaleDossierLocation activiteId={fiche.id} onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
+      )}
       {fiche !== null && fiche.sorte === 'locataire' && (
         <ModaleFicheLocataire locataireId={fiche.id} libelle={fiche.libelle} onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
       )}
@@ -158,6 +162,15 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                       <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={10}>
                         <DetailLigne a={a} ctx={ctx} />
                         <div className="fdm-detail-gestes">
+                          {/* 🔴 Arno (24/10/2026) — « Dossier de location » EN PREMIER : le formulaire « Nouveau locataire » rouvert en
+                              modification ; une ligne sans bail rattaché : inactif, et pourquoi (aucune création implicite). */}
+                          {a.bailId !== null ? (
+                            <button type="button" className="tdb-pilule fdm-raccourci fdm-dossier" onClick={() => setFiche({ sorte: 'dossier', id: Number(a.id), libelle: a.libelleLocataire })}
+                              data-dossier-location={id}>Dossier de location</button>
+                          ) : (
+                            <button type="button" className="tdb-pilule fdm-raccourci fdm-dossier" disabled aria-describedby={`fdm-dossier-nr-${id}`} data-dossier-location={id}
+                              data-dossier-non-rattache>Dossier de location<span id={`fdm-dossier-nr-${id}`} className="fdm-dossier-motif"> — Dossier non rattaché — à rattacher d’abord</span></button>
+                          )}
                           {annuaire && (
                             <button type="button" className="tdb-pilule fdm-modifier" aria-expanded={edition === a.id} onClick={() => setEdition(edition === a.id ? null : a.id)} data-modifier-ligne={id}>
                               {edition === a.id ? 'Fermer' : 'Modifier'}</button>
@@ -488,6 +501,9 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-table td.fdm-bien{width:1%;white-space:nowrap}
 .fdm-table--synthese thead th:nth-child(-n+5){white-space:nowrap}
 .fdm-raccourci{min-height:44px;padding:0 14px;font-size:.82rem}
+.fdm-dossier{font-weight:800}
+.fdm-dossier:disabled{opacity:1;cursor:not-allowed;color:var(--color-svv-muted);border-style:dashed}
+.fdm-dossier-motif{font-weight:600}
 .fdm-non-rattache{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:var(--color-svv-muted);font-size:.82rem;font-style:italic}
 .fdm-detail-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
 .fdm-edition{margin-top:8px;border-top:1px dashed var(--color-svv-line-strong)}

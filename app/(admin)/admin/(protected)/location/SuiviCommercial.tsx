@@ -137,9 +137,15 @@ interface Props {
    * tous les lots loués sont des parkings. null : pas encore de lots ; absent : un hôte sans lots (toutes les valeurs proposées).
    */
   typeBien?: { type: CategoriePrime; parkingPermis: boolean } | null;
+  /**
+   * 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » (une ligne EXISTANTE rouverte) : aucun pré-remplissage de création (cases de
+   * gestion, prime et origine d'après le bien, négociateur = la personne connectée) — les valeurs enregistrées restent telles
+   * quelles, et seul ce que l'on modifie change. Absent : la création, inchangée.
+   */
+  sansPreremplissage?: boolean;
 }
 
-export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien }: Props) {
+export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien, sansPreremplissage = false }: Props) {
   const lu = parametres.lu;
   const poser = (p: Partial<SaisieSuivi>): void => onChange({ ...s, ...p });
   // Le HT affiché est celui du TTC (une seule vérité) ; pendant la frappe, la case garde ce qui est tapé.
@@ -152,9 +158,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
 
   // Le négociateur : par défaut, la personne connectée.
   useEffect(() => {
-    if (lu === null || s.negociateurId !== null || lu.moi === null || !lu.negociateurs.some((n) => n.id === lu.moi && n.actif !== false)) return;
+    if (sansPreremplissage || lu === null || s.negociateurId !== null || lu.moi === null || !lu.negociateurs.some((n) => n.id === lu.moi && n.actif !== false)) return;
     onChange({ ...s, negociateurId: lu.moi });
-  }, [lu, s, onChange]);
+  }, [lu, s, onChange, sansPreremplissage]);
 
   // Ce que le serveur déduit : la gestion du bien, la catégorie de prime, l'origine des clients à la date de signature.
   const [propose, setPropose] = useState<{ cle: string; avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null; enGestionAvant?: boolean;
@@ -177,7 +183,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   // Les cases suivent le bien tant qu'on n'y a pas touché (une fois par bien) — PRÉ-REMPLISSAGE, toujours modifiable.
   const [gestionPourLot, setGestionPourLot] = useState<number | null>(null);
   useEffect(() => {
-    if (propose === null || propose.cle !== cle || lotId === null || gestionPourLot === lotId) return;
+    if (sansPreremplissage || propose === null || propose.cle !== cle || lotId === null || gestionPourLot === lotId) return;
     setGestionPourLot(lotId);
     if (propose.cas === undefined) {
       // Un serveur d'avant le 24/10/2026 : le comportement d'avant (« Relocation » proposée si le bien était déjà en gestion).
@@ -196,7 +202,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
       ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
       ...(r !== null && r.origine !== (s.origineContact ?? null) ? champsOrigine(r.origine) : {}) });
-  }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire, lu?.dejaClient, origineAuto]);
+  }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire, lu?.dejaClient, origineAuto, sansPreremplissage]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
 
   // « + Nouvel apporteur » : une petite carte, enregistrée tout de suite (le référentiel), puis choisie.

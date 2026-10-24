@@ -574,6 +574,56 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
   });
 }
 
+/**
+ * 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : met à jour LA ligne de suivi existante (par son identifiant, jamais une seconde
+ * ligne — une ligne « avenant » du même bail n'est pas confondue avec le bail), avec la saisie du bloc 4 de « Nouveau locataire ».
+ * Les mêmes vérifications que la saisie (`verifierActivite`, `ecrireCommercial` : apporteur à rattacher, une seule prime par bien,
+ * origine) ; un refus annule TOUTE l'écriture. `conserverMontants` : taux et honoraires d'apporteur non touchés → la valeur exacte
+ * en base reste. Les libellés, le bien et les personnes de la ligne ne sont pas touchés (lus dans l'annuaire).
+ */
+export async function mettreAJourActivite(activiteId: number, brut: unknown, auteur: Auteur, o: { conserverMontants?: boolean } = {}): Promise<Reponse> {
+  try {
+    if (!(await suiviDisponible())) return INDISPONIBLE;
+    const avecAnnuaire = await annuaireDisponible();
+    const v = verifierActivite(brut, { origineObligatoire: avecAnnuaire });
+    if (!v.ok) return { etat: 'refus', motif: v.motif };
+    const br = (brut ?? {}) as Record<string, unknown>;
+    const categorie: CategoriePrime | null = br.categoriePrime === 'parking' || br.categoriePrime === 'logement' || br.categoriePrime === 'local' ? br.categoriePrime : null;
+    const prime = categorie === null ? null : await categorieEnregistrable(categorie);
+    const a = v.valeurs;
+    return await withTransaction(async (q) => {
+      const ligne = (await q<{ id: string }>('SELECT id FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL FOR UPDATE', [activiteId])).rows[0];
+      if (ligne === undefined) return { etat: 'refus', motif: 'Cette ligne du suivi n’existe plus.' } as const;
+      const negociateur = a.negociateurId === null ? null
+        : (await q<{ libelle: string }>(`SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant, '') AS libelle FROM admin_utilisateur WHERE id = $1`,
+          [a.negociateurId])).rows[0]?.libelle ?? null;
+      await q(
+        `UPDATE gestion_location_activite SET type = $2,
+                date_signature_supposee = CASE WHEN date_signature = $3::date THEN date_signature_supposee ELSE false END, date_signature = $3,
+                hono_proprietaire_ht = $4, hono_locataire_ht = $5, negociateur_id = $6, negociateur_libelle = coalesce($7, ''),
+                avec_gestion = $8, mandat_gestion = $9, categorie_prime = coalesce($10, categorie_prime),
+                origine_proprietaire_saisie = $11, origine_locataire_saisie = $12, modifie_le = now(), modifie_par_libelle = $13
+          WHERE id = $1`,
+        [activiteId, a.type, a.dateSignature, a.honoProprietaireHt, a.honoLocataireHt, a.negociateurId, negociateur, a.avecGestion, a.mandatGestion, prime,
+          a.origineProprietaire, a.origineLocataire, auteur.libelle]);
+      if (await commissionGestionDisponible()) {
+        await q('UPDATE gestion_location_activite SET apporteur_mode = $2, apporteur_taux_gestion = $3 WHERE id = $1', [activiteId, a.apporteurMode, a.apporteurTauxGestion]);
+      }
+      if (avecAnnuaire) {
+        const motif = await ecrireCommercial(q as typeof query, activiteId, {
+          origineContact: a.origineContact, collegueId: a.collegueId, apporteurId: a.apporteurId, commissionApporteur: a.commissionApporteur,
+          primeMode: a.primeMode, primeMontant: a.primeMontant, origineContactPrecision: a.origineContactPrecision,
+        }, a.apporteurTaux, auteur, o.conserverMontants === true);
+        if (motif !== null) throw new RefusSuivi(motif);
+      }
+      return { etat: 'ok' } as const;
+    });
+  } catch (e) {
+    if (e instanceof RefusSuivi) return { etat: 'refus', motif: e.message };
+    throw e;
+  }
+}
+
 /** Ce que l'écran « Nouveau locataire » propose avant la saisie : le statut de gestion du bien et l'origine déduite. */
 export async function proposerActivite(lotId: unknown, locataireIds: unknown, dateSignature: unknown): Promise<Reponse<{
   avecGestion: boolean; categoriePrime: CategoriePrime; origineProprietaire: Origine | null; origineLocataire: Origine | null;

@@ -568,6 +568,25 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector(`[data-detail-ligne="${String(sept[1].id)}"] [data-champ="Libellé d’origine"]`)).toBeNull();
     });
 
+    it('🔴 « Dossier de location » en PREMIER ; ligne sans bail : inactif, « Dossier non rattaché — à rattacher d’abord » ; rattachée : ouvre la modale', async () => {
+      const ids = sept.map((a) => String(a.id));
+      donnees = { ...donnees, annuaire: true, activites: donnees.activites.map((a) => (String(a.id) === ids[0] ? { ...a, id: 100 as unknown as string, bailId: 70 } : a)) };
+      global.fetch = vi.fn(async (u: unknown) => ({ ok: true, status: 200, json: async () => (String(u).includes('vue=tableau') ? { etat: 'ok', data: donnees } : { etat: 'inconnu' }) }) as unknown as Response) as unknown as typeof fetch;
+      await ouvrirSeptembre();
+      await deplier('100');
+      await deplier(ids[1]);
+      const p0 = container.querySelector('[data-detail-ligne="100"] .fdm-detail-gestes')!;
+      expect(p0.firstElementChild?.getAttribute('data-dossier-location')).toBe('100');
+      expect((p0.firstElementChild as HTMLButtonElement).disabled).toBe(false);
+      const p1 = container.querySelector(`[data-detail-ligne="${ids[1]}"] .fdm-detail-gestes`)!;
+      const b1 = p1.firstElementChild as HTMLButtonElement;
+      expect(b1.disabled).toBe(true);
+      expect(b1.textContent).toBe('Dossier de location — Dossier non rattaché — à rattacher d’abord');
+      await act(async () => { (p0.firstElementChild as HTMLButtonElement).click(); });
+      await calmer();
+      expect(document.querySelector('[data-modale-dossier-location="100"]')).not.toBeNull();
+    });
+
     it('après « Enregistrer » : la feuille se relit (ligne et bas de feuille), le panneau reste ouvert', async () => {
       donnees = { ...donnees, annuaire: true };
       let lectures = 0;
