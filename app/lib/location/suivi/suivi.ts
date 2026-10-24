@@ -10,6 +10,7 @@
  * PUR : aucune base, aucun réseau ; sûr côté navigateur.
  */
 
+import { estLotParking } from '../bienComplet';
 export const TAUX_TVA = 0.2;
 
 /** Aujourd'hui à Paris (AAAA-MM-JJ). */
@@ -41,10 +42,11 @@ export const LIBELLE_CATEGORIE_PRIME: Record<CategoriePrime, string> = { logemen
  *     parking — « Local » pour un local, « Logement » pour tout le reste (une cave, une catégorie inconnue).
  * `null` : aucun lot coché (on garde la famille du bien). PUR.
  */
-export function typeDeBienDesLots(lots: readonly { role: 'logement' | 'annexe'; categorie?: string | null; place: boolean }[]):
+export function typeDeBienDesLots(lots: readonly { role: 'logement' | 'annexe'; categorie?: string | null; place: boolean; type?: string | null; libelle?: string | null }[]):
   { type: CategoriePrime; parkingPermis: boolean } | null {
   if (lots.length === 0) return null;
-  const estParking = (l: (typeof lots)[number]): boolean => l.place || l.categorie === 'parking' || l.categorie === 'box';
+  // Arno (24/10/2026) — `estLotParking` : catégorie parking/box, ou catégorie vide et type/libellé « parking », « garage », « box »…
+  const estParking = (l: (typeof lots)[number]): boolean => l.place || estLotParking(l);
   if (lots.every(estParking)) return { type: 'parking', parkingPermis: true };
   const autres = lots.filter((l) => !estParking(l));
   const principal = autres.find((l) => l.role === 'logement') ?? autres[0];
@@ -107,6 +109,28 @@ export function preremplissageGestion(cas: CasGestion): { mandatGestion: boolean
   if (cas === 'hors_gestion') return { mandatGestion: false, avecGestion: false, primeMode: 'aucune', origineRelocation: false };
   return { mandatGestion: false, avecGestion: true, primeMode: 'aucune', origineRelocation: cas === 'relocation' };
 }
+/**
+ * 🔴 Arno (24/10/2026, après c308b3cf) — L'ORIGINE DU CONTACT SUIT LES DEUX CASES (exclusives), EN DIRECT :
+ *   · « Relocation » cochée → l'origine est « Relocation (portefeuille de gestion) », IMPOSÉE ; cette origine n'existe qu'avec la case ;
+ *   · « Nouvelle gestion » cochée → jamais « Relocation » : une origine vide (ou « Relocation ») devient « Propriétaire déjà client »
+ *     si le propriétaire avait déjà un bien ou un bail chez nous avant la signature (`dejaClient`), sinon elle se VIDE (à choisir) ;
+ *     une origine choisie à la main et cohérente est conservée ;
+ *   · décocher efface l'origine que la case avait mise AUTOMATIQUEMENT (`auto`) ; un choix fait à la main reste s'il est cohérent.
+ * PUR.
+ */
+export function origineApresCases(o: { origine: OrigineContact | null; auto: boolean; avecGestion: boolean; mandatGestion: boolean; dejaClient: boolean }):
+  { origine: OrigineContact | null; auto: boolean } {
+  if (o.avecGestion) return { origine: 'relocation', auto: true };
+  // Sans la case « Relocation », l'origine « Relocation » n'a plus de sens : elle s'efface.
+  const origine = o.origine === 'relocation' ? null : o.origine;
+  const auto = o.origine === 'relocation' ? false : o.auto;
+  if (o.mandatGestion) {
+    if (origine === null) return o.dejaClient ? { origine: 'proprietaire_deja_client', auto: true } : { origine: null, auto: false };
+    return { origine, auto };
+  }
+  return auto ? { origine: null, auto: false } : { origine, auto };
+}
+
 /** « Prime déjà versée le 12/03/2025 (bail DUPONT) ». PUR. */
 export function motPrimeDejaVersee(p: { date: string; bail: string }): string {
   return `Prime déjà versée le ${p.date.split('-').reverse().join('/')} (bail ${p.bail})`;
@@ -347,6 +371,9 @@ export function verifierActivite(brut: unknown, o: { origineObligatoire?: boolea
   if (!dateIsoValide(b.dateSignature)) return { ok: false, motif: 'La date de signature du bail est obligatoire.' };
   // Arno (24/10/2026) — les deux cases sont EXCLUSIVES.
   if (b.mandatGestion === true && b.avecGestion === true) return { ok: false, motif: 'Cochez « Relocation » (portefeuille de gestion) OU « Nouveau mandat de gestion signé (prime) » (nouvelle gestion), pas les deux.' };
+  // 🔴 Arno (24/10/2026) — l'origine « Relocation » n'existe qu'avec la case « Relocation » ; jamais avec « Nouvelle gestion ».
+  if (b.origineContact === 'relocation' && b.mandatGestion === true) return { ok: false, motif: 'Origine « Relocation » et « Nouvelle gestion » : incohérent. Choisissez l’origine du propriétaire (apporteur, Internet, propriétaire déjà client…).' };
+  if (b.origineContact === 'relocation' && b.avecGestion !== true) return { ok: false, motif: 'L’origine « Relocation (portefeuille de gestion) » suppose la case « Relocation » cochée.' };
   const c = verifierCommercial(b, o.origineObligatoire ?? true);
   if (!c.ok) return c;
   const hp = lireMontant(b.honoProprietaireHt);

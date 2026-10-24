@@ -83,6 +83,30 @@ export function familleDeCategorie(categorie: string | null | undefined): Famill
   return null;
 }
 
+/**
+ * 🔴 Arno (24/10/2026) — UN LOT EST UN PARKING si sa catégorie est « parking » ou « box » ; OU, quand la catégorie est VIDE (lots
+ * importés de WIPPIMMO), si son type, sa nature ou son libellé contient « parking », « garage », « box » ou « stationnement » —
+ * majuscules et accents ignorés. Une autre catégorie (logement, local, cave…) n'est jamais un parking. LA règle du suivi commercial
+ * (prime, « Type de bien », contrôle du serveur — voir `sqlLotParking`). PUR.
+ */
+export const MOTS_LOT_PARKING = /parking|garage|box|stationnement/;
+const sansAccents = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+export function estLotParking(l: { categorie?: string | null; type?: string | null; libelle?: string | null; nature?: string | null; typeBien?: string | null }): boolean {
+  if (l.categorie === 'parking' || l.categorie === 'box') return true;
+  if (l.categorie !== null && l.categorie !== undefined && l.categorie.trim() !== '') return false;
+  return MOTS_LOT_PARKING.test(sansAccents([l.type, l.libelle, l.nature, l.typeBien].filter((x) => x).join(' ')));
+}
+/** La famille d'un lot : celle de sa catégorie ; catégorie vide → « parking » si `estLotParking`, sinon inconnue. PUR. */
+export function familleDuLot(l: { categorie?: string | null; nature?: string | null; typeBien?: string | null }): Famille | null {
+  return familleDeCategorie(l.categorie) ?? (estLotParking(l) ? 'parking' : null);
+}
+/**
+ * La même règle en SQL (alias du lot `l`) : catégorie parking/box, ou catégorie vide et nature/type qui contient l'un des mots —
+ * minuscules, accents retirés par `translate` (les mots cherchés n'en ont pas).
+ */
+export const sqlLotParking = (l: string): string =>
+  `(${l}.categorie IN ('parking', 'box') OR (coalesce(btrim(${l}.categorie), '') = '' AND translate(lower(concat_ws(' ', ${l}.nature, ${l}.type_bien)), 'àâäáãéèêëíîïóôöõúùûüçñ', 'aaaaaeeeeiiiioooouuuucn') ~ '(parking|garage|box|stationnement)'))`;
+
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null =>
   (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
 const ouiNon = (v: unknown): boolean | null => (v === true || v === 'oui' ? true : v === false || v === 'non' ? false : null);

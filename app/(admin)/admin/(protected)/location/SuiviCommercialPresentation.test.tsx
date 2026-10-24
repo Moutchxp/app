@@ -75,7 +75,7 @@ describe('🔴 ordre des lignes et présentation homogène', () => {
     await monter(null);
     expect(libelles(1)).toEqual(['Date de signature du bail *', 'Nature', 'Négociateur']);
     expect(libelles(2)).toEqual(['Portefeuille de gestion', 'Nouvelle gestion', 'Prime de gestion', 'Type de bien']);   // Arno (24/10/2026) : « Type de bien »
-    expect(libelles(3)).toEqual(['Honoraires propriétaire HT (€)', 'Honoraires locataire HT (€)', 'Total des honoraires (HT)']);
+    expect(libelles(3)).toEqual(['Honoraires propriétaire HT', 'Honoraires locataire HT', 'Total des honoraires (HT)']);   // « € » dans le champ
     expect(libelles(4)).toEqual(['Origine du contact propriétaire *']);
     const ordre = [...container.querySelectorAll('[data-suivi-ligne]')].map((l) => l.getAttribute('data-suivi-ligne'));
     expect(ordre).toEqual(['1', '2', '3', '4']);
@@ -410,20 +410,26 @@ describe('🔴 Arno (24/10/2026, après 56700ffb) — total des honoraires HT ; 
     expect(css).toContain('.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:repeat(3,minmax(0,1fr))}');
     expect(css).toContain('@media (max-width:640px){.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:minmax(0,1fr)}}');
   });
-  it('cocher « Relocation » pré-sélectionne « Relocation (portefeuille de gestion) » ; décocher ne change rien', async () => {
+  /* Arno (24/10/2026, après c308b3cf) — la règle a changé : « Relocation » IMPOSE l'origine, et la décocher l'efface. */
+  it('cocher « Relocation » impose « Relocation (portefeuille de gestion) » (liste figée) ; décocher l’efface', async () => {
     await monter(null);
     expect(valeur('[data-origine-contact]')).toBe('');
     await clic(q('[data-avec-gestion]'));
     expect(valeur('[data-origine-contact]')).toBe('relocation');
     expect(q('[data-origine-contact]')!.textContent).toBe('Relocation (portefeuille de gestion)');
+    expect(inactif('[data-origine-contact]')).toBe(true);
+    expect(q('[data-origine-imposee]')?.textContent).toBe('Imposée par « Relocation » (portefeuille de gestion).');
     await clic(q('[data-avec-gestion]'));
-    expect(valeur('[data-origine-contact]')).toBe('relocation');
+    expect(valeur('[data-origine-contact]')).toBe('');
+    expect(inactif('[data-origine-contact]')).toBe(false);
   });
-  it('un choix fait à la main n’est jamais remplacé', async () => {
+  it('« Relocation » l’emporte sur un choix fait à la main ; décochée, l’origine est à choisir', async () => {
     await monter(null);
     await choisir('[data-origine-contact]', 'internet');
     await clic(q('[data-avec-gestion]'));
-    expect(valeur('[data-origine-contact]')).toBe('internet');
+    expect(valeur('[data-origine-contact]')).toBe('relocation');
+    await clic(q('[data-avec-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('');
   });
 });
 
@@ -466,5 +472,40 @@ describe('🔴 Arno (24/10/2026, après bade5e0a) — « Propriétaire déjà cl
     expect(ligne.textContent).not.toContain('Conditions d’entrée');
     expect(ligne.textContent).not.toContain('propriétaire HT + locataire HT');
     expect(ligne.querySelectorAll('input')).toHaveLength(3);
+  });
+});
+
+describe('🔴 Arno (24/10/2026, après c308b3cf) — origine synchronisée avec les cases ; « € » dans les champs d’argent', () => {
+  it('LE CAS DES CAPTURES : origine « Relocation » affichée, puis « Nouvelle gestion » cochée → « Propriétaire déjà client » (déjà client)', async () => {
+    proposition = { ...proposition, cas: 'relocation', origineProprietaire: 'deja' };
+    await monter(7, LU({ dejaClient: true }));
+    expect(coche('[data-avec-gestion]')).toBe(true);
+    expect(valeur('[data-origine-contact]')).toBe('relocation');
+    await clic(q('[data-mandat-gestion]'));
+    expect(coche('[data-avec-gestion]')).toBe(false);                            // exclusives
+    expect(valeur('[data-origine-contact]')).toBe('proprietaire_deja_client');
+    await clic(q('[data-mandat-gestion]'));                                       // décocher efface ce qu'elle avait mis
+    expect(valeur('[data-origine-contact]')).toBe('');
+  });
+  it('… et propriétaire nouveau client : l’origine se vide, à choisir ; « Relocation » est grisée tant que la case n’est pas cochée', async () => {
+    proposition = { ...proposition, cas: 'relocation', origineProprietaire: 'nouveau' };
+    await monter(7, LU({ dejaClient: true }));
+    await clic(q('[data-mandat-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('');
+    const reloc = (await optionsDe('[data-origine-contact]')).find((o) => o.id === 'relocation');
+    expect(reloc).toEqual({ id: 'relocation', texte: 'Relocation (portefeuille de gestion) — cochez « Relocation »', bloque: true });
+    await choisir('[data-origine-contact]', 'relocation');
+    expect(valeur('[data-origine-contact]')).toBe('');                            // pas choisissable
+    await choisir('[data-origine-contact]', 'apporteur');
+    await clic(q('[data-mandat-gestion]')); await clic(q('[data-mandat-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('apporteur');                   // un choix à la main cohérent reste
+  });
+  it('tous les champs d’argent du suivi : « € » dans le champ, à droite ; plus d’intitulé en « (€) »', async () => {
+    await monter(null);
+    for (const sel of ['[data-hono-proprietaire-ht]', '[data-hono-locataire-ht]', '[data-hono-total-ht]']) {
+      expect(q(sel)!.parentElement?.className, sel).toBe('loc-case-euros');
+      expect(q(sel)!.parentElement?.querySelector('.loc-suffixe-euros')?.textContent).toBe('€');
+    }
+    expect(q('[data-suivi-commercial]')!.textContent).not.toContain('(€)');
   });
 });

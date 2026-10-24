@@ -45,7 +45,8 @@ function Intitule({ htmlFor, children }: { htmlFor: string; children: string }) 
 }
 
 /** Une case de montant avec « € » en suffixe, À L'INTÉRIEUR, à droite : gris, non sélectionnable, sans gêner la saisie. */
-function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
+/** La case d'un montant : « € » dans le champ, à droite (partagée avec le Suivi commercial, Arno 24/10/2026). */
+export function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <span className="loc-case-euros">
       <input inputMode="decimal" {...props} />

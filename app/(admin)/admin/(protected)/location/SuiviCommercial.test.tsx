@@ -182,6 +182,8 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
   it('« Apporteur d’affaires » : un apporteur « à rattacher » n’est pas choisissable ; le collègue s’affiche ; la commission est proposée au taux', async () => {
     avec407();
     await preparer();
+    // Arno (24/10/2026) : le bien est déduit « en gestion » (Relocation cochée, origine imposée) — on décoche pour choisir l'origine.
+    await clic(container.querySelector('input[data-avec-gestion]')!); await calmer();
     await choisir(container.querySelector('[data-origine-contact]')!, 'apporteur');
     await clic(container.querySelector('[data-apporteur]')!);
     const options = [...container.querySelectorAll('[data-liste-choix] li[role="option"]')];
@@ -199,6 +201,7 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     avec407();
     await preparer();
     await toutRepondre();
+    await clic(container.querySelector('input[data-avec-gestion]')!); await calmer();   // Relocation décochée : l'origine se choisit
     await choisir(container.querySelector('[data-origine-contact]')!, 'collegue');
     await clic(container.querySelector('button[data-collegue]')!);
     await clic(container.querySelector('[data-liste-choix] [data-option="2"]')!);
@@ -285,5 +288,13 @@ describe('🔴 Arno (24/10/2026, après 56700ffb) — « Honoraires agence (€ 
     await soumettre(); await soumettre();
     // ENREGISTRÉ EN TTC, comme avant (ce que paie le locataire)
     expect((posts.find((p) => p.action === 'creer-locataires') as { conditions?: { sommes?: { honorairesAgence?: unknown } } })?.conditions?.sommes?.honorairesAgence).toBe('180,00');   // 150 € HT → 180,00 € TTC
+  });
+});
+
+describe('🔴 Arno (24/10/2026, après c308b3cf) — « 10 rue Chateaubriand, CHATILLON » : le seul lot coché est un parking sans catégorie', () => {
+  it('« Le parking Garage · Parking Garage · lot n° 397 » → « Type de bien » = Parking', async () => {
+    lotsBail = [{ id: 7, role: 'logement', libelle: 'parking Garage', type: 'Parking Garage', etage: null, numeroLot: '397', porte: null, place: false, occupants: [], noms: [], categorie: null }];
+    await preparer();
+    expect(container.querySelector('[data-categorie-prime]')!.getAttribute('data-valeur')).toBe('parking');
   });
 });

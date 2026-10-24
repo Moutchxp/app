@@ -1,7 +1,7 @@
 import 'server-only';
 import { query, withTransaction } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
-import { familleDeCategorie } from '../bienComplet';
+import { familleDuLot, sqlLotParking } from '../bienComplet';
 import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
@@ -499,8 +499,8 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
   const loyerHc = lireMontant(br.loyerHc) ?? null;
   const charges = lireMontant(br.charges) ?? null;
   return withTransaction(async (q) => {
-    const bail = await q<{ lot_id: string; proprietaire_id: string | null; proprio: string | null; categorie: string | null }>(
-      `SELECT b.lot_id, l.proprietaire_id, p.nom_complet AS proprio, l.categorie
+    const bail = await q<{ lot_id: string; proprietaire_id: string | null; proprio: string | null; categorie: string | null; nature: string | null; type_bien: string | null }>(
+      `SELECT b.lot_id, l.proprietaire_id, p.nom_complet AS proprio, l.categorie, l.nature, l.type_bien
        FROM gestion_bail b JOIN gestion_annuaire_lot l ON l.id = b.lot_id
        LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id WHERE b.id = $1`, [id]);
     if (bail.rows.length === 0) return { etat: 'refus', motif: 'Bail inconnu.' } as const;
@@ -518,11 +518,11 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
     // 🔴 Arno (24/10/2026) — « Parking » seulement si TOUS les lots loués par ce bail sont des parkings (place ou box) : lu avant d'écrire.
     if (categoriePrime === 'parking' && await colonneExisteMemo('gestion_annuaire_lot', 'categorie')) {
       const lots = await q<{ tous: boolean | null }>(
-        `SELECT bool_and(l.categorie IN ('parking', 'box')) AS tous FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot l ON l.id = o.lot_id
+        `SELECT bool_and(${sqlLotParking('l')}) AS tous FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot l ON l.id = o.lot_id
           WHERE o.bail_id = $1`, [id]);
       if (lots.rows[0]?.tous === false) return { etat: 'refus', motif: MOT_PARKING_SEUL } as const;
     }
-    const prime: CategoriePrime = await categorieEnregistrable(categoriePrime ?? categoriePrimeDeFamille(familleDeCategorie(b.categorie)));
+    const prime: CategoriePrime = await categorieEnregistrable(categoriePrime ?? categoriePrimeDeFamille(familleDuLot({ categorie: b.categorie, nature: b.nature, typeBien: b.type_bien })));
     const a: ActiviteVerifiee = v.valeurs;
     // 🔴 Arno (24/10/2026) — UNE seule prime de nouvelle gestion par bien : le serveur refuse la seconde (lu AVANT d'écrire).
     const veutUnePrime = a.primeMode === 'aucune' ? false : a.primeMode === 'personnalise' ? (a.primeMontant ?? 0) > 0
@@ -591,9 +591,9 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
   const date = typeof dateSignature === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateSignature) ? dateSignature : null;
   if (lot === null || date === null) return { etat: 'refus', motif: 'Bien ou date inconnus.' };
   const ids = Array.isArray(locataireIds) ? locataireIds.filter((x): x is number => typeof x === 'number' && Number.isInteger(x) && x > 0) : [];
-  const { rows } = await query<{ statut_bien: string | null; categorie: string | null; proprietaire_id: string | null }>(
+  const { rows } = await query<{ statut_bien: string | null; categorie: string | null; proprietaire_id: string | null; nature: string | null; type_bien: string | null }>(
     `SELECT ${(await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien')) ? 'statut_bien' : "CASE WHEN en_gestion THEN 'en_gestion' END AS statut_bien"},
-            categorie, proprietaire_id FROM gestion_annuaire_lot WHERE id = $1`, [lot]);
+            categorie, proprietaire_id, nature, type_bien FROM gestion_annuaire_lot WHERE id = $1`, [lot]);
   if (rows.length === 0) return { etat: 'refus', motif: 'Bien inconnu.' };
   const origines = await deduireOrigines(query, { bailId: 0, lotId: lot, proprietaireId: numOuNull(rows[0].proprietaire_id), locataireIds: ids, date });
   const avecTransitions = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
@@ -621,7 +621,7 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
     etat: 'ok',
     data: {
       avecGestion: enGestion,
-      categoriePrime: categoriePrimeDeFamille(familleDeCategorie(rows[0].categorie)),
+      categoriePrime: categoriePrimeDeFamille(familleDuLot({ categorie: rows[0].categorie, nature: rows[0].nature, typeBien: rows[0].type_bien })),
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
       tauxGestionBien: await tauxGestionDuBien(query, lot, null),
       cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,

@@ -10,10 +10,17 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { ModaleAnnuaireApporteurs } from './ModaleAnnuaireApporteurs';
 import { InfoBulle } from '../InfoBulle';
+import { CaseEuros } from './ConditionsEntree';
 import {
   type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
 } from '../../../../lib/location/suivi/tableauBord';
-import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, trierApporteurs } from '../../../../lib/location/suivi/suivi';
+import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs } from '../../../../lib/location/suivi/suivi';
+
+/** Les champs d'une origine choisie : ceux des autres origines se vident (apporteur, collègue, texte « Personnalisé »). PUR. */
+function champsOrigine(v: OrigineContact | null): Partial<SaisieSuivi> {
+  return { origineContact: v, ...(v !== 'apporteur' ? { apporteurId: null, apporteurTaux: '', commissionApporteur: '' } : {}), ...(v !== 'collegue' ? { collegueId: null } : {}),
+    ...(v !== 'personnalise' ? { origineContactPrecision: '' } : {}) };
+}
 
 /**
  * ══ LOCATION — « SUIVI COMMERCIAL » DU BAIL (Arno, 22/10/2026, migration 406) ══════════════════════════════════════════════
@@ -165,6 +172,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       .catch(() => {});
     return () => { vivant = false; };
   }, [cle, lu?.disponible]);
+  /** L'origine a-t-elle été mise D'ELLE-MÊME par une case (décocher l'efface) ? Un choix dans la liste la rend « à la main ». */
+  const [origineAuto, setOrigineAuto] = useState(false);
   // Les cases suivent le bien tant qu'on n'y a pas touché (une fois par bien) — PRÉ-REMPLISSAGE, toujours modifiable.
   const [gestionPourLot, setGestionPourLot] = useState<number | null>(null);
   useEffect(() => {
@@ -179,13 +188,15 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     /* 🔴 Arno (24/10/2026) — première location d'un nouveau mandat → « Nouveau mandat » + prime 150 € ; relocation → « Bien en gestion
        chez nous », aucune prime, origine « Relocation » ; prime déjà versée → « Bien en gestion », aucune prime ; hors gestion → rien. */
     const p = preremplissageGestion(propose.cas);
-    // 🔴 Arno (24/10/2026, 415) — « Nouvelle gestion » ET un propriétaire déjà client avant la signature : « Propriétaire déjà client ».
-    const dejaClient = p.mandatGestion && propose.origineProprietaire === 'deja' && lu?.dejaClient === true;
+    // 🔴 Arno (24/10/2026) — l'origine suit les cases pré-cochées (`origineApresCases`) : « Relocation » l'impose ; « Nouvelle gestion »
+    // ET un propriétaire déjà client avant la signature : « Propriétaire déjà client ».
+    const r = lu?.annuaire === true ? origineApresCases({ origine: s.origineContact ?? null, auto: origineAuto, avecGestion: p.avecGestion,
+      mandatGestion: p.mandatGestion, dejaClient: propose.origineProprietaire === 'deja' && lu?.dejaClient === true }) : null;
+    if (r !== null) setOrigineAuto(r.auto);
     onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
       ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
-      ...(p.origineRelocation && s.origineContact === null ? { origineContact: 'relocation' as const } : {}),
-      ...(dejaClient && s.origineContact === null ? { origineContact: 'proprietaire_deja_client' as const } : {}) });
-  }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire]);
+      ...(r !== null && r.origine !== (s.origineContact ?? null) ? champsOrigine(r.origine) : {}) });
+  }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire, lu?.dejaClient, origineAuto]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
 
   // « + Nouvel apporteur » : une petite carte, enregistrée tout de suite (le référentiel), puis choisie.
@@ -257,16 +268,21 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
 
   const primeBloquee = deduit?.primeDejaVersee ?? null;
   /* 🔴 Arno (24/10/2026) — les deux cases sont EXCLUSIVES : cocher l'une décoche l'autre. La prime suit « Nouveau mandat ». */
+  /* 🔴 Arno (24/10/2026, après c308b3cf) — l'origine SUIT les deux cases, en direct (`origineApresCases`) : « Relocation » l'impose ;
+     « Nouvelle gestion » l'interdit (→ « Propriétaire déjà client » si le propriétaire l'était avant la signature, sinon à choisir) ;
+     décocher efface ce qu'une case avait mis d'elle-même ; un choix fait à la main et cohérent reste. */
+  const origineSelon = (cases: { avecGestion: boolean; mandatGestion: boolean }): Partial<SaisieSuivi> => {
+    if (!annuaire) return {};
+    const r = origineApresCases({ origine: s.origineContact ?? null, auto: origineAuto, ...cases,
+      dejaClient: lu.dejaClient === true && deduit?.origineProprietaire === 'deja' });
+    setOrigineAuto(r.auto);
+    return r.origine === (s.origineContact ?? null) ? {} : champsOrigine(r.origine);
+  };
   const cocherGestion = (v: boolean): void => poser({ avecGestion: v, ...(v ? { mandatGestion: false } : {}),
     ...(v && annuaire && s.primeMode !== 'personnalise' ? { primeMode: 'aucune' as const } : {}),
-    // 🔴 Arno (24/10/2026, après 56700ffb) — cocher « Relocation » PRÉ-SÉLECTIONNE l'origine « Relocation (portefeuille de gestion) »
-    // quand aucune origine n'est choisie ; un choix fait à la main n'est jamais remplacé, et décocher ne change rien.
-    ...(v && annuaire && (s.origineContact === null || s.origineContact === undefined) ? { origineContact: 'relocation' as const } : {}) });
+    ...origineSelon({ avecGestion: v, mandatGestion: v ? false : s.mandatGestion }) });
   const cocherMandat = (v: boolean): void => poser({ mandatGestion: v, ...(v ? { avecGestion: false } : {}),
-    // 🔴 Arno (24/10/2026, 415) — cocher « Nouvelle gestion » quand le propriétaire avait déjà un bien ou un bail chez nous AVANT la
-    // signature (origine client déduite « déjà client ») pré-sélectionne « Propriétaire déjà client » — si aucune origine n'est choisie.
-    ...(v && annuaire && lu.dejaClient === true && deduit?.origineProprietaire === 'deja' && (s.origineContact === null || s.origineContact === undefined)
-      ? { origineContact: 'proprietaire_deja_client' as const } : {}),
+    ...origineSelon({ avecGestion: v ? false : s.avecGestion, mandatGestion: v }),
     // 407 — un mandat signé avec la location : « 150 € » par défaut ; décoché : « Aucune » (un montant personnalisé reste).
     ...(annuaire && s.primeMode !== 'personnalise' ? { primeMode: v ? 'regle' as const : 'aucune' as const } : {}) });
   const libelle = (mot: React.ReactNode, oblig = false) => <span className="loc-suivi-libelle">{mot}{oblig && <> <span className="loc-oblig">*</span></>}</span>;
@@ -309,39 +325,38 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             libelle="Type de bien" desactive={!s.mandatGestion || (annuaire && s.primeMode !== 'regle')}
             onChange={(v) => poser({ categoriePrime: (CATEGORIES_PRIME as readonly string[]).includes(v) ? v as CategoriePrime : 'logement' })} donnees={{ 'data-categorie-prime': '' }} /></label>
         {annuaire && s.mandatGestion && s.primeMode === 'personnalise' && (
-          <label className="loc-champ">{libelle('Montant de la prime (€)', true)}
-            <input inputMode="decimal" value={s.primeMontant ?? ''} placeholder="ex. 15" onChange={(e) => poser({ primeMontant: e.target.value })} data-prime-montant /></label>
+          <label className="loc-champ">{libelle('Montant de la prime', true)}
+            <CaseEuros value={s.primeMontant ?? ''} placeholder="ex. 15" onChange={(e) => poser({ primeMontant: e.target.value })} data-prime-montant /></label>
         )}
       </div>
       {/* ── Ligne 3 : honoraires HT ── */}
       {/* 🔴 Arno (24/10/2026, après 56700ffb) — trois colonnes de même largeur : propriétaire HT · locataire HT · TOTAL HT (lecture seule).
           Arno (24/10/2026, accord explicite) : les trois aides sous ces champs sont retirées ; les champs restent liés (HT ↔ TTC). */}
       <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--trois" data-suivi-ligne="3">
-        <label className="loc-champ">{libelle('Honoraires propriétaire HT (€)')}
-          <input inputMode="decimal" value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
+        <label className="loc-champ">{libelle('Honoraires propriétaire HT')}
+          <CaseEuros value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, proprietaire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcProprietaire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, proprietaire: null }))} />
         </label>
-        <label className="loc-champ">{libelle('Honoraires locataire HT (€)')}
-          <input inputMode="decimal" value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht
+        <label className="loc-champ">{libelle('Honoraires locataire HT')}
+          <CaseEuros value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, locataire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcLocataire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, locataire: null }))} />
         </label>
         <label className="loc-champ">{libelle('Total des honoraires (HT)')}
-          <input value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht /></label>
+          <CaseEuros value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht /></label>
       </div>
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
           {annuaire && (
             <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
-              <ListeChoix options={originesProposees(lu.personnalisable === true, lu.dejaClient === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o] }))} valeur={s.origineContact ?? ''}
-                libelle="Origine du contact propriétaire" donnees={{ 'data-origine-contact': '' }}
-                onChange={(x) => {
-                  const v = x === '' ? null : x as OrigineContact;
-                  poser({ origineContact: v, ...(v !== 'apporteur' ? { apporteurId: null, apporteurTaux: '', commissionApporteur: '' } : {}), ...(v !== 'collegue' ? { collegueId: null } : {}),
-                    ...(v !== 'personnalise' ? { origineContactPrecision: '' } : {}) });
-                }} />
+              {/* « Relocation » n'est choisissable qu'avec la case « Relocation » (grisée sinon) ; la case cochée l'IMPOSE (liste figée). */}
+              <ListeChoix options={originesProposees(lu.personnalisable === true, lu.dejaClient === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o],
+                ...(o === 'relocation' && !s.avecGestion ? { bloque: true, mention: ' — cochez « Relocation »' } : {}) }))} valeur={s.origineContact ?? ''}
+                libelle="Origine du contact propriétaire" donnees={{ 'data-origine-contact': '' }} desactive={s.avecGestion}
+                onChange={(x) => { setOrigineAuto(false); poser(champsOrigine(x === '' ? null : x as OrigineContact)); }} />
+              {s.avecGestion && <small className="loc-muet" data-origine-imposee>Imposée par « Relocation » (portefeuille de gestion).</small>}
               {deduit?.cas === 'relocation' && <small className="loc-muet">Le bien a déjà été loué dans notre portefeuille de gestion : « Relocation » proposée.</small>}</label>
           )}
           {annuaire && s.origineContact === 'personnalise' && (
@@ -393,8 +408,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               <small className="loc-muet">Vide = le taux de l’apporteur à la signature ({pourcent(baremeDuJour?.tauxGestion ?? 0)}).</small></label>
           )}
           {avecApporteur && apporteur !== null && annuaire && (
-            <label className="loc-champ">{libelle('Honoraires d’apporteur (€)')}
-              <input inputMode="decimal" value={s.commissionApporteur ?? ''} onChange={(e) => poser({ commissionApporteur: e.target.value })} data-commission-apporteur
+            <label className="loc-champ">{libelle('Honoraires d’apporteur')}
+              <CaseEuros value={s.commissionApporteur ?? ''} onChange={(e) => poser({ commissionApporteur: e.target.value })} data-commission-apporteur
                 placeholder={commissionProposee === null ? '' : commissionProposee.toFixed(2).replace('.', ',')} />
               <small className="loc-muet">{commissionProposee === null ? 'Saisissez le montant.' : `Vide = proposé au taux : ${euros(commissionProposee)}.`}</small></label>
           )}
@@ -514,6 +529,9 @@ export const CSS_SUIVI_COMMERCIAL = `
 @media (max-width:640px){.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:minmax(0,1fr)}}
 /* Le total : le meme champ, meme style, en lecture seule (texte en gras), jamais saisissable. */
 .loc-ample .loc-suivi .loc-champ input.loc-suivi-lecture{font-weight:700;cursor:default}
+/* Arno (24/10/2026) — TOUS les champs d'argent : « € » DANS le champ, a droite (la case des conditions d'entree), le texte ne passe
+   jamais dessous. Les intitules ne portent plus « (€) ». */
+.loc-ample .loc-suivi .loc-champ .loc-case-euros input{padding-right:2.4em}
 @media (max-width:640px){.loc-suivi-ligne--deux,.loc-ample .loc-grille.loc-suivi-ligne--deux{grid-template-columns:minmax(0,1fr)}}
 /* Tous les libelles ont la MEME hauteur, celle du bouton « Ouvrir l'annuaire » : les libelles d'une ligne restent sur la meme ligne
    de base et les champs a la meme hauteur, bouton ou non. */

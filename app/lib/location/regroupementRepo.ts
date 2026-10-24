@@ -1,4 +1,5 @@
 import { query, type RequeteTx } from '../db/client';
+import { estLotParking } from './bienComplet';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { detacherAnnexeDans, regroupementDisponible } from './entretienAnnexeRepo';
@@ -46,7 +47,8 @@ async function lireLots(q: Lecteur, ids: readonly number[], roleDe: (id: number)
     const r = rows.find((x) => Number(x.id) === id);
     const role = roleDe(id);
     const occupants = occ.filter((o) => Number(o.lot_id) === id);
-    const place = r?.categorie === 'parking' || r?.categorie === 'box';
+    // Arno (24/10/2026) — un parking : catégorie parking/box, ou catégorie vide et nature/type « parking », « garage », « box »… (`estLotParking`).
+    const place = estLotParking({ categorie: r?.categorie ?? null, nature: r?.nature ?? null, typeBien: r?.type_bien ?? null });
     return {
       id, role,
       libelle: libelleLot({ categorie: r?.categorie ?? null, nature: r?.nature ?? null, typeBien: r?.type_bien ?? null, porte: r?.porte ?? null, role }),

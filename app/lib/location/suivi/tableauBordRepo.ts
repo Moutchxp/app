@@ -1,7 +1,7 @@
 import 'server-only';
 import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
-import { familleDeCategorie } from '../bienComplet';
+import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
 import { estRecurrent, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
@@ -33,7 +33,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             a.negociateur_id, a.negociateur_libelle, a.avec_gestion,
             coalesce(a.origine_proprietaire_saisie, a.origine_proprietaire_deduite) AS origine_proprietaire,
             coalesce(a.origine_locataire_saisie, a.origine_locataire_deduite) AS origine_locataire,
-            a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie,
+            a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie, l.nature, l.type_bien,
             ${avec407 ? 'a.origine_contact, a.collegue_id, a.collegue_libelle, a.prime_mode' : 'NULL::text AS origine_contact, NULL::bigint AS collegue_id, NULL::text AS collegue_libelle, NULL::text AS prime_mode'},
             ${avec411 ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision'},
             ${avec413 ? 'a.apporteur_mode, a.apporteur_taux_gestion, a.taux_gestion_bien_ht' : 'NULL::text AS apporteur_mode, NULL::numeric AS apporteur_taux_gestion, NULL::numeric AS taux_gestion_bien_ht'},
@@ -57,7 +57,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     negociateurId: nOuNull(r.negociateur_id), negociateurLibelle: String(r.negociateur_libelle ?? ''), avecGestion: r.avec_gestion === true,
     origineProprietaire: (r.origine_proprietaire as Origine | null) ?? null, origineLocataire: (r.origine_locataire as Origine | null) ?? null,
     loyerHc: nOuNull(r.loyer_hc), charges: nOuNull(r.charges), assurance: (r.assurance as Assurance | null) ?? null,
-    parking: r.categorie_prime === 'parking' || familleDeCategorie(r.categorie as string | null) === 'parking',
+    parking: r.categorie_prime === 'parking' || familleDuLot({ categorie: r.categorie as string | null, nature: r.nature as string | null, typeBien: r.type_bien as string | null }) === 'parking',
     vacanceJours: nOuNull(r.vacance), rattachement: r.rattachement as ActiviteCalcul['rattachement'],
     lotId: nOuNull(r.lot_id), bailId: nOuNull(r.bail_id), source: String(r.source),
     origineContact: (r.origine_contact as OrigineContact | null) ?? null, collegueId: nOuNull(r.collegue_id),
