@@ -95,7 +95,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ HT) » — Nouveau l
     await monter();
     const bloc = container.querySelector('[data-hono-montant]') as HTMLElement;
     expect(bloc).not.toBeNull();
-    expect(bloc.querySelector('label')?.textContent).toBe('Montant des honoraires propriétaire (€ HT)');
+    expect(bloc.querySelector('label')?.textContent).toBe('Montant des honoraires propriétaire (€\u00a0HT)');
     expect(bloc.querySelector('[data-hono-ttc]')).toBeNull();                       // vide : pas de « soit … TTC »
     expect(champ().value).toBe('');
     expect(bloc.querySelector('.loc-case-euros .loc-suffixe-euros')?.textContent).toBe('€');

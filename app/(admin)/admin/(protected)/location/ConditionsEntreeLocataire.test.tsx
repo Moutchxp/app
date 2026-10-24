@@ -491,7 +491,7 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     await preparer();
     const bloc = container.querySelector('[data-cond="honoraires-proprietaire"]') as HTMLElement;
     expect([...bloc.querySelectorAll('dt')].map((x) => x.querySelector('.loc-champ-tete')?.firstChild?.textContent)).toEqual(['Visite, dossier, rédaction du bail', 'État des lieux d’entrée', 'Total honoraires propriétaire']);
-    expect([...bloc.querySelectorAll('dd')].map((x) => x.textContent?.replace(/\s/g, ' '))).toEqual(['505,78 €', '126,65 €', '632,43 €']);
+    expect([...bloc.querySelectorAll('dd')].map((x) => x.textContent?.replace(/\s/g, ' '))).toEqual(['505,78 € TTC', '126,65 € TTC', '632,43 € TTC']);   // Arno (24/10/2026) : à côté d'un champ en HT, le barème se dit TTC
     // La formule est dans la bulle « Détail du calcul » (Arno, 20/10/2026), plus sous la ligne.
     expect(bloc.querySelector('dt small')).toBeNull();
     await clic(bloc.querySelector('dt .svv-pil-ib-btn')!);

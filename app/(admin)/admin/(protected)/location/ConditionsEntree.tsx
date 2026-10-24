@@ -387,7 +387,7 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
         {sa !== undefined && (
           <div className="loc-champ loc-hono-champ" data-hono-montant>
             <span className="loc-champ-tete">
-              <label htmlFor={idChamp} className="loc-hono-libelle">Montant des honoraires propriétaire (€ HT)</label>
+              <label htmlFor={idChamp} className="loc-hono-libelle">Montant des honoraires propriétaire (€{'\u00a0'}HT)</label>
               {!manuel && detail.length > 0 && (
                 <InfoBulle libelle="Montant des honoraires propriétaire" etiquette="Détail du calcul" cible={`${idHono}-bulle`} dansLEcran
                   contenu={<span className="loc-bulle-calcul" data-detail-calcul="montant">{detail.map((l) => (
@@ -443,7 +443,7 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
                               contenu={<span className="loc-bulle-calcul" data-detail-calcul={l.mot}><span>{l.detail}</span><span>= <strong>{l.valeur}</strong></span></span>} />
                           )}
                         </span>
-                      </dt><dd>{l.valeur}</dd>
+                      </dt><dd>{l.valeur}{sa !== undefined ? ' TTC' : ''}</dd>
                     </div>
                   ))}
                 </dl>
