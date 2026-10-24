@@ -1,4 +1,4 @@
-import { montantPrime, type BaremeApporteur, type ModeApporteur, estInterne, remunerationADate, type RemunerationCollegue,
+import { montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, estInterne, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -112,16 +112,25 @@ export function primeDe(a: ActiviteCalcul, regles: readonly RegleCommission[]): 
   return montantPrime(r, a.categoriePrime ?? (a.parking ? 'parking' : 'logement'));
 }
 
+/**
+ * 🔴 Arno (24/10/2026, 420) — un dossier signé AVANT l'enregistrement d'une règle « depuis toujours » qui le couvre : la règle remplace
+ * aussi ce qui a été saisi sur le dossier (taux, montant, mode, taux sur la gestion — l'import du fichier en porte sur chaque ligne).
+ * Un dossier signé ensuite garde ce qui y a été saisi. PUR.
+ */
+export function ligneRemplacee(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean {
+  const r = regleApporteurDe(a, apporteurs);
+  return r !== null && r.toujours === true && r.toujoursLe !== undefined && a.dateSignature < r.toujoursLe;
+}
+
 export function tauxApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
   if (a.apporteurId === null) return 0;
-  if (a.apporteurTaux !== null) return a.apporteurTaux;
-  const ap = apporteurs.find((x) => x.id === a.apporteurId);
-  return ap === undefined ? 0 : versionADate(ap.baremes, a.dateSignature)?.taux ?? 0;
+  if (a.apporteurTaux !== null && !ligneRemplacee(a, apporteurs)) return a.apporteurTaux;
+  return regleApporteurDe(a, apporteurs)?.taux ?? 0;
 }
 
 /** La PART LOCATION de la commission d'apporteur : la commission saisie, sinon CA HT × taux sur la location. PUR. */
 export function partLocationDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
-  if (a.commissionSaisie !== null) return a.commissionSaisie;
+  if (a.commissionSaisie !== null && !ligneRemplacee(a, apporteurs)) return a.commissionSaisie;
   return caLigne(a) * tauxApporteurDe(a, apporteurs);
 }
 
@@ -131,15 +140,15 @@ export function partLocationDe(a: ActiviteCalcul, apporteurs: readonly Apporteur
 export function regleApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): BaremeApporteur | null {
   if (a.apporteurId === null) return null;
   const ap = apporteurs.find((x) => x.id === a.apporteurId);
-  return ap === undefined ? null : versionADate(ap.baremes, a.dateSignature);
+  return ap === undefined ? null : baremeADate(ap, a.dateSignature);
 }
 /** Le mode du bail : le sien, sinon celui de la règle à la signature, sinon « One shot ». */
 export const modeApporteurDe = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): ModeApporteur =>
-  a.apporteurMode ?? regleApporteurDe(a, apporteurs)?.mode ?? 'one_shot';
+  (ligneRemplacee(a, apporteurs) ? null : a.apporteurMode) ?? regleApporteurDe(a, apporteurs)?.mode ?? 'one_shot';
 /** Le taux de l'apporteur sur la gestion (fraction) : celui du bail, sinon celui de la règle à la signature, sinon 0. */
 export function tauxGestionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
   if (a.apporteurId === null) return 0;
-  return a.apporteurTauxGestion ?? regleApporteurDe(a, apporteurs)?.tauxGestion ?? 0;
+  return (ligneRemplacee(a, apporteurs) ? null : a.apporteurTauxGestion) ?? regleApporteurDe(a, apporteurs)?.tauxGestion ?? 0;
 }
 
 /** Pourquoi la part gestion vaut 0 : le bien n'est pas en gestion, ou le loyer / le taux de gestion manquent. */
@@ -275,7 +284,7 @@ export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Ap
 /** Le taux de commission appliqué à la ligne (affichage) : celui du bail, sinon celui de l'apporteur à la date ; null sans apporteur. */
 export function tauxAffichage(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number | null {
   if (a.apporteurId === null && a.apporteurNom === null) return null;
-  if (a.commissionSaisie !== null && a.apporteurTaux === null) return caLigne(a) === 0 ? null : a.commissionSaisie / caLigne(a);
+  if (a.commissionSaisie !== null && a.apporteurTaux === null && !ligneRemplacee(a, apporteurs)) return caLigne(a) === 0 ? null : a.commissionSaisie / caLigne(a);
   return tauxApporteurDe(a, apporteurs);
 }
 
@@ -528,7 +537,7 @@ export interface LigneApporteur {
 
 /** Les coûts fixes mensuels d'un apporteur sur les mois de la période (la version en vigueur au 1er de chaque mois). */
 export function coutsFixesDe(ap: Apporteur, mois: readonly string[]): number {
-  return mois.reduce((s, m) => s + (versionADate(ap.baremes, `${m}-01`)?.coutFixeMensuel ?? 0), 0);
+  return mois.reduce((s, m) => s + (baremeADate(ap, `${m}-01`)?.coutFixeMensuel ?? 0), 0);
 }
 
 export function sectionApporteurs(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, p: Periode, moisEcoules?: readonly string[]): LigneApporteur[] {
@@ -876,4 +885,76 @@ export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): Ge
   const perduMensuel = somme(perdues);
   return { nouvelles, perdues, gagneMensuel, perduMensuel, balanceMensuelle: gagneMensuel - perduMensuel, balanceAnnuelle: (gagneMensuel - perduMensuel) * 12,
     sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length };
+}
+
+// ── 🔴 Arno (24/10/2026) — L'EFFET D'UN RÉGLAGE, EN DIRECT, ET LA CASCADE DES HONORAIRES ─────────────────────────────────────
+
+/** Ce que rapporte et coûte UN dossier : honoraires HT, dû à l'apporteur HT et dû au collègue HT (récurrents dus jusqu'au jour). */
+export interface DuDossier { id: number | string; dateSignature: string; libelle: string; ca: number; apporteur: number; collegue: number; net: number }
+
+/** Le dû de chaque dossier (les mêmes règles que les totaux de l'annuaire). Net agence = honoraires − apporteur − collègue. PUR. */
+export function dusParDossier(dossiers: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui: string): DuDossier[] {
+  return dossiers.filter((d) => d.apporteurId !== null).map((d) => {
+    const t = totauxApporteurs([d], apporteurs, aujourdhui)[d.apporteurId as number];
+    return { id: d.id, dateSignature: d.dateSignature, libelle: [d.libelleProprietaire, d.libelleLocataire].filter(Boolean).join(' / '), ca: t.ca,
+      apporteur: t.commission, collegue: t.collegue, net: t.ca - t.commission - t.collegue };
+  });
+}
+
+/** La cascade d'un ensemble : honoraires HT − dû à l'apporteur − dû au collègue = net agence HT. PUR. */
+export function cascade(x: { ca: number; commission: number; collegue?: number }): { ca: number; apporteur: number; collegue: number; net: number } {
+  const collegue = x.collegue ?? 0;
+  return { ca: x.ca, apporteur: x.commission, collegue, net: x.ca - x.commission - collegue };
+}
+
+export interface EffetReglage {
+  total: number; concernes: number; changes: number; depuis: string; toujours: boolean;
+  /** Concernés dont le dû NE BOUGE PAS : un taux / un montant SAISI sur le dossier (les lignes reprises du fichier) l'emporte. */
+  figes: number;
+  avantApporteur: number; apresApporteur: number; avantCollegue: number; apresCollegue: number;
+}
+const NOUVELLE = Number.MAX_SAFE_INTEGER;
+
+/**
+ * « Effet de ce réglage » (formulaire « Nouveau taux », sans rien enregistrer) : la nouvelle version de la règle de l'apporteur et / ou
+ * de la rémunération de son collègue, ajoutée APRÈS les versions existantes (une « depuis toujours » est datée du jour, comme au
+ * serveur). Dossiers concernés : ceux dont la version en vigueur devient la nouvelle ; changés : ceux dont un dû bouge ; dû avant →
+ * après sur TOUS ses dossiers. PUR.
+ */
+export function effetReglage(o: { dossiers: readonly ActiviteCalcul[]; apporteurs: readonly Apporteur[]; apporteurId: number; aujourdhui: string;
+  bareme?: BaremeApporteur | null; remuneration?: RemunerationCollegue | null }): EffetReglage {
+  const ap = o.apporteurs.find((x) => x.id === o.apporteurId);
+  const siens = o.dossiers.filter((d) => d.apporteurId === o.apporteurId);
+  const date = (v: { depuis: string; toujours?: boolean }) => (v.toujours === true ? o.aujourdhui : v.depuis);
+  const modifie: Apporteur | undefined = ap === undefined ? undefined : {
+    ...ap,
+    baremes: o.bareme ? [...ap.baremes, { ...o.bareme, depuis: date(o.bareme), ordre: NOUVELLE }] : ap.baremes,
+    remunerations: o.remuneration ? [...(ap.remunerations ?? []), { ...o.remuneration, depuis: date(o.remuneration), ordre: NOUVELLE }] : ap.remunerations,
+  };
+  const apres = modifie === undefined ? o.apporteurs : o.apporteurs.map((x) => (x.id === o.apporteurId ? modifie : x));
+  const avantD = dusParDossier(siens, o.apporteurs, o.aujourdhui);
+  const apresD = dusParDossier(siens, apres, o.aujourdhui);
+  const concerne = (d: ActiviteCalcul): boolean => (o.bareme ? regleApporteurDe(d, apres)?.ordre === NOUVELLE : false)
+    || (o.remuneration && modifie ? remunerationADate(modifie, d.dateSignature)?.ordre === NOUVELLE : false);
+  const somme = (x: DuDossier[], k: 'apporteur' | 'collegue'): number => x.reduce((s, d) => s + d[k], 0);
+  const v = o.bareme ?? o.remuneration;
+  const change = (i: number): boolean => Math.abs(avantD[i].apporteur - apresD[i].apporteur) > 0.0000001 || Math.abs(avantD[i].collegue - apresD[i].collegue) > 0.0000001;
+  const saisi = (d: ActiviteCalcul): boolean => d.commissionSaisie !== null || d.apporteurTaux !== null;
+  return {
+    total: siens.length, concernes: siens.filter(concerne).length,
+    changes: siens.filter((_, i) => change(i)).length,
+    figes: o.bareme ? siens.filter((d, i) => concerne(d) && !change(i) && saisi(d)).length : 0,
+    depuis: v ? date(v) : o.aujourdhui, toujours: v?.toujours === true,
+    avantApporteur: somme(avantD, 'apporteur'), apresApporteur: somme(apresD, 'apporteur'), avantCollegue: somme(avantD, 'collegue'), apresCollegue: somme(apresD, 'collegue'),
+  };
+}
+
+/**
+ * La cascade AFFICHÉE, juste au centime : chaque terme arrondi au centime, le net calculé EN CENTIMES à partir des termes affichés —
+ * « Honoraires − apporteur − collègue = net » tombe juste à l'écran, sans écart d'arrondi. `collegue` null : pas de ligne (interne). PUR.
+ */
+export function cascadeAuCentime(x: { ca: number; apporteur: number; collegue: number | null }): { ca: number; apporteur: number; collegue: number | null; net: number } {
+  const c = (v: number): number => Math.round((v + Number.EPSILON) * 100);
+  const net = c(x.ca) - c(x.apporteur) - (x.collegue === null ? 0 : c(x.collegue));
+  return { ca: c(x.ca) / 100, apporteur: c(x.apporteur) / 100, collegue: x.collegue === null ? null : c(x.collegue) / 100, net: net / 100 };
 }

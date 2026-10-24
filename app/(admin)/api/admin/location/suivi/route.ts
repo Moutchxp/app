@@ -5,11 +5,13 @@ import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
-  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible,
+  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
 import { cumulApporteur, totauxApporteurs } from '../../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
+import { avecTrace } from '../../../../../lib/gestion/traceJournal';
+import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -23,6 +25,7 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
  *         POST action=modifier-apporteur | rattacher-apporteur  la fiche de l'annuaire, le collègue daté (ADMINISTRATEUR) ;
  *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur : total, par an, par mois ;
  *         GET  ?vue=totaux-apporteurs                          les totaux de chaque apporteur depuis le début (dossiers, HT, dû).
+ *   GET ?vue=dossiers-apporteur&id=N : les dossiers d'un apporteur (calcul en direct, cascade).
  *   419 : POST action=remuneration-collegue {apporteurId, remuneration}  la rémunération du collègue de rattachement (ADMINISTRATEUR).
  * Les rétrocessions (montants de commission) ne sont lues que par qui peut « Voir les commissions ».
  */
@@ -45,6 +48,12 @@ export async function GET(request: Request): Promise<Response> {
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
       return json({ etat: 'ok', data: cumulApporteur(await lireActivites(annees), apporteurs, id, aujourdhuiParis()) });
     }
+    // 🔴 Arno (24/10/2026) — les dossiers d'UN apporteur (calcul en direct du « Nouveau taux », cascade par dossier).
+    if (url.searchParams.get('vue') === 'dossiers-apporteur') {
+      const id = Number(url.searchParams.get('id'));
+      const annees = await anneesActives();
+      return json({ etat: 'ok', data: { aujourdhui: aujourdhuiParis(), dossiers: (await lireActivites(annees)).filter((x) => x.apporteurId === id) } });
+    }
     // Arno (23/10/2026) — les totaux de chaque apporteur depuis le début (liste de l'annuaire).
     if (url.searchParams.get('vue') === 'totaux-apporteurs') {
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
@@ -57,9 +66,9 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
-    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
-      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(),
+      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(),
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
@@ -68,7 +77,9 @@ export async function GET(request: Request): Promise<Response> {
       // 415 — l'origine « Propriétaire déjà client » peut-elle être proposée ?
       dejaClient,
       // 419 — apporteurs internes, durée du récurrent, rémunération du collègue : enregistrables ?
-      interne } });
+      interne,
+      // 420 — « Depuis toujours » enregistrable ?
+      toujours } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);
@@ -92,14 +103,17 @@ export async function POST(request: Request): Promise<Response> {
     switch (action) {
       case 'enregistrer-activite': return json(await enregistrerActiviteBail(corps.bailId, corps.activite, auteur));
       case 'creer-apporteur': return json(await creerApporteur(corps.apporteur, auteur));
-      case 'bareme-apporteur': return json(await ajouterBaremeApporteur(corps.apporteurId, corps.bareme, auteur));
+      // 420 — compte, session et écran journalisés (« Depuis toujours »).
+      case 'bareme-apporteur': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
+        () => ajouterBaremeApporteur(corps.apporteurId, corps.bareme, auteur)));
       case 'regle': return json(await ajouterRegle(corps.regle, auteur));
       case 'retrocession': return json(await ajouterRetrocession(corps.retrocession, auteur));
       case 'annuler-retrocession': return json(await annulerRetrocession(corps.id, auteur));
       case 'modifier-activite': return json(await modifierActivite(corps.id, corps.champs, auteur));
       case 'modifier-apporteur': return json(await modifierApporteur(corps.apporteurId, corps.fiche, auteur));
       case 'rattacher-apporteur': return json(await rattacherApporteur(corps.apporteurId, corps.rattachement, auteur));
-      case 'remuneration-collegue': return json(await ajouterRemunerationCollegue(corps.apporteurId, corps.remuneration, auteur));
+      case 'remuneration-collegue': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
+        () => ajouterRemunerationCollegue(corps.apporteurId, corps.remuneration, auteur)));
       default: return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);
     }
   } catch (e) {

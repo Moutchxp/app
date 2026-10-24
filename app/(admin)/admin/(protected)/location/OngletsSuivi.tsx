@@ -4,10 +4,13 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
-  LIBELLE_MODE_APPORTEUR, libelleRegleApporteur, MODES_APPORTEUR, type ModeApporteur, libelleApporteur, nomEtPrenom, trierApporteurs,
-  badgeApporteur, estInterne, libelleRemuneration, remunerationADate, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE,
+  libelleRegleApporteur, type ModeApporteur, libelleApporteur, nomEtPrenom, trierApporteurs,
+  badgeApporteur, estInterne, libelleRemuneration, remunerationADate, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE, baremeADate,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
+import { BlocRemuneration, ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, depuisRegle, dureeEnvoyee, FormulaireNouveauTaux, historiqueRegles, useDossiersApporteur } from './ReglageApporteur';
+import { CascadeHonoraires } from './CascadeHonoraires';
+import { dusParDossier } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -29,6 +32,8 @@ interface Lu {
   annuaire: boolean;
   /** 419 — apporteurs internes, durée du récurrent et rémunération du collègue s'enregistrent-ils ? */
   interne?: boolean;
+  /** 420 — « Depuis toujours » s'enregistre-t-il ? */
+  toujours?: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -46,7 +51,7 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
         retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
-        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true });
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -93,89 +98,11 @@ const VIDE_APPORTEUR =(jour: string) => ({ sorte: 'externe' as 'externe' | 'inte
 /** 413 — `location` / `gestion` / `recurrente` : le dû détaillé (part location, part gestion « One shot », part gestion « Récurrent »). 419 — `collegue` : dû au collègue. */
 type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number; collegue?: number };
 
-/** 419 — la durée envoyée : « Indéterminée » ou le nombre d'années saisi. */
-const dureeEnvoyee = (x: { indeterminee: boolean; duree: string }): string => (x.indeterminee ? 'indeterminee' : x.duree.trim());
-
-/**
- * 🔴 Arno (24/10/2026, 419) — LA DURÉE DU « RÉCURRENT » : un nombre d'années entier (1 au moins, saisie libre) OU « Indéterminée ».
- */
-function ChampDuree({ indeterminee, duree, onChange, repere }: { indeterminee: boolean; duree: string; onChange: (x: { indeterminee: boolean; duree: string }) => void; repere: string }) {
-  return (
-    <div className="plo-champ" data-duree-recurrent={repere}><span>Durée du récurrent</span>
-      <label className="plo-case"><input type="checkbox" checked={indeterminee} onChange={(e) => onChange({ indeterminee: e.target.checked, duree })} data-duree-indeterminee />Indéterminée</label>
-      <span className="plo-duree">
-        <input inputMode="numeric" aria-label="Durée en années" value={indeterminee ? '' : duree} disabled={indeterminee} placeholder="ex. 3"
-          onChange={(e) => onChange({ indeterminee, duree: e.target.value })} data-duree-annees /> <span className="plo-muet">an(s)</span></span>
-    </div>
-  );
-}
-
 /** 419 — le badge « INTERNE » / « PARTENAIRE EXTERNE ». */
 function BadgeApporteur({ a }: { a: Pick<Apporteur, 'compteId'> }) {
   return <span className={`plo-pastille plo-badge ${estInterne(a) ? 'plo-badge--interne' : 'plo-badge--externe'}`} data-badge-apporteur={estInterne(a) ? 'interne' : 'externe'}>{badgeApporteur(a)}</span>;
 }
 
-/**
- * ══ 🔴 Arno (24/10/2026, 419) — « RÉMUNÉRATION DE <COLLÈGUE> (A APPORTÉ CET APPORTEUR) » ═══════════════════════════════════════
- * « Aucune rémunération » (défaut) ou « Rémunération » : One shot ou Récurrent, SES taux location et gestion, sa durée. Chaque
- * enregistrement crée une VERSION datée (« applicable à partir du ») ; les dossiers signés avant gardent la leur.
- */
-function BlocRemuneration({ a, collegue, jour, disponible, envoi, faire }: { a: Apporteur; collegue: string | null; jour: string; disponible: boolean; envoi: boolean;
-  faire: (corps: Record<string, unknown>, reussite: string) => Promise<boolean> }) {
-  const enVigueur = remunerationADate(a, jour);
-  const [r, setR] = useState(() => ({ remunere: enVigueur?.remunere === true, mode: enVigueur?.mode ?? 'one_shot' as ModeApporteur,
-    taux: enVigueur?.remunere ? champTaux(enVigueur.taux) : '', tauxGestion: enVigueur?.remunere ? champTaux(enVigueur.tauxGestion) : '',
-    indeterminee: (enVigueur?.dureeAnnees ?? null) === null, duree: enVigueur?.dureeAnnees ? String(enVigueur.dureeAnnees) : '', depuis: jour }));
-  const qui = collegue ?? 'du collègue';
-  return (
-    <div className="plo-remuneration" data-remuneration-collegue={a.id}>
-      <h4 className="plo-h4">Rémunération de {qui} <small className="plo-muet">(a apporté cet apporteur)</small></h4>
-      <p className="plo-muet plo-petit-texte" data-remuneration-en-vigueur>{libelleRemuneration(enVigueur)}{enVigueur !== null ? ` (depuis le ${dateFr(enVigueur.depuis)})` : ''}</p>
-      {(a.remunerations ?? []).length > 1 && (
-        <p className="plo-muet plo-petit-texte" data-historique-remuneration>Historique : {(a.remunerations ?? []).map((v) => `${dateFr(v.depuis)} → ${libelleRemuneration(v)}`).join(' · ')}</p>
-      )}
-      {!disponible ? <p className="plo-alerte" role="status" data-remuneration-sans-migration>Mise à jour de la base à appliquer (migration 419) : la rémunération du collègue ne peut pas encore être enregistrée.</p> : (
-        <>
-          <span className="plo-modes" role="group" aria-label="Rémunération du collègue">
-            <button type="button" className="plo-mode" aria-pressed={!r.remunere} data-remunere="non" onClick={() => setR({ ...r, remunere: false })}>Aucune rémunération</button>
-            <button type="button" className="plo-mode" aria-pressed={r.remunere} data-remunere="oui" onClick={() => setR({ ...r, remunere: true })}>Rémunération</button>
-          </span>
-          <div className="plo-grille">
-            {r.remunere && (
-              <>
-                <ChoixMode valeur={r.mode} onChange={(m) => setR({ ...r, mode: m })} />
-                <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={r.taux} placeholder="ex. 5" onChange={(e) => setR({ ...r, taux: e.target.value })} data-remuneration-taux /></label>
-                <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={r.tauxGestion} placeholder="ex. 10" onChange={(e) => setR({ ...r, tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
-                {r.mode === 'recurrent' && <ChampDuree indeterminee={r.indeterminee} duree={r.duree} repere="remuneration" onChange={(x) => setR({ ...r, ...x })} />}
-              </>
-            )}
-            <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={r.depuis} onChange={(e) => setR({ ...r, depuis: e.target.value })} data-remuneration-depuis /></label>
-          </div>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={envoi} data-enregistrer-remuneration
-            onClick={() => { void faire({ action: 'remuneration-collegue', apporteurId: a.id, remuneration: { remunere: r.remunere, mode: r.mode, taux: r.taux, tauxGestion: r.tauxGestion,
-              dureeAnnees: dureeEnvoyee(r), depuis: r.depuis } }, `Rémunération de ${qui} enregistrée (à partir du ${dateFr(r.depuis)}).`); }}>Enregistrer la rémunération</button>
-        </>
-      )}
-    </div>
-  );
-}
-/** 413 — « 10 » (fraction 0,1 → texte du champ). */
-const champTaux = (x: number | undefined): string => (x === undefined ? '' : String(Math.round(x * 1000000) / 10000).replace('.', ','));
-
-/** 🔴 Arno (24/10/2026, 413) — le CHOIX qui ouvre la règle d'un apporteur : « One shot » ou « Récurrent ». */
-function ChoixMode({ valeur, onChange }: { valeur: ModeApporteur; onChange: (m: ModeApporteur) => void }) {
-  return (
-    <div className="plo-champ plo-champ--large" data-mode-apporteur><span>Mode de commission</span>
-      <span className="plo-modes" role="group" aria-label="Mode de commission">
-        {MODES_APPORTEUR.map((m) => (
-          <button key={m} type="button" className="plo-mode" aria-pressed={valeur === m} data-mode={m} onClick={() => onChange(m)}>{LIBELLE_MODE_APPORTEUR[m]}</button>
-        ))}
-      </span>
-      <small className="plo-muet">{valeur === 'one_shot' ? 'Part gestion due une fois, à la signature : 12 mois d’honoraires de gestion (la première année).'
-        : 'Part gestion due chaque mois, tant que le bien reste en gestion.'}</small>
-    </div>
-  );
-}
 type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number })[]; parMois: (Chiffres & { mois: string })[] };
 const ttc = (ht: number): number => ht * (1 + TAUX_TVA);
 
@@ -244,7 +171,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const g = useGeste(relire);
   const jour = aujourdhuiParis();
   const [nouveau, setNouveau] = useState(VIDE_APPORTEUR(jour));
-  const [version, setVersion] = useState<{ id: number; mode: ModeApporteur; taux: string; tauxGestion: string; coutFixe: string; depuis: string; indeterminee: boolean; duree: string } | null>(null);
+  /** 🔴 Arno (24/10/2026) — l'apporteur dont le formulaire « Nouveau taux » est ouvert (la saisie vit dans `FormulaireNouveauTaux`). */
+  const [version, setVersion] = useState<{ id: number } | null>(null);
   /** 419 — un refus dit AVANT l'envoi (le serveur refuse pareil) : externe sans collègue, durée illisible. */
   const [refusLocal, setRefusLocal] = useState<string | null>(null);
   const [ouverte, setOuverte] = useState<number | null>(null);
@@ -304,14 +232,16 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               const rang = new Map(alpha.map((a, i) => [a.id, i]));
               return tri === 'nom' ? alpha : [...alpha].sort((x, y) => (totaux?.[y.id]?.[tri] ?? 0) - (totaux?.[x.id]?.[tri] ?? 0) || (rang.get(x.id)! - rang.get(y.id)!));
             })().map((a) => {
-              const enVigueur = versionADate(a.baremes, jour);
+              const enVigueur = baremeADate(a, jour);
               const orphelin = annuaire && aRattacher(a);
               // 419 — un INTERNE n'est rattaché à personne : ni pastille de collègue, ni « à rattacher », ni rémunération.
               const interne = estInterne(a);
               const collegue = interne ? null : collegueADate(a, jour);
               return (
                 <li key={a.id} data-apporteur={a.id} data-sorte-apporteur={interne ? 'interne' : 'externe'} className={orphelin ? 'plo-a-rattacher' : undefined}>
-                  <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><BadgeApporteur a={a} /><span className="plo-pastille">{LIBELLE_TYPE_APPORTEUR[a.type]}</span>
+                  <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><BadgeApporteur a={a} />
+                    {/* 🔴 Arno (24/10/2026) — UN seul badge quand la pastille de type le répète (« Partenaire externe ») ; sinon les deux. */}
+                    {LIBELLE_TYPE_APPORTEUR[a.type].toLocaleUpperCase('fr-FR') !== badgeApporteur(a) && <span className="plo-pastille" data-type-apporteur>{LIBELLE_TYPE_APPORTEUR[a.type]}</span>}
                     {annuaire && !interne && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
@@ -331,35 +261,22 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                       {!interne && <div data-du-collegue={a.id}><dt>Dû au collègue HT</dt><dd>{euros(totaux[a.id]?.collegue ?? 0)}</dd></div>}
                     </dl>
                   )}
+                  {/* 🔴 Arno (24/10/2026) — la cascade : honoraires − apporteur − collègue (externe) = net agence. */}
+                  {totaux !== null && (
+                    <CascadeHonoraires repere={String(a.id)} ca={totaux[a.id]?.ca ?? 0} apporteur={totaux[a.id]?.commission ?? 0}
+                      collegue={interne ? null : totaux[a.id]?.collegue ?? 0} nomApporteur={libelleApporteur(a)} nomCollegue={collegue?.collegueLibelle ?? 'à rattacher'} />
+                  )}
                   {annuaire && (a.societe || a.telephone || a.email) && <p className="plo-muet plo-petit-texte">{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</p>}
                   {/* 413 — « One shot — location 10 %, gestion 20 % (depuis le …) » / « Récurrent — location 10 %, gestion 10 % / mois (depuis le …) ». */}
                   <p className="plo-version-valeurs" data-regle-apporteur={a.id}>{enVigueur === null ? 'Aucun taux en vigueur aujourd’hui.'
-                    : `${libelleRegleApporteur(enVigueur)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (depuis le ${dateFr(enVigueur.depuis)})`}</p>
+                    : `${libelleRegleApporteur(enVigueur)}${enVigueur.coutFixeMensuel > 0 ? ` · coût fixe ${euros(enVigueur.coutFixeMensuel)} / mois` : ''} (${depuisRegle(enVigueur)})`}</p>
                   {a.baremes.length > 1 && (
-                    <p className="plo-muet plo-petit-texte">Historique : {a.baremes.map((b) => `${dateFr(b.depuis)} → ${libelleRegleApporteur(b)}${b.coutFixeMensuel > 0 ? ` + ${euros(b.coutFixeMensuel)}/mois` : ''}`).join(' · ')}</p>
+                    <p className="plo-muet plo-petit-texte" data-historique-regles-apporteur>Historique : {historiqueRegles(a, euros)}</p>
                   )}
                   {version?.id === a.id ? (
-                    <div className="plo-grille" data-nouvelle-version={a.id} onKeyDown={echap(() => setVersion(null))}>
-                      <ChoixMode valeur={version.mode} onChange={(m) => setVersion({ ...version, mode: m })} />
-                      <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={version.taux} onChange={(e) => setVersion({ ...version, taux: e.target.value })} data-version-taux /></label>
-                      <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={version.tauxGestion} placeholder="ex. 20" onChange={(e) => setVersion({ ...version, tauxGestion: e.target.value })} data-version-taux-gestion /></label>
-                      {version.mode === 'recurrent' && <ChampDuree indeterminee={version.indeterminee} duree={version.duree} repere="version" onChange={(x) => setVersion({ ...version, ...x })} />}
-                      <label className="plo-champ"><span>Coût fixe mensuel (€)</span><input inputMode="decimal" value={version.coutFixe} onChange={(e) => setVersion({ ...version, coutFixe: e.target.value })} /></label>
-                      <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={version.depuis} onChange={(e) => setVersion({ ...version, depuis: e.target.value })} /></label>
-                      {refusLocal !== null && <p className="plo-erreur plo-champ--large" role="alert" data-refus-local-version>{refusLocal}</p>}
-                      <span className="plo-boutons" style={{ alignItems: 'end' }}>
-                        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setVersion(null); setRefusLocal(null); }} data-annuler-version>Annuler</button>
-                        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={g.envoi} data-enregistrer-version
-                          onClick={() => {
-                            // 🔴 419 — un externe sans collègue ne se modifie pas (le serveur refuse pareil) ; une durée illisible non plus.
-                            if (orphelin) { setRefusLocal(MOT_RATTACHER_DABORD); return; }
-                            if (version.mode === 'recurrent' && lireDuree(dureeEnvoyee(version)) === undefined) { setRefusLocal(MOT_DUREE); return; }
-                            setRefusLocal(null);
-                            void g.faire({ action: 'bareme-apporteur', apporteurId: a.id, bareme: { mode: version.mode, taux: version.taux, tauxGestion: version.tauxGestion, coutFixe: version.coutFixe, depuis: version.depuis,
-                              ...(version.mode === 'recurrent' ? { dureeAnnees: dureeEnvoyee(version) } : {}) } },
-                            `Nouveau taux de ${a.nom} enregistré.`).then((ok) => { if (ok) setVersion(null); }); }}>Enregistrer</button>
-                      </span>
-                    </div>
+                    <FormulaireNouveauTaux a={a} apporteurs={lu.apporteurs} collegue={!interne && collegue !== null && lu.interne === true ? collegue.collegueLibelle : null} jour={jour}
+                      envoi={g.envoi} faire={g.faire} refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={lu.toujours === true} cle={lu}
+                      onFermer={() => { setVersion(null); setRefusLocal(null); }} />
                   ) : (
                     <span className="plo-gestes-ligne">
                       {onChoisir !== undefined && (
@@ -368,9 +285,7 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                           onClick={() => onChoisir(a)}>Choisir cet apporteur</button>
                       )}
                       <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" data-nouveau-taux={a.id}
-                        onClick={() => { g.effacer(); setRefusLocal(null); setVersion({ id: a.id, mode: enVigueur?.mode ?? 'one_shot', taux: enVigueur === null ? '' : champTaux(enVigueur.taux),
-                          tauxGestion: enVigueur === null ? '' : champTaux(enVigueur.tauxGestion ?? 0), coutFixe: enVigueur === null ? '' : String(enVigueur.coutFixeMensuel).replace('.', ','), depuis: jour,
-                          indeterminee: (enVigueur?.dureeAnnees ?? null) === null, duree: enVigueur?.dureeAnnees ? String(enVigueur.dureeAnnees) : '' }); }}>
+                        onClick={() => { g.effacer(); setRefusLocal(null); setVersion({ id: a.id }); }}>
                         Nouveau taux</button>
                       {annuaire && <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-expanded={ouverte === a.id} onClick={() => ouvrir(a)} data-ouvrir-fiche={a.id}>
                         {ouverte === a.id ? 'Fermer la fiche' : 'Fiche et cumul'}</button>}
@@ -425,10 +340,12 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                           `${a.nom} est rattaché à ${lu.collegues.find((c) => String(c.id) === rattachement.collegueId)?.libelle ?? 'son collègue'}.`); }}>
                         {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
                       {(a.collegues ?? []).length > 0 && (
-                        <BlocRemuneration key={`${a.id}-${(a.remunerations ?? []).length}`} a={a} collegue={collegue?.collegueLibelle ?? null} jour={jour} disponible={lu.interne === true} envoi={g.envoi} faire={g.faire} />
+                        <BlocRemuneration key={`${a.id}-${(a.remunerations ?? []).length}`} a={a} apporteurs={lu.apporteurs} collegue={collegue?.collegueLibelle ?? null} jour={jour}
+                          disponible={lu.interne === true} toujoursPossible={lu.toujours === true} envoi={g.envoi} faire={g.faire} cle={lu} />
                       )}
                       </>)}
                       <CumulApporteur id={a.id} />
+                      <CascadeParDossier a={a} apporteurs={lu.apporteurs} cle={lu} collegue={interne ? null : collegue?.collegueLibelle ?? 'à rattacher'} />
                       <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" onClick={() => { g.effacer(); setOuverte(null); }} data-fermer-fiche={a.id}>Fermer la fiche</button>
                     </div>
                   )}
@@ -585,7 +502,32 @@ export function OngletCommissions() {
   );
 }
 
-export const CSS_ONGLETS_SUIVI = `
+/**
+ * 🔴 Arno (24/10/2026) — « Fiche et cumul » : la cascade de CHAQUE dossier (honoraires − apporteur − collègue = net agence), les mêmes
+ * règles que la carte (récurrents dus jusqu'à aujourd'hui).
+ */
+function CascadeParDossier({ a, apporteurs, cle, collegue }: { a: Apporteur; apporteurs: readonly Apporteur[]; cle: unknown; collegue: string | null }) {
+  const d = useDossiersApporteur(a.id, cle);
+  if (d === null) return <p className="plo-muet plo-petit-texte" role="status">Lecture des dossiers…</p>;
+  if (d === 'erreur') return <p className="plo-muet plo-petit-texte">Dossiers indisponibles.</p>;
+  const lignes = dusParDossier(d.dossiers, apporteurs, d.aujourdhui || aujourdhuiParis());
+  if (lignes.length === 0) return null;
+  return (
+    <>
+      <h4 className="plo-h4">Par dossier</h4>
+      <ol className="plo-dossiers" data-cascade-dossiers={a.id}>
+        {lignes.map((l) => (
+          <li key={String(l.id)} data-cascade-dossier={String(l.id)}>
+            <span className="plo-dossier-titre">{dateFr(l.dateSignature)} — {l.libelle || 'dossier'}</span>
+            <CascadeHonoraires compacte ca={l.ca} apporteur={l.apporteur} collegue={collegue === null ? null : l.collegue} nomApporteur={libelleApporteur(a)} nomCollegue={collegue} />
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + `
 .plo-champ--large{grid-column:1 / -1}
 .plo-modes{display:flex;flex-wrap:wrap;gap:8px}
 .plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
@@ -630,5 +572,8 @@ export const CSS_ONGLETS_SUIVI = `
 .plo-duree{display:flex;align-items:center;gap:6px}
 .plo-duree input{max-width:90px}
 .plo-remuneration{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-field)}
+.plo-dossiers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.plo-dossiers>li{border:0;padding:0;background:none;box-shadow:none}
+.plo-dossier-titre{display:block;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);margin-bottom:2px}
 .plo-select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:.95rem;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}
 `;

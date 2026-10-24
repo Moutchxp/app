@@ -79,7 +79,9 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
     // le formulaire COMMENCE par le choix du mode (pré-rempli avec la règle en vigueur)
     expect(form.firstElementChild?.hasAttribute('data-mode-apporteur')).toBe(true);
     expect(form.querySelector('[data-mode="recurrent"]')?.getAttribute('aria-pressed')).toBe('true');
-    expect([...form.querySelectorAll('label > span')].map((x) => x.textContent)).toEqual(['Taux sur la location (%)', 'Taux sur la gestion (%)', 'Coût fixe mensuel (€)', 'Applicable à partir du']);
+    expect([...form.querySelectorAll('label > span')].map((x) => x.textContent)).toEqual(['Taux sur la location (%)', 'Taux sur la gestion (%)', 'Coût fixe mensuel (€)']);
+    // Arno (24/10/2026, 420) — « Applicable à partir du » OU « Depuis toujours ».
+    expect(form.querySelector('[data-application="version"] > span')?.textContent).toBe('Applicable à partir du');
     await clic(form.querySelector('[data-mode="one_shot"]')!);
     expect(form.querySelector('[data-mode="one_shot"]')?.getAttribute('aria-pressed')).toBe('true');
     await saisir(form.querySelector('[data-version-taux-gestion]') as HTMLInputElement, '20');

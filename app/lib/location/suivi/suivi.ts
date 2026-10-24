@@ -216,6 +216,41 @@ export interface BaremeApporteur extends Datee {
   taux: number; coutFixeMensuel: number; mode?: ModeApporteur; tauxGestion?: number;
   /** 🔴 Arno (24/10/2026, 419) — la durée du « Récurrent », en années entières (≥ 1). null / absente : « Indéterminée ». */
   dureeAnnees?: number | null;
+  /** 420 — voir `VersionToujours`. */
+  toujours?: boolean; ordre?: number; toujoursLe?: string;
+}
+
+/**
+ * ══ 🔴 Arno (24/10/2026, migration 420) — UNE VERSION « DEPUIS TOUJOURS » ═══════════════════════════════════════════════════════
+ * `toujours` : elle vaut pour TOUS les dossiers, passés compris ; elle REMPLACE dans le calcul les versions enregistrées AVANT elle
+ * (`ordre` : l'ordre d'enregistrement, l'`id` en base) — sans les effacer : elles restent dans l'historique. Son `depuis` est le jour
+ * de son enregistrement ; `versionsEffectives` la rend datée « depuis toujours » et garde ce jour dans `toujoursLe`.
+ */
+export interface VersionToujours extends Datee { toujours?: boolean; ordre?: number; toujoursLe?: string }
+
+/**
+ * Les versions qui comptent dans le calcul : sans version « depuis toujours », toutes (comme avant) ; sinon la DERNIÈRE enregistrée
+ * « depuis toujours » (datée depuis toujours) et les versions enregistrées APRÈS elle. Sans `ordre` : l'ordre de la liste. PUR.
+ */
+export function versionsEffectives<T extends VersionToujours>(versions: readonly T[]): T[] {
+  const rang = (v: T, i: number): number => v.ordre ?? i;
+  const triees = versions.map((v, i) => ({ v, r: rang(v, i) })).sort((a, b) => a.r - b.r);
+  let k = -1;
+  triees.forEach((x, i) => { if (x.v.toujours === true) k = i; });
+  if (k < 0) return [...versions];
+  const t = triees[k].v;
+  return [{ ...t, depuis: DEPUIS_TOUJOURS, toujoursLe: t.toujoursLe ?? t.depuis }, ...triees.slice(k + 1).map((x) => x.v)];
+}
+
+/** La règle d'un apporteur EN VIGUEUR à une date, versions « depuis toujours » comprises. PUR. */
+export function baremeADate(a: Pick<Apporteur, 'baremes'>, dateIso: string): BaremeApporteur | null {
+  return versionADate(versionsEffectives(a.baremes), dateIso);
+}
+
+/** L'historique d'une version : « 01/01/2026 → … » ; « depuis toujours » : « 24/10/2026 : remplacé depuis toujours par … ». PUR. */
+export function libelleHistorique(v: VersionToujours, libelle: string): string {
+  const d = v.depuis.split('-').reverse().join('/');
+  return v.toujours === true ? `${d} : remplacé depuis toujours par ${libelle}` : `${d} → ${libelle}`;
 }
 
 /** « pendant 3 ans » / « pendant 1 an » / « durée indéterminée ». PUR. */
@@ -227,7 +262,7 @@ export const libelleDuree = (d: number | null | undefined): string => (d === nul
  * sa durée — les mêmes formules que la commission de l'apporteur, sur les dossiers de cet apporteur. Versionnée : la version en
  * vigueur à la signature du dossier fait foi (jamais rétroactif).
  */
-export interface RemunerationCollegue extends Datee { remunere: boolean; mode: ModeApporteur; taux: number; tauxGestion: number; dureeAnnees: number | null }
+export interface RemunerationCollegue extends VersionToujours { remunere: boolean; mode: ModeApporteur; taux: number; tauxGestion: number; dureeAnnees: number | null }
 
 /** « 10 % » (fraction 0,1 → texte), sans arrondi au-delà de 4 décimales du pourcentage. PUR. */
 const pctTexte = (x: number): string => `${String(Math.round(x * 1000000) / 10000).replace('.', ',')} %`;
@@ -328,7 +363,7 @@ export const aRattacher = (a: Pick<Apporteur, 'collegues' | 'compteId'>): boolea
 /** 419 — la rémunération du collègue EN VIGUEUR à une date (null : aucune version, ou un interne). PUR. */
 export function remunerationADate(a: Pick<Apporteur, 'remunerations' | 'compteId'>, dateIso: string): RemunerationCollegue | null {
   if (estInterne(a)) return null;
-  return versionADate(a.remunerations ?? [], dateIso);
+  return versionADate(versionsEffectives(a.remunerations ?? []), dateIso);
 }
 
 /**
@@ -348,7 +383,9 @@ export const MOT_DUREE = 'Durée du récurrent : un nombre d’années entier (1
 export function verifierRemuneration(brut: unknown): { ok: true; r: RemunerationCollegue } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
   if (!dateIsoValide(b.depuis)) return { ok: false, motif: 'La date d’effet de la rémunération est obligatoire.' };
-  if (b.remunere !== true) return { ok: true, r: { depuis: b.depuis, remunere: false, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null } };
+  // 420 — « Depuis toujours » : tous les dossiers, passés compris (la date reste celle de l'enregistrement).
+  const toujours = b.toujours === true ? { toujours: true } : {};
+  if (b.remunere !== true) return { ok: true, r: { depuis: b.depuis, remunere: false, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null, ...toujours } };
   const mode = dans(MODES_APPORTEUR, b.mode);
   if (mode === null) return { ok: false, motif: 'Le mode de la rémunération : « One shot » ou « Récurrent ».' };
   const taux = lireTauxPourcent(b.taux);
@@ -358,7 +395,7 @@ export function verifierRemuneration(brut: unknown): { ok: true; r: Remuneration
   if ((taux ?? 0) === 0 && (tauxGestion ?? 0) === 0) return { ok: false, motif: 'Rémunération : saisissez au moins un taux (location ou gestion), ou choisissez « Aucune rémunération ».' };
   const duree = mode === 'recurrent' ? lireDuree(b.dureeAnnees) : null;
   if (duree === undefined) return { ok: false, motif: MOT_DUREE };
-  return { ok: true, r: { depuis: b.depuis, remunere: true, mode, taux: taux ?? 0, tauxGestion: tauxGestion ?? 0, dureeAnnees: duree } };
+  return { ok: true, r: { depuis: b.depuis, remunere: true, mode, taux: taux ?? 0, tauxGestion: tauxGestion ?? 0, dureeAnnees: duree, ...toujours } };
 }
 
 /** Le collègue de rattachement d'un apporteur À UNE DATE : la version en vigueur ce jour-là (jamais rétroactif) ; avant la

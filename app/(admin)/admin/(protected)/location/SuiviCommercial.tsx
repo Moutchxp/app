@@ -14,7 +14,7 @@ import { CaseEuros } from './ConditionsEntree';
 import {
   type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
 } from '../../../../lib/location/suivi/tableauBord';
-import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs, estInterne, badgeApporteur } from '../../../../lib/location/suivi/suivi';
+import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs, estInterne, badgeApporteur, baremeADate } from '../../../../lib/location/suivi/suivi';
 
 /** Les champs d'une origine choisie : ceux des autres origines se vident (apporteur, collègue, texte « Personnalisé »). PUR. */
 function champsOrigine(v: OrigineContact | null): Partial<SaisieSuivi> {
@@ -235,7 +235,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const actifs = lu.apporteurs.filter((a) => !a.archive);
   const apporteur = actifs.find((a) => a.id === s.apporteurId) ?? null;
   const dateRef = /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? s.dateSignature : aujourdhuiParis();
-  const baremeDuJour = apporteur === null ? null : versionADate(apporteur.baremes, dateRef);
+  const baremeDuJour = apporteur === null ? null : baremeADate(apporteur, dateRef);
   const annuaire = lu.annuaire;
   // 407 — l'apporteur ne se choisit qu'avec l'origine « Apporteur d'affaires » ; sans la 407, comme avant (toujours).
   const avecApporteur = !annuaire || s.origineContact === 'apporteur';
@@ -483,9 +483,9 @@ export function EncartCommission({ a, apporteur, euros: eurosTexte }: { a: Activ
   const aps = [apporteur];
   const location = partLocationDe(a, aps);
   const h = honorairesGestionDuBail(a);
-  const mode = a.apporteurMode ?? versionADate(apporteur.baremes, a.dateSignature)?.mode ?? 'one_shot';
-  const tauxGestion = a.apporteurTauxGestion ?? versionADate(apporteur.baremes, a.dateSignature)?.tauxGestion ?? 0;
-  const tauxLocation = a.apporteurTaux ?? versionADate(apporteur.baremes, a.dateSignature)?.taux ?? 0;
+  const mode = a.apporteurMode ?? baremeADate(apporteur, a.dateSignature)?.mode ?? 'one_shot';
+  const tauxGestion = a.apporteurTauxGestion ?? baremeADate(apporteur, a.dateSignature)?.tauxGestion ?? 0;
+  const tauxLocation = a.apporteurTaux ?? baremeADate(apporteur, a.dateSignature)?.taux ?? 0;
   const pct = (x: number): string => pourcent(x);
   const ca = a.honoProprietaireHt + a.honoLocataireHt;
   const gestionUneFois = partGestionSignatureDe(a, aps);

@@ -7,8 +7,9 @@ import {
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
   casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
-  type RemunerationCollegue, verifierRemuneration,
+  type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
 } from './suivi';
+import { colonnesTrace } from '../../gestion/traceJournal';
 import { honorairesGestionDisponible } from '../../gestion/schema';
 import { lireReglages } from '../../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../../gestion/honorairesGestion';
@@ -68,6 +69,29 @@ export async function tauxGestionDuBien(q: typeof query, lotId: number, bailId: 
 export function interneDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_apporteur', 'compte_id');
 }
+/** 420 — une version « depuis toujours » (règle de l'apporteur, rémunération du collègue) peut-elle s'enregistrer ? */
+export function toujoursDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_apporteur_bareme', 'toujours');
+}
+const MOT_SANS_420 = 'Mise à jour de la base à appliquer (migration 420) : « Depuis toujours » ne peut pas encore être enregistré.';
+
+/**
+ * 420 — le JOURNAL d'une version « depuis toujours » (compte, session et écran par la trace) : ce qu'elle remplace → ce qu'elle pose.
+ * Exige l'entité « location_apporteur » (419) : sans elle, rien n'est écrit (le geste est refusé avant).
+ */
+async function journaliserToujours(q: typeof query, o: { apporteurId: number; action: string; champ: string; avant: string; apres: string; auteur: Auteur }): Promise<void> {
+  const t = await colonnesTrace({ sujet: 'apporteur', champ: o.champ }, 8);
+  await q(
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+     VALUES ('location_apporteur', $1, $2, $3, $4, $5, $6, $7${t.marques})`,
+    [o.apporteurId, o.action, o.avant, o.apres, `${o.champ} remplacé(e) depuis toujours : ${o.avant} → ${o.apres} (versions précédentes conservées)`, o.auteur.id, o.auteur.libelle, ...t.valeurs]);
+}
+async function journalApporteurDisponible(): Promise<boolean> {
+  const { rows } = await query<{ def: string | null }>(
+    `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'gestion_journal_entite_chk' AND conrelid = 'gestion_journal'::regclass`);
+  return (rows[0]?.def ?? '').includes("'location_apporteur'");
+}
+
 const MOT_SANS_419 = 'Mise à jour de la base à appliquer (migration 419) : apporteurs internes, durée du récurrent et rémunération du collègue ne peuvent pas encore être enregistrés.';
 
 /** Arno (24/10/2026) — la migration 414 (nom de famille et prénom des apporteurs, séparés) est-elle appliquée ? */
@@ -146,6 +170,7 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const avecGestion = await commissionGestionDisponible();
   const avecNomPrenom = await nomPrenomDisponible();
   const avec419 = await interneDisponible();
+  const avec420 = await toujoursDisponible();
   const [a, b, c, rem] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
       nom_famille: string | null; prenom: string | null; compte_id: string | null }>(
@@ -153,18 +178,19 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
               ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'},
               ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'}
          FROM gestion_location_apporteur ORDER BY lower(nom), id`),
-    query<{ apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string; mode: string | null; taux_gestion: string | null; duree_annees: number | null }>(
-      `SELECT apporteur_id, depuis, taux, cout_fixe_mensuel, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'},
-              ${avec419 ? 'duree_annees' : 'NULL::int AS duree_annees'}
+    query<{ id: string; apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string; mode: string | null; taux_gestion: string | null; duree_annees: number | null; toujours: boolean | null }>(
+      `SELECT id, apporteur_id, depuis, taux, cout_fixe_mensuel, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'},
+              ${avec419 ? 'duree_annees' : 'NULL::int AS duree_annees'}, ${avec420 ? 'toujours' : 'false AS toujours'}
          FROM gestion_location_apporteur_bareme ORDER BY depuis, id`),
     avecAnnuaire
       ? query<{ apporteur_id: string; depuis: Date | null; collegue_id: string | null; collegue_libelle: string }>(
         'SELECT apporteur_id, depuis, collegue_id, collegue_libelle FROM gestion_location_apporteur_collegue ORDER BY depuis NULLS FIRST, id')
       : Promise.resolve({ rows: [] as { apporteur_id: string; depuis: Date | null; collegue_id: string | null; collegue_libelle: string }[] }),
     avec419
-      ? query<{ apporteur_id: string; depuis: Date; remunere: boolean; mode: string; taux: string; taux_gestion: string; duree_annees: number | null }>(
-        'SELECT apporteur_id, depuis, remunere, mode, taux, taux_gestion, duree_annees FROM gestion_location_apporteur_remuneration ORDER BY depuis, id')
-      : Promise.resolve({ rows: [] as { apporteur_id: string; depuis: Date; remunere: boolean; mode: string; taux: string; taux_gestion: string; duree_annees: number | null }[] }),
+      ? query<{ id: string; apporteur_id: string; depuis: Date; remunere: boolean; mode: string; taux: string; taux_gestion: string; duree_annees: number | null; toujours: boolean | null }>(
+        `SELECT id, apporteur_id, depuis, remunere, mode, taux, taux_gestion, duree_annees, ${avec420 ? 'toujours' : 'false AS toujours'}
+           FROM gestion_location_apporteur_remuneration ORDER BY depuis, id`)
+      : Promise.resolve({ rows: [] as { id: string; apporteur_id: string; depuis: Date; remunere: boolean; mode: string; taux: string; taux_gestion: string; duree_annees: number | null; toujours: boolean | null }[] }),
   ]);
   const baremes = new Map<number, BaremeApporteur[]>();
   for (const r of b.rows) {
@@ -173,13 +199,16 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     baremes.set(id, [...(baremes.get(id) ?? []), { depuis: iso(r.depuis), taux: num(r.taux), coutFixeMensuel: num(r.cout_fixe_mensuel),
       mode: (r.mode === 'recurrent' ? 'recurrent' : 'one_shot') as ModeApporteur, tauxGestion: r.taux_gestion === null ? 0 : num(r.taux_gestion),
       // 419 — la durée du récurrent ; null : « Indéterminée » (toutes les règles d'avant).
-      dureeAnnees: r.duree_annees === null || r.duree_annees === undefined ? null : num(r.duree_annees) }]);
+      dureeAnnees: r.duree_annees === null || r.duree_annees === undefined ? null : num(r.duree_annees),
+      // 420 — l'ordre d'enregistrement et « depuis toujours » (une version qui remplace celles d'avant dans le calcul).
+      ordre: r.id === undefined ? undefined : num(r.id), ...(r.toujours === true ? { toujours: true } : {}) }]);
   }
   const remunerations = new Map<number, RemunerationCollegue[]>();
   for (const r of rem.rows) {
     const id = num(r.apporteur_id);
     remunerations.set(id, [...(remunerations.get(id) ?? []), { depuis: iso(r.depuis), remunere: r.remunere === true, mode: (r.mode === 'recurrent' ? 'recurrent' : 'one_shot') as ModeApporteur,
-      taux: num(r.taux), tauxGestion: num(r.taux_gestion), dureeAnnees: r.duree_annees === null ? null : num(r.duree_annees) }]);
+      taux: num(r.taux), tauxGestion: num(r.taux_gestion), dureeAnnees: r.duree_annees === null ? null : num(r.duree_annees),
+      ordre: r.id === undefined ? undefined : num(r.id), ...(r.toujours === true ? { toujours: true } : {}) }]);
   }
   const collegues = new Map<number, CollegueDate[]>();
   for (const r of c.rows) {
@@ -312,6 +341,23 @@ export async function ajouterRemunerationCollegue(apporteurId: unknown, brut: un
   if (rows[0].interne) return { etat: 'refus', motif: 'Un apporteur interne n’est rattaché à personne : aucun collègue à rémunérer.' };
   const sans = await refusExterneSansCollegue(query, id);
   if (sans !== null) return { etat: 'refus', motif: sans };
+  // 🔴 420 — « Depuis toujours » : datée du jour, elle remplace les versions d'avant dans le calcul (conservées), journalisée.
+  if (v.r.toujours === true) {
+    if (!(await toujoursDisponible()) || !(await journalApporteurDisponible())) return { etat: 'indisponible', motif: MOT_SANS_420 };
+    const jour = aujourdhuiParis();
+    const versions = (await lireApporteurs()).find((x) => x.id === id)?.remunerations ?? [];
+    const avant = versionsEffectives(versions).map((x) => libelleRemuneration(x)).join(' ; ') || 'Aucune rémunération';
+    return withTransaction(async (q) => {
+      const r = await q(
+        `INSERT INTO gestion_location_apporteur_remuneration (apporteur_id, depuis, remunere, mode, taux, taux_gestion, duree_annees, saisi_par_libelle, toujours)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) ON CONFLICT (apporteur_id, depuis) DO NOTHING`,
+        [id, jour, v.r.remunere, v.r.mode, v.r.taux, v.r.tauxGestion, v.r.dureeAnnees, auteur.libelle]);
+      if (r.rowCount !== 1) return { etat: 'refus', motif: 'Une version de la rémunération existe déjà aujourd’hui : « Depuis toujours » ne peut pas s’ajouter le même jour.' } as const;
+      await journaliserToujours(q as typeof query, { apporteurId: id, action: 'location_remuneration_collegue_depuis_toujours', champ: 'Rémunération du collègue', avant,
+        apres: libelleRemuneration(v.r), auteur });
+      return { etat: 'ok' } as const;
+    });
+  }
   const r = await query(
     `INSERT INTO gestion_location_apporteur_remuneration (apporteur_id, depuis, remunere, mode, taux, taux_gestion, duree_annees, saisi_par_libelle)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (apporteur_id, depuis) DO NOTHING`,
@@ -336,6 +382,23 @@ export async function ajouterBaremeApporteur(apporteurId: unknown, brut: unknown
   if (!avec419 && v.dureeAnnees !== null) return { etat: 'refus', motif: MOT_SANS_419 };
   const sans = await refusExterneSansCollegue(query, id);
   if (sans !== null) return { etat: 'refus', motif: sans };
+  // 🔴 420 — « Depuis toujours » : datée du jour, elle remplace dans le calcul les versions d'avant (conservées), journalisée.
+  if ((brut as Record<string, unknown> | null)?.toujours === true) {
+    if (!(await toujoursDisponible()) || !avec419 || !avecGestion || !(await journalApporteurDisponible())) return { etat: 'indisponible', motif: MOT_SANS_420 };
+    const jour = aujourdhuiParis();
+    const versions = (await lireApporteurs()).find((x) => x.id === id)?.baremes ?? [];
+    const avant = versionsEffectives(versions).map((x) => libelleRegleApporteur(x)).join(' ; ') || 'aucune règle';
+    return withTransaction(async (q) => {
+      const r = await q(
+        `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle, mode, taux_gestion, duree_annees, toujours)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, true WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
+         ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, jour, v.taux, v.coutFixe, auteur.libelle, v.mode, v.tauxGestion, v.dureeAnnees]);
+      if (r.rowCount !== 1) return { etat: 'refus', motif: 'Une version existe déjà aujourd’hui pour cet apporteur : « Depuis toujours » ne peut pas s’ajouter le même jour.' } as const;
+      await journaliserToujours(q as typeof query, { apporteurId: id, action: 'location_apporteur_regle_depuis_toujours', champ: 'Règle de l’apporteur', avant,
+        apres: libelleRegleApporteur(v), auteur });
+      return { etat: 'ok' } as const;
+    });
+  }
   const r = await query(
     `INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle${avecGestion ? ', mode, taux_gestion' : ''}${avec419 ? ', duree_annees' : ''})
      SELECT $1, $2, $3, $4, $5${avecGestion ? ', $6, $7' : ''}${avec419 ? (avecGestion ? ', $8' : ', $6') : ''} WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)

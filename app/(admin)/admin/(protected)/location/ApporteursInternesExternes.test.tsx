@@ -86,7 +86,7 @@ describe('🔴 l’annuaire : internes et externes', () => {
     expect(b.querySelector('h4')?.textContent).toBe('Rémunération de Jean-Baptiste Pons (a apporté cet apporteur)');
     expect(b.querySelector('[data-remunere="oui"]')?.getAttribute('aria-pressed')).toBe('true');
     await saisir(b.querySelector('[data-remuneration-taux]') as HTMLInputElement, '6');
-    await saisir(b.querySelector('[data-remuneration-depuis]') as HTMLInputElement, '2026-11-01');
+    await saisir(b.querySelector('[data-application="remuneration"] [data-application-date]') as HTMLInputElement, '2026-11-01');
     await clic(b.querySelector('[data-enregistrer-remuneration]')!);
     expect(posts.at(-1)).toEqual({ action: 'remuneration-collegue', apporteurId: 4,
       remuneration: { remunere: true, mode: 'recurrent', taux: '6', tauxGestion: '10', dureeAnnees: '3', depuis: '2026-11-01' } });

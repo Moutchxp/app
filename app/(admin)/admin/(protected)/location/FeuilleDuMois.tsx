@@ -6,10 +6,12 @@ import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { ModaleFicheLocataire } from './ModaleFicheLocataire';
 import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
+import { CascadeHonoraires } from './CascadeHonoraires';
+import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
-  commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe,
+  commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
   aRattacher, auCentime, LIBELLE_CATEGORIE_PRIME, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_ACTIVITE, libelleOrigineContact, type ModePrime, originesProposees, type OrigineContact,
@@ -162,6 +164,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                     ouvert && (
                       <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={10}>
                         <DetailLigne a={a} ctx={ctx} />
+                        <CascadeLigne a={a} ctx={ctx} />
                         <div className="fdm-detail-gestes">
                           {/* 🔴 Arno (24/10/2026) — « Dossier de location » EN PREMIER : le formulaire « Nouveau locataire » rouvert en
                               modification ; une ligne sans bail rattaché : inactif, et pourquoi (aucune création implicite). */}
@@ -297,6 +300,25 @@ function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; per
         );
       })}</tbody>
     </table>
+  );
+}
+
+/**
+ * 🔴 Arno (24/10/2026) — la cascade du DOSSIER : honoraires HT − dû à l'apporteur − dû au collègue (externe rémunéré) = net agence HT,
+ * les mêmes règles que l'annuaire (récurrents dus jusqu'à aujourd'hui). Sans apporteur : rien (la ligne n'a rien à retrancher).
+ */
+function CascadeLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
+  if (a.apporteurId === null) return null;
+  const ap = ctx.apporteurs.find((x) => x.id === a.apporteurId);
+  const d = dusParDossier([a], ctx.apporteurs, ctx.aujourdhui ?? new Date().toISOString().slice(0, 10))[0];
+  if (d === undefined) return null;
+  const r = remunerationCollegueDe(a, ctx.apporteurs);
+  const interne = ap !== undefined && estInterne(ap);
+  return (
+    <div className="fdm-cascade" data-cascade-ligne-feuille={String(a.id)}>
+      <CascadeHonoraires ca={d.ca} apporteur={d.apporteur} collegue={interne || r === null ? (interne ? null : 0) : d.collegue}
+        nomApporteur={a.apporteurNom ?? ap?.nom ?? '—'} nomCollegue={r?.collegue.libelle ?? (collegueDeLigne(a, ctx.apporteurs) as { libelle?: string } | null)?.libelle ?? '—'} />
+    </div>
   );
 }
 

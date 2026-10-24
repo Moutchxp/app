@@ -21,6 +21,8 @@ const repo = {
   origineDejaClientDisponible: vi.fn(async () => false),
   /* Arno (24/10/2026, 419) — apporteurs internes, durée du récurrent, rémunération du collègue. */
   interneDisponible: vi.fn(async () => false), ajouterRemunerationCollegue: vi.fn(),
+  /* 420 — « Depuis toujours ». */
+  toujoursDisponible: vi.fn(async () => false),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
