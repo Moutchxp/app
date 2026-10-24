@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useRef, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
+import { htVersTtc, lireMontant, ttcVersHt } from '../../../../lib/location/suivi/suivi';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
   ASSURANCES, COMPTES, DEPOTS, formaterCentimes, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
@@ -323,13 +324,28 @@ export interface SaisieHonoraires { valeur: string; manuel: boolean; onChange: (
  * « Caractéristiques du bien loué ») : l'écart avec le barème est DIT — « au barème : 935,03 € (écart : +64,97 €) ». `null` : pas de
  * calcul, montant illisible, ou aucun écart. PUR.
  */
-export function ecartHonoraires(saisie: string, cible: string): string | null {
+export function ecartHonoraires(saisie: string, cible: string, unite = ''): string | null {
   const a = enCentimes(saisie);
   const b = enCentimes(cible);
   if (cible.trim() === '' || typeof a !== 'number' || typeof b !== 'number' || a === b) return null;
   const d = b - a;
-  return `au barème : ${formaterCentimes(b)} (écart : ${d > 0 ? '+' : '−'}${formaterCentimes(Math.abs(d))})`;
+  return `au barème : ${formaterCentimes(b)}${unite} (écart : ${d > 0 ? '+' : '−'}${formaterCentimes(Math.abs(d))})`;
 }
+
+/**
+ * 🔴 Arno (24/10/2026) — LES HONORAIRES PROPRIÉTAIRE SE SAISISSENT EN HT. La valeur ENREGISTRÉE reste le TTC (le barème légal est en
+ * € TTC/m², le mail ADHOC & MONGA, le total des honoraires et les conditions d'entrée lisent le TTC) : rien ne change en base. Le
+ * HT AFFICHÉ = TTC ÷ 1,2 ; un HT SAISI → TTC = HT × 1,2 au centime, UNE fois, à la frappe (aller-retour exact au centime :
+ * l'écart d'arrondi du TTC, ≤ 0,005 €, fait ≤ 0,0042 € de HT). Les mêmes fonctions que le « Suivi commercial » : une seule valeur.
+ */
+const deuxDecimales = (x: number): string => x.toFixed(2).replace('.', ',');
+export const htDuTtc = (ttc: string): string => { const v = lireMontant(ttc); return typeof v === 'number' ? deuxDecimales(ttcVersHt(v)) : ''; };
+/** Un HT saisi → le TTC (texte) ; '' si vide ; null si illisible. */
+export const ttcDuHt = (ht: string): string | null => {
+  // La même lecture que le montant saisi : au centime au plus (« 12,345 » est refusé, jamais arrondi en silence).
+  const m = montantHonorairesSaisi(ht);
+  return m === null ? '' : m === false ? null : deuxDecimales(htVersTtc(Number(m)));
+};
 
 /** La mention sous un champ vide sans surface (Arno, 21/10/2026). */
 export const MENTION_SURFACE_INCONNUE = 'Surface inconnue : saisissez le montant';
@@ -360,6 +376,10 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
   const total = totalDesHonoraires(agence === undefined ? null : agence, pourTotal);
   const idChamp = `${idHono}-montant`;
   const detail = c !== null && c.etat === 'ok' ? lignesHonoraires(c) : [];
+  // 🔴 Arno (24/10/2026) — le champ montre le HT ; pendant la frappe, il garde ce qui est tapé (et un montant illisible reste visible).
+  const [frappe, setFrappe] = useState<string | null>(null);
+  const htAffiche = frappe ?? (sa === undefined ? '' : htDuTtc(sa.valeur));
+  const ttcLu = sa === undefined ? undefined : enCentimes(sa.valeur);
   return (
     <>
       <div className="loc-cond-bloc" data-cond="honoraires-proprietaire" aria-live="polite">
@@ -367,24 +387,31 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
         {sa !== undefined && (
           <div className="loc-champ loc-hono-champ" data-hono-montant>
             <span className="loc-champ-tete">
-              <label htmlFor={idChamp} className="loc-hono-libelle">Montant des honoraires propriétaire (€ TTC)</label>
+              <label htmlFor={idChamp} className="loc-hono-libelle">Montant des honoraires propriétaire (€ HT)</label>
               {!manuel && detail.length > 0 && (
                 <InfoBulle libelle="Montant des honoraires propriétaire" etiquette="Détail du calcul" cible={`${idHono}-bulle`} dansLEcran
                   contenu={<span className="loc-bulle-calcul" data-detail-calcul="montant">{detail.map((l) => (
-                    <span key={l.mot}>{l.mot} : {l.detail !== undefined ? `${l.detail} = ` : ''}<strong>{l.valeur}</strong></span>))}</span>} />
+                    <span key={l.mot}>{l.mot} : {l.detail !== undefined ? `${l.detail} = ` : ''}<strong>{l.valeur}</strong></span>))}
+                    {/* Le barème légal est en € TTC/m² : le HT du champ en est déduit (÷ 1,2). */}
+                    <span data-detail-ht>Soit, hors taxes : {montantPourChamp(c)} € TTC ÷ 1,2 = <strong>{htDuTtc(montantPourChamp(c))} € HT</strong></span></span>} />
               )}
             </span>
-            <CaseEuros id={idChamp} value={sa.valeur} placeholder={manuel ? '' : 'ex. 935,03'} data-hono-saisie
+            <CaseEuros id={idChamp} value={htAffiche} placeholder={manuel ? '' : 'ex. 779,19'} data-hono-saisie
               onChange={(e) => {
                 const v = e.target.value;
-                // Vidé alors qu'aucun calcul n'existe : rien de « saisi » (le champ redevient simplement vide).
-                sa.onChange({ valeur: v, manuel: !(v.trim() === '' && cible === '') });
-              }} />
+                setFrappe(v);
+                const ttc = ttcDuHt(v);
+                // Vidé alors qu'aucun calcul n'existe : rien de « saisi » (le champ redevient simplement vide). Illisible : le texte tel quel
+                // (le motif « un montant en euros » s'affiche, rien n'est envoyé).
+                sa.onChange({ valeur: ttc === null ? v : ttc, manuel: !(v.trim() === '' && cible === '') });
+              }}
+              onBlur={() => { if (frappe !== null && ttcDuHt(frappe) !== null) setFrappe(null); }} />
+            {typeof ttcLu === 'number' && <small className="loc-hono-ttc" data-hono-ttc>soit {formaterCentimes(ttcLu)} TTC</small>}
             <span className="loc-hono-mention" data-hono-mention>
               {manuel ? (
-                <>{MENTION_SAISI_MAIN}{ecartHonoraires(sa.valeur, cible) !== null && <span data-hono-ecart>{' · '}{ecartHonoraires(sa.valeur, cible)}</span>}
+                <>{MENTION_SAISI_MAIN}{ecartHonoraires(htDuTtc(sa.valeur), htDuTtc(cible), ' HT') !== null && <span data-hono-ecart>{' · '}{ecartHonoraires(htDuTtc(sa.valeur), htDuTtc(cible), ' HT')}</span>}
                   {cible !== '' && <>{' · '}<button type="button" className="loc-lien-recalculer" data-hono-recalculer
-                  onClick={() => sa.onChange({ valeur: cible, manuel: false })}>recalculer</button></>}</>
+                  onClick={() => { setFrappe(null); sa.onChange({ valeur: cible, manuel: false }); }}>recalculer</button></>}</>
               ) : h.charge !== true && c !== null && c.etat === 'surface_manquante' ? MENTION_SURFACE_INCONNUE
                 : h.charge !== true && c !== null && c.etat === 'ok' ? 'calculé avec la surface du bien — modifiable' : null}
             </span>
@@ -467,6 +494,7 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + `
 @media (min-width:900px){ .loc-cond{grid-template-columns:repeat(2,minmax(0,1fr))} .loc-cond-bloc--large,.loc-cond-bloc[data-cond="sommes"],.loc-cond-bloc[data-cond="entretien"],.loc-cond-bloc[data-cond="honoraires-proprietaire"],.loc-cond-total--general{grid-column:1 / -1} }
 .loc-cond-bloc{display:flex;flex-direction:column;gap:12px;min-width:0;border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field);box-sizing:border-box}
 @media (max-width:480px){ .loc-cond-bloc{padding:16px 12px} }
+.loc-hono-ttc{font-size:.82rem;color:var(--color-svv-muted)}
 .loc-cond-bloc > h4,.loc-cond-tete > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
 /* Arno (24/10/2026) — le titre et son geste compact sur UNE ligne : le bouton ne grandit pas la ligne (marges negatives) ni ne decale le titre. */
 .loc-cond-tete{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}

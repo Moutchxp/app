@@ -167,12 +167,12 @@ describe('🔴 « Caractéristiques du bien loué » — Nouveau locataire', () 
 
   it('enregistrer la surface → la modale se ferme, le bien est relu, les honoraires propriétaire recalculés au barème', async () => {
     await monter(); await choisirBien();
-    expect(montant().value).toBe('935,03');
+    expect(montant().value).toBe('779,19');                                       // HT (935,03 € TTC ÷ 1,2)
     await clic(bouton());
     await enregistrerSurface('70');
     expect(posts.filter((p) => p.corps.action === 'modifier-fiche-bien')).toHaveLength(1);
     expect(q('[data-modale-caracteristiques-bien]')).toBeNull();
-    expect(montant().value).toBe('1059,10');
+    expect(montant().value).toBe('882,58');                                       // 1 059,10 € TTC ÷ 1,2
     expect(mention()).toBe('calculé avec la surface du bien — modifiable');
     expect(nav.push).not.toHaveBeenCalled();                       // on reste sur « Nouveau locataire »
   });
@@ -183,7 +183,7 @@ describe('🔴 « Caractéristiques du bien loué » — Nouveau locataire', () 
     await clic(bouton());
     await enregistrerSurface('70');
     expect(montant().value).toBe('1 000');
-    expect(mention()).toBe('saisi à la main · au barème : 1 059,10 € (écart : +59,10 €) · recalculer'.replace(/ (?=\d{3},)/g, ' '));
+    expect(mention()).toBe('saisi à la main · au barème : 882,58 € HT (écart : −117,42 €) · recalculer');   // HT
   });
 
   it('Annuler, Échap, « ← Nouveau locataire » : la modale se ferme, rien n’est écrit', async () => {

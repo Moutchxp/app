@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
 import { GestesConditionsBail } from '../gestion/SectionsLocationFiche';
+import { htDuTtc, ttcDuHt } from './ConditionsEntree';
 import type { ConditionsEntreeLues } from '../../../../lib/location/conditionsEntree';
 
 /**
@@ -87,38 +88,45 @@ const toutRepondre = async () => {
   await clic(pilule('Mode de règlement', 'Chèque'));
 };
 
-describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau locataire', () => {
+/* 🔴 Arno (24/10/2026) — le montant se SAISIT et s'AFFICHE EN HT (« soit X € TTC » dessous) ; la valeur ENREGISTRÉE reste le TTC
+   (barème légal en € TTC/m², mail, total, conditions d'entrée) : 935,03 € TTC ↔ 779,19 € HT. */
+describe('🔴 « Montant des honoraires propriétaire (€ HT) » — Nouveau locataire', () => {
   it('TOUJOURS présent : même sans bien choisi (champ vide, libellé, case « € »)', async () => {
     await monter();
     const bloc = container.querySelector('[data-hono-montant]') as HTMLElement;
     expect(bloc).not.toBeNull();
-    expect(bloc.querySelector('label')?.textContent).toBe('Montant des honoraires propriétaire (€ TTC)');
+    expect(bloc.querySelector('label')?.textContent).toBe('Montant des honoraires propriétaire (€ HT)');
+    expect(bloc.querySelector('[data-hono-ttc]')).toBeNull();                       // vide : pas de « soit … TTC »
     expect(champ().value).toBe('');
     expect(bloc.querySelector('.loc-case-euros .loc-suffixe-euros')?.textContent).toBe('€');
   });
 
   it('surface connue : PRÉ-REMPLI par le calcul (bulle ⓘ du calcul), et le total le compte', async () => {
     await preparer();
-    expect(champ().value).toBe('935,03');
+    expect(champ().value).toBe('779,19');                                           // 935,03 € TTC du barème ÷ 1,2
+    expect(container.querySelector('[data-hono-ttc]')?.textContent).toBe('soit 935,03 € TTC');
     expect(mention()).toBe('calculé avec la surface du bien — modifiable');
     expect(container.querySelector('[data-hono-montant] .svv-pil-ib')).not.toBeNull();
-    expect(total()).toBe('935,03 €');
+    expect(total()).toBe('935,03 €');                                               // le total des honoraires reste en TTC
   });
 
   it('modifié à la main : « saisi à la main · recalculer » ; le total suit ; ENVOYÉ tel quel ; « recalculer » remet le calcul', async () => {
     await preparer();
     await toutRepondre();
-    await saisir(champ(), '1 000');
-    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : −64,97 €) · recalculer');   // Arno (24/10/2026) : l'écart est dit
-    expect(total()).toBe('1\u202f000,00 €');
+    await saisir(champ(), '1 000');                                                 // HT
+    expect(champ().value).toBe('1 000');                                            // ce qui est tapé reste
+    expect(container.querySelector('[data-hono-ttc]')?.textContent).toBe('soit 1\u202f200,00 € TTC');
+    expect(mention()).toBe('saisi à la main · au barème : 779,19 € HT (écart : −220,81 €) · recalculer');   // l'écart, en HT
+    expect(total()).toBe('1\u202f200,00 €');
     await soumettre(); await soumettre();
-    expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '1 000' });
+    // ENREGISTRÉ EN TTC (une seule conversion, à la frappe) : rien ne change en base
+    expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '1200,00' });
     act(() => { root.unmount(); }); root = createRoot(container); posts = [];
     await preparer();
     await toutRepondre();
     await saisir(champ(), '800');
     await clic(container.querySelector('[data-hono-recalculer]')!);
-    expect(champ().value).toBe('935,03');
+    expect(champ().value).toBe('779,19');
     expect(mention()).toBe('calculé avec la surface du bien — modifiable');
     await soumettre(); await soumettre();
     expect(posts.find((p) => p.action === 'creer-locataires')).not.toHaveProperty('honorairesSaisis');
@@ -130,10 +138,10 @@ describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau 
     await toutRepondre();
     expect(champ().value).toBe('');
     expect(mention()).toBe('Surface inconnue : saisissez le montant');
-    await saisir(champ(), '935,03');
+    await saisir(champ(), '779,19');                                                // HT
     expect(mention()).toBe('saisi à la main');
     await soumettre(); await soumettre();
-    expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '935,03' });
+    expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '935,03' });   // TTC enregistré
   });
 
   it('la surface arrive ensuite : le calcul s’active si le champ n’a pas été touché, JAMAIS s’il a été saisi à la main', async () => {
@@ -143,7 +151,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau 
     calcul = CALCUL_OK;
     await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-02');
     await calmer();
-    expect(champ().value).toBe('935,03');
+    expect(champ().value).toBe('779,19');
     act(() => { root.unmount(); }); root = createRoot(container);
     calcul = SANS_SURFACE;
     await preparer();
@@ -152,7 +160,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ TTC) » — Nouveau 
     await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-02');
     await calmer();
     expect(champ().value).toBe('500');
-    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : +435,03 €) · recalculer');   // jamais écrasé : l'écart est dit
+    expect(mention()).toBe('saisi à la main · au barème : 779,19 € HT (écart : +279,19 €) · recalculer');   // jamais écrasé : l'écart est dit
   });
 
   it('un montant illisible bloque « Enregistrer » et le dit ; rien n’est créé', async () => {
@@ -197,5 +205,24 @@ describe('🔴 la fiche du locataire : un montant saisi à la main n’est jamai
     await clic(container.querySelector('[data-enregistrer-conditions]')!);
     await calmer();
     expect(posts.at(-1)).toMatchObject({ action: 'conditions-entree', occupationId: 1, recalculerHonoraires: true, remplacerSaisie: true });
+  });
+});
+
+describe('🔴 Arno (24/10/2026) — HT saisi, TTC enregistré : une seule conversion, aller-retour exact au centime', () => {
+  it('HT → TTC (× 1,2 au centime) → HT redonne le HT saisi, pour chaque centime de 0 à 5 000 €', () => {
+    for (let c = 0; c <= 500000; c += 1) {
+      const ht = (c / 100).toFixed(2).replace('.', ',');
+      const ttc = ttcDuHt(ht);
+      expect(ttc).not.toBeNull();
+      if (htDuTtc(ttc as string) !== ht) throw new Error(`${ht} → ${ttc} → ${htDuTtc(ttc as string)}`);
+    }
+  });
+  it('les cas de la page ; vide ; illisible (plus de deux décimales : refusé, jamais arrondi)', () => {
+    expect(htDuTtc('935,03')).toBe('779,19');
+    expect(ttcDuHt('779,19')).toBe('935,03');
+    expect(ttcDuHt('1 000')).toBe('1200,00');
+    expect(ttcDuHt('')).toBe('');
+    expect(ttcDuHt('12,345')).toBeNull();
+    expect(ttcDuHt('abc')).toBeNull();
   });
 });

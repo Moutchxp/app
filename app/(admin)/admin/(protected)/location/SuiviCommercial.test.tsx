@@ -106,8 +106,14 @@ describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
     await preparer();
     expect(htProprio().value).toBe('779,19');                     // 935,03 TTC ÷ 1,2
     await saisir(htProprio(), '500');
-    expect(champ().value).toBe('600,00');
-    expect(mention()).toBe('saisi à la main · au barème : 935,03 € (écart : +335,03 €) · recalculer');
+    // 🔴 Arno (24/10/2026) — UNE seule valeur : le champ des conditions d'entrée montre le même HT (et « soit 600,00 € TTC »)
+    expect(champ().value).toBe('500,00');
+    expect(container.querySelector('[data-hono-ttc]')?.textContent).toBe('soit 600,00 € TTC');
+    expect(mention()).toBe('saisi à la main · au barème : 779,19 € HT (écart : +279,19 €) · recalculer');
+    // et l'inverse : un HT saisi dans les conditions d'entrée est celui du suivi commercial
+    await act(async () => { htProprio().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });   // on quitte le champ du suivi
+    await saisir(champ(), '450');
+    expect(htProprio().value).toBe('450,00');
     await saisir(htLocataire(), '200');
     expect(container.querySelector('[data-hono-locataire-ttc]')?.textContent).toContain('240,00 € TTC');
   });
