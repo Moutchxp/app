@@ -253,6 +253,37 @@ export function apporteurAffiche(a: ActiviteCalcul, apporteurs: readonly Apporte
   return { texte: '', source: null };
 }
 
+/**
+ * 🔴 Arno (24/10/2026) — LA NATURE DU BIEN LOUÉ (pastille « BIEN » de la feuille du mois), dérivée des seules données de la ligne,
+ * dans cet ordre :
+ *   ① « Relocation gestion » : l'origine est « Relocation (portefeuille de gestion) » — elle n'existe qu'avec la case « Relocation »
+ *     cochée (`origineApresCases`, refus serveur sinon). ⚠️ Pas `avecGestion` seul : sur les lignes reprises du fichier, ce champ porte la
+ *     ventilation « avec gestion » de l'Excel (bien en gestion), pas la case ;
+ *   ② « Client hors gestion » : origine « Propriétaire déjà client » ET bien sans gestion ;
+ *   ③ origine à renseigner → « à qualifier » (rien n'est deviné) ;
+ *   ④ « Nouveau · gestion » / ⑤ « Nouveau · sans gestion » selon que le bien est en gestion.
+ * « En gestion » = la case « Relocation » OU « Nouveau mandat de gestion signé (prime) » de la ligne (`avecGestion || mandatGestion`,
+ * comme `honorairesGestionDuBail`) : c'est la seule source présente sur TOUTES les lignes (la moitié des lignes reprises n'ont pas de
+ * bien rattaché, donc pas d'historique de statut). PUR.
+ */
+export const NATURES_BIEN = ['relocation', 'client_hors_gestion', 'nouveau_gestion', 'nouveau_sans_gestion', 'a_qualifier'] as const;
+export type NatureBien = typeof NATURES_BIEN[number];
+export const LIBELLE_NATURE_BIEN: Record<NatureBien, string> = {
+  relocation: 'Relocation gestion', client_hors_gestion: 'Client hors gestion', nouveau_gestion: 'Nouveau · gestion',
+  nouveau_sans_gestion: 'Nouveau · sans gestion', a_qualifier: 'à qualifier',
+};
+export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion'>): { nature: NatureBien; raison: string } {
+  const enGestion = a.avecGestion || a.mandatGestion;
+  if (a.origineContact === 'relocation') return { nature: 'relocation', raison: 'case « Relocation » cochée (portefeuille de gestion)' };
+  if (a.origineContact === 'proprietaire_deja_client' && !enGestion) return { nature: 'client_hors_gestion', raison: 'propriétaire déjà client, bien sans gestion' };
+  if (a.origineContact === null || a.origineContact === undefined) return { nature: 'a_qualifier', raison: 'origine du contact à renseigner' };
+  if (enGestion) {
+    const qui = a.origineContact === 'proprietaire_deja_client' ? 'propriétaire déjà client, nouveau bien confié en gestion' : 'nouveau client';
+    return { nature: 'nouveau_gestion', raison: `${qui}, ${a.mandatGestion ? 'nouveau mandat de gestion signé (prime)' : 'bien en gestion'}` };
+  }
+  return { nature: 'nouveau_sans_gestion', raison: 'nouveau client, bien sans gestion' };
+}
+
 export const tauxNegociateurDe =(a: ActiviteCalcul, regles: readonly RegleCommission[]): number => versionADate(regles, a.dateSignature)?.tauxNegociateur ?? 0;
 
 // ── Filtres ───────────────────────────────────────────────────────────────────────────────────────────────────────

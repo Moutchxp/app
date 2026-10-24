@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
@@ -89,12 +89,23 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>
         {!annuaire && <p className="loc-alerte loc-alerte--orange" role="status" data-feuille-sans-407>Mise à jour de la base à appliquer (migration 407) : l’origine du contact, le collègue et le choix de prime ne s’affichent ni ne se corrigent encore.</p>}
         {duMois.length === 0 ? <p className="loc-muet">Aucun bail signé ce mois-ci.</p> : (
+          <>
+          {/* 🔴 Arno (24/10/2026) — la légende des pastilles « BIEN », avec le nombre de lignes du mois dans chaque catégorie. */}
+          <p className="fdm-legende" data-legende-nature>
+            {NATURES_BIEN.map((n, i) => (
+              <span key={n} className="fdm-legende-item" data-legende-nature-item={n}>
+                <PastilleNature nature={n} /> <span className="fdm-legende-nb">{duMois.filter((a) => natureBienLoue(a).nature === n).length}</span>
+                {i < NATURES_BIEN.length - 1 && <span className="fdm-legende-sep" aria-hidden="true">·</span>}
+              </span>
+            ))}
+          </p>
           <div className="fdm-defile" data-defile-locations>
             {/* 🔴 Arno (24/10/2026) — la ligne SYNTHÉTIQUE du fichier CA_JBP (propriétaires, locataires, total, gestion, apporteurs,
                 coms) ; tout le reste — et « Modifier » — dans le panneau déplié sous la ligne. Plusieurs lignes peuvent être dépliées. */}
             <table className="fdm-table fdm-table--synthese">
-              <colgroup span={2} /><colgroup span={2} /><colgroup span={5} />
+              <col /><colgroup span={2} /><colgroup span={2} /><colgroup span={5} />
               <thead><tr>
+                <th scope="col" className="fdm-nom">Bien</th>
                 <th scope="colgroup" colSpan={2} className="fdm-nom">Propriétaires</th><th scope="colgroup" colSpan={2} className="fdm-nom">Locataires</th>
                 <th scope="col">Total CA HT</th><th scope="col">Gestion</th><th scope="col" className="fdm-nom">Apporteurs d’affaires</th>
                 <th scope="col">Coms apporteurs d’affaires</th><th scope="col"><span className="fdm-cache">Détail</span></th>
@@ -106,10 +117,12 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                   const prime = primeDe(a, ctx.regles);
                   const coms = commissionApporteurDe(a, ctx.apporteurs);
                   const app = apporteurAffiche(a, ctx.apporteurs);
+                  const nature = natureBienLoue(a);
                   return [
                     <tr key={id} data-ligne-feuille={id} aria-expanded={ouvert}
                       className={`fdm-ligne${a.rattachement !== 'rattache' ? ' fdm-historique' : ''}${ouvert ? ' fdm-ligne--ouverte' : ''}`}
                       onClick={(e) => { if ((e.target as Element).closest('a') === null) basculer(a.id); }}>
+                      <td data-mot="Bien" className="fdm-nom fdm-bien" data-nature-bien={nature.nature} title={nature.raison}><PastilleNature nature={nature.nature} /></td>
                       <th scope="row" data-mot="Propriétaires" className="fdm-nom">
                         {a.lotId !== null ? <a href={`/admin/location/bien/${a.lotId}`} data-ouvrir-bail>{a.libelleProprietaire || '—'}</a> : <span>{a.libelleProprietaire || '—'}</span>}
                         {a.type !== 'bail' && <span className="loc-pastille">{a.type === 'avenant' ? 'Avenant' : 'Gestion seule'}</span>}
@@ -129,7 +142,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                       </td>
                     </tr>,
                     ouvert && (
-                      <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={9}>
+                      <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={10}>
                         <DetailLigne a={a} ctx={ctx} />
                         {annuaire && (
                           <div className="fdm-detail-gestes">
@@ -149,6 +162,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
 
@@ -247,6 +261,11 @@ function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; per
   );
 }
 
+/** La pastille « nature du bien loué » : couleur douce ET texte (jamais la couleur seule) ; « à qualifier » en bordure pointillée. */
+function PastilleNature({ nature }: { nature: NatureBien }) {
+  return <span className={`fdm-nature fdm-nature--${nature}`}>{LIBELLE_NATURE_BIEN[nature]}</span>;
+}
+
 /** Le choix de prime de la ligne : celui en base, sinon déduit (aucune prime → « Aucune » ; montant ≠ la règle → « Personnalisé »). */
 const modePrimeDeLigne = (a: ActiviteLue, ctx: ContexteCalcul): ModePrime =>
   a.primeMode ?? (primeDe(a, ctx.regles) === 0 ? 'aucune' : a.primeSaisie !== null && versionADate(ctx.regles, a.dateSignature)?.primeLogement !== a.primeSaisie ? 'personnalise' : 'regle');
@@ -262,7 +281,9 @@ function DetailLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
   const prime = primeDe(a, ctx.regles);
   const aRat = col !== null && 'aRattacher' in col;
   const categorie = a.categoriePrime ?? (a.parking ? 'parking' : null);
+  const nature = natureBienLoue(a);
   const champs: [string, ReactNode][] = [
+    ['Nature du bien', <><PastilleNature nature={nature.nature} /> — {nature.raison}</>],
     ['Date de signature', `${dateFr(a.dateSignature)}${a.dateSupposee ? ' (supposée : le 1er du mois)' : ''}`],
     ['Nature', LIBELLE_TYPE_ACTIVITE[a.type] ?? a.type],
     ['Type de bien', categorie === null ? '—' : LIBELLE_CATEGORIE_PRIME[categorie]],
@@ -429,7 +450,18 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-detail-grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px 18px;margin:0;padding:6px 0;position:sticky;left:0;max-width:100cqi;box-sizing:border-box}
 .fdm-detail-grille dt{font-size:.72rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .fdm-detail-grille dd{margin:2px 0 0;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.fdm-detail-gestes{display:flex;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
+.fdm-legende{display:flex;flex-wrap:wrap;align-items:center;gap:6px 0;margin:0 0 10px;font-size:.84rem;color:var(--color-svv-muted)}
+.fdm-legende-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fdm-legende-sep{margin:0 8px}
+.fdm-legende-nb{font-weight:800;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+.fdm-nature{display:inline-block;border-radius:999px;padding:1px 8px;font-size:.72rem;font-weight:800;line-height:1.45;white-space:nowrap;border:1px solid transparent}
+.fdm-nature--relocation{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue-soft)}
+.fdm-nature--client_hors_gestion{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
+.fdm-nature--nouveau_gestion{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green-soft)}
+.fdm-nature--nouveau_sans_gestion{background:var(--color-svv-violet-soft);color:var(--color-svv-violet);border-color:var(--color-svv-violet-soft)}
+.fdm-nature--a_qualifier{background:transparent;color:var(--color-svv-muted);border:1px dashed var(--color-svv-muted)}
+.fdm-table td.fdm-bien{width:1%;white-space:nowrap}
+.fdm-table--synthese thead th:nth-child(-n+5){white-space:nowrap}.fdm-detail-gestes{display:flex;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
 .fdm-edition{margin-top:8px;border-top:1px dashed var(--color-svv-line-strong)}
 .fdm-detail .fdm-detail-grille{max-width:calc(100cqi - 20px)}
 .fdm-detail .fdm-edition-corps{width:calc(100cqi - 20px)}

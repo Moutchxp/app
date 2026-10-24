@@ -283,11 +283,11 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     it('les colonnes de l’Excel, dans l’ordre : Propriétaires (nom | HT), Locataires (nom | HT), Total CA HT, Gestion, Apporteurs, Coms, chevron', async () => {
       await ouvrirSeptembre();
       const tete = [...container.querySelectorAll('[data-bloc="locations"] thead th')];
-      expect(tete.map((t) => t.textContent)).toEqual(['Propriétaires', 'Locataires', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', 'Détail']);
-      expect(tete.slice(0, 2).map((t) => t.getAttribute('colspan'))).toEqual(['2', '2']);
+      expect(tete.map((t) => t.textContent)).toEqual(['Bien', 'Propriétaires', 'Locataires', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', 'Détail']);
+      expect(tete.slice(1, 3).map((t) => t.getAttribute('colspan'))).toEqual(['2', '2']);
       const a = sept[0];
       const cases = [...ligne(String(a.id)).children].map((c) => c.getAttribute('data-mot'));
-      expect(cases).toEqual(['Propriétaires', 'Hono. propriétaire HT', 'Locataires', 'Hono. locataire HT', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', null]);
+      expect(cases).toEqual(['Bien', 'Propriétaires', 'Hono. propriétaire HT', 'Locataires', 'Hono. locataire HT', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', null]);
       // Aucune des anciennes colonnes ne reste sur la ligne : elles sont dans le panneau.
       expect(ligne(String(a.id)).querySelector('[data-modifier-ligne]')).toBeNull();
       expect(container.querySelector('[data-detail-ligne]')).toBeNull();
@@ -338,7 +338,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await deplier(x);
       const p = container.querySelector(`[data-detail-ligne="${x}"]`)!;
       expect([...p.querySelectorAll('[data-champ]')].map((e) => e.getAttribute('data-champ'))).toEqual([
-        'Date de signature', 'Nature', 'Type de bien', 'Gestion', 'Origine du contact', 'Apporteur', 'Collègue', 'Hono. d’apporteur',
+        'Nature du bien', 'Date de signature', 'Nature', 'Type de bien', 'Gestion', 'Origine du contact', 'Apporteur', 'Collègue', 'Hono. d’apporteur',
         'Prime de gestion', 'Choix de prime', 'Négociateur', 'Client']);
       expect(p.querySelector('[data-champ="Négociateur"]')?.textContent).toBe('Jean-Baptiste PONS');
       expect(p.querySelector('[data-champ="Date de signature"]')?.textContent).toBe('01/09/2026 (supposée : le 1er du mois)');
@@ -349,6 +349,36 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await deplier(x);
       await deplier(x);
       expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+    });
+
+    it('🔴 la pastille « BIEN » en tête de ligne, la légende avec ses comptes, la raison dans le panneau', async () => {
+      const ids = sept.map((a) => String(a.id));
+      donnees = { ...donnees, activites: donnees.activites.map((a) => {
+        const i = ids.indexOf(String(a.id));
+        if (i === 0) return { ...a, origineContact: 'relocation', avecGestion: true, mandatGestion: false };
+        if (i === 1) return { ...a, origineContact: 'proprietaire_deja_client', avecGestion: false, mandatGestion: false };
+        if (i === 2) return { ...a, origineContact: 'proprietaire_deja_client', avecGestion: false, mandatGestion: true };
+        if (i === 3) return { ...a, origineContact: 'internet', avecGestion: false, mandatGestion: false };
+        if (i >= 4) return { ...a, origineContact: null };
+        return a;
+      }) };
+      await ouvrirSeptembre();
+      const pastille = (id: string) => ligne(id).querySelector('[data-mot="Bien"]');
+      expect(pastille(ids[0])?.getAttribute('data-nature-bien')).toBe('relocation');
+      expect(pastille(ids[0])?.textContent).toBe('Relocation gestion');
+      expect(pastille(ids[1])?.textContent).toBe('Client hors gestion');
+      expect(pastille(ids[2])?.textContent).toBe('Nouveau · gestion');
+      expect(pastille(ids[3])?.textContent).toBe('Nouveau · sans gestion');
+      expect(pastille(ids[4])?.textContent).toBe('à qualifier');
+      expect(pastille(ids[4])?.querySelector('.fdm-nature--a_qualifier')).not.toBeNull();
+      // La légende : chaque pastille et son compte, sur la ligne au-dessus du tableau.
+      const legende = [...container.querySelectorAll('[data-legende-nature-item]')].map((e) => [e.getAttribute('data-legende-nature-item'), e.querySelector('.fdm-legende-nb')?.textContent]);
+      expect(legende).toEqual([['relocation', '1'], ['client_hors_gestion', '1'], ['nouveau_gestion', '1'], ['nouveau_sans_gestion', '1'], ['a_qualifier', String(sept.length - 4)]]);
+      // Les pastilles « historique » / « à vérifier » restent à côté du nom.
+      expect(ligne(ids[0]).querySelector('th[data-mot="Propriétaires"] .loc-pastille')?.textContent).toBe('historique');
+      await deplier(ids[1]);
+      expect(nbsp(container.querySelector(`[data-detail-ligne="${ids[1]}"] [data-champ="Nature du bien"]`)?.textContent))
+        .toBe('Client hors gestion — propriétaire déjà client, bien sans gestion');
     });
 
     it('après « Enregistrer » : la feuille se relit (ligne et bas de feuille), le panneau reste ouvert', async () => {
