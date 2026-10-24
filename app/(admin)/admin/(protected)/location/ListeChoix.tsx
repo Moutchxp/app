@@ -57,7 +57,7 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
   const choix: { id: string; libelle: string; desactive: boolean; bloque?: boolean; groupe?: string }[] = [
     ...(vide === null ? [] : [{ id: '', libelle: vide, desactive: false }]),
     ...options.filter((o) => o.actif !== false || String(o.id) === valeur).map((o) => ({
-      id: String(o.id), libelle: `${o.libelle}${o.actif === false ? ' (désactivé)' : ''}${o.mention ?? ''}`, desactive: o.actif === false || o.bloque === true, ...(o.bloque === true ? { bloque: true } : {}),
+      id: String(o.id), libelle: `${o.libelle}${o.actif === false ? ' (compte désactivé)' : ''}${o.mention ?? ''}`, desactive: o.actif === false || o.bloque === true, ...(o.bloque === true ? { bloque: true } : {}),
       ...(o.groupe !== undefined ? { groupe: o.groupe } : {}),
     })),
   ];

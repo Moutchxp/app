@@ -262,7 +262,7 @@ export async function depuisToujoursDisponible(): Promise<boolean> {
 
 /**
  * 🔴 LES LISTES DE COLLÈGUES — DEUX RÈGLES (Arno, 24/10/2026, après 56700ffb) :
- *   · `lireCollegues` — « Collègue » (origine « Collègue directement »), collègue de rattachement d'un apporteur, feuille du mois :
+ *   · `lireComptesInterface` — « Collègue » (origine « Collègue directement »), collègue de rattachement d'un apporteur, feuille du mois :
  *     TOUS les comptes de l'interface d'administration, quels que soient leur profil et leurs droits ;
  *   · `lireNegociateurs` — « Négociateur » (et les rétrocessions, qui sont les siennes) : les comptes qui ont ACCÈS À LA TUILE
  *     LOCATION (droit `perm_location`) OU un profil ADMINISTRATEUR. Sans la colonne du droit Location, la tuile est réservée aux
@@ -280,7 +280,14 @@ export async function lireNegociateurs(): Promise<Negociateur[]> {
   return rows.map((r) => ({ id: num(r.id), libelle: r.libelle, actif: r.actif === true }));
 }
 
-export async function lireCollegues(): Promise<Negociateur[]> {
+/**
+ * 🔴 Arno (24/10/2026) — LES COMPTES DE L'INTERFACE : la SEULE source de toutes les listes de collègues (panneau Rattachement, « Passer
+ * en interne », collègue de rattachement de Nouveau locataire / Dossier de location, feuille du mois, annuaire). Un collègue = toute
+ * personne qui a un compte d'accès, QUELS QUE SOIENT son profil, ses droits et ses tuiles (Location, Gestion, administrateur, ou
+ * aucune) : AUCUN filtre ici. Le seul retrait est fait par la liste : un compte désactivé (`actif: false`) n'est proposé que s'il est
+ * déjà la valeur enregistrée, avec la mention « compte désactivé ».
+ */
+export async function lireComptesInterface(): Promise<Negociateur[]> {
   const { rows } = await query<{ id: string; libelle: string; actif: boolean }>(
     `SELECT u.id, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant, 'compte ' || u.id) AS libelle, u.actif
        FROM admin_utilisateur u
@@ -712,7 +719,7 @@ export async function annulerRetrocession(id: unknown, auteur: Auteur): Promise<
 
 // ── Négociateurs ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Un compte de l'administration (négociateur, collègue) — `lireCollegues`, la seule liste. */
+/** Un compte de l'administration (négociateur, collègue) — `lireComptesInterface`, la seule liste. */
 export interface Negociateur { id: number; libelle: string; actif: boolean }
 
 

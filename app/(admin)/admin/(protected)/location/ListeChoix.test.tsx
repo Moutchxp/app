@@ -75,9 +75,9 @@ describe('🔴 ListeChoix', () => {
     window.removeEventListener('keydown', ecoute);
   });
 
-  it('un compte désactivé déjà choisi : montré « (désactivé) », jamais choisissable', async () => {
+  it('un compte désactivé déjà choisi : montré « (compte désactivé) », jamais choisissable', async () => {
     await monter('3');
-    expect(champ().textContent).toBe('Ancien Compte (désactivé)');
+    expect(champ().textContent).toBe('Ancien Compte (compte désactivé)');
     await act(async () => { champ().click(); });
     const d = container.querySelector('[data-option="3"]')!;
     expect(d.getAttribute('aria-disabled')).toBe('true');

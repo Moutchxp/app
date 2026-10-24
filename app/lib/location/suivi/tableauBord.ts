@@ -824,6 +824,32 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
   return { total, parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
 }
 
+/**
+ * 🔴 Arno (24/10/2026) — ce qu'UN dossier apporte au dû de l'apporteur UNE année (brut, sans arrondi) : l'année de signature porte la part
+ * location et la part gestion « One shot » ; chaque année porte la part « Récurrent » de ses mois dus. La somme sur les dossiers = le dû
+ * de la ligne de l'année du Cumul (`cumulApporteur`). PUR.
+ */
+export function dontAnneeBrut(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string, annee: number): number {
+  if (a.apporteurId === null) return 0;
+  const signature = Number(a.dateSignature.slice(0, 4)) === annee ? partLocationDe(a, apporteurs) + partGestionSignatureDe(a, apporteurs) : 0;
+  const p = partGestionMensuelleDe(a, apporteurs);
+  return signature + (p === 0 ? 0 : p * moisDusApporteur(a, apporteurs, aujourdhui).filter((m) => Number(m.slice(0, 4)) === annee).length);
+}
+
+/**
+ * Les « dont <année> » AU CENTIME des dossiers d'une année : chacun arrondi par défaut, puis les centimes qui manquent pour atteindre la
+ * ligne de l'année (arrondie au centime) donnés aux plus forts restes — la somme des « dont » affichés = la ligne de l'année, EXACTEMENT,
+ * et chaque « dont » reste à moins d'un centime de sa valeur brute. Renvoie des centimes. PUR.
+ */
+export function repartirAuCentime(bruts: readonly { id: number | string; brut: number }[], cibleCentimes: number): Map<number | string, number> {
+  const base = bruts.map((x) => { const c = x.brut * 100; const f = Math.floor(c + 1e-7); return { id: x.id, c: f, reste: c - f }; });
+  let manque = cibleCentimes - base.reduce((s, x) => s + x.c, 0);
+  const ordre = [...base].sort((x, y) => y.reste - x.reste || String(x.id).localeCompare(String(y.id)));
+  for (let i = 0; manque > 0 && ordre.length > 0; i = (i + 1) % ordre.length, manque -= 1) ordre[i].c += 1;
+  for (let i = ordre.length - 1; manque < 0 && ordre.length > 0; i = (i - 1 + ordre.length) % ordre.length, manque += 1) ordre[i].c -= 1;
+  return new Map(base.map((x) => [x.id, x.c]));
+}
+
 /** 419 — `collegue` : le dû au COLLÈGUE de rattachement HT (signature + récurrent jusqu'au mois en cours) ; à part du dû à l'apporteur. */
 export type TotalApporteur = Omit<CumulAffaires, 'ids'> & { collegue: number;
   /** 🔴 Arno (24/10/2026) — les dossiers calculés à d'autres conditions que celles en vigueur (posé par la route, `autresConditions`). */

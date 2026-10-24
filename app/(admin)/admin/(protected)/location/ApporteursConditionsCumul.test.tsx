@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ActiviteCalcul } from '../../../../lib/location/suivi/tableauBord';
-import { totauxApporteurs } from '../../../../lib/location/suivi/tableauBord';
+import { cumulApporteur, dontAnneeBrut, repartirAuCentime, totauxApporteurs } from '../../../../lib/location/suivi/tableauBord';
 import type { Apporteur } from '../../../../lib/location/suivi/suivi';
 import { autresConditions, conditionsCollegue, detailDossier, phraseAutresConditions } from '../../../../lib/location/suivi/detailDossier';
 
@@ -87,6 +87,37 @@ describe('🔴 (1) le détail d’un dossier : d’où vient chaque dû', () => 
   });
 });
 
+// Les dossiers « Récurrent » de Hugo Exemple : montants qui ne tombent pas rond, dus sur plusieurs années (2024 → 2026).
+const RECURRENTS = [
+  dossier({ id: 41, apporteurId: 6, apporteurNom: 'Hugo Exemple', dateSignature: '2024-03-17', libelleProprietaire: 'AUBERT Lise', libelleLocataire: 'NOËL Tom',
+    honoProprietaireHt: 777.77, honoLocataireHt: 333.33, avecGestion: true, loyerHc: 1234.57, charges: 98.76, tauxGestionBien: 6.85 }),
+  dossier({ id: 42, apporteurId: 6, apporteurNom: 'Hugo Exemple', dateSignature: '2025-05-02', libelleProprietaire: 'BLANC Yves', libelleLocataire: 'COLIN Ana',
+    honoProprietaireHt: 512.49, honoLocataireHt: 0, avecGestion: true, loyerHc: 987.65, charges: 43.21, tauxGestionBien: 7.13 }),
+  dossier({ id: 43, apporteurId: 6, apporteurNom: 'Hugo Exemple', dateSignature: '2025-11-28', libelleProprietaire: 'DUVAL Rémi', libelleLocataire: 'ÉVRARD Zoé',
+    honoProprietaireHt: 401.01, honoLocataireHt: 199.99 }),
+];
+
+describe('🔴 (2c) « dont <année> » : la somme des dossiers dépliés = la ligne de l’année, au centime', () => {
+  it('la répartition au centime : somme exacte, chaque « dont » à moins d’un centime de sa valeur brute', () => {
+    const cumul = cumulApporteur(RECURRENTS, APPORTEURS, 6, JOUR);
+    expect(cumul.parAnnee.map((y) => y.annee)).toEqual([2026, 2025, 2024]);
+    for (const y of cumul.parAnnee) {
+      const bruts = RECURRENTS.map((d) => ({ id: d.id, brut: dontAnneeBrut(d, APPORTEURS, JOUR, y.annee) }));
+      // La somme brute des dossiers EST le dû de l'année du Cumul.
+      expect(Math.abs(bruts.reduce((s, x) => s + x.brut, 0) - y.commission)).toBeLessThan(1e-6);
+      const cible = Math.round(y.commission * 100);
+      const dont = repartirAuCentime(bruts, cible);
+      expect([...dont.values()].reduce((s, c) => s + c, 0)).toBe(cible);
+      for (const x of bruts) expect(Math.abs((dont.get(x.id) ?? 0) - x.brut * 100)).toBeLessThan(1);
+    }
+  });
+  it('des restes qui ne tombent pas juste : la somme reste exacte (plus forts restes)', () => {
+    const d = repartirAuCentime([{ id: 'a', brut: 0.333 }, { id: 'b', brut: 0.333 }, { id: 'c', brut: 0.334 }], 100);
+    expect([...d.values()].reduce((s, c) => s + c, 0)).toBe(100);
+    expect(d.get('c')).toBe(34);
+  });
+});
+
 describe('🔴 (2) les conditions d’un apporteur', () => {
   it('les dossiers qui ne suivent PAS la version d’aujourd’hui : saisis à l’import (et conformes à la version de l’époque), ou version antérieure', () => {
     const imports = [1, 2, 3].map((i) => dossier({ id: i, dateSignature: '2025-0' + i + '-01', honoProprietaireHt: 100 * i, honoLocataireHt: 0, apporteurTaux: 0.5, commissionSaisie: 50 * i }));
@@ -115,7 +146,8 @@ beforeEach(() => {
     collegues: [{ id: 2, libelle: 'Marie Interne' }, { id: 5, libelle: 'Paul Collègue' }], apporteurs: APPORTEURS };
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
-    if (u.includes('vue=dossiers-apporteur')) return json({ etat: 'ok', data: { aujourdhui: JOUR, dossiers: u.includes('id=4') ? [LOC_SEULE, LOC_GESTION] : [] } });
+    if (u.includes('vue=dossiers-apporteur')) return json({ etat: 'ok', data: { aujourdhui: JOUR, dossiers: u.includes('id=4') ? [LOC_SEULE, LOC_GESTION] : u.includes('id=6') ? RECURRENTS : [] } });
+    if (u.includes('vue=cumul-apporteur') && u.includes('id=6')) return json({ etat: 'ok', data: cumulApporteur(RECURRENTS, APPORTEURS, 6, JOUR) });
     if (u.includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: { total: { nb: 2, ca: 1421, commission: 710.5 },
       parAnnee: [{ annee: 2025, nb: 2, ca: 1421, commission: 710.5 }], parMois: [{ mois: '2025-03', nb: 1, ca: 421, commission: 210.5 }, { mois: '2025-01', nb: 1, ca: 1000, commission: 500 }] } });
     if (u.includes('vue=totaux-apporteurs')) return json({ etat: 'ok', data: {
@@ -190,6 +222,7 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
       'honoraires-location | Transaction locative | 421,00 €',
       'apporteur-tete | − Dû à l’apporteur (FICTIVE Léa)',
       'apporteur-location | sur la location (50 %)taux utilisé 50 % — montant saisi à l’import | 210,50 €',
+      'apporteur-dont | dont 2025 : | 210,50 €',
       'collegue-tete | − Dû au collègue (Paul Collègue)',
       'collegue-location | sur la location (5 %)taux utilisé 5 % — version du 01/01/2021 | 21,05 €',
       'net | = Net agence HT | 189,45 €',
@@ -201,11 +234,34 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
       'honoraires-total | Total honoraires | 1 792,00 €',
       'apporteur-tete | − Dû à l’apporteur (FICTIVE Léa)',
       'apporteur-location | sur la location (50 %)taux utilisé 50 % — version du 31/12/2020 | 500,00 €',
+      'apporteur-dont | dont 2025 : | 500,00 €',
       'collegue-tete | − Dû au collègue (Paul Collègue)',
       'collegue-location | sur la location (5 %)taux utilisé 5 % — version du 01/01/2021 | 50,00 €',
       'collegue-gestion | sur la gestion (10 %, one shot 12 mois)taux utilisé 10 % — version du 01/01/2021 | 79,20 €',
       'collegue-total | Total collègue | 129,20 €',
       'net | = Net agence HT | 1 162,80 €',
     ]);
+  });
+});
+
+describe('🔴 (2c) à l’écran : chaque dossier déplié dit « dont <année> »', () => {
+  it('chaque année dépliée : la somme des « dont » affichés = le « Dû à l’apporteur HT » de la ligne de l’année ; un dossier d’avant y est pour son récurrent', async () => {
+    await annuaire();
+    await clic(container.querySelector('[data-apporteur-bouton="6"][data-panneau-bouton="cumul"]')!);
+    await calmer();
+    const centimes = (t: string | null | undefined): number => Math.round(Number(n(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+    for (const an of ['2026', '2025', '2024']) {
+      await clic(container.querySelector(`[data-deplier-annee="${an}"]`)!);
+      const ligne = container.querySelector(`[data-annee="${an}"] [data-mot="Dû à l’apporteur HT"]`)?.textContent;
+      const donts = [...container.querySelectorAll(`[data-annee-detail="${an}"] [data-ligne-dossier="apporteur-dont"]`)];
+      expect(donts.length, an).toBeGreaterThan(0);
+      expect(donts.every((d) => n(d.children[0].textContent) === `dont ${an} :`)).toBe(true);
+      expect(donts.reduce((s, d) => s + centimes(d.children[1].textContent), 0), an).toBe(centimes(ligne));
+    }
+    // 2026 : aucun dossier signé, mais les récurrents de 2024 et 2025 y sont, annoncés comme tels.
+    const d2026 = [...container.querySelectorAll('[data-annee-detail="2026"] [data-dossier-detail]')].map((x) => x.getAttribute('data-dossier-detail'));
+    expect(d2026).toEqual(['41', '42']);
+    expect(container.querySelector('[data-annee-detail="2026"] [data-dossier-detail="41"] [data-dossier-anterieur]')?.textContent)
+      .toBe('Signé en 2024 : seul son dû récurrent de 2026 compte dans cette année.');
   });
 });

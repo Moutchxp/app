@@ -5,7 +5,7 @@ import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
 import { aUnDuMensuel, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
-import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
@@ -205,7 +205,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
     voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
-    lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireCollegues(), annuaireDisponible(),
+    lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
     lireGestionsPerduesFichier(`${annee}-01-01`, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
   ]);
   const gestionLignes = [...gestionTransitions, ...pertesFichier];

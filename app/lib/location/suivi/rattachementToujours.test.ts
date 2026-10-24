@@ -52,8 +52,8 @@ describe('🔴 La liste des collègues : TOUS les comptes (administrateurs compr
   vi.mock('../sondeLocation', () => ({ colonneExisteMemo: async () => true }));
   beforeEach(() => { appels.length = 0; });
   it('aucune condition de rôle ni de droit : tous les comptes, les désactivés marqués `actif: false` (la liste les écarte) ; tri par nom', async () => {
-    const { lireCollegues } = await import('./suiviRepo');
-    expect(await lireCollegues()).toEqual([{ id: 7, libelle: 'Alice Martin', actif: true }, { id: 3, libelle: 'Ancien Compte', actif: false }]);
+    const { lireComptesInterface } = await import('./suiviRepo');
+    expect(await lireComptesInterface()).toEqual([{ id: 7, libelle: 'Alice Martin', actif: true }, { id: 3, libelle: 'Ancien Compte', actif: false }]);
     const sql = appels.at(-1)!.sql;
     // Arno (24/10/2026) — Cédric Jullien, administrateur, absent : AUCUN filtre sur le rôle ni sur les droits, ni sur `actif`
     // (le désactivé est rendu marqué, pour qu'un choix déjà fait reste lisible).

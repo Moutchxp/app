@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
-  lireApporteurs, lireCollegues, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
+  lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
   proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible, enregistrerRattachement,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
@@ -77,7 +77,7 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
     const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
-      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(), passageDisponible(),
+      lireComptesInterface(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(), passageDisponible(),
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,

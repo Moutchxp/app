@@ -300,8 +300,8 @@ describe('🔴 Arno (24/10/2026) — les listes de collègues : tous les comptes
   });
   it('un compte désactivé DÉJÀ choisi reste affiché, marqué « désactivé »', async () => {
     await monter(null, LU({ negociateurs: COMPTES, collegues: COMPTES }), { negociateurId: 3 });
-    expect(q('[data-negociateur]')!.textContent).toBe('Ancien Compte (désactivé)');
-    expect((await optionsDe('[data-negociateur]')).find((o) => o.id === '3')?.texte).toBe('Ancien Compte (désactivé)');
+    expect(q('[data-negociateur]')!.textContent).toBe('Ancien Compte (compte désactivé)');
+    expect((await optionsDe('[data-negociateur]')).find((o) => o.id === '3')?.texte).toBe('Ancien Compte (compte désactivé)');
   });
 });
 
