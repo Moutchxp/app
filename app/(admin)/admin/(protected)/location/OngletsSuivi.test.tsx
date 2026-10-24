@@ -232,10 +232,14 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await calmer();
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-onglet')).toBe('apporteurs');
   });
-  it('🔴 Arno (23/10/2026) : la liste montre dossiers, honoraires HT et dû HT ; tri par honoraires HT décroissants, puis au choix', async () => {
+  it('🔴 Arno (23/10/2026) : la liste montre dossiers, honoraires HT et dû HT ; tri ALPHABÉTIQUE par nom de famille (24/10/2026), puis au choix', async () => {
     avec407();
     await ouvrir('apporteurs');
     const ordre = () => [...container.querySelectorAll('[data-apporteur]')].map((x) => x.getAttribute('data-apporteur'));
+    expect((container.querySelector('[data-tri]') as HTMLSelectElement).value).toBe('nom');
+    expect(ordre()).toEqual(['3', '4']);   // « Kin Immo » (une agence : par son nom) avant « REPRIS Apporteur »
+    const tri0 = container.querySelector('[data-tri]') as HTMLSelectElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri0, 'ca'); tri0.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ordre()).toEqual(['4', '3']);   // 5 825,03 € avant 1 200 €
     expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €');
     const tri = container.querySelector('[data-tri]') as HTMLSelectElement;
@@ -246,12 +250,31 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await trier('commission');
     expect(ordre()).toEqual(['3', '4']);   // 600 € dus avant 582,50 €
     await trier('nom');
-    expect(ordre()).toEqual(['4', '3']);   // « Apporteur Repris » avant « Kin Immo »
+    expect(ordre()).toEqual(['3', '4']);   // par nom de famille : « Kin Immo » (une agence : par son nom) avant « REPRIS Apporteur »
     await trier('ca');
     // Le filtre « À rattacher » garde le tri et ne change pas.
     await clic(container.querySelector('[data-filtre-a-rattacher]')!);
     expect(ordre()).toEqual(['4']);
   });
+  it('🔴 Arno (24/10/2026, 414) — « NOM Prénom » dans la liste ; nom de famille et prénom corrigés dans la fiche', async () => {
+    avec407();
+    suivi = { ...suivi, nomPrenom: true, apporteurs: [...(suivi.apporteurs as unknown[]),
+      { id: 5, nom: 'Marjorie Arthur Immo', type: 'partenaire', archive: false, baremes: [], collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] },
+      { id: 6, nom: 'Hélène Beketov', type: 'partenaire', archive: false, baremes: [], collegues: [], nomFamille: 'Beketov', prenom: 'Hélène' }] };
+    await ouvrir('apporteurs');
+    const noms = () => [...container.querySelectorAll('[data-nom-apporteur-liste]')].map((x) => x.textContent);
+    // par nom de famille (une structure par son nom) : Beketov, Immo, Kin Immo (agence), Repris
+    expect(noms()).toEqual(['BEKETOV Hélène', 'IMMO Marjorie Arthur', 'Kin Immo', 'REPRIS Apporteur']);
+    await clic(container.querySelector('[data-ouvrir-fiche="5"]')!);
+    const nf = container.querySelector('[data-fiche-nom-famille]') as HTMLInputElement;
+    expect(nf.value).toBe('Immo');                                    // la reprise PROPOSE le dernier mot…
+    expect((container.querySelector('[data-fiche-prenom]') as HTMLInputElement).value).toBe('Marjorie Arthur');
+    await saisir(nf, 'Arthur');                                       // … corrigeable dans la fiche
+    await saisir(container.querySelector('[data-fiche-prenom]') as HTMLInputElement, 'Marjorie');
+    await clic(container.querySelector('[data-enregistrer-fiche]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 5, fiche: { nomFamille: 'Arthur', prenom: 'Marjorie' } });
+  });
+
   it('un nouvel apporteur part avec son collègue de rattachement', async () => {
     avec407();
     await ouvrir('apporteurs');

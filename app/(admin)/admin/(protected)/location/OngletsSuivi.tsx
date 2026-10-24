@@ -4,7 +4,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, depuisLibelle, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
-  LIBELLE_MODE_APPORTEUR, libelleRegleApporteur, MODES_APPORTEUR, type ModeApporteur,
+  LIBELLE_MODE_APPORTEUR, libelleRegleApporteur, MODES_APPORTEUR, type ModeApporteur, libelleApporteur, nomEtPrenom, trierApporteurs,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 
@@ -23,6 +23,8 @@ interface Lu {
   retrocessions: { id: number; negociateurLibelle: string; negociateurId: number | null; mois: string; montant: number; libelle: string }[];
   negociateurs: { id: number; libelle: string; actif?: boolean }[];
   collegues: { id: number; libelle: string; actif?: boolean }[];
+  /** 414 — le nom de famille et le prénom des apporteurs se corrigent dans la fiche. */
+  nomPrenom?: boolean;
   annuaire: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
@@ -41,7 +43,7 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
         retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
-        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true });
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -156,7 +158,7 @@ function CumulApporteur({ id }: { id: number }) {
 }
 
 type Tri = 'ca' | 'commission' | 'nb' | 'nom';
-const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom (A → Z)' };
+const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom de famille (A → Z)' };
 
 /**
  * `onChoisir` (Arno, 24/10/2026) — ouvert depuis « Nouveau locataire » (modale « Ouvrir l'annuaire ») : chaque apporteur porte
@@ -169,14 +171,16 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const [nouveau, setNouveau] = useState(VIDE_APPORTEUR(jour));
   const [version, setVersion] = useState<{ id: number; mode: ModeApporteur; taux: string; tauxGestion: string; coutFixe: string; depuis: string } | null>(null);
   const [ouverte, setOuverte] = useState<number | null>(null);
-  const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur }>({ societe: '', telephone: '', email: '', type: 'partenaire' });
+  const [fiche, setFiche] = useState<{ societe: string; telephone: string; email: string; type: TypeApporteur; nomFamille: string; prenom: string }>(
+    { societe: '', telephone: '', email: '', type: 'partenaire', nomFamille: '', prenom: '' });
   /** Arno (23/10/2026, 409) — `toujours` : « Depuis toujours » (tout l'historique et la suite), proposé d'office au 1er rattachement. */
   const [rattachement, setRattachement] = useState<{ collegueId: string; depuis: string; toujours: boolean }>({ collegueId: '', depuis: jour, toujours: false });
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
   const [seulementARattacher, setSeulementARattacher] = useState(false);
   /** Arno (23/10/2026) — les totaux de chaque apporteur (dossiers, honoraires HT, dû HT), et le tri de la liste. */
   const [totaux, setTotaux] = useState<Record<number, Chiffres> | null>(null);
-  const [tri, setTri] = useState<Tri>('ca');
+  // Arno (24/10/2026) — par défaut, l'ordre ALPHABÉTIQUE par nom de famille (les autres tris restent au choix).
+  const [tri, setTri] = useState<Tri>('nom');
   useEffect(() => {
     let vivant = true;
     fetch(`${API_SUIVI}?vue=totaux-apporteurs`, { cache: 'no-store' }).then((r) => r.json())
@@ -189,7 +193,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
     g.effacer();
     if (ouverte === a.id) { setOuverte(null); return; }
     setOuverte(a.id);
-    setFiche({ societe: a.societe ?? '', telephone: a.telephone ?? '', email: a.email ?? '', type: a.type });
+    const np = nomEtPrenom(a);   // 414 — la séparation enregistrée, sinon PROPOSÉE (dernier mot = nom de famille)
+    setFiche({ societe: a.societe ?? '', telephone: a.telephone ?? '', email: a.email ?? '', type: a.type, nomFamille: np?.nomFamille ?? '', prenom: np?.prenom ?? '' });
     setRattachement({ collegueId: '', depuis: jour, toujours: (a.collegues ?? []).length === 0 });
   };
   return (
@@ -216,18 +221,18 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
             </p>
           )}
           <ol className="plo-versions" data-liste-apporteurs>
-            {lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))).sort((x, y) => {
-              if (tri === 'nom') return x.nom.localeCompare(y.nom, 'fr');
-              const vx = totaux?.[x.id]?.[tri] ?? 0;
-              const vy = totaux?.[y.id]?.[tri] ?? 0;
-              return vy - vx || x.nom.localeCompare(y.nom, 'fr');
-            }).map((a) => {
+            {(() => {
+              // 414 — « NOM Prénom », tri par nom de famille puis prénom (une structure par son nom) ; les autres tris départagent pareil.
+              const alpha = trierApporteurs(lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))));
+              const rang = new Map(alpha.map((a, i) => [a.id, i]));
+              return tri === 'nom' ? alpha : [...alpha].sort((x, y) => (totaux?.[y.id]?.[tri] ?? 0) - (totaux?.[x.id]?.[tri] ?? 0) || (rang.get(x.id)! - rang.get(y.id)!));
+            })().map((a) => {
               const enVigueur = versionADate(a.baremes, jour);
               const orphelin = annuaire && aRattacher(a);
               const collegue = collegueADate(a, jour);
               return (
                 <li key={a.id} data-apporteur={a.id} className={orphelin ? 'plo-a-rattacher' : undefined}>
-                  <p className="plo-version-titre"><strong>{a.nom}</strong><span className="plo-pastille">{LIBELLE_TYPE_APPORTEUR[a.type]}</span>
+                  <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><span className="plo-pastille">{LIBELLE_TYPE_APPORTEUR[a.type]}</span>
                     {annuaire && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
@@ -280,6 +285,13 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                   {annuaire && ouverte === a.id && (
                     <div className="plo-fiche" data-fiche-apporteur={a.id} onKeyDown={echap(() => { g.effacer(); setOuverte(null); })}>
                       <h4 className="plo-h4">Fiche</h4>
+                      {lu.nomPrenom === true ? (
+                        <div className="plo-grille" data-fiche-nom-prenom>
+                          <label className="plo-champ"><span>Nom de famille</span><input value={fiche.nomFamille} onChange={(e) => setFiche({ ...fiche, nomFamille: e.target.value })} data-fiche-nom-famille /></label>
+                          <label className="plo-champ"><span>Prénom</span><input value={fiche.prenom} onChange={(e) => setFiche({ ...fiche, prenom: e.target.value })} data-fiche-prenom /></label>
+                          <small className="plo-muet plo-champ--large">Affiché « NOM Prénom », trié par nom de famille. Une structure (agence, société) : videz les deux, son nom s’affiche tel quel.</small>
+                        </div>
+                      ) : <p className="plo-muet plo-petit-texte" data-nom-prenom-sans-migration>Nom de famille et prénom : la séparation est proposée (dernier mot = nom) ; mise à jour de la base à appliquer (migration 414) pour la corriger.</p>}
                       <div className="plo-grille">
                         <label className="plo-champ"><span>Société</span><input value={fiche.societe} onChange={(e) => setFiche({ ...fiche, societe: e.target.value })} data-fiche-societe /></label>
                         <label className="plo-champ"><span>Type</span>

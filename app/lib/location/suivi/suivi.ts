@@ -208,8 +208,57 @@ export const depuisLibelle = (c: Pick<CollegueDate, 'depuis'>): string => (c.dep
 export interface Apporteur {
   id: number; nom: string; type: TypeApporteur; baremes: BaremeApporteur[]; archive: boolean;
   societe?: string | null; telephone?: string | null; email?: string | null;
+  /**
+   * Arno (24/10/2026, migration 414) — le nom de FAMILLE et le prénom, séparés (« NOM Prénom », tri par nom de famille). null :
+   * pas encore séparés (sans la 414, ou jamais repris) — la séparation est alors PROPOSÉE (`separerNomPrenom`). '' : séparés à la
+   * main comme « pas une personne » (une structure : le nom tel quel).
+   */
+  nomFamille?: string | null;
+  prenom?: string | null;
   /** Vide : « à rattacher » (407). Absent : base sans la 407. */
   collegues?: CollegueDate[];
+}
+
+// ── Arno (24/10/2026, 414) — « NOM Prénom » et le tri par nom de famille ──────────────────────────────────────────────────
+
+/** Une STRUCTURE (agence, Internet) : son nom, tel quel ; jamais découpé en nom / prénom. */
+export const estStructure = (a: Pick<Apporteur, 'type'>): boolean => a.type === 'agence' || a.type === 'internet';
+
+/** La séparation PROPOSÉE (reprise) : le DERNIER mot est le nom de famille, le reste le prénom. Un seul mot : le nom seul. PUR. */
+export function separerNomPrenom(nom: string): { nomFamille: string; prenom: string | null } {
+  const mots = nom.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (mots.length <= 1) return { nomFamille: mots[0] ?? '', prenom: null };
+  return { nomFamille: mots[mots.length - 1], prenom: mots.slice(0, -1).join(' ') };
+}
+
+const MOTS_DOUTEUX = /^(m|mr|mme|mlle|monsieur|madame|gardien|gardienne|immo|immobilier|agence|sarl|sas|sci|eurl|salle|sport|rue|du|de|la|le)$/i;
+/** Une séparation à faire vérifier : pas exactement deux mots, ou un mot de civilité, de métier, d'adresse ou d'entreprise. PUR. */
+export function separationDouteuse(nom: string): boolean {
+  const mots = nom.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  return mots.length !== 2 || mots.some((m) => MOTS_DOUTEUX.test(m.replace(/[.,]/g, '')));
+}
+
+/** Le nom de famille et le prénom d'un apporteur (null : une structure, ou séparé à la main comme telle). PUR. */
+export function nomEtPrenom(a: Pick<Apporteur, 'nom' | 'type' | 'nomFamille' | 'prenom'>): { nomFamille: string; prenom: string | null } | null {
+  if (estStructure(a)) return null;
+  if (a.nomFamille !== undefined && a.nomFamille !== null) {
+    return a.nomFamille.trim() === '' ? null : { nomFamille: a.nomFamille.trim(), prenom: a.prenom?.trim() || null };
+  }
+  return separerNomPrenom(a.nom);
+}
+
+/** L'affichage : « NOM Prénom » pour une personne ; le nom tel quel pour une structure (ou un nom sans prénom). PUR. */
+export function libelleApporteur(a: Pick<Apporteur, 'nom' | 'type' | 'nomFamille' | 'prenom'>): string {
+  const p = nomEtPrenom(a);
+  if (p === null || p.prenom === null) return p === null ? a.nom : p.nomFamille;
+  return `${p.nomFamille.toLocaleUpperCase('fr-FR')} ${p.prenom}`;
+}
+
+/** Le tri : par nom de famille, puis prénom ; une structure par son nom (accents et casse ignorés). PUR, sans modifier l'entrée. */
+export function trierApporteurs<T extends Pick<Apporteur, 'id' | 'nom' | 'type' | 'nomFamille' | 'prenom'>>(liste: readonly T[]): T[] {
+  const cle = (a: T): [string, string] => { const p = nomEtPrenom(a); return p === null ? [a.nom, ''] : [p.nomFamille, p.prenom ?? '']; };
+  const comparer = (x: string, y: string): number => x.localeCompare(y, 'fr', { sensitivity: 'base' });
+  return [...liste].sort((a, b) => { const [na, pa] = cle(a); const [nb, pb] = cle(b); return comparer(na, nb) || comparer(pa, pb) || a.id - b.id; });
 }
 
 /** « À rattacher » : aucun collègue de rattachement — l'apporteur ne peut pas être choisi pour une nouvelle location. PUR. */

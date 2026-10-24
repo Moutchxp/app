@@ -13,7 +13,7 @@ import { InfoBulle } from '../InfoBulle';
 import {
   type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
 } from '../../../../lib/location/suivi/tableauBord';
-import { LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, type ModeApporteur } from '../../../../lib/location/suivi/suivi';
+import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, trierApporteurs } from '../../../../lib/location/suivi/suivi';
 
 /**
  * ══ LOCATION — « SUIVI COMMERCIAL » DU BAIL (Arno, 22/10/2026, migration 406) ══════════════════════════════════════════════
@@ -342,9 +342,10 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               {/* Un apporteur « à rattacher » reste MONTRÉ dans la liste, avec sa mention, sans être choisissable. Arno (24/10/2026,
                   accord explicite) : l'aide qui le redisait sous le champ est retirée — le champ s'aligne sur son voisin de gauche. */}
               <ListeChoix valeur={s.apporteurId === null || s.apporteurId === undefined ? '' : String(s.apporteurId)} vide={annuaire ? '— choisir dans l’annuaire —' : '— aucun —'}
-                options={[...actifs.map((a) => {
+                options={[...trierApporteurs(actifs).map((a) => {
+                  // Arno (24/10/2026, 414) — « NOM Prénom », dans l'ordre alphabétique des noms de famille (une structure par son nom).
                   const bloque = annuaire && aRattacher(a);
-                  return { id: a.id, libelle: `${a.nom} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, mention: bloque ? ' — à rattacher' : undefined };
+                  return { id: a.id, libelle: `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, mention: bloque ? ' — à rattacher' : undefined };
                 }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
                 libelle="Apporteur d’affaires" donnees={{ 'data-apporteur': '' }}
                 onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />

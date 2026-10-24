@@ -15,6 +15,8 @@ const repo = {
   annuaireDisponible: vi.fn(), lireCollegues: vi.fn(), modifierActivite: vi.fn(), modifierApporteur: vi.fn(), rattacherApporteur: vi.fn(),
   /* Arno (24/10/2026, 411) — l'origine « Personnalisé » peut-elle être proposée ? */
   personnalisableDisponible: vi.fn(async () => false),
+  /* Arno (24/10/2026, 414) — le nom de famille et le prénom des apporteurs. */
+  nomPrenomDisponible: vi.fn(async () => false),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
@@ -31,6 +33,7 @@ beforeEach(() => {
   repo.lireRegles.mockResolvedValue([]);
   repo.lireCollegues.mockResolvedValue([]);
   repo.annuaireDisponible.mockResolvedValue(true);
+  repo.nomPrenomDisponible.mockResolvedValue(false);
   repo.lireRetrocessions.mockResolvedValue([{ id: 1, montant: 200 }]);
   repo.peutVoirCommissions.mockResolvedValue(false);
   exigerAdministrateur.mockReset().mockResolvedValue({ auteurId: 2 });

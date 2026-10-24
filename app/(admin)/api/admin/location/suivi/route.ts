@@ -3,7 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
-  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
+  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
   proposerActivite, rattacherApporteur, suiviDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
@@ -55,14 +55,16 @@ export async function GET(request: Request): Promise<Response> {
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
     }
-    const [disponible, apporteurs, regles, retrocessions, collegues, annuaire, personnalisable] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, collegues, annuaire, personnalisable, nomPrenom] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]),
-      lireCollegues(), annuaireDisponible(), personnalisableDisponible(),
+      lireCollegues(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(),
     ]);
     // 🔴 Arno (24/10/2026) — UNE seule liste de collègues : les négociateurs sont les mêmes comptes (administrateurs compris).
     const negociateurs = collegues;
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
-    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable } });
+    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
+      // 414 — le nom de famille et le prénom des apporteurs peuvent-ils être corrigés dans la fiche ?
+      nomPrenom } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);

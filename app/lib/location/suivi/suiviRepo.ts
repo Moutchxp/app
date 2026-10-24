@@ -59,6 +59,11 @@ export async function tauxGestionDuBien(q: typeof query, lotId: number, bailId: 
   return proposerTaux({ precedent: r?.precedent == null ? null : Number(r.precedent), wippimmo: r?.wippimmo == null ? null : Number(r.wippimmo), reglage: reglages.tauxDefautHt }).taux;
 }
 
+/** Arno (24/10/2026) — la migration 414 (nom de famille et prénom des apporteurs, séparés) est-elle appliquée ? */
+export function nomPrenomDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_apporteur', 'nom_famille');
+}
+
 /** La migration 406 est-elle appliquée ? (sondé hors transaction, mémorisé). */
 export function suiviDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_activite', 'date_signature');
@@ -114,9 +119,12 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   if (!(await suiviDisponible())) return [];
   const avecAnnuaire = await annuaireDisponible();
   const avecGestion = await commissionGestionDisponible();
+  const avecNomPrenom = await nomPrenomDisponible();
   const [a, b, c] = await Promise.all([
-    query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null }>(
-      `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'}
+    query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
+      nom_famille: string | null; prenom: string | null }>(
+      `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'},
+              ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'}
          FROM gestion_location_apporteur ORDER BY lower(nom), id`),
     query<{ apporteur_id: string; depuis: Date; taux: string; cout_fixe_mensuel: string; mode: string | null; taux_gestion: string | null }>(
       `SELECT apporteur_id, depuis, taux, cout_fixe_mensuel, ${avecGestion ? 'mode, taux_gestion' : 'NULL::text AS mode, NULL::numeric AS taux_gestion'}
@@ -140,6 +148,8 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   }
   return a.rows.map((r) => ({
     id: num(r.id), nom: r.nom, type: r.type, archive: r.archive_le !== null, baremes: baremes.get(num(r.id)) ?? [],
+    // 414 — null : pas encore séparés (la séparation est proposée à l'affichage) ; '' : « pas une personne ».
+    nomFamille: r.nom_famille, prenom: r.prenom,
     ...(avecAnnuaire ? { societe: r.societe, telephone: r.telephone, email: r.email, collegues: collegues.get(num(r.id)) ?? [] } : {}),
   }));
 }
@@ -231,9 +241,17 @@ export async function modifierApporteur(apporteurId: unknown, brut: unknown, aut
   const c = verifierCoordonnees(b);
   if (!c.ok) return { etat: 'refus', motif: c.motif };
   const type = ['partenaire', 'agence', 'internet', 'collaborateur'].includes(String(b.type)) ? String(b.type) : null;
+  // 414 — le nom de famille et le prénom, corrigés dans la fiche (absents de la requête : inchangés ; vides : « pas une personne »).
+  const avecNomPrenom = await nomPrenomDisponible();
+  const texte = (v: unknown): string | null => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : null);
+  const nomFamille = texte(b.nomFamille);
+  const prenom = texte(b.prenom);
+  if (nomFamille === '' && prenom !== null && prenom !== '') return { etat: 'refus', motif: 'Un prénom sans nom de famille : saisissez le nom de famille (ou videz les deux pour une structure).' };
   const r = await query(
     `UPDATE gestion_location_apporteur SET societe = $2, telephone = $3, email = $4, type = coalesce($5, type), modifie_le = now(), modifie_par_libelle = $6
-      WHERE id = $1 AND archive_le IS NULL`, [id, c.valeurs.societe, c.valeurs.telephone, c.valeurs.email, type, auteur.libelle]);
+       ${avecNomPrenom && nomFamille !== null ? ', nom_famille = $7, prenom = $8' : ''}
+      WHERE id = $1 AND archive_le IS NULL`,
+    [id, c.valeurs.societe, c.valeurs.telephone, c.valeurs.email, type, auteur.libelle, ...(avecNomPrenom && nomFamille !== null ? [nomFamille, prenom === '' ? null : prenom] : [])]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Apporteur inconnu.' };
 }
 

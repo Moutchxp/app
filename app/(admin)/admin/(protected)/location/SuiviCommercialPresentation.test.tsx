@@ -373,3 +373,17 @@ describe('🔴 Arno (24/10/2026) — les listes de la page en VERT, contour comp
     expect((await optionsDe('[data-categorie-prime]')).map((o) => o.id)).toEqual(['logement', 'local', 'parking']);
   });
 });
+
+describe('🔴 Arno (24/10/2026, 414) — la liste « Apporteur d’affaires » : « NOM Prénom », par nom de famille', () => {
+  it('l’ordre et l’affichage du champ', async () => {
+    const col = [{ depuis: '2026-01-01', collegueId: 5, collegueLibelle: 'Jean-Baptiste PONS' }];
+    await monter(null, LU({ apporteurs: [
+      { id: 11, nom: 'Pierre Thevenin', type: 'partenaire', archive: false, baremes: [], collegues: col },
+      APPORTEUR as never,
+      { id: 12, nom: 'Hélène Beketov', type: 'partenaire', archive: false, baremes: [], collegues: col },
+    ] as never }));
+    await choisir('[data-origine-contact]', 'apporteur');
+    expect((await optionsDe('[data-apporteur]')).map((o) => o.texte)).toEqual(['— choisir dans l’annuaire —', 'BEKETOV Hélène (Partenaire externe)', 'Kin Immo (Agence)',
+      'THEVENIN Pierre (Partenaire externe)', '+ Nouvel apporteur…']);
+  });
+});
