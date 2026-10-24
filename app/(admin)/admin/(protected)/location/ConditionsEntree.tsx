@@ -67,7 +67,7 @@ function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -90,8 +90,15 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   dateEntree?: string | null;
   /** Arno (24/10/2026) — un geste COMPACT à droite du titre « Sommes dues à l'entrée » (« Caractéristiques du bien loué »). */
   actionSommes?: ReactNode;
+  /**
+   * 🔴 Arno (24/10/2026, après 56700ffb) — « Honoraires agence (€ HT) » : saisis et affichés en HT, « soit X € TTC » dessous ; la
+   * valeur ENREGISTRÉE reste le TTC (ce que paie le locataire : total des sommes dues, mail). « Nouveau locataire » seulement : la
+   * fiche du locataire (même composant) reste en TTC.
+   */
+  agenceEnHt?: boolean;
 }) {
   const s = valeur;
+  const [frappeAgence, setFrappeAgence] = useState<string | null>(null);
   // ══ LES PRORATAS (Arno, 20/10/2026) : loyer principal / provision × jours d'occupation ÷ jours du mois d'entrée, recalculés
   //    tant qu'on ne les a pas modifiés à la main. Arrondis au centime à la fin seulement (`prorataEntree`).
   const meres = { prorataLoyer: s.loyer.principal, prorataCharges: s.loyer.provisions } as const;
@@ -260,19 +267,30 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
           {SOMMES.map((k) => {
             const calcule = (k === 'prorataLoyer' || k === 'prorataCharges') && dateEntree !== undefined;
             const id = `${idChamps}-${k}`;
+            const enHt = agenceEnHt && k === 'honorairesAgence';
+            const ttcAgence = enHt ? enCentimes(s.sommes.honorairesAgence) : undefined;
             return (
               // Trois rangées partagées par les quatre champs (intitulé · case · sous le champ) : intitulés sur la même
               // ligne et cases à la même hauteur sur ordinateur, quel que soit ce qui s'écrit dessous.
               <div key={k} className="loc-champ loc-champ-somme" data-somme={k}>
                 <span className="loc-champ-tete">
-                  <Intitule htmlFor={id}>{LIBELLE_SOMME[k]}</Intitule>
+                  <Intitule htmlFor={id}>{enHt ? 'Honoraires\u00a0agence\u00a0(€\u00a0HT)' : LIBELLE_SOMME[k]}</Intitule>
                   {calcule && <InfoBulle libelle={LIBELLE_SOMME[k]} etiquette="Détail du calcul" cible={`${idChamps}-${k}-detail`} contenu={detailProrata(k)} dansLEcran />}
                 </span>
+                {enHt ? (
+                  // HT affiché (TTC ÷ 1,2) ; un HT saisi → TTC enregistré (× 1,2 au centime), une fois, à la frappe — illisible : tel quel.
+                  <CaseEuros id={id} value={frappeAgence ?? htDuTtc(s.sommes.honorairesAgence)} placeholder="ex. 983,75" data-agence-ht
+                    onChange={(e) => { const v = e.target.value; setFrappeAgence(v); const t = ttcDuHt(v); maj({ sommes: { ...s.sommes, honorairesAgence: t === null ? v : t } }); }}
+                    onBlur={() => { if (frappeAgence !== null && ttcDuHt(frappeAgence) !== null) setFrappeAgence(null); }} />
+                ) : (
                 <CaseEuros id={id} value={s.sommes[k]} placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
                   onChange={(e) => maj(k === 'prorataLoyer' || k === 'prorataCharges'
                     ? { sommes: { ...s.sommes, [k]: e.target.value }, prorataManuel: { ...s.prorataManuel, [k]: true } }
                     : { sommes: { ...s.sommes, [k]: e.target.value } })} />
-                <span className="loc-champ-pied">{calcule && sousProrata(k)}{manque(`somme-${k}`)}</span>
+                )}
+                <span className="loc-champ-pied">{calcule && sousProrata(k)}
+                  {enHt && typeof ttcAgence === 'number' && <small className="loc-hono-ttc" data-agence-ttc>soit {formaterCentimes(ttcAgence)} TTC</small>}
+                  {manque(`somme-${k}`)}</span>
               </div>
             );
           })}

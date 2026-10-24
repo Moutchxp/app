@@ -262,7 +262,8 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await saisir(somme('prorataCharges'), '33,33');
     await saisir(somme('depotGarantie'), '1 180');
     await saisir(somme('honorairesAgence'), '0,1');
-    expect(total()).toBe('1 625,69 €');
+    // Arno (24/10/2026) : « Honoraires agence (€ HT) » — 0,10 € HT = 0,12 € TTC, compté en TTC dans les sommes dues
+    expect(total()).toBe('1 625,71 €');
     await saisir(somme('honorairesAgence'), '12,345');
     expect(total()).toBe('montant illisible');
     await toutRepondre();
@@ -500,7 +501,7 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     const total = () => container.querySelector('[data-total-honoraires] strong')?.textContent?.replace(/\s/g, ' ');
     expect(total()).toBe('632,43 €');
     await saisir(container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '450');
-    expect(total()).toBe('1 082,43 €');
+    expect(total()).toBe('1 172,43 €');   // 450 € HT d'honoraires agence = 540 € TTC, + 632,43 € (Arno, 24/10/2026)
   });
 
   it('le calcul est demandé pour le bien ET la date d’entrée (barème de cette date)', async () => {
@@ -815,7 +816,7 @@ describe('🔴 intitulés et picto sur une ligne, « € » en suffixe dans la c
     expect(container.querySelector('[data-bloc-conditions]')?.textContent).not.toContain('(€)');
     const intitules = [...container.querySelectorAll('[data-bloc-conditions] .loc-intitule')].map((l) => l.firstChild?.textContent);
     expect(intitules).toEqual(['Montant du dépôt de garantie', 'Loyer principal', 'Provision pour charges',
-      'Prorata loyer', 'Prorata provisions / charges', 'Dépôt de garantie', 'Honoraires agence']);
+      'Prorata loyer', 'Prorata provisions / charges', 'Dépôt de garantie', 'Honoraires\u00a0agence\u00a0(€\u00a0HT)']);   // Arno (24/10/2026)
     const cases = [...container.querySelectorAll('[data-bloc-conditions] .loc-case-euros')];
     // Arno (21/10/2026, 402) : + le « Montant des honoraires propriétaire (€ TTC) », toujours présent (même dessin).
     expect(cases).toHaveLength(8);

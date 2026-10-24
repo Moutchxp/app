@@ -264,3 +264,23 @@ describe('🔴 Arno (24/10/2026) — « Type de bien » d’après les lots lou�
     expect(container.querySelector('[data-negociateur]')!.getAttribute('data-valeur')).toBe('5');
   });
 });
+
+describe('🔴 Arno (24/10/2026, après 56700ffb) — « Honoraires agence (€ HT) » ; le TTC reste enregistré', () => {
+  it('libellé sur une ligne ; saisie en HT, « soit X € TTC », TTC envoyé ; même valeur que « Honoraires locataire HT » du suivi', async () => {
+    await preparer();
+    const champ = () => container.querySelector('[data-agence-ht]') as HTMLInputElement;
+    expect(champ().closest('[data-somme]')?.querySelector('.loc-intitule')?.firstChild?.textContent).toBe('Honoraires\u00a0agence\u00a0(€\u00a0HT)');
+    await saisir(champ(), '200');
+    expect(container.querySelector('[data-agence-ttc]')?.textContent).toBe('soit 240,00 € TTC');
+    expect(htLocataire().value).toBe('200,00');                                  // une seule valeur
+    expect(container.querySelector('[data-hono-total-ht]') as HTMLInputElement).not.toBeNull();
+    await act(async () => { champ().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    await saisir(htLocataire(), '150');
+    expect(champ().value).toBe('150,00');
+    expect(container.querySelector('[data-agence-ttc]')?.textContent).toBe('soit 180,00 € TTC');
+    await toutRepondre();
+    await soumettre(); await soumettre();
+    // ENREGISTRÉ EN TTC, comme avant (ce que paie le locataire)
+    expect((posts.find((p) => p.action === 'creer-locataires') as { conditions?: { sommes?: { honorairesAgence?: unknown } } })?.conditions?.sommes?.honorairesAgence).toBe('180,00');   // 150 € HT → 180,00 € TTC
+  });
+});
