@@ -117,6 +117,18 @@ export function canoniserApporteurs(noms: readonly string[], annuaire: readonly 
   return { retenu, regroupements };
 }
 
+/**
+ * 🔴 Arno (24/10/2026, validé) — LA CATÉGORIE DE PRIME D'UNE LIGNE REPRISE DU FICHIER : « parking » SEULEMENT si le libellé le dit
+ * (parking, park, box, garage, stationnement — `MOTS_PARKING`) OU si le lot rattaché est un parking ; sinon « logement ». Une prime
+ * inférieure à 150 € ne suffit PLUS (ZHIVULINA-KOROTICH, prime de 50 € sur un appartement, était classée « parking »). Sans prime :
+ * pas de catégorie. PUR.
+ */
+export const MOTS_PARKING = /\b(parking|park|box|garage|stationnement)\b/i;
+export function categoriePrimeImport(o: { prime: number; libelleParking: boolean; lotParking?: boolean | null }): 'parking' | 'logement' | null {
+  if (!(o.prime > 0)) return null;
+  return o.libelleParking || o.lotParking === true ? 'parking' : 'logement';
+}
+
 /** La prime du fichier → le choix de prime : 150 → « 150 € » (la règle) ; 0 → « Aucune » ; autre (15, 50) → « Personnalisé ». */
 export const modePrimeDe = (prime: number): ModePrime => (prime === 0 ? 'aucune' : prime === 150 ? 'regle' : 'personnalise');
 
@@ -132,7 +144,7 @@ export function activitesDuMois(m: MoisExcel, o: { collaborateurs: readonly stri
       id: l.cle, type: typeDeLigne(l), dateSignature: `${m.mois}-01`, dateSupposee: true,
       libelleProprietaire: l.proprietaire, libelleLocataire: l.locataire,
       honoProprietaireHt: l.honoProprietaireHt, honoLocataireHt: l.honoLocataireHt,
-      primeSaisie: l.prime, mandatGestion: l.prime > 0, categoriePrime: l.prime > 0 ? (l.prime < 150 || l.parking ? 'parking' : 'logement') : null,
+      primeSaisie: l.prime, mandatGestion: l.prime > 0, categoriePrime: categoriePrimeImport({ prime: l.prime, libelleParking: l.parking }),
       apporteurId: null, apporteurNom: ap?.nom ?? null, apporteurTaux: l.tauxCommission, commissionSaisie: l.commission,
       negociateurId: o.negociateurId ?? null, negociateurLibelle: o.negociateurLibelle ?? m.negociateur,
       avecGestion: l.avecGestion === true, origineProprietaire: null, origineLocataire: null,

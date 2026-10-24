@@ -1,5 +1,5 @@
 import type { LigneExcel, MoisExcel } from './lectureExcel';
-import { modePrimeDe, origineDeTexte, retrocessionDuMois, typeDeLigne, type ApporteurLu, type OrigineLue } from './repriseExcel';
+import { categoriePrimeImport, modePrimeDe, origineDeTexte, retrocessionDuMois, typeDeLigne, type ApporteurLu, type OrigineLue } from './repriseExcel';
 import { LIBELLE_ORIGINE_CONTACT } from './suivi';
 import type { CandidatBail, Rapprochement } from './rapprochementImport';
 import { SEUIL_DOUTEUX, SEUIL_RATTACHE } from './rapprochementImport';
@@ -88,7 +88,7 @@ export function versActivite(p: LignePlan, negociateur: { id: number | null; lib
   return {
     id: p.importCle, type: p.type, dateSignature: `${l.mois}-01`, dateSupposee: true, libelleProprietaire: l.proprietaire, libelleLocataire: l.locataire,
     honoProprietaireHt: l.honoProprietaireHt, honoLocataireHt: l.honoLocataireHt, primeSaisie: l.prime, mandatGestion: l.prime > 0,
-    categoriePrime: l.prime > 0 ? (l.parking || l.prime < 150 ? 'parking' : 'logement') : null,
+    categoriePrime: categoriePrimeImport({ prime: l.prime, libelleParking: l.parking, lotParking: p.bailId !== null ? (p.rapprochement.candidat?.parking ?? null) : null }),
     apporteurId: null, apporteurNom: p.apporteur?.nom ?? null, apporteurTaux: l.tauxCommission, commissionSaisie: l.commission,
     negociateurId: negociateur.id, negociateurLibelle: negociateur.libelle, avecGestion: p.avecGestion,
     origineProprietaire: null, origineLocataire: null, loyerHc: null, charges: null, assurance: null, parking: l.parking || (p.rapprochement.candidat?.parking ?? false),

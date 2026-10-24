@@ -1,3 +1,4 @@
+import { MOTS_PARKING } from './repriseExcel';
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : LECTURE DU SUIVI MENSUEL D'ARNO (CA_JBP_2026.xlsx) (Arno, 22/10/2026) ═══════════════════
  *
@@ -248,7 +249,7 @@ export function lireFeuille(f: FeuilleLue, annee: number, o: OptionsLecture = {}
       out.push({
         cle: cleDe(r), mois, rang: r, proprietaire, locataire, honoProprietaireHt: hp, honoLocataireHt: hl, caFichier, prime,
         apporteurTexte, commission, tauxCommission, avenant: /\(avenant\)/i.test(proprietaire),
-        parking: /\b(parking|park|box)\b/i.test(sansAccents(proprietaire)), avecGestion,
+        parking: MOTS_PARKING.test(sansAccents(proprietaire)), avecGestion,
       });
     }
     return out;

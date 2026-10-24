@@ -111,6 +111,7 @@
     "gestion:archiver-fins": "tsx app/scripts/archiver-fins-gestion.ts",
     "location:importer-suivi-2026": "tsx app/scripts/importer-suivi-location-2026.ts",
     "location:importer-suivi": "tsx app/scripts/importer-suivi-location-2026.ts",
+    "location:reparer-categorie-prime": "tsx app/scripts/reparer-categorie-prime.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
     "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",
