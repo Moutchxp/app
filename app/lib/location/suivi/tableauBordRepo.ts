@@ -19,6 +19,22 @@ const n = (v: unknown): number => Number(v);
 const nOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const iso = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : String(v).slice(0, 10));
 
+/**
+ * Les noms d'une ligne : ceux de l'annuaire quand elle est rattachée à un bail (à jour partout dans le Suivi), sinon son texte.
+ * Le texte d'origine (le fichier, pour une ligne reprise) reste lu : le panneau le montre sous « Libellé d'origine » (rien ne
+ * disparaît). PUR.
+ */
+export function libelles(r: Record<string, unknown>): { libelleProprietaire: string; libelleLocataire: string; libelleOrigine?: { proprietaire: string; locataire: string } } {
+  const texteP = String(r.libelle_proprietaire ?? '');
+  const texteL = String(r.libelle_locataire ?? '');
+  const sourceP = typeof r.proprietaire_source === 'string' && r.proprietaire_source.trim() !== '' ? r.proprietaire_source : null;
+  const sourceL = typeof r.locataires_source === 'string' && r.locataires_source.trim() !== '' ? r.locataires_source : null;
+  const p = r.bail_id === null || r.bail_id === undefined ? texteP : sourceP ?? texteP;
+  const l = r.bail_id === null || r.bail_id === undefined ? texteL : sourceL ?? texteL;
+  return { libelleProprietaire: p, libelleLocataire: l,
+    ...(r.source === 'import' && (p !== texteP || l !== texteL) ? { libelleOrigine: { proprietaire: texteP, locataire: texteL } } : {}) };
+}
+
 /** Une liste `json_agg` de { id, libelle } (absente : vide). */
 const fiches = (v: unknown): { id: number; libelle: string }[] => (Array.isArray(v) ? v : [])
   .map((x: { id?: unknown; libelle?: unknown }) => ({ id: Number(x.id), libelle: String(x.libelle ?? '') })).filter((x) => Number.isSafeInteger(x.id) && x.id > 0);
@@ -53,6 +69,12 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             coalesce(${avecBailOcc ? `(SELECT json_agg(json_build_object('id', lo.id, 'libelle', ${nomLocataire}) ORDER BY lo.id)
                 FROM gestion_annuaire_locataire lo WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)), ` : ''}
               (SELECT json_agg(json_build_object('id', lo.id, 'libelle', ${nomLocataire})) FROM gestion_annuaire_locataire lo WHERE lo.id = a.locataire_id)) AS locataires,
+            -- 🔴 Arno (24/10/2026, Q1) — une ligne rattachée à un BAIL lit ses noms dans l'annuaire (la formule de la saisie : le
+            -- propriétaire du bien, les occupants du bail « prénom nom » séparés par « , ») ; sinon (ou rien d'annuaire) : le texte.
+            (SELECT p.nom_complet FROM gestion_bail b JOIN gestion_annuaire_lot lb ON lb.id = b.lot_id
+               JOIN gestion_annuaire_proprietaire p ON p.id = lb.proprietaire_id WHERE b.id = a.bail_id) AS proprietaire_source,
+            ${avecBailOcc ? `(SELECT nullif(string_agg(${nomLocataire}, ', ' ORDER BY lo.id), '')
+               FROM gestion_annuaire_locataire lo WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id))` : 'NULL::text'} AS locataires_source,
             (SELECT json_agg(json_build_object('id', lt.id, 'libelle', ${libelleLot}) ORDER BY lt.id) FROM gestion_annuaire_lot lt
               WHERE lt.id = a.lot_id${avecBailOcc ? ' OR lt.id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)' : ''}) AS lots,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
@@ -64,7 +86,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
       ORDER BY a.date_signature, a.id`, [[...annees]]);
   return rows.map((r) => ({
     id: n(r.id), type: r.type as TypeActivite, dateSignature: iso(r.date_signature), dateSupposee: r.date_signature_supposee === true,
-    libelleProprietaire: String(r.libelle_proprietaire ?? ''), libelleLocataire: String(r.libelle_locataire ?? ''),
+    ...libelles(r),
     honoProprietaireHt: n(r.hono_proprietaire_ht), honoLocataireHt: n(r.hono_locataire_ht),
     primeSaisie: nOuNull(r.prime_gestion_saisie), mandatGestion: r.mandat_gestion === true, categoriePrime: (r.categorie_prime as CategoriePrime | null) ?? null,
     apporteurId: nOuNull(r.apporteur_id), apporteurNom: (r.apporteur_nom as string | null) ?? null, apporteurTaux: nOuNull(r.apporteur_taux),

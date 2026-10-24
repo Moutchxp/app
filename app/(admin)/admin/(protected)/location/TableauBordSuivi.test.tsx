@@ -554,6 +554,20 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(document.querySelector('[data-modale-fiche-locataire]')).toBeNull();
     });
 
+    it('🔴 Q1 — une ligne reprise rattachée : les noms de l’annuaire sur la ligne, le texte du fichier en « Libellé d’origine »', async () => {
+      const x = String(sept[0].id);
+      donnees = { ...donnees, activites: donnees.activites.map((a) => (String(a.id) === x
+        ? { ...a, libelleProprietaire: 'DUPONT Jean', libelleLocataire: 'MARTIN Léa', libelleOrigine: { proprietaire: 'DUPONT PARK', locataire: 'MARTIN' } } : a)) };
+      await ouvrirSeptembre();
+      expect(ligne(x).querySelector('th[data-mot="Propriétaires"]')?.textContent).toContain('DUPONT Jean');
+      expect(ligne(x).querySelector('[data-mot="Locataires"]')?.textContent).toBe('MARTIN Léa');
+      await deplier(x);
+      expect(container.querySelector(`[data-detail-ligne="${x}"] [data-champ="Libellé d’origine"]`)?.textContent).toBe('DUPONT PARK / MARTIN');
+      // Une ligne sans libellé d’origine n’a pas ce champ.
+      await deplier(String(sept[1].id));
+      expect(container.querySelector(`[data-detail-ligne="${String(sept[1].id)}"] [data-champ="Libellé d’origine"]`)).toBeNull();
+    });
+
     it('après « Enregistrer » : la feuille se relit (ligne et bas de feuille), le panneau reste ouvert', async () => {
       donnees = { ...donnees, annuaire: true };
       let lectures = 0;

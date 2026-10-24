@@ -615,6 +615,8 @@ export interface ActiviteLue extends ActiviteCalcul {
   /** 🔴 Arno (24/10/2026) — les locataires et les biens de la ligne, lus dans l'annuaire (raccourcis du panneau déplié). */
   locataires?: { id: number; libelle: string }[];
   lots?: { id: number; libelle: string }[];
+  /** 🔴 Arno (24/10/2026, Q1) — une ligne REPRISE rattachée à un bail affiche les noms de l'annuaire ; le texte du fichier reste ici. */
+  libelleOrigine?: { proprietaire: string; locataire: string };
 }
 
 /** Ce que `/api/admin/location/suivi?vue=tableau` rend (l'année demandée et la précédente). */

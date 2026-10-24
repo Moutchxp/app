@@ -307,6 +307,8 @@ function DetailLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
   const nature = natureBienLoue(a);
   const champs: [string, ReactNode][] = [
     ['Nature du bien', <><PastilleNature nature={nature.nature} /> — {nature.raison}</>],
+    // 🔴 Arno (24/10/2026, Q1) — le texte du fichier d'une ligne reprise (la ligne affiche les noms de l'annuaire) : rien ne disparaît.
+    ...(a.libelleOrigine !== undefined ? [['Libellé d’origine', `${a.libelleOrigine.proprietaire || '—'} / ${a.libelleOrigine.locataire || '—'}`] as [string, ReactNode]] : []),
     ['Date de signature', `${dateFr(a.dateSignature)}${a.dateSupposee ? ' (supposée : le 1er du mois)' : ''}`],
     ['Nature', LIBELLE_TYPE_ACTIVITE[a.type] ?? a.type],
     ['Type de bien', categorie === null ? '—' : LIBELLE_CATEGORIE_PRIME[categorie]],
