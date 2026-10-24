@@ -1,10 +1,11 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { verifier } from '../../../../lib/admin/motDePasse';
-import { trouverCompte, marquerConnexion, permsDuCompte, capaciteModifPermis } from '../../../../lib/admin/comptes';
+import { trouverCompte, marquerConnexion } from '../../../../lib/admin/comptes';
+import { sessionPourCompte } from '../../../../lib/admin/ouvertureSession';
 import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, type SessionAdmin } from '../../../../lib/admin/session';
 import { verifierThrottle, noterEchec, noterSucces, cleThrottleIp, verifierThrottleIp, noterEchecIp } from '../../../../lib/auth/antiBruteforce';
-import { empreinteMotDePasse, lireEtatCompte, revoquerSessions } from '../../../../lib/admin/etatSession';
+import { revoquerSessions } from '../../../../lib/admin/etatSession';
 import { journaliserConnexion, purgerJournalConnexions, type ResultatConnexion } from '../../../../lib/auth/journalConnexion';
 
 /** Hash argon2id de leurre (d'une valeur jetable) : sert au `verifier` de TEMPS CONSTANT quand l'identifiant est
@@ -93,17 +94,8 @@ export async function POST(request: Request) {
     return echec();
   }
   await marquerConnexion(compte.id);
-  const session: SessionAdmin = {
-    sub: compte.id,
-    identifiant: compte.identifiant,
-    role: compte.role,
-    perms: permsDuCompte(compte),
-    doitChanger: compte.doit_changer_mot_de_passe, // M3-4 Lot B : le drapeau entre dans le JWS
-    peutModifierPermis: capaciteModifPermis(compte), // RATT-EDIT lot A3 — capacité EFFECTIVE (subordination incluse) portée dans le JWS
-    // AUDIT POINTS 4-5 : empreinte du mot de passe et version de session, que le proxy compare à la base à chaque requête.
-    empreinteMdp: empreinteMotDePasse(compte.mot_de_passe),
-    versionSession: (await lireEtatCompte(compte.id).catch(() => null))?.versionSession ?? undefined,
-  };
+  // La session du compte : la MÊME construction que le « mot de passe oublié » (`sessionPourCompte`, 24/10/2026).
+  const session: SessionAdmin = await sessionPourCompte(compte);
 
   await noterSucces(cleThrottle); // SUCCÈS → reset des échecs de cet identifiant + audit agrégé
   await journal('succes', compte.id);

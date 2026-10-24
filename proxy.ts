@@ -181,6 +181,13 @@ async function decider(request: NextRequest) {
   if (pathname === '/admin/activation' || pathname === '/api/admin/activation') {
     return NextResponse.next();
   }
+  // 🔴 Arno (24/10/2026, migration 416) — « MOT DE PASSE OUBLIÉ » : la personne ne peut plus se connecter, donc pas de session. La
+  // demande répond toujours le même message ; le JETON du lien est la seule autorisation (usage unique, une heure, remplacé par une
+  // nouvelle demande — règles dans `reinitialisationRepo.ts`). Rien d'autre n'est ouvert ; le contrôle d'origine ci-dessus s'applique.
+  if (pathname === '/admin/mot-de-passe-oublie' || pathname === '/admin/reinitialiser'
+    || pathname === '/api/admin/reinitialiser' || pathname === '/api/admin/reinitialiser/demander') {
+    return NextResponse.next();
+  }
 
   const jeton = request.cookies.get(NOM_COOKIE)?.value;
   const payload = jeton ? await verifierJeton(jeton) : null;
