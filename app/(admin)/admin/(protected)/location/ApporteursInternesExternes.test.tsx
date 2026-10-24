@@ -84,26 +84,25 @@ describe('🔴 l’annuaire : internes et externes', () => {
     expect(n(c.querySelector('[data-du-collegue="4"]')?.textContent)).toBe('Dû au collègue HT130,00 €');
     expect(n(c.querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT2 000,00 €Dû HT200,00 €Dû au collègue HT130,00 €');
     // Carte allégée : « Collègue : … — rémunération » est au panneau « Rattachement ».
-    expect(c.querySelector('[data-collegue-remuneration="4"]')).toBeNull();
+    expect(c.querySelector('[data-resume-rattachement="4"]')).toBeNull();
     await clic(c.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
-    expect(c.querySelector('[data-collegue-remuneration="4"]')?.textContent).toBe('Collègue : Jean-Baptiste Pons — Récurrent — location 5 %, gestion 10 % / mois, pendant 3 ans');
+    expect(c.querySelector('[data-resume-rattachement="4"]')?.textContent).toBe('Rattaché à Jean-Baptiste Pons depuis toujours — Récurrent — location 5 %, gestion 10 % / mois, pendant 3 ans');
   });
   it('la rémunération du collègue : « Rémunération », Récurrent, ses taux, 3 ans, une date d’effet → une version datée envoyée', async () => {
     await annuaire();
     const c = container.querySelector('[data-apporteur="4"]')!;
     await clic(c.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
-    const b = c.querySelector('[data-remuneration-collegue="4"]')!;
-    expect(b.querySelector('h4')?.textContent).toBe('Rémunération de Jean-Baptiste Pons (a apporté cet apporteur)');
-    expect(b.querySelector('[data-remunere="oui"]')?.getAttribute('aria-pressed')).toBe('true');
+    await clic(c.querySelector('[data-modifier-remuneration]')!);
+    const b = c.querySelector('[data-formulaire-rattachement="remuneration"]')!;
+    // La valeur EN VIGUEUR présélectionnée (Oui, Récurrent 5 % / 10 %, 3 ans).
+    expect(b.querySelector('[data-reponse="oui"]')?.getAttribute('aria-checked')).toBe('true');
+    expect((b.querySelector('[data-duree-annees]') as HTMLInputElement).value).toBe('3');
     await saisir(b.querySelector('[data-remuneration-taux]') as HTMLInputElement, '6');
     await saisir(b.querySelector('[data-application="remuneration"] [data-application-date]') as HTMLInputElement, '2026-11-01');
-    await clic(b.querySelector('[data-enregistrer-remuneration]')!);
-    expect(posts.at(-1)).toEqual({ action: 'remuneration-collegue', apporteurId: 4,
-      remuneration: { remunere: true, mode: 'recurrent', taux: '6', tauxGestion: '10', dureeAnnees: '3', depuis: '2026-11-01' } });
-    await clic(b.querySelector('[data-remunere="non"]')!);
-    expect(b.querySelector('[data-remuneration-taux]')).toBeNull();
-    await clic(b.querySelector('[data-enregistrer-remuneration]')!);
-    expect(posts.at(-1)).toMatchObject({ remuneration: { remunere: false } });
+    await clic(c.querySelector('[data-enregistrer-rattachement]')!);
+    await clic(c.querySelector('[data-recap-confirmer]')!);
+    expect(posts.at(-1)).toEqual({ action: 'rattachement', apporteurId: 4, rattachement: { sorte: 'remuneration',
+      remuneration: { remunere: true, mode: 'recurrent', taux: '6', tauxGestion: '10', dureeAnnees: '3', depuis: '2026-11-01' } } });
   });
   it('🔴 créer un EXTERNE sans collègue : refusé à l’écran, RIEN n’est envoyé ; un INTERNE : son compte, sans collègue', async () => {
     await annuaire();

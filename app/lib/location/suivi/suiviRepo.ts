@@ -8,6 +8,7 @@ import {
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
   casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
   type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
+  collegueADate, depuisLibelle, remunerationADate,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
 import { motifConflitFiche } from '../../gestion/traceFiche';
@@ -559,6 +560,103 @@ export async function rattacherApporteur(apporteurId: unknown, brut: unknown, au
      SELECT $1, $2, $3, $4, $5 WHERE EXISTS (SELECT 1 FROM gestion_location_apporteur WHERE id = $1)
      ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, b.depuis, collegueId, libelle, auteur.libelle]);
   return r.rowCount === 1 ? { etat: 'ok' } : { etat: 'refus', motif: 'Un rattachement existe déjà à cette date (ou l’apporteur est inconnu) : choisissez une autre date d’effet.' };
+}
+
+/**
+ * ══ 🔴 Arno (24/10/2026) — LE RATTACHEMENT ET LA RÉMUNÉRATION DU COLLÈGUE, UN SEUL GESTE ═══════════════════════════════════════════
+ * « Au moment de rattacher un collègue, on lui demande dans le même formulaire s'il touche des honoraires sur l'activité de cet
+ * apporteur. » `sorte` :
+ *   · « rattacher » (premier rattachement, ou changement de collègue) : le collègue, la date (ou « depuis toujours »), et la réponse
+ *     OBLIGATOIRE — Non (une version « Aucune rémunération » à la même date : la rémunération d'un collègue précédent ne passe jamais
+ *     au nouveau) ou Oui (sa version : one shot / récurrent, taux, durée) ;
+ *   · « remuneration » : le collègue actuel garde son rattachement ; seule une nouvelle version de sa rémunération (date ou « depuis
+ *     toujours »).
+ * Tout s'écrit dans UNE transaction — un refus n'importe où annule tout — et se journalise (compte, session, écran) : une ligne pour
+ * le rattachement, une pour la rémunération.
+ */
+class RefusRattachement extends Error {}
+export async function enregistrerRattachement(apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse> {
+  if (!(await annuaireDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 407) n’est pas encore appliquée.' };
+  const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
+  if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
+  const b = (brut ?? {}) as Record<string, unknown>;
+  const sorte = b.sorte === 'remuneration' ? 'remuneration' : 'rattacher';
+  const r = (b.remuneration ?? {}) as Record<string, unknown>;
+  if (r.remunere !== true && r.remunere !== false) return { etat: 'refus', motif: 'Répondez à la question : le collègue touche-t-il des honoraires sur l’activité de cet apporteur (Oui / Non) ?' };
+  const avec419 = await interneDisponible();
+  const avec420 = await toujoursDisponible();
+  const apporteur = (await lireApporteurs()).find((x) => x.id === id && !x.archive);
+  if (apporteur === undefined) return { etat: 'refus', motif: 'Apporteur inconnu.' };
+  if (apporteur.compteId !== null && apporteur.compteId !== undefined) return { etat: 'refus', motif: 'Un apporteur interne n’est rattaché à personne.' };
+  const jour = aujourdhuiParis();
+  // Le rattachement (sorte « rattacher ») : collègue et date, vérifiés comme `rattacherApporteur`.
+  let rattachement: { collegueId: number; libelle: string; depuis: string | null } | null = null;
+  if (sorte === 'rattacher') {
+    const collegueId = typeof b.collegueId === 'number' && Number.isInteger(b.collegueId) && b.collegueId > 0 ? b.collegueId : null;
+    if (collegueId === null) return { etat: 'refus', motif: 'Choisissez le collègue de rattachement.' };
+    const toujours = b.depuisToujours === true;
+    if (!toujours && !dateIsoValide(b.depuis)) return { etat: 'refus', motif: 'La date d’effet du rattachement est obligatoire (ou « Depuis toujours »).' };
+    if (toujours && !(await depuisToujoursDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 409) n’est pas encore appliquée : « Depuis toujours » n’est pas encore possible.' };
+    const libelle = await libelleCompte(query, collegueId);
+    if (libelle === null) return { etat: 'refus', motif: 'Le collègue de rattachement est inconnu.' };
+    rattachement = { collegueId, libelle, depuis: toujours ? null : b.depuis as string };
+  } else if ((apporteur.collegues ?? []).length === 0) {
+    return { etat: 'refus', motif: 'Rattachez d’abord cet apporteur à un collègue.' };
+  }
+  // La rémunération : à la date du rattachement (sorte « rattacher »), ou à la sienne (sorte « remuneration »).
+  const toujoursRemu = rattachement !== null ? rattachement.depuis === null : r.toujours === true;
+  const depuisRemu = toujoursRemu ? jour : rattachement !== null ? rattachement.depuis as string : r.depuis;
+  const v = verifierRemuneration({ ...r, depuis: depuisRemu, ...(toujoursRemu ? { toujours: true } : {}) });
+  if (!v.ok) return { etat: 'refus', motif: v.motif };
+  const ecrireRemu = avec419;
+  if (!avec419 && (v.r.remunere || sorte === 'remuneration')) return { etat: 'indisponible', motif: MOT_SANS_419 };
+  if (ecrireRemu && toujoursRemu && !avec420) return { etat: 'indisponible', motif: MOT_SANS_420 };
+  const journal = await journalApporteurDisponible();
+  const collegueAvant = collegueADate(apporteur, rattachement?.depuis ?? jour);
+  const remuAvant = libelleRemuneration(remunerationADate(apporteur, depuisRemu as string));
+  try {
+    await withTransaction(async (q) => {
+      if (rattachement !== null) {
+        const w = rattachement.depuis === null
+          ? await q(`INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle)
+                     SELECT $1, NULL, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM gestion_location_apporteur_collegue WHERE apporteur_id = $1 AND depuis IS NULL)`,
+            [id, rattachement.collegueId, rattachement.libelle, auteur.libelle])
+          : await q(`INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle)
+                     VALUES ($1, $2, $3, $4, $5) ON CONFLICT (apporteur_id, depuis) DO NOTHING`, [id, rattachement.depuis, rattachement.collegueId, rattachement.libelle, auteur.libelle]);
+        if ((w.rowCount ?? 0) !== 1) {
+          throw new RefusRattachement(rattachement.depuis === null ? 'Cet apporteur est déjà rattaché « depuis toujours » : pour changer de collègue, choisissez une date d’effet.'
+            : 'Un rattachement existe déjà à cette date : choisissez une autre date d’effet.');
+        }
+      }
+      if (ecrireRemu) {
+        const w = await q(
+          `INSERT INTO gestion_location_apporteur_remuneration (apporteur_id, depuis, remunere, mode, taux, taux_gestion, duree_annees, saisi_par_libelle${toujoursRemu ? ', toujours' : ''})
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8${toujoursRemu ? ', true' : ''}) ON CONFLICT (apporteur_id, depuis) DO NOTHING`,
+          [id, v.r.depuis, v.r.remunere, v.r.mode, v.r.taux, v.r.tauxGestion, v.r.dureeAnnees, auteur.libelle]);
+        if ((w.rowCount ?? 0) !== 1) throw new RefusRattachement('Une version de la rémunération du collègue existe déjà à cette date : choisissez une autre date d’effet.');
+      }
+      if (journal) {
+        const ligne = async (action: string, champ: string, avant: string, apres: string): Promise<void> => {
+          const t = await colonnesTrace({ sujet: 'apporteur', champ }, 8);
+          await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+                   VALUES ('location_apporteur', $1, $2, $3, $4, $5, $6, $7${t.marques})`,
+            [id, action, avant, apres, `${champ} : ${avant} → ${apres}`, auteur.id, auteur.libelle, ...t.valeurs]);
+        };
+        if (rattachement !== null) {
+          await ligne('location_apporteur_rattache', 'Collègue de rattachement', collegueAvant === null ? 'à rattacher' : `${collegueAvant.collegueLibelle} ${depuisLibelle(collegueAvant)}`,
+            `${rattachement.libelle} ${rattachement.depuis === null ? 'depuis toujours' : `depuis le ${rattachement.depuis.split('-').reverse().join('/')}`}`);
+        }
+        if (ecrireRemu) {
+          await ligne('location_remuneration_collegue', 'Rémunération du collègue', remuAvant,
+            `${libelleRemuneration(v.r)} (${toujoursRemu ? 'depuis toujours' : `à partir du ${v.r.depuis.split('-').reverse().join('/')}`})`);
+        }
+      }
+    });
+  } catch (e) {
+    if (e instanceof RefusRattachement) return { etat: 'refus', motif: e.message };
+    throw e;
+  }
+  return { etat: 'ok' };
 }
 
 // ── Règle de commission et rétrocessions ──────────────────────────────────────────────────────────────────────────

@@ -109,18 +109,21 @@ describe('🔴 « Nouveau taux » : l’effet en direct', () => {
     await annuaire();
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);
     const f = container.querySelector('[data-apporteur="4"] [data-panneau="rattachement"]')!;
-    const b = f.querySelector('[data-remuneration-collegue="4"]')!;
-    expect(n(b.querySelector('h4')?.textContent)).toBe('Rémunération de Paul Collègue (a apporté cet apporteur)');
-    await clic(b.querySelector('[data-remunere="oui"]')!);
+    // 🔴 « Modifier la rémunération » : les étapes c → e avec le collègue actuel (en vigueur : aucune → « Non » présélectionné).
+    await clic(f.querySelector('[data-modifier-remuneration]')!);
+    const b = f.querySelector('[data-formulaire-rattachement="remuneration"]')!;
+    expect(n(b.querySelector('[data-question-honoraires] > span')?.textContent)).toBe('Paul Collègue touche des honoraires sur l’activité de cet apporteur ?');
+    expect(b.querySelector('[data-reponse="non"]')?.getAttribute('aria-checked')).toBe('true');
+    await clic(b.querySelector('[data-reponse="oui"]')!);
     await saisir(b.querySelector('[data-remuneration-taux]')!, '5');
     await clic(b.querySelector('[data-application="remuneration"] [data-application-toujours]')!);
     expect(n(b.querySelector('[data-effet-reglage="collegue"] [data-effet-ligne]')?.textContent))
       .toBe('Dossiers concernés : 2 sur 2 (depuis toujours — tous les dossiers, passés compris) · Dû à Paul Collègue HT : avant 0,00 € → après 100,00 €');
-    await clic(f.querySelector('[data-enregistrer-remuneration]')!);
-    expect(n(f.querySelector('[data-recap-ligne="collegue"]')?.textContent)).toBe('Dû à Paul Collègue HT : 0,00 € → 100,00 € (+100,00 €)');
+    await clic(f.querySelector('[data-enregistrer-rattachement]')!);
+    expect(n(f.querySelector('[data-recap-ligne="effet"]')?.textContent)).toBe('Dû à Paul Collègue HT : 0,00 € → 100,00 €');
     await clic(f.querySelector('[data-recap-confirmer]')!);
-    expect(posts.map((p) => p.action)).toEqual(['remuneration-collegue']);
-    expect(posts[0]).toMatchObject({ remuneration: { remunere: true, taux: '5', toujours: true } });
+    expect(posts.map((p) => p.action)).toEqual(['rattachement']);
+    expect(posts[0]).toMatchObject({ rattachement: { sorte: 'remuneration', remuneration: { remunere: true, taux: '5', toujours: true } } });
     // Le panneau « Taux » ne porte plus la rémunération (elle est au « Rattachement »).
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="taux"]')!);
     expect(container.querySelector('[data-apporteur="4"] [data-remuneration-formulaire], [data-apporteur="4"] [data-remuneration-collegue]')).toBeNull();

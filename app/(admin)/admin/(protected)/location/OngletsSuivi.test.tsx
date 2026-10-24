@@ -167,13 +167,23 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect((f.querySelector('[data-rattacher-toujours]') as HTMLInputElement).checked).toBe(true);
     expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).disabled).toBe(true);
     expect((f.querySelector('[data-rattacher-depuis]') as HTMLInputElement).value).toBe('');
-    await clic(f.querySelector('[data-rattacher]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'rattacher-apporteur', apporteurId: 4, rattachement: { collegueId: 5, depuisToujours: true } });
+    // 🔴 Arno (24/10/2026) — UN formulaire : la question sur les honoraires du collègue est obligatoire, puis le récapitulatif.
+    const enregistrer = f.querySelector('[data-enregistrer-rattachement]') as HTMLButtonElement;
+    expect(enregistrer.disabled).toBe(true);
+    await clic(f.querySelector('[data-reponse="non"]')!);
+    expect(enregistrer.disabled).toBe(false);
+    await clic(enregistrer);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'rattachement', apporteurId: 4, rattachement: { sorte: 'rattacher', collegueId: 5, depuisToujours: true, remuneration: { remunere: false } } });
     expect((posts.at(-1)!.rattachement as Record<string, unknown>).depuis).toBeUndefined();
-    // Décochée : une date d'effet (un rattachement daté, qui prend le relais à sa date).
+    // Décochée : une date d'effet (un rattachement daté, qui prend le relais à sa date). Le formulaire est reparti à vide.
+    await clic(f.querySelector('[data-rattacher-collegue]')!);
+    await clic(container.querySelector('[data-liste-choix] [data-option="5"]')!);
     await clic(f.querySelector('[data-rattacher-toujours]')!);
     await saisir(f.querySelector('[data-rattacher-depuis]') as HTMLInputElement, '2026-11-01');
-    await clic(f.querySelector('[data-rattacher]')!);
+    await clic(f.querySelector('[data-reponse="non"]')!);
+    await clic(f.querySelector('[data-enregistrer-rattachement]')!);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
     expect(posts.at(-1)).toMatchObject({ rattachement: { collegueId: 5, depuis: '2026-11-01' } });
     // 🔴 419 — tant qu'il n'est pas rattaché (la relecture simulée le laisse « à rattacher »), sa fiche ne s'enregistre pas : refus dit, rien n'est envoyé.
     await clic(bouton(4, 'fiche'));

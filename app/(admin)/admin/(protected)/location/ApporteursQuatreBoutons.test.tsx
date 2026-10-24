@@ -95,7 +95,8 @@ describe('🔴 la carte à quatre boutons', () => {
     expect((f.querySelector('[data-fiche-societe]') as HTMLInputElement).value).toBe('Fictive Conseil');
     await clic(bouton(4, 'rattachement'));
     const r = container.querySelector('[data-apporteur="4"] [data-panneau="rattachement"]')!;
-    for (const k of ['data-rattacher-collegue', 'data-rattacher-toujours', 'data-rattacher-depuis', 'data-rattacher', 'data-historique-collegues', 'data-remuneration-collegue'])
+    for (const k of ['data-rattacher-collegue', 'data-rattacher-toujours', 'data-rattacher-depuis', 'data-enregistrer-rattachement', 'data-historique-collegues', 'data-question-honoraires',
+      'data-modifier-remuneration', 'data-resume-rattachement'])
       expect(r.querySelector(`[${k}]`), k).not.toBeNull();
     await clic(bouton(4, 'cumul'));
     const c = container.querySelector('[data-apporteur="4"] [data-panneau="cumul"]')!;

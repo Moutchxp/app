@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import { posterSuivi } from './suiviApi';
-import { BlocRemuneration, depuisRegle, FormulaireNouveauTaux, historiqueRegles } from './ReglageApporteur';
+import { ChampApplication, ChampDuree, ChoixMode, champTaux, depuisRegle, dureeEnvoyee, EncartEffet, FormulaireNouveauTaux, historiqueRegles, remuDeSaisie, useDossiersApporteur } from './ReglageApporteur';
+import { effetReglage } from '../../../../lib/location/suivi/tableauBord';
 import {
   type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, libelleRegleApporteur, libelleRemuneration,
-  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis,
+  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis, libelleHistorique, lireTauxPourcent, type ModeApporteur,
 } from '../../../../lib/location/suivi/suivi';
 import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
@@ -50,7 +51,7 @@ function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string
  * `location:apporteurs-internes` (`passerEnInterne`) et journalise.
  */
 function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Apporteur; comptes: readonly { id: number; libelle: string; actif?: boolean }[];
-  apporteurs: readonly Apporteur[]; possible: boolean; onFait: () => void }) {
+  apporteurs: readonly Apporteur[]; possible: boolean; onFait: (message: string) => void }) {
   const [ouvert, setOuvert] = useState(false);
   const [compte, setCompte] = useState('');
   const [recap, setRecap] = useState(false);
@@ -66,10 +67,11 @@ function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Appo
   const [prenom, ...nomParts] = (choisi?.libelle ?? '').split(' ');
   const confirmer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterSuivi({ action: 'passer-interne', apporteurId: a.id, compteId: Number(compte) });
+    // Rester sur place : la carte confirme elle-même (pas la fenêtre verte de la tuile, qui rechargeait la page).
+    const r = await posterSuivi({ action: 'passer-interne', apporteurId: a.id, compteId: Number(compte) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(false); return; }
-    onFait();
+    onFait(`${libelleApporteur(a)} est maintenant apporteur interne`);
   };
   if (!ouvert) {
     return (
@@ -112,8 +114,10 @@ function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Appo
   );
 }
 
-export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
-  orphelin: boolean; onEnregistre: () => void; comptes?: readonly { id: number; libelle: string; actif?: boolean }[]; apporteurs?: readonly Apporteur[]; passage?: boolean }) {
+export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false, message }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
+  orphelin: boolean; onEnregistre: (message?: string) => void; comptes?: readonly { id: number; libelle: string; actif?: boolean }[]; apporteurs?: readonly Apporteur[]; passage?: boolean;
+  /** 🔴 Arno (24/10/2026) — le message de confirmation de la carte (« Fiche enregistrée »), près du bouton. */
+  message?: React.ReactNode }) {
   const [f, setF] = useState<FicheApporteur>(() => ficheDe(a));
   const [recap, setRecap] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -144,10 +148,10 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
   };
   const confirmer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterSuivi({ action: 'fiche-apporteur', apporteurId: a.id, fiche: f, version: a.version ?? null });
+    const r = await posterSuivi({ action: 'fiche-apporteur', apporteurId: a.id, fiche: f, version: a.version ?? null }, { propre: true });
     setEnvoi(false); setRecap(false);
     if (r.motif !== null) { setMotif(r.motif); setConflit(r.etat === 'conflit'); return; }
-    onEnregistre();
+    onEnregistre('Fiche enregistrée');
   };
   return (
     <div className="plo-panneau" data-panneau="fiche" data-fiche-apporteur={a.id}>
@@ -196,7 +200,8 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
         </span>
       )}
       {motif !== null && <p className="plo-erreur" role="alert" data-refus-local>{motif}</p>}
-      {conflit && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onEnregistre} data-recharger-fiche>Recharger</button>}
+      {message}
+      {conflit && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onEnregistre()} data-recharger-fiche>Recharger</button>}
       <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />
     </div>
   );
@@ -204,52 +209,169 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
 
 // ── « RATTACHEMENT » ───────────────────────────────────────────────────────────────────────────────────────────────────
 
+const dateFrR = (iso: string): string => iso.split('-').reverse().join('/');
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+/** « Rattaché à X depuis toujours — One shot — location 3 %, gestion 0 % » : le résumé UNIQUE du panneau. PUR. */
+export function resumeRattachement(a: Apporteur, jour: string): string {
+  const c = collegueADate(a, jour);
+  // Un rattachement daté APRÈS aujourd'hui (enregistré, pas encore en vigueur) : dit dans la même ligne.
+  const prochain = [...(a.collegues ?? [])].filter((x) => x.depuis > jour).sort((x, y) => x.depuis.localeCompare(y.depuis))[0];
+  const avenir = prochain === undefined ? '' : ` · à partir du ${dateFrR(prochain.depuis)} : ${prochain.collegueLibelle} — ${libelleRemuneration(remunerationADate(a, prochain.depuis))}`;
+  if (c === null || c.depuis > jour) return `À rattacher : aucun collègue de rattachement aujourd’hui${avenir}.`;
+  return `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)} — ${libelleRemuneration(remunerationADate(a, jour))}${avenir}`;
+}
+
+interface SaisieRattachement {
+  collegueId: string; depuis: string; toujours: boolean;
+  /** « X touche des honoraires sur l'activité de cet apporteur ? » : null tant que la question n'est pas tranchée (obligatoire). */
+  reponse: 'oui' | 'non' | null;
+  mode: ModeApporteur; taux: string; tauxGestion: string; indeterminee: boolean; duree: string;
+  /** Sorte « remuneration » : la date d'application de la nouvelle version (ou « depuis toujours »). */
+  remDepuis: string; remToujours: boolean;
+}
+
 /**
- * EXTERNE : le collègue de rattachement (date ou « Depuis toujours »), l'historique des rattachements, puis la rémunération du collègue
- * (effet en direct, versions). INTERNE : « Apporteur interne — pas de rattachement », aucun champ.
+ * ══ 🔴 Arno (24/10/2026) — LE RATTACHEMENT D'UN APPORTEUR EXTERNE : UN SEUL FORMULAIRE, UN SEUL BOUTON ══════════════════════════════
+ *   a. le collègue (liste verte) ; b. à partir du — date, ou « Depuis toujours » ;
+ *   c. « <collègue> touche des honoraires sur l'activité de cet apporteur ? » — Non / Oui, OBLIGATOIRE (aucun choix par défaut pour un
+ *      nouveau rattachement : le bouton reste inactif) ;
+ *   d. Oui : One shot / Récurrent, taux location et gestion, durée du récurrent, et l'« Effet de ce réglage » en direct ;
+ *   e. le récapitulatif, puis Confirmer / Revenir. Le serveur écrit rattachement ET rémunération dans UNE transaction, journalisée.
+ * « Modifier la rémunération » : les étapes c → e avec le collègue actuel (la valeur en vigueur présélectionnée, et sa date
+ * d'application). En tête : UN résumé ; en bas : l'historique (déroulant). INTERNE : « pas de rattachement ».
  */
-export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, envoi, avec419, toujoursPossible, cle }: { a: Apporteur; apporteurs: readonly Apporteur[];
-  collegues: readonly { id: number; libelle: string; actif?: boolean }[]; jour: string; faire: Faire; envoi: boolean; avec419: boolean; toujoursPossible: boolean; cle: unknown }) {
-  // Arno (23/10/2026, 409) — « Depuis toujours » proposé d'office au 1er rattachement.
-  const [r, setR] = useState(() => ({ collegueId: '', depuis: jour, toujours: (a.collegues ?? []).length === 0 }));
+export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, envoi, avec419, toujoursPossible, cle, message }: { a: Apporteur; apporteurs: readonly Apporteur[];
+  collegues: readonly { id: number; libelle: string; actif?: boolean }[]; jour: string; faire: Faire; envoi: boolean; avec419: boolean; toujoursPossible: boolean; cle: unknown;
+  message?: React.ReactNode }) {
+  const rattache = (a.collegues ?? []).length > 0;
+  const actuel = collegueADate(a, jour);
+  const remu = remunerationADate(a, jour);
+  const vide = (sorte: 'rattacher' | 'remuneration'): SaisieRattachement => {
+    // « Modifier la rémunération » : la valeur EN VIGUEUR présélectionnée ; un rattachement nouveau : rien (la question est obligatoire).
+    const pre = sorte === 'remuneration';
+    return { collegueId: '', depuis: jour, toujours: !rattache, reponse: pre ? (remu?.remunere ? 'oui' : 'non') : null,
+      mode: pre && remu?.remunere ? remu.mode : 'one_shot', taux: pre && remu?.remunere ? champTaux(remu.taux) : '', tauxGestion: pre && remu?.remunere ? champTaux(remu.tauxGestion) : '',
+      indeterminee: !(pre && remu?.dureeAnnees), duree: pre && remu?.dureeAnnees ? String(remu.dureeAnnees) : '', remDepuis: jour, remToujours: false };
+  };
+  const [sorte, setSorte] = useState<'rattacher' | 'remuneration'>('rattacher');
+  const [f, setF] = useState<SaisieRattachement>(() => vide('rattacher'));
+  const [recap, setRecap] = useState(false);
+  const d = useDossiersApporteur(a.id, cle);
   if (estInterne(a)) {
     return (
       <div className="plo-panneau" data-panneau="rattachement">
         <p className="plo-muet" data-rattachement-interne>Apporteur interne — pas de rattachement.</p>
         {/* 422 — l'historique d'avant le passage en interne est conservé (lecture seule) : les dossiers d'alors en dépendent. */}
         {(a.collegues ?? []).length > 0 && (
-          <p className="plo-muet plo-petit-texte" data-historique-collegues-clos>Rattachements clos{a.interneDepuis ? ` le ${a.interneDepuis.split('-').reverse().join('/')}` : ''} : {(a.collegues ?? []).map((c) => `${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}
+          <p className="plo-muet plo-petit-texte" data-historique-collegues-clos>Rattachements clos{a.interneDepuis ? ` le ${dateFrR(a.interneDepuis)}` : ''} : {(a.collegues ?? []).map((c) => `${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}
             {(a.remunerations ?? []).length > 0 ? ` — rémunérations : ${(a.remunerations ?? []).map((v) => libelleRemuneration(v)).join(' · ')}` : ''}</p>
         )}
       </div>
     );
   }
-  const collegue = collegueADate(a, jour);
+  const poser = (x: Partial<SaisieRattachement>): void => { setF({ ...f, ...x }); setRecap(false); };
+  const changerSorte = (s2: 'rattacher' | 'remuneration'): void => { setSorte(s2); setF(vide(s2)); setRecap(false); };
+  const nomCollegue = sorte === 'remuneration' ? actuel?.collegueLibelle ?? 'Le collègue' : collegues.find((c) => String(c.id) === f.collegueId)?.libelle ?? 'Le collègue choisi';
+  const dateRemu = sorte === 'rattacher' ? (f.toujours ? jour : f.depuis) : f.remToujours ? jour : f.remDepuis;
+  const toujoursRemu = sorte === 'rattacher' ? f.toujours : f.remToujours;
+  const versionSaisie = f.reponse === null ? null : remuDeSaisie({ remunere: f.reponse === 'oui', mode: f.mode, taux: f.taux, tauxGestion: f.tauxGestion,
+    indeterminee: f.indeterminee, duree: f.duree, depuis: dateRemu, toujours: toujoursRemu });
+  const tauxSaisi = f.reponse !== 'oui' || (lireTauxPourcent(f.taux) ?? 0) + (lireTauxPourcent(f.tauxGestion) ?? 0) > 0;
+  const pret = f.reponse !== null && versionSaisie !== null && tauxSaisi
+    && (sorte === 'remuneration' || (f.collegueId !== '' && (f.toujours || ISO.test(f.depuis))))
+    && (sorte === 'rattacher' || f.remToujours || ISO.test(f.remDepuis))
+    && (f.reponse === 'non' || avec419);
+  const lu = d !== null && d !== 'erreur' ? d : null;
+  const effet = lu === null || versionSaisie === null || !avec419 ? null
+    : effetReglage({ dossiers: lu.dossiers, apporteurs, apporteurId: a.id, aujourdhui: lu.aujourdhui || jour, remuneration: versionSaisie });
+  const confirmer = async (): Promise<void> => {
+    const ok = await faire({ action: 'rattachement', apporteurId: a.id, rattachement: {
+      sorte, ...(sorte === 'rattacher' ? { collegueId: Number(f.collegueId), ...(f.toujours ? { depuisToujours: true } : { depuis: f.depuis }) } : {}),
+      remuneration: { remunere: f.reponse === 'oui', mode: f.mode, taux: f.taux, tauxGestion: f.tauxGestion, dureeAnnees: dureeEnvoyee(f),
+        ...(sorte === 'remuneration' ? (f.remToujours ? { toujours: true } : { depuis: f.remDepuis }) : {}) } } },
+    sorte === 'rattacher' ? 'Rattachement enregistré' : 'Rémunération du collègue enregistrée');
+    setRecap(false);
+    if (ok) { setSorte('rattacher'); setF(vide('rattacher')); }
+  };
   return (
     <div className="plo-panneau" data-panneau="rattachement" data-fiche-apporteur={a.id}>
-      <h4 className="plo-h4">Collègue de rattachement</h4>
-      {/* 🔴 Arno (24/10/2026) — venues de la carte : le rattachement en cours et le résumé de la rémunération du collègue. */}
-      {collegue !== null && <p className="plo-version-valeurs" data-rattache-libelle>Rattaché à {collegue.collegueLibelle} {depuisLibelle(collegue)}</p>}
-      {collegue !== null && <p className="plo-version-valeurs" data-collegue-remuneration={a.id}>Collègue : {collegue.collegueLibelle} — {libelleRemuneration(remunerationADate(a, jour))}</p>}
-      {(a.collegues ?? []).length === 0
-        ? <p className="plo-alerte" role="status">À rattacher : choisissez le collègue et la date à partir de laquelle ses affaires lui reviennent.</p>
-        : <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
-      <div className="plo-grille">
-        <label className="plo-champ"><span>Collègue</span>
-          <ListeChoix options={collegues} valeur={r.collegueId} libelle="Collègue de rattachement" onChange={(v) => setR({ ...r, collegueId: v })} donnees={{ 'data-rattacher-collegue': '' }} /></label>
-        <div className="plo-champ"><span>À partir du</span>
-          <label className="plo-case"><input type="checkbox" checked={r.toujours} onChange={(e) => setR({ ...r, toujours: e.target.checked })} data-rattacher-toujours />
-            Depuis toujours <small className="plo-muet">(tout l’historique, et la suite)</small></label>
-          <input type="date" aria-label="À partir du" value={r.toujours ? '' : r.depuis} disabled={r.toujours} onChange={(e) => setR({ ...r, depuis: e.target.value })} data-rattacher-depuis /></div>
+      {/* 2 — UN SEUL résumé, en tête. */}
+      <p className="plo-version-valeurs plo-resume-rattachement" data-resume-rattachement={a.id}>{resumeRattachement(a, jour)}</p>
+      <div className="plo-onglets-rattachement" role="group" aria-label="Rattachement">
+        <button type="button" className="plo-mode" aria-pressed={sorte === 'rattacher'} onClick={() => changerSorte('rattacher')} data-sorte-rattachement="rattacher">
+          {rattache ? 'Changer de collègue' : 'Rattacher à un collègue'}</button>
+        {rattache && <button type="button" className="plo-mode" aria-pressed={sorte === 'remuneration'} onClick={() => changerSorte('remuneration')} data-modifier-remuneration>Modifier la rémunération</button>}
       </div>
-      <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={envoi} data-rattacher
-        onClick={() => { void faire({ action: 'rattacher-apporteur', apporteurId: a.id, rattachement: { collegueId: r.collegueId === '' ? null : Number(r.collegueId), ...(r.toujours ? { depuisToujours: true } : { depuis: r.depuis }) } },
-          `${a.nom} est rattaché à ${collegues.find((c) => String(c.id) === r.collegueId)?.libelle ?? 'son collègue'}.`); }}>
-        {(a.collegues ?? []).length === 0 ? 'Rattacher' : 'Changer de collègue'}</button>
-      {(a.collegues ?? []).length > 0
-        ? <BlocRemuneration key={`${a.id}-${(a.remunerations ?? []).length}`} a={a} apporteurs={apporteurs} collegue={collegue?.collegueLibelle ?? null} jour={jour}
-            disponible={avec419} toujoursPossible={toujoursPossible} envoi={envoi} faire={faire} cle={cle} />
-        : <p className="plo-muet plo-petit-texte" data-remuneration-apres-rattachement>La rémunération du collègue se règle une fois l’apporteur rattaché.</p>}
+      <div className="plo-grille" data-formulaire-rattachement={sorte}>
+        {sorte === 'rattacher' ? (
+          <>
+            {/* a. */}
+            <label className="plo-champ"><span>Collègue</span>
+              <ListeChoix options={collegues} valeur={f.collegueId} libelle="Collègue de rattachement" onChange={(v) => poser({ collegueId: v })} donnees={{ 'data-rattacher-collegue': '' }} /></label>
+            {/* b. */}
+            <div className="plo-champ"><span>À partir du</span>
+              <label className="plo-case"><input type="checkbox" checked={f.toujours} onChange={(e) => poser({ toujours: e.target.checked })} data-rattacher-toujours />
+                Depuis toujours <small className="plo-muet">(tout l’historique, et la suite)</small></label>
+              <input type="date" aria-label="À partir du" value={f.toujours ? '' : f.depuis} disabled={f.toujours} onChange={(e) => poser({ depuis: e.target.value })} data-rattacher-depuis /></div>
+          </>
+        ) : <p className="plo-muet plo-petit-texte plo-champ--large" data-collegue-actuel>Collègue actuel : <strong>{actuel?.collegueLibelle}</strong> — en vigueur : {libelleRemuneration(remu)}</p>}
+        {/* c. */}
+        <div className="plo-champ plo-champ--large" data-question-honoraires><span>{nomCollegue} touche des honoraires sur l’activité de cet apporteur ?</span>
+          <span className="plo-modes" role="radiogroup" aria-label="Honoraires du collègue">
+            <button type="button" role="radio" className="plo-mode" aria-checked={f.reponse === 'non'} onClick={() => poser({ reponse: 'non' })} data-reponse="non">Non</button>
+            <button type="button" role="radio" className="plo-mode" aria-checked={f.reponse === 'oui'} onClick={() => poser({ reponse: 'oui' })} data-reponse="oui">Oui</button>
+          </span>
+          {f.reponse === null && <small className="plo-muet" data-reponse-attendue>À trancher pour enregistrer.</small>}
+          {f.reponse === 'oui' && !avec419 && <small className="plo-alerte">Mise à jour de la base à appliquer (migration 419) : la rémunération du collègue ne peut pas encore être enregistrée.</small>}
+        </div>
+        {/* d. */}
+        {f.reponse === 'oui' && (
+          <>
+            <ChoixMode valeur={f.mode} onChange={(m) => poser({ mode: m })} />
+            <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={f.taux} placeholder="ex. 5" onChange={(e) => poser({ taux: e.target.value })} data-remuneration-taux /></label>
+            <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={f.tauxGestion} placeholder="ex. 10" onChange={(e) => poser({ tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
+            {f.mode === 'recurrent' && <ChampDuree indeterminee={f.indeterminee} duree={f.duree} repere="remuneration" onChange={(x) => poser(x)} />}
+          </>
+        )}
+        {sorte === 'remuneration' && f.reponse !== null && (
+          <ChampApplication depuis={f.remDepuis} toujours={f.remToujours} repere="remuneration" possible={toujoursPossible} onChange={(x) => poser({ remDepuis: x.depuis, remToujours: x.toujours })} />
+        )}
+        {f.reponse !== null && (
+          <EncartEffet effet={effet} quoi="collegue" nom={nomCollegue}
+            attente={!avec419 ? 'Sans la migration 419, aucune rémunération n’est calculée.' : d === null ? 'Calcul…' : d === 'erreur' ? 'Dossiers illisibles : l’effet ne peut pas être calculé.' : undefined} />
+        )}
+      </div>
+      {/* e. */}
+      {recap && versionSaisie !== null ? (
+        <div className="plo-recap" role="alertdialog" aria-label="Récapitulatif du rattachement" data-recap-rattachement>
+          <strong>{sorte === 'rattacher' ? 'Rattachement' : 'Rémunération du collègue'} — récapitulatif</strong>
+          <ul className="plo-recap-liste">
+            <li data-recap-ligne="collegue">Collègue : {nomCollegue}{sorte === 'remuneration' ? ' (inchangé)' : ''}</li>
+            <li data-recap-ligne="date">À partir du : {toujoursRemu ? 'depuis toujours (tous les dossiers)' : dateFrR(dateRemu)}</li>
+            <li data-recap-ligne="remuneration">Rémunération : {f.reponse === 'non' ? 'Non — aucune rémunération' : `Oui — ${libelleRemuneration(versionSaisie)}`}</li>
+            {effet !== null && <li data-recap-ligne="effet">Dû à {nomCollegue} HT : {effet.avantCollegue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € → {effet.apresCollegue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</li>}
+          </ul>
+          <span className="plo-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRecap(false)} data-recap-revenir>Revenir</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void confirmer(); }} data-recap-confirmer>Confirmer</button>
+          </span>
+        </div>
+      ) : (
+        <span className="plo-boutons">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!pret || envoi} onClick={() => setRecap(true)} data-enregistrer-rattachement
+            title={pret ? undefined : f.reponse === null ? 'Répondez d’abord à la question sur les honoraires du collègue.' : undefined}>
+            {sorte === 'rattacher' ? 'Enregistrer le rattachement' : 'Enregistrer la rémunération'}</button>
+        </span>
+      )}
+      {message}
+      {/* 2 — l'historique des rattachements et des versions de rémunération, en déroulant (rien ne disparaît). */}
+      {(rattache || (a.remunerations ?? []).length > 0) && (
+        <details className="plo-historique" data-historique-rattachement>
+          <summary>Historique des rattachements et des rémunérations</summary>
+          {rattache && <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
+          {(a.remunerations ?? []).length > 0 && <p className="plo-muet plo-petit-texte" data-historique-remuneration>Rémunération : {(a.remunerations ?? []).map((x) => libelleHistorique(x, libelleRemuneration(x))).join(' · ')}</p>}
+        </details>
+      )}
     </div>
   );
 }
@@ -257,8 +379,8 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
 // ── « TAUX » ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Le commissionnement de l'apporteur : la règle en vigueur, l'historique des versions, le formulaire (effet en direct, récapitulatif). */
-export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujoursPossible, cle, onFermer }: { a: Apporteur; apporteurs: readonly Apporteur[]; jour: string;
-  faire: Faire; envoi: boolean; orphelin: boolean; toujoursPossible: boolean; cle: unknown; onFermer: () => void }) {
+export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujoursPossible, cle, onFermer, message }: { a: Apporteur; apporteurs: readonly Apporteur[]; jour: string;
+  faire: Faire; envoi: boolean; orphelin: boolean; toujoursPossible: boolean; cle: unknown; onFermer: () => void; message?: React.ReactNode }) {
   const v = baremeADate(a, jour);
   return (
     <div className="plo-panneau" data-panneau="taux">
@@ -266,7 +388,9 @@ export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujo
       {a.baremes.length > 0 && <p className="plo-muet plo-petit-texte" data-historique-taux data-historique-regles-apporteur>Historique : {historiqueRegles(a)}</p>}
       <h4 className="plo-h4">Nouveau taux</h4>
       <FormulaireNouveauTaux key={`${a.id}-${a.baremes.length}`} a={a} apporteurs={apporteurs} collegue={null} jour={jour} envoi={envoi} faire={faire}
-        refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={toujoursPossible} cle={cle} onFermer={onFermer} />
+        refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={toujoursPossible} cle={cle} onFermer={onFermer}
+        apresEnregistrement={() => { /* 🔴 rester sur place : le panneau reste ouvert, le formulaire repart de la règle enregistrée */ }} />
+      {message}
     </div>
   );
 }
@@ -286,4 +410,9 @@ export const CSS_PANNEAUX_APPORTEUR = `
 .plo-lecture dt{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
 .plo-lecture dd{margin:0;color:var(--color-svv-ink)}
 .plo-recap-liste{margin:0;padding-left:18px}
+/* La liste des cartes de l'annuaire (« .plo-versions li ») ne s'applique pas aux lignes du récapitulatif. */
+.plo-versions .plo-recap-liste>li{border:0;padding:0;margin:2px 0;background:none;box-shadow:none;border-radius:0}
+.plo-onglets-rattachement{display:flex;flex-wrap:wrap;gap:8px}
+.plo-historique summary{cursor:pointer;font-weight:700;color:var(--color-svv-muted);min-height:32px}
+.plo-message-carte{margin:0;font-weight:700;color:var(--color-svv-green-ink)}
 `;

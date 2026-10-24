@@ -52,7 +52,7 @@ export function ChampDuree({ indeterminee, duree, onChange, repere }: { indeterm
 }
 
 /** 🔴 420 — « Applicable à partir du » ou « Depuis toujours » (tous les dossiers, passés compris). */
-function ChampApplication({ depuis, toujours, onChange, repere, possible }: { depuis: string; toujours: boolean; repere: string; possible: boolean;
+export function ChampApplication({ depuis, toujours, onChange, repere, possible }: { depuis: string; toujours: boolean; repere: string; possible: boolean;
   onChange: (x: { depuis: string; toujours: boolean }) => void }) {
   return (
     <div className="plo-champ" data-application={repere}><span>Applicable à partir du</span>
@@ -193,9 +193,11 @@ type Faire = (corps: Record<string, unknown>, reussite: string) => Promise<boole
  * même formulaire. Chaque partie a son « Effet de ce réglage » ; « Enregistrer » écrit la règle, et la rémunération si elle a été
  * touchée ; un « Depuis toujours » passe d'abord par le récapitulatif. `refus` : un motif dit avant tout envoi (externe à rattacher).
  */
-export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, faire, refusAvant, toujoursPossible, onFermer, cle }: {
+export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, faire, refusAvant, toujoursPossible, onFermer, cle, apresEnregistrement }: {
   a: Apporteur; apporteurs: readonly Apporteur[]; collegue: string | null; jour: string; envoi: boolean; faire: Faire; refusAvant: string | null; toujoursPossible: boolean;
   onFermer: () => void; cle: unknown;
+  /** 🔴 Arno (24/10/2026) — après « Confirmer » : rester sur place (le panneau reste ouvert) ; absent : se fermer comme avant. */
+  apresEnregistrement?: () => void;
 }) {
   const [regle, setRegle] = useState(() => saisieRegleDepuis(a, jour));
   const [remu, setRemu] = useState(() => saisieRemuDepuis(a, jour));
@@ -219,7 +221,7 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
       const ok2 = await faire({ action: 'remuneration-collegue', apporteurId: a.id, remuneration: corpsRemu(remu, jour) }, `Nouveau taux et rémunération de ${collegue} enregistrés.`);
       if (!ok2) return;
     }
-    onFermer();
+    if (apresEnregistrement !== undefined) apresEnregistrement(); else onFermer();
   };
   const cliquer = (): void => {
     if (refusAvant !== null) { setRefus(refusAvant); return; }
@@ -262,50 +264,9 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
   );
 }
 
-/**
- * La rémunération du collègue dans « Fiche et cumul » (419) : en vigueur, historique (« remplacé depuis toujours » compris), la saisie
- * et son effet en direct, « Depuis toujours » par le récapitulatif.
+/*
+ * (La rémunération du collègue se règle désormais DANS le formulaire de rattachement — `PanneauRattachement`, Arno 24/10/2026.)
  */
-export function BlocRemuneration({ a, apporteurs, collegue, jour, disponible, toujoursPossible, envoi, faire, cle }: { a: Apporteur; apporteurs: readonly Apporteur[]; collegue: string | null;
-  jour: string; disponible: boolean; toujoursPossible: boolean; envoi: boolean; faire: Faire; cle: unknown }) {
-  const enVigueur = remunerationADate(a, jour);
-  const [r, setR] = useState(() => saisieRemuDepuis(a, jour));
-  const [touchee, setTouchee] = useState(false);
-  const [recap, setRecap] = useState(false);
-  const qui = collegue ?? 'du collègue';
-  const d = useDossiersApporteur(a.id, cle);
-  const lu = d !== null && d !== 'erreur' ? d : null;
-  const v = remuDeSaisie(r);
-  const effet = lu === null || v === null ? null : effetReglage({ dossiers: lu.dossiers, apporteurs, apporteurId: a.id, aujourdhui: lu.aujourdhui || jour, remuneration: v });
-  const enregistrer = (): void => {
-    setRecap(false);
-    void faire({ action: 'remuneration-collegue', apporteurId: a.id, remuneration: corpsRemu(r, jour) },
-      r.toujours ? `Rémunération de ${qui} enregistrée « depuis toujours ».` : `Rémunération de ${qui} enregistrée (à partir du ${dateFr(r.depuis)}).`);
-  };
-  return (
-    <div className="plo-remuneration" data-remuneration-collegue={a.id}>
-      <h4 className="plo-h4">Rémunération de {qui} <small className="plo-muet">(a apporté cet apporteur)</small></h4>
-      <p className="plo-muet plo-petit-texte" data-remuneration-en-vigueur>{libelleRemuneration(enVigueur)}{enVigueur !== null ? ` (${enVigueur.toujoursLe ? `depuis toujours, enregistrée le ${dateFr(enVigueur.toujoursLe)}` : `depuis le ${dateFr(enVigueur.depuis)}`})` : ''}</p>
-      {(a.remunerations ?? []).length > 1 && (
-        <p className="plo-muet plo-petit-texte" data-historique-remuneration>Historique : {(a.remunerations ?? []).map((x) => libelleHistorique(x, libelleRemuneration(x))).join(' · ')}</p>
-      )}
-      {!disponible ? <p className="plo-alerte" role="status" data-remuneration-sans-migration>Mise à jour de la base à appliquer (migration 419) : la rémunération du collègue ne peut pas encore être enregistrée.</p> : (
-        <>
-          <div className="plo-grille">
-            <ChampsRemuneration s={r} toujoursPossible={toujoursPossible} onChange={(x) => { setR(x); setTouchee(true); }} />
-            <EncartEffet effet={touchee ? effet : null} quoi="collegue" nom={qui}
-              attente={!touchee ? 'Modifiez la rémunération pour voir son effet.' : d === null ? 'Calcul…' : d === 'erreur' ? 'Dossiers illisibles : l’effet ne peut pas être calculé.' : undefined} />
-            {recap && <RecapToujours effets={{ regle: null, remu: effet }} collegue={qui} envoi={envoi} onRevenir={() => setRecap(false)} onConfirmer={enregistrer} />}
-          </div>
-          {!recap && (
-            <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={envoi} data-enregistrer-remuneration
-              onClick={() => { if (r.toujours) { setRecap(true); return; } enregistrer(); }}>Enregistrer la rémunération</button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
 
 /** L'historique des règles d'un apporteur (« remplacé depuis toujours par … » pour une version « depuis toujours »). */
 export function historiqueRegles(a: Apporteur): string {

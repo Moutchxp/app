@@ -80,10 +80,10 @@ describe('🔴 la carte allégée : chaque information retirée est dans son pan
     await annuaire();
     await ouvrir(4, 'rattachement');
     const r = panneau(4);
-    expect(r.querySelector('[data-rattache-libelle]')?.textContent).toBe('Rattaché à Paul Collègue depuis toujours');
-    expect(r.querySelector('[data-collegue-remuneration="4"]')?.textContent).toBe('Collègue : Paul Collègue — One shot — location 3 %, gestion 0 %');
-    expect(r.querySelector('[data-historique-collegues]')?.textContent).toBe('Rattaché à Paul Collègue depuis toujours');
-    expect(r.querySelector('[data-remuneration-en-vigueur]')?.textContent).toBe('One shot — location 3 %, gestion 0 % (depuis le 01/01/2021)');
+    // 🔴 Arno (24/10/2026) — UN seul résumé (rattachement + rémunération), puis l'historique en déroulant.
+    expect(r.querySelector('[data-resume-rattachement="4"]')?.textContent).toBe('Rattaché à Paul Collègue depuis toujours — One shot — location 3 %, gestion 0 %');
+    expect(r.querySelector('[data-historique-rattachement] [data-historique-collegues]')?.textContent).toBe('Rattaché à Paul Collègue depuis toujours');
+    expect(r.querySelector('[data-historique-rattachement] [data-historique-remuneration]')?.textContent).toBe('Rémunération : 01/01/2021 → One shot — location 3 %, gestion 0 %');
     await ouvrir(9, 'rattachement');
     expect(panneau(9).querySelector('[data-rattachement-interne]')?.textContent).toBe('Apporteur interne — pas de rattachement.');
     expect(panneau(9).querySelector('[data-historique-collegues-clos]')?.textContent).toBe('Rattachements clos le 01/10/2026 : Paul Collègue depuis toujours');

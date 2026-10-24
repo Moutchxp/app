@@ -1,5 +1,6 @@
 'use client';
 
+import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { DELAI_MAX_MOIS, DELAI_MIN_MOIS, dureeMois, verifierDelai } from '../../../../lib/gestion/finGestion';
 import { usePathname } from 'next/navigation';
@@ -124,7 +125,9 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
   const poster = async (corps: Record<string, unknown>, reussite: string): Promise<void> => {
     setEnvoi(true); setMotif(null); setInfo(null);
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+      // 🔴 Arno (24/10/2026) — rester sur place : la modale confirme elle-même (message sous le bouton), sans la fenêtre verte de la tuile
+      // (son « Voir la fiche » rechargeait la page et faisait quitter la modale).
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', [ENTETE_CONFIRMATION]: 'propre' }, body: JSON.stringify(corps) });
       const d = await r.json() as { etat?: string; motif?: string; message?: string };
       if (d.etat === 'ok') { setInfo(reussite); setN((x) => x + 1); return; }
       setMotif(d.etat === 'sans_schema' ? 'Mise à jour de la base à appliquer (migration 395) : rien n’a été enregistré.'

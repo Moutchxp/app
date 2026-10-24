@@ -76,7 +76,8 @@ function useGeste(relire: () => void) {
   const [info, setInfo] = useState<string | null>(null);
   const faire = async (corps: Record<string, unknown>, reussite: string): Promise<boolean> => {
     setEnvoi(true); setMotif(null); setInfo(null);
-    const r = await posterSuivi(corps);
+    // 🔴 Arno (24/10/2026) — rester sur place dans la modale : le message sous le bouton, pas la fenêtre verte de la tuile.
+    const r = await posterSuivi(corps, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return false; }
     setInfo(reussite); relire();
@@ -177,8 +178,38 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
   const [refusLocal, setRefusLocal] = useState<string | null>(null);
   /** 🔴 Arno (24/10/2026) — le panneau ouvert de chaque carte (au plus un par carte). */
   const [panneaux, setPanneaux] = useState<Record<number, Panneau>>({});
+  /**
+   * 🔴 Arno (24/10/2026) — RESTER SUR PLACE : un geste d'une carte se confirme SUR la carte (message près du bouton) — pas par la
+   * fenêtre verte de la tuile, dont « Voir la fiche » rechargeait la page et faisait quitter l'annuaire. Les données se relisent sans
+   * rien démonter : même carte, même panneau, même défilement, mêmes tri et filtre.
+   */
+  const [messages, setMessages] = useState<Record<number, { ok: string | null; motif: string | null }>>({});
+  const [envoiCarte, setEnvoiCarte] = useState(false);
+  /** Les cartes touchées sous le filtre « À rattacher » : si elles en sortent, un message tient leur place. */
+  const [suivies, setSuivies] = useState<ReadonlySet<number>>(() => new Set());
+  const faireCarte = (id: number) => async (corps: Record<string, unknown>, reussite: string): Promise<boolean> => {
+    setEnvoiCarte(true); setMessages((m) => ({ ...m, [id]: { ok: null, motif: null } }));
+    const r = await posterSuivi(corps, { propre: true });
+    setEnvoiCarte(false);
+    if (r.motif !== null) { setMessages((m) => ({ ...m, [id]: { ok: null, motif: r.motif } })); return false; }
+    setMessages((m) => ({ ...m, [id]: { ok: reussite, motif: null } }));
+    if (seulementARattacher) setSuivies((x) => new Set([...x, id]));
+    relire();
+    return true;
+  };
+  const enregistreCarte = (id: number) => (message?: string): void => {
+    if (message !== undefined) setMessages((m) => ({ ...m, [id]: { ok: message, motif: null } }));
+    if (seulementARattacher) setSuivies((x) => new Set([...x, id]));
+    relire();
+  };
+  const messageCarte = (id: number) => {
+    const m = messages[id];
+    if (m === undefined || (m.ok === null && m.motif === null)) return null;
+    return m.ok !== null ? <p className="plo-message-carte" role="status" data-message-carte={id}>✓ {m.ok}</p>
+      : <p className="plo-erreur" role="alert" data-motif-carte={id}>{m.motif}</p>;
+  };
   const basculer = (id: number, p: Panneau): void => {
-    g.effacer(); setRefusLocal(null);
+    g.effacer(); setRefusLocal(null); setMessages((m) => { const n = { ...m }; delete n[id]; return n; });
     setPanneaux((x) => { const n = { ...x }; if (n[id] === p) delete n[id]; else n[id] = p; return n; });
   };
   /** Arno (23/10/2026) — « À rattacher (N) » : ne montrer que les apporteurs sans collègue. */
@@ -214,14 +245,15 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               onChange={(v) => setTri(v as Tri)} donnees={{ 'data-tri': '' }} /></label>
           {annuaire && (
             <p className="plo-filtre-rattacher">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-pressed={seulementARattacher} onClick={() => setSeulementARattacher((x) => !x)} data-filtre-a-rattacher>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-pressed={seulementARattacher} onClick={() => { setSeulementARattacher((x) => !x); setSuivies(new Set()); }} data-filtre-a-rattacher>
                 {seulementARattacher ? 'Tous les apporteurs' : `À rattacher (${lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length})`}</button>
             </p>
           )}
           <ol className="plo-versions" data-liste-apporteurs>
             {(() => {
               // 414 — « NOM Prénom », tri par nom de famille puis prénom (une structure par son nom) ; les autres tris départagent pareil.
-              const alpha = trierApporteurs(lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a))));
+              // Une carte rattachée sous le filtre « À rattacher » garde sa place, le temps de dire qu'elle en sort.
+              const alpha = trierApporteurs(lu.apporteurs.filter((a) => !a.archive && (!seulementARattacher || aRattacher(a) || suivies.has(a.id))));
               const rang = new Map(alpha.map((a, i) => [a.id, i]));
               return tri === 'nom' ? alpha : [...alpha].sort((x, y) => (totaux?.[y.id]?.[tri] ?? 0) - (totaux?.[x.id]?.[tri] ?? 0) || (rang.get(x.id)! - rang.get(y.id)!));
             })().map((a) => {
@@ -229,6 +261,13 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               // 419 — un INTERNE n'est rattaché à personne : ni pastille de collègue, ni « à rattacher », ni rémunération.
               const interne = estInterne(a);
               const collegue = interne ? null : collegueADate(a, jour);
+              // 🔴 Arno (24/10/2026) — rattachée sous le filtre « À rattacher » : un message tient sa place (rien ne saute ailleurs).
+              if (seulementARattacher && !aRattacher(a) && suivies.has(a.id)) {
+                return (
+                  <li key={a.id} data-apporteur-sorti-filtre={a.id} className="plo-sorti-filtre" role="status">
+                    ✓ {libelleApporteur(a)} : {estInterne(a) ? 'passage en interne enregistré' : 'rattachement enregistré'} — n’apparaît plus dans ce filtre « À rattacher ».</li>
+                );
+              }
               return (
                 <li key={a.id} data-apporteur={a.id} data-sorte-apporteur={interne ? 'interne' : 'externe'} className={orphelin ? 'plo-a-rattacher' : undefined}>
                   <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><BadgeApporteur a={a} />
@@ -271,15 +310,15 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
                       {panneaux[a.id] === 'fiche' && (
                         <PanneauFiche key={`${a.id}-${a.version ?? ''}`} a={a} nomPrenom={lu.nomPrenom === true} identite={lu.identite === true} orphelin={orphelin}
                           comptes={lu.collegues} apporteurs={lu.apporteurs} passage={lu.passage === true}
-                          onEnregistre={() => { g.effacer(); relire(); }} />
+                          onEnregistre={enregistreCarte(a.id)} message={messageCarte(a.id)} />
                       )}
                       {panneaux[a.id] === 'rattachement' && (
-                        <PanneauRattachement a={a} apporteurs={lu.apporteurs} collegues={lu.collegues} jour={jour} faire={g.faire} envoi={g.envoi}
+                        <PanneauRattachement a={a} apporteurs={lu.apporteurs} collegues={lu.collegues} jour={jour} faire={faireCarte(a.id)} envoi={envoiCarte} message={messageCarte(a.id)}
                           avec419={lu.interne === true} toujoursPossible={lu.toujours === true} cle={lu} />
                       )}
                       {panneaux[a.id] === 'taux' && (
-                        <PanneauTaux a={a} apporteurs={lu.apporteurs} jour={jour} faire={g.faire} envoi={g.envoi} orphelin={orphelin}
-                          toujoursPossible={lu.toujours === true} cle={lu} onFermer={() => basculer(a.id, 'taux')} />
+                        <PanneauTaux a={a} apporteurs={lu.apporteurs} jour={jour} faire={faireCarte(a.id)} envoi={envoiCarte} orphelin={orphelin}
+                          toujoursPossible={lu.toujours === true} cle={lu} onFermer={() => basculer(a.id, 'taux')} message={messageCarte(a.id)} />
                       )}
                       {panneaux[a.id] === 'cumul' && (
                         <div className="plo-panneau" data-panneau="cumul">
@@ -469,7 +508,7 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-champ--large{grid-column:1 / -1}
 .plo-modes{display:flex;flex-wrap:wrap;gap:8px}
 .plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
-.plo-mode[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.plo-mode[aria-checked="true"],.plo-mode[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .plo-mode:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .plo-a-rattacher{border-color:var(--color-svv-amber) !important;background:var(--color-svv-amber-soft)}
 .plo-pastille--orange{background:var(--color-svv-amber);color:var(--color-svv-surface);border-color:transparent}
@@ -513,5 +552,6 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-dossiers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .plo-dossiers>li{border:0;padding:0;background:none;box-shadow:none}
 .plo-dossier-titre{display:block;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);margin-bottom:2px}
+.plo-sorti-filtre{border-style:dashed !important;color:var(--color-svv-green-ink);font-weight:700}
 .plo-select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:.95rem;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}
 `;
