@@ -19,7 +19,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.startsWith('SELECT id, nom, type')) return { rows: [{ id: '4', nom: 'Léa Fictive', type: 'partenaire', archive_le: null, societe: null, telephone: null, email: null,
     nom_famille: 'Fictive', prenom: 'Léa', compte_id: null, civilite: null, adresse: null, notes: null, telephones_autres: [], emails_autres: [], version: 'v1', compte_libelle: null,
     compte_identifiant: null, interne_depuis: null }], rowCount: 1 };
-  if (s.startsWith('SELECT apporteur_id, depuis, collegue_id, collegue_libelle')) {
+  if (s.startsWith('SELECT apporteur_id, depuis::text AS depuis, collegue_id, collegue_libelle')) {
     return { rows: etat.rattache ? [{ apporteur_id: '4', depuis: null, collegue_id: '2', collegue_libelle: 'Arnaud Jorel' }] : [], rowCount: 0 };
   }
   if (s.startsWith('INSERT INTO gestion_location_apporteur_remuneration')) return { rows: [], rowCount: etat.conflitRemu ? 0 : 1 };
@@ -75,7 +75,7 @@ describe('🔴 (3) rattachement + rémunération : la MÊME transaction', () => 
   });
   it('« Modifier la rémunération » : le collègue actuel garde son rattachement ; seule une version (date ou « depuis toujours »)', async () => {
     etat.rattache = true;
-    expect(await enregistrerRattachement(4, { sorte: 'remuneration', remuneration: { remunere: true, mode: 'one_shot', taux: '3', depuis: '2026-12-01' } }, AUTEUR)).toEqual({ etat: 'ok' });
+    expect(await enregistrerRattachement(4, { sorte: 'remuneration', remuneration: { remunere: true, mode: 'one_shot', taux: '3', tauxGestion: '0', depuis: '2026-12-01' } }, AUTEUR)).toEqual({ etat: 'ok' });
     expect(etat.ecrits.some((e) => e.sql.startsWith('INSERT INTO gestion_location_apporteur_collegue'))).toBe(false);
     expect(etat.ecrits.find((e) => e.sql.startsWith('INSERT INTO gestion_location_apporteur_remuneration'))?.params.slice(0, 5)).toEqual([4, '2026-12-01', true, 'one_shot', 0.03]);
     etat.rattache = false;

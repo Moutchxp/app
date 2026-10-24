@@ -1,9 +1,9 @@
 'use client';
 
-import { type KeyboardEvent, useEffect, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react';
 import {
   type Apporteur, type BaremeApporteur, type ModeApporteur, type RemunerationCollegue, LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, baremeADate, libelleHistorique,
-  libelleRegleApporteur, libelleRemuneration, lireDuree, lireTauxPourcent, MOT_DUREE, remunerationADate,
+  libelleRegleApporteur, libelleRemuneration, lireDuree, lireTauxPourcent, MOT_DUREE, remunerationADate, trierHistorique, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
 } from '../../../../lib/location/suivi/suivi';
 import { type ActiviteCalcul, type EffetReglage, effetReglage } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI } from './suiviApi';
@@ -83,6 +83,8 @@ export function saisieRemuDepuis(a: Apporteur, jour: string): SaisieRemu {
 }
 /** La version que la saisie poserait (null : illisible — l'effet attend). PUR. */
 export function regleDeSaisie(s: SaisieRegle): BaremeApporteur | null {
+  // 🔴 Arno (24/10/2026) — un champ VIDE n'est jamais lu comme 0 % (0 saisi, lui, est une valeur).
+  if (tauxVide(s.taux) || tauxVide(s.tauxGestion)) return null;
   const taux = lireTauxPourcent(s.taux); const tg = lireTauxPourcent(s.tauxGestion);
   const duree = s.mode === 'recurrent' ? lireDuree(dureeEnvoyee(s)) : null;
   if (taux === undefined || tg === undefined || duree === undefined || (!s.toujours && !/^\d{4}-\d{2}-\d{2}$/.test(s.depuis))) return null;
@@ -92,6 +94,7 @@ export function remuDeSaisie(s: SaisieRemu): RemunerationCollegue | null {
   if (!s.toujours && !/^\d{4}-\d{2}-\d{2}$/.test(s.depuis)) return null;
   const toujours = s.toujours ? { toujours: true } : {};
   if (!s.remunere) return { depuis: s.depuis, remunere: false, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null, ...toujours };
+  if (tauxVide(s.taux) || tauxVide(s.tauxGestion)) return null;
   const taux = lireTauxPourcent(s.taux); const tg = lireTauxPourcent(s.tauxGestion);
   const duree = s.mode === 'recurrent' ? lireDuree(dureeEnvoyee(s)) : null;
   if (taux === undefined || tg === undefined || duree === undefined) return null;
@@ -193,11 +196,13 @@ type Faire = (corps: Record<string, unknown>, reussite: string) => Promise<boole
  * même formulaire. Chaque partie a son « Effet de ce réglage » ; « Enregistrer » écrit la règle, et la rémunération si elle a été
  * touchée ; un « Depuis toujours » passe d'abord par le récapitulatif. `refus` : un motif dit avant tout envoi (externe à rattacher).
  */
-export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, faire, refusAvant, toujoursPossible, onFermer, cle, apresEnregistrement }: {
+export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, faire, refusAvant, toujoursPossible, onFermer, cle, apresEnregistrement, message }: {
   a: Apporteur; apporteurs: readonly Apporteur[]; collegue: string | null; jour: string; envoi: boolean; faire: Faire; refusAvant: string | null; toujoursPossible: boolean;
   onFermer: () => void; cle: unknown;
   /** 🔴 Arno (24/10/2026) — après « Confirmer » : rester sur place (le panneau reste ouvert) ; absent : se fermer comme avant. */
   apresEnregistrement?: () => void;
+  /** 🔴 Arno (24/10/2026) — la réponse du serveur (« ✓ … enregistré » ou le MOTIF d'un refus), juste au-dessus des boutons : jamais un échec muet. */
+  message?: ReactNode;
 }) {
   const [regle, setRegle] = useState(() => saisieRegleDepuis(a, jour));
   const [remu, setRemu] = useState(() => saisieRemuDepuis(a, jour));
@@ -211,7 +216,8 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
   const effetRegle = lu === null || vRegle === null ? null : effetReglage({ dossiers: lu.dossiers, apporteurs, apporteurId: a.id, aujourdhui: jourCalcul, bareme: vRegle });
   const effetRemu = lu === null || collegue === null || remuDeSaisie(remu) === null ? null
     : effetReglage({ dossiers: lu.dossiers, apporteurs, apporteurId: a.id, aujourdhui: jourCalcul, remuneration: remuDeSaisie(remu) });
-  const attente = d === null ? 'Calcul…' : d === 'erreur' ? 'Dossiers illisibles : l’effet ne peut pas être calculé.' : undefined;
+  const attente = d === null ? 'Calcul…' : d === 'erreur' ? 'Dossiers illisibles : l’effet ne peut pas être calculé.'
+    : tauxVide(regle.taux) || tauxVide(regle.tauxGestion) ? 'Saisissez les deux taux (0 est accepté) : l’effet s’affiche ensuite.' : undefined;
   const enregistrer = async (): Promise<void> => {
     setRecap(false);
     const ok = await faire({ action: 'bareme-apporteur', apporteurId: a.id, bareme: corpsRegle(regle, jour) },
@@ -225,6 +231,11 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
   };
   const cliquer = (): void => {
     if (refusAvant !== null) { setRefus(refusAvant); return; }
+    if (tauxVide(regle.taux)) { setRefus(MOT_TAUX_LOCATION_VIDE); return; }
+    if (tauxVide(regle.tauxGestion)) { setRefus(MOT_TAUX_GESTION_VIDE); return; }
+    if (remuTouchee && remu.remunere && (tauxVide(remu.taux) || tauxVide(remu.tauxGestion))) {
+      setRefus(`Rémunération — ${tauxVide(remu.taux) ? 'taux sur la location' : 'taux sur la gestion'} : saisissez un pourcentage (0 est accepté).`); return;
+    }
     if (regle.mode === 'recurrent' && lireDuree(dureeEnvoyee(regle)) === undefined) { setRefus(MOT_DUREE); return; }
     if (remuTouchee && remu.remunere && remu.mode === 'recurrent' && lireDuree(dureeEnvoyee(remu)) === undefined) { setRefus(MOT_DUREE); return; }
     setRefus(null);
@@ -251,6 +262,7 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
         </div>
       )}
       {refus !== null && <p className="plo-erreur plo-champ--large" role="alert" data-refus-local-version>{refus}</p>}
+      {message !== undefined && message !== null && <div className="plo-champ--large" data-reponse-version>{message}</div>}
       {recap ? (
         <RecapToujours effets={{ regle: effetRegle, remu: remuTouchee ? effetRemu : null }} collegue={collegue ?? 'collègue'} envoi={envoi}
           onRevenir={() => setRecap(false)} onConfirmer={() => { void enregistrer(); }} />
@@ -270,7 +282,7 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
 
 /** L'historique des règles d'un apporteur (« remplacé depuis toujours par … » pour une version « depuis toujours »). */
 export function historiqueRegles(a: Apporteur): string {
-  return a.baremes.map((b) => libelleHistorique(b, libelleRegleApporteur(b))).join(' · ');
+  return trierHistorique(a.baremes).map((b) => libelleHistorique(b, libelleRegleApporteur(b))).join(' · ');
 }
 /** La règle en vigueur : « (depuis le 01/01/2026) » ou « (depuis toujours, enregistrée le 24/10/2026) ». */
 export const depuisRegle = (v: BaremeApporteur): string => (v.toujoursLe ? `depuis toujours, enregistrée le ${dateFr(v.toujoursLe)}` : `depuis le ${dateFr(v.depuis)}`);

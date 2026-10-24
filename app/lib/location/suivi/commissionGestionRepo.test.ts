@@ -32,7 +32,7 @@ describe('🔴 la règle d’un apporteur, écrite', () => {
   });
   it('sans la 413 : « One shot — gestion 0 % » s’écrit comme avant ; « Récurrent » ou un taux sur la gestion est refusé', async () => {
     colonnes.avec413 = false;
-    expect(await ajouterBaremeApporteur(3, { taux: '10', coutFixe: '', depuis: '2026-11-01' }, AUTEUR)).toEqual({ etat: 'ok' });
+    expect(await ajouterBaremeApporteur(3, { taux: '10', tauxGestion: '0', coutFixe: '', depuis: '2026-11-01' }, AUTEUR)).toEqual({ etat: 'ok' });
     expect(appels.at(-1)!.sql).not.toContain('taux_gestion');
     appels.length = 0;
     const r = await ajouterBaremeApporteur(3, { mode: 'recurrent', taux: '10', tauxGestion: '10', coutFixe: '', depuis: '2026-11-01' }, AUTEUR);

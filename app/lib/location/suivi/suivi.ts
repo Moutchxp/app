@@ -219,7 +219,7 @@ export interface BaremeApporteur extends Datee {
   /** 🔴 Arno (24/10/2026, 419) — la durée du « Récurrent », en années entières (≥ 1). null / absente : « Indéterminée ». */
   dureeAnnees?: number | null;
   /** 420 — voir `VersionToujours`. */
-  toujours?: boolean; ordre?: number; toujoursLe?: string;
+  toujours?: boolean; ordre?: number; toujoursLe?: string; saisiPar?: string;
 }
 
 /**
@@ -228,7 +228,9 @@ export interface BaremeApporteur extends Datee {
  * (`ordre` : l'ordre d'enregistrement, l'`id` en base) — sans les effacer : elles restent dans l'historique. Son `depuis` est le jour
  * de son enregistrement ; `versionsEffectives` la rend datée « depuis toujours » et garde ce jour dans `toujoursLe`.
  */
-export interface VersionToujours extends Datee { toujours?: boolean; ordre?: number; toujoursLe?: string }
+export interface VersionToujours extends Datee { toujours?: boolean; ordre?: number; toujoursLe?: string;
+  /** 🔴 Arno (24/10/2026) — qui a enregistré la version (dit « remplacé depuis toujours le … par … » dans le détail d'un dossier). */
+  saisiPar?: string }
 
 /**
  * Les versions qui comptent dans le calcul : sans version « depuis toujours », toutes (comme avant) ; sinon la DERNIÈRE enregistrée
@@ -251,8 +253,15 @@ export function baremeADate(a: Pick<Apporteur, 'baremes'>, dateIso: string): Bar
 
 /** L'historique d'une version : « 01/01/2026 → … » ; « depuis toujours » : « 24/10/2026 : remplacé depuis toujours par … ». PUR. */
 export function libelleHistorique(v: VersionToujours, libelle: string): string {
-  const d = v.depuis.split('-').reverse().join('/');
+  // 🔴 Arno (24/10/2026) — une « depuis toujours » se date de son ENREGISTREMENT (`toujoursLe`) : sa colonne `depuis` n'est qu'une clé technique.
+  const d = (v.toujours === true ? v.toujoursLe ?? v.depuis : v.depuis).split('-').reverse().join('/');
   return v.toujours === true ? `${d} : remplacé depuis toujours par ${libelle}` : `${d} → ${libelle}`;
+}
+
+/** L'historique dans l'ordre : par date (une « depuis toujours » à son jour d'enregistrement), puis par ordre d'enregistrement. PUR. */
+export function trierHistorique<T extends VersionToujours>(versions: readonly T[]): T[] {
+  const cle = (v: T): string => (v.toujours === true ? v.toujoursLe ?? v.depuis : v.depuis);
+  return [...versions].sort((x, y) => cle(x).localeCompare(cle(y)) || (x.ordre ?? 0) - (y.ordre ?? 0));
 }
 
 /** « pendant 3 ans » / « pendant 1 an » / « durée indéterminée ». PUR. */
@@ -395,6 +404,14 @@ export function lireDuree(brut: unknown): number | null | undefined {
 }
 export const MOT_DUREE = 'Durée du récurrent : un nombre d’années entier (1 au moins), ou « Indéterminée ».';
 
+/**
+ * 🔴 Arno (24/10/2026) — 0 % EST UNE VALEUR VALIDE partout (apporteur et collègue, location et gestion, one shot et récurrent) ; seul un
+ * champ RÉELLEMENT VIDE est refusé, dans les formulaires de version (« Nouveau taux », rémunération du collègue). PUR.
+ */
+export const tauxVide = (x: unknown): boolean => x === null || x === undefined || (typeof x === 'string' && x.replace(/[\s %]/g, '') === '');
+export const MOT_TAUX_LOCATION_VIDE = 'Taux sur la location : saisissez un pourcentage (0 est accepté).';
+export const MOT_TAUX_GESTION_VIDE = 'Taux sur la gestion : saisissez un pourcentage (0 est accepté).';
+
 /** 419 — vérifie une version de la rémunération du collègue (aucune / mode, taux en %, durée, date d'effet). PUR. */
 export function verifierRemuneration(brut: unknown): { ok: true; r: RemunerationCollegue } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
@@ -406,9 +423,11 @@ export function verifierRemuneration(brut: unknown): { ok: true; r: Remuneration
   if (mode === null) return { ok: false, motif: 'Le mode de la rémunération : « One shot » ou « Récurrent ».' };
   const taux = lireTauxPourcent(b.taux);
   const tauxGestion = lireTauxPourcent(b.tauxGestion);
+  // 🔴 Arno (24/10/2026) — un champ vide est refusé ; 0 % est accepté (même les deux à 0 %).
+  if (tauxVide(b.taux)) return { ok: false, motif: `Rémunération — ${MOT_TAUX_LOCATION_VIDE.charAt(0).toLowerCase()}${MOT_TAUX_LOCATION_VIDE.slice(1)}` };
+  if (tauxVide(b.tauxGestion)) return { ok: false, motif: `Rémunération — ${MOT_TAUX_GESTION_VIDE.charAt(0).toLowerCase()}${MOT_TAUX_GESTION_VIDE.slice(1)}` };
   if (taux === undefined) return { ok: false, motif: 'Rémunération — taux sur la location : un pourcentage entre 0 et 100.' };
   if (tauxGestion === undefined) return { ok: false, motif: 'Rémunération — taux sur la gestion : un pourcentage entre 0 et 100.' };
-  if ((taux ?? 0) === 0 && (tauxGestion ?? 0) === 0) return { ok: false, motif: 'Rémunération : saisissez au moins un taux (location ou gestion), ou choisissez « Aucune rémunération ».' };
   const duree = mode === 'recurrent' ? lireDuree(b.dureeAnnees) : null;
   if (duree === undefined) return { ok: false, motif: MOT_DUREE };
   return { ok: true, r: { depuis: b.depuis, remunere: true, mode, taux: taux ?? 0, tauxGestion: tauxGestion ?? 0, dureeAnnees: duree, ...toujours } };

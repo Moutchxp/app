@@ -120,6 +120,8 @@ describe('🔴 « Nouveau taux » : l’effet en direct', () => {
     expect(b.querySelector('[data-reponse="non"]')?.getAttribute('aria-checked')).toBe('true');
     await clic(b.querySelector('[data-reponse="oui"]')!);
     await saisir(b.querySelector('[data-remuneration-taux]')!, '5');
+    // 🔴 Arno (24/10/2026) — un champ vide n'est plus lu comme 0 % : la gestion se saisit (0 est accepté).
+    await saisir(b.querySelector('[data-remuneration-taux-gestion]')!, '0');
     await clic(b.querySelector('[data-application="remuneration"] [data-application-toujours]')!);
     expect(n(b.querySelector('[data-effet-reglage="collegue"] [data-effet-ligne]')?.textContent))
       .toBe('Dossiers concernés : 2 sur 2 (depuis toujours — tous les dossiers, passés compris) · Dû à Paul Collègue HT : avant 0,00 € → après 100,00 €');

@@ -7,7 +7,7 @@ import { ChampApplication, ChampDuree, ChoixMode, champTaux, depuisRegle, dureeE
 import { effetReglage } from '../../../../lib/location/suivi/tableauBord';
 import {
   type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, libelleRegleApporteur, libelleRemuneration,
-  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis, libelleHistorique, lireTauxPourcent, type ModeApporteur,
+  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis, libelleHistorique, type ModeApporteur, trierHistorique, tauxVide,
 } from '../../../../lib/location/suivi/suivi';
 import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
@@ -276,7 +276,8 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
   const toujoursRemu = sorte === 'rattacher' ? f.toujours : f.remToujours;
   const versionSaisie = f.reponse === null ? null : remuDeSaisie({ remunere: f.reponse === 'oui', mode: f.mode, taux: f.taux, tauxGestion: f.tauxGestion,
     indeterminee: f.indeterminee, duree: f.duree, depuis: dateRemu, toujours: toujoursRemu });
-  const tauxSaisi = f.reponse !== 'oui' || (lireTauxPourcent(f.taux) ?? 0) + (lireTauxPourcent(f.tauxGestion) ?? 0) > 0;
+  // 🔴 Arno (24/10/2026) — 0 % est une valeur (même les deux à 0 %) ; seul un champ VIDE bloque l'enregistrement.
+  const tauxSaisi = f.reponse !== 'oui' || (!tauxVide(f.taux) && !tauxVide(f.tauxGestion));
   const pret = f.reponse !== null && versionSaisie !== null && tauxSaisi
     && (sorte === 'remuneration' || (f.collegueId !== '' && (f.toujours || ISO.test(f.depuis))))
     && (sorte === 'rattacher' || f.remToujours || ISO.test(f.remDepuis))
@@ -369,7 +370,7 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
         <details className="plo-historique" data-historique-rattachement>
           <summary>Historique des rattachements et des rémunérations</summary>
           {rattache && <p className="plo-muet plo-petit-texte" data-historique-collegues>{(a.collegues ?? []).map((c) => `Rattaché à ${c.collegueLibelle} ${depuisLibelle(c)}`).join(' · ')}</p>}
-          {(a.remunerations ?? []).length > 0 && <p className="plo-muet plo-petit-texte" data-historique-remuneration>Rémunération : {(a.remunerations ?? []).map((x) => libelleHistorique(x, libelleRemuneration(x))).join(' · ')}</p>}
+          {(a.remunerations ?? []).length > 0 && <p className="plo-muet plo-petit-texte" data-historique-remuneration>Rémunération : {trierHistorique(a.remunerations ?? []).map((x) => libelleHistorique(x, libelleRemuneration(x))).join(' · ')}</p>}
         </details>
       )}
     </div>
@@ -389,8 +390,8 @@ export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujo
       <h4 className="plo-h4">Nouveau taux</h4>
       <FormulaireNouveauTaux key={`${a.id}-${a.baremes.length}`} a={a} apporteurs={apporteurs} collegue={null} jour={jour} envoi={envoi} faire={faire}
         refusAvant={orphelin ? MOT_RATTACHER_DABORD : null} toujoursPossible={toujoursPossible} cle={cle} onFermer={onFermer}
-        apresEnregistrement={() => { /* 🔴 rester sur place : le panneau reste ouvert, le formulaire repart de la règle enregistrée */ }} />
-      {message}
+        apresEnregistrement={() => { /* 🔴 rester sur place : le panneau reste ouvert, le formulaire repart de la règle enregistrée */ }}
+        message={message} />
     </div>
   );
 }

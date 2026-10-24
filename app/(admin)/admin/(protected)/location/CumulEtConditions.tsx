@@ -87,6 +87,10 @@ export function BlocDossier({ d, dont, anterieur = false }: { d: DetailDossier; 
         )}
         {lignesH === 2 && <div className="dd-sous dd-total" data-ligne-dossier="honoraires-total"><dt>Total honoraires</dt><dd>{euros(h.total)}</dd></div>}
         <BlocDuDossier titre={`− Dû à l’apporteur (${d.apporteur.nom})`} b={d.apporteur} cle="apporteur" dont={dont} />
+        {d.importRemplace !== null && (
+          <div className="dd-sous" data-ligne-dossier="import-remplace"><dt><small className="dd-source" data-import-remplace>
+            montant importé : {euros(d.importRemplace.montant)} — remplacé depuis toujours le {dateFr(d.importRemplace.le)}{d.importRemplace.par ? ` par ${d.importRemplace.par}` : ''}</small></dt></div>
+        )}
         {d.collegue !== null && <BlocDuDossier titre={`− Dû au collègue (${d.collegue.nom})`} b={d.collegue} cle="collegue" />}
         <div className="dd-net" data-ligne-dossier="net"><dt>= Net agence HT</dt><dd>{euros(d.net)}</dd></div>
       </dl>

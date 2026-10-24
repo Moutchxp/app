@@ -144,13 +144,17 @@ describe('🔴 la rémunération du collègue de rattachement', () => {
     expect(b.collegues).toBeCloseTo(50 + 5, 10);   // la location à la signature + le récurrent dû en mars
     expect(totauxPeriode(lignes, avec, { annee: 2026, mois: 4 }).collegues).toBeCloseTo(5, 10);   // avril : le récurrent seul
   });
-  it('la saisie : aucune / rémunération (mode, au moins un taux, durée), date d’effet obligatoire', () => {
+  it('la saisie : aucune / rémunération (mode, taux saisis — 0 % accepté, vide refusé —, durée), date d’effet obligatoire', () => {
     expect(verifierRemuneration({ remunere: false, depuis: '2026-01-01' })).toEqual({ ok: true, r: { depuis: '2026-01-01', remunere: false, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null } });
     expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'recurrent', taux: '5', tauxGestion: '10', dureeAnnees: '3' }))
       .toEqual({ ok: true, r: { depuis: '2026-01-01', remunere: true, mode: 'recurrent', taux: 0.05, tauxGestion: 0.1, dureeAnnees: 3 } });
     expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'one_shot', taux: '', tauxGestion: '' }).ok).toBe(false);
-    expect(verifierRemuneration({ remunere: true, mode: 'one_shot', taux: '5' }).ok).toBe(false);
-    expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'recurrent', taux: '5', dureeAnnees: '0' })).toEqual({ ok: false, motif: MOT_DUREE });
+    // 🔴 Arno (24/10/2026) — 0 % est valide (les deux à 0 % aussi) ; un champ vide est refusé, avec un motif qui le dit.
+    expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'one_shot', taux: '0', tauxGestion: '0' }))
+      .toEqual({ ok: true, r: { depuis: '2026-01-01', remunere: true, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null } });
+    expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'one_shot', taux: '5', tauxGestion: '' })).toMatchObject({ ok: false, motif: expect.stringMatching(/gestion : saisissez un pourcentage \(0 est accepté\)/) });
+    expect(verifierRemuneration({ remunere: true, mode: 'one_shot', taux: '5', tauxGestion: '0' }).ok).toBe(false);
+    expect(verifierRemuneration({ remunere: true, depuis: '2026-01-01', mode: 'recurrent', taux: '5', tauxGestion: '0', dureeAnnees: '0' })).toEqual({ ok: false, motif: MOT_DUREE });
   });
 });
 

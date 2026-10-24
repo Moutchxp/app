@@ -48,6 +48,11 @@ export interface BlocDu { nom: string; location: LigneDu | null; gestion: LigneD
 
 export interface DetailDossier {
   id: number | string; dateSignature: string; libelle: string;
+  /**
+   * 🔴 Arno (24/10/2026) — le montant saisi à l'IMPORT que remplace, dans le calcul, une version « depuis toujours » : jamais effacé,
+   * il reste dit (« montant importé : x € — remplacé depuis toujours le … par … »). null : aucun montant importé remplacé.
+   */
+  importRemplace: { montant: number; le: string; par: string | null } | null;
   honoraires: { location: number; gestion: number; baseGestion: string | null; total: number };
   apporteur: BlocDu;
   /** null : aucune rémunération du collègue, pas de collègue, ou apporteur interne à la signature. */
@@ -106,8 +111,12 @@ export function detailDossier(d: ActiviteCalcul, apporteurs: readonly Apporteur[
   const hLoc = centimes(ca);
   const hGes = centimes(mensuels * moisBase);
   const net = hLoc + hGes - centimes(apporteur.total) - centimes(collegue?.total ?? 0);
+  // Le montant que l'import avait posé (montant, sinon taux × honoraires), remplacé par la version « depuis toujours ».
+  const importe = d.commissionSaisie !== null ? d.commissionSaisie : d.apporteurTaux !== null ? ca * d.apporteurTaux : null;
+  const importRemplace = remplacee && importe !== null && regle !== null
+    ? { montant: auCentime(importe), le: regle.toujoursLe ?? regle.depuis, par: regle.saisiPar ?? null } : null;
   return {
-    id: d.id, dateSignature: d.dateSignature, libelle: [d.libelleProprietaire, d.libelleLocataire].filter(Boolean).join(' / '),
+    id: d.id, dateSignature: d.dateSignature, libelle: [d.libelleProprietaire, d.libelleLocataire].filter(Boolean).join(' / '), importRemplace,
     honoraires: { location: hLoc / 100, gestion: hGes / 100, baseGestion: hGes === 0 ? null : `${moisBase} mois × ${auCentime(mensuels).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € / mois`,
       total: (hLoc + hGes) / 100 },
     apporteur, collegue, net: net / 100,
