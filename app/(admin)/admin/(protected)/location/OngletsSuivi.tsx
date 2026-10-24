@@ -279,12 +279,21 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
               }
               return (
                 <li key={a.id} data-apporteur={a.id} data-sorte-apporteur={interne ? 'interne' : 'externe'} className={orphelin ? 'plo-a-rattacher' : undefined}>
+                  <div className="plo-carte-tete">
                   <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><BadgeApporteur a={a} />
                     {/* 🔴 Arno (24/10/2026) — UN seul badge quand la pastille de type le répète (« Partenaire externe ») ; sinon les deux. */}
                     {LIBELLE_TYPE_APPORTEUR[a.type].toLocaleUpperCase('fr-FR') !== badgeApporteur(a) && <span className="plo-pastille" data-type-apporteur>{LIBELLE_TYPE_APPORTEUR[a.type]}</span>}
                     {annuaire && !interne && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>
+                  {/* 🔴 Arno (24/10/2026) — « Fermer ✕ » : un panneau ouvert se referme d'ici (le même geste qu'un second clic sur le bouton actif :
+                      l'adresse perd « &panneau=… ») ; la modale reste ouverte. Absent quand aucun panneau n'est ouvert. */}
+                  {panneaux[a.id] !== undefined && (
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn plo-fermer-panneau" data-fermer-panneau={a.id}
+                      aria-label={`Fermer le panneau ${LIBELLE_PANNEAU[panneaux[a.id] as Panneau]} — ${libelleApporteur(a)}`}
+                      onClick={() => basculer(a.id, panneaux[a.id] as Panneau)}>Fermer ✕</button>
+                  )}
+                  </div>
                   {/* 🔴 Arno (24/10/2026) — CARTE ALLÉGÉE : nom + badges, la synthèse, puis les 4 boutons. « Rattaché à … », « Collègue : … —
                       rémunération » et « Lié à son compte » sont au panneau Rattachement / Fiche ; coordonnées → Fiche ; règle et historique → Taux. */}
                   {totaux !== null && (
@@ -511,8 +520,11 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-totaux-ligne{display:flex;flex-wrap:nowrap;justify-content:center;gap:4px .6em;margin:6px auto;font-size:calc(1rem * var(--plo-echelle-totaux))}
 .plo-totaux-ligne[data-replie]{flex-wrap:wrap}
 .plo-totaux-ligne div{display:flex;gap:.25em;align-items:baseline;white-space:nowrap;flex-shrink:0}
-.plo-totaux-ligne dt{font-size:.7em;font-weight:700;color:var(--color-svv-muted)}
+.plo-totaux-ligne dt{font-size:max(11px, .7em);font-weight:700;color:var(--color-svv-muted)}
 .plo-totaux-ligne dd{margin:0;font-size:1.05em;font-weight:700;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+.plo-carte-tete{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.plo-carte-tete .plo-version-titre{min-width:0;flex:1 1 auto}
+.plo-carte-tete .plo-fermer-panneau{flex:0 0 auto;width:auto;min-height:36px;padding:0 12px;font-size:.85rem;margin:0}
 .plo-totaux-ligne .plo-total-net dt{color:var(--color-svv-ink);font-weight:800}
 .plo-totaux-ligne .plo-total-net dd{font-weight:800}
 /* 🔴 Arno (24/10/2026) — CHAQUE CARTE D'APPORTEUR EST UN BLOC : bordure nette sur tout le pourtour (le panneau ouvert est DEDANS), fond

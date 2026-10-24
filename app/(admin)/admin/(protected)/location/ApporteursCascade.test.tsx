@@ -9,6 +9,7 @@ vi.mock('next/navigation', () => ({ usePathname: () => '/admin/location', useRou
   useSearchParams: () => new URLSearchParams() }));
 const { ModaleParametresLocation } = await import('./ParametresLocation');
 const { FeuilleDuMois } = await import('./FeuilleDuMois');
+const { aujourdhuiParis } = await import('../../../../lib/location/suivi/suivi');
 
 /**
  * 🔴 Arno (24/10/2026, migration 420) — À L'ÉCRAN : « Effet de ce réglage » recalculé à chaque frappe (rien n'est envoyé), « Depuis
@@ -85,7 +86,9 @@ describe('🔴 « Nouveau taux » : l’effet en direct', () => {
     const f = await formulaire(4);
     const effet = () => t(f.querySelector('[data-effet-reglage="apporteur"]'));
     // Pré-rempli : 50 %, à partir d'aujourd'hui → aucun dossier concerné.
-    expect(effet()).toBe('Effet de ce réglage Dossiers concernés : 0 sur 2 (signés à partir du 24/10/2026) · Dû à l’apporteur HT : avant 1 000,00 € → après 1 000,00 € Les 2 dossiers signés avant le 24/10/2026 restent au taux précédent.');
+    // La date d'application pré-remplie est AUJOURD'HUI (le test ne dépend pas du jour où il tourne).
+    const auj = aujourdhuiParis().split('-').reverse().join('/');
+    expect(effet()).toBe(`Effet de ce réglage Dossiers concernés : 0 sur 2 (signés à partir du ${auj}) · Dû à l’apporteur HT : avant 1 000,00 € → après 1 000,00 € Les 2 dossiers signés avant le ${auj} restent au taux précédent.`);
     await saisir(f.querySelector('[data-version-taux]')!, '20');
     await saisir(f.querySelector('[data-application="version"] [data-application-date]')!, '2026-01-01');
     // Le dossier d'octobre 2026 (sans montant saisi) passe à 20 % ; celui de 2025 reste à 50 %.

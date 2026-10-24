@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ActiviteCalcul } from '../../../../lib/location/suivi/tableauBord';
-import { cumulApporteur, dontAnneeBrut, repartirAuCentime, totauxApporteurs } from '../../../../lib/location/suivi/tableauBord';
+import { contributionsAnnees, cumulApporteur, dontAnneeBrut, duAfficheApporteurCentimes, repartirAuCentime, totauxApporteurs } from '../../../../lib/location/suivi/tableauBord';
 import type { Apporteur } from '../../../../lib/location/suivi/suivi';
 import { autresConditions, conditionsCollegue, detailDossier, phraseAutresConditions } from '../../../../lib/location/suivi/detailDossier';
 
@@ -98,17 +98,22 @@ const RECURRENTS = [
 ];
 
 describe('🔴 (2c) « dont <année> » : la somme des dossiers dépliés = la ligne de l’année, au centime', () => {
-  it('la répartition au centime : somme exacte, chaque « dont » à moins d’un centime de sa valeur brute', () => {
+  it('chaque dossier : ses parts par année somment EXACTEMENT son dû affiché ; un one shot n’a qu’une année ; la ligne d’année = la somme des parts', () => {
+    for (const d of [...RECURRENTS, LOC_SEULE, LOC_GESTION]) {
+      const parts = contributionsAnnees(d, APPORTEURS, JOUR);
+      const affiche = Math.round(detailDossier(d, APPORTEURS, JOUR)!.apporteur.total * 100);
+      expect([...parts.values()].reduce((s, c) => s + c, 0), String(d.id)).toBe(affiche);
+      expect(affiche).toBe(duAfficheApporteurCentimes(d, APPORTEURS, JOUR));
+      // Chaque part reste à moins d'un centime de sa valeur brute.
+      for (const [y, c] of parts) if (parts.size > 1) expect(Math.abs(c - dontAnneeBrut(d, APPORTEURS, JOUR, y) * 100)).toBeLessThan(1);
+    }
+    expect([...contributionsAnnees(LOC_SEULE, APPORTEURS, JOUR).keys()]).toEqual([2025]);              // one shot : une seule année
+    expect([...contributionsAnnees(RECURRENTS[0], APPORTEURS, JOUR).keys()]).toEqual([2024, 2025, 2026]);   // récurrent étalé
     const cumul = cumulApporteur(RECURRENTS, APPORTEURS, 6, JOUR);
     expect(cumul.parAnnee.map((y) => y.annee)).toEqual([2026, 2025, 2024]);
     for (const y of cumul.parAnnee) {
-      const bruts = RECURRENTS.map((d) => ({ id: d.id, brut: dontAnneeBrut(d, APPORTEURS, JOUR, y.annee) }));
-      // La somme brute des dossiers EST le dû de l'année du Cumul.
-      expect(Math.abs(bruts.reduce((s, x) => s + x.brut, 0) - y.commission)).toBeLessThan(1e-6);
-      const cible = Math.round(y.commission * 100);
-      const dont = repartirAuCentime(bruts, cible);
-      expect([...dont.values()].reduce((s, c) => s + c, 0)).toBe(cible);
-      for (const x of bruts) expect(Math.abs((dont.get(x.id) ?? 0) - x.brut * 100)).toBeLessThan(1);
+      const somme = RECURRENTS.reduce((s, d) => s + (contributionsAnnees(d, APPORTEURS, JOUR).get(y.annee) ?? 0), 0);
+      expect(Math.round(y.commission * 100), String(y.annee)).toBe(somme);
     }
   });
   it('des restes qui ne tombent pas juste : la somme reste exacte (plus forts restes)', () => {
@@ -224,7 +229,7 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
     await clic(b);
     expect(container.querySelector('[data-annee-detail]')).toBeNull();
   });
-  it('un dossier location seule : aucune ligne gestion, aucun sous-total ; location + gestion : les deux lignes ET le sous-total ; taux et source en petit', async () => {
+  it('un dossier location seule : aucune ligne gestion, aucun sous-total ; location + gestion : les deux lignes ET le sous-total ; ni « taux utilisé » ni « dont » (one shot)', async () => {
     await annuaire();
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     await calmer();
@@ -235,10 +240,9 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
       'honoraires-tete | Honoraires HT',
       'honoraires-location | Transaction locative | 421,00 €',
       'apporteur-tete | − Dû à l’apporteur (FICTIVE Léa)',
-      'apporteur-location | sur la location (50 %)taux utilisé 50 % — montant saisi à l’import | 210,50 €',
-      'apporteur-dont | dont 2025 : | 210,50 €',
+      'apporteur-location | sur la location (50 %) | 210,50 €',
       'collegue-tete | − Dû au collègue (Paul Collègue)',
-      'collegue-location | sur la location (5 %)taux utilisé 5 % — version du 01/01/2021 | 21,05 €',
+      'collegue-location | sur la location (5 %) | 21,05 €',
       'net | = Net agence HT | 189,45 €',
     ]);
     expect(lignes(21)).toEqual([
@@ -247,31 +251,44 @@ describe('🔴 (3) le Cumul : une ligne par année, fermée ; dépliée, les dos
       'honoraires-gestion | Gestion12 mois × 66,00 € / mois | 792,00 €',
       'honoraires-total | Total honoraires | 1 792,00 €',
       'apporteur-tete | − Dû à l’apporteur (FICTIVE Léa)',
-      'apporteur-location | sur la location (50 %)taux utilisé 50 % — version du 31/12/2020 | 500,00 €',
-      'apporteur-dont | dont 2025 : | 500,00 €',
-      'collegue-tete | − Dû au collègue (Paul Collègue)',
-      'collegue-location | sur la location (5 %)taux utilisé 5 % — version du 01/01/2021 | 50,00 €',
-      'collegue-gestion | sur la gestion (10 %, one shot 12 mois)taux utilisé 10 % — version du 01/01/2021 | 79,20 €',
+      'apporteur-location | sur la location (50 %) | 500,00 €',
+            'collegue-tete | − Dû au collègue (Paul Collègue)',
+      'collegue-location | sur la location (5 %) | 50,00 €',
+      'collegue-gestion | sur la gestion (10 %, one shot 12 mois) | 79,20 €',
       'collegue-total | Total collègue | 129,20 €',
       'net | = Net agence HT | 1 162,80 €',
     ]);
+    // 🔴 Arno (24/10/2026) — nulle part dans un bloc : « taux utilisé », ni « dont » pour un one shot.
+    expect(container.querySelector('[data-annee-detail] [data-ligne-dossier="apporteur-dont"], [data-annee-detail] [data-source-du]')).toBeNull();
+    expect(n(container.querySelector('[data-annee-detail]')?.textContent)).not.toMatch(/taux utilisé|dont /);
   });
 });
 
 describe('🔴 (2c) à l’écran : chaque dossier déplié dit « dont <année> »', () => {
-  it('chaque année dépliée : la somme des « dont » affichés = le « Dû à l’apporteur HT » de la ligne de l’année ; un dossier d’avant y est pour son récurrent', async () => {
+  it('chaque année dépliée : la somme des montants affichés de ses dossiers = la ligne de l’année, au centime ; « dont versé en … (sur un total de …) » pour les seuls récurrents étalés', async () => {
     await annuaire();
     await clic(container.querySelector('[data-apporteur-bouton="6"][data-panneau-bouton="cumul"]')!);
     await calmer();
-    const centimes = (t: string | null | undefined): number => Math.round(Number(n(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+    const centimes = (t: string | null | undefined): number => Math.round(Number((n(t).match(/^-?[\d ]+,\d\d/)?.[0] ?? '0').replace(/ /g, '').replace(',', '.')) * 100);
+    const val = (b: Element, cle: string) => b.querySelector(`[data-ligne-dossier="${cle}"]`)?.children[1]?.textContent;
+    // Ce qu'un dossier déplié apporte à l'année : sa part « dont versé en … » s'il est étalé, sinon son dû affiché entier.
+    const apport = (b: Element): number => {
+      if (b.querySelector('[data-ligne-dossier="apporteur-dont"]')) return centimes(val(b, 'apporteur-dont'));
+      return centimes(val(b, 'apporteur-total') ?? val(b, 'apporteur-location') ?? val(b, 'apporteur-gestion') ?? val(b, 'apporteur-tete'));
+    };
     for (const an of ['2026', '2025', '2024']) {
       await clic(container.querySelector(`[data-deplier-annee="${an}"]`)!);
       const ligne = container.querySelector(`[data-annee="${an}"] [data-mot="Dû à l’apporteur HT"]`)?.textContent;
-      const donts = [...container.querySelectorAll(`[data-annee-detail="${an}"] [data-ligne-dossier="apporteur-dont"]`)];
-      expect(donts.length, an).toBeGreaterThan(0);
-      expect(donts.every((d) => n(d.children[0].textContent) === `dont ${an} :`)).toBe(true);
-      expect(donts.reduce((s, d) => s + centimes(d.children[1].textContent), 0), an).toBe(centimes(ligne));
+      const blocs = [...container.querySelectorAll(`[data-annee-detail="${an}"] [data-dossier-detail]`)];
+      expect(blocs.length, an).toBeGreaterThan(0);
+      expect(blocs.reduce((s, b) => s + apport(b), 0), an).toBe(centimes(ligne));
+      for (const d of container.querySelectorAll(`[data-annee-detail="${an}"] [data-ligne-dossier="apporteur-dont"]`)) {
+        expect(n(d.children[0].textContent)).toBe(`dont versé en ${an} :`);
+        expect(n(d.children[1].textContent)).toMatch(/^\d[\d ]*,\d\d € \(sur un total de \d[\d ]*,\d\d €\)$/);
+      }
     }
+    // Le 41 (récurrent signé en 2024, dû jusqu'en 2026) est étalé sur plusieurs années : il dit « dont versé en … ».
+    expect(container.querySelector('[data-annee-detail="2024"] [data-dossier-detail="41"] [data-ligne-dossier="apporteur-dont"]')).not.toBeNull();
     // 2026 : aucun dossier signé, mais les récurrents de 2024 et 2025 y sont, annoncés comme tels.
     const d2026 = [...container.querySelectorAll('[data-annee-detail="2026"] [data-dossier-detail]')].map((x) => x.getAttribute('data-dossier-detail'));
     expect(d2026).toEqual(['41', '42']);

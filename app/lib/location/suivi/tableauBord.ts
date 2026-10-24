@@ -821,6 +821,13 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
       ajouterDu(total, p); ajouterDu(annee(Number(m.slice(0, 4))), p); ajouterDu(duMois(m), p);
     }
   }
+  // 🔴 Arno (24/10/2026) — le DÛ À L'APPORTEUR d'une ANNÉE = la somme des montants affichés de ses dossiers (`contributionsAnnees`) : la
+  // ligne d'année et les dossiers dépliés dessous tombent juste au centime. Le total « Depuis le début » reste la somme brute (= le Suivi).
+  const centAn = new Map<number, number>();
+  for (const a of siennes) for (const [y, c] of contributionsAnnees(a, apporteurs, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
+    annee(y); centAn.set(y, (centAn.get(y) ?? 0) + c);
+  }
+  for (const [y, c] of centAn) annee(y).commission = c / 100;
   // 🔴 Arno (24/10/2026) — le DÛ AU COLLÈGUE (signature + récurrent, mois par mois) : le net agence = honoraires − apporteur − collègue,
   // le même que la carte de l'annuaire (`totauxApporteurs`).
   const jour = aujourdhui ?? new Date().toISOString().slice(0, 10);
@@ -848,6 +855,34 @@ export function dontAnneeBrut(a: ActiviteCalcul, apporteurs: readonly Apporteur[
   const signature = Number(a.dateSignature.slice(0, 4)) === annee ? partLocationDe(a, apporteurs) + partGestionSignatureDe(a, apporteurs) : 0;
   const p = partGestionMensuelleDe(a, apporteurs);
   return signature + (p === 0 ? 0 : p * moisDusApporteur(a, apporteurs, aujourdhui).filter((m) => Number(m.slice(0, 4)) === annee).length);
+}
+
+/**
+ * 🔴 Arno (24/10/2026) — LE DÛ À L'APPORTEUR AFFICHÉ d'un dossier, EN CENTIMES : la part location et la part gestion (« One shot » à la
+ * signature, « Récurrent » sur ses mois dus jusqu'au jour), chacune arrondie au centime — exactement le dû du bloc du dossier. PUR.
+ */
+export function duAfficheApporteurCentimes(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): number {
+  if (a.apporteurId === null) return 0;
+  const c = (x: number): number => Math.round((x + Number.EPSILON) * 100);
+  const gestion = modeApporteurDe(a, apporteurs) === 'one_shot' ? partGestionSignatureDe(a, apporteurs)
+    : partGestionMensuelleDe(a, apporteurs) * moisDusApporteur(a, apporteurs, aujourdhui).length;
+  return c(partLocationDe(a, apporteurs)) + c(gestion);
+}
+
+/**
+ * 🔴 Arno (24/10/2026) — CE QU'UN DOSSIER APPORTE À CHAQUE ANNÉE du Cumul, en centimes. Un « One shot » (ou un récurrent dont tous les
+ * mois dus tombent dans l'année de signature) : TOUT son dû affiché, dans son année. Un récurrent ÉTALÉ sur plusieurs années : son dû
+ * affiché réparti au centime entre ses années (plus forts restes) — la somme de ses parts = son dû affiché, exactement. La ligne d'année
+ * du Cumul = la somme de ces parts : elle tombe juste avec les dossiers dépliés dessous. PUR.
+ */
+export function contributionsAnnees(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): Map<number, number> {
+  const total = duAfficheApporteurCentimes(a, apporteurs, aujourdhui);
+  const signature = Number(a.dateSignature.slice(0, 4));
+  const annees = new Set<number>([signature]);
+  if (partGestionMensuelleDe(a, apporteurs) !== 0) for (const m of moisDusApporteur(a, apporteurs, aujourdhui)) annees.add(Number(m.slice(0, 4)));
+  if (annees.size <= 1) return new Map([[signature, total]]);
+  const parts = repartirAuCentime([...annees].map((y) => ({ id: y, brut: dontAnneeBrut(a, apporteurs, aujourdhui, y) })), total);
+  return new Map([...annees].sort((x, y) => x - y).map((y) => [y, parts.get(y) ?? 0]));
 }
 
 /**

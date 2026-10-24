@@ -50,7 +50,7 @@ function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string
 /**
  * 🔴 Arno (24/10/2026, 422) — « PASSER EN INTERNE » : le compte de l'interface (ceux déjà liés à un autre apporteur sont montrés, non
  * choisissables, avec la mention), puis le récapitulatif, puis Confirmer / Revenir. Le serveur applique la règle du script
- * `location:apporteurs-internes` (`passerEnInterne`) et journalise.
+ * des apporteurs internes (`passerEnInterne`) et journalise.
  */
 function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Apporteur; comptes: readonly { id: number; libelle: string; actif?: boolean }[];
   apporteurs: readonly Apporteur[]; possible: boolean; onFait: (message: string) => void }) {
@@ -157,7 +157,11 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
   };
   return (
     <div className="plo-panneau" data-panneau="fiche" data-fiche-apporteur={a.id}>
-      <p className="plo-muet plo-petit-texte" data-fiche-sorte>Apporteur <strong>externe</strong> (sans accès à l’interface) — passer en interne : `npm run location:apporteurs-internes`.</p>
+      {/* 🔴 Arno (24/10/2026) — plus aucune commande technique à l'écran : la sorte de l'apporteur, et le bouton « Passer en interne » juste à côté. */}
+      <div className="plo-fiche-sorte" data-fiche-sorte-ligne>
+        <p className="plo-muet plo-petit-texte" data-fiche-sorte>Apporteur <strong>externe</strong> (sans accès à l’interface)</p>
+        <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />
+      </div>
       <div className="plo-grille">
         {identite && (
           <label className="plo-champ"><span>Civilité</span>
@@ -204,7 +208,6 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
       {motif !== null && <p className="plo-erreur" role="alert" data-refus-local>{motif}</p>}
       {message}
       {conflit && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onEnregistre()} data-recharger-fiche>Recharger</button>}
-      <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />
     </div>
   );
 }
@@ -403,6 +406,10 @@ export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujo
 
 export const CSS_PANNEAUX_APPORTEUR = `
 /* 🔴 Arno (24/10/2026) — les 4 boutons CENTRÉS sur leur ligne, même écart ; retour à la ligne centré sur un écran étroit. */
+.plo-fiche-sorte{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.plo-fiche-sorte>p{margin:0}
+.plo-fiche-sorte>.plo-passer-interne{margin:0}
+.plo-fiche-sorte>[data-passage-interne]{flex-basis:100%}
 .plo-boutons-carte{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;justify-content:center}
 .plo-bouton-panneau[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .plo-bouton-panneau.plo-bouton-alerte{border-color:var(--color-svv-amber);color:var(--color-svv-amber);font-weight:800}

@@ -3,9 +3,9 @@
 import { Fragment, useEffect, useState } from 'react';
 import { type Apporteur, baremeADate, estInterne, LIBELLE_MODE_APPORTEUR, libelleApporteur, TAUX_TVA } from '../../../../lib/location/suivi/suivi';
 import {
-  type AutresConditions, type BlocDu, detailDossier, type DetailDossier, type LigneDu, libelleSource, pctCourt, phraseAutresConditions,
+  type AutresConditions, type BlocDu, detailDossier, type DetailDossier, type LigneDu, pctCourt, phraseAutresConditions,
 } from '../../../../lib/location/suivi/detailDossier';
-import { cascadeAuCentime, dontAnneeBrut, repartirAuCentime } from '../../../../lib/location/suivi/tableauBord';
+import { cascadeAuCentime, contributionsAnnees } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI, aujourdhuiParis } from './suiviApi';
 import { useDossiersApporteur } from './ReglageApporteur';
 
@@ -59,18 +59,21 @@ export function AutresConditionsTaux({ autres }: { autres: readonly AutresCondit
   return <>{autres.map((x) => <p key={`${x.sorte}-${x.libelle}`} className="plo-conditions-autres plo-petit-texte" data-autres-conditions={x.sorte}>{phraseAutresConditions(x)}</p>)}</>;
 }
 
-/** Une ligne de dû et, en petit, son taux et sa source. */
+/**
+ * Une ligne de dû : « sur la location (20 %) ». 🔴 Arno (24/10/2026, accord) — plus de ligne « taux utilisé … — source » (le taux est déjà
+ * dans le libellé) : la source (version datée, montants importés) est en tête du panneau « Taux ».
+ */
 function LigneDuDossier({ quoi, l, cle }: { quoi: 'location' | 'gestion'; l: LigneDu; cle: string }) {
   const mot = quoi === 'location' ? `sur la location (${pctCourt(l.taux)})` : `sur la gestion (${pctCourt(l.taux)}, ${l.detail})`;
   return (
     <div className="dd-sous" data-ligne-dossier={cle}>
-      <dt>{mot}<small className="dd-source" data-source-du={l.source.sorte}>taux utilisé {pctCourt(l.taux)} — {libelleSource(l.source)}</small></dt>
+      <dt>{mot}</dt>
       <dd>{euros(l.montant)}</dd>
     </div>
   );
 }
 
-function BlocDuDossier({ titre, b, cle, dont }: { titre: string; b: BlocDu; cle: 'apporteur' | 'collegue'; dont?: { annee: number; montant: number } }) {
+function BlocDuDossier({ titre, b, cle, dont }: { titre: string; b: BlocDu; cle: 'apporteur' | 'collegue'; dont?: { annee: number; montant: number; total: number } }) {
   const lignes = [b.location, b.gestion].filter((x) => x !== null).length;
   return (
     <>
@@ -78,14 +81,16 @@ function BlocDuDossier({ titre, b, cle, dont }: { titre: string; b: BlocDu; cle:
       {b.location !== null && <LigneDuDossier quoi="location" l={b.location} cle={`${cle}-location`} />}
       {b.gestion !== null && <LigneDuDossier quoi="gestion" l={b.gestion} cle={`${cle}-gestion`} />}
       {lignes === 2 && <div className="dd-sous dd-total" data-ligne-dossier={`${cle}-total`}><dt>Total {cle === 'apporteur' ? 'apporteur' : 'collègue'}</dt><dd>{euros(b.total)}</dd></div>}
-      {/* 🔴 Arno (24/10/2026) — sous une année : la part de ce dû qui compte dans la ligne de l'année (la somme des « dont » = la ligne). */}
-      {dont !== undefined && <div className="dd-sous dd-dont" data-ligne-dossier={`${cle}-dont`}><dt>dont {dont.annee} :</dt><dd>{euros(dont.montant)}</dd></div>}
+      {/* 🔴 Arno (24/10/2026) — SEULEMENT pour un récurrent étalé sur plusieurs années : la part de son dû versée l'année affichée (un one shot,
+          ou un récurrent tout entier dans l'année, n'en a pas : son dû entier compte dans l'année). */}
+      {dont !== undefined && <div className="dd-sous dd-dont" data-ligne-dossier={`${cle}-dont`}><dt>dont versé en {dont.annee} :</dt>
+        <dd>{euros(dont.montant)} <span className="dd-dont-total">(sur un total de {euros(dont.total)})</span></dd></div>}
     </>
   );
 }
 
 /** Le bloc d'UN dossier : honoraires (location / gestion), dû à l'apporteur, dû au collègue, net agence — au centime. */
-export function BlocDossier({ d, dont, anterieur = false }: { d: DetailDossier; dont?: { annee: number; montant: number };
+export function BlocDossier({ d, dont, anterieur = false }: { d: DetailDossier; dont?: { annee: number; montant: number; total: number };
   /** Signé une année d'avant : il n'est sous cette année que pour son dû récurrent. */
   anterieur?: boolean }) {
   const h = d.honoraires;
@@ -169,18 +174,19 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
           <tr className="plo-cumul-total" data-cumul-ligne="total"><th scope="row">Depuis le début</th>{cellules(t)}</tr>
           {c.parAnnee.map((y) => {
             const ouverte = ouvertes.has(y.annee);
-            // Les dossiers de l'année : signés cette année, ou d'avant avec un dû récurrent cette année ; leurs « dont » au centime.
-            const siens = dossiers === null || dossiers === 'erreur' ? null : (() => {
-              const lignes = dossiers.dossiers
-                .map((d) => ({ d, brut: dontAnneeBrut(d, apporteurs, jour, y.annee) }))
-                .filter((x) => x.d.dateSignature.slice(0, 4) === String(y.annee) || Math.abs(x.brut) > 1e-9)
-                .sort((p, q) => p.d.dateSignature.localeCompare(q.d.dateSignature) || String(p.d.id).localeCompare(String(q.d.id)));
-              const dont = repartirAuCentime(lignes.map((x) => ({ id: x.d.id, brut: x.brut })), Math.round((y.commission + Number.EPSILON) * 100));
-              return lignes.flatMap((x) => {
+            // Les dossiers de l'année : ceux qui y apportent un dû (signés cette année, ou récurrents d'avant dus cette année) — leurs montants
+            // affichés font la ligne de l'année, au centime (`contributionsAnnees`, la même règle qu'au serveur).
+            const siens = dossiers === null || dossiers === 'erreur' ? null : dossiers.dossiers
+              .map((d) => ({ d, parts: contributionsAnnees(d, apporteurs, jour) }))
+              .filter((x) => x.parts.has(y.annee))
+              .sort((p, q) => p.d.dateSignature.localeCompare(q.d.dateSignature) || String(p.d.id).localeCompare(String(q.d.id)))
+              .flatMap((x) => {
                 const det = detailDossier(x.d, apporteurs, jour, nomApporteur);
-                return det === null ? [] : [{ det, dont: (dont.get(x.d.id) ?? 0) / 100, anterieur: x.d.dateSignature.slice(0, 4) !== String(y.annee) }];
+                if (det === null) return [];
+                const etale = x.parts.size > 1;
+                return [{ det, dont: etale ? { annee: y.annee, montant: (x.parts.get(y.annee) ?? 0) / 100, total: det.apporteur.total } : undefined,
+                  anterieur: x.d.dateSignature.slice(0, 4) !== String(y.annee) }];
               });
-            })();
             return (
               <Fragment key={y.annee}>
                 <tr data-cumul-ligne={`Année ${y.annee}`} data-annee={y.annee} className="plo-cumul-annee">
@@ -196,7 +202,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
                       {siens === null ? <p className="plo-muet plo-petit-texte" role="status">{dossiers === 'erreur' ? 'Dossiers indisponibles.' : 'Lecture des dossiers…'}</p>
                         : siens.length === 0 ? <p className="plo-muet plo-petit-texte">Aucun dossier.</p>
                         : <ol className="plo-dossiers" data-dossiers-annee={y.annee}>{siens.map((x) => (
-                          <BlocDossier key={String(x.det.id)} d={x.det} dont={{ annee: y.annee, montant: x.dont }} anterieur={x.anterieur} />))}</ol>}
+                          <BlocDossier key={String(x.det.id)} d={x.det} dont={x.dont} anterieur={x.anterieur} />))}</ol>}
                     </td>
                   </tr>
                 )}
@@ -236,6 +242,7 @@ export const CSS_CUMUL_CONDITIONS = `
 .dd-total{border-top:1px dashed var(--color-svv-line-strong)}
 .dd-source{display:block;font-size:.74rem;font-weight:500;color:var(--color-svv-muted)}
 .dd-dont dt,.dd-dont dd{color:var(--color-svv-ink);font-weight:700;font-style:italic}
+.dd-dont-total{font-weight:500;color:var(--color-svv-muted)}
 .dd-net{border-top:1px solid var(--color-svv-line-strong);margin-top:4px;padding-top:4px !important}
 .dd-net dt,.dd-net dd{color:var(--color-svv-ink);font-weight:800}
 @media (max-width:640px){ .plo-cumul-detail>td::before{content:none} .plo-cumul-detail{padding:4px !important} .dd{padding:6px 8px} .dd-sous dt{padding-left:8px} }

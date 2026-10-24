@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { effetReglage, totauxApporteurs, type ActiviteCalcul } from '../../../../lib/location/suivi/tableauBord';
-import { libelleHistorique, tauxVide, verifierRemuneration, type Apporteur, type BaremeApporteur } from '../../../../lib/location/suivi/suivi';
+import { aujourdhuiParis, libelleHistorique, tauxVide, verifierRemuneration, type Apporteur, type BaremeApporteur } from '../../../../lib/location/suivi/suivi';
 import { autresConditions, detailDossier } from '../../../../lib/location/suivi/detailDossier';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/admin/location' }));
@@ -126,7 +126,8 @@ describe('🔴 à l’écran : « 0 % depuis toujours »', () => {
     await clic(p.querySelector('[data-enregistrer-version]')!);
     expect(n(p.querySelector('[data-recap-ligne="apporteur"]')?.textContent)).toBe('Dû à l’apporteur HT : 3 567,01 € → 0,00 € (−3 567,01 €)');
     await clic(p.querySelector('[data-recap-confirmer]')!);
-    expect(posts).toEqual([{ action: 'bareme-apporteur', apporteurId: 12, bareme: { mode: 'one_shot', taux: '0', tauxGestion: '0', depuis: JOUR, toujours: true } }]);
+    // `depuis` : le jour de l'envoi (le serveur date lui-même une « depuis toujours ») — le test ne dépend pas du jour où il tourne.
+    expect(posts).toEqual([{ action: 'bareme-apporteur', apporteurId: 12, bareme: { mode: 'one_shot', taux: '0', tauxGestion: '0', depuis: aujourdhuiParis(), toujours: true } }]);
   });
   it('un champ vide est refusé AVANT tout envoi, motif affiché ; un refus du serveur s’affiche dans le panneau (jamais un échec muet)', async () => {
     const p = await panneauTaux();
