@@ -23,6 +23,7 @@ const t = (el: Element | null | undefined): string => (el ? n([...el.children].m
 let container: HTMLDivElement;
 let root: Root;
 let posts: Record<string, unknown>[];
+let cumulAvecAnnees = false;
 
 const EXTERNE: Apporteur = { id: 4, nom: 'Léa Fictive', type: 'partenaire', archive: false, compteId: null, nomFamille: 'Fictive', prenom: 'Léa',
   baremes: [{ depuis: '2020-01-01', taux: 0.5, coutFixeMensuel: 0, mode: 'one_shot', tauxGestion: 0, ordre: 1 }],
@@ -43,6 +44,7 @@ const DOSSIERS = [ligne({}), ligne({ id: 2, dateSignature: '2026-10-05', apporte
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   posts = [];
+  cumulAvecAnnees = false;
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   const suivi = { disponible: true, annuaire: true, interne: true, toujours: true, nomPrenom: true, negociateurs: [], regles: [], retrocessions: [],
     collegues: [{ id: 2, libelle: 'Marie Interne' }, { id: 5, libelle: 'Paul Collègue' }], apporteurs: [EXTERNE, INTERNE, AGENCE] };
@@ -50,7 +52,9 @@ beforeEach(() => {
     const u = String(url);
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return json({ etat: 'ok' }); }
     if (u.includes('vue=dossiers-apporteur')) return json({ etat: 'ok', data: { aujourdhui: '2026-10-24', dossiers: u.includes('id=4') ? DOSSIERS : [] } });
-    if (u.includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: { total: { nb: 0, ca: 0, commission: 0 }, parAnnee: [], parMois: [] } });
+    if (u.includes('vue=cumul-apporteur')) return json({ etat: 'ok', data: cumulAvecAnnees
+      ? { total: { nb: 2, ca: 2000, commission: 1000 }, parAnnee: [{ annee: 2026, nb: 1, ca: 1000, commission: 500 }, { annee: 2025, nb: 1, ca: 1000, commission: 500 }], parMois: [] }
+      : { total: { nb: 0, ca: 0, commission: 0 }, parAnnee: [], parMois: [] } });
     if (u.includes('vue=totaux-apporteurs')) return json({ etat: 'ok', data: { 4: { nb: 2, ca: 2000, commission: 1000, collegue: 33.335 }, 9: { nb: 1, ca: 1000, commission: 50 } } });
     if (u.includes('/suivi')) return json({ etat: 'ok', data: suivi });
     return json({ etat: 'ok', data: { destinataires: [], destinatairesSaisis: null, versions: [], aujourdhui: '2026-10-24', manquantes: [], archivage: { mois: 24, disponible: true } } });
@@ -140,22 +144,25 @@ describe('🔴 « Nouveau taux » : l’effet en direct', () => {
 });
 
 describe('🔴 la cascade et le badge', () => {
-  it('la carte d’un externe : honoraires − apporteur − collègue = net, juste au centime ; un interne : sans ligne collègue', async () => {
+  // 🔴 Arno (24/10/2026) — la cascade a quitté la carte (accord d'Arno) : le bloc « Conditions » y est ; la cascade reste par dossier
+  // dans « Cumul », année dépliée (détail au centime : ApporteursConditionsCumul.test.tsx).
+  it('la carte : plus de cascade, le bloc « Conditions » à sa place (interne : sans ligne collègue)', async () => {
     await annuaire();
-    const ext = container.querySelector('[data-cascade="4"]')!;
-    expect([...ext.querySelectorAll('[data-cascade-ligne]')].map((l) => t(l))).toEqual([
-      'Honoraires HT 2 000,00 €', '− Dû à l’apporteur (FICTIVE Léa) 1 000,00 €', '− Dû au collègue (Paul Collègue) 33,34 €', '= Net agence HT 966,66 €']);
-    const int = container.querySelector('[data-cascade="9"]')!;
-    expect(int.querySelector('[data-cascade-ligne="collegue"]')).toBeNull();
-    expect(t(int.querySelector('[data-cascade-ligne="net"]'))).toBe('= Net agence HT 950,00 €');
+    expect(container.querySelector('[data-apporteur="4"] [data-cascade]')).toBeNull();
+    expect(container.querySelector('[data-conditions="4"] [data-conditions-collegue]')?.textContent).toBe('Collègue — Paul Collègue : aucune rémunération');
+    expect(container.querySelector('[data-conditions="9"]')).not.toBeNull();
+    expect(container.querySelector('[data-conditions="9"] [data-conditions-collegue]')).toBeNull();
   });
-  it('« Cumul » : la cascade de chaque dossier', async () => {
+  it('« Cumul » : la cascade de chaque dossier, dans son année dépliée', async () => {
+    cumulAvecAnnees = true;
     await annuaire();
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     await calmer();
-    const d = [...container.querySelectorAll('[data-cascade-dossiers="4"] [data-cascade-dossier]')];
-    expect(d).toHaveLength(2);
-    expect(t(d[0].querySelector('[data-cascade-ligne="net"]'))).toBe('= Net agence HT 500,00 €');
+    for (const an of ['2025', '2026']) await clic(container.querySelector(`[data-deplier-annee="${an}"]`)!);
+    const d = [...container.querySelectorAll('[data-dossier-detail]')];
+    expect(d.map((x) => x.getAttribute('data-dossier-detail'))).toEqual(['2', '1']);   // 2026 au-dessus de 2025 (le tableau va du plus récent au plus ancien)
+    expect(t(d[0].querySelector('[data-ligne-dossier="net"]'))).toBe('= Net agence HT 500,00 €');
+    expect(t(d[1].querySelector('[data-ligne-dossier="net"]'))).toBe('= Net agence HT 500,00 €');
   });
   it('un seul badge « PARTENAIRE EXTERNE » quand la pastille de type le répète ; les deux pour une agence', async () => {
     await annuaire();

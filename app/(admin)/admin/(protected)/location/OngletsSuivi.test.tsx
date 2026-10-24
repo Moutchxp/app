@@ -205,12 +205,12 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(tot('du')).toBe('Dû à l’apporteur HT582,50 €dont location 582,50 € · dont gestion (one shot) 0,00 € · dont gestion récurrente 0,00 €');
     expect(tot('net')).toBe('Net pour l’agence HT5 242,53 €');
     expect(container.textContent).not.toMatch(/versé/i);
-    // Le tableau : la ligne « Depuis le début » en tête, puis les années et les mois (rien n'est retiré).
+    // Le tableau : la ligne « Depuis le début » en tête, puis les années (🔴 Arno, 24/10/2026 : les lignes par mois retirées, avec son
+    // accord ; chaque année est fermée par défaut et se déplie sur ses dossiers).
     const lignes = [...container.querySelectorAll('[data-cumul-apporteur] tbody tr')].map((r) => n(r.textContent));
     expect(lignes[0]).toBe('Depuis le début75 825,03 €6 990,04 €582,50 €5 242,53 €');
     expect(container.querySelector('[data-cumul-ligne="total"]')?.className).toBe('plo-cumul-total');
-    expect(lignes.slice(1)).toEqual(['Année 202653 941,03 €4 729,24 €394,10 €3 546,93 €', 'Année 202521 884,00 €2 260,80 €188,40 €1 695,60 €',
-      'septembre 202653 941,03 €4 729,24 €394,10 €3 546,93 €', 'novembre 202521 884,00 €2 260,80 €188,40 €1 695,60 €']);
+    expect(lignes.slice(1)).toEqual(['▸Année 202653 941,03 €4 729,24 €394,10 €3 546,93 €', '▸Année 202521 884,00 €2 260,80 €188,40 €1 695,60 €']);
     expect([...container.querySelectorAll('[data-cumul-apporteur] thead th')].map((x) => x.textContent))
       .toEqual(['Période', 'Dossiers', 'Honoraires HT', 'Honoraires TTC', 'Dû à l’apporteur HT', 'Net agence HT']);
   });

@@ -62,7 +62,10 @@ describe('🔴 la carte allégée : chaque information retirée est dans son pan
     await annuaire();
     const c = carte(4);
     expect(c.querySelector('[data-rattache-libelle], [data-collegue-remuneration], [data-regle-apporteur], [data-historique-regles-apporteur], [data-compte-apporteur]')).toBeNull();
-    expect(c.textContent).not.toMatch(/Rattaché à|Collègue :|Fictive Conseil|06 00 00 00 04|lea@exemple\.fr|location 20 %|Historique/);
+    // 🔴 Arno (24/10/2026) — hors du bloc « Conditions » (qui dit, exprès, les taux en vigueur et la rémunération du collègue).
+    const horsConditions = (el: Element): string => { const k = el.cloneNode(true) as Element; k.querySelectorAll('[data-conditions]').forEach((x) => x.remove()); return k.textContent ?? ''; };
+    expect(horsConditions(c)).not.toMatch(/Rattaché à|Collègue :|Fictive Conseil|06 00 00 00 04|lea@exemple\.fr|location 20 %|Historique/);
+    expect(c.querySelector('[data-conditions="4"]')?.textContent).toMatch(/location 20 %/);
     expect(carte(9).textContent).not.toMatch(/Lié à son compte|06 00 00 00 09/);
     expect([...c.querySelectorAll('[data-panneau-bouton]')].map((b) => b.textContent)).toEqual(['Fiche', 'Rattachement', 'Taux', 'Cumul']);
   });

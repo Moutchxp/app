@@ -3,16 +3,15 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  type Apporteur, aRattacher, collegueADate, TAUX_TVA, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
+  type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
   type ModeApporteur, libelleApporteur, trierApporteurs,
   badgeApporteur, estInterne, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
-import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee, useDossiersApporteur } from './ReglageApporteur';
+import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee } from './ReglageApporteur';
 import { ecrireEtatModale } from './etatModaleParametres';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
-import { CascadeHonoraires } from './CascadeHonoraires';
-import { dusParDossier } from '../../../../lib/location/suivi/tableauBord';
+import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur } from './CumulEtConditions';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -102,65 +101,10 @@ const echap = (fermer: () => void) => (e: KeyboardEvent): void => { if (e.key ==
 /** 419 — `sorte` : apporteur INTERNE (un compte de l'interface) ou partenaire EXTERNE ; `duree` / `indeterminee` : la durée du récurrent. */
 const VIDE_APPORTEUR =(jour: string) => ({ sorte: 'externe' as 'externe' | 'interne', compteId: '', nom: '', type: 'partenaire' as TypeApporteur, mode: 'one_shot' as ModeApporteur, taux: '', tauxGestion: '',
   duree: '', indeterminee: true, depuis: jour, collegueId: '', toujours: false, societe: '', telephone: '', email: '' });
-/** 413 — `location` / `gestion` / `recurrente` : le dû détaillé (part location, part gestion « One shot », part gestion « Récurrent »). 419 — `collegue` : dû au collègue. */
-type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number; collegue?: number };
 
 /** 419 — le badge « INTERNE » / « PARTENAIRE EXTERNE ». */
 function BadgeApporteur({ a }: { a: Pick<Apporteur, 'compteId'> }) {
   return <span className={`plo-pastille plo-badge ${estInterne(a) ? 'plo-badge--interne' : 'plo-badge--externe'}`} data-badge-apporteur={estInterne(a) ? 'interne' : 'externe'}>{badgeApporteur(a)}</span>;
-}
-
-type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number })[]; parMois: (Chiffres & { mois: string })[] };
-const ttc = (ht: number): number => ht * (1 + TAUX_TVA);
-
-/**
- * Le cumul d'un apporteur (Arno, 23/10/2026) : « Total depuis le début » en 5 chiffres — dossiers (dont avenants), honoraires
- * apportés HT et TTC (TVA 20 %), DÛ à l'apporteur HT (l'outil n'enregistre pas les paiements : « dû », jamais « versé »), net
- * pour l'agence HT — puis le tableau par période, avec la ligne « Depuis le début » en tête. Les règles du Suivi : mêmes lignes.
- */
-function CumulApporteur({ id }: { id: number }) {
-  const [c, setC] = useState<Cumul | null | 'erreur'>(null);
-  useEffect(() => {
-    let vivant = true;
-    fetch(`${API_SUIVI}?vue=cumul-apporteur&id=${id}`, { cache: 'no-store' }).then((r) => r.json())
-      .then((d: { etat?: string; data?: Cumul }) => { if (vivant) setC(d.etat === 'ok' && d.data && Array.isArray(d.data.parAnnee) ? d.data : 'erreur'); })
-      .catch(() => { if (vivant) setC('erreur'); });
-    return () => { vivant = false; };
-  }, [id]);
-  if (c === null) return <p className="plo-muet plo-petit-texte" role="status">Lecture du cumul…</p>;
-  if (c === 'erreur') return <p className="plo-muet plo-petit-texte">Cumul indisponible.</p>;
-  if (c.parAnnee.length === 0) return <p className="plo-muet plo-petit-texte" data-cumul-vide>Aucune affaire apportée pour l’instant.</p>;
-  const t: Chiffres = c.total ?? c.parAnnee.reduce((s, x) => ({ nb: s.nb + x.nb, avenants: (s.avenants ?? 0) + (x.avenants ?? 0), ca: s.ca + x.ca, commission: s.commission + x.commission }), { nb: 0, avenants: 0, ca: 0, commission: 0 });
-  const ligne = (mot: string, x: Chiffres, total = false) => (
-    <tr key={mot} className={total ? 'plo-cumul-total' : undefined} data-cumul-ligne={total ? 'total' : mot}>
-      <th scope="row">{mot}</th><td data-mot="Dossiers">{x.nb}</td><td data-mot="Honoraires HT">{euros(x.ca)}</td><td data-mot="Honoraires TTC">{euros(ttc(x.ca))}</td>
-      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td><td data-mot="Net agence HT">{euros(x.ca - x.commission)}</td></tr>
-  );
-  return (
-    <>
-      <h4 className="plo-h4">Total depuis le début</h4>
-      <ul className="plo-totaux" data-totaux-apporteur>
-        <li data-total-apporteur="dossiers"><span className="plo-total-mot">Dossiers</span><strong>{t.nb}</strong>
-          {(t.avenants ?? 0) > 0 && <span className="plo-total-note">dont {t.avenants} avenant{(t.avenants ?? 0) > 1 ? 's' : ''}</span>}</li>
-        <li data-total-apporteur="ht"><span className="plo-total-mot">Honoraires apportés HT</span><strong>{euros(t.ca)}</strong></li>
-        <li data-total-apporteur="ttc"><span className="plo-total-mot">Honoraires apportés TTC</span><strong>{euros(ttc(t.ca))}</strong><span className="plo-total-note">TVA 20 %</span></li>
-        <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong>
-          {/* 413 — le détail du dû : la location, la gestion « One shot » (à la signature), la gestion « Récurrent » (mois par mois). */}
-          <span className="plo-total-note" data-du-detail>dont location {euros(t.location ?? t.commission)} · dont gestion (one shot) {euros(t.gestion ?? 0)} · dont gestion récurrente {euros(t.recurrente ?? 0)}</span></li>
-        <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(t.ca - t.commission)}</strong></li>
-      </ul>
-      <h4 className="plo-h4">Cumul</h4>
-      <table className="plo-cumul" data-cumul-apporteur>
-        <thead><tr><th scope="col">Période</th><th scope="col">Dossiers</th><th scope="col">Honoraires HT</th><th scope="col">Honoraires TTC</th>
-          <th scope="col">Dû à l’apporteur HT</th><th scope="col">Net agence HT</th></tr></thead>
-        <tbody>
-          {ligne('Depuis le début', t, true)}
-          {c.parAnnee.map((a) => ligne(`Année ${a.annee}`, a))}
-          {c.parMois.map((m) => ligne(moisFr(`${m.mois}-01`), m))}
-        </tbody>
-      </table>
-    </>
-  );
 }
 
 type Tri = 'ca' | 'commission' | 'nb' | 'nom';
@@ -312,11 +256,9 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                       {!interne && <div data-du-collegue={a.id}><dt>Dû au collègue HT</dt><dd>{euros(totaux[a.id]?.collegue ?? 0)}</dd></div>}
                     </dl>
                   )}
-                  {/* 🔴 Arno (24/10/2026) — la cascade : honoraires − apporteur − collègue (externe) = net agence. */}
-                  {totaux !== null && (
-                    <CascadeHonoraires repere={String(a.id)} ca={totaux[a.id]?.ca ?? 0} apporteur={totaux[a.id]?.commission ?? 0}
-                      collegue={interne ? null : totaux[a.id]?.collegue ?? 0} nomApporteur={libelleApporteur(a)} nomCollegue={collegue?.collegueLibelle ?? 'à rattacher'} />
-                  )}
+                  {/* 🔴 Arno (24/10/2026) — le bloc « Conditions » remplace la cascade sur la carte (accord d'Arno) : les conditions en vigueur,
+                      les dossiers calculés à d'autres conditions, le collègue et sa rémunération. La cascade reste par dossier dans « Cumul ». */}
+                  <BlocConditions a={a} jour={jour} autres={totaux?.[a.id]?.autres ?? []} />
                   {/* 🔴 Arno (24/10/2026) — QUATRE boutons : Fiche · Rattachement · Taux · Cumul (ils remplacent « Nouveau taux » et « Fiche et
                       cumul », dont tout le contenu est redistribué) ; un seul panneau ouvert par carte ; un second clic le referme. */}
                   <span className="plo-gestes-ligne plo-boutons-carte" role="group" aria-label={`Panneaux — ${libelleApporteur(a)}`}>
@@ -348,8 +290,7 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                       )}
                       {panneaux[a.id] === 'cumul' && (
                         <div className="plo-panneau" data-panneau="cumul">
-                          <CumulApporteur id={a.id} />
-                          <CascadeParDossier a={a} apporteurs={lu.apporteurs} cle={lu} collegue={interne ? null : collegue?.collegueLibelle ?? 'à rattacher'} />
+                          <CumulApporteur a={a} apporteurs={lu.apporteurs} cle={lu} />
                         </div>
                       )}
                     </div>
@@ -505,32 +446,7 @@ export function OngletCommissions() {
   );
 }
 
-/**
- * 🔴 Arno (24/10/2026) — « Fiche et cumul » : la cascade de CHAQUE dossier (honoraires − apporteur − collègue = net agence), les mêmes
- * règles que la carte (récurrents dus jusqu'à aujourd'hui).
- */
-function CascadeParDossier({ a, apporteurs, cle, collegue }: { a: Apporteur; apporteurs: readonly Apporteur[]; cle: unknown; collegue: string | null }) {
-  const d = useDossiersApporteur(a.id, cle);
-  if (d === null) return <p className="plo-muet plo-petit-texte" role="status">Lecture des dossiers…</p>;
-  if (d === 'erreur') return <p className="plo-muet plo-petit-texte">Dossiers indisponibles.</p>;
-  const lignes = dusParDossier(d.dossiers, apporteurs, d.aujourdhui || aujourdhuiParis());
-  if (lignes.length === 0) return null;
-  return (
-    <>
-      <h4 className="plo-h4">Par dossier</h4>
-      <ol className="plo-dossiers" data-cascade-dossiers={a.id}>
-        {lignes.map((l) => (
-          <li key={String(l.id)} data-cascade-dossier={String(l.id)}>
-            <span className="plo-dossier-titre">{dateFr(l.dateSignature)} — {l.libelle || 'dossier'}</span>
-            <CascadeHonoraires compacte ca={l.ca} apporteur={l.apporteur} collegue={collegue === null ? null : l.collegue} nomApporteur={libelleApporteur(a)} nomCollegue={collegue} />
-          </li>
-        ))}
-      </ol>
-    </>
-  );
-}
-
-export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR + `
+export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR + CSS_CUMUL_CONDITIONS + `
 .plo-champ--large{grid-column:1 / -1}
 .plo-modes{display:flex;flex-wrap:wrap;gap:8px}
 .plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}

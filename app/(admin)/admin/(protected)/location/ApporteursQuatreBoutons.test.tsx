@@ -69,7 +69,8 @@ describe('🔴 la carte à quatre boutons', () => {
     expect([...carte.querySelectorAll('[data-panneau-bouton]')].map((b) => b.textContent)).toEqual(['Fiche', 'Rattachement', 'Taux', 'Cumul']);
     expect(carte.querySelector('[data-nouveau-taux], [data-ouvrir-fiche]')).toBeNull();
     expect(carte.querySelector('[data-totaux-ligne="4"]')).not.toBeNull();
-    expect(carte.querySelector('[data-cascade="4"]')).not.toBeNull();
+    // 🔴 Arno (24/10/2026) — le bloc « Conditions » a pris la place de la cascade sur la carte (accord d'Arno).
+    expect(carte.querySelector('[data-conditions="4"]')).not.toBeNull();
   });
   it('un seul panneau ouvert à la fois par carte ; le bouton actif en évidence ; un second clic referme', async () => {
     await annuaire();

@@ -10,6 +10,7 @@ import {
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
 import { cumulApporteur, totauxApporteurs } from '../../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
+import { autresConditions } from '../../../../../lib/location/suivi/detailDossier';
 import { avecTrace } from '../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
 
@@ -60,7 +61,12 @@ export async function GET(request: Request): Promise<Response> {
     // Arno (23/10/2026) — les totaux de chaque apporteur depuis le début (liste de l'annuaire).
     if (url.searchParams.get('vue') === 'totaux-apporteurs') {
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
-      return json({ etat: 'ok', data: totauxApporteurs(await lireActivites(annees), apporteurs, aujourdhuiParis()) });
+      const activites = await lireActivites(annees);
+      const jour = aujourdhuiParis();
+      const totaux = totauxApporteurs(activites, apporteurs, jour);
+      // 🔴 Arno (24/10/2026) — les dossiers calculés à d'AUTRES conditions que celles en vigueur (version antérieure, saisie de l'import).
+      for (const id of Object.keys(totaux)) totaux[Number(id)].autres = autresConditions(activites, apporteurs, Number(id), jour);
+      return json({ etat: 'ok', data: totaux });
     }
     if (url.searchParams.get('vue') === 'tableau') {
       const jour = aujourdhuiParis();

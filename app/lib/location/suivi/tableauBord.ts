@@ -825,7 +825,9 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
 }
 
 /** 419 — `collegue` : le dû au COLLÈGUE de rattachement HT (signature + récurrent jusqu'au mois en cours) ; à part du dû à l'apporteur. */
-export type TotalApporteur = Omit<CumulAffaires, 'ids'> & { collegue: number };
+export type TotalApporteur = Omit<CumulAffaires, 'ids'> & { collegue: number;
+  /** 🔴 Arno (24/10/2026) — les dossiers calculés à d'autres conditions que celles en vigueur (posé par la route, `autresConditions`). */
+  autres?: { sorte: 'anterieure' | 'import'; nb: number; libelle: string }[] };
 
 /** Les totaux de CHAQUE apporteur depuis le début (liste de l'annuaire : dossiers, honoraires HT, dû HT, dû au collègue HT). PUR. */
 export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui?: string): Record<number, TotalApporteur> {
