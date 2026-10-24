@@ -220,6 +220,12 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const collegueRattache = apporteur === null ? null : collegueADate(apporteur, dateRef);
   const tauxRetenu = (() => { const t = lireTauxPourcent(s.apporteurTaux); return t === undefined || t === null ? baremeDuJour?.taux ?? null : t; })();
   const caHt = (lireMontant(htProprietaire) ?? 0) + (lireMontant(htLocataire) ?? 0);
+  // Le TOTAL HT, en direct : vide tant que rien n'est saisi ; « montant illisible » si l'un des deux l'est.
+  const totalHonorairesHt = (() => {
+    const p = lireMontant(htProprietaire); const l = lireMontant(htLocataire);
+    if (p === undefined || l === undefined) return 'montant illisible';
+    return p === null && l === null ? '' : ecrire((p ?? 0) + (l ?? 0));
+  })();
   const commissionProposee = tauxRetenu === null ? null : caHt * tauxRetenu;
   const regleDuJour = versionADate(lu.regles, dateRef);
   const categorie: CategoriePrime = s.categoriePrime ?? typeBien?.type ?? deduit?.categoriePrime ?? 'logement';
@@ -247,7 +253,10 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const primeBloquee = deduit?.primeDejaVersee ?? null;
   /* 🔴 Arno (24/10/2026) — les deux cases sont EXCLUSIVES : cocher l'une décoche l'autre. La prime suit « Nouveau mandat ». */
   const cocherGestion = (v: boolean): void => poser({ avecGestion: v, ...(v ? { mandatGestion: false } : {}),
-    ...(v && annuaire && s.primeMode !== 'personnalise' ? { primeMode: 'aucune' as const } : {}) });
+    ...(v && annuaire && s.primeMode !== 'personnalise' ? { primeMode: 'aucune' as const } : {}),
+    // 🔴 Arno (24/10/2026, après 56700ffb) — cocher « Relocation » PRÉ-SÉLECTIONNE l'origine « Relocation (portefeuille de gestion) »
+    // quand aucune origine n'est choisie ; un choix fait à la main n'est jamais remplacé, et décocher ne change rien.
+    ...(v && annuaire && (s.origineContact === null || s.origineContact === undefined) ? { origineContact: 'relocation' as const } : {}) });
   const cocherMandat = (v: boolean): void => poser({ mandatGestion: v, ...(v ? { avecGestion: false } : {}),
     // 407 — un mandat signé avec la location : « 150 € » par défaut ; décoché : « Aucune » (un montant personnalisé reste).
     ...(annuaire && s.primeMode !== 'personnalise' ? { primeMode: v ? 'regle' as const : 'aucune' as const } : {}) });
@@ -296,7 +305,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         )}
       </div>
       {/* ── Ligne 3 : honoraires HT ── */}
-      <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="3">
+      {/* 🔴 Arno (24/10/2026, après 56700ffb) — trois colonnes de même largeur : propriétaire HT · locataire HT · TOTAL HT (lecture seule). */}
+      <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--trois" data-suivi-ligne="3">
         <label className="loc-champ">{libelle('Honoraires propriétaire HT (€)')}
           <input inputMode="decimal" value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, proprietaire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcProprietaire(t); }}
@@ -307,6 +317,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, locataire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcLocataire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, locataire: null }))} />
           <small className="loc-muet" data-hono-locataire-ttc>= {ttcLocataire.trim() === '' ? '—' : `${ttcLocataire} € TTC`} (« Honoraires agence »)</small></label>
+        <label className="loc-champ">{libelle('Total des honoraires (HT)')}
+          <input value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht />
+          <small className="loc-muet">= propriétaire HT + locataire HT</small></label>
       </div>
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
@@ -487,6 +500,11 @@ export const CSS_SUIVI_COMMERCIAL = `
 /* La ligne 4 (origine du contact propriétaire / apporteur) : DEUX colonnes fixes — l'origine garde sa demi-ligne, que l'apporteur
    (ou le texte de « Personnalisé ») soit là ou non ; rien ne saute. Une colonne au telephone. */
 .loc-suivi-ligne--deux,.loc-ample .loc-grille.loc-suivi-ligne--deux{grid-template-columns:repeat(2,minmax(0,1fr))}
+/* Arno (24/10/2026) — la ligne des honoraires : TROIS colonnes de meme largeur ; au telephone, l'une sous l'autre. */
+.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:640px){.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:minmax(0,1fr)}}
+/* Le total : le meme champ, meme style, en lecture seule (texte en gras), jamais saisissable. */
+.loc-ample .loc-suivi .loc-champ input.loc-suivi-lecture{font-weight:700;cursor:default}
 @media (max-width:640px){.loc-suivi-ligne--deux,.loc-ample .loc-grille.loc-suivi-ligne--deux{grid-template-columns:minmax(0,1fr)}}
 /* Tous les libelles ont la MEME hauteur, celle du bouton « Ouvrir l'annuaire » : les libelles d'une ligne restent sur la meme ligne
    de base et les champs a la meme hauteur, bouton ou non. */

@@ -75,7 +75,7 @@ describe('🔴 ordre des lignes et présentation homogène', () => {
     await monter(null);
     expect(libelles(1)).toEqual(['Date de signature du bail *', 'Nature', 'Négociateur']);
     expect(libelles(2)).toEqual(['Portefeuille de gestion', 'Nouvelle gestion', 'Prime de gestion', 'Type de bien']);   // Arno (24/10/2026) : « Type de bien »
-    expect(libelles(3)).toEqual(['Honoraires propriétaire HT (€)', 'Honoraires locataire HT (€)']);
+    expect(libelles(3)).toEqual(['Honoraires propriétaire HT (€)', 'Honoraires locataire HT (€)', 'Total des honoraires (HT)']);
     expect(libelles(4)).toEqual(['Origine du contact propriétaire *']);
     const ordre = [...container.querySelectorAll('[data-suivi-ligne]')].map((l) => l.getAttribute('data-suivi-ligne'));
     expect(ordre).toEqual(['1', '2', '3', '4']);
@@ -385,5 +385,44 @@ describe('🔴 Arno (24/10/2026, 414) — la liste « Apporteur d’affaires » 
     await choisir('[data-origine-contact]', 'apporteur');
     expect((await optionsDe('[data-apporteur]')).map((o) => o.texte)).toEqual(['— choisir dans l’annuaire —', 'BEKETOV Hélène (Partenaire externe)', 'Kin Immo (Agence)',
       'THEVENIN Pierre (Partenaire externe)', '+ Nouvel apporteur…']);
+  });
+});
+
+describe('🔴 Arno (24/10/2026, après 56700ffb) — total des honoraires HT ; « Relocation » pré-sélectionne l’origine', () => {
+  const saisirTexte = async (sel: string, v: string) => {
+    const el = q<HTMLInputElement>(sel)!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await calmer();
+  };
+  it('« Total des honoraires (HT) » : lecture seule, propriétaire HT + locataire HT, en direct ; trois colonnes égales (une au téléphone)', async () => {
+    await monter(null);
+    const total = q<HTMLInputElement>('[data-hono-total-ht]')!;
+    expect(total.readOnly).toBe(true);
+    expect(total.value).toBe('');
+    await saisirTexte('[data-hono-proprietaire-ht]', '416,67');
+    expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('416,67');
+    await saisirTexte('[data-hono-locataire-ht]', '226,95');
+    expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('643,62');
+    await saisirTexte('[data-hono-locataire-ht]', 'abc');
+    expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('montant illisible');
+    expect(q('[data-suivi-ligne="3"]')!.className).toBe('loc-grille loc-suivi-ligne loc-suivi-ligne--trois');
+    const css = readFileSync('app/(admin)/admin/(protected)/location/SuiviCommercial.tsx', 'utf8');
+    expect(css).toContain('.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:repeat(3,minmax(0,1fr))}');
+    expect(css).toContain('@media (max-width:640px){.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:minmax(0,1fr)}}');
+  });
+  it('cocher « Relocation » pré-sélectionne « Relocation (portefeuille de gestion) » ; décocher ne change rien', async () => {
+    await monter(null);
+    expect(valeur('[data-origine-contact]')).toBe('');
+    await clic(q('[data-avec-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('relocation');
+    expect(q('[data-origine-contact]')!.textContent).toBe('Relocation (portefeuille de gestion)');
+    await clic(q('[data-avec-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('relocation');
+  });
+  it('un choix fait à la main n’est jamais remplacé', async () => {
+    await monter(null);
+    await choisir('[data-origine-contact]', 'internet');
+    await clic(q('[data-avec-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('internet');
   });
 });
