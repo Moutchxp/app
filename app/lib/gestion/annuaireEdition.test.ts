@@ -781,7 +781,7 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
   });
 
   it('🔴 « Enregistrer » est grisé tant qu’il manque quelque chose, et chaque manque est dit SOUS son champ', () => {
-    expect(src).toContain('disabled={envoi || incomplete}');
+    expect(src).toContain('disabled={envoi || incomplete || (recapitulatif && changementsTraces.length === 0)}');   // 417 : + rien à enregistrer (écran tracé seulement)
     expect(src).toContain('manquesDeLaFiche({');
     expect(src).toContain('.cp-manque{display:block');
     // Les deux manques de coordonnées sont dits sous le bloc qui les porte.

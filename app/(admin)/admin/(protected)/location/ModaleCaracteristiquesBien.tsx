@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef } from 'react';
 import { ModifierFicheBien } from '../gestion/ModifierFicheBien';
+import type { EcranTrace } from '../../../../lib/gestion/traceFiche';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — « CARACTÉRISTIQUES DU BIEN » EN GRANDE MODALE, DEPUIS « NOUVEAU LOCATAIRE » ═════════════════════════════
@@ -14,7 +15,11 @@ import { ModifierFicheBien } from '../gestion/ModifierFicheBien';
  * la question habituelle si la saisie a changé) ; l'enregistrement referme et prévient l'hôte, qui relit le bien.
  * Échap pendant la lecture de la fiche (formulaire pas encore là) referme aussi ; ensuite, c'est le formulaire qui le traite.
  */
-export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre }: { lotId: number; onFermer: () => void; onEnregistre: () => void }) {
+export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre, trace, titre: titreVisible = 'Caractéristiques du bien loué', retourMot = 'Nouveau locataire' }: {
+  lotId: number; onFermer: () => void; onEnregistre: () => void;
+  /** 🔴 Arno (24/10/2026) — la MÊME modale ouverte depuis « Suivi du mois » (« Fiche du bien ») : l'écran tracé, son titre, son retour. */
+  trace?: { ecran: EcranTrace }; titre?: string; retourMot?: string;
+}) {
   const titre = useId();
   const fenetre = useRef<HTMLDivElement | null>(null);
   const fermer = useCallback(() => onFermer(), [onFermer]);
@@ -39,10 +44,10 @@ export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre }: { 
     <div className="mcb-voile">
       <style>{CSS_MODALE_CARACTERISTIQUES}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-caracteristiques-bien={lotId}>
-        <h2 id={titre} className="mcb-titre-cache">Caractéristiques du bien loué</h2>
+        <h2 id={titre} className="mcb-titre-cache">{titreVisible}</h2>
         <section className="gst-page">
-          <ModifierFicheBien lotId={lotId} retour={{ href: `/admin/location/bien/${lotId}`, mot: 'Nouveau locataire' }}
-            modale={{ onFermer: fermer, onEnregistre }} />
+          <ModifierFicheBien lotId={lotId} retour={{ href: `/admin/location/bien/${lotId}`, mot: retourMot }}
+            modale={{ onFermer: fermer, onEnregistre }} {...(trace !== undefined ? { trace } : {})} />
         </section>
       </div>
     </div>

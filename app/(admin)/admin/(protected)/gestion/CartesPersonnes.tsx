@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
+import { ContexteEditionTracee } from './editionTracee';
+import { changementsCarte, saisieDesChangements, type ChangementChamp } from '../../../../lib/gestion/traceFiche';
 import { createPortal } from 'react-dom';
 import {
   carteEstComplete, ligneDeManques, manquesAAvertir, manquesDeCompletude, titreSansCarteComplete, verdictFamille, type CarteMin,
@@ -865,7 +867,25 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const empeche = (contact?.empeche ?? '').trim();
   const incomplete = Object.keys(manque).length > 0 || empeche !== '';
 
-  const [fenetre, setFenetre] = useState<null | { sorte: 'alerte'; manques: string[] } | { sorte: 'refus'; motif: string }>(null);
+  const [fenetre, setFenetre] = useState<null | { sorte: 'alerte'; manques: string[] } | { sorte: 'refus'; motif: string }
+    | { sorte: 'recap'; changements: ChangementChamp[]; champs: ChampsSaisis }>(null);
+  /* 🔴 Arno (24/10/2026, 417) — une fiche EXISTANTE ouverte depuis un écran tracé (« Suivi du mois ») : le récapitulatif des seuls
+     champs modifiés avant d'enregistrer, et « Enregistrer » inactif tant que rien n'a changé. Ailleurs (aucun contexte) : inchangé. */
+  const tracee = useContext(ContexteEditionTracee);
+  const recapitulatif = tracee !== null && p !== null && creation === undefined && contact === undefined;
+  const champsSaisis = (): ChampsSaisis => ({
+    ...ficheFormatee({ civilite, nom, prenom, adresse, codePostal, commune }),
+    qualite, note, coordonnees: saisiesVivantes.filter((c) => c.valeur.trim() !== ''),
+  });
+  // La carte ouverte, MISE EN FORME comme la saisie : un format appliqué à l'affichage n'est pas une modification.
+  const avantFormate = p === null ? null : { ...p, ...ficheFormatee({ civilite: p.civilite ?? '', nom: p.nom, prenom: p.prenom ?? '', adresse: p.adresse ?? '', codePostal: p.codePostal ?? '', commune: p.commune ?? '' }) };
+  const changementsTraces = recapitulatif && avantFormate !== null ? changementsCarte(avantFormate, champsSaisis()) : [];
+  const envoyerChamps = (champs: ChampsSaisis): void => {
+    setFenetre(null);
+    setLocal(null);
+    setEnvoi(true);
+    void (async () => { await onEnregistrer(champs); setEnvoi(false); })();
+  };
   const soumettre = (forcer = false): void => {
     // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
     const saisies = saisiesVivantes.filter((c) => c.valeur.trim() !== '');
@@ -879,6 +899,13 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
     if (refusFamille !== null) { setFenetre({ sorte: 'refus', motif: refusFamille }); return; }
     const manquesAlerte = forcer ? [] : (avertir?.(carte) ?? []);
     if (manquesAlerte.length > 0) { setFenetre({ sorte: 'alerte', manques: manquesAlerte }); return; }
+    if (recapitulatif) {
+      const champs = champsSaisis();
+      const changements = avantFormate === null ? [] : changementsCarte(avantFormate, champs);
+      if (changements.length === 0) return;
+      setFenetre({ sorte: 'recap', changements, champs: saisieDesChangements(champs, changements) });
+      return;
+    }
     setFenetre(null);
     setLocal(null);
     setEnvoi(true);
@@ -949,6 +976,14 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
       {fenetre?.sorte === 'refus' && (
         <FenetreCarte titre="Modification impossible" texte={fenetre.motif}
           boutons={[{ mot: 'Revenir modifier la carte', principal: true, onClic: () => setFenetre(null) }]} onFermer={() => setFenetre(null)} />
+      )}
+      {fenetre?.sorte === 'recap' && (
+        <FenetreCarte titre="Enregistrer ces modifications ?" texte="Seuls ces champs changent :"
+          lignes={fenetre.changements.map((c) => `${c.champ} : ${c.avant} → ${c.apres}`)}
+          boutons={[
+            { mot: 'Revenir', onClic: () => setFenetre(null) },
+            { mot: 'Confirmer', principal: true, onClic: () => envoyerChamps(fenetre.champs) },
+          ]} onFermer={() => setFenetre(null)} />
       )}
       <p className="cp-form-titre">
         {contact?.titre ?? (creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche')}
@@ -1112,9 +1147,11 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
         </button>
         {/* 🔴 « ENREGISTRER » RESTE GRISÉ TANT QUE LA FICHE EST INCOMPLÈTE — et ce qui bloque est écrit sous
             chaque champ, juste au-dessus : un bouton grisé sans motif est une énigme. */}
-        <button type="submit" className="svv-btn gst-btn cp-bouton" disabled={envoi || incomplete}
+        <button type="submit" className="svv-btn gst-btn cp-bouton" disabled={envoi || incomplete || (recapitulatif && changementsTraces.length === 0)}
+          data-enregistrer-carte
           title={empeche !== '' ? empeche
-            : incomplete ? 'Il reste des champs à renseigner (voir les mentions en rouge).' : undefined}>
+            : incomplete ? 'Il reste des champs à renseigner (voir les mentions en rouge).'
+              : recapitulatif && changementsTraces.length === 0 ? 'Aucune modification à enregistrer.' : undefined}>
           {envoi ? 'Enregistrement…' : 'Enregistrer'}
         </button>
       </div>

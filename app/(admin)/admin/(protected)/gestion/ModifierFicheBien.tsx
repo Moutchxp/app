@@ -8,6 +8,8 @@ import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo
 import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import { lignesResume } from '../../../../lib/location/resumeBienLignes';
 import { annoncerBienModifie, useVersionBien, type ImportBien } from './EditionEncart';
+import { BlocTraceFiche, CSS_TRACE_FICHE, useTraceFiche } from '../location/TraceFiche';
+import { motifConflitFiche, type EcranTrace } from '../../../../lib/gestion/traceFiche';
 
 /**
  * ══ 🔴🔴 « MODIFIER » LA FICHE DU BIEN : LA PAGE « AJOUTER UN NOUVEAU BIEN », À L'IDENTIQUE (Arno, 23/10/2026) ═════════════════════
@@ -27,14 +29,24 @@ const API = '/api/admin/gestion/annuaire/location';
  * locataire ») ; « Annuler », Échap et le lien de l'en-tête la referment sans rien écrire, l'enregistrement la referme et prévient
  * l'hôte (qui relit le bien). Absent : la page, qui revient à la fiche (comportement inchangé).
  */
-export function ModifierFicheBien({ lotId, retour, modale }: { lotId: number; retour: { href: string; mot: string };
-  modale?: { onFermer: () => void; onEnregistre: () => void } }) {
+export function ModifierFicheBien({ lotId, retour, modale, trace }: { lotId: number; retour: { href: string; mot: string };
+  modale?: { onFermer: () => void; onEnregistre: () => void };
+  /**
+   * 🔴 Arno (24/10/2026, 417) — ouvert depuis un écran TRACÉ (« Suivi du mois ») : « Dernière modification » et l'historique de la
+   * fiche au-dessus du formulaire ; l'écran et la session au journal (une ligne par champ) ; un conflit dit qui et quand ;
+   * « Enregistrer les modifications » inactif tant que rien n'a changé. Absent : l'écran d'avant, inchangé.
+   */
+  trace?: { ecran: EcranTrace } }) {
   const router = useRouter();
   const [lecture, setLecture] = useState<LectureFiche | null>(null);
   const [importe, setImporte] = useState<ImportBien | undefined>(undefined);
   const [refus, setRefus] = useState<string | null>(null);
   const [n, setN] = useState(0);
   const versionDistante = useVersionBien(lotId);
+  const historique = useTraceFiche('lot', lotId, trace !== undefined);
+  const relireTrace = historique.relire;
+  // Une empreinte distante qui change (modification par ailleurs) : la trace se relit, pour dire QUI et QUAND.
+  useEffect(() => { if (trace !== undefined && versionDistante !== null) relireTrace(); }, [trace, versionDistante, relireTrace]);
   const lire = useCallback(async (): Promise<void> => {
     try {
       const r = await fetch(`${API}?ficheEntiere=${lotId}`, { cache: 'no-store' });
@@ -66,19 +78,23 @@ export function ModifierFicheBien({ lotId, retour, modale }: { lotId: number; re
   }
   return (
     <>
-      <style>{CSS_MODIFIER_FICHE_BIEN}</style>
+      <style>{CSS_MODIFIER_FICHE_BIEN + (trace !== undefined ? CSS_TRACE_FICHE : '')}</style>
+      {trace !== undefined && <BlocTraceFiche trace={historique} />}
       <CreationBien key={`${lecture.version}-${n}`} proprietairesInitiaux={[]}
         modification={{
           lotId, lecture, versionDistante, importe, retour, ...(modale !== undefined ? { dansModale: true } : {}),
           onFermer: revenir,
           onEnregistre: () => { annoncerBienModifie(lotId); if (modale !== undefined) modale.onEnregistre(); else revenir(); },
-          onRecharger: () => { void lire(); },
+          onRecharger: () => { void lire(); if (trace !== undefined) relireTrace(); },
+          ...(trace !== undefined ? { detailConflit: motifConflitFiche(historique.derniere), desactiverSansChangement: true } : {}),
           enregistrer: async (saisie) => {
             const r = await fetch(API, {
               method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
-              body: JSON.stringify({ action: 'modifier-fiche-bien', id: lotId, saisie }),
+              body: JSON.stringify({ action: 'modifier-fiche-bien', id: lotId, saisie, ...(trace !== undefined ? { ecran: trace.ecran } : {}) }),
             });
-            return { statut: r.status, corps: await r.json().catch(() => ({})) };
+            const corps = await r.json().catch(() => ({})) as { etat?: string };
+            if (trace !== undefined && corps.etat === 'conflit') relireTrace();
+            return { statut: r.status, corps };
           },
           occupationsDe: async (annexeId) => {
             const r = await fetch(`${API}?apercuArchivage=${annexeId}&sujet=bien`, { cache: 'no-store' });

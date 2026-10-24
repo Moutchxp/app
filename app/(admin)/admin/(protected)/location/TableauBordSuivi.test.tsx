@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+// Les fiches ouvertes depuis le panneau (Annuaire, ModifierFicheBien) lisent le routeur de Next : simulé ici.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
@@ -521,6 +523,35 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await deplier(ids[1]);
       expect(nbsp(container.querySelector(`[data-detail-ligne="${ids[1]}"] [data-champ="Nature du bien"]`)?.textContent))
         .toBe('Client hors gestion — propriétaire déjà client, bien sans gestion');
+    });
+
+    it('🔴 les fiches complètes : un bouton par locataire et par bien ; « non rattaché » sinon ; chacun ouvre sa grande modale', async () => {
+      const ids = sept.map((a) => String(a.id));
+      donnees = { ...donnees, annuaire: true, activites: donnees.activites.map((a) => (String(a.id) === ids[0]
+        ? { ...a, locataires: [{ id: 41, libelle: 'MARTIN Léa' }, { id: 42, libelle: 'DURAND Paul' }], lots: [{ id: 363, libelle: 'Appartement — 7 Avenue de Bretteville Neuilly' }] } : a)) };
+      // Le tableau répond ; les fiches ouvertes (annuaire, bien, trace) : « inconnu » (seule leur ouverture est éprouvée ici).
+      global.fetch = vi.fn(async (u: unknown) => ({ ok: true, status: 200, json: async () => (String(u).includes('vue=tableau') ? { etat: 'ok', data: donnees } : { etat: 'inconnu' }) }) as unknown as Response) as unknown as typeof fetch;
+      await ouvrirSeptembre();
+      await deplier(ids[0]);
+      await deplier(ids[1]);
+      const p0 = container.querySelector(`[data-detail-ligne="${ids[0]}"]`)!;
+      expect([...p0.querySelectorAll('[data-fiche-locataire]')].map((b) => b.textContent)).toEqual(['Fiche locataire — MARTIN Léa', 'Fiche locataire — DURAND Paul']);
+      expect([...p0.querySelectorAll('[data-fiche-bien]')].map((b) => b.textContent)).toEqual(['Fiche du bien']);
+      expect(p0.querySelector('[data-modifier-ligne]')).not.toBeNull();   // « Modifier » reste là
+      const p1 = container.querySelector(`[data-detail-ligne="${ids[1]}"]`)!;
+      expect(p1.querySelector('[data-fiche-locataire], [data-fiche-bien]')).toBeNull();
+      expect(p1.querySelector('[data-locataire-non-rattache]')?.textContent).toBe('Fiche locataire : non rattaché');
+      expect(p1.querySelector('[data-bien-non-rattache]')?.textContent).toBe('Fiche du bien : non rattaché');
+      await act(async () => { (p0.querySelector('[data-fiche-bien="363"]') as HTMLButtonElement).click(); });
+      expect(document.querySelector('[data-modale-caracteristiques-bien="363"]')).not.toBeNull();
+      expect(document.querySelector('[data-modale-caracteristiques-bien="363"] h2')?.textContent).toBe('Fiche du bien');
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await ouvrirSeptembre();
+      await deplier(ids[0]);
+      await act(async () => { (container.querySelector('[data-fiche-locataire="42"]') as HTMLButtonElement).click(); });
+      expect(document.querySelector('[data-modale-fiche-locataire="42"] h2')?.textContent).toBe('Fiche locataire — DURAND Paul');
+      await act(async () => { (document.querySelector('[data-fermer-fiche-locataire]') as HTMLButtonElement).click(); });
+      expect(document.querySelector('[data-modale-fiche-locataire]')).toBeNull();
     });
 
     it('après « Enregistrer » : la feuille se relit (ligne et bas de feuille), le panneau reste ouvert', async () => {

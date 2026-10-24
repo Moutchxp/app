@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ContexteEditionTracee } from './editionTracee';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import { LIBELLE_CATEGORIE, type Categorie } from '../../../../lib/location/locationBien';
@@ -403,20 +404,27 @@ export function Annuaire({
    * que si la migration disparaît entre le chargement de la fiche et le clic — mais il se dirait alors clairement,
    * plutôt que de laisser le bouton tourner dans le vide.
    */
+  // 🔴 Arno (24/10/2026, 417) — ouverte depuis un écran tracé (« Suivi du mois ») : la modification d'une fiche porte l'écran et le
+  // repère du journal pris à l'ouverture (le serveur trace la session, et refuse d'écraser une modification faite entre-temps) ;
+  // réussie, elle prévient l'hôte. Ailleurs : inchangé.
+  const tracee = useContext(ContexteEditionTracee);
   const envoyer = useCallback(async (corps: Record<string, unknown>): Promise<string | null> => {
+    const trace = tracee !== null && corps.action === 'modifier'
+      ? { ecran: tracee.ecran, ...(tracee.depuisJournalId !== null ? { depuisJournalId: tracee.depuisJournalId } : {}) } : {};
     try {
       const res = await fetch('/api/admin/gestion/annuaire', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corps, ...trace }),
       });
       const d = (await res.json()) as { etat?: string; motif?: string; message?: string; data?: unknown };
-      if (d.etat === 'ok') { recharger(); return null; }
+      if (d.etat === 'ok') { recharger(); if (tracee !== null && corps.action === 'modifier') tracee.onEnregistre?.(); return null; }
+      if (d.etat === 'conflit') return d.motif ?? 'Cette fiche a été modifiée depuis son ouverture : rechargez-la.';
       if (d.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
       if (d.etat === 'inconnu') return 'Cette fiche n’existe plus dans l’annuaire.';
       return d.motif ?? d.message ?? 'Enregistrement refusé.';
     } catch {
       return 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.';
     }
-  }, [recharger]);
+  }, [recharger, tracee]);
 
   const modifiable = detail !== null && detail.etat !== 'charge' && detail.etat !== 'erreur'
     && detail.data.modifiable;

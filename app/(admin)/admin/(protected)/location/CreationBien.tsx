@@ -149,6 +149,13 @@ export interface ModificationBien {
     data?: { changements?: ChangementFiche[]; notes?: string[] } } }>;
   /** Combien de locations en cours une annexe a (l'avertissement avant de la sortir du portefeuille). */
   occupationsDe: (annexeId: number) => Promise<number>;
+  /**
+   * 🔴 Arno (24/10/2026) — depuis « Suivi du mois » : QUI a modifié la fiche et QUAND (« modifiée par X le … à HH:MM, rechargez »),
+   * dit dans le bandeau et la fenêtre du conflit ; et « Enregistrer les modifications » inactif tant que rien n'a changé. Absents :
+   * l'écran d'avant, inchangé.
+   */
+  detailConflit?: string | null;
+  desactiverSansChangement?: boolean;
 }
 
 const ouiNonDe = (v: string): boolean | null => (v === 'oui' ? true : v === 'non' ? false : null);
@@ -601,7 +608,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             sous={<>Toutes les informations du bien, pré-remplies. « Enregistrer les modifications » montre d’abord ce qui change (ancienne valeur → nouvelle valeur), puis enregistre.</>} />
           {conflit && (
             <div className="mfb-conflit" role="alert" data-conflit-version>
-              <span>Ce bien a été modifié par ailleurs — recharger ?</span>
+              <span>{modification.detailConflit ?? 'Ce bien a été modifié par ailleurs — recharger ?'}</span>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={modification.onRecharger} data-recharger>Recharger</button>
               <span className="mfb-note">Recharger reprend les valeurs enregistrées ; la saisie en cours est abandonnée.</span>
             </div>
@@ -996,7 +1003,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.'}
         </p>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annulerModification} data-annuler-modification>Annuler</button>
-        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null} aria-busy={envoi} data-valider-modification>
+        <button type="submit" className="svv-btn svv-btn-primary gst-btn" aria-busy={envoi} data-valider-modification
+          disabled={envoi || enregistre !== null || (modification.desactiverSansChangement === true && changementsModif.length === 0)}>
           {envoi ? 'Enregistrement…' : 'Enregistrer les modifications'}</button>
       </div>
       ) : (
@@ -1021,7 +1029,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           actions={[{ libelle: 'Fermer', onClick: modification.onEnregistre, principal: true, repere: 'fermer-succes-modification' }]} />
       ) : issue.sorte === 'conflit' ? (
         <ModaleIssue sorte="attention" titre="Ce bien a été modifié par ailleurs — recharger ?" onFermer={() => setIssue(null)}
-          notes={['Rien n’a été enregistré : la fiche a changé depuis l’ouverture du formulaire.', '« Recharger » reprend les valeurs enregistrées (votre saisie est abandonnée).']}
+          notes={[modification.detailConflit ?? 'Rien n’a été enregistré : la fiche a changé depuis l’ouverture du formulaire.', '« Recharger » reprend les valeurs enregistrées (votre saisie est abandonnée).']}
           actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), repere: 'revenir-saisie' },
             { libelle: 'Recharger', onClick: () => { setIssue(null); modification.onRecharger(); }, principal: true, repere: 'recharger-conflit' }]} />
       ) : issue.sorte === 'abandon' ? (

@@ -2,6 +2,9 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
+import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
+import { ModaleFicheLocataire } from './ModaleFicheLocataire';
+import { TRACE_SUIVI } from './TraceFiche';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
@@ -64,6 +67,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const [edition, setEdition] = useState<number | string | null>(null);
+  // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
+  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot'; id: number; libelle: string } | null>(null);
+  const ficheEnregistree = (): void => { setFiche(null); onRelire(); };
   // Les lignes dépliées (plusieurs à la fois). Replier une ligne en édition abandonne la saisie, comme « Fermer ».
   const [deplies, setDeplies] = useState<ReadonlySet<string>>(() => new Set());
   const basculer = (id: number | string): void => {
@@ -85,6 +91,13 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
   return (
     <div className="fdm" data-feuille-mois={cle}>
+      {fiche !== null && fiche.sorte === 'locataire' && (
+        <ModaleFicheLocataire locataireId={fiche.id} libelle={fiche.libelle} onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
+      )}
+      {fiche !== null && fiche.sorte === 'lot' && (
+        <ModaleCaracteristiquesBien lotId={fiche.id} titre="Fiche du bien" retourMot="Suivi du mois" trace={TRACE_SUIVI}
+          onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
+      )}
       <section className="tdb-section" aria-labelledby="fdm-locations" data-bloc="locations">
         <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>
         {!annuaire && <p className="loc-alerte loc-alerte--orange" role="status" data-feuille-sans-407>Mise à jour de la base à appliquer (migration 407) : l’origine du contact, le collègue et le choix de prime ne s’affichent ni ne se corrigent encore.</p>}
@@ -144,12 +157,22 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                     ouvert && (
                       <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={10}>
                         <DetailLigne a={a} ctx={ctx} />
-                        {annuaire && (
-                          <div className="fdm-detail-gestes">
+                        <div className="fdm-detail-gestes">
+                          {annuaire && (
                             <button type="button" className="tdb-pilule fdm-modifier" aria-expanded={edition === a.id} onClick={() => setEdition(edition === a.id ? null : a.id)} data-modifier-ligne={id}>
                               {edition === a.id ? 'Fermer' : 'Modifier'}</button>
-                          </div>
-                        )}
+                          )}
+                          {/* 🔴 Arno (24/10/2026) — les fiches COMPLÈTES et modifiables, dans la source unique : un bouton par locataire, un
+                              par bien ; sans locataire ou bien rattaché, « non rattaché » (jamais un bouton grisé sans explication). */}
+                          {(a.locataires ?? []).length > 0 ? (a.locataires ?? []).map((l) => (
+                            <button key={`loc-${l.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'locataire', id: l.id, libelle: l.libelle })}
+                              data-fiche-locataire={l.id}>{(a.locataires ?? []).length > 1 ? `Fiche locataire — ${l.libelle}` : 'Fiche locataire'}</button>
+                          )) : <span className="fdm-non-rattache" data-locataire-non-rattache>Fiche locataire : non rattaché</span>}
+                          {(a.lots ?? []).length > 0 ? (a.lots ?? []).map((b) => (
+                            <button key={`lot-${b.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'lot', id: b.id, libelle: b.libelle })}
+                              data-fiche-bien={b.id} title={b.libelle}>{(a.lots ?? []).length > 1 ? `Fiche du bien — ${b.libelle}` : 'Fiche du bien'}</button>
+                          )) : <span className="fdm-non-rattache" data-bien-non-rattache>Fiche du bien : non rattaché</span>}
+                        </div>
                         {edition === a.id && (
                           <div className="fdm-edition">
                             <EditionLigne a={a} d={d} ctx={ctx} onFermer={() => setEdition(null)} onFini={() => { setEdition(null); onRelire(); }} />
@@ -461,7 +484,10 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-nature--nouveau_sans_gestion{background:var(--color-svv-violet-soft);color:var(--color-svv-violet);border-color:var(--color-svv-violet-soft)}
 .fdm-nature--a_qualifier{background:transparent;color:var(--color-svv-muted);border:1px dashed var(--color-svv-muted)}
 .fdm-table td.fdm-bien{width:1%;white-space:nowrap}
-.fdm-table--synthese thead th:nth-child(-n+5){white-space:nowrap}.fdm-detail-gestes{display:flex;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
+.fdm-table--synthese thead th:nth-child(-n+5){white-space:nowrap}
+.fdm-raccourci{min-height:44px;padding:0 14px;font-size:.82rem}
+.fdm-non-rattache{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:var(--color-svv-muted);font-size:.82rem;font-style:italic}
+.fdm-detail-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
 .fdm-edition{margin-top:8px;border-top:1px dashed var(--color-svv-line-strong)}
 .fdm-detail .fdm-detail-grille{max-width:calc(100cqi - 20px)}
 .fdm-detail .fdm-edition-corps{width:calc(100cqi - 20px)}
