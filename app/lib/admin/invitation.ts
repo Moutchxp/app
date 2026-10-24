@@ -13,6 +13,8 @@
  * PUR : aucune base, aucun réseau.
  */
 
+import { OBJET_REINITIALISATION, PREFIXE_MESSAGE_ID_REINITIALISATION } from './reinitialisation';
+
 /** Durée de validité d'un lien d'activation. */
 export const DUREE_INVITATION_JOURS = 7;
 /** Délai minimal entre deux envois pour un même compte (anti-rafale). */
@@ -83,7 +85,10 @@ export function messageIdInvitation(domaine: string, alea: string): string {
 export function estInvitationAdmin(m: { sens?: string | null; messageIdEntete?: string | null; objet?: string | null }): boolean {
   const mid = (m.messageIdEntete ?? '').trim().replace(/^</, '').toLowerCase();
   if (mid.startsWith(PREFIXE_MESSAGE_ID_INVITATION)) return true;
-  return m.sens === 'envoye' && (m.objet ?? '').trim() === OBJET_INVITATION;
+  // Arno (24/10/2026, 416) — le mail « mot de passe oublié » d'un compte part aussi de gestion@ : même traitement (aucun bien).
+  if (mid.startsWith(PREFIXE_MESSAGE_ID_REINITIALISATION)) return true;
+  const objet = (m.objet ?? '').trim();
+  return m.sens === 'envoye' && (objet === OBJET_INVITATION || objet === OBJET_REINITIALISATION);
 }
 
 export const OBJET_INVITATION = 'Votre accès à l’espace de gestion Sans Vis-à-Vis — activez votre compte';
