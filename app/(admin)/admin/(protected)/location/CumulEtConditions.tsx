@@ -212,7 +212,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
 export const CSS_CUMUL_CONDITIONS = `
 .plo-conditions{margin:8px 0;padding:10px 14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-field);display:flex;flex-direction:column;gap:4px}
 .plo-conditions p{margin:0;overflow-wrap:anywhere}
-.plo-conditions-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;color:var(--color-svv-ink);font-weight:800;font-variant-numeric:tabular-nums}
+.plo-conditions-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;text-align:center;gap:8px 14px;color:var(--color-svv-ink);font-weight:800;font-variant-numeric:tabular-nums}
 .plo-conditions .plo-pastille-mode{font-size:.95rem;padding:4px 12px;letter-spacing:.03em}
 .plo-conditions-taux{font-size:1.3rem;line-height:1.25;font-weight:800;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
 @media (max-width:640px){ .plo-conditions-taux{font-size:1.1rem} }

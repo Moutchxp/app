@@ -107,7 +107,7 @@ describe('🔴 la carte est un bloc ; les 4 boutons centrés', () => {
   it('les styles : bordure, fond, coins, ombre et 24 px entre cartes (liste des apporteurs SEULE) ; boutons centrés, retour à la ligne', async () => {
     await annuaire();
     const css = [...container.querySelectorAll('style')].map((s) => s.textContent).join('').replace(/\s+/g, '');
-    expect(css).toMatch(/\.plo-versions\[data-liste-apporteurs\]\{gap:24px\}/);
+    expect(css).toMatch(/\.plo-versions\[data-liste-apporteurs\]\{gap:24px[;}]/);
     expect(css).toMatch(/\.plo-versions\[data-liste-apporteurs\]>li\{border:1pxsolidvar\(--color-svv-line-strong\);border-radius:16px;background:var\(--color-svv-field\)[^}]*box-shadow:/);
     expect(css).toMatch(/\.plo-boutons-carte\{display:flex;flex-wrap:wrap;gap:8px;[^}]*justify-content:center\}/);
     // Le panneau ouvert est DANS la carte.

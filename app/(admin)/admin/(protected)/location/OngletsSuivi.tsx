@@ -1,6 +1,6 @@
 'use client';
 
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
@@ -10,6 +10,7 @@ import {
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee } from './ReglageApporteur';
 import { ecrireEtatModale } from './etatModaleParametres';
+import { echelleTotaux, largeurDeuxRangees } from './miseEnPageTotaux';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur, netAgence } from './CumulEtConditions';
 
@@ -196,6 +197,44 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
     if (carte && corps) corps.scrollTop += carte.getBoundingClientRect().top - corps.getBoundingClientRect().top;
     else carte?.scrollIntoView?.({ block: 'start' });
   }, [lu]);
+  // 🔴 Arno (24/10/2026) — la ligne de totaux tient sur UNE ligne : une échelle de police commune à toutes les cartes (la carte la plus
+  // longue la fixe), plancher 13 px ; sous le plancher, repli en deux lignes équilibrées. Remesuré quand la LARGEUR change (seulement).
+  const listeRef = useRef<HTMLOListElement | null>(null);
+  useLayoutEffect(() => {
+    const ol = listeRef.current;
+    if (ol === null) return;
+    const ecart = (l: HTMLElement): number => parseFloat(getComputedStyle(l).columnGap) || 0;
+    const elements = (l: HTMLElement): HTMLElement[] => [...l.children] as HTMLElement[];
+    const besoinDe = (l: HTMLElement): number => elements(l).reduce((t, x) => t + x.getBoundingClientRect().width, 0) + ecart(l) * Math.max(0, elements(l).length - 1);
+    const ajuster = (): void => {
+      const lignes = [...ol.querySelectorAll<HTMLElement>('[data-totaux-ligne]')];
+      ol.style.setProperty('--plo-echelle-totaux', '1');
+      for (const l of lignes) { l.removeAttribute('data-replie'); l.style.maxWidth = ''; }
+      let { echelle, replie } = echelleTotaux(lignes.map((l) => ({ besoin: besoinDe(l), dispo: l.clientWidth })));
+      ol.style.setProperty('--plo-echelle-totaux', String(echelle));
+      // Le texte ne rétrécit pas tout à fait en proportion (rendu des polices) : on remesure à l'échelle posée et on corrige (4 fois au plus).
+      for (let i = 0; i < 4 && !replie; i++) {
+        if (lignes.every((l) => besoinDe(l) <= l.clientWidth)) break;
+        const r = echelleTotaux(lignes.map((l) => ({ besoin: besoinDe(l), dispo: l.clientWidth })));
+        ({ echelle, replie } = echelleTotaux([{ besoin: 1, dispo: Math.max(echelle * r.echelle, 0) / 0.995 }]));
+        ol.style.setProperty('--plo-echelle-totaux', String(echelle));
+      }
+      ol.dataset.echelleTotaux = String(Math.round(echelle * 1000) / 1000);
+      if (!replie) return;
+      for (const l of lignes) {
+        const b = besoinDe(l);
+        if (b <= l.clientWidth) continue;
+        l.setAttribute('data-replie', '');
+        l.style.maxWidth = `${largeurDeuxRangees(elements(l).map((x) => x.getBoundingClientRect().width), ecart(l))}px`;
+      }
+    };
+    ajuster();
+    if (typeof ResizeObserver === 'undefined') return;
+    let largeur = ol.clientWidth;
+    const ro = new ResizeObserver(() => { if (ol.clientWidth !== largeur) { largeur = ol.clientWidth; ajuster(); } });
+    ro.observe(ol);
+    return () => ro.disconnect();
+  }, [totaux, lu, tri, seulementARattacher, suivies]);
   return (
     <section data-onglet-apporteurs>
       <p className="plo-note">L’annuaire des apporteurs d’affaires et leur commission : un taux sur la <strong>location</strong> (honoraires HT du bail) et un taux sur la <strong>gestion</strong>
@@ -219,7 +258,7 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                 {seulementARattacher ? 'Tous les apporteurs' : `À rattacher (${lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length})`}</button>
             </p>
           )}
-          <ol className="plo-versions" data-liste-apporteurs>
+          <ol className="plo-versions" data-liste-apporteurs ref={listeRef}>
             {(() => {
               // 414 — « NOM Prénom », tri par nom de famille puis prénom (une structure par son nom) ; les autres tris départagent pareil.
               // Une carte rattachée sous le filtre « À rattacher » garde sa place, le temps de dire qu'elle en sort.
@@ -468,16 +507,18 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-total-note{font-size:.72rem;color:var(--color-svv-muted)}
 .plo-cumul-total th,.plo-cumul-total td{font-weight:800;color:var(--color-svv-ink)}
 .plo-cumul td{font-variant-numeric:tabular-nums;white-space:nowrap}
-.plo-totaux-ligne{display:flex;flex-wrap:wrap;gap:4px 18px;margin:4px 0}
-.plo-totaux-ligne div{display:flex;gap:6px;align-items:baseline}
-.plo-totaux-ligne dt{font-size:.78rem;font-weight:700;color:var(--color-svv-muted)}
-.plo-totaux-ligne dd{margin:0;font-weight:700;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+/* 🔴 Arno (24/10/2026) — centrée, sur UNE ligne : la police (libellés ET montants) suit l'échelle commune de la liste (miseEnPageTotaux). */
+.plo-totaux-ligne{display:flex;flex-wrap:nowrap;justify-content:center;gap:4px .6em;margin:6px auto;font-size:calc(1rem * var(--plo-echelle-totaux))}
+.plo-totaux-ligne[data-replie]{flex-wrap:wrap}
+.plo-totaux-ligne div{display:flex;gap:.25em;align-items:baseline;white-space:nowrap;flex-shrink:0}
+.plo-totaux-ligne dt{font-size:.7em;font-weight:700;color:var(--color-svv-muted)}
+.plo-totaux-ligne dd{margin:0;font-size:1.05em;font-weight:700;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
 .plo-totaux-ligne .plo-total-net dt{color:var(--color-svv-ink);font-weight:800}
 .plo-totaux-ligne .plo-total-net dd{font-weight:800}
 /* 🔴 Arno (24/10/2026) — CHAQUE CARTE D'APPORTEUR EST UN BLOC : bordure nette sur tout le pourtour (le panneau ouvert est DEDANS), fond
    distinct de la modale, coins arrondis, ombre légère, 24 px entre deux cartes. « À rattacher » : fond ambré, même bordure. */
-.plo-versions[data-liste-apporteurs]{gap:24px}
-.plo-versions[data-liste-apporteurs]>li{border:1px solid var(--color-svv-line-strong);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;
+.plo-versions[data-liste-apporteurs]{gap:24px;--plo-echelle-totaux:1}
+.plo-versions[data-liste-apporteurs]>li{border:1px solid var(--color-svv-line-strong);border-radius:16px;background:var(--color-svv-field);padding:14px 12px;
   box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-ink) 8%, transparent),0 6px 16px -10px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
 .plo-versions[data-liste-apporteurs]>li.plo-a-rattacher{border-color:var(--color-svv-line-strong) !important;background:var(--color-svv-amber-soft)}
 .plo-versions[data-liste-apporteurs]>li [data-panneau]{background:var(--color-svv-surface)}
