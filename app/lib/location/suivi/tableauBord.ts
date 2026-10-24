@@ -1,4 +1,4 @@
-import { montantPrime, type BaremeApporteur, type ModeApporteur,
+import { montantPrime, type BaremeApporteur, type ModeApporteur, estInterne, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -175,15 +175,18 @@ export const estRecurrent = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]
 
 /**
  * Les mois (« AAAA-MM ») où la part gestion « Récurrent » est DUE : du mois de signature au mois en cours, et seulement AVANT le
- * mois de la sortie de gestion du bien (arrêt à la sortie). PUR.
+ * mois de la sortie de gestion du bien (arrêt à la sortie). 🔴 Arno (24/10/2026, 419) — et pendant la DURÉE de la règle : N années =
+ * les 12 × N mois qui commencent au mois de signature (signé en mars 2026 pour 1 an : mars 2026 → février 2027) ; `null` / absente :
+ * « Indéterminée » (comme avant la 419). PUR.
  */
-export function moisDusRecurrent(a: Pick<ActiviteCalcul, 'dateSignature' | 'finGestion'>, aujourdhui: string): string[] {
+export function moisDusRecurrent(a: Pick<ActiviteCalcul, 'dateSignature' | 'finGestion'>, aujourdhui: string, dureeAnnees?: number | null): string[] {
   const debut = a.dateSignature.slice(0, 7);
   const finExclue = a.finGestion ? a.finGestion.slice(0, 7) : null;
   const dernier = aujourdhui.slice(0, 7);
+  const plafond = dureeAnnees === null || dureeAnnees === undefined ? Infinity : dureeAnnees * 12;
   const sortie: string[] = [];
   let [y, m] = debut.split('-').map(Number);
-  for (let mm = debut; mm <= dernier && (finExclue === null || mm < finExclue); ) {
+  for (let mm = debut; mm <= dernier && (finExclue === null || mm < finExclue) && sortie.length < plafond; ) {
     sortie.push(mm);
     m += 1; if (m > 12) { m = 1; y += 1; }
     mm = `${y}-${String(m).padStart(2, '0')}`;
@@ -191,13 +194,19 @@ export function moisDusRecurrent(a: Pick<ActiviteCalcul, 'dateSignature' | 'finG
   return sortie;
 }
 
+/** 419 — la durée du récurrent de l'apporteur : celle de la règle EN VIGUEUR À LA SIGNATURE (null : indéterminée). */
+export const dureeApporteurDe = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number | null => regleApporteurDe(a, apporteurs)?.dureeAnnees ?? null;
+/** Les mois dus à l'apporteur « Récurrent » pour cette affaire (sortie de gestion, mois en cours, durée de la règle). PUR. */
+export const moisDusApporteur = (a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): string[] =>
+  moisDusRecurrent(a, aujourdhui, dureeApporteurDe(a, apporteurs));
+
 /** La part gestion « Récurrent » due sur ces mois, pour ces affaires. PUR. */
 export function duRecurrent(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], mois: readonly string[], aujourdhui: string): number {
   let total = 0;
   for (const a of lignes) {
     const p = partGestionMensuelleDe(a, apporteurs);
     if (p === 0) continue;
-    const dus = moisDusRecurrent(a, aujourdhui);
+    const dus = moisDusApporteur(a, apporteurs, aujourdhui);
     total += p * mois.filter((m) => dus.includes(m)).length;
   }
   return total;
@@ -208,6 +217,55 @@ const jourDe = (ctx: Pick<ContexteCalcul, 'aujourdhui'>): string => ctx.aujourdh
 /** Les affaires « Récurrent » du contexte, ou celles des lignes. */
 const recurrentsDe = (ctx: ContexteCalcul, lignes: readonly ActiviteCalcul[]): readonly ActiviteCalcul[] =>
   (ctx.recurrents ?? lignes).filter((a) => estRecurrent(a, ctx.apporteurs));
+
+// ── 419 — LA RÉMUNÉRATION DU COLLÈGUE DE RATTACHEMENT (Arno, 24/10/2026) ────────────────────────────────────────────────
+
+/**
+ * Le collègue rémunéré d'une affaire, et sa règle : l'apporteur est EXTERNE, il avait un collègue de rattachement À LA SIGNATURE, et
+ * la rémunération en vigueur ce jour-là est « Rémunération » (jamais rétroactif : ni un changement de collègue, ni une nouvelle
+ * version ne touchent les dossiers d'avant). null sinon — aucun dossier sans apporteur n'en a. PUR.
+ */
+export function remunerationCollegueDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): { collegue: { cle: string; libelle: string }; regle: RemunerationCollegue } | null {
+  if (a.apporteurId === null) return null;
+  const ap = apporteurs.find((x) => x.id === a.apporteurId);
+  if (ap === undefined || estInterne(ap)) return null;
+  const regle = remunerationADate(ap, a.dateSignature);
+  if (regle === null || !regle.remunere) return null;
+  // Le collègue de rattachement À LA SIGNATURE (la même lecture que la colonne « Collègue »).
+  const c = collegueADate(ap, a.dateSignature);
+  if (c === null) return null;
+  return { collegue: { cle: c.collegueId !== null ? `id:${c.collegueId}` : `nom:${c.collegueLibelle.toLowerCase()}`, libelle: c.collegueLibelle }, regle };
+}
+/** Ce qui est dû au collègue À LA SIGNATURE : CA HT × son taux location + (One shot) son taux gestion × honoraires mensuels × 12. PUR. */
+export function commissionCollegueSignatureDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  const r = remunerationCollegueDe(a, apporteurs);
+  if (r === null) return 0;
+  return caLigne(a) * r.regle.taux + (r.regle.mode === 'one_shot' ? r.regle.tauxGestion * mensuelsDe(a) * 12 : 0);
+}
+/** Ce qui est dû au collègue CHAQUE MOIS (Récurrent) : son taux gestion × honoraires mensuels ; 0 en One shot. PUR. */
+export function commissionCollegueMensuelleDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  const r = remunerationCollegueDe(a, apporteurs);
+  return r === null || r.regle.mode !== 'recurrent' ? 0 : r.regle.tauxGestion * mensuelsDe(a);
+}
+/** Les mois dus au collègue « Récurrent » : la même règle que l'apporteur, avec SA durée. PUR. */
+export function moisDusCollegue(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): string[] {
+  const r = remunerationCollegueDe(a, apporteurs);
+  return r === null || r.regle.mode !== 'recurrent' ? [] : moisDusRecurrent(a, aujourdhui, r.regle.dureeAnnees);
+}
+/** Le dû « Récurrent » au collègue sur ces mois, pour ces affaires. PUR. */
+export function duCollegueRecurrent(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], mois: readonly string[], aujourdhui: string): number {
+  let total = 0;
+  for (const a of lignes) {
+    const p = commissionCollegueMensuelleDe(a, apporteurs);
+    if (p === 0) continue;
+    const dus = moisDusCollegue(a, apporteurs, aujourdhui);
+    total += p * mois.filter((m) => dus.includes(m)).length;
+  }
+  return total;
+}
+/** Une affaire qui fait naître un dû MENSUEL (apporteur ou collègue « Récurrent ») : à lire sur toutes les années. PUR. */
+export const aUnDuMensuel = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean =>
+  estRecurrent(a, apporteurs) || commissionCollegueMensuelleDe(a, apporteurs) > 0;
 
 /** La commission d'apporteur DUE À LA SIGNATURE : part location + part gestion « One shot ». PUR. */
 export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
@@ -233,6 +291,13 @@ export function collegueDeLigne(a: ActiviteCalcul, apporteurs: readonly Apporteu
   if (a.apporteurId === null) return null;
   const ap = apporteurs.find((x) => x.id === a.apporteurId);
   if (ap === undefined || ap.collegues === undefined) return null;
+  // 419 — un INTERNE n'est rattaché à personne : ses affaires sont les siennes (son compte). Un rattachement daté d'AVANT son passage
+  // en interne reste celui de l'époque (jamais rétroactif).
+  if (estInterne(ap)) {
+    const avant = versionADate(ap.collegues, a.dateSignature);
+    if (avant !== null) return { cle: avant.collegueId !== null ? `id:${avant.collegueId}` : `nom:${avant.collegueLibelle.toLowerCase()}`, libelle: avant.collegueLibelle };
+    return { cle: `id:${ap.compteId}`, libelle: ap.nom };
+  }
   const c = collegueADate(ap, a.dateSignature);
   if (c === null) return { aRattacher: true };
   return { cle: c.collegueId !== null ? `id:${c.collegueId}` : `nom:${c.collegueLibelle.toLowerCase()}`, libelle: c.collegueLibelle };
@@ -358,8 +423,12 @@ const moisDe = (annee: number, m: number): string => `${annee}-${String(m).padSt
 // ── A — le mois, comparé au même mois de l'année précédente ─────────────────────────────────────────────────────────
 
 export interface Periode { annee: number; mois: number | null }
-/** `apporteursRecurrents` : la part gestion « Récurrent » due sur la période (déjà comprise dans `apporteurs`). */
-export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number; apporteursRecurrents: number }
+/**
+ * `apporteursRecurrents` : la part gestion « Récurrent » due sur la période (déjà comprise dans `apporteurs`).
+ * 🔴 419 — `collegues` : les commissions dues aux COLLÈGUES pour l'apport de leurs apporteurs (à la signature + récurrent de la
+ * période). Une ligne à part du bas de feuille : elle n'entre dans AUCUN total existant (apporteurs, CA net, commission).
+ */
+export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number; apporteursRecurrents: number; collegues: number }
 
 /** Les lignes d'une période : l'année entière (`mois` null) ou un mois. */
 export function lignesDePeriode(activites: readonly ActiviteCalcul[], p: Periode): ActiviteCalcul[] {
@@ -374,7 +443,11 @@ export function totauxPeriode(activites: readonly ActiviteCalcul[], ctx: Context
   // 413 — la part gestion « Récurrent » due sur les mois de la période (affaires de toutes les années, celles du négociateur s'il est donné).
   const recurrents = recurrentsDe(ctx, activites).filter((a) => !negociateur || cleNegociateur(a) === negociateur);
   const apporteursRecurrents = duRecurrent(recurrents, ctx.apporteurs, mois, jourDe(ctx));
-  return { ...t, apporteurs: t.apporteurs + apporteursRecurrents, apporteursRecurrents, retrocessions, commission: t.commissionAvantRetro - retrocessions };
+  // 419 — le dû aux collègues : à la signature (lignes de la période) + leur récurrent dû sur les mois de la période (toutes années).
+  const lignes = lignesDePeriode(activites, p);
+  const collegues = lignes.reduce((s, a) => s + commissionCollegueSignatureDe(a, ctx.apporteurs), 0)
+    + duCollegueRecurrent((ctx.recurrents ?? activites).filter((a) => !negociateur || cleNegociateur(a) === negociateur), ctx.apporteurs, mois, jourDe(ctx));
+  return { ...t, apporteurs: t.apporteurs + apporteursRecurrents, apporteursRecurrents, retrocessions, commission: t.commissionAvantRetro - retrocessions, collegues };
 }
 
 export interface SectionMois { courant: TotauxPeriode; precedent: TotauxPeriode; variationCa: number | null; variationNb: number | null }
@@ -739,28 +812,31 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
   for (const a of siennes) {
     const p = partGestionMensuelleDe(a, apporteurs);
     if (p === 0) continue;
-    for (const m of moisDusRecurrent(a, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
+    for (const m of moisDusApporteur(a, apporteurs, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
       ajouterDu(total, p); ajouterDu(annee(Number(m.slice(0, 4))), p); ajouterDu(duMois(m), p);
     }
   }
   return { total, parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
 }
 
-export type TotalApporteur = Omit<CumulAffaires, 'ids'>;
+/** 419 — `collegue` : le dû au COLLÈGUE de rattachement HT (signature + récurrent jusqu'au mois en cours) ; à part du dû à l'apporteur. */
+export type TotalApporteur = Omit<CumulAffaires, 'ids'> & { collegue: number };
 
-/** Les totaux de CHAQUE apporteur depuis le début (liste de l'annuaire : dossiers, honoraires HT, dû HT). PUR. */
+/** Les totaux de CHAQUE apporteur depuis le début (liste de l'annuaire : dossiers, honoraires HT, dû HT, dû au collègue HT). PUR. */
 export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui?: string): Record<number, TotalApporteur> {
-  const par = new Map<number, CumulAffaires>();
+  const par = new Map<number, CumulAffaires & { collegue: number }>();
+  const jour = aujourdhui ?? new Date().toISOString().slice(0, 10);
   for (const a of activites) {
     if (a.apporteurId === null) continue;
-    const c = par.get(a.apporteurId) ?? cumulVide();
+    const c = par.get(a.apporteurId) ?? { ...cumulVide(), collegue: 0 };
     ajouter(c, a, apporteurs);
-    // 413 — la part gestion « Récurrent » due jusqu'au mois en cours.
+    // 413 — la part gestion « Récurrent » due jusqu'au mois en cours (419 : pendant la durée de la règle).
     const p = partGestionMensuelleDe(a, apporteurs);
-    if (p > 0) ajouterDu(c, p * moisDusRecurrent(a, aujourdhui ?? new Date().toISOString().slice(0, 10)).length);
+    if (p > 0) ajouterDu(c, p * moisDusApporteur(a, apporteurs, jour).length);
+    c.collegue += commissionCollegueSignatureDe(a, apporteurs) + commissionCollegueMensuelleDe(a, apporteurs) * moisDusCollegue(a, apporteurs, jour).length;
     par.set(a.apporteurId, c);
   }
-  return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission, location: c.location, gestion: c.gestion, recurrente: c.recurrente }]));
+  return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission, location: c.location, gestion: c.gestion, recurrente: c.recurrente, collegue: c.collegue }]));
 }
 
 /** Une entrée en gestion ou une sortie (mandat perdu), avec le loyer et le taux qui font ses honoraires de gestion. */

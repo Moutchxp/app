@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MOT_COLLEGUE_OBLIGATOIRE,
   aRattacher, collegueADate, htVersTtc, lireMontant, verifierCommercial, lireTauxPourcent, origineRetenue, ttcVersHt, verifierActivite, verifierApporteur, verifierRegle,
   verifierRetrocession, versionADate,
 } from './suivi';
@@ -60,7 +61,7 @@ describe('saisies vérifiées (navigateur et serveur)', () => {
   it('apporteur : nom, type de la liste, taux, date d’effet', () => {
     expect(verifierApporteur({ nom: '  Kin  Immo ', type: 'agence', taux: '10', depuis: '2026-01-01' }))
       .toEqual({ ok: true, nom: 'Kin Immo', type: 'agence', taux: 0.1, coutFixe: 0, depuis: '2026-01-01', societe: null, telephone: null, email: null, collegueId: null,
-        mode: 'one_shot', tauxGestion: 0 });   // 413 — par défaut « One shot », gestion 0 %
+        mode: 'one_shot', tauxGestion: 0, compteId: null, dureeAnnees: null });   // 413 — par défaut « One shot », gestion 0 % ; 419 — externe, durée sans objet
     expect(verifierApporteur({ nom: '', type: 'agence', depuis: '2026-01-01' }).ok).toBe(false);
     expect(verifierApporteur({ nom: 'X', type: 'ami', depuis: '2026-01-01' }).ok).toBe(false);
     expect(verifierApporteur({ nom: 'X', type: 'internet', taux: '10' }).ok).toBe(false);
@@ -112,7 +113,7 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime', () => {
   });
   it('un nouvel apporteur a son collègue de rattachement (obligatoire) ; un e-mail mal écrit est refusé', () => {
     expect(verifierApporteur({ nom: 'X', type: 'partenaire', depuis: '2026-01-01' }, { collegueObligatoire: true }))
-      .toEqual({ ok: false, motif: 'Le collègue de rattachement de l’apporteur est obligatoire.' });
+      .toEqual({ ok: false, motif: MOT_COLLEGUE_OBLIGATOIRE });
     expect(verifierApporteur({ nom: 'X', type: 'partenaire', depuis: '2026-01-01', collegueId: 5, email: 'x@y.fr', societe: '  SAS  Y ' }, { collegueObligatoire: true }))
       .toMatchObject({ ok: true, collegueId: 5, email: 'x@y.fr', societe: 'SAS Y' });
     expect(verifierApporteur({ nom: 'X', type: 'partenaire', depuis: '2026-01-01', email: 'pas un mail' }).ok).toBe(false);

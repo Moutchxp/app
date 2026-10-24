@@ -7,11 +7,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { appels, colonnes } = vi.hoisted(() => ({ appels: [] as { sql: string; params: unknown[] }[], colonnes: { avec413: true, avec414: true } }));
 vi.mock('server-only', () => ({}));
 vi.mock('../../db/client', () => ({
-  query: vi.fn(async (sql: string, params: unknown[] = []) => { appels.push({ sql: sql.replace(/\s+/g, ' '), params }); return { rows: [], rowCount: 1 }; }),
+  query: vi.fn(async (sql: string, params: unknown[] = []) => {
+    appels.push({ sql: sql.replace(/\s+/g, ' '), params });
+    // 419 — l'apporteur est un externe RATTACHÉ (la modification d'un externe sans collègue est refusée, éprouvé ailleurs).
+    if (sql.includes('AS externe')) return { rows: [{ externe: true, rattache: true }], rowCount: 1 };
+    return { rows: [], rowCount: 1 };
+  }),
   withTransaction: vi.fn(),
 }));
 vi.mock('../sondeLocation', () => ({
-  colonneExisteMemo: async (_t: string, c: string) => (c === 'taux_gestion_bien_ht' ? colonnes.avec413 : c === 'nom_famille' ? colonnes.avec414 : true),
+  // 419 (compte_id) absente ici : les écritures d'avant, à l'identique.
+  colonneExisteMemo: async (_t: string, c: string) => (c === 'taux_gestion_bien_ht' ? colonnes.avec413 : c === 'nom_famille' ? colonnes.avec414 : c !== 'compte_id'),
 }));
 const { ajouterBaremeApporteur, modifierApporteur } = await import('./suiviRepo');
 const AUTEUR = { id: 2, libelle: 'Arnaud Jorel' };
@@ -60,7 +66,10 @@ describe('🔴 Arno (24/10/2026) — « Type de bien » Parking : le serveur ref
 describe('🔴 Arno (24/10/2026, 414) — la fiche écrit le nom de famille et le prénom', () => {
   it('avec la 414 : écrits ; vides = une structure ; un prénom sans nom est refusé ; sans la 414 : la fiche s’écrit comme avant', async () => {
     const { query } = await import('../../db/client');
-    vi.mocked(query).mockImplementation((async (sql: string, params: unknown[] = []) => { appels.push({ sql: sql.replace(/\s+/g, ' '), params }); return { rows: [], rowCount: 1 }; }) as never);
+    vi.mocked(query).mockImplementation((async (sql: string, params: unknown[] = []) => {
+      appels.push({ sql: sql.replace(/\s+/g, ' '), params });
+      return sql.includes('AS externe') ? { rows: [{ externe: true, rattache: true }], rowCount: 1 } : { rows: [], rowCount: 1 };
+    }) as never);
     expect(await modifierApporteur(5, { nomFamille: ' Arthur ', prenom: 'Marjorie', type: 'partenaire' }, AUTEUR)).toEqual({ etat: 'ok' });
     expect(appels.at(-1)!.sql).toContain('nom_famille = $7, prenom = $8');
     expect(appels.at(-1)!.params.slice(-2)).toEqual(['Arthur', 'Marjorie']);

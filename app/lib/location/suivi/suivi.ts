@@ -212,7 +212,22 @@ export function montantPrime(r: RegleCommission, c: CategoriePrime): number {
 export const MODES_APPORTEUR = ['one_shot', 'recurrent'] as const;
 export type ModeApporteur = (typeof MODES_APPORTEUR)[number];
 export const LIBELLE_MODE_APPORTEUR: Record<ModeApporteur, string> = { one_shot: 'One shot', recurrent: 'Récurrent' };
-export interface BaremeApporteur extends Datee { taux: number; coutFixeMensuel: number; mode?: ModeApporteur; tauxGestion?: number }
+export interface BaremeApporteur extends Datee {
+  taux: number; coutFixeMensuel: number; mode?: ModeApporteur; tauxGestion?: number;
+  /** 🔴 Arno (24/10/2026, 419) — la durée du « Récurrent », en années entières (≥ 1). null / absente : « Indéterminée ». */
+  dureeAnnees?: number | null;
+}
+
+/** « pendant 3 ans » / « pendant 1 an » / « durée indéterminée ». PUR. */
+export const libelleDuree = (d: number | null | undefined): string => (d === null || d === undefined ? 'durée indéterminée' : `pendant ${d} an${d > 1 ? 's' : ''}`);
+
+/**
+ * 🔴 Arno (24/10/2026, 419) — LA RÉMUNÉRATION DU COLLÈGUE DE RATTACHEMENT d'un apporteur EXTERNE (« il a apporté cet apporteur ») :
+ * « Aucune rémunération » (`remunere: false`, et le défaut quand aucune version n'existe), ou One shot / Récurrent avec SES taux et
+ * sa durée — les mêmes formules que la commission de l'apporteur, sur les dossiers de cet apporteur. Versionnée : la version en
+ * vigueur à la signature du dossier fait foi (jamais rétroactif).
+ */
+export interface RemunerationCollegue extends Datee { remunere: boolean; mode: ModeApporteur; taux: number; tauxGestion: number; dureeAnnees: number | null }
 
 /** « 10 % » (fraction 0,1 → texte), sans arrondi au-delà de 4 décimales du pourcentage. PUR. */
 const pctTexte = (x: number): string => `${String(Math.round(x * 1000000) / 10000).replace('.', ',')} %`;
@@ -221,10 +236,13 @@ const pctTexte = (x: number): string => `${String(Math.round(x * 1000000) / 1000
  * La règle d'un apporteur, telle que la fiche l'écrit : « One shot — location 10 %, gestion 20 % » ou « Récurrent — location
  * 10 %, gestion 10 % / mois ». PUR.
  */
-export function libelleRegleApporteur(b: Pick<BaremeApporteur, 'taux' | 'mode' | 'tauxGestion'>): string {
+export function libelleRegleApporteur(b: Pick<BaremeApporteur, 'taux' | 'mode' | 'tauxGestion' | 'dureeAnnees'>): string {
   const mode = b.mode ?? 'one_shot';
-  return `${LIBELLE_MODE_APPORTEUR[mode]} — location ${pctTexte(b.taux)}, gestion ${pctTexte(b.tauxGestion ?? 0)}${mode === 'recurrent' ? ' / mois' : ''}`;
+  // 419 — la durée du récurrent (« pendant 3 ans », « durée indéterminée »).
+  return `${LIBELLE_MODE_APPORTEUR[mode]} — location ${pctTexte(b.taux)}, gestion ${pctTexte(b.tauxGestion ?? 0)}${mode === 'recurrent' ? ` / mois, ${libelleDuree(b.dureeAnnees)}` : ''}`;
 }
+/** « Aucune rémunération », ou la règle du collègue (« Récurrent — location 5 %, gestion 10 % / mois, pendant 3 ans »). PUR. */
+export const libelleRemuneration = (r: RemunerationCollegue | null): string => (r === null || !r.remunere ? 'Aucune rémunération' : libelleRegleApporteur(r));
 /** Le collègue de rattachement d'un apporteur, daté (407) : la version en vigueur à la date d'une affaire fait foi. */
 export interface CollegueDate extends Datee { collegueId: number | null; collegueLibelle: string }
 /**
@@ -245,7 +263,19 @@ export interface Apporteur {
   prenom?: string | null;
   /** Vide : « à rattacher » (407). Absent : base sans la 407. */
   collegues?: CollegueDate[];
+  /**
+   * 🔴 Arno (24/10/2026, 419) — un apporteur INTERNE est lié à son COMPTE de l'interface (quelles que soient ses permissions) et n'est
+   * rattaché à personne. null / absent : un partenaire EXTERNE (collègue de rattachement obligatoire).
+   */
+  compteId?: number | null;
+  /** 419 — la rémunération du collègue de rattachement (externe), versions datées ; vide : aucune. */
+  remunerations?: RemunerationCollegue[];
 }
+
+/** 419 — l'apporteur est-il INTERNE (lié à un compte de l'interface) ? PUR. */
+export const estInterne = (a: Pick<Apporteur, 'compteId'>): boolean => a.compteId !== null && a.compteId !== undefined;
+/** Le badge : « INTERNE » / « PARTENAIRE EXTERNE ». */
+export const badgeApporteur = (a: Pick<Apporteur, 'compteId'>): string => (estInterne(a) ? 'INTERNE' : 'PARTENAIRE EXTERNE');
 
 // ── Arno (24/10/2026, 414) — « NOM Prénom » et le tri par nom de famille ──────────────────────────────────────────────────
 
@@ -289,8 +319,47 @@ export function trierApporteurs<T extends Pick<Apporteur, 'id' | 'nom' | 'type' 
   return [...liste].sort((a, b) => { const [na, pa] = cle(a); const [nb, pb] = cle(b); return comparer(na, nb) || comparer(pa, pb) || a.id - b.id; });
 }
 
-/** « À rattacher » : aucun collègue de rattachement — l'apporteur ne peut pas être choisi pour une nouvelle location. PUR. */
-export const aRattacher = (a: Pick<Apporteur, 'collegues'>): boolean => a.collegues !== undefined && a.collegues.length === 0;
+/**
+ * « À rattacher » : un EXTERNE sans collègue de rattachement — il ne peut pas être choisi pour une nouvelle location. Un INTERNE n'est
+ * jamais « à rattacher » (419 : il n'est rattaché à personne). PUR.
+ */
+export const aRattacher = (a: Pick<Apporteur, 'collegues' | 'compteId'>): boolean => !estInterne(a) && a.collegues !== undefined && a.collegues.length === 0;
+
+/** 419 — la rémunération du collègue EN VIGUEUR à une date (null : aucune version, ou un interne). PUR. */
+export function remunerationADate(a: Pick<Apporteur, 'remunerations' | 'compteId'>, dateIso: string): RemunerationCollegue | null {
+  if (estInterne(a)) return null;
+  return versionADate(a.remunerations ?? [], dateIso);
+}
+
+/**
+ * 419 — LA DURÉE saisie : « Indéterminée » (vide, « indeterminee », null) → null ; sinon un nombre d'années ENTIER, 1 au moins ;
+ * `undefined` : illisible. PUR.
+ */
+export function lireDuree(brut: unknown): number | null | undefined {
+  if (brut === null || brut === undefined || brut === '' || brut === 'indeterminee') return null;
+  const t = typeof brut === 'number' ? String(brut) : typeof brut === 'string' ? brut.trim() : '';
+  if (!/^\d+$/.test(t)) return undefined;
+  const n = Number(t);
+  return n >= 1 && n <= 99 ? n : undefined;
+}
+export const MOT_DUREE = 'Durée du récurrent : un nombre d’années entier (1 au moins), ou « Indéterminée ».';
+
+/** 419 — vérifie une version de la rémunération du collègue (aucune / mode, taux en %, durée, date d'effet). PUR. */
+export function verifierRemuneration(brut: unknown): { ok: true; r: RemunerationCollegue } | { ok: false; motif: string } {
+  const b = (brut ?? {}) as Record<string, unknown>;
+  if (!dateIsoValide(b.depuis)) return { ok: false, motif: 'La date d’effet de la rémunération est obligatoire.' };
+  if (b.remunere !== true) return { ok: true, r: { depuis: b.depuis, remunere: false, mode: 'one_shot', taux: 0, tauxGestion: 0, dureeAnnees: null } };
+  const mode = dans(MODES_APPORTEUR, b.mode);
+  if (mode === null) return { ok: false, motif: 'Le mode de la rémunération : « One shot » ou « Récurrent ».' };
+  const taux = lireTauxPourcent(b.taux);
+  const tauxGestion = lireTauxPourcent(b.tauxGestion);
+  if (taux === undefined) return { ok: false, motif: 'Rémunération — taux sur la location : un pourcentage entre 0 et 100.' };
+  if (tauxGestion === undefined) return { ok: false, motif: 'Rémunération — taux sur la gestion : un pourcentage entre 0 et 100.' };
+  if ((taux ?? 0) === 0 && (tauxGestion ?? 0) === 0) return { ok: false, motif: 'Rémunération : saisissez au moins un taux (location ou gestion), ou choisissez « Aucune rémunération ».' };
+  const duree = mode === 'recurrent' ? lireDuree(b.dureeAnnees) : null;
+  if (duree === undefined) return { ok: false, motif: MOT_DUREE };
+  return { ok: true, r: { depuis: b.depuis, remunere: true, mode, taux: taux ?? 0, tauxGestion: tauxGestion ?? 0, dureeAnnees: duree } };
+}
 
 /** Le collègue de rattachement d'un apporteur À UNE DATE : la version en vigueur ce jour-là (jamais rétroactif) ; avant la
  *  première version, la première (l'apporteur était déjà le sien). null : à rattacher. PUR. */
@@ -437,16 +506,23 @@ export function verifierCommercial(b: Record<string, unknown>, origineObligatoir
 }
 
 /** Vérifie un apporteur nouveau (nom, type, taux par défaut en %, coût fixe mensuel en €, date d'effet). */
+export const MOT_COLLEGUE_OBLIGATOIRE = 'Un partenaire externe doit être rattaché à un collègue (de qui vient ce contact) : choisissez le collègue de rattachement.';
 export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: boolean } = {}): { ok: true; nom: string; type: TypeApporteur; taux: number; coutFixe: number; depuis: string;
-  societe: string | null; telephone: string | null; email: string | null; collegueId: number | null; mode: ModeApporteur; tauxGestion: number } | { ok: false; motif: string } {
+  societe: string | null; telephone: string | null; email: string | null; collegueId: number | null; mode: ModeApporteur; tauxGestion: number;
+  /** 419 — un INTERNE (`compteId`, rattaché à personne) ; la durée du récurrent (null : indéterminée). */
+  compteId: number | null; dureeAnnees: number | null } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
   const coord = verifierCoordonnees(b);
   if (!coord.ok) return coord;
-  const collegueId = entierPositif(b.collegueId);
-  if (o.collegueObligatoire && collegueId === null) return { ok: false, motif: 'Le collègue de rattachement de l’apporteur est obligatoire.' };
-  const nom = typeof b.nom === 'string' ? b.nom.replace(/\s+/g, ' ').trim() : '';
+  // 🔴 Arno (24/10/2026, 419) — INTERNE : lié à un compte (le nom vient du compte), aucun collègue ; EXTERNE : collègue obligatoire.
+  const interne = b.interne === true;
+  const compteId = interne ? entierPositif(b.compteId) : null;
+  if (interne && compteId === null) return { ok: false, motif: 'Un apporteur interne est lié à son compte de l’interface : choisissez le compte.' };
+  const collegueId = interne ? null : entierPositif(b.collegueId);
+  if (!interne && o.collegueObligatoire && collegueId === null) return { ok: false, motif: MOT_COLLEGUE_OBLIGATOIRE };
+  const nom = typeof b.nom === 'string' ? b.nom.replace(/\s+/g, ' ').trim() : interne ? 'compte' : '';
   if (nom === '') return { ok: false, motif: 'Le nom de l’apporteur est obligatoire.' };
-  const type = dans(TYPES_APPORTEUR, b.type);
+  const type = interne ? 'collaborateur' : dans(TYPES_APPORTEUR, b.type);
   if (type === null) return { ok: false, motif: 'Le type de l’apporteur : partenaire externe, agence, Internet ou collaborateur.' };
   const taux = lireTauxPourcent(b.taux);
   if (taux === undefined) return { ok: false, motif: 'Taux de commission : un pourcentage entre 0 et 100.' };
@@ -459,7 +535,9 @@ export function verifierApporteur(brut: unknown, o: { collegueObligatoire?: bool
   if (mode === null) return { ok: false, motif: 'Le mode de la commission : « One shot » ou « Récurrent ».' };
   const tauxGestion = lireTauxPourcent(b.tauxGestion);
   if (tauxGestion === undefined) return { ok: false, motif: 'Taux sur la gestion : un pourcentage entre 0 et 100.' };
-  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId, mode, tauxGestion: tauxGestion ?? 0 };
+  const dureeAnnees = mode === 'recurrent' ? lireDuree(b.dureeAnnees) : null;
+  if (dureeAnnees === undefined) return { ok: false, motif: MOT_DUREE };
+  return { ok: true, nom, type, taux: taux ?? 0, coutFixe: cout ?? 0, depuis, ...coord.valeurs, collegueId, mode, tauxGestion: tauxGestion ?? 0, compteId, dureeAnnees };
 }
 
 const texteOuNull = (v: unknown): string | null => (typeof v === 'string' && v.replace(/\s+/g, ' ').trim() !== '' ? v.replace(/\s+/g, ' ').trim() : null);

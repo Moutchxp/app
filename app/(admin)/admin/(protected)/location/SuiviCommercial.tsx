@@ -14,7 +14,7 @@ import { CaseEuros } from './ConditionsEntree';
 import {
   type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
 } from '../../../../lib/location/suivi/tableauBord';
-import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs } from '../../../../lib/location/suivi/suivi';
+import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs, estInterne, badgeApporteur } from '../../../../lib/location/suivi/suivi';
 
 /** Les champs d'une origine choisie : ceux des autres origines se vident (apporteur, collègue, texte « Personnalisé »). PUR. */
 function champsOrigine(v: OrigineContact | null): Partial<SaisieSuivi> {
@@ -385,14 +385,19 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               {/* Un apporteur « à rattacher » reste MONTRÉ dans la liste, avec sa mention, sans être choisissable. Arno (24/10/2026,
                   accord explicite) : l'aide qui le redisait sous le champ est retirée — le champ s'aligne sur son voisin de gauche. */}
               <ListeChoix valeur={s.apporteurId === null || s.apporteurId === undefined ? '' : String(s.apporteurId)} vide={annuaire ? '— choisir dans l’annuaire —' : '— aucun —'}
-                options={[...trierApporteurs(actifs).map((a) => {
+                options={[...[...trierApporteurs(actifs.filter(estInterne)), ...trierApporteurs(actifs.filter((a) => !estInterne(a)))].map((a) => {
                   // Arno (24/10/2026, 414) — « NOM Prénom », dans l'ordre alphabétique des noms de famille (une structure par son nom).
+                  // 🔴 419 — GROUPÉS : les internes (badge « INTERNE »), puis les partenaires externes ; rien d'autre ne change.
                   const bloque = annuaire && aRattacher(a);
-                  return { id: a.id, libelle: `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, mention: bloque ? ' — à rattacher' : undefined };
+                  const interne = estInterne(a);
+                  return { id: a.id, libelle: interne ? `${libelleApporteur(a)} (${badgeApporteur(a)})` : `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque,
+                    mention: bloque ? ' — à rattacher' : undefined, ...(annuaire ? { groupe: interne ? 'Internes' : 'Partenaires externes' } : {}) };
                 }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
                 libelle="Apporteur d’affaires" donnees={{ 'data-apporteur': '' }}
                 onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />
-              {annuaire && apporteur !== null && <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>}</label>
+              {annuaire && apporteur !== null && (estInterne(apporteur)
+                ? <small className="loc-muet" data-collegue-rattache>Apporteur interne — rattaché à personne</small>
+                : <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>)}</label>
           )}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}

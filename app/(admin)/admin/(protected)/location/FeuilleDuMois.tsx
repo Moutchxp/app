@@ -9,10 +9,11 @@ import { TRACE_SUIVI } from './TraceFiche';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
+  commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
   aRattacher, auCentime, LIBELLE_CATEGORIE_PRIME, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_ACTIVITE, libelleOrigineContact, type ModePrime, originesProposees, type OrigineContact,
-  PRECISION_ORIGINE_MAX, versionADate,
+  PRECISION_ORIGINE_MAX, versionADate, libelleDuree,
 } from '../../../../lib/location/suivi/suivi';
 
 /**
@@ -218,6 +219,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           <div><dt>Honoraires d’apporteurs</dt><dd data-total="apporteurs">{eur(t.apporteurs)}</dd></div>
           <div className="fdm-fort"><dt>CA HT − apporteurs</dt><dd data-total="ca-net">{eur(t.caNet)}</dd></div>
           <div><dt>Primes de gestion</dt><dd data-total="primes">{eur(t.primes)}</dd></div>
+          {/* 🔴 Arno (24/10/2026, 419) — une ligne À PART : les totaux existants ne changent pas. */}
+          <div><dt>Commissions collègues (apport d’apporteurs)</dt><dd data-total="collegues">{eur(t.collegues)}</dd></div>
           {d.voirCommissions && <div><dt>Rétrocessions</dt><dd data-total="retrocessions">{eur(t.retrocessions)}</dd></div>}
           {d.voirCommissions && negos.map((n) => (
             <div key={n.cle} className="fdm-fort"><dt>Commission brute — {n.libelle}</dt><dd data-total-commission={n.libelle}>{eur(n.totaux.commission)}</dd></div>
@@ -330,6 +333,14 @@ function DetailLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
     ['Apporteur', a.apporteurNom ?? '—'],
     ['Collègue', col === null ? '—' : aRat ? <span className="fdm-orange">à rattacher</span> : (col as { libelle: string }).libelle],
     ['Hono. d’apporteur', a.apporteurNom === null && a.apporteurId === null ? '—' : `${eur(commissionApporteurDe(a, ctx.apporteurs))}${taux === null ? '' : ` (${pct(taux)})`}`],
+    // 🔴 Arno (24/10/2026, 419) — le collègue qui a apporté cet apporteur, quand il est rémunéré sur ce dossier.
+    ...(() => {
+      const r = remunerationCollegueDe(a, ctx.apporteurs);
+      if (r === null) return [];
+      const mensuel = commissionCollegueMensuelleDe(a, ctx.apporteurs);
+      const texte = `${r.collegue.libelle} — ${eur(commissionCollegueSignatureDe(a, ctx.apporteurs))}${mensuel > 0 ? ` + ${eur(mensuel)} / mois (${libelleDuree(r.regle.dureeAnnees)})` : ''}`;
+      return [['Commission collègue (apport)', texte] as [string, ReactNode]];
+    })(),
     ['Prime de gestion', prime === 0 ? 'Aucune' : eur(prime)],
     ['Choix de prime', LIBELLE_MODE_PRIME[modePrimeDeLigne(a, ctx)]],
     ['Négociateur', a.negociateurLibelle || '—'],

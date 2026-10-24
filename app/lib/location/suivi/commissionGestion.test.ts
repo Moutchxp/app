@@ -146,7 +146,7 @@ describe('🔴 la saisie', () => {
     expect(verifierApporteur({ nom: 'X', type: 'agence', taux: '10', depuis: '2026-11-01' })).toMatchObject({ ok: true, mode: 'one_shot', tauxGestion: 0 });
     expect(verifierApporteur({ nom: 'X', type: 'agence', taux: '10', mode: 'mensuel', depuis: '2026-11-01' }).ok).toBe(false);
     expect(verifierApporteur({ nom: 'X', type: 'agence', taux: '10', tauxGestion: 'beaucoup', depuis: '2026-11-01' }).ok).toBe(false);
-    expect(libelleRegleApporteur({ taux: 0.1, mode: 'recurrent', tauxGestion: 0.1 })).toBe('Récurrent — location 10 %, gestion 10 % / mois');
+    expect(libelleRegleApporteur({ taux: 0.1, mode: 'recurrent', tauxGestion: 0.1 })).toBe('Récurrent — location 10 %, gestion 10 % / mois, durée indéterminée');
     expect(libelleRegleApporteur({ taux: 0.1, mode: 'one_shot', tauxGestion: 0.2 })).toBe('One shot — location 10 %, gestion 20 %');
   });
   it('le bail : mode et taux sur la gestion facultatifs (vides = la règle)', () => {

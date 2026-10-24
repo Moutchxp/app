@@ -197,6 +197,21 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     await saisir(htLocataire(), '200');
     expect((container.querySelector('input[data-commission-apporteur]') as HTMLInputElement).placeholder).toBe('60,00');
   });
+  it('🔴 419 — la liste « Apporteur » : les INTERNES puis les partenaires EXTERNES, groupés, badge ; un interne choisi : « rattaché à personne »', async () => {
+    avec407();
+    (parametres as { apporteurs: unknown[] }).apporteurs.push({ id: 9, nom: 'Jean-Baptiste Pons', type: 'collaborateur', archive: false, compteId: 5, collegues: [],
+      baremes: [{ depuis: '2026-01-01', taux: 0.05, coutFixeMensuel: 0 }] });
+    await preparer();
+    await clic(container.querySelector('input[data-avec-gestion]')!); await calmer();
+    await choisir(container.querySelector('[data-origine-contact]')!, 'apporteur');
+    await clic(container.querySelector('[data-apporteur]')!);
+    const liste = container.querySelector('[data-apporteur]')!.closest('.lch')!.querySelector('[data-liste-choix]')!;
+    expect([...liste.children].map((li) => li.getAttribute('data-groupe-choix') ?? li.getAttribute('data-option'))).toEqual(['', 'Internes', '9', 'Partenaires externes', '4', '3', '+']);   // externes : par nom de famille (COLLÈGUE, IMMO)
+    expect(liste.querySelector('[data-option="9"]')?.textContent).toContain('PONS Jean-Baptiste (INTERNE)');
+    expect(liste.querySelector('[data-groupe-choix="Internes"]')?.getAttribute('role')).toBe('presentation');
+    await clic(liste.querySelector('[data-option="9"]')!);
+    expect(container.querySelector('[data-collegue-rattache]')?.textContent).toBe('Apporteur interne — rattaché à personne');
+  });
   it('« Collègue directement » : le collègue ; la prime « 150 € » par défaut avec un mandat, « Personnalisé » exige son montant ; tout part au bail créé', async () => {
     avec407();
     await preparer();

@@ -73,7 +73,7 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
       baremes: [{ depuis: '2026-01-01', taux: 0.1, coutFixeMensuel: 0, mode: 'recurrent', tauxGestion: 0.1 }] }] };
     await ouvrir('apporteurs');
     const ligne = container.querySelector('[data-apporteur="3"]')!;
-    expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('Récurrent — location 10 %, gestion 10 % / mois (depuis le 01/01/2026)');
+    expect(ligne.querySelector('[data-regle-apporteur="3"]')?.textContent).toBe('Récurrent — location 10 %, gestion 10 % / mois, durée indéterminée (depuis le 01/01/2026)');
     await clic(ligne.querySelector('[data-nouveau-taux="3"]')!);
     const form = ligne.querySelector('[data-nouvelle-version]')!;
     // le formulaire COMMENCE par le choix du mode (pré-rempli avec la règle en vigueur)
@@ -160,9 +160,12 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await saisir(f.querySelector('[data-rattacher-depuis]') as HTMLInputElement, '2026-11-01');
     await clic(f.querySelector('[data-rattacher]')!);
     expect(posts.at(-1)).toMatchObject({ rattachement: { collegueId: 5, depuis: '2026-11-01' } });
+    // 🔴 419 — tant qu'il n'est pas rattaché (la relecture simulée le laisse « à rattacher »), sa fiche ne s'enregistre pas : refus dit, rien n'est envoyé.
     await saisir(f.querySelector('[data-fiche-societe]') as HTMLInputElement, 'Repris SARL');
+    const avant = posts.length;
     await clic(f.querySelector('[data-enregistrer-fiche]')!);
-    expect(posts.at(-1)).toMatchObject({ action: 'modifier-apporteur', apporteurId: 4, fiche: { societe: 'Repris SARL' } });
+    expect(posts.length).toBe(avant);
+    expect(f.querySelector('[data-refus-local]')?.textContent).toMatch(/rattachez-le d’abord à un collègue/);
     const n = (t: string | null | undefined) => (t ?? '').replace(/[\u202f\u00a0]/g, ' ');
     // Arno (23/10/2026) : « Total depuis le début » en 5 chiffres, au-dessus du cumul.
     const tot = (k: string) => n(container.querySelector(`[data-total-apporteur="${k}"]`)?.textContent);
@@ -241,7 +244,7 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     const tri0 = container.querySelector('[data-tri]') as HTMLSelectElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri0, 'ca'); tri0.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ordre()).toEqual(['4', '3']);   // 5 825,03 € avant 1 200 €
-    expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €');
+    expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €Dû au collègue HT0,00 €');
     const tri = container.querySelector('[data-tri]') as HTMLSelectElement;
     expect([...tri.options].map((o) => o.value)).toEqual(['ca', 'commission', 'nb', 'nom']);
     const trier = async (v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri, v); tri.dispatchEvent(new Event('change', { bubbles: true })); }); };

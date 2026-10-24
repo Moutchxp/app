@@ -19,6 +19,11 @@ export interface OptionChoix {
    */
   bloque?: boolean;
   mention?: string;
+  /**
+   * 🔴 Arno (24/10/2026, 419) — le GROUPE du choix (ex. « Internes », « Partenaires externes ») : un intitulé non choisissable s'affiche
+   * au début de chaque groupe (les choix d'un même groupe se suivent). Absent : aucun intitulé (la liste d'avant).
+   */
+  groupe?: string;
 }
 
 const norm = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -49,10 +54,11 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
   const liste = useRef<HTMLUListElement | null>(null);
   const champ = useRef<HTMLButtonElement | null>(null);
   // Les choix : « aucun » (si permis), les comptes actifs, et un compte désactivé seulement s'il est le choix en cours.
-  const choix: { id: string; libelle: string; desactive: boolean; bloque?: boolean }[] = [
+  const choix: { id: string; libelle: string; desactive: boolean; bloque?: boolean; groupe?: string }[] = [
     ...(vide === null ? [] : [{ id: '', libelle: vide, desactive: false }]),
     ...options.filter((o) => o.actif !== false || String(o.id) === valeur).map((o) => ({
       id: String(o.id), libelle: `${o.libelle}${o.actif === false ? ' (désactivé)' : ''}${o.mention ?? ''}`, desactive: o.actif === false || o.bloque === true, ...(o.bloque === true ? { bloque: true } : {}),
+      ...(o.groupe !== undefined ? { groupe: o.groupe } : {}),
     })),
   ];
   const courant = choix.find((c) => c.id === valeur);
@@ -105,14 +111,17 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
       </button>
       {ouvert && (
         <ul className="lch-liste" role="listbox" id={`${id}-liste`} aria-label={libelle} ref={liste} data-liste-choix>
-          {choix.map((c, i) => (
+          {choix.map((c, i) => [
+            c.groupe !== undefined && c.groupe !== choix[i - 1]?.groupe && (
+              <li key={`groupe-${c.groupe}`} role="presentation" className="lch-groupe" data-groupe-choix={c.groupe}>{c.groupe}</li>
+            ),
             <li key={c.id || 'vide'} id={`${id}-${i}`} role="option" aria-selected={c.id === valeur} aria-disabled={c.desactive || undefined} data-index={i} data-option={c.id} data-bloque={c.bloque ? '' : undefined}
               className={['lch-option', i === actif ? 'lch-option--actif' : '', c.id === valeur ? 'lch-option--choisi' : '', c.desactive ? 'lch-option--desactive' : '', c.id === '' ? 'lch-vide' : ''].filter(Boolean).join(' ')}
               onMouseEnter={() => setActif(i)} onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); choisir(i); }}>
               <span className="lch-coche" aria-hidden="true">{c.id === valeur ? '✓' : ''}</span>
               <span>{c.libelle}</span>
-            </li>
-          ))}
+            </li>,
+          ])}
         </ul>
       )}
     </div>
@@ -132,6 +141,7 @@ export const CSS_LISTE_CHOIX = `
 .lch-liste>.lch-option--actif{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .lch-liste>.lch-option--choisi{font-weight:700;color:var(--color-svv-green-ink)}
 .lch-liste>.lch-option--desactive{cursor:not-allowed;color:var(--color-svv-muted)}
+.lch-liste>.lch-groupe{margin:6px 0 2px;padding:4px 8px 2px;font-size:.72rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--color-svv-muted);cursor:default}
 .lch-coche{width:16px;flex:0 0 16px;color:var(--color-svv-green-ink);font-weight:800}
 .lch-champ:disabled{opacity:.6;cursor:not-allowed}
 /* Arno (24/10/2026) — la teinte ROUGE (le rouge de l'interface), pour le bloc « Suivi commercial » ; le vert reste ailleurs. */

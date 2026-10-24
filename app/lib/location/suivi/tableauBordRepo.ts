@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { estRecurrent, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
+import { aUnDuMensuel, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
 import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
@@ -215,8 +215,9 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const visibles = activites;
   // L'historique de toutes les années (Suivi annuel, « année par année ») : calculé ici, seules les sommes partent.
   const toutes = annees.length > 0 ? await lireActivites(annees) : [];
-  // 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois tant que le bien est en gestion.
-  const recurrents = toutes.filter((x) => estRecurrent(x, apporteurs));
+  // 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois tant que le bien est en gestion
+  // (419 : celle de l'apporteur ET celle du collègue rémunéré, chacune pendant sa durée).
+  const recurrents = toutes.filter((x) => aUnDuMensuel(x, apporteurs));
   const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions, recurrents, aujourdhui }, voirCommissions);
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
