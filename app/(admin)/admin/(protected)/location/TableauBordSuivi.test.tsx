@@ -56,6 +56,13 @@ const choisir = async (filtre: string, v: string) => {
 };
 const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as HTMLButtonElement;
 const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ');
+/** 🔴 Arno (24/10/2026) — « Modifier » est dans le panneau déplié : on déplie la ligne (si besoin), puis on clique « Modifier ». */
+const modifierLigne = async (cle: string) => {
+  if (container.querySelector(`[data-modifier-ligne="${cle}"]`) === null) {
+    await act(async () => { (container.querySelector(`[data-deplier-ligne="${cle}"]`) as HTMLButtonElement).click(); });
+  }
+  await act(async () => { (container.querySelector(`[data-modifier-ligne="${cle}"]`) as HTMLButtonElement).click(); });
+};
 
 describe('🔴 « Outils de suivi » — le tableau de bord', () => {
   const ongletMois = async (m: number) => { await act(async () => { (container.querySelector(`[data-onglet-mois="${m}"]`) as HTMLButtonElement).click(); }); await calmer(); };
@@ -229,7 +236,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     }) as unknown as typeof fetch;
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-    await act(async () => { (container.querySelector('[data-modifier-ligne="2026-09#3"]') as HTMLButtonElement).click(); });
+    await modifierLigne('2026-09#3');
     const sel = (q: string) => container.querySelector(q) as HTMLSelectElement;
     const choisirSel = async (el: HTMLSelectElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
     await choisirSel(sel('[data-edition-origine]'), 'apporteur');
@@ -248,7 +255,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     donnees = { ...donnees, activites: donnees.activites.map((a) => (a === ligne ? { ...a, origineContact: 'apporteur', apporteurId: 4, commissionSaisie: 45.74, apporteurTaux: 0.1 } : a)) };
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-    await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(ligne.id)}"]`) as HTMLButtonElement).click(); });
+    await modifierLigne(String(ligne.id));
     const taux = container.querySelector('[data-edition-taux]') as HTMLInputElement;
     const hono = container.querySelector('[data-edition-commission]') as HTMLInputElement;
     expect(taux.closest('.fdm-saisie')?.querySelector('.fdm-unite')?.textContent).toBe('%');
@@ -264,6 +271,107 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     }
   });
 
+  describe('🔴 Arno (24/10/2026) — « Locations du mois » : la ligne synthétique du fichier, dépliable', () => {
+    const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+    const ouvrirSeptembre = async () => {
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    };
+    const ligne = (id: string) => container.querySelector(`[data-ligne-feuille="${id}"]`) as HTMLTableRowElement;
+    const deplier = async (id: string) => { await act(async () => { (container.querySelector(`[data-deplier-ligne="${id}"]`) as HTMLButtonElement).click(); }); };
+
+    it('les colonnes de l’Excel, dans l’ordre : Propriétaires (nom | HT), Locataires (nom | HT), Total CA HT, Gestion, Apporteurs, Coms, chevron', async () => {
+      await ouvrirSeptembre();
+      const tete = [...container.querySelectorAll('[data-bloc="locations"] thead th')];
+      expect(tete.map((t) => t.textContent)).toEqual(['Propriétaires', 'Locataires', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', 'Détail']);
+      expect(tete.slice(0, 2).map((t) => t.getAttribute('colspan'))).toEqual(['2', '2']);
+      const a = sept[0];
+      const cases = [...ligne(String(a.id)).children].map((c) => c.getAttribute('data-mot'));
+      expect(cases).toEqual(['Propriétaires', 'Hono. propriétaire HT', 'Locataires', 'Hono. locataire HT', 'Total CA HT', 'Gestion', 'Apporteurs d’affaires', 'Coms apporteurs d’affaires', null]);
+      // Aucune des anciennes colonnes ne reste sur la ligne : elles sont dans le panneau.
+      expect(ligne(String(a.id)).querySelector('[data-modifier-ligne]')).toBeNull();
+      expect(container.querySelector('[data-detail-ligne]')).toBeNull();
+    });
+
+    it('montants « 1 234,56 € » à droite ; honoraires nuls « 0,00 € » ; Gestion et Coms vides à 0', async () => {
+      await ouvrirSeptembre();
+      for (const a of sept) {
+        const c = (mot: string) => ligne(String(a.id)).querySelector(`[data-mot="${mot}"]`) as HTMLElement;
+        expect(nbsp(c('Hono. propriétaire HT').textContent)).toMatch(/^\d{1,3}( \d{3})*,\d{2} €$/);
+        expect(nbsp(c('Hono. locataire HT').textContent)).toMatch(/^\d{1,3}( \d{3})*,\d{2} €$/);
+        expect(c('Total CA HT').classList.contains('fdm-montant')).toBe(true);
+        if (a.honoLocataireHt === 0) expect(nbsp(c('Hono. locataire HT').textContent)).toBe('0,00 €');
+        const prime = a.primeSaisie ?? 0;
+        expect(nbsp(c('Gestion').textContent)).toBe(prime === 0 ? '' : `${prime.toLocaleString('fr-FR', { minimumFractionDigits: 2 }).replace(/[  ]/g, ' ')} €`);
+        if ((a.commissionSaisie ?? 0) === 0 && a.apporteurTaux === null) expect(c('Coms apporteurs d’affaires').textContent).toBe('');
+      }
+    });
+
+    it('la colonne « Apporteurs d’affaires » reprend la colonne G du fichier', async () => {
+      await ouvrirSeptembre();
+      for (const a of sept) {
+        const attendu = a.apporteurNom ?? (a.origineContact === 'collegue' ? a.collegueLibelle : a.origineContact === 'internet' ? 'Internet' : null) ?? '';
+        expect(ligne(String(a.id)).querySelector('[data-mot="Apporteurs d’affaires"]')?.textContent).toBe(attendu);
+      }
+    });
+
+    it('le chevron, un clic sur la ligne : déplier / replier ; plusieurs lignes à la fois ; le nom du bien n’est pas un clic de dépliage', async () => {
+      donnees = { ...donnees, annuaire: true };
+      await ouvrirSeptembre();
+      const [x, y] = [String(sept[0].id), String(sept[1].id)];
+      await deplier(x);
+      expect(container.querySelector(`[data-detail-ligne="${x}"]`)).not.toBeNull();
+      expect(container.querySelector(`[data-deplier-ligne="${x}"]`)?.getAttribute('aria-expanded')).toBe('true');
+      expect(container.querySelector(`[data-deplier-ligne="${x}"]`)?.textContent).toBe('▾');
+      await act(async () => { (ligne(y).querySelector('[data-mot="Locataires"]') as HTMLElement).click(); });
+      expect([...container.querySelectorAll('[data-detail-ligne]')].map((e) => e.getAttribute('data-detail-ligne'))).toEqual([x, y]);
+      await deplier(x);
+      expect(container.querySelector(`[data-detail-ligne="${x}"]`)).toBeNull();
+      expect(container.querySelector(`[data-deplier-ligne="${x}"]`)?.textContent).toBe('▸');
+      expect(container.querySelector(`[data-detail-ligne="${y}"]`)).not.toBeNull();
+    });
+
+    it('🔴 rien ne disparaît : le panneau porte tout ce qui a quitté la ligne, et « Modifier »', async () => {
+      donnees = { ...donnees, annuaire: true };
+      await ouvrirSeptembre();
+      const x = String(sept[0].id);
+      await deplier(x);
+      const p = container.querySelector(`[data-detail-ligne="${x}"]`)!;
+      expect([...p.querySelectorAll('[data-champ]')].map((e) => e.getAttribute('data-champ'))).toEqual([
+        'Date de signature', 'Nature', 'Type de bien', 'Gestion', 'Origine du contact', 'Apporteur', 'Collègue', 'Hono. d’apporteur',
+        'Prime de gestion', 'Choix de prime', 'Négociateur', 'Client']);
+      expect(p.querySelector('[data-champ="Négociateur"]')?.textContent).toBe('Jean-Baptiste PONS');
+      expect(p.querySelector('[data-champ="Date de signature"]')?.textContent).toBe('01/09/2026 (supposée : le 1er du mois)');
+      expect(p.querySelector('[data-modifier-ligne]')?.textContent).toBe('Modifier');
+      await act(async () => { (p.querySelector('[data-modifier-ligne]') as HTMLButtonElement).click(); });
+      expect(container.querySelector(`[data-detail-ligne="${x}"] [data-edition-ligne="${x}"]`)).not.toBeNull();
+      // Replier la ligne abandonne la saisie (comme « Fermer ») ; la déplier à nouveau ne la rouvre pas.
+      await deplier(x);
+      await deplier(x);
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+    });
+
+    it('après « Enregistrer » : la feuille se relit (ligne et bas de feuille), le panneau reste ouvert', async () => {
+      donnees = { ...donnees, annuaire: true };
+      let lectures = 0;
+      global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+        if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response;
+        lectures += 1;
+        return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as unknown as Response;
+      }) as unknown as typeof fetch;
+      await ouvrirSeptembre();
+      const x = String(sept.find((a) => a.origineContact !== null)!.id);
+      await modifierLigne(x);
+      const avant = lectures;
+      await act(async () => { (container.querySelector('[data-edition-enregistrer]') as HTMLButtonElement).click(); });
+      await calmer();
+      expect(lectures).toBeGreaterThan(avant);
+      expect(container.querySelector('[data-edition-ligne]')).toBeNull();
+      expect(container.querySelector(`[data-detail-ligne="${x}"]`)).not.toBeNull();
+      expect(container.querySelector('[data-total="ca"]')).not.toBeNull();
+    });
+  });
+
   describe('🔴 Arno (23/10/2026) — la ligne en édition se ferme quand on veut, sans condition', () => {
     const sansOrigine = lignes2026.find((a) => a.dateSignature.startsWith('2026-09') && a.origineContact === null)!;
     const id = String(sansOrigine.id);
@@ -277,14 +385,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       }) as unknown as typeof fetch;
       await monter('mois');
       await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${cle}"]`) as HTMLButtonElement).click(); });
+      await modifierLigne(cle);
       expect(container.querySelector(`[data-edition-ligne="${cle}"]`)).not.toBeNull();
     };
     const prime = async (v: string) => {
       const el = container.querySelector('[data-edition-prime]') as HTMLSelectElement;
       await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
     };
-    const cellule = (mot: string) => container.querySelector(`[data-ligne-feuille="${id}"] td[data-mot="${mot}"]`)?.textContent;
+    const cellule = (mot: string) => container.querySelector(`[data-detail-ligne="${id}"] [data-champ="${mot}"]`)?.textContent;
 
     it('ouvrir puis « Fermer » sans rien toucher (ligne « à renseigner ») : la ligne se ferme, rien n’est écrit', async () => {
       await ouvrirLigne();
@@ -294,8 +402,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(posts).toEqual([]);
       expect(cellule('Origine du contact')).toBe('à renseigner');
       // Le bouton de tête de ligne (« Fermer ») referme de même.
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+      await modifierLigne(id);
+      await modifierLigne(id);
       expect(container.querySelector('[data-edition-ligne]')).toBeNull();
       expect(posts).toEqual([]);
     });
@@ -309,7 +417,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-edition-ligne]')).toBeNull();
       expect(cellule('Prime de gestion')).toBe(primeAvant);
       expect(posts).toEqual([]);
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+      await modifierLigne(id);
       expect((container.querySelector('[data-edition-prime]') as HTMLSelectElement).value).toBe(avant);
     });
 
@@ -324,7 +432,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     it('« Modifier » sur une autre ligne referme la première, sans rien écrire', async () => {
       await ouvrirLigne();
       const autre = lignes2026.find((a) => a.dateSignature.startsWith('2026-09') && a.id !== sansOrigine.id)!;
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(autre.id)}"]`) as HTMLButtonElement).click(); });
+      await modifierLigne(String(autre.id));
       expect([...container.querySelectorAll('[data-edition-ligne]')].map((e) => e.getAttribute('data-edition-ligne'))).toEqual([String(autre.id)]);
       expect(posts).toEqual([]);
     });
@@ -359,7 +467,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       }) as unknown as typeof fetch;
       await monter('mois');
       await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-      await act(async () => { (container.querySelector(`[data-modifier-ligne="${String(ligne.id)}"]`) as HTMLButtonElement).click(); });
+      await modifierLigne(String(ligne.id));
     };
     const taper = async (q: string, v: string) => {
       const el = container.querySelector(q) as HTMLInputElement | HTMLSelectElement;

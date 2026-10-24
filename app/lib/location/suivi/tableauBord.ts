@@ -1,5 +1,5 @@
 import { montantPrime, type BaremeApporteur, type ModeApporteur,
-  type Apporteur, type CategoriePrime, collegueADate, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
+  type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
 /**
@@ -238,7 +238,22 @@ export function collegueDeLigne(a: ActiviteCalcul, apporteurs: readonly Apporteu
   return { cle: c.collegueId !== null ? `id:${c.collegueId}` : `nom:${c.collegueLibelle.toLowerCase()}`, libelle: c.collegueLibelle };
 }
 
-export const tauxNegociateurDe = (a: ActiviteCalcul, regles: readonly RegleCommission[]): number => versionADate(regles, a.dateSignature)?.tauxNegociateur ?? 0;
+/**
+ * 🔴 Arno (24/10/2026) — la colonne « APPORTEURS D'AFFAIRES » de la ligne synthétique, comme celle du fichier (qui y mêle
+ * apporteur, collègue et origine) : l'apporteur s'il existe, sinon le collègue (« Collègue directement »), sinon le libellé de
+ * l'origine du contact, sinon vide. L'import (`origineDeTexte`) a réparti la colonne G ainsi : un partenaire → l'apporteur (nom
+ * de l'annuaire) ; un collègue → `collegueLibelle`, le texte du fichier ; « Internet » → l'origine. PUR.
+ */
+export function apporteurAffiche(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): { texte: string; source: 'apporteur' | 'collegue' | 'origine' | null } {
+  const nom = a.apporteurNom ?? (a.apporteurId === null ? null : apporteurs.find((x) => x.id === a.apporteurId)?.nom ?? null);
+  if (nom !== null && nom.trim() !== '') return { texte: nom, source: 'apporteur' };
+  if (a.origineContact === 'collegue' && a.collegueLibelle) return { texte: a.collegueLibelle, source: 'collegue' };
+  const origine = libelleOrigineContact(a.origineContact, a.origineContactPrecision);
+  if (origine !== '') return { texte: origine, source: 'origine' };
+  return { texte: '', source: null };
+}
+
+export const tauxNegociateurDe =(a: ActiviteCalcul, regles: readonly RegleCommission[]): number => versionADate(regles, a.dateSignature)?.tauxNegociateur ?? 0;
 
 // ── Filtres ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
