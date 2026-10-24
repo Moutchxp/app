@@ -359,8 +359,10 @@ function DetailLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
     ...(() => {
       const r = remunerationCollegueDe(a, ctx.apporteurs);
       if (r === null) return [];
-      const mensuel = commissionCollegueMensuelleDe(a, ctx.apporteurs);
-      const texte = `${r.collegue.libelle} — ${eur(commissionCollegueSignatureDe(a, ctx.apporteurs))}${mensuel > 0 ? ` + ${eur(mensuel)} / mois (${libelleDuree(r.regle.dureeAnnees)})` : ''}`;
+      // 🔴 Arno (25/10/2026) — calcul mensuel du bien : le montant du dernier mois calculé (il suit le loyer révisé et la vacance).
+      const gm = a.gestionMensuelle?.mois.filter((m) => m.mois <= (ctx.aujourdhui ?? '9999-12').slice(0, 7) && m.collegue !== 0) ?? [];
+      const mensuel = gm.length > 0 ? gm[gm.length - 1].collegue : commissionCollegueMensuelleDe(a, ctx.apporteurs);
+      const texte = `${r.collegue.libelle} — ${eur(commissionCollegueSignatureDe(a, ctx.apporteurs))}${mensuel > 0 ? ` + ${eur(mensuel)} / mois${gm.length > 0 ? ' (dernier mois calculé)' : ''} (${libelleDuree(r.regle.dureeAnnees)})` : ''}`;
       return [['Commission collègue (apport)', texte] as [string, ReactNode]];
     })(),
     ['Prime de gestion', prime === 0 ? 'Aucune' : eur(prime)],

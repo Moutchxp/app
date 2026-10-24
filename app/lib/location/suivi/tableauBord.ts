@@ -1,3 +1,4 @@
+import type { LigneMois } from './gestionMensuelle';
 import { montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
@@ -67,6 +68,13 @@ export interface ActiviteCalcul {
   apporteurTauxGestion?: number | null;
   tauxGestionBien?: number | null;
   finGestion?: string | null;
+  /**
+   * 🔴 Arno (25/10/2026) — LE CALCUL MENSUEL DU BIEN APPORTÉ (`gestionMensuelle.ts`) : loyer CC du mois (indexé, ou réel), vacance, sortie de
+   * gestion, prorata au jour ; posé par le serveur pour un dossier SAISI DANS L'OUTIL dont l'apporteur ou le collègue est « Récurrent »
+   * sur la gestion. Ses commissions remplacent alors la règle d'avant (constante). Absent : la règle d'avant ; les dossiers repris du
+   * fichier gardent leurs montants importés.
+   */
+  gestionMensuelle?: { lotId: number; libelle: string; mois: LigneMois[] } | null;
 }
 
 export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
@@ -180,7 +188,8 @@ export function partGestionMensuelleDe(a: ActiviteCalcul, apporteurs: readonly A
   if (a.apporteurId === null || modeApporteurDe(a, apporteurs) !== 'recurrent') return 0;
   return tauxGestionApporteurDe(a, apporteurs) * mensuelsDe(a);
 }
-export const estRecurrent = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean => partGestionMensuelleDe(a, apporteurs) > 0;
+export const estRecurrent = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean =>
+  (a.gestionMensuelle ? a.gestionMensuelle.mois.some((m) => m.commission !== 0) : partGestionMensuelleDe(a, apporteurs) > 0);
 
 /**
  * Les mois (« AAAA-MM ») où la part gestion « Récurrent » est DUE : du mois de signature au mois en cours, et seulement AVANT le
@@ -209,16 +218,27 @@ export const dureeApporteurDe = (a: ActiviteCalcul, apporteurs: readonly Apporte
 export const moisDusApporteur = (a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): string[] =>
   moisDusRecurrent(a, aujourdhui, dureeApporteurDe(a, apporteurs));
 
+/**
+ * 🔴 Arno (25/10/2026) — LE DÛ « RÉCURRENT » À L'APPORTEUR, MOIS PAR MOIS (« AAAA-MM » → euros) : le calcul mensuel du bien quand il existe
+ * (`gestionMensuelle`), sinon la règle d'avant (le même montant chaque mois dû). Compté dans le mois où il est dû. PUR.
+ */
+export function recurrentParMois(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): Map<string, number> {
+  if (a.gestionMensuelle) {
+    const fin = aujourdhui.slice(0, 7);
+    return new Map(a.gestionMensuelle.mois.filter((m) => m.commission !== 0 && m.mois <= fin).map((m) => [m.mois, m.commission]));
+  }
+  const p = partGestionMensuelleDe(a, apporteurs);
+  return p === 0 ? new Map() : new Map(moisDusApporteur(a, apporteurs, aujourdhui).map((m) => [m, p]));
+}
+const somme = (m: Map<string, number>, mois?: readonly string[]): number => {
+  let t = 0;
+  for (const [k, v] of m) if (mois === undefined || mois.includes(k)) t += v;
+  return t;
+};
+
 /** La part gestion « Récurrent » due sur ces mois, pour ces affaires. PUR. */
 export function duRecurrent(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], mois: readonly string[], aujourdhui: string): number {
-  let total = 0;
-  for (const a of lignes) {
-    const p = partGestionMensuelleDe(a, apporteurs);
-    if (p === 0) continue;
-    const dus = moisDusApporteur(a, apporteurs, aujourdhui);
-    total += p * mois.filter((m) => dus.includes(m)).length;
-  }
-  return total;
+  return lignes.reduce((t, a) => t + somme(recurrentParMois(a, apporteurs, aujourdhui), mois), 0);
 }
 
 /** Le jour de référence des dus « Récurrent » (le contexte, sinon aujourd'hui). */
@@ -254,6 +274,8 @@ export function commissionCollegueSignatureDe(a: ActiviteCalcul, apporteurs: rea
 }
 /** Ce qui est dû au collègue CHAQUE MOIS (Récurrent) : son taux gestion × honoraires mensuels ; 0 en One shot. PUR. */
 export function commissionCollegueMensuelleDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
+  // 🔴 25/10/2026 — avec le calcul mensuel du bien, le montant varie chaque mois : `recurrentCollegueParMois`.
+  if (a.gestionMensuelle) return 0;
   const r = remunerationCollegueDe(a, apporteurs);
   return r === null || r.regle.mode !== 'recurrent' ? 0 : r.regle.tauxGestion * mensuelsDe(a);
 }
@@ -262,20 +284,71 @@ export function moisDusCollegue(a: ActiviteCalcul, apporteurs: readonly Apporteu
   const r = remunerationCollegueDe(a, apporteurs);
   return r === null || r.regle.mode !== 'recurrent' ? [] : moisDusRecurrent(a, aujourdhui, r.regle.dureeAnnees);
 }
+/** 🔴 Arno (25/10/2026) — le dû « Récurrent » au COLLÈGUE, mois par mois : le calcul mensuel du bien, sinon la règle d'avant. PUR. */
+export function recurrentCollegueParMois(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): Map<string, number> {
+  if (a.gestionMensuelle) {
+    const fin = aujourdhui.slice(0, 7);
+    return new Map(a.gestionMensuelle.mois.filter((m) => m.collegue !== 0 && m.mois <= fin).map((m) => [m.mois, m.collegue]));
+  }
+  const p = commissionCollegueMensuelleDe(a, apporteurs);
+  return p === 0 ? new Map() : new Map(moisDusCollegue(a, apporteurs, aujourdhui).map((m) => [m, p]));
+}
+/**
+ * 🔴 Arno (25/10/2026) — les HONORAIRES DE GESTION PERÇUS d'un dossier « Récurrent », mois par mois : les mois où un dû récurrent
+ * (apporteur ou collègue) est calculé, jusqu'au mois en cours — le calcul mensuel du bien (loyer révisé, vacance déduite), sinon les
+ * honoraires mensuels du dossier (la règle d'avant). PUR.
+ */
+export function honorairesGestionParMois(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): Map<string, number> {
+  if (a.gestionMensuelle) {
+    const fin = aujourdhui.slice(0, 7);
+    return new Map(a.gestionMensuelle.mois.filter((m) => m.mois <= fin && (m.commission !== 0 || m.collegue !== 0)).map((m) => [m.mois, m.honoraires]));
+  }
+  const h = mensuelsDe(a);
+  if (h === 0) return new Map();
+  const mois = new Set([...recurrentParMois(a, apporteurs, aujourdhui).keys(), ...recurrentCollegueParMois(a, apporteurs, aujourdhui).keys()]);
+  return new Map([...mois].sort().map((m) => [m, h]));
+}
+
+/** Une ligne du cumul de la gestion récurrente : un apporteur, une année (montants au centime : la somme des mois arrondis). */
+export interface LigneGestionRecurrente { apporteurId: number; nom: string; honoraires: number; commission: number; collegue: number }
+export interface AnneeGestionRecurrente { annee: number; lignes: LigneGestionRecurrente[]; total: { honoraires: number; commission: number; collegue: number } }
+
+/**
+ * 🔴 Arno (25/10/2026) — LE CUMUL DE LA GESTION RÉCURRENTE, TOUS BIENS, ANNÉE PAR ANNÉE : honoraires de gestion perçus HT et commissions à
+ * reverser HT (apporteur, collègue), par apporteur et au total. Chaque mois compte au centime (le montant affiché du mois), les totaux sont
+ * la somme des mois : rien ne se perd à l'addition. Les années les plus récentes d'abord. PUR.
+ */
+export function gestionRecurrenteParAnnee(recurrents: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui: string): AnneeGestionRecurrente[] {
+  const c = (x: number): number => Math.round((x + Number.EPSILON) * 100);
+  const parAn = new Map<number, Map<number, { nom: string; h: number; co: number; col: number }>>();
+  const ligne = (annee: number, a: ActiviteCalcul) => {
+    const an = parAn.get(annee) ?? new Map(); parAn.set(annee, an);
+    const id = a.apporteurId as number;
+    const ap = apporteurs.find((x) => x.id === id);
+    const l = an.get(id) ?? { nom: ap?.nom ?? a.apporteurNom ?? `Apporteur n° ${id}`, h: 0, co: 0, col: 0 }; an.set(id, l);
+    return l;
+  };
+  for (const a of recurrents) {
+    if (a.apporteurId === null) continue;
+    for (const [m, v] of honorairesGestionParMois(a, apporteurs, aujourdhui)) ligne(Number(m.slice(0, 4)), a).h += c(v);
+    for (const [m, v] of recurrentParMois(a, apporteurs, aujourdhui)) ligne(Number(m.slice(0, 4)), a).co += c(v);
+    for (const [m, v] of recurrentCollegueParMois(a, apporteurs, aujourdhui)) ligne(Number(m.slice(0, 4)), a).col += c(v);
+  }
+  return [...parAn.entries()].sort((x, y) => y[0] - x[0]).map(([annee, an]) => {
+    const lignes = [...an.entries()].map(([apporteurId, l]) => ({ apporteurId, nom: l.nom, honoraires: l.h / 100, commission: l.co / 100, collegue: l.col / 100 }))
+      .sort((x, y) => x.nom.localeCompare(y.nom, 'fr'));
+    const t = [...an.values()].reduce((s, l) => ({ h: s.h + l.h, co: s.co + l.co, col: s.col + l.col }), { h: 0, co: 0, col: 0 });
+    return { annee, lignes, total: { honoraires: t.h / 100, commission: t.co / 100, collegue: t.col / 100 } };
+  });
+}
+
 /** Le dû « Récurrent » au collègue sur ces mois, pour ces affaires. PUR. */
 export function duCollegueRecurrent(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], mois: readonly string[], aujourdhui: string): number {
-  let total = 0;
-  for (const a of lignes) {
-    const p = commissionCollegueMensuelleDe(a, apporteurs);
-    if (p === 0) continue;
-    const dus = moisDusCollegue(a, apporteurs, aujourdhui);
-    total += p * mois.filter((m) => dus.includes(m)).length;
-  }
-  return total;
+  return lignes.reduce((t, a) => t + somme(recurrentCollegueParMois(a, apporteurs, aujourdhui), mois), 0);
 }
 /** Une affaire qui fait naître un dû MENSUEL (apporteur ou collègue « Récurrent ») : à lire sur toutes les années. PUR. */
 export const aUnDuMensuel = (a: ActiviteCalcul, apporteurs: readonly Apporteur[]): boolean =>
-  estRecurrent(a, apporteurs) || commissionCollegueMensuelleDe(a, apporteurs) > 0;
+  estRecurrent(a, apporteurs) || (a.gestionMensuelle ? a.gestionMensuelle.mois.some((m) => m.collegue !== 0) : commissionCollegueMensuelleDe(a, apporteurs) > 0);
 
 /** La commission d'apporteur DUE À LA SIGNATURE : part location + part gestion « One shot ». PUR. */
 export function commissionApporteurDe(a: ActiviteCalcul, apporteurs: readonly Apporteur[]): number {
@@ -802,7 +875,7 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
  * mêmes lignes et les mêmes règles que le Suivi (lignes reprises du fichier comprises, rattachées ou non à un bail). PUR.
  */
 export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number, aujourdhui?: string):
-  { total: CumulAffaires & { collegue: number }; parAnnee: (CumulAffaires & { annee: number; collegue: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
+  { total: CumulAffaires & { collegue: number }; parAnnee: (CumulAffaires & { annee: number; collegue: number; gestionRecurrente: { honoraires: number; commission: number } })[]; parMois: (CumulAffaires & { mois: string })[] } {
   const siennes = activites.filter((a) => a.apporteurId === apporteurId);
   const total = cumulVide();
   for (const a of siennes) ajouter(total, a, apporteurs);
@@ -815,9 +888,7 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
   }
   // 413 — la part gestion « Récurrent », due mois par mois jusqu'au mois en cours (ou jusqu'à la sortie de gestion).
   for (const a of siennes) {
-    const p = partGestionMensuelleDe(a, apporteurs);
-    if (p === 0) continue;
-    for (const m of moisDusApporteur(a, apporteurs, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
+    for (const [m, p] of recurrentParMois(a, apporteurs, aujourdhui ?? new Date().toISOString().slice(0, 10))) {
       ajouterDu(total, p); ajouterDu(annee(Number(m.slice(0, 4))), p); ajouterDu(duMois(m), p);
     }
   }
@@ -837,11 +908,15 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
     const sig = commissionCollegueSignatureDe(a, apporteurs);
     const y = Number(a.dateSignature.slice(0, 4));
     colAn.set(y, (colAn.get(y) ?? 0) + sig); colTotal += sig;
-    const m = commissionCollegueMensuelleDe(a, apporteurs);
-    if (m === 0) continue;
-    for (const mois of moisDusCollegue(a, apporteurs, jour)) { const y2 = Number(mois.slice(0, 4)); annee(y2); colAn.set(y2, (colAn.get(y2) ?? 0) + m); colTotal += m; }
+    for (const [mois, m] of recurrentCollegueParMois(a, apporteurs, jour)) { const y2 = Number(mois.slice(0, 4)); annee(y2); colAn.set(y2, (colAn.get(y2) ?? 0) + m); colTotal += m; }
   }
-  return { total: { ...total, collegue: colTotal }, parAnnee: [...an.values()].map((l) => ({ ...l, collegue: colAn.get(l.annee) ?? 0 })).sort((x, y) => y.annee - x.annee),
+  // 🔴 Arno (25/10/2026) — par année : « Honoraires de gestion perçus HT » et « Commission gestion due HT » de ses dossiers « Récurrent »
+  // (le calcul mensuel du bien quand il existe), chacun la somme de ses mois au centime.
+  const ges = new Map(gestionRecurrenteParAnnee(siennes.filter((a) => estRecurrent(a, apporteurs)), apporteurs, jour)
+    .map((x) => [x.annee, { honoraires: x.total.honoraires, commission: x.total.commission }]));
+  for (const y of ges.keys()) annee(y);
+  return { total: { ...total, collegue: colTotal }, parAnnee: [...an.values()].map((l) => ({ ...l, collegue: colAn.get(l.annee) ?? 0,
+      gestionRecurrente: ges.get(l.annee) ?? { honoraires: 0, commission: 0 } })).sort((x, y) => y.annee - x.annee),
     parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
 }
 
@@ -853,8 +928,9 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
 export function dontAnneeBrut(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string, annee: number): number {
   if (a.apporteurId === null) return 0;
   const signature = Number(a.dateSignature.slice(0, 4)) === annee ? partLocationDe(a, apporteurs) + partGestionSignatureDe(a, apporteurs) : 0;
-  const p = partGestionMensuelleDe(a, apporteurs);
-  return signature + (p === 0 ? 0 : p * moisDusApporteur(a, apporteurs, aujourdhui).filter((m) => Number(m.slice(0, 4)) === annee).length);
+  let rec = 0;
+  for (const [m, p] of recurrentParMois(a, apporteurs, aujourdhui)) if (Number(m.slice(0, 4)) === annee) rec += p;
+  return signature + rec;
 }
 
 /**
@@ -864,8 +940,8 @@ export function dontAnneeBrut(a: ActiviteCalcul, apporteurs: readonly Apporteur[
 export function duAfficheApporteurCentimes(a: ActiviteCalcul, apporteurs: readonly Apporteur[], aujourdhui: string): number {
   if (a.apporteurId === null) return 0;
   const c = (x: number): number => Math.round((x + Number.EPSILON) * 100);
-  const gestion = modeApporteurDe(a, apporteurs) === 'one_shot' ? partGestionSignatureDe(a, apporteurs)
-    : partGestionMensuelleDe(a, apporteurs) * moisDusApporteur(a, apporteurs, aujourdhui).length;
+  // « One shot » : la part gestion due à la signature ; « Récurrent » : ses mois dus (calcul mensuel du bien, ou la règle d'avant).
+  const gestion = modeApporteurDe(a, apporteurs) === 'one_shot' ? partGestionSignatureDe(a, apporteurs) : somme(recurrentParMois(a, apporteurs, aujourdhui));
   return c(partLocationDe(a, apporteurs)) + c(gestion);
 }
 
@@ -879,7 +955,7 @@ export function contributionsAnnees(a: ActiviteCalcul, apporteurs: readonly Appo
   const total = duAfficheApporteurCentimes(a, apporteurs, aujourdhui);
   const signature = Number(a.dateSignature.slice(0, 4));
   const annees = new Set<number>([signature]);
-  if (partGestionMensuelleDe(a, apporteurs) !== 0) for (const m of moisDusApporteur(a, apporteurs, aujourdhui)) annees.add(Number(m.slice(0, 4)));
+  for (const m of recurrentParMois(a, apporteurs, aujourdhui).keys()) annees.add(Number(m.slice(0, 4)));
   if (annees.size <= 1) return new Map([[signature, total]]);
   const parts = repartirAuCentime([...annees].map((y) => ({ id: y, brut: dontAnneeBrut(a, apporteurs, aujourdhui, y) })), total);
   return new Map([...annees].sort((x, y) => x - y).map((y) => [y, parts.get(y) ?? 0]));
@@ -913,9 +989,9 @@ export function totauxApporteurs(activites: readonly ActiviteCalcul[], apporteur
     const c = par.get(a.apporteurId) ?? { ...cumulVide(), collegue: 0 };
     ajouter(c, a, apporteurs);
     // 413 — la part gestion « Récurrent » due jusqu'au mois en cours (419 : pendant la durée de la règle).
-    const p = partGestionMensuelleDe(a, apporteurs);
-    if (p > 0) ajouterDu(c, p * moisDusApporteur(a, apporteurs, jour).length);
-    c.collegue += commissionCollegueSignatureDe(a, apporteurs) + commissionCollegueMensuelleDe(a, apporteurs) * moisDusCollegue(a, apporteurs, jour).length;
+    const rec = somme(recurrentParMois(a, apporteurs, jour));
+    if (rec !== 0) ajouterDu(c, rec);
+    c.collegue += commissionCollegueSignatureDe(a, apporteurs) + somme(recurrentCollegueParMois(a, apporteurs, jour));
     par.set(a.apporteurId, c);
   }
   return Object.fromEntries([...par].map(([id, c]) => [id, { nb: c.nb, avenants: c.avenants, ca: c.ca, commission: c.commission, location: c.location, gestion: c.gestion, recurrente: c.recurrente, collegue: c.collegue }]));

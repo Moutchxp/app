@@ -5,6 +5,7 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
 import { CSS_CARTES, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
+import { LoyersRevises } from './IndicesLoyers';
 import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, ttcDepuisHt, useParametresSuivi } from './SuiviCommercial';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { ModaleIssue } from './ModaleIssue';
@@ -217,10 +218,12 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
               {conditions === null ? (
                 <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
               ) : (
-                <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt
+                <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }}
                   entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire /> : undefined} />
               )}
               {conditions === null && entretien !== null && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire />}
+              {/* 🔴 Arno (25/10/2026, Q2) — le loyer révisé RÉEL du bail (prioritaire sur le calcul, « réel » dans le tableau mensuel). */}
+              <LoyersRevises bailId={l.bailId} />
               {l.conditions !== null && l.conditions.lignesHonoraires.length > 0 && (
                 <dl className="mdl-honoraires" data-honoraires-dossier>{l.conditions.lignesHonoraires.map((x) => <div key={x.mot}><dt>{x.mot}</dt><dd>{x.valeur}</dd></div>)}</dl>
               )}

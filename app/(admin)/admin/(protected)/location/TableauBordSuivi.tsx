@@ -5,7 +5,7 @@ import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   entreesGestionParMois, lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
   sectionNegociateurs, totauxPeriode, type TotauxPeriode, tuilesAnnee, variation,
-  type AnneeHistorique,
+  type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
@@ -524,6 +524,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             <CourbeGestion points={D} onMois={(p) => setDetail({ titre: `Gestion — ${NOMS_MOIS[Number(p.mois.slice(5)) - 1].toLowerCase()} ${p.mois.slice(0, 4)}`, lots: [{ titre: 'Entrés en gestion', ids: p.lotsEntres }, { titre: 'Sortis de la gestion', ids: p.lotsSortis }] })} />
           </>
         )}
+        <GestionRecurrenteAnnees annees={gestionRecurrenteParAnnee(d.recurrents ?? [], d.apporteurs, d.aujourdhui ?? aujourdhuiParis())} />
       </section>
 
       <section className="tdb-section" aria-labelledby="tdb-e" data-section="E">
@@ -677,6 +678,43 @@ interface Barre { cle: number; libelle: string; valeur: number | null; n1?: numb
 export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'positif' : x < 0 ? 'negatif' : 'nul');
 
 /** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
+/**
+ * 🔴 Arno (25/10/2026) — LA COMMISSION RÉCURRENTE SUR LA GESTION, TOUS BIENS, ANNÉE PAR ANNÉE : honoraires de gestion perçus HT et
+ * commissions à reverser HT, par apporteur et au total (sans filtre : toutes les affaires « Récurrent »). Recalculé à chaque lecture.
+ */
+export function GestionRecurrenteAnnees({ annees }: { annees: readonly AnneeGestionRecurrente[] }) {
+  if (annees.length === 0) return null;
+  const avecCollegue = annees.some((a) => a.total.collegue !== 0);
+  const eu = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  return (
+    <div data-gestion-recurrente-annees>
+      <h4 className="tdb-h4">Commission récurrente sur la gestion — année par année <small className="loc-muet">(tous biens)</small></h4>
+      <table className="tdb-table tdb-table--large">
+        <thead><tr><th scope="col">Année · apporteur</th><th scope="col">Honoraires de gestion perçus HT</th><th scope="col">Commissions à reverser HT</th>
+          {avecCollegue && <th scope="col">dont collègue HT</th>}</tr></thead>
+        <tbody>
+          {annees.flatMap((a) => [
+            ...a.lignes.map((l) => (
+              <tr key={`${a.annee}-${l.apporteurId}`} data-gestion-annee={a.annee} data-gestion-apporteur={l.apporteurId}>
+                <th scope="row">{a.annee} · {l.nom}</th>
+                <td data-mot="Honoraires de gestion perçus HT">{eu(l.honoraires)}</td>
+                <td data-mot="Commissions à reverser HT">{eu(l.commission + l.collegue)}</td>
+                {avecCollegue && <td data-mot="dont collègue HT">{eu(l.collegue)}</td>}
+              </tr>
+            )),
+            <tr key={`${a.annee}-total`} className="tdb-fort" data-gestion-total={a.annee}>
+              <th scope="row">Total {a.annee}</th>
+              <td data-mot="Honoraires de gestion perçus HT">{eu(a.total.honoraires)}</td>
+              <td data-mot="Commissions à reverser HT">{eu(a.total.commission + a.total.collegue)}</td>
+              {avecCollegue && <td data-mot="dont collègue HT">{eu(a.total.collegue)}</td>}
+            </tr>,
+          ])}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
   if (info.compte !== undefined) return <BulleCompte info={info} sous={sous} />;
   const { courant: c, precedent: p } = info;
@@ -1009,6 +1047,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-table th[scope=row],.tdb-table thead th:first-child{text-align:left}
 .tdb-table thead th{font-size:.78rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .tdb-fort th,.tdb-fort td,td.tdb-fort{font-weight:800}
+.tdb-h4{margin:14px 0 6px;font-size:.98rem}
 .tdb-chiffre{appearance:none;border:0;background:none;padding:6px 4px;min-height:36px;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:var(--color-svv-line-strong);text-underline-offset:3px;border-radius:6px}
 .tdb-chiffre:hover{color:var(--color-svv-red);text-decoration-color:currentColor}
 .tdb-chiffre:focus-visible{outline:2px solid var(--color-svv-red)}

@@ -53,7 +53,7 @@ describe('🔴 Paramètres Location — Apporteurs et Commissions', () => {
   it('les cinq onglets ; les trois d’avant sont toujours là', async () => {
     await ouvrir('apporteurs');
     expect([...container.querySelectorAll('[data-onglet]')].map((b) => b.textContent))
-      .toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions']);
+      .toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']);
   });
 
   it('Apporteurs : le taux EN VIGUEUR aujourd’hui et l’historique ; « Nouveau taux » crée une version datée', async () => {

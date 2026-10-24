@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { htVersTtc, lireMontant, ttcVersHt } from '../../../../lib/location/suivi/suivi';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
@@ -13,6 +13,8 @@ import {
   eurosAffiches, LIBELLE_ZONE, lignesHonoraires, MENTION_SAISI_MAIN, montantHonorairesSaisi, montantPourChamp, tarifAffiche, lireDecimal,
   totalDesHonoraires, ZERO, type CalculHonoraires,
 } from '../../../../lib/location/honorairesProprietaire';
+import type { SaisieIndice } from '../../../../lib/location/indicesLoyers';
+import { BlocIndiceLoyers, CSS_INDICES } from './IndicesLoyers';
 
 /** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
 export const POLICE_MIN_INTITULE_PX = 13;
@@ -68,7 +70,7 @@ export function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false, indice }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -97,9 +99,18 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
    * fiche du locataire (même composant) reste en TTC.
    */
   agenceEnHt?: boolean;
+  /**
+   * 🔴 Arno (25/10/2026, 423) — le bloc « INDICE DES LOYERS », juste à droite de « Loyer mensuel » (même hauteur, même dessin) :
+   * « Nouveau locataire » et le Dossier de location. `famille` : celle du bien (la présélection du type). Absent : pas de bloc.
+   */
+  indice?: { famille: string | null | undefined };
 }) {
   const s = valeur;
   const [frappeAgence, setFrappeAgence] = useState<string | null>(null);
+  /* 423 — la saisie À JOUR pour les gestes automatiques (proratas, indice) : deux mises à jour du même tour ne s'écrasent jamais (la
+     seconde part de la première). Relue à chaque rendu avant les effets. */
+  const courante = useRef(s);
+  useLayoutEffect(() => { courante.current = s; }, [s]);
   // ══ LES PRORATAS (Arno, 20/10/2026) : loyer principal / provision × jours d'occupation ÷ jours du mois d'entrée, recalculés
   //    tant qu'on ne les a pas modifiés à la main. Arrondis au centime à la fin seulement (`prorataEntree`).
   const meres = { prorataLoyer: s.loyer.principal, prorataCharges: s.loyer.provisions } as const;
@@ -115,11 +126,12 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   const cibleCharges = valeurAuto('prorataCharges');
   useEffect(() => {
     if (dateEntree === undefined) return; // l'écran hôte ne fournit pas de date : les proratas restent des saisies libres
-    const maj2 = { ...s.sommes };
+    const base = courante.current;
+    const maj2 = { ...base.sommes };
     let change = false;
-    if (!s.prorataManuel.prorataLoyer && s.sommes.prorataLoyer !== cibleLoyer) { maj2.prorataLoyer = cibleLoyer; change = true; }
-    if (!s.prorataManuel.prorataCharges && s.sommes.prorataCharges !== cibleCharges) { maj2.prorataCharges = cibleCharges; change = true; }
-    if (change) onChange({ ...s, sommes: maj2 });
+    if (!base.prorataManuel.prorataLoyer && base.sommes.prorataLoyer !== cibleLoyer) { maj2.prorataLoyer = cibleLoyer; change = true; }
+    if (!base.prorataManuel.prorataCharges && base.sommes.prorataCharges !== cibleCharges) { maj2.prorataCharges = cibleCharges; change = true; }
+    if (change) { const n = { ...base, sommes: maj2 }; courante.current = n; onChange(n); }
   }, [cibleLoyer, cibleCharges, s, onChange, dateEntree]);
   const sousProrata = (k: 'prorataLoyer' | 'prorataCharges'): ReactNode => {
     if (s.prorataManuel[k]) {
@@ -149,6 +161,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   };
   const idChamps = useId();
   const maj = (p: Partial<SaisieConditions>): void => onChange({ ...s, ...p });
+  // L'indice se pose de lui-même (à la lecture des indices, à un changement de date d'entrée) : sur la saisie À JOUR, jamais une copie ancienne.
+  const majIndice = useCallback((v: SaisieIndice): void => { const n = { ...courante.current, indice: v }; courante.current = n; onChange(n); }, [onChange]);
   const total = totalCentimes(s.sommes);
   const illisible = SOMMES.some((k) => s.sommes[k].trim() !== '') && total === null;
   return (
@@ -236,6 +250,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         {manque('honorairesProprietaire')}
       </div>
 
+      {/* 423 — Loyer mensuel et Indice des loyers côte à côte (une rangée à eux deux sur ordinateur, l'un sous l'autre au téléphone). */}
+      <div className={indice === undefined ? 'loc-cond-seul' : 'loc-cond-paire'} data-cond-paire={indice === undefined ? undefined : 'loyer-indice'}>
       <div className="loc-cond-bloc" data-cond="loyer">
         <h4>Loyer mensuel</h4>
         {loyer?.indisponible === true && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-loyer-sans-migration>Mise à jour de la base à appliquer (migration 370) : le loyer mensuel ne sera pas enregistré.</p>}
@@ -258,6 +274,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
           <span>Total loyer charges comprises / mois</span>
           <strong>{((t) => (t === null ? ((s.loyer.principal.trim() !== '' || s.loyer.provisions.trim() !== '') ? 'montant illisible' : '—') : formaterCentimes(t)))(totalLoyerCentimes(s.loyer))}</strong>
         </p>
+      </div>
+      {indice !== undefined && <BlocIndiceLoyers valeur={s.indice} onChange={majIndice} famille={indice.famille} dateEntree={dateEntree} manque={manque} />}
       </div>
 
       <div className="loc-cond-bloc" data-cond="sommes">
@@ -481,7 +499,10 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
 }
 
 /** Les encadrés : les jetons du thème seulement, le même dessin que les blocs DPE / PNO de « Nouveau bien ». */
-export const CSS_CONDITIONS = INFOBULLE_CSS + `
+export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
+/* 423 — la rangée « Loyer mensuel | Indice des loyers » : deux blocs de même hauteur (une rangée de la grille à eux deux). */
+.loc-cond-seul,.loc-cond-paire{display:contents}
+@media (min-width:900px){ .loc-cond-paire{display:grid;grid-column:1 / -1;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:stretch} }
 .loc-champ-tete{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
 /* L'intitulé : une seule ligne, jamais coupé ; sa police s'ajuste (composant Intitule). Le picto le suit, aligné au milieu du texte. */
 .loc-intitule{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:clip;line-height:1.3}

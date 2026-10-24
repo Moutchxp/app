@@ -10,6 +10,8 @@ import { ecrireLoyerDans, loyerDeLaSaisie, loyerDesOccupations } from './loyerEn
 import { honorairesGestionDisponible } from '../gestion/schema';
 import { bailDisponible, garantsDisponibles } from './bailRepo';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
+import { indiceDuBailDisponible, valeurIndice } from './indicesRepo';
+import type { TypeIndice } from './indicesLoyers';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES « CONDITIONS D'ENTRÉE » D'UN BAIL (Arno, 20/10/2026). IMPUR (base). ══════════════════════
@@ -72,6 +74,8 @@ interface LigneSql {
   bail_occupations: string[] | null; surface_actuelle: string | null; bail_entree: string | null;
   /** Migration 402 : le total a été saisi à la main (aucune version de barème). */
   hono_saisi_main?: boolean | null;
+  /** Migration 423 : l'indice des loyers du bail. */
+  indice_type?: string | null; indice_annee?: number | null; indice_trimestre?: number | null; revision_le?: string | null;
 }
 
 const centimes = (x: string | null): number | null => (x === null ? null : Number(x));
@@ -86,6 +90,7 @@ function versConditions(r: LigneSql): ConditionsEntree {
     sommes: { prorataLoyer: centimes(r.prorata_loyer_centimes), prorataCharges: centimes(r.prorata_charges_centimes),
       depotGarantie: centimes(r.depot_garantie_centimes), honorairesAgence: centimes(r.honoraires_agence_centimes) },
     reglement: r.mode_reglement as ConditionsEntree['reglement'], reglementPrecision: r.mode_reglement_precision, commentaire: r.commentaire,
+    indice: r.indice_type && r.revision_le ? { type: r.indice_type as TypeIndice, annee: Number(r.indice_annee), trimestre: Number(r.indice_trimestre), revision: r.revision_le } : null,
   };
 }
 
@@ -125,19 +130,25 @@ async function ecrire(q: RequeteTx, bailCle: string, occupationIds: number[], lo
   // Arno (21/10/2026, 402) : la marque « saisi à la main », écrite seulement avec sa colonne ; sans elle, un montant saisi est refusé.
   const avec402 = await honorairesSaisisDisponible();
   if (h !== null && h.etat === 'saisi' && !avec402) throw new Error(MOTIF_SANS_402);
+  // 🔴 Arno (25/10/2026, 423) — l'indice du bail, avec la valeur EN VIGUEUR de son trimestre au moment de l'écriture (trace d'audit ;
+  // le calcul relit toujours la table). Sans la 423 : rien n'est nommé.
+  const avec423 = await indiceDuBailDisponible();
+  const ind = avec423 && c.indice ? c.indice : null;
+  const valeurInd = ind === null ? null : await valeurIndice(q, ind.type, ind.annee, ind.trimestre);
   await q(
     `INSERT INTO gestion_location_conditions_entree (bail_cle, occupation_ids, lot_id, depot_garantie, prelevement, prelevement_jour,
        garant_physique, assurance_loyers, assurance_precision, honoraires_locataire, honoraires_proprietaire,
        prorata_loyer_centimes, prorata_charges_centimes, depot_garantie_centimes, honoraires_agence_centimes,
        mode_reglement, mode_reglement_precision, commentaire, saisi_par, saisi_par_libelle,
        hono_surface_m2, hono_zone, hono_bareme_id, hono_tarif_zone_m2, hono_tarif_edl_m2, hono_visite_bail, hono_etat_des_lieux,
-       hono_total_proprietaire, hono_motif${avecBail ? ', bail_id, hono_date_bareme, hono_date_supposee' : ''}${avec402 ? ', hono_saisi_main' : ''})
+       hono_total_proprietaire, hono_motif${avecBail ? ', bail_id, hono_date_bareme, hono_date_supposee' : ''}${avec402 ? ', hono_saisi_main' : ''}${avec423 ? ', indice_type, indice_annee, indice_trimestre, indice_valeur, revision_le' : ''})
      VALUES ($1, $2::bigint[], $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-             $21::numeric, $22, $23, $24::numeric, $25::numeric, $26::numeric, $27::numeric, $28::numeric, $29${avecBail ? ', $30, $31::date, $32' : ''}${avec402 ? `, $${avecBail ? 33 : 30}` : ''})`,
+             $21::numeric, $22, $23, $24::numeric, $25::numeric, $26::numeric, $27::numeric, $28::numeric, $29${avecBail ? ', $30, $31::date, $32' : ''}${avec402 ? `, $${avecBail ? 33 : 30}` : ''}${avec423 ? ((k: number) => `, $${k}, $${k + 1}, $${k + 2}, $${k + 3}::numeric, $${k + 4}::date`)(30 + (avecBail ? 3 : 0) + (avec402 ? 1 : 0)) : ''})`,
     [bailCle, avecBail ? null : occupationIds, lotId, c.depot, c.prelevement, c.jour, c.garant, c.assurance, c.assurancePrecision,
       c.honorairesLocataire, c.honorairesProprietaire, c.sommes.prorataLoyer, c.sommes.prorataCharges, c.sommes.depotGarantie,
       c.sommes.honorairesAgence, c.reglement, c.reglementPrecision, c.commentaire, auteur.id, auteur.libelle, ...colonnesHonoraires(h),
-      ...(avecBail ? [bailId, h?.date ?? null, h === null ? null : h.dateSupposee] : []), ...(avec402 ? [h !== null && h.etat === 'saisi'] : [])]);
+      ...(avecBail ? [bailId, h?.date ?? null, h === null ? null : h.dateSupposee] : []), ...(avec402 ? [h !== null && h.etat === 'saisi'] : []),
+      ...(avec423 ? [ind?.type ?? null, ind?.annee ?? null, ind?.trimestre ?? null, valeurInd, ind?.revision ?? null] : [])]);
   const { rows } = await q<{ locataire_id: string }>(
     avecBail ? 'SELECT DISTINCT locataire_id::text FROM gestion_annuaire_occupation WHERE bail_id = $1 ORDER BY 1'
       : 'SELECT DISTINCT locataire_id::text FROM gestion_annuaire_occupation WHERE id = ANY($1::bigint[]) ORDER BY 1', [avecBail ? bailId : occupationIds]);
@@ -177,6 +188,9 @@ const SELECT_393 = (avec: boolean): string => (avec
 
 /** La marque « saisi à la main » (402), nommée seulement avec elle. */
 const SELECT_402 = (avec: boolean): string => (avec ? ', c.hono_saisi_main' : ', NULL::boolean AS hono_saisi_main');
+/** L'indice des loyers du bail (423), nommé seulement avec elle. */
+const SELECT_423 = (avec: boolean): string => (avec ? ', c.indice_type, c.indice_annee, c.indice_trimestre, c.revision_le::text AS revision_le'
+  : ', NULL::text AS indice_type, NULL::int AS indice_annee, NULL::int AS indice_trimestre, NULL::text AS revision_le');
 
 /** Les conditions d'entrée des occupations demandées (la plus récente ligne du bail qui contient chacune). */
 export async function conditionsParOccupation(occupationIds: readonly number[]): Promise<Map<number, ConditionsEntreeLues>> {
@@ -186,8 +200,9 @@ export async function conditionsParOccupation(occupationIds: readonly number[]):
   // (un occupant ajouté plus tard au bail les voit aussi). Sans la 393 : la liste d'occupations écrite à l'entrée.
   const avecBail = await bailDisponible();
   const avec402 = await honorairesSaisisDisponible();
+  const avec423 = await indiceDuBailDisponible();
   const { rows } = await query<LigneSql & { n: number }>(
-    `SELECT DISTINCT ON (c.bail_cle) ${SELECT_LIGNE}${SELECT_393(avecBail)}${SELECT_402(avec402)},
+    `SELECT DISTINCT ON (c.bail_cle) ${SELECT_LIGNE}${SELECT_393(avecBail)}${SELECT_402(avec402)}${SELECT_423(avec423)},
             (SELECT count(*)::int FROM gestion_location_conditions_entree x WHERE x.bail_cle = c.bail_cle) AS n
        FROM gestion_location_conditions_entree c
        LEFT JOIN gestion_bareme_honoraires_location b ON b.id = c.hono_bareme_id
@@ -231,9 +246,10 @@ export async function modifierConditionsEntree(occupationId: number, brut: unkno
   if (loyer === null) return { etat: 'refus', motif: 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).' };
   const avecLoyer = loyer !== undefined && (await honorairesGestionDisponible());
   const avec402 = await honorairesSaisisDisponible();
+  const avec423 = await indiceDuBailDisponible();
   return withTransaction(async (q): Promise<Issue> => {
     const { rows } = await q<LigneSql>(
-      `SELECT ${SELECT_LIGNE}${SELECT_393(avecBail)}${SELECT_402(avec402)} FROM gestion_location_conditions_entree c
+      `SELECT ${SELECT_LIGNE}${SELECT_393(avecBail)}${SELECT_402(avec402)}${SELECT_423(avec423)} FROM gestion_location_conditions_entree c
          LEFT JOIN gestion_bareme_honoraires_location b ON b.id = c.hono_bareme_id
         WHERE $1 = ANY(c.occupation_ids)${avecBail ? ' OR c.bail_id = (SELECT o.bail_id FROM gestion_annuaire_occupation o WHERE o.id = $1)' : ''}
         ORDER BY c.id DESC LIMIT 1 FOR UPDATE OF c`, [occupationId]);
@@ -259,7 +275,9 @@ export async function modifierConditionsEntree(occupationId: number, brut: unkno
       h = await calculHonorairesDuBien(Number(r.lot_id), date);
       if (h === null || h.etat !== 'ok') return { etat: 'refus', motif: h === null || h.etat === 'saisi' ? 'Ce bien n’existe plus.' : `${h.motif} : rien n’est recalculé.` };
     }
-    await ecrire(q, r.bail_cle, ids, Number(r.lot_id), v.valeurs, h, recalculerHonoraires ? 'location_honoraires_recalcules' : 'location_conditions_entree_modifiees', auteur, bailId);
+    // 423 — un écran sans le bloc « Indice des loyers » (la fiche du locataire de la Gestion) n'envoie pas l'indice : celui du bail est REPORTÉ.
+    const valeurs = v.valeurs.indice === undefined ? { ...v.valeurs, indice: versConditions(r).indice } : v.valeurs;
+    await ecrire(q, r.bail_cle, ids, Number(r.lot_id), valeurs, h, recalculerHonoraires ? 'location_honoraires_recalcules' : 'location_conditions_entree_modifiees', auteur, bailId);
     if (avecLoyer && loyer !== undefined) {
       // L'occupation qui porte déjà le loyer (avant la 393) ; avec la 393, n'importe quelle occupation du bail (le loyer est au bail).
       const { rows: porteuse } = await q<{ id: string; lot_id: string; loyer: string | null; provisions: string | null }>(

@@ -9,7 +9,7 @@ import { ONGLETS_PARAMETRES as ONGLETS, PARAM_MODALE, PARAM_PAGE } from './param
  * rechargement de la page (quelle qu'en soit la cause) la rouvre exactement au même endroit. L'adresse est réécrite SUR PLACE
  * (`history.replaceState`) : ni navigation, ni remontage de la page.
  */
-export type OngletModale = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions';
+export type OngletModale = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
 export { OUTILS_SUIVI, PAGE_PARAMETRES, PARAM_MODALE, PARAM_PAGE } from './parametresAdresse';
 export function lireEtatModale(recherche: string, cle: typeof PARAM_MODALE | typeof PARAM_PAGE = PARAM_MODALE): { onglet: OngletModale | null; apporteur: number | null; panneau: string | null } {
   const p = new URLSearchParams(recherche);

@@ -18,6 +18,7 @@
  */
 
 import { eurosAffiches, lignesHonoraires, totalDesHonoraires, type CalculHonoraires } from './honorairesProprietaire';
+import { cleTrimestre, indiceDuBail, libelleTrimestre, manquesIndice, SIGLE_INDICE, type IndiceBail, type SaisieIndice } from './indicesLoyers';
 
 export const DEPOTS = ['agence', 'bailleur'] as const;
 export type Depot = typeof DEPOTS[number];
@@ -79,6 +80,12 @@ export interface SaisieConditions {
    * ne les a pas modifiés à la main ; modifiés, ils gardent leur valeur (« recalculer » remet le calcul). État d'écran seulement.
    */
   prorataManuel: { prorataLoyer: boolean; prorataCharges: boolean };
+  /**
+   * 🔴 Arno (25/10/2026, migration 423) — l'INDICE DES LOYERS du bail (type, trimestre de référence, date de révision annuelle). Absent
+   * (`undefined`) : l'écran ne montre pas le bloc (ou la base n'a pas la 423) — rien n'est exigé, rien n'est envoyé ; présent : les trois
+   * champs sont OBLIGATOIRES.
+   */
+  indice?: SaisieIndice;
 }
 
 /** Le loyer mensuel relu (centimes exacts), ou rien. */
@@ -169,6 +176,8 @@ export interface ConditionsEntree {
   reglement: Reglement;
   reglementPrecision: string | null;
   commentaire: string | null;
+  /** 423 — l'indice du bail ; absent / null : non saisi (bail d'avant, ou écran sans le bloc). */
+  indice?: IndiceBail | null;
 }
 
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null => (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
@@ -219,7 +228,7 @@ export function versEnvoiConditions(s: SaisieConditions): Record<string, unknown
     assurance: s.assurance, assurancePrecision: s.assurance !== null && AVEC_PRECISION.includes(s.assurance) ? s.assurancePrecision : '',
     honorairesLocataire: s.honorairesLocataire, honorairesProprietaire: s.honorairesProprietaire,
     sommes: { ...s.sommes }, reglement: s.reglement, reglementPrecision: s.reglement === 'autre' ? s.reglementPrecision : '',
-    commentaire: s.commentaire, loyer: { ...s.loyer },
+    commentaire: s.commentaire, loyer: { ...s.loyer }, ...(s.indice !== undefined ? { indice: { ...s.indice } } : {}),
   };
 }
 
@@ -239,6 +248,8 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
     loyer: { principal: montant(loyer?.principal ?? null), provisions: montant(loyer?.provisions ?? null) },
     // Des proratas déjà enregistrés restent tels quels (« recalculer » remet le calcul).
     prorataManuel: { prorataLoyer: c.sommes.prorataLoyer !== null, prorataCharges: c.sommes.prorataCharges !== null },
+    // L'indice enregistré est repris tel quel (et renvoyé : « Modifier » ne le perd jamais, même sans le bloc à l'écran).
+    ...(c.indice ? { indice: { type: c.indice.type, reference: cleTrimestre(c.indice.annee, c.indice.trimestre), revision: c.indice.revision } } : {}),
   };
 }
 
@@ -266,6 +277,8 @@ export function manquesConditions(b: Record<string, unknown>): Record<string, st
   const loyer = (b.loyer !== null && typeof b.loyer === 'object' ? b.loyer : {}) as Record<string, unknown>;
   if (enCentimes(loyer.principal) === undefined) m['loyer-principal'] = 'Loyer principal : un montant en euros, au centime (ex. 1 180,50).';
   if (enCentimes(loyer.provisions) === undefined) m['loyer-provisions'] = 'Provision pour charges : un montant en euros, au centime (ex. 90).';
+  // 423 — l'indice des loyers, à droite du loyer : ses trois champs obligatoires dès que le bloc est là.
+  if (b.indice !== undefined) Object.assign(m, manquesIndice(b.indice));
   const sommes = (b.sommes !== null && typeof b.sommes === 'object' ? b.sommes : {}) as Record<string, unknown>;
   for (const k of SOMMES) {
     if (enCentimes(sommes[k]) === undefined) m[`somme-${k}`] = `${LIBELLE_SOMME[k]} : un montant en euros, au centime (ex. 1 180,50).`;
@@ -293,6 +306,7 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
       depotGarantie: enCentimes(sommes.depotGarantie) ?? null, honorairesAgence: enCentimes(sommes.honorairesAgence) ?? null },
     reglement, reglementPrecision: reglement === 'autre' ? texte(b.reglementPrecision, 120) : null,
     commentaire: texte(b.commentaire, 4000),
+    ...(b.indice !== undefined ? { indice: indiceDuBail(b.indice) } : {}),
   } };
 }
 
@@ -312,6 +326,10 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
       ...(loyer.provisions === null ? [] : [{ mot: 'Provision pour charges', valeur: formaterCentimes(loyer.provisions) }]),
       ...(loyer.principal === null && loyer.provisions === null ? [] : [{ mot: 'Total loyer charges comprises / mois', valeur: formaterCentimes((loyer.principal ?? 0) + (loyer.provisions ?? 0)) }]),
     ]),
+    ...(c.indice ? [
+      { mot: 'Indice des loyers', valeur: `${SIGLE_INDICE[c.indice.type]} ${libelleTrimestre(c.indice.annee, c.indice.trimestre)}` },
+      { mot: 'Date de révision annuelle', valeur: c.indice.revision.split('-').reverse().join('/') },
+    ] : []),
     ...SOMMES.filter((k) => c.sommes[k] !== null).map((k) => ({ mot: LIBELLE_SOMME[k], valeur: formaterCentimes(c.sommes[k] as number) })),
     ...(total === null ? [] : [{ mot: 'Total dû à l’entrée', valeur: formaterCentimes(total) }]),
     ...(honoraires === null ? [] : honoraires.etat === 'ok' || honoraires.etat === 'saisi' ? lignesHonoraires(honoraires) : [{ mot: 'Honoraires propriétaire', valeur: honoraires.motif }]),

@@ -70,7 +70,7 @@ describe('🔴 la page « Paramètres Location »', () => {
     expect(container.querySelector('[data-retour-outils]')?.getAttribute('href')).toBe('/admin/location/outils');
     expect(container.querySelector('[data-page-parametres]')).not.toBeNull();
     expect(container.querySelector('[data-voile-parametres], [data-modale-parametres], .plo-x, [role="dialog"]')).toBeNull();
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('data-onglet'))).toEqual(['destinataires', 'baremes', 'archivage', 'apporteurs', 'commissions']);
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('data-onglet'))).toEqual(['destinataires', 'baremes', 'archivage', 'apporteurs', 'commissions', 'indices']);
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-onglet')).toBe('apporteurs');
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     expect(window.location.search).toBe('?onglet=apporteurs&apporteur=4&panneau=cumul');

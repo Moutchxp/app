@@ -1,3 +1,4 @@
+import type { LigneMois } from './gestionMensuelle';
 import {
   baremeADate, collegueADate, DEPUIS_TOUJOURS, estInterne, LIBELLE_MODE_APPORTEUR, libelleDuree, remunerationADate,
   type Apporteur, type BaremeApporteur, type ModeApporteur, type RemunerationCollegue,
@@ -58,6 +59,8 @@ export interface DetailDossier {
   /** null : aucune rémunération du collègue, pas de collègue, ou apporteur interne à la signature. */
   collegue: BlocDu | null;
   net: number;
+  /** 🔴 Arno (25/10/2026) — le calcul MENSUEL du bien (jusqu'au mois en cours) : le tableau mensuel du dossier déplié ; null : règle d'avant. */
+  mensuel: { libelle: string; mois: LigneMois[] } | null;
 }
 
 /** Le détail « gestion » d'un mode : « one shot 12 mois » / « récurrent pendant 3 ans — 7 mois dus ». */
@@ -86,8 +89,11 @@ export function detailDossier(d: ActiviteCalcul, apporteurs: readonly Apporteur[
     : d.apporteurTaux !== null && !remplacee ? { sorte: 'import_taux' } : sourceVersion(regle);
   const tauxLoc = sourceLoc.sorte === 'import_montant' ? (ca === 0 ? 0 : partLoc / ca) : (d.apporteurTaux !== null && !remplacee ? d.apporteurTaux : regle?.taux ?? 0);
   const mode = modeApporteurDe(d, apporteurs);
-  const moisApp = mode === 'recurrent' ? moisDusApporteur(d, apporteurs, aujourdhui).length : 12;
-  const partGes = mode === 'one_shot' ? partGestionSignatureDe(d, apporteurs) : partGestionMensuelleDe(d, apporteurs) * moisApp;
+  // 🔴 Arno (25/10/2026) — le calcul MENSUEL du bien (loyer révisé, vacance, sortie de gestion), quand il existe : les mois jusqu'au mois en cours.
+  const gm = d.gestionMensuelle ? d.gestionMensuelle.mois.filter((m) => m.mois <= aujourdhui.slice(0, 7)) : null;
+  const moisApp = mode === 'recurrent' ? (gm ? gm.filter((m) => m.commission !== 0).length : moisDusApporteur(d, apporteurs, aujourdhui).length) : 12;
+  const partGes = mode === 'one_shot' ? partGestionSignatureDe(d, apporteurs)
+    : gm ? gm.reduce((t, m) => t + centimes(m.commission), 0) / 100 : partGestionMensuelleDe(d, apporteurs) * moisApp;
   const tauxGes = tauxGestionApporteurDe(d, apporteurs);
   const sourceGes: SourceDu = d.apporteurTauxGestion !== null && d.apporteurTauxGestion !== undefined && !remplacee ? { sorte: 'import_taux' } : sourceVersion(regle);
   const apporteur = bloc(nomApporteur ?? ap?.nom ?? d.apporteurNom ?? 'apporteur',
@@ -100,8 +106,9 @@ export function detailDossier(d: ActiviteCalcul, apporteurs: readonly Apporteur[
   let moisCol = 0;
   if (r !== null) {
     const v: RemunerationCollegue = r.regle;
-    moisCol = v.mode === 'recurrent' ? moisDusCollegue(d, apporteurs, aujourdhui).length : 12;
-    const ges = v.mode === 'one_shot' ? v.tauxGestion * mensuels * 12 : v.tauxGestion * mensuels * moisCol;
+    moisCol = v.mode === 'recurrent' ? (gm ? gm.filter((m) => m.collegue !== 0).length : moisDusCollegue(d, apporteurs, aujourdhui).length) : 12;
+    const ges = v.mode === 'one_shot' ? v.tauxGestion * mensuels * 12
+      : gm ? gm.reduce((t, m) => t + centimes(m.collegue), 0) / 100 : v.tauxGestion * mensuels * moisCol;
     collegue = bloc(r.collegue.libelle, { montant: auCentime(ca * v.taux), taux: v.taux, detail: null, source: sourceVersion(v) },
       { montant: auCentime(ges), taux: v.tauxGestion, detail: detailGestion(v.mode, v.dureeAnnees, moisCol), source: sourceVersion(v) });
   }
@@ -109,7 +116,9 @@ export function detailDossier(d: ActiviteCalcul, apporteurs: readonly Apporteur[
   // ── Les honoraires : la location ; la gestion sur les mois où un dû de gestion est calculé (12 en one shot, les mois dus en récurrent). ──
   const moisBase = Math.max(apporteur.gestion !== null ? moisApp : 0, collegue?.gestion ? moisCol : 0);
   const hLoc = centimes(ca);
-  const hGes = centimes(mensuels * moisBase);
+  // Calcul mensuel : les honoraires RÉELLEMENT calculés des mois où un dû de gestion récurrent l'est (le one shot garde ses 12 mois).
+  const gmBase = gm && mode === 'recurrent' && (r === null || r.regle.mode === 'recurrent') ? gm.filter((m) => m.commission !== 0 || m.collegue !== 0) : null;
+  const hGes = gmBase ? gmBase.reduce((t, m) => t + centimes(m.honoraires), 0) : centimes(mensuels * moisBase);
   const net = hLoc + hGes - centimes(apporteur.total) - centimes(collegue?.total ?? 0);
   // Le montant que l'import avait posé (montant, sinon taux × honoraires), remplacé par la version « depuis toujours ».
   const importe = d.commissionSaisie !== null ? d.commissionSaisie : d.apporteurTaux !== null ? ca * d.apporteurTaux : null;
@@ -117,9 +126,10 @@ export function detailDossier(d: ActiviteCalcul, apporteurs: readonly Apporteur[
     ? { montant: auCentime(importe), le: regle.toujoursLe ?? regle.depuis, par: regle.saisiPar ?? null } : null;
   return {
     id: d.id, dateSignature: d.dateSignature, libelle: [d.libelleProprietaire, d.libelleLocataire].filter(Boolean).join(' / '), importRemplace,
-    honoraires: { location: hLoc / 100, gestion: hGes / 100, baseGestion: hGes === 0 ? null : `${moisBase} mois × ${auCentime(mensuels).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € / mois`,
+    honoraires: { location: hLoc / 100, gestion: hGes / 100, baseGestion: hGes === 0 ? null : gmBase ? `${gmBase.length} mois calculés (loyer du mois, vacance déduite)` : `${moisBase} mois × ${auCentime(mensuels).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € / mois`,
       total: (hLoc + hGes) / 100 },
     apporteur, collegue, net: net / 100,
+    mensuel: d.gestionMensuelle && gm ? { libelle: d.gestionMensuelle.libelle, mois: gm } : null,
   };
 }
 

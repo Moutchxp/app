@@ -8,7 +8,7 @@ export const PARAM_MODALE = 'parametres';
 export const PARAM_PAGE = 'onglet';
 export const OUTILS_SUIVI = '/admin/location/outils';
 export const PAGE_PARAMETRES = '/admin/location/outils/parametres';
-export const ONGLETS_PARAMETRES = ['destinataires', 'baremes', 'archivage', 'apporteurs', 'commissions'] as const;
+export const ONGLETS_PARAMETRES = ['destinataires', 'baremes', 'archivage', 'apporteurs', 'commissions', 'indices'] as const;
 export type OngletParametres = (typeof ONGLETS_PARAMETRES)[number];
 
 const un = (v: string | string[] | undefined): string | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);

@@ -108,7 +108,8 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     const sections = [...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent);
     expect(sections.slice(0, 3)).toEqual(['1Le ou les locataires', '2Bien loué', '3Conditions d’entrée']);
     expect([...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond')))
-      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'loyer', 'sommes', 'honoraires-proprietaire', 'reglement', 'commentaire']);
+      // 🔴 Arno (25/10/2026, 423) : « Indice des loyers » juste à droite de « Loyer mensuel ».
+      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'loyer', 'indice', 'sommes', 'honoraires-proprietaire', 'reglement', 'commentaire']);
     expect([...container.querySelectorAll('[aria-label="Assurance loyers impayés"] button')].map((b) => b.textContent)).toEqual(['GLI', 'Visale', 'Autre', 'Aucune']);
     expect(container.querySelector('[aria-label="Dépôt de garantie"]')?.className).toBe('loc-pilules');
     // Le même composant de boutons que « Nouveau bien » (aucune copie).
@@ -550,7 +551,8 @@ describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de m
   it('LOYER MENSUEL : juste avant « Sommes dues » ; total charges comprises au centime exact ; montant illisible signalé', async () => {
     await preparer();
     const ordre = [...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond'));
-    expect(ordre.indexOf('loyer')).toBe(ordre.indexOf('sommes') - 1);
+    // 423 : « Indice des loyers » à sa droite, puis « Sommes dues ».
+    expect([ordre.indexOf('loyer'), ordre.indexOf('indice')]).toEqual([ordre.indexOf('sommes') - 2, ordre.indexOf('sommes') - 1]);
     const total = () => container.querySelector('[data-total-loyer] strong')?.textContent?.replace(/\s/g, ' ');
     expect(total()).toBe('—');
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 180,10');

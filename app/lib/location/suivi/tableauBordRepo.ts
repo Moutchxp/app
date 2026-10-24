@@ -4,7 +4,8 @@ import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
 import { aUnDuMensuel, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
-import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
+import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
+import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
 import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
@@ -84,7 +85,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
        LEFT JOIN gestion_annuaire_lot l ON l.id = a.lot_id
       WHERE a.annule_le IS NULL AND extract(year FROM a.date_signature)::int = ANY($1::int[])
       ORDER BY a.date_signature, a.id`, [[...annees]]);
-  return rows.map((r) => ({
+  const lues: ActiviteLue[] = rows.map((r) => ({
     id: n(r.id), type: r.type as TypeActivite, dateSignature: iso(r.date_signature), dateSupposee: r.date_signature_supposee === true,
     ...libelles(r),
     honoProprietaireHt: n(r.hono_proprietaire_ht), honoLocataireHt: n(r.hono_locataire_ht),
@@ -105,6 +106,12 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
     locataires: fiches(r.locataires), lots: fiches(r.lots),
   }));
+  // 🔴 Arno (25/10/2026) — la commission RÉCURRENTE sur la gestion, mois par mois (loyer révisé, vacance, sortie de gestion) : calculée à
+  // chaque lecture, sur les seuls dossiers saisis dans l'outil (les montants repris du fichier restent tels quels).
+  if (lues.some((x) => x.source !== 'import' && x.lotId !== null && x.apporteurId !== null)) {
+    await enrichirGestionMensuelle(lues, await lireApporteurs(), aujourdhuiParis());
+  }
+  return lues;
 }
 
 /** Les années où il y a de l'activité (pour le filtre « Année »). */

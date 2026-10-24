@@ -21,7 +21,8 @@ vi.mock('../db/client', () => ({
   query: (sql: string, params?: unknown[]) => query(sql, params ?? []),
   withTransaction: async (fn: (q: (sql: string, params?: unknown[]) => Promise<unknown>) => Promise<unknown>) => fn((sql, params) => query(sql, params ?? [])),
 }));
-vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (_t: string, c: string) => (c === 'hono_saisi_main' ? colonnes402 : true) }));
+// 423 (l'indice des loyers) : absente ici — ce fichier éprouve la 402 ; l'indice a son propre fichier (conditionsEntreeIndice.test.ts).
+vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (_t: string, c: string) => (c === 'hono_saisi_main' ? colonnes402 : c === 'revision_le' || c === 'valeur' ? false : true) }));
 vi.mock('./bailRepo', () => ({ bailDisponible: async () => true, garantsDisponibles: async () => true }));
 vi.mock('../gestion/schema', () => ({ honorairesGestionDisponible: async () => true }));
 vi.mock('./loyerEntreeRepo', () => ({ ecrireLoyerDans: vi.fn(), loyerDeLaSaisie: () => undefined, loyerDesOccupations: async () => null }));

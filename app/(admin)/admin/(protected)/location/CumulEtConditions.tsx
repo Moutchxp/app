@@ -8,6 +8,7 @@ import {
 import { cascadeAuCentime, contributionsAnnees } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI, aujourdhuiParis } from './suiviApi';
 import { useDossiersApporteur } from './ReglageApporteur';
+import { LIBELLE_SOURCE_LOYER, type LigneMois } from '../../../../lib/location/suivi/gestionMensuelle';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LE BLOC « CONDITIONS » DE LA CARTE ET LE PANNEAU « CUMUL » ═══════════════════════════════════════════
@@ -89,10 +90,71 @@ function BlocDuDossier({ titre, b, cle, dont }: { titre: string; b: BlocDu; cle:
   );
 }
 
+const NOMS_MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const libelleMois = (m: string): string => `${NOMS_MOIS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+const c100 = (x: number): number => Math.round((x + Number.EPSILON) * 100);
+
+/**
+ * 🔴 Arno (25/10/2026) — LE TABLEAU MENSUEL D'UN BIEN (commission récurrente sur la gestion), replié par défaut : mois, locataire, loyer CC,
+ * source (réel / calculé / entrée), occupé ou vacant, honoraires, commission — puis le total de l'année. Recalculé à chaque lecture
+ * (aucun bouton « recalculer ») ; un indice manquant ou un loyer inconnu est SIGNALÉ sous le tableau.
+ */
+export function TableauGestionMensuelle({ libelle, mois, annee, collegue }: { libelle: string; mois: readonly LigneMois[]; annee?: number; collegue?: string | null }) {
+  const [ouvert, setOuvert] = useState(false);
+  const id = `gm-${libelle.length}-${mois[0]?.mois ?? ''}-${annee ?? 'tout'}`;
+  const annees = [...new Set(mois.map((m) => Number(m.mois.slice(0, 4))))].filter((y) => annee === undefined || y === annee).sort((x, y) => y - x);
+  const alertes = [...new Set(mois.filter((m) => annee === undefined || m.mois.startsWith(String(annee))).flatMap((m) => m.alertes))];
+  const avecCollegue = mois.some((m) => m.collegue !== 0);
+  const total = (l: readonly LigneMois[], k: 'honoraires' | 'commission' | 'collegue'): number => l.reduce((t, m) => t + c100(m[k]), 0) / 100;
+  return (
+    <div className="gm" data-tableau-mensuel={libelle}>
+      <button type="button" className="gm-bouton" aria-expanded={ouvert} aria-controls={id} onClick={() => setOuvert((x) => !x)} data-deplier-mensuel>
+        <span className="plo-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>Gestion mois par mois — {libelle}</button>
+      {alertes.length > 0 && <p className="gm-alerte" role="status" data-alertes-bien>{alertes.join(' · ')} — le dernier loyer connu est gardé.</p>}
+      {ouvert && (
+        <div id={id} className="gm-corps">
+          {annees.map((y) => {
+            const lignes = mois.filter((m) => m.mois.startsWith(String(y)));
+            return (
+              <table key={y} className="gm-table" data-mensuel-annee={y}>
+                <thead><tr><th scope="col" className="gm-g">Mois</th><th scope="col" className="gm-g">Locataire</th><th scope="col">Loyer CC</th><th scope="col" className="gm-g">Source</th><th scope="col" className="gm-g">Occupation</th>
+                  <th scope="col">Honoraires HT</th><th scope="col">Commission HT</th>{avecCollegue && <th scope="col">Collègue HT</th>}</tr></thead>
+                <tbody>
+                  {lignes.map((m) => (
+                    <tr key={m.mois} data-mois={m.mois} className={m.joursOccupes === 0 ? 'gm-vacant' : undefined}>
+                      <th scope="row" data-mot="Mois" className="gm-g">{libelleMois(m.mois)}</th>
+                      <td data-mot="Locataire" className="gm-g">{m.locataire ?? '—'}</td>
+                      <td data-mot="Loyer CC">{m.loyerCc === null ? '—' : euros(m.loyerCc)}</td>
+                      <td data-mot="Source" className="gm-g" data-source={m.source ?? ''}>{m.source === null ? '—' : LIBELLE_SOURCE_LOYER[m.source]}</td>
+                      <td data-mot="Occupation" className="gm-g" data-occupation={m.joursOccupes === 0 ? 'vacant' : m.joursOccupes === m.joursDuMois ? 'occupe' : 'partiel'}>
+                        {m.joursOccupes === 0 ? 'vacant' : m.joursOccupes === m.joursDuMois ? 'occupé' : `occupé ${m.joursOccupes} j / ${m.joursDuMois}`}</td>
+                      <td data-mot="Honoraires HT">{euros(m.honoraires)}</td>
+                      <td data-mot="Commission HT">{euros(m.commission)}</td>
+                      {avecCollegue && <td data-mot={`Collègue HT${collegue ? ` (${collegue})` : ''}`}>{euros(m.collegue)}</td>}
+                    </tr>
+                  ))}
+                  <tr className="gm-total" data-mensuel-total={y}>
+                    <th scope="row" data-mot="Total" className="gm-g">Total {y}</th><td colSpan={4} className="gm-vide" />
+                    <td data-mot="Honoraires HT">{euros(total(lignes, 'honoraires'))}</td>
+                    <td data-mot="Commission HT">{euros(total(lignes, 'commission'))}</td>
+                    {avecCollegue && <td data-mot="Collègue HT">{euros(total(lignes, 'collegue'))}</td>}
+                  </tr>
+                </tbody>
+              </table>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Le bloc d'UN dossier : honoraires (location / gestion), dû à l'apporteur, dû au collègue, net agence — au centime. */
-export function BlocDossier({ d, dont, anterieur = false }: { d: DetailDossier; dont?: { annee: number; montant: number; total: number };
+export function BlocDossier({ d, dont, anterieur = false, annee }: { d: DetailDossier; dont?: { annee: number; montant: number; total: number };
   /** Signé une année d'avant : il n'est sous cette année que pour son dû récurrent. */
-  anterieur?: boolean }) {
+  anterieur?: boolean;
+  /** L'année dépliée du Cumul : le tableau mensuel n'en montre que les mois. */
+  annee?: number }) {
   const h = d.honoraires;
   const lignesH = (h.location !== 0 ? 1 : 0) + (h.gestion !== 0 ? 1 : 0);
   return (
@@ -114,11 +176,14 @@ export function BlocDossier({ d, dont, anterieur = false }: { d: DetailDossier; 
         {d.collegue !== null && <BlocDuDossier titre={`− Dû au collègue (${d.collegue.nom})`} b={d.collegue} cle="collegue" />}
         <div className="dd-net" data-ligne-dossier="net"><dt>= Net agence HT</dt><dd>{euros(d.net)}</dd></div>
       </dl>
+      {d.mensuel !== null && d.mensuel.mois.length > 0 && (
+        <TableauGestionMensuelle libelle={d.mensuel.libelle} mois={d.mensuel.mois} annee={annee} collegue={d.collegue?.nom ?? null} />
+      )}
     </li>
   );
 }
 
-type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number })[] };
+type Cumul = { total?: Chiffres; parAnnee: (Chiffres & { annee: number; gestionRecurrente?: { honoraires: number; commission: number } })[] };
 
 /**
  * Le cumul d'un apporteur (Arno, 23/10/2026) : « Total depuis le début » en 5 chiffres — dossiers (dont avenants), honoraires
@@ -195,13 +260,22 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
                   </th>
                   {cellules(y)}
                 </tr>
+                {/* 🔴 Arno (25/10/2026) — la gestion récurrente de l'année : honoraires de gestion perçus et commission due (sous-lignes). */}
+                {y.gestionRecurrente !== undefined && (y.gestionRecurrente.honoraires !== 0 || y.gestionRecurrente.commission !== 0) && (
+                  <>
+                    <tr className="plo-cumul-gestion" data-cumul-gestion={`honoraires-${y.annee}`}>
+                      <th scope="row">Honoraires de gestion perçus HT</th><td colSpan={6} data-mot="Honoraires de gestion perçus HT">{euros(y.gestionRecurrente.honoraires)}</td></tr>
+                    <tr className="plo-cumul-gestion" data-cumul-gestion={`commission-${y.annee}`}>
+                      <th scope="row">Commission gestion due HT</th><td colSpan={6} data-mot="Commission gestion due HT">{euros(y.gestionRecurrente.commission)}</td></tr>
+                  </>
+                )}
                 {ouverte && (
                   <tr className="plo-cumul-detail" id={`plo-annee-${id}-${y.annee}`} data-annee-detail={y.annee}>
                     <td colSpan={7}>
                       {siens === null ? <p className="plo-muet plo-petit-texte" role="status">{dossiers === 'erreur' ? 'Dossiers indisponibles.' : 'Lecture des dossiers…'}</p>
                         : siens.length === 0 ? <p className="plo-muet plo-petit-texte">Aucun dossier.</p>
                         : <ol className="plo-dossiers" data-dossiers-annee={y.annee}>{siens.map((x) => (
-                          <BlocDossier key={String(x.det.id)} d={x.det} dont={x.dont} anterieur={x.anterieur} />))}</ol>}
+                          <BlocDossier key={String(x.det.id)} d={x.det} dont={x.dont} anterieur={x.anterieur} annee={y.annee} />))}</ol>}
                     </td>
                   </tr>
                 )}
@@ -244,5 +318,29 @@ export const CSS_CUMUL_CONDITIONS = `
 .dd-dont-total{font-weight:500;color:var(--color-svv-muted)}
 .dd-net{border-top:1px solid var(--color-svv-line-strong);margin-top:4px;padding-top:4px !important}
 .dd-net dt,.dd-net dd{color:var(--color-svv-ink);font-weight:800}
+.plo-cumul-gestion th{padding-left:28px !important;font-weight:600 !important;color:var(--color-svv-muted) !important;font-size:.85rem}
+.plo-cumul-gestion td{text-align:right;font-size:.85rem;font-variant-numeric:tabular-nums}
+.gm{margin-top:8px;display:flex;flex-direction:column;gap:6px;max-width:100%}
+.gm-bouton{appearance:none;border:0;background:transparent;color:var(--color-svv-ink);font:inherit;font-weight:700;font-size:.85rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;text-align:left}
+.gm-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:4px}
+.gm-alerte{margin:0;padding:6px 10px;border-radius:10px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);border:1px solid var(--color-svv-amber);font-size:.82rem;font-weight:700}
+.gm-corps{overflow-x:auto;max-width:100%}
+.gm-table{border-collapse:collapse;font-size:.8rem;width:100%;min-width:620px;margin-bottom:8px}
+.gm-table th,.gm-table td{padding:4px 6px;border-bottom:1px solid var(--color-svv-line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gm-table .gm-g{text-align:left}
+.gm-table thead th{color:var(--color-svv-muted);font-weight:700}
+.gm-vacant td,.gm-vacant th{color:var(--color-svv-muted)}
+.gm-total th,.gm-total td{font-weight:800;color:var(--color-svv-ink);border-top:2px solid var(--color-svv-line-strong)}
+@media (max-width:640px){
+  .gm .gm-table{min-width:0;display:block}
+  .gm .gm-table thead{display:none}
+  .gm .gm-table tbody,.gm .gm-table tr,.gm .gm-table th,.gm .gm-table td{display:block;width:100%;box-sizing:border-box}
+  .gm .gm-table tr{border:1px solid var(--color-svv-line);border-radius:10px;padding:4px 8px;margin-bottom:6px}
+  .gm .gm-table th,.gm .gm-table td{border:0;padding:2px 0;white-space:normal;text-align:left}
+  .gm .gm-table td{display:flex;justify-content:space-between;gap:8px}
+  .gm .gm-table td::before{content:attr(data-mot);color:var(--color-svv-muted);font-weight:700}
+  .gm .gm-table td.gm-vide{display:none}
+  .plo-cumul .plo-cumul-gestion th{display:none}
+}
 @media (max-width:640px){ .plo-cumul-detail>td::before{content:none} .plo-cumul-detail{padding:4px !important} .dd{padding:6px 8px} .dd-sous dt{padding-left:8px} }
 `;
