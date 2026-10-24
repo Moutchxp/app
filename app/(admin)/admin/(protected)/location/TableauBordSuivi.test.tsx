@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { TableauBordSuivi } from './TableauBordSuivi';
+import { anneesComparables, comparerDeLAdresse, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
 import type { ActiviteLue, DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
@@ -56,6 +56,8 @@ const choisir = async (filtre: string, v: string) => {
 };
 const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as HTMLButtonElement;
 const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ');
+/** 🔴 Arno (24/10/2026) — la carte « Le mois » est repliée par défaut : le chevron la déplie. */
+const deplierCarteMois = async () => { await act(async () => { (container.querySelector('[data-carte-mois-chevron]') as HTMLButtonElement).click(); }); };
 /** 🔴 Arno (24/10/2026) — « Modifier » est dans le panneau déplié : on déplie la ligne (si besoin), puis on clique « Modifier ». */
 const modifierLigne = async (cle: string) => {
   if (container.querySelector(`[data-modifier-ligne="${cle}"]`) === null) {
@@ -95,6 +97,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
   it('A : août — la commission brute du négociateur retranche la rétrocession (formule du fichier)', async () => {
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="8"]') as HTMLButtonElement).click(); });
+    await deplierCarteMois();
     expect(nbsp(container.querySelector('[data-ligne-a="commission"] td')?.textContent)).toBe('1 965,93 €');
     expect(nbsp(container.querySelector('[data-ligne-a="retrocessions"] td')?.textContent)).toBe('200,00 €');
     expect(nbsp(container.querySelector('[data-ligne-a="avecGestion"] td')?.textContent)).toBe('13 471,10 €');
@@ -167,6 +170,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
   it('🔒 sans « Voir les commissions » : ni section « Négociateurs », ni primes, ni commission', async () => {
     donnees = { ...donnees, voirCommissions: false, regles: [], retrocessions: [] };
     await monter('mois');
+    await deplierCarteMois();
+    expect(container.querySelector('[data-ligne-a="ca"]')).not.toBeNull();
     expect(container.querySelector('[data-ligne-a="commission"]')).toBeNull();
     expect(container.querySelector('[data-total-commission]')).toBeNull();
     expect(container.querySelector('[data-total="retrocessions"]')).toBeNull();
@@ -269,6 +274,118 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     for (const q of ['[data-edition-origine]', '[data-edition-apporteur]', '[data-edition-taux]', '[data-edition-commission]', '[data-edition-prime]', '[data-edition-fermer]', '[data-edition-enregistrer]']) {
       expect(container.querySelector(q)).not.toBeNull();
     }
+  });
+
+  describe('🔴 Arno (24/10/2026) — carte « Le mois » : repliée par défaut, mois de comparaison au choix', () => {
+    const resume = (k: string) => nbsp(container.querySelector(`[data-a-total="${k}"]`)?.textContent);
+    const choisirListe = async (q: string, libelle: string) => {
+      await act(async () => { (container.querySelector(q) as HTMLButtonElement).click(); });
+      const o = [...container.querySelectorAll('[role="option"]')].find((x) => x.textContent?.replace('✓', '').trim() === libelle) as HTMLElement;
+      await act(async () => { o.click(); });
+      await calmer();
+    };
+    const entetes = () => [...container.querySelectorAll('[data-section="A"] thead th')].map((t) => t.textContent);
+
+    it('la période comparée : défaut N−1, choix libre, adresse illisible → défaut', () => {
+      expect(moisCompare(2026, 1, null)).toEqual({ annee: 2025, mois: 1, choisi: false });
+      expect(moisCompare(2026, 1, '2024-03')).toEqual({ annee: 2024, mois: 3, choisi: true });
+      expect(moisCompare(2026, 9, '2026-02')).toEqual({ annee: 2026, mois: 2, choisi: true });   // un autre mois de l'année en cours
+      expect(moisCompare(2026, 9, '2026-09')).toEqual({ annee: 2026, mois: 9, choisi: true });   // le mois lui-même : permis
+      for (const x of ['2025-13', '2025-00', '2025-1', 'abc', '', '1999-05', '20250-01']) expect(moisCompare(2026, 4, x)).toEqual({ annee: 2025, mois: 4, choisi: false });
+      expect(comparerDeLAdresse('?annee=2026&comparer=2024-03')).toBe('2024-03');
+      expect(comparerDeLAdresse('?comparer=2024-3')).toBeNull();
+      expect(anneesComparables([2026, 2019, 2023], 2026)).toEqual([2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019]);
+    });
+
+    it('repliée par défaut sur une ligne ; la ligne ou le chevron la déplie (tableau inchangé) ; les sélecteurs ne la déplient pas', async () => {
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      const carte = container.querySelector('[data-section="A"]')!;
+      expect(carte.getAttribute('data-carte-mois')).toBe('repliee');
+      expect(carte.querySelector('table')).toBeNull();
+      expect(nbsp(carte.querySelector('h3')?.textContent)).toBe('Le mois — septembre 2026 face à septembre 2025');
+      expect(resume('courant')).toBe('TOTAL CA HT septembre 2026 15 471,70 €');
+      expect(resume('compare')).toMatch(/^TOTAL CA HT septembre 2025 /);
+      expect(container.querySelector('[data-a-ecart]')?.className).toMatch(/tdb-signe--(positif|negatif|nul)/);
+      // Un clic sur un sélecteur ne déplie pas.
+      await act(async () => { (container.querySelector('[data-comparer-mois]') as HTMLButtonElement).click(); });
+      expect(carte.getAttribute('data-carte-mois')).toBe('repliee');
+      await act(async () => { (container.querySelector('[data-comparer-mois]') as HTMLButtonElement).click(); });
+      // La ligne déplie, le chevron replie.
+      await act(async () => { (carte.querySelector('[data-a-resume]') as HTMLElement).click(); });
+      expect(carte.getAttribute('data-carte-mois')).toBe('ouverte');
+      expect(carte.querySelectorAll('[data-ligne-a]').length).toBe(11);
+      expect(entetes()).toEqual(['Indicateur', 'Septembre 2026', 'Septembre 2025', 'Écart']);
+      expect(container.querySelector('[data-carte-mois-chevron]')?.getAttribute('aria-expanded')).toBe('true');
+      await deplierCarteMois();
+      expect(carte.querySelector('table')).toBeNull();
+    });
+
+    it('choisir un autre mois de l’année : la ligne, le titre, les en-têtes et l’adresse suivent', async () => {
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      await choisirListe('[data-comparer-annee]', '2026');
+      await choisirListe('[data-comparer-mois]', 'août');
+      expect(new URLSearchParams(window.location.search).get('comparer')).toBe('2026-08');
+      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — septembre 2026 face à août 2026');
+      expect(resume('compare')).toBe('TOTAL CA HT août 2026 13 471,10 €');
+      expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('positif');
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+2 000,60 € (+14,9 %)');
+      await deplierCarteMois();
+      expect(entetes()).toEqual(['Indicateur', 'Septembre 2026', 'Août 2026', 'Écart']);
+      expect(nbsp(container.querySelector('[data-ligne-a="ca"] td:nth-of-type(2)')?.textContent)).toBe('13 471,10 €');
+      // Le choix survit au changement d'onglet de mois (absolu, porté par l'adresse).
+      await act(async () => { (container.querySelector('[data-onglet-mois="3"]') as HTMLButtonElement).click(); });
+      expect(entetes()).toEqual(['Indicateur', 'Mars 2026', 'Août 2026', 'Écart']);
+    });
+
+    it('un mois futur sans données : 0, écart « — », rien ne casse ; une adresse illisible revient au défaut', async () => {
+      window.history.replaceState(null, '', '/?comparer=2026-12');
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      expect(resume('compare')).toBe('TOTAL CA HT décembre 2026 0,00 €');
+      expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('positif');
+      await deplierCarteMois();
+      expect(container.querySelector('[data-ligne-a="ca"] td:nth-of-type(3)')?.textContent).toBe('—');
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?comparer=2026-99');
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — septembre 2026 face à septembre 2025');
+      expect(new URLSearchParams(window.location.search).get('comparer')).toBeNull();
+    });
+
+    it('une année hors des deux lues (mars 2024) : ses lignes se lisent à part, « — » si elle n’a pas de données', async () => {
+      const appels: string[] = [];
+      global.fetch = vi.fn(async (u: unknown) => {
+        appels.push(String(u));
+        const data = String(u).includes('annee=2024') ? { ...donnees, annee: 2024, activites: [] } : donnees;
+        return { ok: true, status: 200, json: async () => ({ etat: 'ok', data }) } as unknown as Response;
+      }) as unknown as typeof fetch;
+      window.history.replaceState(null, '', '/?annee=2026&mois=1&comparer=2024-03');
+      await monter('mois');
+      await calmer();
+      expect(appels.some((u) => u.includes('vue=tableau&annee=2024'))).toBe(true);
+      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — janvier 2026 face à mars 2024');
+      expect(resume('compare')).toBe('TOTAL CA HT mars 2024 —');
+      expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('nul');
+      await deplierCarteMois();
+      expect(entetes()).toEqual(['Indicateur', 'Janvier 2026', 'Mars 2024', 'Écart']);
+    });
+
+    it('🔴 aucune erreur React sur la page (le « 1 Issue » de Next : un <col> directement dans <table>)', async () => {
+      const erreurs: string[] = [];
+      const avant = console.error;
+      console.error = (...a: unknown[]) => { erreurs.push(a.map(String).join(' ')); };
+      try {
+        donnees = { ...donnees, annuaire: true };
+        await monter('mois');
+        await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+        await deplierCarteMois();
+        await act(async () => { (container.querySelector('[data-deplier-ligne]') as HTMLButtonElement).click(); });
+      } finally { console.error = avant; }
+      expect(erreurs).toEqual([]);
+    });
   });
 
   describe('🔴 Arno (24/10/2026) — « Locations du mois » : la ligne synthétique du fichier, dépliable', () => {

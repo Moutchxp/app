@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   entreesGestionParMois, lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
-  sectionNegociateurs, type TotauxPeriode, tuilesAnnee, variation,
+  sectionNegociateurs, totauxPeriode, type TotauxPeriode, tuilesAnnee, variation,
   type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
@@ -17,6 +17,31 @@ export function anneeMoisDeLAdresse(jour: string, recherche: string = typeof win
   const a = Number(p.get('annee'));
   const m = Number(p.get('mois'));
   return { annee: Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4)), mois: Number.isInteger(m) && m >= 1 && m <= 12 ? m : Number(jour.slice(5, 7)) };
+}
+
+/**
+ * 🔴 Arno (24/10/2026) — LE MOIS DE COMPARAISON de la carte « Le mois » : choisi librement (tout mois de toute année, même un mois de
+ * l'année en cours ou un mois futur), gardé dans l'adresse (?comparer=2024-03) ; absent ou illisible → le même mois de N−1 (le
+ * comportement d'avant). `choisi` : vient-il de l'adresse ? PUR.
+ */
+export function moisCompare(annee: number, mois: number, comparer: string | null | undefined): { annee: number; mois: number; choisi: boolean } {
+  const m = /^(\d{4})-(\d{2})$/.exec(comparer ?? '');
+  if (m !== null) {
+    const a = Number(m[1]);
+    const mm = Number(m[2]);
+    if (a >= 2000 && a <= 2100 && mm >= 1 && mm <= 12) return { annee: a, mois: mm, choisi: true };
+  }
+  return { annee: annee - 1, mois, choisi: false };
+}
+export function comparerDeLAdresse(recherche: string = typeof window === 'undefined' ? '' : window.location.search): string | null {
+  const v = new URLSearchParams(recherche).get('comparer');
+  return v !== null && moisCompare(2000, 1, v).choisi ? v : null;
+}
+/** Les années proposées pour la comparaison : de la plus ancienne année présente dans les données à l'année en cours. PUR. */
+export function anneesComparables(annees: readonly number[], anneeEnCours: number, choisie?: number): number[] {
+  const premiere = Math.min(anneeEnCours, ...annees, ...(choisie === undefined ? [] : [choisie]));
+  const derniere = Math.max(anneeEnCours, ...(choisie === undefined ? [] : [choisie]));
+  return Array.from({ length: derniere - premiere + 1 }, (_, i) => derniere - i);
 }
 
 /**
@@ -85,16 +110,36 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const [annee, setAnnee] = useState(() => anneeMoisDeLAdresse(jour).annee);
   const [mois, setMois] = useState(() => anneeMoisDeLAdresse(jour).mois);
   const [mesure, setMesure] = useState<MesureMois>(() => mesureDeLAdresse());
+  // 🔴 Arno (24/10/2026) — le mois de comparaison de la carte « Le mois » (?comparer=AAAA-MM ; absent : même mois N−1), et la carte
+  // repliée par défaut (non gardé : un rechargement la replie).
+  const [comparer, setComparer] = useState<string | null>(() => comparerDeLAdresse());
+  const [carteMoisOuverte, setCarteMoisOuverte] = useState(false);
   useEffect(() => {
     const u = new URL(window.location.href);
     const mesureVoulue = vue === 'mois' && mesure !== 'ca' ? mesure : null;
-    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('mesure') === mesureVoulue) return;
+    const comparerVoulu = vue === 'mois' ? comparer : null;
+    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('mesure') === mesureVoulue
+      && u.searchParams.get('comparer') === comparerVoulu) return;
     u.searchParams.set('annee', String(annee));
     u.searchParams.set('mois', String(mois));
     // Arno (23/10/2026) — la mesure de « Mois par mois » (Suivi du mois) : ?mesure=baux | gestion ; CA (le défaut) n'écrit rien.
     if (mesureVoulue === null) u.searchParams.delete('mesure'); else u.searchParams.set('mesure', mesureVoulue);
+    if (comparerVoulu === null) u.searchParams.delete('comparer'); else u.searchParams.set('comparer', comparerVoulu);
     window.history.replaceState(window.history.state, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
-  }, [annee, mois, mesure, vue]);
+  }, [annee, mois, mesure, vue, comparer]);
+  const cmp = moisCompare(annee, mois, comparer);
+  // Une comparaison hors des deux années lues (l'année et N−1) : ses lignes se lisent à part, par la même route (lecture seule).
+  const horsFenetre = vue === 'mois' && cmp.annee !== annee && cmp.annee !== annee - 1;
+  const [luCmp, setLuCmp] = useState<{ annee: number; activites: ActiviteLue[] } | { annee: number; erreur: true } | null>(null);
+  useEffect(() => {
+    if (!horsFenetre) return;
+    let vivant = true;
+    fetch(`${API}?vue=tableau&annee=${cmp.annee}`, { cache: 'no-store' }).then((r) => r.json())
+      .then((x: { etat?: string; data?: DonneesTableau }) => {
+        if (vivant) setLuCmp(x.etat === 'ok' && x.data && Array.isArray(x.data.activites) ? { annee: cmp.annee, activites: x.data.activites } : { annee: cmp.annee, erreur: true });
+      }).catch(() => { if (vivant) setLuCmp({ annee: cmp.annee, erreur: true }); });
+    return () => { vivant = false; };
+  }, [horsFenetre, cmp.annee, n]);
   const [portee, setPortee] = useState<'mois' | 'annee'>('mois');
   const [filtre, setFiltre] = useState<Filtre>({});
   const [lu, setLu] = useState<{ annee: number; d: DonneesTableau } | { annee: number; erreur: string } | null>(null);
@@ -121,7 +166,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const ctx: ContexteCalcul = useMemo(() => ({ regles: d?.regles ?? [], apporteurs: d?.apporteurs ?? [], retrocessions: d?.retrocessions ?? [],
     recurrents: filtrer(d?.recurrents ?? [], filtre), aujourdhui: d?.aujourdhui }), [d, filtre]);
   const lignes = useMemo(() => (d === null ? [] : filtrer(d.activites, filtre)), [d, filtre]);
-  const parId = useMemo(() => new Map((d?.activites ?? []).map((a) => [String(a.id), a])), [d]);
+  const activitesCmp = luCmp !== null && 'activites' in luCmp && luCmp.annee === cmp.annee ? luCmp.activites : null;
+  const parId = useMemo(() => new Map([...(activitesCmp ?? []), ...(d?.activites ?? [])].map((a) => [String(a.id), a])), [d, activitesCmp]);
 
   if (lu === null || (lu.annee !== annee)) return <p className="gst-info" role="status">Chargement du tableau de bord…</p>;
   if ('erreur' in lu) return <p className="gst-erreur" role="alert">{lu.erreur}</p>;
@@ -314,14 +360,46 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         );
       })()}
 
-      {vue === 'mois' && <section className="tdb-section" aria-labelledby="tdb-a" data-section="A">
-        <h3 id="tdb-a">Le mois — {NOMS_MOIS[mois - 1].toLowerCase()} {annee}, face à {annee - 1}</h3>
-        <table className="tdb-table">
-          <thead><tr><th scope="col">Indicateur</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee}</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee - 1}</th><th scope="col">Écart</th></tr></thead>
+      {vue === 'mois' && (() => {
+        /* 🔴 Arno (24/10/2026) — la carte « Le mois » REPLIÉE par défaut sur une ligne (titre, mois comparé, les deux TOTAL CA HT et
+           l'écart) ; la ligne (hors sélecteurs) ou le chevron la déplie : le tableau complet, inchangé, face au mois choisi. */
+        const libCourant = `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+        const libCmp = `${NOMS_MOIS[cmp.mois - 1].toLowerCase()} ${cmp.annee}`;
+        const lignesCmp = !horsFenetre ? lignes : activitesCmp === null ? null : filtrer(activitesCmp, filtre);
+        const sourceCmp = !horsFenetre ? d.activites : activitesCmp;
+        const P = lignesCmp === null ? null : totauxPeriode(lignesCmp, ctx, { annee: cmp.annee, mois: cmp.mois }, filtre.negociateur);
+        // Sans aucune donnée pour l'année comparée (non importée, ou lecture impossible) : « — » ; un mois sans affaire : 0.
+        const sansCmp = P === null || sourceCmp === null || !sourceCmp.some((a) => a.dateSignature.startsWith(`${cmp.annee}-`));
+        const ecartCa = sansCmp || P === null ? null : A.courant.ca - P.ca;
+        const choisirCmp = (a: number, m: number): void => setComparer(`${a}-${String(m).padStart(2, '0')}`);
+        const anneeEnCours = Number(jour.slice(0, 4));
+        return (
+      <section className="tdb-section tdb-a" aria-labelledby="tdb-a" data-section="A" data-carte-mois={carteMoisOuverte ? 'ouverte' : 'repliee'}>
+        <div className="tdb-a-tete" data-carte-mois-tete
+          onClick={(e) => { if ((e.target as Element).closest('[data-a-selecteurs]') === null) setCarteMoisOuverte((o) => !o); }}>
+          <h3 id="tdb-a">Le mois — {libCourant} face à<span className="fdm-cache"> {libCmp}</span></h3>
+          <span className="tdb-a-choix" data-a-selecteurs>
+            <ListeChoix options={NOMS_MOIS.map((m, i) => ({ id: i + 1, libelle: m.toLowerCase() }))} valeur={String(cmp.mois)} vide={null} libelle="Mois de comparaison"
+              classe="tdb-a-champ" onChange={(v) => choisirCmp(cmp.annee, Number(v))} donnees={{ 'data-comparer-mois': '' }} />
+            <ListeChoix options={anneesComparables(d.annees, anneeEnCours, cmp.annee).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(cmp.annee)} vide={null}
+              libelle="Année de comparaison" classe="tdb-a-champ" onChange={(v) => choisirCmp(Number(v), cmp.mois)} donnees={{ 'data-comparer-annee': '' }} />
+          </span>
+          <span className="tdb-a-resume" data-a-resume>
+            <span className="tdb-a-total" data-a-total="courant"><span className="tdb-a-mot">TOTAL CA HT {libCourant}</span> <strong>{eur(A.courant.ca)}</strong></span>
+            <span className="tdb-a-total" data-a-total="compare"><span className="tdb-a-mot">TOTAL CA HT {libCmp}</span> <strong>{P === null ? '…' : sansCmp ? '—' : eur(P.ca)}</strong></span>
+            <span className={`tdb-a-ecart tdb-signe tdb-signe--${ecartCa === null ? 'nul' : sensDe(ecartCa)}`} data-a-ecart={ecartCa === null ? 'nul' : sensDe(ecartCa)}>
+              {ecartCa === null ? 'Écart —' : <>{ecartEur(ecartCa)} ({signe(variation(A.courant.ca, P!.ca))})</>}</span>
+          </span>
+          <button type="button" className="tdb-a-chevron" aria-expanded={carteMoisOuverte} aria-controls="tdb-a-table" data-carte-mois-chevron
+            aria-label={carteMoisOuverte ? 'Replier le détail du mois' : 'Déplier le détail du mois'}><span aria-hidden="true">{carteMoisOuverte ? '▾' : '▸'}</span></button>
+        </div>
+        {carteMoisOuverte && (
+        <table className="tdb-table" id="tdb-a-table">
+          <thead><tr><th scope="col">Indicateur</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee}</th><th scope="col">{NOMS_MOIS[cmp.mois - 1]} {cmp.annee}</th><th scope="col">Écart</th></tr></thead>
           <tbody>
             {LIGNES_A.filter((l) => !l.commission || d.voirCommissions).map((l) => {
               const c = A.courant[l.k];
-              const p = A.precedent[l.k];
+              const p = P === null ? 0 : P[l.k];
               const ids = (t: TotauxPeriode): (number | string)[] => (l.k === 'retrocessions' ? [] : t.ids.filter((i) => {
                 const a = parId.get(String(i));
                 if (a === undefined) return false;
@@ -336,14 +414,17 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                 <tr key={l.k} className={l.k === 'ca' ? 'tdb-fort' : undefined} data-ligne-a={l.k}>
                   <th scope="row">{l.mot}</th>
                   <td data-mot={`${NOMS_MOIS[mois - 1]} ${annee}`}>{chiffre(valeur(c), `${l.mot} — ${NOMS_MOIS[mois - 1]} ${annee}`, ids(A.courant), `a-${l.k}`)}</td>
-                  <td data-mot={`${NOMS_MOIS[mois - 1]} ${annee - 1}`}>{sansN1 ? <span className="loc-muet">—</span> : chiffre(valeur(p), `${l.mot} — ${NOMS_MOIS[mois - 1]} ${annee - 1}`, ids(A.precedent))}</td>
-                  <td data-mot="Écart">{sansN1 || p === 0 ? '—' : l.k === 'nb' ? `${c - p >= 0 ? '+' : '−'}${Math.abs(c - p)}` : signe((c - p) / p)}</td>
+                  <td data-mot={`${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`}>{sansCmp || P === null ? <span className="loc-muet">—</span> : chiffre(valeur(p), `${l.mot} — ${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`, ids(P))}</td>
+                  <td data-mot="Écart">{sansCmp || p === 0 ? '—' : l.k === 'nb' ? `${c - p >= 0 ? '+' : '−'}${Math.abs(c - p)}` : signe((c - p) / p)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </section>}
+        )}
+      </section>
+        );
+      })()}
 
       {vue === 'mois' && (
         <FeuilleDuMois d={d} lignes={lignes} ctx={ctx} annee={annee} mois={mois} negociateur={filtre.negociateur ?? null}
@@ -961,6 +1042,22 @@ export const CSS_TABLEAU_BORD = `
 .tdb-signe--positif{color:var(--color-svv-green-ink)}
 .tdb-signe--negatif{color:var(--color-svv-red)}
 .tdb-signe--nul{color:var(--color-svv-muted)}
+/* 🔴 Arno (24/10/2026) — la carte « Le mois » repliée sur une ligne : titre + mois comparé · les deux TOTAL CA HT · l'écart · chevron. */
+.tdb-a{position:relative}
+.tdb-a-tete{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;cursor:pointer;padding-right:44px;min-height:44px}
+.tdb-a-tete h3{margin:0}
+.tdb-a[data-carte-mois="ouverte"] .tdb-a-tete{margin-bottom:10px}
+.tdb-a-choix{display:inline-flex;align-items:center;gap:6px;cursor:auto}
+.tdb-a-choix .lch-champ.tdb-a-champ{width:auto;min-width:0;min-height:40px;padding-top:4px;padding-bottom:4px;font-weight:700}
+.tdb-a-choix [data-comparer-mois]{min-width:112px}
+.tdb-a-resume{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-left:auto;font-size:.86rem}
+.tdb-a-total{white-space:nowrap}
+.tdb-a-mot{color:var(--color-svv-muted);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+.tdb-a-ecart{font-weight:800;white-space:nowrap}
+.tdb-a-chevron{position:absolute;top:10px;right:8px;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);font-size:1rem;cursor:pointer}
+.tdb-a-chevron:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+@media (hover:hover){ .tdb-a-tete:hover .tdb-a-chevron{color:var(--color-svv-ink)} }
+@media (max-width:640px){ .tdb-a-resume{margin-left:0;width:100%} }
 .tdb-tuile:has(.tdb-gestion){min-height:11rem}
 .tdb-gestion{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;width:100%}
 .tdb-gestion-comptes{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:.9rem;font-weight:800}

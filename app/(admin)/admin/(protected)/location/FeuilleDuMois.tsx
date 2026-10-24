@@ -103,7 +103,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             {/* 🔴 Arno (24/10/2026) — la ligne SYNTHÉTIQUE du fichier CA_JBP (propriétaires, locataires, total, gestion, apporteurs,
                 coms) ; tout le reste — et « Modifier » — dans le panneau déplié sous la ligne. Plusieurs lignes peuvent être dépliées. */}
             <table className="fdm-table fdm-table--synthese">
-              <col /><colgroup span={2} /><colgroup span={2} /><colgroup span={5} />
+              <colgroup span={1} /><colgroup span={2} /><colgroup span={2} /><colgroup span={5} />
               <thead><tr>
                 <th scope="col" className="fdm-nom">Bien</th>
                 <th scope="colgroup" colSpan={2} className="fdm-nom">Propriétaires</th><th scope="colgroup" colSpan={2} className="fdm-nom">Locataires</th>
