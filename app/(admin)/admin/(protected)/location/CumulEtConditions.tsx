@@ -5,7 +5,7 @@ import { type Apporteur, baremeADate, DEPUIS_TOUJOURS, LIBELLE_MODE_APPORTEUR, l
 import {
   type AutresConditions, type BlocDu, conditionsCollegue, detailDossier, type DetailDossier, type LigneDu, libelleSource, pctCourt, phraseAutresConditions,
 } from '../../../../lib/location/suivi/detailDossier';
-import { dontAnneeBrut, repartirAuCentime } from '../../../../lib/location/suivi/tableauBord';
+import { cascadeAuCentime, dontAnneeBrut, repartirAuCentime } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI, aujourdhuiParis } from './suiviApi';
 import { useDossiersApporteur } from './ReglageApporteur';
 
@@ -20,6 +20,11 @@ import { useDossiersApporteur } from './ReglageApporteur';
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const ttc = (ht: number): number => ht * (1 + TAUX_TVA);
+/**
+ * 🔴 Arno (24/10/2026) — LE NET AGENCE HT = honoraires − dû à l'apporteur − dû au collègue, calculé EN CENTIMES à partir des montants
+ * affichés : la carte de l'annuaire et la ligne « Depuis le début » du Cumul donnent le même chiffre, au centime.
+ */
+export const netAgence = (x: Pick<Chiffres, 'ca' | 'commission' | 'collegue'>): number => cascadeAuCentime({ ca: x.ca, apporteur: x.commission, collegue: x.collegue ?? 0 }).net;
 
 /** Les chiffres d'une période (cumul) ou d'un apporteur (totaux de l'annuaire). */
 export type Chiffres = { nb: number; avenants?: number; ca: number; commission: number; location?: number; gestion?: number; recurrente?: number; collegue?: number;
@@ -123,7 +128,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
   const t: Chiffres = c.total ?? c.parAnnee.reduce((s, x) => ({ nb: s.nb + x.nb, avenants: (s.avenants ?? 0) + (x.avenants ?? 0), ca: s.ca + x.ca, commission: s.commission + x.commission }), { nb: 0, avenants: 0, ca: 0, commission: 0 });
   const cellules = (x: Chiffres) => (
     <><td data-mot="Dossiers">{x.nb}</td><td data-mot="Honoraires HT">{euros(x.ca)}</td><td data-mot="Honoraires TTC">{euros(ttc(x.ca))}</td>
-      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td><td data-mot="Net agence HT">{euros(x.ca - x.commission)}</td></>
+      <td data-mot="Dû à l’apporteur HT">{euros(x.commission)}</td><td data-mot="Net agence HT">{euros(netAgence(x))}</td></>
   );
   const jour = dossiers !== null && dossiers !== 'erreur' && dossiers.aujourdhui ? dossiers.aujourdhui : aujourdhuiParis();
   const nomApporteur = libelleApporteur(a);
@@ -139,7 +144,7 @@ export function CumulApporteur({ a, apporteurs, cle }: { a: Apporteur; apporteur
         <li data-total-apporteur="du"><span className="plo-total-mot">Dû à l’apporteur HT</span><strong>{euros(t.commission)}</strong>
           {/* 413 — le détail du dû : la location, la gestion « One shot » (à la signature), la gestion « Récurrent » (mois par mois). */}
           <span className="plo-total-note" data-du-detail>dont location {euros(t.location ?? t.commission)} · dont gestion (one shot) {euros(t.gestion ?? 0)} · dont gestion récurrente {euros(t.recurrente ?? 0)}</span></li>
-        <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(t.ca - t.commission)}</strong></li>
+        <li data-total-apporteur="net"><span className="plo-total-mot">Net pour l’agence HT</span><strong>{euros(netAgence(t))}</strong></li>
       </ul>
       <h4 className="plo-h4">Cumul</h4>
       <table className="plo-cumul" data-cumul-apporteur>

@@ -802,7 +802,7 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
  * mêmes lignes et les mêmes règles que le Suivi (lignes reprises du fichier comprises, rattachées ou non à un bail). PUR.
  */
 export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], apporteurId: number, aujourdhui?: string):
-  { total: CumulAffaires; parAnnee: (CumulAffaires & { annee: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
+  { total: CumulAffaires & { collegue: number }; parAnnee: (CumulAffaires & { annee: number; collegue: number })[]; parMois: (CumulAffaires & { mois: string })[] } {
   const siennes = activites.filter((a) => a.apporteurId === apporteurId);
   const total = cumulVide();
   for (const a of siennes) ajouter(total, a, apporteurs);
@@ -821,7 +821,21 @@ export function cumulApporteur(activites: readonly ActiviteCalcul[], apporteurs:
       ajouterDu(total, p); ajouterDu(annee(Number(m.slice(0, 4))), p); ajouterDu(duMois(m), p);
     }
   }
-  return { total, parAnnee: [...an.values()].sort((x, y) => y.annee - x.annee), parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
+  // 🔴 Arno (24/10/2026) — le DÛ AU COLLÈGUE (signature + récurrent, mois par mois) : le net agence = honoraires − apporteur − collègue,
+  // le même que la carte de l'annuaire (`totauxApporteurs`).
+  const jour = aujourdhui ?? new Date().toISOString().slice(0, 10);
+  const colAn = new Map<number, number>();
+  let colTotal = 0;
+  for (const a of siennes) {
+    const sig = commissionCollegueSignatureDe(a, apporteurs);
+    const y = Number(a.dateSignature.slice(0, 4));
+    colAn.set(y, (colAn.get(y) ?? 0) + sig); colTotal += sig;
+    const m = commissionCollegueMensuelleDe(a, apporteurs);
+    if (m === 0) continue;
+    for (const mois of moisDusCollegue(a, apporteurs, jour)) { const y2 = Number(mois.slice(0, 4)); annee(y2); colAn.set(y2, (colAn.get(y2) ?? 0) + m); colTotal += m; }
+  }
+  return { total: { ...total, collegue: colTotal }, parAnnee: [...an.values()].map((l) => ({ ...l, collegue: colAn.get(l.annee) ?? 0 })).sort((x, y) => y.annee - x.annee),
+    parMois: [...mo.values()].sort((x, y) => y.mois.localeCompare(x.mois)) };
 }
 
 /**

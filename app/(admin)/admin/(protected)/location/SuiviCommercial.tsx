@@ -397,7 +397,12 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
                 onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />
               {annuaire && apporteur !== null && (estInterne(apporteur)
                 ? <small className="loc-muet" data-collegue-rattache>Apporteur interne — rattaché à personne</small>
-                : <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>)}</label>
+                : <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>)}
+              {/* 🔴 Arno (24/10/2026) — les conditions de l'apporteur choisi, gestion comprise : aucun 0 % implicite (création rapide comprise). */}
+              {apporteur !== null && (
+                <small className="loc-muet" data-conditions-apporteur-choisi>{baremeDuJour === null ? 'Conditions : aucun taux à cette date'
+                  : `Conditions : ${LIBELLE_MODE_APPORTEUR[baremeDuJour.mode ?? 'one_shot']} — location ${pourcent(baremeDuJour.taux)} · gestion : ${pourcent(baremeDuJour.tauxGestion ?? 0)}`}</small>
+              )}</label>
           )}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}
@@ -444,7 +449,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
             <label className="loc-champ">Type
               <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur"
                 onChange={(v) => setNouveau({ ...nouveau, type: v as TypeApporteur })} donnees={{ 'data-nouvel-apporteur-type': '' }} /></label>
-            <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} /></label>
+            <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} />
+              <small className="loc-muet" data-nouvel-apporteur-gestion>One shot · gestion : 0 % (modifiable ensuite dans l’annuaire, panneau « Taux »)</small></label>
             {annuaire && (
               <>
                 <label className="loc-champ"><span>Collègue de rattachement <span className="loc-oblig">*</span></span>

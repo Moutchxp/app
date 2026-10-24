@@ -178,7 +178,7 @@ describe('🔴 (2) la carte : le bloc « Conditions » à la place de la cascade
     expect(c.querySelector('[data-conditions-collegue]')?.textContent).toBe('Collègue — Paul Collègue : One shot — location 5 %, gestion 10 % (depuis le 01/01/2021)');
     expect(carte(4).querySelector('[data-cascade]')).toBeNull();
     // La ligne de totaux reste au-dessus, inchangée.
-    expect(n(carte(4).querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT1 421,00 €Dû HT710,50 €Dû au collègue HT150,25 €');
+    expect(n(carte(4).querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT1 421,00 €Dû à l’apporteur HT710,50 €Dû au collègue HT150,25 €Net agence HT560,25 €');
   });
   it('Récurrent : pastille, taux, durée ; collègue « aucune rémunération » ; un interne : pas de ligne collègue', async () => {
     await annuaire();

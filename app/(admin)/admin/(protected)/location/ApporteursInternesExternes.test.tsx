@@ -82,7 +82,7 @@ describe('🔴 l’annuaire : internes et externes', () => {
     const c = container.querySelector('[data-apporteur="4"]')!;
     expect(c.querySelector('[data-badge-apporteur]')?.textContent).toBe('PARTENAIRE EXTERNE');
     expect(n(c.querySelector('[data-du-collegue="4"]')?.textContent)).toBe('Dû au collègue HT130,00 €');
-    expect(n(c.querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT2 000,00 €Dû HT200,00 €Dû au collègue HT130,00 €');
+    expect(n(c.querySelector('[data-totaux-ligne="4"]')?.textContent)).toBe('Dossiers2Honoraires HT2 000,00 €Dû à l’apporteur HT200,00 €Dû au collègue HT130,00 €Net agence HT1 670,00 €');
     // Carte allégée : « Collègue : … — rémunération » est au panneau « Rattachement ».
     expect(c.querySelector('[data-resume-rattachement="4"]')).toBeNull();
     await clic(c.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="rattachement"]')!);

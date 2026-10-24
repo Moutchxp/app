@@ -11,7 +11,7 @@ import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee } from './ReglageApporteur';
 import { ecrireEtatModale } from './etatModaleParametres';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
-import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur } from './CumulEtConditions';
+import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur, netAgence } from './CumulEtConditions';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -108,7 +108,7 @@ function BadgeApporteur({ a }: { a: Pick<Apporteur, 'compteId'> }) {
 }
 
 type Tri = 'ca' | 'commission' | 'nb' | 'nom';
-const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom de famille (A → Z)' };
+const LIBELLE_TRI: Record<Tri, string> = { ca: 'Honoraires HT (décroissant)', commission: 'Dû à l’apporteur HT (décroissant)', nb: 'Dossiers (décroissant)', nom: 'Nom de famille (A → Z)' };
 
 /**
  * `onChoisir` (Arno, 24/10/2026) — ouvert depuis « Nouveau locataire » (modale « Ouvrir l'annuaire ») : chaque apporteur porte
@@ -249,11 +249,15 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                   {/* 🔴 Arno (24/10/2026) — CARTE ALLÉGÉE : nom + badges, la synthèse, puis les 4 boutons. « Rattaché à … », « Collègue : … —
                       rémunération » et « Lié à son compte » sont au panneau Rattachement / Fiche ; coordonnées → Fiche ; règle et historique → Taux. */}
                   {totaux !== null && (
+                    // 🔴 Arno (24/10/2026) — « Dû à l'apporteur HT » (ex-« Dû HT ») ; « Dû au collègue HT » seulement s'il n'est pas nul (au
+                    // centime ; accord d'Arno) ; « Net agence HT » TOUJOURS, en dernier = la ligne « Depuis le début » du Cumul.
                     <dl className="plo-totaux-ligne" data-totaux-ligne={a.id}>
                       <div><dt>Dossiers</dt><dd>{totaux[a.id]?.nb ?? 0}</dd></div>
                       <div><dt>Honoraires HT</dt><dd>{euros(totaux[a.id]?.ca ?? 0)}</dd></div>
-                      <div><dt>Dû HT</dt><dd>{euros(totaux[a.id]?.commission ?? 0)}</dd></div>
-                      {!interne && <div data-du-collegue={a.id}><dt>Dû au collègue HT</dt><dd>{euros(totaux[a.id]?.collegue ?? 0)}</dd></div>}
+                      <div data-du-apporteur={a.id}><dt>Dû à l’apporteur HT</dt><dd>{euros(totaux[a.id]?.commission ?? 0)}</dd></div>
+                      {Math.round((totaux[a.id]?.collegue ?? 0) * 100) !== 0 && <div data-du-collegue={a.id}><dt>Dû au collègue HT</dt><dd>{euros(totaux[a.id]?.collegue ?? 0)}</dd></div>}
+                      <div className="plo-total-net" data-net-agence={a.id}><dt>Net agence HT</dt><dd>{euros(netAgence({ ca: totaux[a.id]?.ca ?? 0, commission: totaux[a.id]?.commission ?? 0,
+                        collegue: totaux[a.id]?.collegue ?? 0 }))}</dd></div>
                     </dl>
                   )}
                   {/* 🔴 Arno (24/10/2026) — le bloc « Conditions » remplace la cascade sur la carte (accord d'Arno) : les conditions en vigueur,
@@ -468,6 +472,15 @@ export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR 
 .plo-totaux-ligne div{display:flex;gap:6px;align-items:baseline}
 .plo-totaux-ligne dt{font-size:.78rem;font-weight:700;color:var(--color-svv-muted)}
 .plo-totaux-ligne dd{margin:0;font-weight:700;color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
+.plo-totaux-ligne .plo-total-net dt{color:var(--color-svv-ink);font-weight:800}
+.plo-totaux-ligne .plo-total-net dd{font-weight:800}
+/* 🔴 Arno (24/10/2026) — CHAQUE CARTE D'APPORTEUR EST UN BLOC : bordure nette sur tout le pourtour (le panneau ouvert est DEDANS), fond
+   distinct de la modale, coins arrondis, ombre légère, 24 px entre deux cartes. « À rattacher » : fond ambré, même bordure. */
+.plo-versions[data-liste-apporteurs]{gap:24px}
+.plo-versions[data-liste-apporteurs]>li{border:1px solid var(--color-svv-line-strong);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;
+  box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-ink) 8%, transparent),0 6px 16px -10px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
+.plo-versions[data-liste-apporteurs]>li.plo-a-rattacher{border-color:var(--color-svv-line-strong) !important;background:var(--color-svv-amber-soft)}
+.plo-versions[data-liste-apporteurs]>li [data-panneau]{background:var(--color-svv-surface)}
 @media (max-width:640px){ .plo-totaux{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px} .plo-totaux li{padding:8px 6px} .plo-totaux strong{font-size:.74rem;letter-spacing:-.01em} .plo-total-mot{font-size:.68rem} }
 .plo-case{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;cursor:pointer}
 .plo-case input{width:20px;height:20px;accent-color:var(--color-svv-red)}

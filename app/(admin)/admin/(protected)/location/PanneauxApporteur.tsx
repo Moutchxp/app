@@ -397,7 +397,8 @@ export function PanneauTaux({ a, apporteurs, jour, faire, envoi, orphelin, toujo
 }
 
 export const CSS_PANNEAUX_APPORTEUR = `
-.plo-boutons-carte{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+/* 🔴 Arno (24/10/2026) — les 4 boutons CENTRÉS sur leur ligne, même écart ; retour à la ligne centré sur un écran étroit. */
+.plo-boutons-carte{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;justify-content:center}
 .plo-bouton-panneau[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .plo-bouton-panneau.plo-bouton-alerte{border-color:var(--color-svv-amber);color:var(--color-svv-amber);font-weight:800}
 .plo-bouton-panneau.plo-bouton-alerte[aria-pressed="true"]{background:var(--color-svv-amber-soft)}

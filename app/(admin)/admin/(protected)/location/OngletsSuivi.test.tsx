@@ -283,11 +283,11 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     await act(async () => { tri.click(); });
     expect([...tri.closest('.lch')!.querySelectorAll('li[role="option"]')].map((o) => o.getAttribute('data-option'))).toEqual(['ca', 'commission', 'nb', 'nom']);
     expect([...tri.closest('.lch')!.querySelectorAll('li[role="option"]')].map((o) => o.textContent?.replace('✓', '').trim()))
-      .toEqual(['Honoraires HT (décroissant)', 'Dû HT (décroissant)', 'Dossiers (décroissant)', 'Nom de famille (A → Z)']);
+      .toEqual(['Honoraires HT (décroissant)', 'Dû à l’apporteur HT (décroissant)', 'Dossiers (décroissant)', 'Nom de famille (A → Z)']);
     await act(async () => { tri.click(); });
     await trier('ca');
     expect(ordre()).toEqual(['4', '3']);   // 5 825,03 € avant 1 200 €
-    expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €Dû au collègue HT0,00 €');
+    expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû à l’apporteur HT582,50 €Net agence HT5 242,53 €');
     await trier('nb');
     expect(ordre()).toEqual(['3', '4']);   // 9 dossiers avant 7
     await trier('commission');
