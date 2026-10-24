@@ -47,6 +47,8 @@ export interface ParametresSuivi {
   annuaire: boolean;
   /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */
   personnalisable?: boolean;
+  /** 415 — l'origine « Propriétaire déjà client » peut-elle être choisie ? */
+  dejaClient?: boolean;
 }
 
 export interface SaisieSuivi extends SaisieActivite { categoriePrime: CategoriePrime | null }
@@ -80,7 +82,7 @@ export function lireParametres(d: unknown): ParametresSuivi {
   const negociateurs = Array.isArray(o.negociateurs) ? o.negociateurs : [];
   return { disponible: o.disponible === true && Array.isArray(o.apporteurs), apporteurs, negociateurs, moi: typeof o.moi === 'number' ? o.moi : null,
     collegues: Array.isArray(o.collegues) ? o.collegues : [], regles: Array.isArray(o.regles) ? o.regles : [], annuaire: o.annuaire === true,
-    ...(o.personnalisable === true ? { personnalisable: true } : {}) };
+    ...(o.personnalisable === true ? { personnalisable: true } : {}), ...(o.dejaClient === true ? { dejaClient: true } : {}) };
 }
 
 /** Lit les paramètres du suivi (apporteurs, négociateurs) ; `rafraichir` relit (après « + Nouvel apporteur »). */
@@ -177,9 +179,12 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     /* 🔴 Arno (24/10/2026) — première location d'un nouveau mandat → « Nouveau mandat » + prime 150 € ; relocation → « Bien en gestion
        chez nous », aucune prime, origine « Relocation » ; prime déjà versée → « Bien en gestion », aucune prime ; hors gestion → rien. */
     const p = preremplissageGestion(propose.cas);
+    // 🔴 Arno (24/10/2026, 415) — « Nouvelle gestion » ET un propriétaire déjà client avant la signature : « Propriétaire déjà client ».
+    const dejaClient = p.mandatGestion && propose.origineProprietaire === 'deja' && lu?.dejaClient === true;
     onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
       ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
-      ...(p.origineRelocation && s.origineContact === null ? { origineContact: 'relocation' as const } : {}) });
+      ...(p.origineRelocation && s.origineContact === null ? { origineContact: 'relocation' as const } : {}),
+      ...(dejaClient && s.origineContact === null ? { origineContact: 'proprietaire_deja_client' as const } : {}) });
   }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
 
@@ -258,6 +263,10 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     // quand aucune origine n'est choisie ; un choix fait à la main n'est jamais remplacé, et décocher ne change rien.
     ...(v && annuaire && (s.origineContact === null || s.origineContact === undefined) ? { origineContact: 'relocation' as const } : {}) });
   const cocherMandat = (v: boolean): void => poser({ mandatGestion: v, ...(v ? { avecGestion: false } : {}),
+    // 🔴 Arno (24/10/2026, 415) — cocher « Nouvelle gestion » quand le propriétaire avait déjà un bien ou un bail chez nous AVANT la
+    // signature (origine client déduite « déjà client ») pré-sélectionne « Propriétaire déjà client » — si aucune origine n'est choisie.
+    ...(v && annuaire && lu.dejaClient === true && deduit?.origineProprietaire === 'deja' && (s.origineContact === null || s.origineContact === undefined)
+      ? { origineContact: 'proprietaire_deja_client' as const } : {}),
     // 407 — un mandat signé avec la location : « 150 € » par défaut ; décoché : « Aucune » (un montant personnalisé reste).
     ...(annuaire && s.primeMode !== 'personnalise' ? { primeMode: v ? 'regle' as const : 'aucune' as const } : {}) });
   const libelle = (mot: React.ReactNode, oblig = false) => <span className="loc-suivi-libelle">{mot}{oblig && <> <span className="loc-oblig">*</span></>}</span>;
@@ -305,28 +314,28 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         )}
       </div>
       {/* ── Ligne 3 : honoraires HT ── */}
-      {/* 🔴 Arno (24/10/2026, après 56700ffb) — trois colonnes de même largeur : propriétaire HT · locataire HT · TOTAL HT (lecture seule). */}
+      {/* 🔴 Arno (24/10/2026, après 56700ffb) — trois colonnes de même largeur : propriétaire HT · locataire HT · TOTAL HT (lecture seule).
+          Arno (24/10/2026, accord explicite) : les trois aides sous ces champs sont retirées ; les champs restent liés (HT ↔ TTC). */}
       <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--trois" data-suivi-ligne="3">
         <label className="loc-champ">{libelle('Honoraires propriétaire HT (€)')}
           <input inputMode="decimal" value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, proprietaire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcProprietaire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, proprietaire: null }))} />
-          <small className="loc-muet" data-hono-proprietaire-ttc>= {ttcProprietaire.trim() === '' ? '—' : `${ttcProprietaire} € TTC`} (Conditions d’entrée)</small></label>
+        </label>
         <label className="loc-champ">{libelle('Honoraires locataire HT (€)')}
           <input inputMode="decimal" value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, locataire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcLocataire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, locataire: null }))} />
-          <small className="loc-muet" data-hono-locataire-ttc>= {ttcLocataire.trim() === '' ? '—' : `${ttcLocataire} € TTC`} (« Honoraires agence »)</small></label>
+        </label>
         <label className="loc-champ">{libelle('Total des honoraires (HT)')}
-          <input value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht />
-          <small className="loc-muet">= propriétaire HT + locataire HT</small></label>
+          <input value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht /></label>
       </div>
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
           {annuaire && (
             <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
-              <ListeChoix options={originesProposees(lu.personnalisable === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o] }))} valeur={s.origineContact ?? ''}
+              <ListeChoix options={originesProposees(lu.personnalisable === true, lu.dejaClient === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o] }))} valeur={s.origineContact ?? ''}
                 libelle="Origine du contact propriétaire" donnees={{ 'data-origine-contact': '' }}
                 onChange={(x) => {
                   const v = x === '' ? null : x as OrigineContact;

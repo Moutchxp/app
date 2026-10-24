@@ -5,7 +5,7 @@ import { familleDeCategorie } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
 import { estRecurrent, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
 import type { ModeApporteur, ModePrime, OrigineContact } from './suivi';
-import { annuaireDisponible, commissionGestionDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireCollegues, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
@@ -187,6 +187,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
     gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique, recurrents,
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
+    dejaClient: await origineDejaClientDisponible(),
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
   };

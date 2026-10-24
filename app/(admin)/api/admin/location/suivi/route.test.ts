@@ -17,6 +17,8 @@ const repo = {
   personnalisableDisponible: vi.fn(async () => false),
   /* Arno (24/10/2026, 414) — le nom de famille et le prénom des apporteurs. */
   nomPrenomDisponible: vi.fn(async () => false),
+  /* Arno (24/10/2026, 415) — l'origine « Propriétaire déjà client ». */
+  origineDejaClientDisponible: vi.fn(async () => false),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
@@ -35,6 +37,7 @@ beforeEach(() => {
   repo.lireNegociateurs.mockResolvedValue([]);
   repo.annuaireDisponible.mockResolvedValue(true);
   repo.nomPrenomDisponible.mockResolvedValue(false);
+  repo.origineDejaClientDisponible.mockResolvedValue(false);
   repo.lireRetrocessions.mockResolvedValue([{ id: 1, montant: 200 }]);
   repo.peutVoirCommissions.mockResolvedValue(false);
   exigerAdministrateur.mockReset().mockResolvedValue({ auteurId: 2 });

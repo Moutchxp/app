@@ -87,6 +87,20 @@ async function categorieEnregistrable(c: CategoriePrime): Promise<CategoriePrime
   return c === 'local' && !(await primeLocalDisponible()) ? 'logement' : c;
 }
 
+/**
+ * Arno (24/10/2026) — la migration 415 (origine « Propriétaire déjà client » admise) est-elle appliquée ? Lu sur la contrainte de la
+ * liste ; une réponse positive est retenue (une migration ne se défait pas), une négative est relue à chaque appel.
+ */
+let dejaClientVu = false;
+export async function origineDejaClientDisponible(): Promise<boolean> {
+  if (dejaClientVu) return true;
+  const { rows } = await query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gestion_location_activite_origine_contact_liste_chk'
+                     AND pg_get_constraintdef(oid) LIKE '%proprietaire_deja_client%') AS ok`);
+  dejaClientVu = rows[0]?.ok === true;
+  return dejaClientVu;
+}
+
 /** Arno (24/10/2026) — la migration 411 (origine « Personnalisé » et son texte) est-elle appliquée ? */
 export function personnalisableDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_activite', 'origine_contact_precision');
@@ -401,6 +415,7 @@ async function ecrireCommercial(q: typeof query, activiteId: number, c: ChampsCo
   // Arno (24/10/2026, 411) — « Personnalisé » n'existe en base qu'avec la 411 ; et UNE prime par bien.
   const avecPrecision = await personnalisableDisponible();
   if (c.origineContact === 'personnalise' && !avecPrecision) return 'L’origine « Personnalisé » demande la mise à jour de la base (migration 411).';
+  if (c.origineContact === 'proprietaire_deja_client' && !(await origineDejaClientDisponible())) return 'L’origine « Propriétaire déjà client » demande la mise à jour de la base (migration 415).';
   const porteUnePrime = c.primeMode === 'regle' || (c.primeMode === 'personnalise' && (c.primeMontant ?? 0) > 0);
   const lot = numOuNull(avant.lot_id);
   if (porteUnePrime && lot !== null) {

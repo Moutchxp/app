@@ -130,3 +130,14 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime', () => {
     expect(collegueADate({ collegues: [] }, '2026-01-01')).toBeNull();
   });
 });
+
+describe('🔴 Arno (24/10/2026, 415) — l’origine « Propriétaire déjà client »', () => {
+  it('juste après « Relocation » ; proposée seulement avec la 415 ; libellé', async () => {
+    const { originesProposees, libelleOrigineContact, verifierCommercial } = await import('./suivi');
+    expect(originesProposees(true, true)).toEqual(['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'proprietaire_deja_client', 'passage_agence', 'campagne', 'personnalise']);
+    expect(originesProposees(true, false)).not.toContain('proprietaire_deja_client');
+    expect(originesProposees(false, false)).not.toContain('personnalise');
+    expect(libelleOrigineContact('proprietaire_deja_client')).toBe('Propriétaire déjà client');
+    expect(verifierCommercial({ origineContact: 'proprietaire_deja_client' })).toMatchObject({ ok: true, valeurs: { origineContact: 'proprietaire_deja_client' } });
+  });
+});

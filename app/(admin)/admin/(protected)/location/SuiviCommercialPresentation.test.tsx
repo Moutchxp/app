@@ -426,3 +426,45 @@ describe('🔴 Arno (24/10/2026, après 56700ffb) — total des honoraires HT ; 
     expect(valeur('[data-origine-contact]')).toBe('internet');
   });
 });
+
+describe('🔴 Arno (24/10/2026, après bade5e0a) — « Propriétaire déjà client » ; aides des honoraires retirées', () => {
+  it('juste après « Relocation (portefeuille de gestion) » (avec la 415) ; absent sans elle', async () => {
+    await monter(null, LU({ dejaClient: true }));
+    const ids = (await optionsDe('[data-origine-contact]')).map((o) => o.id);
+    expect(ids.indexOf('proprietaire_deja_client')).toBe(ids.indexOf('relocation') + 1);
+    expect((await optionsDe('[data-origine-contact]')).find((o) => o.id === 'proprietaire_deja_client')?.texte).toBe('Propriétaire déjà client');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await monter(null, LU());
+    expect((await optionsDe('[data-origine-contact]')).map((o) => o.id)).not.toContain('proprietaire_deja_client');
+  });
+  it('pré-sélectionné : « Nouvelle gestion » (première location d’un nouveau mandat) ET propriétaire déjà client avant la signature', async () => {
+    proposition = { ...proposition, cas: 'nouveau_mandat', origineProprietaire: 'deja' };
+    await monter(7, LU({ dejaClient: true }));
+    expect(coche('[data-mandat-gestion]')).toBe(true);
+    expect(valeur('[data-origine-contact]')).toBe('proprietaire_deja_client');
+  });
+  it('propriétaire nouveau client : rien ; cocher « Nouvelle gestion » à la main pré-sélectionne si déjà client ; un choix à la main n’est jamais remplacé', async () => {
+    proposition = { ...proposition, cas: 'hors_gestion', avecGestion: false, origineProprietaire: 'nouveau' };
+    await monter(7, LU({ dejaClient: true }));
+    await clic(q('[data-mandat-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('');                        // nouveau client : pas de pré-sélection
+    act(() => { root.unmount(); }); root = createRoot(container);
+    proposition = { ...proposition, cas: 'hors_gestion', avecGestion: false, origineProprietaire: 'deja' };
+    await monter(7, LU({ dejaClient: true }));
+    await clic(q('[data-mandat-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('proprietaire_deja_client');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await monter(7, LU({ dejaClient: true }));
+    await choisir('[data-origine-contact]', 'internet');
+    await clic(q('[data-mandat-gestion]'));
+    expect(valeur('[data-origine-contact]')).toBe('internet');
+  });
+  it('les trois aides sous la ligne des honoraires sont retirées (accord d’Arno) ; les champs restent', async () => {
+    await monter(null);
+    const ligne = q('[data-suivi-ligne="3"]')!;
+    expect(ligne.querySelectorAll('small')).toHaveLength(0);
+    expect(ligne.textContent).not.toContain('Conditions d’entrée');
+    expect(ligne.textContent).not.toContain('propriétaire HT + locataire HT');
+    expect(ligne.querySelectorAll('input')).toHaveLength(3);
+  });
+});

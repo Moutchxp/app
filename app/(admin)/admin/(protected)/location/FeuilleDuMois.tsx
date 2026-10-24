@@ -267,7 +267,7 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Origine du contact *</span>
         <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} aria-invalid={sansOrigine} data-edition-origine>
           <option value="">— choisir —</option>
-          {originesProposees(d.personnalisable === true || v.origineContact === 'personnalise').map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
+          {originesProposees(d.personnalisable === true || v.origineContact === 'personnalise', d.dejaClient === true || v.origineContact === 'proprietaire_deja_client').map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
         </select>
         {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
       {/* Arno (24/10/2026, 411) — « Personnalisé » : le texte de l'origine, obligatoire, 80 caractères au plus. */}

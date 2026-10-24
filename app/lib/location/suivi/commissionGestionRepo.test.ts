@@ -72,3 +72,22 @@ describe('🔴 Arno (24/10/2026, 414) — la fiche écrit le nom de famille et l
     expect(appels.at(-1)!.sql).not.toContain('nom_famille');
   });
 });
+
+describe('🔴 Arno (24/10/2026, 415) — « Propriétaire déjà client » : refusé par le serveur tant que la base ne l’admet pas', () => {
+  it('sans la 415 : refus lu avant d’écrire, rien n’est écrit', async () => {
+    const { query, withTransaction } = await import('../../db/client');
+    vi.mocked(query).mockImplementation((async (sql: string, params: unknown[] = []) => {
+      appels.push({ sql: sql.replace(/\s+/g, ' '), params });
+      if (sql.includes('FROM pg_constraint')) return { rows: [{ ok: false }], rowCount: 1 };
+      if (sql.includes('FOR UPDATE')) return { rows: [{ apporteur_id: null, lot_id: '7' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    }) as never);
+    vi.mocked(withTransaction).mockImplementation((async (fn: (q: typeof query) => unknown) => fn(query)) as never);
+    const { modifierActivite } = await import('./suiviRepo');
+    appels.length = 0;
+    const r = await modifierActivite(12, { origineContact: 'proprietaire_deja_client' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'refus' });
+    expect((r as { motif: string }).motif).toContain('migration 415');
+    expect(appels.some((a) => a.sql.startsWith('UPDATE gestion_location_activite'))).toBe(false);
+  });
+});

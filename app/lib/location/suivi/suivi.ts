@@ -54,11 +54,11 @@ export function typeDeBienDesLots(lots: readonly { role: 'logement' | 'annexe'; 
 export const categoriePrimeDeFamille = (f: string | null | undefined): CategoriePrime => (f === 'parking' ? 'parking' : f === 'local' ? 'local' : 'logement');
 
 /** Arno (23/10/2026, 407) — L'ORIGINE DU CONTACT : liste fixe, obligatoire pour toute nouvelle location. */
-export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'passage_agence', 'campagne', 'personnalise'] as const;
+export const ORIGINES_CONTACT = ['collegue', 'apporteur', 'internet', 'recommandation', 'relocation', 'proprietaire_deja_client', 'passage_agence', 'campagne', 'personnalise'] as const;
 export type OrigineContact = typeof ORIGINES_CONTACT[number];
 export const LIBELLE_ORIGINE_CONTACT: Record<OrigineContact, string> = {
   collegue: 'Collègue directement', apporteur: 'Apporteur d’affaires', internet: 'Internet', recommandation: 'Recommandation client',
-  relocation: 'Relocation (portefeuille de gestion)', passage_agence: 'Passage agence', campagne: 'Campagne de communication',
+  relocation: 'Relocation (portefeuille de gestion)', proprietaire_deja_client: 'Propriétaire déjà client', passage_agence: 'Passage agence', campagne: 'Campagne de communication',
   personnalise: 'Personnalisé',
 };
 
@@ -68,8 +68,12 @@ export const LIBELLE_ORIGINE_CONTACT: Record<OrigineContact, string> = {
  * n'est pas proposé (`originesProposees`) : la base refuserait la valeur.
  */
 export const PRECISION_ORIGINE_MAX = 80;
-export function originesProposees(personnalisable: boolean): readonly OrigineContact[] {
-  return personnalisable ? ORIGINES_CONTACT : ORIGINES_CONTACT.filter((o) => o !== 'personnalise');
+/**
+ * 🔴 Arno (24/10/2026, migration 415) — « PROPRIÉTAIRE DÉJÀ CLIENT » (un propriétaire déjà dans notre portefeuille qui nous confie un
+ * nouveau bien en gestion), juste après « Relocation ». Sans la 415, pas proposé (la base refuserait la valeur).
+ */
+export function originesProposees(personnalisable: boolean, dejaClient = false): readonly OrigineContact[] {
+  return ORIGINES_CONTACT.filter((o) => (o !== 'personnalise' || personnalisable) && (o !== 'proprietaire_deja_client' || dejaClient));
 }
 /** Le libellé affiché d'une origine : « Personnalisé : <texte> » quand il y en a un, sinon le libellé de la liste. PUR. */
 export function libelleOrigineContact(o: OrigineContact | null | undefined, precision?: string | null): string {

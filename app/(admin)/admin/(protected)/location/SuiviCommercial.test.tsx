@@ -115,7 +115,10 @@ describe('🔴 « Suivi commercial » — Nouveau locataire', () => {
     await saisir(champ(), '450');
     expect(htProprio().value).toBe('450,00');
     await saisir(htLocataire(), '200');
-    expect(container.querySelector('[data-hono-locataire-ttc]')?.textContent).toContain('240,00 € TTC');
+    // Arno (24/10/2026, accord explicite) : les aides « = … € TTC » sous ces champs sont retirées ; le lien demeure — le TTC est dans
+    // les conditions d'entrée (« Honoraires agence (€ HT) », « soit 240,00 € TTC »).
+    expect(container.querySelector('[data-hono-locataire-ttc]')).toBeNull();
+    expect(container.querySelector('[data-agence-ttc]')?.textContent).toBe('soit 240,00 € TTC');
   });
 
   it('enregistré APRÈS le bail créé : date de signature, HT, négociateur connecté, apporteur, gestion déduite, loyers', async () => {

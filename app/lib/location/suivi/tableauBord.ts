@@ -586,6 +586,8 @@ export interface DonneesTableau {
   annuaire?: boolean;
   /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */
   personnalisable?: boolean;
+  /** 415 — l'origine « Propriétaire déjà client » peut-elle être choisie ? */
+  dejaClient?: boolean;
   /** Arno (23/10/2026, historique 2019 → 2025) — chaque année d'activité, sans filtre : baux, CA, CA net, commission (droit). */
   historique?: AnneeHistorique[];
   /** 408 — les écarts expliqués avec le fichier, de l'année (notes de la feuille du mois). */
