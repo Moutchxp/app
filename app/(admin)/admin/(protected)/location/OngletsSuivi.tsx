@@ -208,10 +208,10 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
             <p className="plo-alerte" role="status" data-alerte-a-rattacher>
               {lu.apporteurs.filter((a) => !a.archive && aRattacher(a)).length} apporteur(s) « à rattacher » : tant qu’ils n’ont pas de collègue, ils ne peuvent pas être choisis pour une nouvelle location.</p>
           )}
+          {/* 🔴 Arno (24/10/2026) — « Trier par » : la liste verte de Location (menu juste sous le champ), mêmes options, même tri. */}
           <label className="plo-champ plo-tri" data-tri-apporteurs><span>Trier par</span>
-            <select className="plo-select" value={tri} onChange={(e) => setTri(e.target.value as Tri)} data-tri>
-              {(Object.keys(LIBELLE_TRI) as Tri[]).map((k) => <option key={k} value={k}>{LIBELLE_TRI[k]}</option>)}
-            </select></label>
+            <ListeChoix options={(Object.keys(LIBELLE_TRI) as Tri[]).map((k) => ({ id: k, libelle: LIBELLE_TRI[k] }))} valeur={tri} vide={null} libelle="Trier par"
+              onChange={(v) => setTri(v as Tri)} donnees={{ 'data-tri': '' }} /></label>
           {annuaire && (
             <p className="plo-filtre-rattacher">
               <button type="button" className="svv-btn svv-btn-outline gst-btn plo-corriger" aria-pressed={seulementARattacher} onClick={() => setSeulementARattacher((x) => !x)} data-filtre-a-rattacher>
@@ -312,9 +312,8 @@ export function OngletApporteurs({ onChoisir }: { onChoisir?: (a: Apporteur) => 
               <>
                 <label className="plo-champ"><span>Nom</span><input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} data-nom-apporteur /></label>
                 <label className="plo-champ"><span>Type</span>
-                  <select className="plo-select" value={nouveau.type} onChange={(e) => setNouveau({ ...nouveau, type: e.target.value as TypeApporteur })}>
-                    {TYPES_APPORTEUR.map((t) => <option key={t} value={t}>{LIBELLE_TYPE_APPORTEUR[t]}</option>)}
-                  </select></label>
+                  <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type"
+                    onChange={(v) => setNouveau({ ...nouveau, type: v as TypeApporteur })} donnees={{ 'data-type-apporteur-nouveau': '' }} /></label>
                 {annuaire && (
                   <div className="plo-champ"><span>Collègue de rattachement *</span>
                     <ListeChoix options={lu.collegues} valeur={nouveau.collegueId} libelle="Collègue de rattachement"

@@ -314,6 +314,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-ample .loc-champ input,.loc-ample .loc-champ select,.loc-ample .loc-champ textarea{min-height:58px;font-size:1.1rem;font-weight:400;border-radius:16px;border:2px solid var(--color-svv-line);padding:0 16px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-family:inherit;box-sizing:border-box;width:100%}
 .loc-ample .loc-champ textarea{padding:14px 16px;min-height:9rem;resize:vertical;line-height:1.5}
 .loc-ample .loc-champ input:focus,.loc-ample .loc-champ select:focus,.loc-ample .loc-champ textarea:focus{border-color:var(--color-svv-ink);outline:none}
+/* Arno (24/10/2026) — la liste verte (ListeChoix) a l'allure des grands champs des écrans « amples ». */
+.loc-ample .loc-champ .lch-champ{min-height:58px;font-size:1.1rem;border-radius:16px;border:2px solid var(--color-svv-line);padding:0 16px}
 .loc-oblig{color:var(--color-svv-red)}
 .loc-manque{color:var(--color-svv-red);font-size:.95rem;font-weight:600;margin:0}
 .loc-ample .svv-btn{min-height:52px;border-radius:16px;font-size:1.02rem;padding:0 22px}

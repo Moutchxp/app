@@ -324,10 +324,18 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await attendre();
   };
   const champ = (n: string) => container.querySelector(`[data-edls-${n}]`) as HTMLInputElement;
-  const choisir = (el: HTMLSelectElement, v: string) => act(() => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v);
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  /** 🔴 Arno (24/10/2026) — « Confier à » est une ListeChoix verte : ouvrir, cliquer l'option. */
+  const choisir = (el: Element, v: string) => {
+    act(() => { (el as HTMLElement).click(); });
+    act(() => { (el.closest('.lch')!.querySelector(`li[data-option="${v}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  };
+  const optionsConfier = () => {
+    const el = container.querySelector('[data-confier-a]') as HTMLElement;
+    act(() => { el.click(); });
+    const t = [...el.closest('.lch')!.querySelectorAll('li[role="option"]')].map((o) => o.textContent?.replace('✓', '').trim());
+    act(() => { el.click(); });
+    return t;
+  };
 
   it('avant la migration 385 : la saisie à la main de la date reste offerte, avec le message', async () => {
     await rendre();
@@ -344,7 +352,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('fin'), '09:30'));
     expect(container.querySelector('[data-edls-message]')?.textContent).toBe('L’heure de fin doit être après l’heure de début.');
     expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
-    expect([...container.querySelectorAll('select[data-confier-a] option')].map((o) => o.textContent)).toEqual(['Arno Test', 'Claire Test']);
+    expect(optionsConfier()).toEqual(['Arno Test', 'Claire Test']);
     expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes('edlsConfiables=1'))).toBe(true);
   });
 
@@ -352,7 +360,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await ouvrirPlanif();
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
-    choisir(container.querySelector('select[data-confier-a]') as HTMLSelectElement, '4');
+    choisir(container.querySelector('[data-confier-a]')!, '4');
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
@@ -403,7 +411,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(container.querySelector('[data-edls-mention]')?.textContent).toBe('Refusée par Claire Test — à réattribuer');
     clic('button[data-reattribuer-edls]');
     await attendre();
-    expect([...container.querySelectorAll('[data-formulaire-reattribuer] option')].map((o) => o.textContent)).toEqual(['Arno Test']);
+    expect(optionsConfier()).toEqual(['Arno Test']);   // la liste verte du formulaire « réattribuer »
     await act(async () => { (container.querySelector('button[data-valider-reattribution]') as HTMLButtonElement).click(); });
     expect(posts.at(-1)).toEqual({ action: 'reattribuer-edls', occupationIds: [11, 12], confieA: 3 });
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('confié à Arno Test — en attente de confirmation');

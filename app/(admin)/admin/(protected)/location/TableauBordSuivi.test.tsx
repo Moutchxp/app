@@ -51,9 +51,13 @@ const gestion = () => {
     sens: t.querySelector('[data-gestion-solde]')?.getAttribute('data-gestion-solde') };
 };
 const monter = async (vue: 'mois' | 'annee' = 'annee') => { await act(async () => { root.render(createElement(TableauBordSuivi, { vue })); }); await calmer(); };
+/** 🔴 Arno (24/10/2026) — les listes de Location sont des ListeChoix vertes : ouvrir le champ, cliquer l'option. `v` '' : le choix vide. */
+const choisirListe = async (el: Element, v: string) => {
+  await act(async () => { (el as HTMLElement).click(); });
+  await act(async () => { (el.closest('.lch')!.querySelector(`li[data-option="${v}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
 const choisir = async (filtre: string, v: string) => {
-  const el = container.querySelector(`[data-filtre="${filtre}"]`) as HTMLSelectElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await choisirListe(container.querySelector(`[data-filtre="${filtre}"]`)!, v);
   await calmer();
 };
 const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as HTMLButtonElement;
@@ -244,12 +248,13 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
     await modifierLigne('2026-09#3');
-    const sel = (q: string) => container.querySelector(q) as HTMLSelectElement;
-    const choisirSel = async (el: HTMLSelectElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
-    await choisirSel(sel('[data-edition-origine]'), 'apporteur');
-    expect(([...sel('[data-edition-apporteur]').options]).find((o) => o.value === '4')?.disabled).toBe(true);
-    await choisirSel(sel('[data-edition-apporteur]'), '3');
-    await choisirSel(sel('[data-edition-prime]'), 'aucune');
+    const sel = (q: string) => container.querySelector(q)!;
+    await choisirListe(sel('[data-edition-origine]'), 'apporteur');
+    await act(async () => { (sel('[data-edition-apporteur]') as HTMLElement).click(); });
+    expect(sel('[data-edition-apporteur]').closest('.lch')!.querySelector('li[data-option="4"]')?.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => { (sel('[data-edition-apporteur]') as HTMLElement).click(); });
+    await choisirListe(sel('[data-edition-apporteur]'), '3');
+    await choisirListe(sel('[data-edition-prime]'), 'aucune');
     await act(async () => { (container.querySelector('[data-edition-enregistrer]') as HTMLButtonElement).click(); });
     await calmer();
     expect(posts.at(-1)).toMatchObject({ action: 'modifier-activite', id: '2026-09#3', champs: { origineContact: 'apporteur', apporteurId: 3, primeMode: 'aucune' } });
@@ -269,8 +274,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(hono.closest('.fdm-saisie')?.querySelector('.fdm-unite')?.textContent).toBe('€');
     expect(hono.value).toBe('45,74');
     expect(hono.disabled || hono.readOnly).toBe(false);   // toujours modifiable
-    const sel = container.querySelector('[data-edition-apporteur]') as HTMLSelectElement;
-    expect(sel.selectedOptions[0].textContent).toBe('Frédéric Rousseau');
+    const sel = container.querySelector('[data-edition-apporteur]')!;
+    expect(sel.textContent).toBe('Frédéric Rousseau');
     expect(container.querySelector('[data-edition-apporteur-a-rattacher]')?.textContent).toBe('à rattacher');
     // Aucun champ ne disparaît : origine, apporteur, taux, honoraires, prime, Fermer, Enregistrer.
     for (const q of ['[data-edition-origine]', '[data-edition-apporteur]', '[data-edition-taux]', '[data-edition-commission]', '[data-edition-prime]', '[data-edition-fermer]', '[data-edition-enregistrer]']) {
@@ -625,8 +630,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector(`[data-edition-ligne="${cle}"]`)).not.toBeNull();
     };
     const prime = async (v: string) => {
-      const el = container.querySelector('[data-edition-prime]') as HTMLSelectElement;
-      await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); });
+      await choisirListe(container.querySelector('[data-edition-prime]')!, v);
     };
     const cellule = (mot: string) => container.querySelector(`[data-detail-ligne="${id}"] [data-champ="${mot}"]`)?.textContent;
 
@@ -646,7 +650,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
 
     it('ouvrir, modifier la prime, puis « Fermer » : la saisie est abandonnée, l’ancienne valeur revient, rien n’est écrit', async () => {
       await ouvrirLigne();
-      const avant = (container.querySelector('[data-edition-prime]') as HTMLSelectElement).value;
+      const avant = container.querySelector('[data-edition-prime]')!.getAttribute('data-valeur')!;
       const primeAvant = cellule('Prime de gestion');
       await prime(avant === 'aucune' ? 'regle' : 'aucune');
       await act(async () => { (container.querySelector('[data-edition-fermer]') as HTMLButtonElement).click(); });
@@ -654,7 +658,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(cellule('Prime de gestion')).toBe(primeAvant);
       expect(posts).toEqual([]);
       await modifierLigne(id);
-      expect((container.querySelector('[data-edition-prime]') as HTMLSelectElement).value).toBe(avant);
+      expect(container.querySelector('[data-edition-prime]')!.getAttribute('data-valeur')).toBe(avant);
     });
 
     it('Échap : même chose', async () => {
@@ -706,9 +710,9 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await modifierLigne(String(ligne.id));
     };
     const taper = async (q: string, v: string) => {
-      const el = container.querySelector(q) as HTMLInputElement | HTMLSelectElement;
-      const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-      await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, v); el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); });
+      const el = container.querySelector(q)!;
+      if (el.getAttribute('role') === 'combobox') { await choisirListe(el, v); return; }
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
     };
     const enregistrer = async () => { await act(async () => { (container.querySelector('[data-edition-enregistrer]') as HTMLButtonElement).click(); }); await calmer(); };
     const champs = () => posts.at(-1)?.champs as Record<string, unknown>;
@@ -964,7 +968,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
 
   describe('🔴 Arno (23/10/2026) — Suivi du mois : le sélecteur d’année au bout de la rangée des mois', () => {
     const selecteur = () => container.querySelector('[data-annee-onglets]') as HTMLButtonElement;
-    const filtreAnnee = () => container.querySelector('[data-filtre="annee"]') as HTMLSelectElement;
+    const filtreAnnee = () => container.querySelector('[data-filtre="annee"]')!;
     const choisirAnnee = async (a: string) => {
       await act(async () => { selecteur().click(); });
       await act(async () => { (container.querySelector(`[data-liste-choix] [data-option="${a}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -993,12 +997,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-onglet-mois="9"]')?.getAttribute('aria-selected')).toBe('true');
       expect(nbsp(container.querySelector('[data-tuile="ca-mois"] .tdb-tuile-valeur')?.textContent)).toBe('2 000,00 €');
       expect(container.querySelector('#tdb-histo')?.textContent).toContain('Mois par mois — 2025');
-      expect(filtreAnnee().value).toBe('2025');
+      expect(filtreAnnee().getAttribute('data-valeur')).toBe('2025');
       expect(window.location.search).toBe('?annee=2025&mois=9');
       // Une année passée : ses 12 mois actifs, aucun point gris.
       expect(container.querySelectorAll('[data-onglets-mois] .tdb-onglet-vide')).toHaveLength(0);
       // Et l'inverse : le filtre « Année » change le sélecteur.
-      await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(filtreAnnee(), '2026'); filtreAnnee().dispatchEvent(new Event('change', { bubbles: true })); });
+      await choisirListe(filtreAnnee(), '2026');
       await calmer();
       expect(selecteur().textContent).toBe('2026');
       expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2026-09');
@@ -1011,7 +1015,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(selecteur().textContent).toBe('2025');
       expect(container.querySelector('[data-onglet-mois="3"]')?.getAttribute('aria-selected')).toBe('true');
       expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2025-03');
-      expect(filtreAnnee().value).toBe('2025');
+      expect(filtreAnnee().getAttribute('data-valeur')).toBe('2025');
     });
   });
 

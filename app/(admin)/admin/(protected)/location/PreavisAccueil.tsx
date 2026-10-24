@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from './ListeChoix';
 import { useEffect, useMemo, useState } from 'react';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { ConfirmationSortie, EncartDuLogement, MESSAGE_SORTIE_GESTION } from './SortieLocataires';
@@ -253,9 +254,8 @@ function ChoixPersonne({ valeur, onChange, exclure }: { valeur: number | null; o
       {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : personnes.length === 0
         ? <p className="loc-muet" data-aucune-personne>Personne n’a les tuiles Location et Gestion avec une adresse de notre Workspace.</p>
         : (
-          <select value={valeur ?? ''} onChange={(ev) => onChange(ev.target.value === '' ? null : Number(ev.target.value))} data-confier-a>
-            {personnes.map((p) => <option key={p.id} value={p.id}>{p.libelle}</option>)}
-          </select>
+          <ListeChoix options={personnes.map((p) => ({ id: p.id, libelle: p.libelle }))} valeur={valeur === null || valeur === undefined ? '' : String(valeur)} vide={null} libelle="Confier à"
+            onChange={(v) => onChange(v === '' ? null : Number(v))} donnees={{ 'data-confier-a': '' }} />
         )}
     </label>
   );

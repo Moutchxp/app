@@ -261,15 +261,23 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     avec407();
     await ouvrir('apporteurs');
     const ordre = () => [...container.querySelectorAll('[data-apporteur]')].map((x) => x.getAttribute('data-apporteur'));
-    expect((container.querySelector('[data-tri]') as HTMLSelectElement).value).toBe('nom');
+    // 🔴 Arno (24/10/2026) — « Trier par » est la liste verte (ListeChoix) : mêmes options, même tri.
+    const tri = container.querySelector('[data-tri]') as HTMLElement;
+    expect(tri.getAttribute('role')).toBe('combobox');
+    expect(tri.getAttribute('data-valeur')).toBe('nom');
     expect(ordre()).toEqual(['3', '4']);   // « Kin Immo » (une agence : par son nom) avant « REPRIS Apporteur »
-    const tri0 = container.querySelector('[data-tri]') as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri0, 'ca'); tri0.dispatchEvent(new Event('change', { bubbles: true })); });
+    const trier = async (v: string) => {
+      await act(async () => { tri.click(); });
+      await act(async () => { (tri.closest('.lch')!.querySelector(`li[data-option="${v}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    };
+    await act(async () => { tri.click(); });
+    expect([...tri.closest('.lch')!.querySelectorAll('li[role="option"]')].map((o) => o.getAttribute('data-option'))).toEqual(['ca', 'commission', 'nb', 'nom']);
+    expect([...tri.closest('.lch')!.querySelectorAll('li[role="option"]')].map((o) => o.textContent?.replace('✓', '').trim()))
+      .toEqual(['Honoraires HT (décroissant)', 'Dû HT (décroissant)', 'Dossiers (décroissant)', 'Nom de famille (A → Z)']);
+    await act(async () => { tri.click(); });
+    await trier('ca');
     expect(ordre()).toEqual(['4', '3']);   // 5 825,03 € avant 1 200 €
     expect(container.querySelector('[data-totaux-ligne="4"]')?.textContent?.replace(/[\u202f\u00a0]/g, ' ')).toBe('Dossiers7Honoraires HT5 825,03 €Dû HT582,50 €Dû au collègue HT0,00 €');
-    const tri = container.querySelector('[data-tri]') as HTMLSelectElement;
-    expect([...tri.options].map((o) => o.value)).toEqual(['ca', 'commission', 'nb', 'nom']);
-    const trier = async (v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(tri, v); tri.dispatchEvent(new Event('change', { bubbles: true })); }); };
     await trier('nb');
     expect(ordre()).toEqual(['3', '4']);   // 9 dossiers avant 7
     await trier('commission');

@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from './ListeChoix';
 import { useEffect, useState } from 'react';
 import { API, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, phraseMail } from './commun';
 import { manquesDpeEntretien } from '../../../../lib/location/bienComplet';
@@ -96,9 +97,8 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
           <>
             <div className="loc-grille">
               <label className="loc-champ">Civilité
-                <select value={p.civilite} onChange={(e) => setP({ ...p, civilite: e.target.value })}>
-                  <option value="">—</option>{['M.', 'Mme', 'M. et Mme', 'SCI', 'Sté', 'Indivision'].map((c) => <option key={c} value={c}>{c}</option>)}
-                </select></label>
+                <ListeChoix options={['M.', 'Mme', 'M. et Mme', 'SCI', 'Sté', 'Indivision'].map((c) => ({ id: c, libelle: c }))} valeur={p.civilite} vide="—" libelle="Civilité"
+                  onChange={(v) => setP({ ...p, civilite: v })} donnees={{ 'data-civilite-proprietaire': '' }} /></label>
               {champP('nom', 'Nom *', { autoFocus: true, required: true })}
               {champP('prenom', 'Prénom')}
               {champP('telephone', 'Téléphone', { inputMode: 'tel', placeholder: 'ex. 06 12 34 56 78' })}
@@ -151,9 +151,8 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
               <li key={a.cle} className="loc-enfant" style={{ display: 'block' }}>
                 <div className="loc-grille">
                   <label className="loc-champ">Catégorie
-                    <select value={a.categorie} onChange={(e) => setAnnexes((l) => l.map((x, j) => (j === i ? { ...x, categorie: e.target.value as Categorie } : x)))}>
-                      {CATEGORIES_ANNEXE.map((c) => <option key={c} value={c}>{LIBELLE_CATEGORIE[c]}</option>)}
-                    </select></label>
+                    <ListeChoix options={CATEGORIES_ANNEXE.map((c) => ({ id: c, libelle: LIBELLE_CATEGORIE[c] }))} valeur={a.categorie} vide={null} libelle="Catégorie"
+                      onChange={(v) => setAnnexes((l) => l.map((x, j) => (j === i ? { ...x, categorie: v as Categorie } : x)))} donnees={{ 'data-categorie-annexe': String(i) }} /></label>
                   {(['etage', 'numLotCopro', 'porte'] as const).map((k) => (
                     <label key={k} className="loc-champ">
                       {k === 'etage' ? 'Étage' : k === 'numLotCopro' ? 'N° de lot de copropriété' : a.categorie === 'parking' || a.categorie === 'box' ? 'N° de place' : 'N° de porte'}

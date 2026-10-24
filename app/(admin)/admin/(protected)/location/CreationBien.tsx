@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModaleIssue } from './ModaleIssue';
 import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
@@ -341,9 +342,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   );
   const choix = (k: Champ, mot: string, options: readonly string[]) => (
     <label className="loc-champ">{mot}
-      <select value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }}>
-        <option value="">— non renseigné —</option>{options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select></label>
+      {/* 🔴 Arno (24/10/2026) — la liste verte de Location ; une valeur hors liste (déjà en base) reste montrée et choisie. */}
+      <ListeChoix options={[...options, ...(b[k] !== '' && !options.includes(b[k]) ? [b[k]] : [])].map((o) => ({ id: o, libelle: o }))} valeur={b[k]} vide="— non renseigné —" libelle={mot}
+        onChange={(val) => setB((x) => ({ ...x, [k]: val }))} donnees={{ 'data-choix-bien': k }} /></label>
   );
   const changerAnnexe = (i: number, f: (a: Annexe) => Annexe): void => setAnnexes((l) => l.map((x, j) => (j === i ? f(x) : x)));
   const ajouterAnnexe = (categorie: Categorie): void => setAnnexes((a) => [...a, {

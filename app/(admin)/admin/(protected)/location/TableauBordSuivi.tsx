@@ -236,39 +236,28 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         </div>
       )}
       <form className="tdb-filtres" aria-label="Filtres du tableau de bord" onSubmit={(e) => e.preventDefault()} data-filtres>
+        {/* 🔴 Arno (24/10/2026) — plus de <select> natif en Location : les listes vertes, menu juste sous le champ (mêmes options). */}
         <label className="tdb-champ">Année
-          <select value={annee} onChange={(e) => setAnnee(Number(e.target.value))} data-filtre="annee">
-            {d.annees.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select></label>
+          <ListeChoix options={d.annees.map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+            onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
         {vue === 'annee' && (
           <label className="tdb-champ">Mois
-            <select value={mois} onChange={(e) => setMois(Number(e.target.value))} data-filtre="mois">
-              {NOMS_MOIS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </select></label>
+            <ListeChoix options={NOMS_MOIS.map((m, i) => ({ id: i + 1, libelle: m }))} valeur={String(mois)} vide={null} libelle="Mois"
+              onChange={(v) => setMois(Number(v))} donnees={{ 'data-filtre': 'mois' }} /></label>
         )}
         <label className="tdb-champ">Négociateur
-          <select value={filtre.negociateur ?? ''} onChange={(e) => poser({ negociateur: e.target.value || null })} data-filtre="negociateur">
-            <option value="">Tous</option>
-            {d.negociateurs.map((n) => <option key={n.cle} value={n.cle}>{n.libelle}</option>)}
-          </select></label>
+          <ListeChoix options={d.negociateurs.map((n) => ({ id: n.cle, libelle: n.libelle }))} valeur={filtre.negociateur ?? ''} vide="Tous" libelle="Négociateur"
+            onChange={(v) => poser({ negociateur: v || null })} donnees={{ 'data-filtre': 'negociateur' }} /></label>
         <label className="tdb-champ">Apporteur
-          <select value={filtre.apporteur ?? ''} onChange={(e) => poser({ apporteur: e.target.value === '' ? null : e.target.value === 'aucun' ? 'aucun' : Number(e.target.value) })} data-filtre="apporteur">
-            <option value="">Tous</option>
-            <option value="aucun">Sans apporteur</option>
-            {d.apporteurs.filter((a) => !a.archive).map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}
-          </select></label>
+          <ListeChoix options={[{ id: 'aucun', libelle: 'Sans apporteur' }, ...d.apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, libelle: a.nom }))]}
+            valeur={filtre.apporteur === null || filtre.apporteur === undefined ? '' : String(filtre.apporteur)} vide="Tous" libelle="Apporteur"
+            onChange={(v) => poser({ apporteur: v === '' ? null : v === 'aucun' ? 'aucun' : Number(v) })} donnees={{ 'data-filtre': 'apporteur' }} /></label>
         <label className="tdb-champ">Gestion
-          <select value={filtre.gestion ?? ''} onChange={(e) => poser({ gestion: e.target.value === 'avec' || e.target.value === 'sans' ? e.target.value : null })} data-filtre="gestion">
-            <option value="">Avec et sans</option>
-            <option value="avec">Avec gestion</option>
-            <option value="sans">Sans gestion</option>
-          </select></label>
+          <ListeChoix options={[{ id: 'avec', libelle: 'Avec gestion' }, { id: 'sans', libelle: 'Sans gestion' }]} valeur={filtre.gestion ?? ''} vide="Avec et sans" libelle="Gestion"
+            onChange={(v) => poser({ gestion: v === 'avec' || v === 'sans' ? v : null })} donnees={{ 'data-filtre': 'gestion' }} /></label>
         <label className="tdb-champ">Client
-          <select value={filtre.origine ?? ''} onChange={(e) => poser({ origine: e.target.value === 'nouveau' || e.target.value === 'deja' ? e.target.value : null })} data-filtre="origine">
-            <option value="">Nouveaux et déjà clients</option>
-            <option value="nouveau">Nouveaux clients</option>
-            <option value="deja">Déjà clients</option>
-          </select></label>
+          <ListeChoix options={[{ id: 'nouveau', libelle: 'Nouveaux clients' }, { id: 'deja', libelle: 'Déjà clients' }]} valeur={filtre.origine ?? ''} vide="Nouveaux et déjà clients" libelle="Client"
+            onChange={(v) => poser({ origine: v === 'nouveau' || v === 'deja' ? v : null })} donnees={{ 'data-filtre': 'origine' }} /></label>
       </form>
 
       {vue === 'annee' ? (

@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, useLecture } from './commun';
 import { etageFr } from '../../../../lib/location/sortieLocataires';
@@ -266,9 +267,8 @@ export function CreationLocataire() {
     }
     return (
       <label className="loc-champ loc-contact-de" data-contact-de={cle}>Contact de :
-        <select value={contactDe(cle) ?? ''} onChange={(e) => setLiens((x) => ({ ...x, [cle]: { ...x[cle], locataire: e.target.value } }))}>
-          {locatairesEcran.map((l) => <option key={l.cle} value={l.cle}>{l.nom}</option>)}
-        </select>
+        <ListeChoix options={locatairesEcran.map((l) => ({ id: l.cle, libelle: l.nom }))} valeur={String(contactDe(cle) ?? '')} vide={null} libelle="Contact de"
+          onChange={(v) => setLiens((x) => ({ ...x, [cle]: { ...x[cle], locataire: v } }))} donnees={{ 'data-contact-de-liste': '' }} />
       </label>
     );
   };

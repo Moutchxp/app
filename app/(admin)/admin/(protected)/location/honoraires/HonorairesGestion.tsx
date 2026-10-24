@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from '../ListeChoix';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   calculerHonoraires, formaterEuros, formaterTaux, LIBELLE_BASE, MOT_LOYER_A_SAISIR, nombrePourSaisie,
@@ -111,9 +112,9 @@ export function HonorairesGestion() {
             onClick={() => setMois(null)}>Année</button>
         </span>
         {mois !== null && (
-          <select className="hon-champ" aria-label="Mois" value={mois} onChange={(e) => setMois(Number(e.target.value))}>
-            {MOIS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
+          <span className="hon-liste" data-hon-mois>
+            <ListeChoix options={MOIS.map((m, i) => ({ id: i + 1, libelle: m }))} valeur={String(mois)} vide={null} libelle="Mois" onChange={(v) => setMois(Number(v))} />
+          </span>
         )}
         <input className="hon-champ hon-annee" aria-label="Année" type="number" min={2000} max={2100} value={annee}
           onChange={(e) => { const n = Number(e.target.value); if (n >= 2000 && n <= 2100) setAnnee(n); }} />
@@ -263,9 +264,10 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
         <label>Taux par défaut (% HT)
           <input className="hon-champ" inputMode="decimal" value={taux} onChange={(e) => setTaux(e.target.value)} /></label>
         <label>Base par défaut
-          <select className="hon-champ" value={base} onChange={(e) => setBase(e.target.value === 'hc' ? 'hc' : 'cc')}>
-            <option value="cc">{LIBELLE_BASE.cc}</option><option value="hc">{LIBELLE_BASE.hc}</option>
-          </select></label>
+          <span className="hon-liste" data-hon-base>
+            <ListeChoix options={[{ id: 'cc', libelle: LIBELLE_BASE.cc }, { id: 'hc', libelle: LIBELLE_BASE.hc }]} valeur={base} vide={null} libelle="Base par défaut"
+              onChange={(v) => setBase(v === 'hc' ? 'hc' : 'cc')} />
+          </span></label>
         <button type="submit" className="svv-btn gst-btn">Enregistrer</button>
       </form>
       <p className="hon-note">TVA sur honoraires en vigueur aujourd’hui : <strong>{tvaDuJour === null ? 'aucune' : formaterTaux(tvaDuJour)}</strong>.
@@ -341,6 +343,7 @@ const CSS_HONORAIRES = `
 .hon-seg button{border:0;background:transparent;padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer;color:inherit}
 .hon-seg button+button{border-left:1px solid var(--color-svv-line)}
 .hon-seg button.on{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.hon-liste{display:inline-block;min-width:190px}
 .hon-champ{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;padding:0 10px;font:inherit;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .hon-annee{width:7rem}
 .hon-barre .svv-btn{width:auto}

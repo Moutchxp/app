@@ -64,7 +64,8 @@ describe('🔴 Accès à l’annuaire des apporteurs', () => {
       expect(container.querySelector('[data-gerer-apporteurs]')).toBeNull();
       expect(container.textContent).not.toContain('Gérer les apporteurs');
       const filtre = container.querySelector('[data-filtre="apporteur"]')!;
-      expect([...filtre.closest('label')!.children].map((x) => x.tagName)).toEqual(['SELECT']);   // rien sous le filtre
+      // Rien sous le filtre : la seule liste (verte, ListeChoix — Arno, 24/10/2026).
+      expect([...filtre.closest('label')!.children].map((x) => x.className)).toEqual(['lch']);
       act(() => { root.unmount(); }); root = createRoot(container);
     }
   });

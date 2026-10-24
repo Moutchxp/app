@@ -417,10 +417,10 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
   return (
     <div className="fdm-edition-corps" data-edition-ligne={String(a.id)}>
       <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Origine du contact *</span>
-        <select value={v.origineContact} onChange={(e) => poser({ origineContact: e.target.value as OrigineContact })} aria-invalid={sansOrigine} data-edition-origine>
-          <option value="">— choisir —</option>
-          {originesProposees(d.personnalisable === true || v.origineContact === 'personnalise', d.dejaClient === true || v.origineContact === 'proprietaire_deja_client').map((o) => <option key={o} value={o}>{LIBELLE_ORIGINE_CONTACT[o]}</option>)}
-        </select>
+        {/* 🔴 Arno (24/10/2026) — plus de <select> natif en Location : la liste verte, menu juste sous le champ. */}
+        <ListeChoix valeur={v.origineContact} libelle="Origine du contact" onChange={(x) => poser({ origineContact: x as OrigineContact })}
+          options={originesProposees(d.personnalisable === true || v.origineContact === 'personnalise', d.dejaClient === true || v.origineContact === 'proprietaire_deja_client').map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o] }))}
+          donnees={{ 'data-edition-origine': '', 'aria-invalid': String(sansOrigine) }} />
         {sansOrigine && <span className="loc-manque fdm-manque" role="alert" data-edition-sans-origine>L’origine du contact est obligatoire.</span>}</label>
       {/* Arno (24/10/2026, 411) — « Personnalisé » : le texte de l'origine, obligatoire, 80 caractères au plus. */}
       {v.origineContact === 'personnalise' && (
@@ -434,15 +434,13 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
       {v.origineContact === 'apporteur' && (
         <>
           <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Apporteur *</span>
-            <select value={v.apporteurId} onChange={(e) => poser({ apporteurId: e.target.value })} data-edition-apporteur>
-              <option value="">— choisir dans l’annuaire —</option>
-              {ctx.apporteurs.filter((x) => !x.archive).map((x) => {
+            <ListeChoix valeur={v.apporteurId} vide="— choisir dans l’annuaire —" libelle="Apporteur" onChange={(x) => poser({ apporteurId: x })} donnees={{ 'data-edition-apporteur': '' }}
+              options={ctx.apporteurs.filter((x) => !x.archive).map((x) => {
                 const bloque = aRattacher(x) && String(x.id) !== String(a.apporteurId ?? '');
                 // L'apporteur CHOISI s'affiche par son seul nom (jamais tronqué) ; « à rattacher » passe alors en badge sous le champ.
                 const choisi = String(x.id) === v.apporteurId;
-                return <option key={x.id} value={x.id} disabled={bloque}>{x.nom}{aRattacher(x) && !choisi ? ' — à rattacher' : ''}</option>;
-              })}
-            </select>
+                return { id: x.id, libelle: x.nom, bloque, mention: aRattacher(x) && !choisi ? ' — à rattacher' : undefined };
+              })} />
             {apporteurChoisi !== undefined && aRattacher(apporteurChoisi) && <span className="fdm-badge-orange" data-edition-apporteur-a-rattacher>à rattacher</span>}</label>
           <label className="tdb-champ fdm-champ-court"><span className="fdm-libelle">Taux (%)</span>
             <span className="fdm-saisie"><input inputMode="decimal" value={v.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-edition-taux /><span className="fdm-unite" aria-hidden="true">%</span></span></label>
@@ -451,11 +449,8 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
         </>
       )}
       <label className="tdb-champ"><span className="fdm-libelle">Prime de gestion</span>
-        <select value={v.primeMode} onChange={(e) => poser({ primeMode: e.target.value as ModePrime })} data-edition-prime>
-          <option value="regle">{`${versionADate(ctx.regles, a.dateSignature)?.primeLogement ?? 150} €`}</option>
-          <option value="personnalise">Personnalisé</option>
-          <option value="aucune">Aucune</option>
-        </select></label>
+        <ListeChoix valeur={v.primeMode} vide={null} libelle="Prime de gestion" onChange={(x) => poser({ primeMode: x as ModePrime })} donnees={{ 'data-edition-prime': '' }}
+          options={[{ id: 'regle', libelle: `${versionADate(ctx.regles, a.dateSignature)?.primeLogement ?? 150} €` }, { id: 'personnalise', libelle: 'Personnalisé' }, { id: 'aucune', libelle: 'Aucune' }]} /></label>
       {v.primeMode === 'personnalise' && (
         <label className="tdb-champ"><span className="fdm-libelle">Montant (€) *</span>
           <span className="fdm-saisie"><input inputMode="decimal" value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /><span className="fdm-unite" aria-hidden="true">€</span></span></label>

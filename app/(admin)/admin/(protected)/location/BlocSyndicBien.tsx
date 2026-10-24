@@ -1,5 +1,6 @@
 'use client';
 
+import { ListeChoix } from './ListeChoix';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { API, liste } from './commun';
@@ -135,9 +136,8 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
             <div className="loc-syndic-ajout" data-ajout-contact-syndic>
               <div className="loc-grille">
                 <label className="loc-champ">Civilité
-                  <select value={ajout.civilite ?? ''} onChange={(e) => { const v = e.target.value; setAjout((x) => ({ ...(x ?? VIDE_CONTACT), civilite: v === 'M.' || v === 'Mme' ? v : null })); }}>
-                    <option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option>
-                  </select></label>
+                  <ListeChoix options={[{ id: 'M.', libelle: 'M.' }, { id: 'Mme', libelle: 'Mme' }]} valeur={ajout.civilite ?? ''} vide="—" libelle="Civilité"
+                    onChange={(v) => setAjout((x) => ({ ...(x ?? VIDE_CONTACT), civilite: v === 'M.' || v === 'Mme' ? v : null }))} donnees={{ 'data-civilite-syndic': '' }} /></label>
                 {(['prenom', 'nom', 'fonction', 'email', 'telephone'] as const).map((k) => (
                   <label key={k} className="loc-champ">{k === 'prenom' ? 'Prénom' : k === 'nom' ? 'Nom *' : k === 'fonction' ? 'Fonction' : k === 'email' ? 'E-mail' : 'Téléphone'}
                     <input value={ajout[k] ?? ''} list={k === 'fonction' ? 'loc-fonctions-syndic' : undefined}
