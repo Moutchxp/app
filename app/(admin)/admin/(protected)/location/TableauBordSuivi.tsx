@@ -93,6 +93,13 @@ const LIGNES_A: { k: 'nb' | 'caProprietaire' | 'caLocataire' | 'ca' | 'apporteur
   { k: 'commission', mot: 'Commission brute du négociateur', commission: true },
 ];
 
+/**
+ * 🔴 Arno (24/10/2026) — les largeurs FIXES (px) des colonnes de la carte « Le mois » : deux montants (« 1 234 567,89 € », « SEPTEMBRE
+ * 2026 »), l'écart (« −123 456,78 € · −100,0 % » sur une ligne) et le chevron ; l'intitulé prend le reste. Elles ne dépendent
+ * jamais des données (ni du mois, ni des montants).
+ */
+export const LARGEURS_A = { montant: 145, ecart: 215, chevron: 52 } as const;
+
 type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string; ids: number[] }[] } | null;
 
 /**
@@ -361,8 +368,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       })()}
 
       {vue === 'mois' && (() => {
-        /* 🔴 Arno (24/10/2026) — la carte « Le mois » REPLIÉE par défaut sur une ligne (titre, mois comparé, les deux TOTAL CA HT et
-           l'écart) ; la ligne (hors sélecteurs) ou le chevron la déplie : le tableau complet, inchangé, face au mois choisi. */
+        /* 🔴 Arno (24/10/2026) — la carte « Le mois » REPLIÉE par défaut sur 2 lignes (en-têtes avec le mois comparé, TOTAL CA HT) ;
+           la ligne TOTAL CA HT ou le chevron la déplie : les autres indicateurs, face au mois choisi, dans la même grille. */
         const libCourant = `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
         const libCmp = `${NOMS_MOIS[cmp.mois - 1].toLowerCase()} ${cmp.annee}`;
         const lignesCmp = !horsFenetre ? lignes : activitesCmp === null ? null : filtrer(activitesCmp, filtre);
@@ -373,31 +380,40 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         const ecartCa = sansCmp || P === null ? null : A.courant.ca - P.ca;
         const choisirCmp = (a: number, m: number): void => setComparer(`${a}-${String(m).padStart(2, '0')}`);
         const anneeEnCours = Number(jour.slice(0, 4));
+        const ouvrirCarte = (): void => setCarteMoisOuverte((o) => !o);
+        const lignesA = LIGNES_A.filter((l) => !l.commission || d.voirCommissions);
+        // La ligne TOTAL CA HT d'abord (toujours visible), puis — dépliée — les autres indicateurs dans l'ordre du tableau.
+        const ordre = [...lignesA.filter((l) => l.k === 'ca'), ...(carteMoisOuverte ? lignesA.filter((l) => l.k !== 'ca') : [])];
         return (
       <section className="tdb-section tdb-a" aria-labelledby="tdb-a" data-section="A" data-carte-mois={carteMoisOuverte ? 'ouverte' : 'repliee'}>
-        <div className="tdb-a-tete" data-carte-mois-tete
-          onClick={(e) => { if ((e.target as Element).closest('[data-a-selecteurs]') === null) setCarteMoisOuverte((o) => !o); }}>
-          <h3 id="tdb-a">Le mois — {libCourant} face à<span className="fdm-cache"> {libCmp}</span></h3>
-          <span className="tdb-a-choix" data-a-selecteurs>
-            <ListeChoix options={NOMS_MOIS.map((m, i) => ({ id: i + 1, libelle: m.toLowerCase() }))} valeur={String(cmp.mois)} vide={null} libelle="Mois de comparaison"
-              classe="tdb-a-champ" onChange={(v) => choisirCmp(cmp.annee, Number(v))} donnees={{ 'data-comparer-mois': '' }} />
-            <ListeChoix options={anneesComparables(d.annees, anneeEnCours, cmp.annee).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(cmp.annee)} vide={null}
-              libelle="Année de comparaison" classe="tdb-a-champ" onChange={(v) => choisirCmp(Number(v), cmp.mois)} donnees={{ 'data-comparer-annee': '' }} />
-          </span>
-          <span className="tdb-a-resume" data-a-resume>
-            <span className="tdb-a-total" data-a-total="courant"><span className="tdb-a-mot">TOTAL CA HT {libCourant}</span> <strong>{eur(A.courant.ca)}</strong></span>
-            <span className="tdb-a-total" data-a-total="compare"><span className="tdb-a-mot">TOTAL CA HT {libCmp}</span> <strong>{P === null ? '…' : sansCmp ? '—' : eur(P.ca)}</strong></span>
-            <span className={`tdb-a-ecart tdb-signe tdb-signe--${ecartCa === null ? 'nul' : sensDe(ecartCa)}`} data-a-ecart={ecartCa === null ? 'nul' : sensDe(ecartCa)}>
-              {ecartCa === null ? 'Écart —' : <>{ecartEur(ecartCa)} ({signe(variation(A.courant.ca, P!.ca))})</>}</span>
-          </span>
-          <button type="button" className="tdb-a-chevron" aria-expanded={carteMoisOuverte} aria-controls="tdb-a-table" data-carte-mois-chevron
-            aria-label={carteMoisOuverte ? 'Replier le détail du mois' : 'Déplier le détail du mois'}><span aria-hidden="true">{carteMoisOuverte ? '▾' : '▸'}</span></button>
-        </div>
-        {carteMoisOuverte && (
-        <table className="tdb-table" id="tdb-a-table">
-          <thead><tr><th scope="col">Indicateur</th><th scope="col">{NOMS_MOIS[mois - 1]} {annee}</th><th scope="col">{NOMS_MOIS[cmp.mois - 1]} {cmp.annee}</th><th scope="col">Écart</th></tr></thead>
+        {/* 🔴 Arno (24/10/2026, après 9f230251) — UNE grille, repliée ou dépliée : la ligne d'en-têtes (titre, mois comparé, colonnes)
+            et la ligne TOTAL CA HT sont celles du tableau ; déplier ajoute les autres indicateurs dessous. Largeurs FIXES (`LARGEURS_A`,
+            table-layout fixed) : rien ne bouge d'un mois à l'autre, ni selon les montants. */}
+        <table className="tdb-table tdb-a-table" id="tdb-a-table">
+          <colgroup>
+            <col className="tdb-a-col-indicateur" />
+            <col style={{ width: LARGEURS_A.montant }} /><col style={{ width: LARGEURS_A.montant }} />
+            <col style={{ width: LARGEURS_A.ecart }} /><col style={{ width: LARGEURS_A.chevron }} />
+          </colgroup>
           <tbody>
-            {LIGNES_A.filter((l) => !l.commission || d.voirCommissions).map((l) => {
+            <tr className="tdb-a-entetes" data-a-entetes>
+              <th scope="col" className="tdb-a-intitule"><div className="tdb-a-intitule-corps">
+                <span id="tdb-a" role="heading" aria-level={3} className="tdb-a-titre">Le mois — {libCourant}<span className="fdm-cache"> comparé à {libCmp}</span></span>
+                <span className="tdb-a-compare" aria-hidden="true">comparé à</span>
+                <span className="tdb-a-choix" data-a-selecteurs>
+                  <ListeChoix options={NOMS_MOIS.map((m, i) => ({ id: i + 1, libelle: m.toLowerCase() }))} valeur={String(cmp.mois)} vide={null} libelle="Mois de comparaison"
+                    classe="tdb-a-champ tdb-a-champ--mois" onChange={(v) => choisirCmp(cmp.annee, Number(v))} donnees={{ 'data-comparer-mois': '' }} />
+                  <ListeChoix options={anneesComparables(d.annees, anneeEnCours, cmp.annee).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(cmp.annee)} vide={null}
+                    libelle="Année de comparaison" classe="tdb-a-champ tdb-a-champ--annee" onChange={(v) => choisirCmp(Number(v), cmp.mois)} donnees={{ 'data-comparer-annee': '' }} />
+                </span>
+              </div></th>
+              <th scope="col">{NOMS_MOIS[mois - 1]} {annee}</th><th scope="col">{NOMS_MOIS[cmp.mois - 1]} {cmp.annee}</th><th scope="col">Écart</th>
+              <td rowSpan={2} className="tdb-a-chevron-case">
+                <button type="button" className="tdb-a-chevron" aria-expanded={carteMoisOuverte} aria-controls="tdb-a-table" data-carte-mois-chevron onClick={ouvrirCarte}
+                  aria-label={carteMoisOuverte ? 'Replier le détail du mois' : 'Déplier le détail du mois'}><span aria-hidden="true">{carteMoisOuverte ? '▾' : '▸'}</span></button>
+              </td>
+            </tr>
+            {ordre.map((l) => {
               const c = A.courant[l.k];
               const p = P === null ? 0 : P[l.k];
               const ids = (t: TotauxPeriode): (number | string)[] => (l.k === 'retrocessions' ? [] : t.ids.filter((i) => {
@@ -410,18 +426,22 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                 return true;
               }));
               const valeur = (x: number): string => (l.k === 'nb' ? String(x) : eur(x));
+              const total = l.k === 'ca';
               return (
-                <tr key={l.k} className={l.k === 'ca' ? 'tdb-fort' : undefined} data-ligne-a={l.k}>
+                <tr key={l.k} className={total ? 'tdb-fort tdb-a-total' : undefined} data-ligne-a={l.k}
+                  onClick={total ? (e) => { if ((e.target as Element).closest('.tdb-chiffre') === null) ouvrirCarte(); } : undefined}>
                   <th scope="row">{l.mot}</th>
-                  <td data-mot={`${NOMS_MOIS[mois - 1]} ${annee}`}>{chiffre(valeur(c), `${l.mot} — ${NOMS_MOIS[mois - 1]} ${annee}`, ids(A.courant), `a-${l.k}`)}</td>
-                  <td data-mot={`${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`}>{sansCmp || P === null ? <span className="loc-muet">—</span> : chiffre(valeur(p), `${l.mot} — ${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`, ids(P))}</td>
-                  <td data-mot="Écart">{sansCmp || p === 0 ? '—' : l.k === 'nb' ? `${c - p >= 0 ? '+' : '−'}${Math.abs(c - p)}` : signe((c - p) / p)}</td>
+                  <td data-mot={`${NOMS_MOIS[mois - 1]} ${annee}`} data-a-total={total ? 'courant' : undefined}>{chiffre(valeur(c), `${l.mot} — ${NOMS_MOIS[mois - 1]} ${annee}`, ids(A.courant), `a-${l.k}`)}</td>
+                  <td data-mot={`${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`} data-a-total={total ? 'compare' : undefined}>{P === null ? <span className="loc-muet">…</span> : sansCmp ? <span className="loc-muet">—</span> : chiffre(valeur(p), `${l.mot} — ${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`, ids(P))}</td>
+                  {total ? (
+                    <td data-mot="Écart" className={`tdb-a-ecart tdb-signe tdb-signe--${ecartCa === null ? 'nul' : sensDe(ecartCa)}`} data-a-ecart={ecartCa === null ? 'nul' : sensDe(ecartCa)}>
+                      {ecartCa === null ? '—' : `${ecartEur(ecartCa)} · ${signe(variation(A.courant.ca, P!.ca))}`}</td>
+                  ) : <td data-mot="Écart">{sansCmp || p === 0 ? '—' : l.k === 'nb' ? `${c - p >= 0 ? '+' : '−'}${Math.abs(c - p)}` : signe((c - p) / p)}</td>}
                 </tr>
               );
             })}
           </tbody>
         </table>
-        )}
       </section>
         );
       })()}
@@ -1042,22 +1062,32 @@ export const CSS_TABLEAU_BORD = `
 .tdb-signe--positif{color:var(--color-svv-green-ink)}
 .tdb-signe--negatif{color:var(--color-svv-red)}
 .tdb-signe--nul{color:var(--color-svv-muted)}
-/* 🔴 Arno (24/10/2026) — la carte « Le mois » repliée sur une ligne : titre + mois comparé · les deux TOTAL CA HT · l'écart · chevron. */
-.tdb-a{position:relative}
-.tdb-a-tete{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;cursor:pointer;padding-right:44px;min-height:44px}
-.tdb-a-tete h3{margin:0}
-.tdb-a[data-carte-mois="ouverte"] .tdb-a-tete{margin-bottom:10px}
-.tdb-a-choix{display:inline-flex;align-items:center;gap:6px;cursor:auto}
-.tdb-a-choix .lch-champ.tdb-a-champ{width:auto;min-width:0;min-height:40px;padding-top:4px;padding-bottom:4px;font-weight:700}
-.tdb-a-choix [data-comparer-mois]{min-width:112px}
-.tdb-a-resume{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-left:auto;font-size:.86rem}
-.tdb-a-total{white-space:nowrap}
-.tdb-a-mot{color:var(--color-svv-muted);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+/* 🔴 Arno (24/10/2026, après 9f230251) — la carte « Le mois » : UNE grille à largeurs fixes, repliée (2 lignes) ou dépliée. */
+.tdb-a-table{table-layout:fixed}
+.tdb-a-table td,.tdb-a-table th{font-variant-numeric:tabular-nums}
+.tdb-a-table .tdb-a-entetes>th{font-size:.78rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap}
+.tdb-a-table .tdb-a-entetes>th.tdb-a-intitule{text-transform:none;letter-spacing:0;color:var(--color-svv-ink);font-size:1rem;white-space:normal;text-align:left}
+/* Le titre a la largeur du plus long (« Le mois — septembre 2026 ») : les sélecteurs ne bougent jamais d'un mois à l'autre. */
+.tdb-a-intitule-corps{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.tdb-a-titre{flex:0 0 13.6em;font-size:1rem;font-weight:800;white-space:nowrap}
+.tdb-a-compare{flex:0 0 auto;color:var(--color-svv-muted);font-weight:700;font-size:.82rem;white-space:nowrap}
+.tdb-a-choix{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;cursor:auto}
+/* Une carte trop étroite pour l'intitulé sur une ligne (menu de gauche, petit écran) : les sélecteurs passent sous le titre —
+   décidé par la largeur de la CARTE, jamais par le mois ni les montants. */
+.tdb-a{container-type:inline-size}
+@container (max-width:1125px){ .tdb-a-intitule-corps{flex-wrap:wrap;row-gap:6px} }
+.tdb-a-choix .lch-champ.tdb-a-champ{min-width:0;height:40px;min-height:40px;padding-top:0;padding-bottom:0;font-weight:700;box-sizing:border-box}
+.tdb-a-choix>.lch{flex:0 0 auto}
+.tdb-a-choix>.lch:first-child{width:148px}
+.tdb-a-choix>.lch:last-child{width:96px}
+.tdb-a-choix .lch-champ.tdb-a-champ--mois,.tdb-a-choix .lch-champ.tdb-a-champ--annee{width:100%}
+.tdb-a-total{cursor:pointer}
 .tdb-a-ecart{font-weight:800;white-space:nowrap}
-.tdb-a-chevron{position:absolute;top:10px;right:8px;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);font-size:1rem;cursor:pointer}
+.tdb-a-chevron-case{padding:0 !important;text-align:center !important;vertical-align:middle !important;border-bottom:0 !important}
+.tdb-a-chevron{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);font-size:1rem;cursor:pointer}
 .tdb-a-chevron:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-@media (hover:hover){ .tdb-a-tete:hover .tdb-a-chevron{color:var(--color-svv-ink)} }
-@media (max-width:640px){ .tdb-a-resume{margin-left:0;width:100%} }
+@media (hover:hover){ .tdb-a-total:hover>*,.tdb-a-table:hover .tdb-a-chevron{color:var(--color-svv-ink)} .tdb-a-total:hover>.tdb-signe--positif{color:var(--color-svv-green-ink)} .tdb-a-total:hover>.tdb-signe--negatif{color:var(--color-svv-red)} }
+
 .tdb-tuile:has(.tdb-gestion){min-height:11rem}
 .tdb-gestion{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;width:100%}
 .tdb-gestion-comptes{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:.9rem;font-weight:800}
@@ -1124,6 +1154,15 @@ export const CSS_TABLEAU_BORD = `
   .tdb-tuile{min-height:7rem;padding:14px 16px}
   .tdb-tuile-valeur{font-size:1.3rem}
   ${cartes('.tdb-table')}
+  .tdb-a{position:relative}
+  .tdb-a-table colgroup{display:none}
+  .tdb-a-table tr.tdb-a-entetes{border:0;padding:0 48px 0 0;margin-bottom:6px}
+  .tdb-a-table tr.tdb-a-entetes>th:not(.tdb-a-intitule){display:none}
+  .tdb-a-table tr.tdb-a-entetes>th.tdb-a-intitule{border-bottom:0;padding:0}
+  .tdb-a-intitule-corps{flex-wrap:wrap}
+  .tdb-a-titre{flex-basis:100%}
+  .tdb-a-table td.tdb-a-chevron-case{position:absolute;top:10px;right:8px;width:auto}
+  .tdb-a-table td.tdb-a-chevron-case::before{content:none}
   .tdb-voile{padding:0;align-items:stretch}
   .tdb-fenetre{max-height:none;height:100%;border-radius:0}
 }

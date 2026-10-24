@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { anneesComparables, comparerDeLAdresse, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
+import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
 import type { ActiviteLue, DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
@@ -284,7 +284,11 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await act(async () => { o.click(); });
       await calmer();
     };
-    const entetes = () => [...container.querySelectorAll('[data-section="A"] thead th')].map((t) => t.textContent);
+    /** Les en-têtes de colonnes (ligne 1), hors l'intitulé (titre + sélecteurs). */
+    const entetes = () => [...container.querySelectorAll('[data-a-entetes] th:not(.tdb-a-intitule)')].map((t) => t.textContent);
+    const titre = () => nbsp(container.querySelector('#tdb-a')?.textContent);
+    const colonnes = () => [...container.querySelectorAll('[data-section="A"] colgroup col')].map((c) => `${c.className}|${(c as HTMLElement).style.width}`);
+    const ouvrirSeptembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
 
     it('la période comparée : défaut N−1, choix libre, adresse illisible → défaut', () => {
       expect(moisCompare(2026, 1, null)).toEqual({ annee: 2025, mois: 1, choisi: false });
@@ -297,61 +301,82 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(anneesComparables([2026, 2019, 2023], 2026)).toEqual([2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019]);
     });
 
-    it('repliée par défaut sur une ligne ; la ligne ou le chevron la déplie (tableau inchangé) ; les sélecteurs ne la déplient pas', async () => {
-      await monter('mois');
-      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    it('repliée = les 2 premières lignes du tableau (en-têtes, TOTAL CA HT) ; la ligne 2 ou le chevron déplie ; les sélecteurs non', async () => {
+      await ouvrirSeptembre();
       const carte = container.querySelector('[data-section="A"]')!;
       expect(carte.getAttribute('data-carte-mois')).toBe('repliee');
-      expect(carte.querySelector('table')).toBeNull();
-      expect(nbsp(carte.querySelector('h3')?.textContent)).toBe('Le mois — septembre 2026 face à septembre 2025');
-      expect(resume('courant')).toBe('TOTAL CA HT septembre 2026 15 471,70 €');
-      expect(resume('compare')).toMatch(/^TOTAL CA HT septembre 2025 /);
+      expect(carte.querySelectorAll('table')).toHaveLength(1);
+      expect([...carte.querySelectorAll('tbody > tr')].map((r) => r.getAttribute('data-a-entetes') !== null ? 'entetes' : r.getAttribute('data-ligne-a'))).toEqual(['entetes', 'ca']);
+      expect(titre()).toBe('Le mois — septembre 2026 comparé à septembre 2025');
+      expect(entetes()).toEqual(['Septembre 2026', 'Septembre 2025', 'Écart']);
+      expect(nbsp(carte.querySelector('[data-ligne-a="ca"] th')?.textContent)).toBe('TOTAL CA HT');
+      expect(resume('courant')).toBe('15 471,70 €');
       expect(container.querySelector('[data-a-ecart]')?.className).toMatch(/tdb-signe--(positif|negatif|nul)/);
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toMatch(/^[+−][\d ]+,\d\d € · /);
+      // Le chevron couvre les deux lignes.
+      expect(container.querySelector('[data-carte-mois-chevron]')?.closest('td')?.getAttribute('rowspan')).toBe('2');
       // Un clic sur un sélecteur ne déplie pas.
       await act(async () => { (container.querySelector('[data-comparer-mois]') as HTMLButtonElement).click(); });
       expect(carte.getAttribute('data-carte-mois')).toBe('repliee');
       await act(async () => { (container.querySelector('[data-comparer-mois]') as HTMLButtonElement).click(); });
-      // La ligne déplie, le chevron replie.
-      await act(async () => { (carte.querySelector('[data-a-resume]') as HTMLElement).click(); });
+      // La ligne 2 (hors montant cliquable) déplie, le chevron replie.
+      await act(async () => { (carte.querySelector('[data-ligne-a="ca"] th') as HTMLElement).click(); });
       expect(carte.getAttribute('data-carte-mois')).toBe('ouverte');
       expect(carte.querySelectorAll('[data-ligne-a]').length).toBe(11);
-      expect(entetes()).toEqual(['Indicateur', 'Septembre 2026', 'Septembre 2025', 'Écart']);
+      expect(carte.querySelectorAll('[data-a-entetes]')).toHaveLength(1);   // les en-têtes ne se répètent pas
       expect(container.querySelector('[data-carte-mois-chevron]')?.getAttribute('aria-expanded')).toBe('true');
       await deplierCarteMois();
-      expect(carte.querySelector('table')).toBeNull();
+      expect(carte.querySelectorAll('[data-ligne-a]').length).toBe(1);
+    });
+
+    it('🔴 une seule grille : mêmes colonnes repliée et dépliée, largeurs fixes indépendantes des données (janvier = septembre)', async () => {
+      await monter('mois');
+      await act(async () => { (container.querySelector('[data-onglet-mois="1"]') as HTMLButtonElement).click(); });
+      const janvier = colonnes();
+      expect(janvier).toEqual(['tdb-a-col-indicateur|', `|${LARGEURS_A.montant}px`, `|${LARGEURS_A.montant}px`, `|${LARGEURS_A.ecart}px`, `|${LARGEURS_A.chevron}px`]);
+      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      expect(colonnes()).toEqual(janvier);
+      await deplierCarteMois();
+      expect(colonnes()).toEqual(janvier);
+      // Chaque ligne (en-têtes comprises) a le même nombre de colonnes que la grille (le chevron couvre les deux premières).
+      const lignesA = [...container.querySelectorAll('[data-section="A"] tbody > tr')];
+      const largeur = (r: Element) => [...r.children].reduce((t, c) => t + Number(c.getAttribute('colspan') ?? 1), 0);
+      expect(largeur(lignesA[0])).toBe(5);
+      expect(lignesA.slice(2).every((r) => largeur(r) === 4)).toBe(true);
+      expect(largeur(lignesA[1])).toBe(4);
+      // La largeur fixe est posée par la feuille de style (table-layout fixed), pas par le contenu.
+      expect(container.querySelector('style')?.textContent).toContain('.tdb-a-table{table-layout:fixed}');
+      expect(container.querySelector('style')?.textContent).toMatch(/\.tdb-a-choix>\.lch:first-child\{width:\d+px\}/);
     });
 
     it('choisir un autre mois de l’année : la ligne, le titre, les en-têtes et l’adresse suivent', async () => {
-      await monter('mois');
-      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+      await ouvrirSeptembre();
       await choisirListe('[data-comparer-annee]', '2026');
       await choisirListe('[data-comparer-mois]', 'août');
       expect(new URLSearchParams(window.location.search).get('comparer')).toBe('2026-08');
-      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — septembre 2026 face à août 2026');
-      expect(resume('compare')).toBe('TOTAL CA HT août 2026 13 471,10 €');
+      expect(titre()).toBe('Le mois — septembre 2026 comparé à août 2026');
+      expect(entetes()).toEqual(['Septembre 2026', 'Août 2026', 'Écart']);
+      expect(resume('compare')).toBe('13 471,10 €');
       expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('positif');
-      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+2 000,60 € (+14,9 %)');
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+2 000,60 € · +14,9 %');
       await deplierCarteMois();
-      expect(entetes()).toEqual(['Indicateur', 'Septembre 2026', 'Août 2026', 'Écart']);
-      expect(nbsp(container.querySelector('[data-ligne-a="ca"] td:nth-of-type(2)')?.textContent)).toBe('13 471,10 €');
+      expect(entetes()).toEqual(['Septembre 2026', 'Août 2026', 'Écart']);
       // Le choix survit au changement d'onglet de mois (absolu, porté par l'adresse).
       await act(async () => { (container.querySelector('[data-onglet-mois="3"]') as HTMLButtonElement).click(); });
-      expect(entetes()).toEqual(['Indicateur', 'Mars 2026', 'Août 2026', 'Écart']);
+      expect(entetes()).toEqual(['Mars 2026', 'Août 2026', 'Écart']);
     });
 
-    it('un mois futur sans données : 0, écart « — », rien ne casse ; une adresse illisible revient au défaut', async () => {
+    it('un mois futur sans données : 0, rien ne casse ; une adresse illisible revient au défaut', async () => {
       window.history.replaceState(null, '', '/?comparer=2026-12');
-      await monter('mois');
-      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-      expect(resume('compare')).toBe('TOTAL CA HT décembre 2026 0,00 €');
-      expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('positif');
+      await ouvrirSeptembre();
+      expect(resume('compare')).toBe('0,00 €');
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+15 471,70 € · —');
       await deplierCarteMois();
-      expect(container.querySelector('[data-ligne-a="ca"] td:nth-of-type(3)')?.textContent).toBe('—');
+      expect(container.querySelector('[data-ligne-a="nb"] td:nth-of-type(3)')?.textContent).toBe('—');
       act(() => { root.unmount(); }); root = createRoot(container);
       window.history.replaceState(null, '', '/?comparer=2026-99');
-      await monter('mois');
-      await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — septembre 2026 face à septembre 2025');
+      await ouvrirSeptembre();
+      expect(titre()).toBe('Le mois — septembre 2026 comparé à septembre 2025');
       expect(new URLSearchParams(window.location.search).get('comparer')).toBeNull();
     });
 
@@ -366,11 +391,11 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await monter('mois');
       await calmer();
       expect(appels.some((u) => u.includes('vue=tableau&annee=2024'))).toBe(true);
-      expect(nbsp(container.querySelector('[data-section="A"] h3')?.textContent)).toBe('Le mois — janvier 2026 face à mars 2024');
-      expect(resume('compare')).toBe('TOTAL CA HT mars 2024 —');
+      expect(titre()).toBe('Le mois — janvier 2026 comparé à mars 2024');
+      expect(resume('compare')).toBe('—');
       expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('nul');
       await deplierCarteMois();
-      expect(entetes()).toEqual(['Indicateur', 'Janvier 2026', 'Mars 2024', 'Écart']);
+      expect(entetes()).toEqual(['Janvier 2026', 'Mars 2024', 'Écart']);
     });
 
     it('🔴 aucune erreur React sur la page (le « 1 Issue » de Next : un <col> directement dans <table>)', async () => {
