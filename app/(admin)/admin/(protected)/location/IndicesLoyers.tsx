@@ -7,6 +7,7 @@ import {
   typeIndiceParDefaut, valeurIndiceTexte, type IndiceSaisi, type SaisieIndice, type TypeIndice,
 } from '../../../../lib/location/indicesLoyers';
 import { ListeChoix } from './ListeChoix';
+import { PAGE_PARAMETRES } from './parametresAdresse';
 import { libelleLoyerRevise, LOYER_REVISE_VIDE, type LoyerReviseLu, type SaisieLoyerRevise } from '../../../../lib/location/loyerRevise';
 
 /**
@@ -386,6 +387,33 @@ export function LoyersRevises({ bailId }: { bailId: number }) {
           {info !== null && <p className="ilo-ok" role="status" data-revise-ok>{info}</p>}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * 🔴 Arno (25/10/2026, décision 4) — sur la fiche du bien (Location) : l'alerte « indice … manquant » quand une révision de SON bail ne
+ * peut pas être calculée (le dernier loyer connu est gardé). Rien du tout quand il n'en manque aucun (ou sans la 423).
+ */
+export function AlerteIndiceBien({ lotId, parCle = false }: { lotId: number; parCle?: boolean }) {
+  const [alertes, setAlertes] = useState<AlerteIndice[]>([]);
+  useEffect(() => {
+    let vivant = true;
+    fetch(`${API}?${parCle ? 'bienCle' : 'lot'}=${lotId}`, { headers: { Accept: 'application/json' } }).then((r) => r.json())
+      .then((d: { etat?: string; data?: { alertes?: AlerteIndice[] } }) => { if (vivant && d.etat === 'ok' && Array.isArray(d.data?.alertes)) setAlertes(d.data.alertes); })
+      .catch(() => { /* une lecture impossible ne montre rien : la fiche reste entière */ });
+    return () => { vivant = false; };
+  }, [lotId, parCle]);
+  if (alertes.length === 0) return null;
+  return (
+    <div className="ilo-alerte-bien" role="status" data-alerte-indice-bien>
+      <style>{`.ilo-alerte-bien{margin:0 0 12px;padding:10px 14px;border-radius:12px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);border:1px solid var(--color-svv-amber);font-weight:600}
+.ilo-alerte-bien a{color:inherit;font-weight:800}`}</style>
+      {alertes.map((a) => (
+        <p key={`${a.type}-${a.annee}-${a.trimestre}`} style={{ margin: 0 }}>
+          <strong>Indice {SIGLE_INDICE[a.type]} T{a.trimestre} {a.annee} manquant</strong> : la révision du loyer ne peut pas être calculée (le dernier loyer connu est gardé).
+          {' '}<a href={`${PAGE_PARAMETRES}?onglet=indices`} data-saisir-indice>Saisir l’indice</a></p>
+      ))}
     </div>
   );
 }

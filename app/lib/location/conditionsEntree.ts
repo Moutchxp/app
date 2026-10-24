@@ -18,6 +18,7 @@
  */
 
 import { eurosAffiches, lignesHonoraires, totalDesHonoraires, type CalculHonoraires } from './honorairesProprietaire';
+import { CHARGES_COPRO, PAYEES_PAR, type ChargesCopro } from './bienComplet';
 import { cleTrimestre, indiceDuBail, libelleTrimestre, manquesIndice, SIGLE_INDICE, type IndiceBail, type SaisieIndice } from './indicesLoyers';
 
 export const DEPOTS = ['agence', 'bailleur'] as const;
@@ -86,6 +87,12 @@ export interface SaisieConditions {
    * champs sont OBLIGATOIRES.
    */
   indice?: SaisieIndice;
+  /**
+   * 🔴 Arno (25/10/2026) — « PAIEMENT DES CHARGES » : la donnée DU BIEN (`gestion_annuaire_lot.charges_copro`, migration 400 — la même
+   * que « Paiement des charges » de la fiche du bien et « Charges copro » du mail), saisie ici à côté du mode de règlement. Absent
+   * (`undefined`) : l'écran ne montre pas le bloc ; `null` : pas encore répondu.
+   */
+  chargesCopro?: ChargesCopro | null;
 }
 
 /** Le loyer mensuel relu (centimes exacts), ou rien. */
@@ -178,6 +185,8 @@ export interface ConditionsEntree {
   commentaire: string | null;
   /** 423 — l'indice du bail ; absent / null : non saisi (bail d'avant, ou écran sans le bloc). */
   indice?: IndiceBail | null;
+  /** Le « paiement des charges » du bien (écrit sur le bien, jamais sur les conditions) ; absent : non saisi par cet écran. */
+  chargesCopro?: ChargesCopro | null;
 }
 
 const dans = <T extends string>(liste: readonly T[], v: unknown): T | null => (typeof v === 'string' && (liste as readonly string[]).includes(v) ? v as T : null);
@@ -229,6 +238,7 @@ export function versEnvoiConditions(s: SaisieConditions): Record<string, unknown
     honorairesLocataire: s.honorairesLocataire, honorairesProprietaire: s.honorairesProprietaire,
     sommes: { ...s.sommes }, reglement: s.reglement, reglementPrecision: s.reglement === 'autre' ? s.reglementPrecision : '',
     commentaire: s.commentaire, loyer: { ...s.loyer }, ...(s.indice !== undefined ? { indice: { ...s.indice } } : {}),
+    ...(s.chargesCopro !== undefined ? { chargesCopro: s.chargesCopro } : {}),
   };
 }
 
@@ -250,6 +260,7 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
     prorataManuel: { prorataLoyer: c.sommes.prorataLoyer !== null, prorataCharges: c.sommes.prorataCharges !== null },
     // L'indice enregistré est repris tel quel (et renvoyé : « Modifier » ne le perd jamais, même sans le bloc à l'écran).
     ...(c.indice ? { indice: { type: c.indice.type, reference: cleTrimestre(c.indice.annee, c.indice.trimestre), revision: c.indice.revision } } : {}),
+    ...(c.chargesCopro !== undefined ? { chargesCopro: c.chargesCopro } : {}),
   };
 }
 
@@ -257,7 +268,15 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
  * Ce qui manque, champ par champ, DANS L'ORDRE DU BLOC (vide = enregistrable). Les montants mal écrits sont des manques
  * aussi (jamais arrondis, jamais ignorés). L'entretien (point 4) est la règle du BIEN, ajoutée par l'écran.
  */
-export function manquesConditions(b: Record<string, unknown>): Record<string, string> {
+/**
+ * 🔴 Arno (25/10/2026) — LE DOSSIER COMPLET (Nouveau locataire, Dossier de location) : loyer principal, provision pour charges, dépôt de
+ * garantie et honoraires agence sont OBLIGATOIRES — 0 est une valeur, seul un champ VIDE manque. `indice` / `charges` : exigés même si la
+ * saisie ne les porte pas (le serveur, quand la base a la migration 423 / 400). Sans option : la règle d'avant (montants facultatifs).
+ */
+export interface ExigencesConditions { complet?: boolean; indice?: boolean; charges?: boolean }
+export const MOT_CHARGES_COPRO = 'Paiement des charges : payées par l’agence ou par le propriétaire ?';
+
+export function manquesConditions(b: Record<string, unknown>, o: ExigencesConditions = {}): Record<string, string> {
   const m: Record<string, string> = {};
   if (dans(DEPOTS, b.depot) === null) m.depot = 'Dépôt de garantie : conservé par l’agence ou reversé au bailleur ?';
   const prel = ouiNon(b.prelevement);
@@ -277,22 +296,32 @@ export function manquesConditions(b: Record<string, unknown>): Record<string, st
   const loyer = (b.loyer !== null && typeof b.loyer === 'object' ? b.loyer : {}) as Record<string, unknown>;
   if (enCentimes(loyer.principal) === undefined) m['loyer-principal'] = 'Loyer principal : un montant en euros, au centime (ex. 1 180,50).';
   if (enCentimes(loyer.provisions) === undefined) m['loyer-provisions'] = 'Provision pour charges : un montant en euros, au centime (ex. 90).';
+  if (o.complet === true) {
+    if (enCentimes(loyer.principal) === null) m['loyer-principal'] = 'Loyer mensuel : le loyer principal (0 si aucun).';
+    if (enCentimes(loyer.provisions) === null) m['loyer-provisions'] = 'Loyer mensuel : la provision pour charges (0 si aucune).';
+  }
   // 423 — l'indice des loyers, à droite du loyer : ses trois champs obligatoires dès que le bloc est là.
-  if (b.indice !== undefined) Object.assign(m, manquesIndice(b.indice));
+  if (b.indice !== undefined || o.indice === true) Object.assign(m, manquesIndice(b.indice));
   const sommes = (b.sommes !== null && typeof b.sommes === 'object' ? b.sommes : {}) as Record<string, unknown>;
   for (const k of SOMMES) {
     if (enCentimes(sommes[k]) === undefined) m[`somme-${k}`] = `${LIBELLE_SOMME[k]} : un montant en euros, au centime (ex. 1 180,50).`;
+    // Les proratas se calculent (date d'entrée et loyer, déjà obligatoires) : seuls le dépôt et les honoraires agence s'exigent.
+    else if (o.complet === true && (k === 'depotGarantie' || k === 'honorairesAgence') && enCentimes(sommes[k]) === null) {
+      m[`somme-${k}`] = k === 'depotGarantie' ? 'Sommes dues à l’entrée : le dépôt de garantie (0 si aucun).' : 'Sommes dues à l’entrée : les honoraires agence (0 si aucun).';
+    }
   }
   const reglement = dans(REGLEMENTS, b.reglement);
   if (reglement === null) m.reglement = 'Mode de règlement : Chèque, Virement ou Autre.';
   else if (reglement === 'autre' && texte(b.reglementPrecision, 120) === null) m.reglementPrecision = 'Autre mode de règlement : précisez lequel.';
+  // 🔴 Arno (25/10/2026) — « Paiement des charges », à droite du mode de règlement : obligatoire dès que le bloc est là.
+  if ((b.chargesCopro !== undefined || o.charges === true) && dans(CHARGES_COPRO, b.chargesCopro) === null) m.chargesCopro = MOT_CHARGES_COPRO;
   return m;
 }
 
 /** La vérification du SERVEUR : la même règle, puis les valeurs propres (ce qui n'a pas de sens est vidé). */
-export function verifierConditions(brut: unknown): { ok: true; valeurs: ConditionsEntree } | { ok: false; motif: string } {
+export function verifierConditions(brut: unknown, o: ExigencesConditions = {}): { ok: true; valeurs: ConditionsEntree } | { ok: false; motif: string } {
   const b = (brut !== null && typeof brut === 'object' ? brut : {}) as Record<string, unknown>;
-  const manque = Object.values(manquesConditions(b));
+  const manque = Object.values(manquesConditions(b, o));
   if (manque.length > 0) return { ok: false, motif: manque.join(' ') };
   const sommes = (b.sommes !== null && typeof b.sommes === 'object' ? b.sommes : {}) as Record<string, unknown>;
   const prelevement = ouiNon(b.prelevement) as boolean;
@@ -307,6 +336,7 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
     reglement, reglementPrecision: reglement === 'autre' ? texte(b.reglementPrecision, 120) : null,
     commentaire: texte(b.commentaire, 4000),
     ...(b.indice !== undefined ? { indice: indiceDuBail(b.indice) } : {}),
+    ...(b.chargesCopro !== undefined ? { chargesCopro: dans(CHARGES_COPRO, b.chargesCopro) } : {}),
   } };
 }
 
@@ -338,6 +368,7 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
       return t === null ? [] : [{ mot: 'Total des honoraires', valeur: eurosAffiches(t) }];
     })(),
     { mot: 'Mode de règlement', valeur: `${LIBELLE_REGLEMENT[c.reglement]}${c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}` },
+    ...(c.chargesCopro ? [{ mot: 'Paiement des charges', valeur: PAYEES_PAR[c.chargesCopro] }] : []),
     ...(c.commentaire === null ? [] : [{ mot: 'Commentaires', valeur: c.commentaire }]),
   ];
 }

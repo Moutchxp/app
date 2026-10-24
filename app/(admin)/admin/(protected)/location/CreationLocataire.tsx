@@ -158,10 +158,14 @@ export function CreationLocataire() {
   const avecSuivi = parametresSuivi.lu?.disponible === true;
   // Arno (20/10/2026) — partie par partie, ce que la base sait enregistrer : le bloc est TOUJOURS montré ; ce qui manque est dit
   // par un bandeau (« migration NNN ») et seule l'écriture de la partie concernée est désactivée.
-  const lu = useLecture<{ conditions: boolean; loyer: boolean; rattachements?: boolean; manquantes: string[] }>('schemaConditionsEntree');
+  const lu = useLecture<{ conditions: boolean; loyer: boolean; rattachements?: boolean; charges?: boolean; manquantes: string[] }>('schemaConditionsEntree');
   const schema = lu.etat.etat === 'ok' && lu.etat.data !== null && typeof lu.etat.data === 'object' && !Array.isArray(lu.etat.data) ? lu.etat.data : null;
   const avecConditions = schema?.conditions === true;
   const avecLoyer = schema?.loyer === true;
+  // 🔴 Arno (25/10/2026) — « Paiement des charges » (la donnée du bien, migration 400) : posé à « pas encore répondu » dès que la base
+  // l'a — jamais un choix par défaut ; sans elle, le bloc le dit et rien n'est exigé.
+  const avecCharges = avecConditions && schema?.charges === true;
+  const saisieConditions: SaisieConditions = avecCharges && conditions.chargesCopro === undefined ? { ...conditions, chargesCopro: null } : conditions;
   const ficheBien = useLecture<FicheBienLocation>(bien !== null ? `lot=${bien.id}` : null);
   const lueBien = ficheBien.etat.etat === 'ok' && bien !== null && ficheBien.etat.data.bien?.id === bien.id ? ficheBien.etat.data : null;
   const famille = lueBien === null ? null : familleDeCategorie(lueBien.bien.categorie);
@@ -175,12 +179,15 @@ export function CreationLocataire() {
   }, [lueBien, entretienDuBien]);
   const envoiEntretien = versEnvoiEntretien(entretien);
   // Ce qui manque, seulement pour ce qui s'ENREGISTRE : les choix (391/392), le loyer (370 : son format), l'entretien du bien (379).
-  const manquesBloc = manquesConditions(versEnvoiConditions(conditions));
+  // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence obligatoires (0 accepté, seul le vide manque).
+  const manquesBloc = manquesConditions(versEnvoiConditions(saisieConditions), { complet: true });
   /* Arno (21/10/2026, 402) — LE MONTANT DES HONORAIRES PROPRIÉTAIRE : toujours saisissable ; pré-rempli par le calcul tant qu'il
      n'a pas été modifié à la main ; modifié → envoyé tel quel (« saisi à la main »), jamais recalculé ensuite. */
   const [honoSaisie, setHonoSaisie] = useState<{ valeur: string; manuel: boolean }>({ valeur: '', manuel: false });
   const montantHono = honoSaisie.manuel ? montantHonorairesSaisi(honoSaisie.valeur) : null;
-  const manqueHono: Record<string, string> = !avecConditions || !honoSaisie.manuel ? {}
+  const manqueHono: Record<string, string> = !avecConditions ? {}
+    // 🔴 Arno (25/10/2026) — le montant est OBLIGATOIRE : calculé au barème (pré-rempli), sinon à saisir ; 0 accepté.
+    : !honoSaisie.manuel ? (honoSaisie.valeur.trim() === '' && bien !== null ? { honorairesProprietaireMontant: 'Honoraires propriétaire : le montant (€ HT), 0 si aucun.' } : {})
     : montantHono === false ? { honorairesProprietaireMontant: MOTIF_MONTANT_SAISI }
       : montantHono === null ? { honorairesProprietaireMontant: 'Honoraires propriétaire : saisissez le montant, ou « recalculer ».' } : {};
   const motifDuSuivi = avecSuivi ? motifSuivi(suivi, parametresSuivi.lu?.annuaire === true) : null;
@@ -204,6 +211,9 @@ export function CreationLocataire() {
         : { ...c, loyer: { principal: montantSaisi(connu.principal), provisions: montantSaisi(connu.provisions) } }));
     }
   }, [bien, loyerConnu.etat, loyerDuBien]);
+  /* 🔴 Arno (25/10/2026) — tant qu'il manque quelque chose, « Enregistrer » et « Enregistrer et envoyer » sont INACTIFS (rien ne part) ;
+     un clic dit quoi compléter et descend au premier champ (le guidage d'avant est gardé). */
+  const incomplet = Object.keys(manque).length > 0;
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   // Arno (20/10/2026) — LES GARANTS : les contacts « Garant » validés au bloc 1. S'il y en a, « Garant personne physique » passe
   // d'office à Oui (à chaque NOUVEAU garant ; on peut toujours répondre Non) ; « Ajouter un garant » ouvre une carte contact.
@@ -332,7 +342,7 @@ export function CreationLocataire() {
     const r = await envoyer({
       action: 'creer-locataires', cartes: etat.clients, existants: etat.existants.map((x) => x.id), contacts: etat.contacts,
       lotId: bien.id, entree: entree === '' ? null : entree, lotIds: coches ?? [bien.id],
-      ...(avecConditions ? { conditions: versEnvoiConditions(conditions) } : {}),
+      ...(avecConditions ? { conditions: versEnvoiConditions(saisieConditions) } : {}),
       ...(avecLoyer ? { loyer: { ...conditions.loyer } } : {}),
       ...(avecConditions && typeof montantHono === 'string' ? { honorairesSaisis: honoSaisie.valeur } : {}),
       ...(avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
@@ -444,10 +454,11 @@ export function CreationLocataire() {
                 ne seront pas enregistrés (ni exigés). Le locataire et l’entretien du bien s’enregistrent comme d’habitude.</p>
             )}
             <p className="loc-section-phrase">La fiche « Nouveau dossier » : enregistrée sur le bail créé. Les choix marqués <span className="loc-oblig">*</span> sont obligatoires ; montants et commentaire facultatifs.</p>
-            <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
+            <BlocConditionsEntree valeur={saisieConditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
               garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
               loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
-              dateEntree={entree} actionSommes={boutonCaracteristiques('sommes')} agenceEnHt indice={{ famille }}
+              dateEntree={entree} actionSommes={boutonCaracteristiques('sommes')} agenceEnHt indice={{ famille }} complet
+              charges={schema === null ? undefined : { duBien: lueBien?.complements?.chargesCopro ?? null, indisponible: !avecCharges }}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
                 charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}`,
                 saisie: { ...honoSaisie, onChange: setHonoSaisie, erreur: manqueDe('honorairesProprietaireMontant') } }}
@@ -534,12 +545,14 @@ export function CreationLocataire() {
             fenêtre d'envoi du bail créé (jamais en cas d'échec ; rien ne part sans « Envoyer » dans la fenêtre). */}
         {envoiPermis && (
         <button type="button" className="svv-btn svv-btn-outline gst-btn loc-enregistrer-envoyer" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}
+          aria-disabled={incomplet || undefined}
           onClick={() => { envoyerApres.current = true; setIntentionEnvoi(true); void enregistrer(); }} data-enregistrer-envoyer>
           {envoi && intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer et envoyer à ADHOC & MONGA' : 'Confirmer et envoyer à ADHOC & MONGA'}</button>
         )}
         {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille NI sans date d'entrée — « Enregistrer »
             reste inactif sans eux. */}
-        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie} data-enregistrer-locataire>{envoi && !intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}
+          aria-disabled={incomplet || undefined} data-enregistrer-locataire>{envoi && !intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
       </div>
     </div>
   );
@@ -580,5 +593,7 @@ export const CSS_BOUTON_BIEN = `
 .loc-section--bouton-bien > *:not(h3):not(.loc-bouton-bien){grid-column:1 / -1}
 .loc-section--bouton-bien > .loc-bouton-bien{justify-self:end;width:auto;margin:0;min-height:44px}
 .loc-bouton-bien[aria-disabled="true"],.loc-bouton-compact[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
+/* 🔴 Arno (25/10/2026) — dossier incomplet : les deux boutons d’enregistrement inactifs (le clic explique quoi compléter). */
+.loc-collant .svv-btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
 @media (max-width:520px){ .loc-section--bouton-bien > .loc-bouton-bien{grid-column:1 / -1} }
 `;

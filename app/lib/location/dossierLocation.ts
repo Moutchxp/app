@@ -151,9 +151,13 @@ export function changementsDossier(lu: LectureDossier, s: SaisieDossier, noms: N
 }
 
 /** Le motif d'une saisie que le serveur refuserait (vérifiée AVANT tout envoi, et au serveur avant toute écriture). PUR. */
-export function refusDossier(lu: LectureDossier, s: SaisieDossier): string | null {
+export function refusDossier(lu: LectureDossier, s: SaisieDossier,
+  /** Le serveur : l'indice (423) et le paiement des charges (400) exigés quand la base les a, même si la saisie ne les porte pas. */
+  exiger: { indice?: boolean; charges?: boolean } = {}): string | null {
   if (lu.conditions !== null && s.conditions !== null) {
-    const v = verifierConditions(versEnvoiConditions(s.conditions));
+    // 🔴 Arno (25/10/2026) — à l'ENREGISTREMENT, le dossier complet (loyer, dépôt, honoraires agence, indice, paiement des charges) ; un
+    // dossier ancien incomplet s'ouvre et se lit toujours : seule cette vérification, au moment d'enregistrer, l'exige.
+    const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true, ...exiger });
     if (!v.ok) return v.motif;
     if (loyerDeLaSaisieDossier(s.conditions.loyer) === undefined) return 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).';
   }

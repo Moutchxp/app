@@ -218,7 +218,8 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
               {conditions === null ? (
                 <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
               ) : (
-                <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }}
+                <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }} complet
+                  charges={conditions.chargesCopro === undefined ? undefined : {}}
                   entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire /> : undefined} />
               )}
               {conditions === null && entretien !== null && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire />}

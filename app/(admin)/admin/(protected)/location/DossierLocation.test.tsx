@@ -113,3 +113,27 @@ describe('🔴 « Dossier de location » — le formulaire « Nouveau locataire 
     expect([...document.querySelectorAll('[data-recap-bloc="1"] [data-recap-champ]')].map((l) => l.textContent)).toEqual(['MARTIN Léa — Commune : COURBEVOIE → PUTEAUX']);
   });
 });
+
+describe('🔴 Arno (25/10/2026) — un dossier ANCIEN incomplet : il s’ouvre et se lit ; seul l’enregistrement exige les champs', () => {
+  it('ouvert (bloc 3 lisible, « Paiement des charges » à droite du mode de règlement) ; « Enregistrer » refusé, en disant quoi compléter ; rien ne part', async () => {
+    const ancien: LectureDossier = { ...lecture, conditions: { occupationId: 900, loyer: null, lignesHonoraires: [],
+      valeurs: { ...lecture.conditions!.valeurs, sommes: { prorataLoyer: null, prorataCharges: null, depotGarantie: null, honorairesAgence: null }, chargesCopro: null } } };
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+      if (url.includes('dossierLocation=100')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: ancien }) } as unknown as Response;
+      if (url.startsWith('/api/admin/location/suivi') && !url.includes('vue=')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: parametres }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'inconnu' }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await monter();
+    expect(document.querySelector('[data-bloc-dossier="3"] [data-conditions-entree]')).not.toBeNull();
+    expect([...document.querySelectorAll('[data-cond-paire="reglement-charges"] > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'))).toEqual(['reglement', 'charges']);
+    expect((document.querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toBe('');
+    await choisirNegociateur('Arnaud Jorel');
+    await act(async () => { enregistrer().click(); });
+    await calmer();
+    expect(document.body.textContent).toContain('Loyer mensuel : le loyer principal (0 si aucun)');
+    expect(document.body.textContent).toContain('Paiement des charges : payées par l’agence ou par le propriétaire');
+    expect(posts).toEqual([]);
+  });
+});

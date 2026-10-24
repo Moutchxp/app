@@ -123,7 +123,8 @@ describe('🔴 « Caractéristiques du bien loué » — Nouveau locataire', () 
     expect(bouton().previousElementSibling?.textContent).toBe('2Bien loué');
     expect(boutonConditions().previousElementSibling?.matches('section[data-bloc-conditions] > h3')).toBe(true);
     // Arno (24/10/2026) — le MÊME bouton, compact, sur la ligne du titre « Sommes dues à l'entrée », à droite
-    expect(boutonSommes().previousElementSibling?.outerHTML).toBe('<h4>Sommes dues à l’entrée</h4>');
+    // 🔴 Arno (25/10/2026) : le titre porte l'astérisque rouge (sommes dues obligatoires).
+    expect(boutonSommes().previousElementSibling?.outerHTML).toBe('<h4>Sommes dues à l’entrée <span class="loc-oblig">*</span></h4>');
     expect(boutonSommes().parentElement?.className).toBe('loc-cond-tete');
     expect(boutonSommes().className).toContain('loc-bouton-compact');
     for (const b of [bouton(), boutonConditions(), boutonSommes()]) {

@@ -86,6 +86,14 @@ const toutRepondre = async () => {
   await clic(pilule('Honoraires du locataire', 'Compte bancaire transaction'));
   await clic(pilule('Honoraires du propriétaire', 'Compte bancaire gestion'));
   await clic(pilule('Mode de règlement', 'Chèque'));
+  { // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence (0 accepté) ; paiement des charges si le bloc est là.
+    for (const sel of ['[data-loyer="principal"] input', '[data-loyer="provisions"] input', '[data-somme="depotGarantie"] input', '[data-somme="honorairesAgence"] input']) {
+      const c = container.querySelector(sel) as HTMLInputElement | null;
+      if (c !== null && c.value === '' && !c.disabled) await saisir(c, '0');
+    }
+    const charges = pilule('Paiement des charges', 'Payées par l’agence');
+    if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
+  }
 };
 
 /* 🔴 Arno (24/10/2026) — le montant se SAISIT et s'AFFICHE EN HT (« soit X € TTC » dessous) ; la valeur ENREGISTRÉE reste le TTC

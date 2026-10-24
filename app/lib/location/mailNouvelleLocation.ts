@@ -13,6 +13,8 @@
  */
 import { LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
+import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
+import { PAYEES_PAR } from './bienComplet';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
 /** Arno (21/10/2026) — l'introduction et la formule de fin du mail. */
@@ -79,7 +81,9 @@ export interface DonneesNouvelleLocation {
   gli: BandeauGli;
   locataires: PersonneMail[];
   garants: GarantMail[];
-  bail: { loyer: { principal: number | null; provisions: number | null } | null; lignes: LigneMail[] };
+  bail: { loyer: { principal: number | null; provisions: number | null } | null; lignes: LigneMail[];
+    /** 🔴 Arno (25/10/2026) — sous le loyer : l'indice de révision et le paiement des charges (`lignesSousLoyer`) ; absent : rien. */
+    sousLoyer?: LigneMail[] };
   /** Arno (21/10/2026) — le message d'accompagnement saisi dans la fenêtre de confirmation ; absent ou vide : aucun encart. */
   message?: MessageAccompagnement | null;
   /** Le dossier N7 du bail sur le Drive ; `null` : pas encore créé. */
@@ -322,6 +326,22 @@ export function lotDuMail(l: LotSource, adresseRepli: { voie: string | null; cod
   };
 }
 
+/**
+ * 🔴 Arno (25/10/2026) — les lignes JUSTE SOUS LE LOYER du mail : « Indice de révision : IRL T2 2026 — 146,68 · révision annuelle le
+ * 15/10 » (sans la migration 423, ou sans indice : pas de ligne, jamais une ligne vide) et « Paiement des charges : payées par l'agence »
+ * (la donnée du bien). PUR.
+ */
+export function lignesSousLoyer(indice: { type: TypeIndice; annee: number; trimestre: number; revision: string; valeur?: number | null } | null | undefined,
+  chargesCopro: 'agence' | 'proprietaire' | null | undefined): LigneMail[] {
+  const l: LigneMail[] = [];
+  if (indice) {
+    const jm = /^\d{4}-(\d{2})-(\d{2})$/.exec(indice.revision);
+    l.push({ mot: 'Indice de révision', valeur: `${SIGLE_INDICE[indice.type]} ${libelleTrimestre(indice.annee, indice.trimestre)}${indice.valeur === null || indice.valeur === undefined ? '' : ` — ${valeurIndiceTexte(indice.valeur)}`}${jm === null ? '' : ` · révision annuelle le ${jm[2]}/${jm[1]}`}` });
+  }
+  if (chargesCopro === 'agence' || chargesCopro === 'proprietaire') l.push({ mot: 'Paiement des charges', valeur: PAYEES_PAR[chargesCopro] });
+  return l;
+}
+
 // ── LE BAIL ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -507,12 +527,17 @@ ${g.lots.map(htmlLot).join('\n')}</td></tr></table>`;
 
 function htmlBail(d: DonneesNouvelleLocation): string {
   const l = d.bail.loyer;
+  const sous = d.bail.sousLoyer ?? [];
   let loyer = '';
-  if (l !== null && (l.principal !== null || l.provisions !== null)) {
+  const avecLoyer = l !== null && (l.principal !== null || l.provisions !== null);
+  if (avecLoyer || sous.length > 0) {
     const ligne = (mot: string, v: string, total = false) => `<tr><td style="padding:3px 0;font-size:${total ? '18px' : '15px'};${total ? `font-weight:800;color:${C.bord};` : `color:${C.ink};`}font-family:${POLICE};">${mot}</td><td align="right" style="padding:3px 0;font-size:${total ? '18px' : '15px'};${total ? `font-weight:800;color:${C.bord};` : `color:${C.ink};`}white-space:nowrap;font-family:${POLICE};">${v}</td></tr>`;
+    // Sous le loyer : même police et même couleur ; le libellé tient sur une ligne, la valeur (plus longue) passe à la ligne si l'écran est étroit.
+    const ligneSous = (mot: string, v: string) => `<tr><td valign="top" style="padding:3px 12px 3px 0;font-size:15px;color:${C.ink};white-space:nowrap;font-family:${POLICE};">${mot}</td><td align="right" valign="top" style="padding:3px 0;font-size:15px;color:${C.ink};font-family:${POLICE};">${v}</td></tr>`;
     loyer = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 12px;"><tr>${caseColoree(C.bordL, 'border:1.5px solid #efc4c4;border-radius:16px;padding:16px 20px;', `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${l.principal === null ? '' : ligne('Loyer principal', euros(l.principal))}${l.provisions === null ? '' : ligne('Provision pour charges', euros(l.provisions))}</table>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1.5px solid #e9b8b8;margin-top:8px;">${ligne('Total charges comprises', euros((l.principal ?? 0) + (l.provisions ?? 0)), true)}</table>
+${avecLoyer && l !== null ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${l.principal === null ? '' : ligne('Loyer principal', euros(l.principal))}${l.provisions === null ? '' : ligne('Provision pour charges', euros(l.provisions))}</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1.5px solid #e9b8b8;margin-top:8px;">${ligne('Total charges comprises', euros((l.principal ?? 0) + (l.provisions ?? 0)), true)}</table>` : ''}
+${sous.length === 0 ? '' : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"${avecLoyer ? ' style="border-top:1.5px solid #e9b8b8;margin-top:8px;"' : ''} data-sous-loyer>${sous.map((x) => ligneSous(echapper(x.mot), echapper(x.valeur))).join('')}</table>`}
 `)}</tr></table>`;
   }
   return bloc('Le bail', null, loyer + grille(lignesGrille(d.bail.lignes)));
@@ -633,6 +658,7 @@ export function texteNouvelleLocation(d: DonneesNouvelleLocation): string {
     if (loyer.provisions !== null) l.push(`Provision pour charges : ${euros(loyer.provisions)}`);
     l.push(`Total charges comprises : ${euros((loyer.principal ?? 0) + (loyer.provisions ?? 0))}`);
   }
+  for (const x of d.bail.sousLoyer ?? []) l.push(`${x.mot} : ${x.valeur}`);
   for (const x of d.bail.lignes) l.push(`${x.mot} : ${x.valeur}`);
   l.push('', d.driveUrl !== null ? `Ouvrir le dossier Drive du bail : ${d.driveUrl}` : 'Dossier Drive en cours de création', '', ...SIGNATURE, '',
     'Pour toute question, répondez simplement à ce mail.', 'L’équipe gestion · Sans Vis-à-Vis® · SARL CRITERIMMO', d.expediteur);

@@ -14,7 +14,7 @@ import { ajouterLoyerRevise, annulerLoyerRevise, lireLoyersRevises } from '../..
  *        `{ action: 'corriger', type, annee, trimestre, valeur }` : l'onglet « Indices » (ADMINISTRATEUR ; une nouvelle ligne, ajout seul) ;
  *        `{ action: 'loyer-revise', bailId, effetLe, loyerHc, provisions }` / `{ action: 'annuler-loyer-revise', id }` : le loyer révisé RÉEL
  *        d'un bail (Dossier de location ; droit Location).
- *   GET ?bail=N : les loyers révisés (non annulés) du bail.
+ *   GET ?bail=N : les loyers révisés (non annulés) du bail ; ?lot=N / ?bienCle=N : les alertes « indice manquant » du bien.
  */
 export const runtime = 'nodejs';
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
@@ -26,6 +26,12 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const bail = Number(new URL(request.url).searchParams.get('bail'));
     if (Number.isSafeInteger(bail) && bail > 0) return json({ etat: 'ok', data: await lireLoyersRevises(bail) });
+    // 🔴 Arno (25/10/2026) — la fiche du bien : ses alertes « indice manquant » (`?lot=N`, ou `?bienCle=N` : le numéro WIPPIMMO).
+    const lot = Number(new URL(request.url).searchParams.get('lot'));
+    const cle = Number(new URL(request.url).searchParams.get('bienCle'));
+    if ((Number.isSafeInteger(lot) && lot > 0) || (Number.isSafeInteger(cle) && cle > 0)) {
+      return json({ etat: 'ok', data: { alertes: await alertesIndices(lot > 0 ? { lotId: lot } : { wippimmoId: cle }) } });
+    }
     const disponible = await indicesDisponibles();
     const [indices, alertes] = disponible ? await Promise.all([lireIndices(), alertesIndices()]) : [[], []];
     return json({ etat: 'ok', data: { disponible, indices, alertes } });

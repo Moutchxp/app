@@ -98,6 +98,9 @@ vi.mock('../db/client', () => ({
   withTransaction: async () => { throw new Error('inattendu'); },
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
+// Ce fichier éprouve les gestes d'avant : base SANS l'indice (423) ni le paiement des charges (400) — `dossierComplet.test.ts` les éprouve.
+vi.mock('./chargesCoproRepo', () => ({ chargesCoproDisponible: async () => false, ecrireChargesCoproDans: vi.fn() }));
+vi.mock('./indicesRepo', () => ({ indiceDuBailDisponible: async () => false }));
 vi.mock('./suivi/suiviRepo', () => ({ annuaireDisponible: async () => true, mettreAJourActivite: gestes.mettreAJourActivite }));
 vi.mock('../gestion/annuaireEditionRepo', () => ({ modifierPersonne: gestes.modifierPersonne }));
 vi.mock('../gestion/partieCategorieRepo', () => ({ lireCartesRattachees: async (f: { lotId?: number }) => (f.lotId === 51 ? [{ id: '5', nom: 'Durand', prenom: 'Paul', qualite: 'Garant', adresse: '', loc_id: '230', loc_nom: null, garanties: null }] : [{ id: '5', nom: 'Durand', prenom: 'Paul', qualite: 'Garant', adresse: '', loc_id: '230', loc_nom: null, garanties: null }]) }));

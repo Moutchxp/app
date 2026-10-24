@@ -110,13 +110,17 @@ export async function enrichirGestionMensuelle<T extends ActiviteCalcul & { lotI
 }
 
 /** 🔴 Les indices MANQUANTS dont une révision passée a besoin (onglet « Indices », bien concerné), avec les biens. */
-export async function alertesIndices(): Promise<{ type: TypeIndice; annee: number; trimestre: number; biens: string[] }[]> {
+export async function alertesIndices(
+  /** 🔴 Arno (25/10/2026) — la fiche d'UN bien : ses seules alertes (par l'identifiant du bien, ou son numéro WIPPIMMO). */
+  bien?: { lotId: number } | { wippimmoId: number }): Promise<{ type: TypeIndice; annee: number; trimestre: number; biens: string[] }[]> {
   if (!(await indiceDuBailDisponible())) return [];
+  const filtre = bien === undefined ? '' : 'lotId' in bien ? 'WHERE l.id = $1' : 'WHERE l.wippimmo_id::text = $1::text';
   const { rows } = await query<Record<string, unknown>>(
     `SELECT DISTINCT ON (ce.bail_id) ce.indice_type, ce.indice_annee, ce.indice_trimestre, ce.revision_le::text AS revision_le, b.sortie::text AS sortie,
             ${libelleLot} AS libelle
        FROM gestion_location_conditions_entree ce JOIN gestion_bail b ON b.id = ce.bail_id JOIN gestion_annuaire_lot l ON l.id = b.lot_id
-      ORDER BY ce.bail_id, ce.id DESC`);
+      ${filtre}
+      ORDER BY ce.bail_id, ce.id DESC`, bien === undefined ? [] : ['lotId' in bien ? bien.lotId : bien.wippimmoId]);
   const baux = rows.filter((r) => r.indice_type !== null).map((r) => ({
     indice: { type: r.indice_type as TypeIndice, annee: Number(r.indice_annee), trimestre: Number(r.indice_trimestre) },
     revision: (r.revision_le as string | null) ?? null, revises: [], sortie: (r.sortie as string | null) ?? null, libelle: String(r.libelle),

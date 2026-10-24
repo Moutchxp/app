@@ -48,7 +48,7 @@ export function conditionsEntreeDisponible(): Promise<boolean> {
  * appliquer (migration NNN)” et désactiver seulement l'enregistrement des parties concernées » : ce qui manque, partie par
  * partie. `conditions` = 391 ET 392 ; `loyer` = 370 (le loyer de départ). L'entretien (379) a sa propre sonde, inchangée.
  */
-export async function schemaConditionsEntree(): Promise<{ conditions: boolean; loyer: boolean; rattachements: boolean; manquantes: string[] }> {
+export async function schemaConditionsEntree(): Promise<{ conditions: boolean; loyer: boolean; rattachements: boolean; charges: boolean; manquantes: string[] }> {
   const avec391 = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_cle');
   const avec392 = await conditionsEntreeDisponible();
   const loyer = await honorairesGestionDisponible();
@@ -56,7 +56,9 @@ export async function schemaConditionsEntree(): Promise<{ conditions: boolean; l
   // avant ; seuls les rattachements (« Garantit : », « Contact de : ») ne s'enregistrent pas, et le bandeau le dit.
   const rattachements = await garantsDisponibles();
   const manquantes = [...(avec391 ? [] : ['391']), ...(avec392 ? [] : ['392']), ...(loyer ? [] : ['370']), ...(rattachements ? [] : ['393'])];
-  return { conditions: avec392, loyer, rattachements, manquantes };
+  // 🔴 Arno (25/10/2026) — le « paiement des charges » du bien (400) : le bloc le dit sans elle, et ne l'exige pas.
+  const charges = await colonneExisteMemo('gestion_annuaire_lot', 'charges_copro');
+  return { conditions: avec392, loyer, rattachements, charges, manquantes };
 }
 
 interface LigneSql {
@@ -75,7 +77,7 @@ interface LigneSql {
   /** Migration 402 : le total a été saisi à la main (aucune version de barème). */
   hono_saisi_main?: boolean | null;
   /** Migration 423 : l'indice des loyers du bail. */
-  indice_type?: string | null; indice_annee?: number | null; indice_trimestre?: number | null; revision_le?: string | null;
+  indice_type?: string | null; indice_annee?: number | null; indice_trimestre?: number | null; revision_le?: string | null; indice_valeur?: string | null;
 }
 
 const centimes = (x: string | null): number | null => (x === null ? null : Number(x));
@@ -90,7 +92,8 @@ function versConditions(r: LigneSql): ConditionsEntree {
     sommes: { prorataLoyer: centimes(r.prorata_loyer_centimes), prorataCharges: centimes(r.prorata_charges_centimes),
       depotGarantie: centimes(r.depot_garantie_centimes), honorairesAgence: centimes(r.honoraires_agence_centimes) },
     reglement: r.mode_reglement as ConditionsEntree['reglement'], reglementPrecision: r.mode_reglement_precision, commentaire: r.commentaire,
-    indice: r.indice_type && r.revision_le ? { type: r.indice_type as TypeIndice, annee: Number(r.indice_annee), trimestre: Number(r.indice_trimestre), revision: r.revision_le } : null,
+    indice: r.indice_type && r.revision_le ? { type: r.indice_type as TypeIndice, annee: Number(r.indice_annee), trimestre: Number(r.indice_trimestre), revision: r.revision_le,
+      valeur: r.indice_valeur === null || r.indice_valeur === undefined ? null : Number(r.indice_valeur) } : null,
   };
 }
 
@@ -189,8 +192,8 @@ const SELECT_393 = (avec: boolean): string => (avec
 /** La marque « saisi à la main » (402), nommée seulement avec elle. */
 const SELECT_402 = (avec: boolean): string => (avec ? ', c.hono_saisi_main' : ', NULL::boolean AS hono_saisi_main');
 /** L'indice des loyers du bail (423), nommé seulement avec elle. */
-const SELECT_423 = (avec: boolean): string => (avec ? ', c.indice_type, c.indice_annee, c.indice_trimestre, c.revision_le::text AS revision_le'
-  : ', NULL::text AS indice_type, NULL::int AS indice_annee, NULL::int AS indice_trimestre, NULL::text AS revision_le');
+const SELECT_423 = (avec: boolean): string => (avec ? ', c.indice_type, c.indice_annee, c.indice_trimestre, c.revision_le::text AS revision_le, c.indice_valeur::text AS indice_valeur'
+  : ', NULL::text AS indice_type, NULL::int AS indice_annee, NULL::int AS indice_trimestre, NULL::text AS revision_le, NULL::text AS indice_valeur');
 
 /** Les conditions d'entrée des occupations demandées (la plus récente ligne du bail qui contient chacune). */
 export async function conditionsParOccupation(occupationIds: readonly number[]): Promise<Map<number, ConditionsEntreeLues>> {

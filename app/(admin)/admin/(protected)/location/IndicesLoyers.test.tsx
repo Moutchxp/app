@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { BlocIndiceLoyers, OngletIndices } from './IndicesLoyers';
+import { AlerteIndiceBien, BlocIndiceLoyers, OngletIndices } from './IndicesLoyers';
 import { BlocConditionsEntree } from './ConditionsEntree';
 import { manquesConditions, versEnvoiConditions, CONDITIONS_VIDES, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import type { IndiceSaisi, SaisieIndice } from '../../../../lib/location/indicesLoyers';
@@ -176,5 +176,24 @@ describe('🔴 l’onglet « Indices » de Paramètres Location', () => {
     await saisir(container.querySelector('[data-valeur-corrigee]') as HTMLInputElement, '145,18');
     await clic(container.querySelector('[data-enregistrer-correction]')!);
     expect(posts.at(-1)).toEqual({ action: 'corriger', type: 'irl', annee: 2025, trimestre: 2, valeur: '145,18' });
+  });
+});
+
+describe('🔴 Arno (25/10/2026, décision 4) — l’alerte « indice manquant » sur la fiche du bien', () => {
+  it('lue pour CE bien (par son identifiant, ou son numéro WIPPIMMO) ; le lien vers l’onglet « Indices » ; rien s’il n’en manque aucun', async () => {
+    const urls: string[] = [];
+    let alertes: unknown[] = [{ type: 'irl', annee: 2025, trimestre: 3, biens: ['3 rue Fictive'] }];
+    global.fetch = vi.fn(async (u: string | URL | Request) => { urls.push(String(u)); return reponse({ etat: 'ok', data: { alertes } }); }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(AlerteIndiceBien, { lotId: 7 })); });
+    await calmer();
+    expect(urls).toEqual(['/api/admin/location/indices?lot=7']);
+    expect(container.querySelector('[data-alerte-indice-bien]')?.textContent).toContain('Indice IRL T3 2025 manquant');
+    expect(container.querySelector('[data-saisir-indice]')?.getAttribute('href')).toBe('/admin/location/outils/parametres?onglet=indices');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    alertes = [];
+    await act(async () => { root.render(createElement(AlerteIndiceBien, { lotId: 315, parCle: true })); });
+    await calmer();
+    expect(urls.at(-1)).toBe('/api/admin/location/indices?bienCle=315');
+    expect(container.innerHTML).toBe('');
   });
 });

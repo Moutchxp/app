@@ -21,7 +21,7 @@ import { lireGarantsDuBail } from '../gestion/partieCategorieRepo';
 import { libelleEntretien } from './entretien';
 import { LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, type TypeLocal, type TypeLogement, type TypeParking } from './bienComplet';
 import {
-  bandeauGli, estMobile, FORMAT_ADRESSE, htmlNouvelleLocation, lignesBailMail, listeProposee, lotDuMail, mentionEnvoi, nomAffiche,
+  bandeauGli, estMobile, FORMAT_ADRESSE, htmlNouvelleLocation, lignesBailMail, lignesSousLoyer, listeProposee, lotDuMail, mentionEnvoi, nomAffiche,
   objetNouvelleLocation, statutProprietaires, texteNouvelleLocation, verifierDestinataires,
   type Destinataire, type DestinatairePropose, type DonneesNouvelleLocation, type GarantMail, type LotSource, type PersonneMail,
 } from './mailNouvelleLocation';
@@ -279,7 +279,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       assurance: conditions.conditions.assurance, precision: conditions.conditions.assurancePrecision, garantPhysique: conditions.conditions.garant,
     }, garants.map((g) => nomAffiche(g))),
     locataires, garants,
-    bail: { loyer: conditions?.loyer ?? (occ.length === 0 ? null : await loyerDesOccupations(occ.map((o) => Number(o.id)))), lignes: lignesBailMail(entree, conditions?.conditions ?? null, conditions?.honoraires ?? null) },
+    bail: { loyer: conditions?.loyer ?? (occ.length === 0 ? null : await loyerDesOccupations(occ.map((o) => Number(o.id)))), lignes: lignesBailMail(entree, conditions?.conditions ?? null, conditions?.honoraires ?? null),
+      // 🔴 Arno (25/10/2026) — sous le loyer : l'indice de révision du bail (423) et le paiement des charges du bien (400).
+      sousLoyer: lignesSousLoyer(conditions?.conditions.indice ?? null, complements?.chargesCopro ?? null) },
     driveUrl: drive === null ? null : `https://drive.google.com/drive/folders/${encodeURIComponent(drive.driveId)}`,
     expediteur: config.adresseGestion,
   };

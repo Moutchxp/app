@@ -102,7 +102,9 @@ export function manquesIndice(brut: unknown): Record<string, string> {
 }
 
 /** L'indice du bail, tel qu'il s'enregistre : type, trimestre de référence, date de révision annuelle. */
-export interface IndiceBail { type: TypeIndice; annee: number; trimestre: number; revision: string }
+export interface IndiceBail { type: TypeIndice; annee: number; trimestre: number; revision: string;
+  /** La valeur relevée à l'enregistrement (trace, relue seulement) ; absente d'une saisie. */
+  valeur?: number | null }
 /** La saisie vérifiée → l'indice du bail ; null si un champ manque. PUR. */
 export function indiceDuBail(brut: unknown): IndiceBail | null {
   if (Object.keys(manquesIndice(brut)).length > 0) return null;

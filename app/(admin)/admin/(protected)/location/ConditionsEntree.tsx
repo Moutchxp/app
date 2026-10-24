@@ -14,6 +14,11 @@ import {
   totalDesHonoraires, ZERO, type CalculHonoraires,
 } from '../../../../lib/location/honorairesProprietaire';
 import type { SaisieIndice } from '../../../../lib/location/indicesLoyers';
+import { PAYEES_PAR, type ChargesCopro } from '../../../../lib/location/bienComplet';
+
+/** « Payées par l'agence » / « Payées par le propriétaire » : deux boutons exclusifs, comme Chèque / Virement ; aucun choix par défaut. */
+const CHARGES_AFFICHEES = ['agence', 'proprietaire'] as const satisfies readonly ChargesCopro[];
+const LIBELLE_PAYEES: Record<ChargesCopro, string> = { agence: 'Payées par l’agence', proprietaire: 'Payées par le propriétaire' };
 import { BlocIndiceLoyers, CSS_INDICES } from './IndicesLoyers';
 
 /** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
@@ -70,7 +75,7 @@ export function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false, indice }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false, indice, charges, complet = false }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -104,6 +109,13 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
    * « Nouveau locataire » et le Dossier de location. `famille` : celle du bien (la présélection du type). Absent : pas de bloc.
    */
   indice?: { famille: string | null | undefined };
+  /**
+   * 🔴 Arno (25/10/2026) — le bloc « PAIEMENT DES CHARGES », juste à droite de « Mode de règlement » : la donnée du bien (migration 400).
+   * `duBien` : ce que la fiche du bien dit aujourd'hui (rappelé sous les boutons, jamais choisi à la place de l'utilisateur). Absent : pas de bloc.
+   */
+  charges?: { duBien?: ChargesCopro | null; indisponible?: boolean };
+  /** 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence et honoraires propriétaire obligatoires (titres « * »). */
+  complet?: boolean;
 }) {
   const s = valeur;
   const [frappeAgence, setFrappeAgence] = useState<string | null>(null);
@@ -253,7 +265,7 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
       {/* 423 — Loyer mensuel et Indice des loyers côte à côte (une rangée à eux deux sur ordinateur, l'un sous l'autre au téléphone). */}
       <div className={indice === undefined ? 'loc-cond-seul' : 'loc-cond-paire'} data-cond-paire={indice === undefined ? undefined : 'loyer-indice'}>
       <div className="loc-cond-bloc" data-cond="loyer">
-        <h4>Loyer mensuel</h4>
+        <h4>Loyer mensuel{complet && <> <span className="loc-oblig">*</span></>}</h4>
         {loyer?.indisponible === true && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-loyer-sans-migration>Mise à jour de la base à appliquer (migration 370) : le loyer mensuel ne sera pas enregistré.</p>}
         <div className="loc-grille">
           <div className="loc-champ" data-loyer="principal">
@@ -279,8 +291,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
       </div>
 
       <div className="loc-cond-bloc" data-cond="sommes">
-        {actionSommes === undefined ? <h4>Sommes dues à l’entrée</h4> : (
-          <div className="loc-cond-tete"><h4>Sommes dues à l’entrée</h4>{actionSommes}</div>
+        {actionSommes === undefined ? <h4>Sommes dues à l’entrée{complet && <> <span className="loc-oblig">*</span></>}</h4> : (
+          <div className="loc-cond-tete"><h4>Sommes dues à l’entrée{complet && <> <span className="loc-oblig">*</span></>}</h4>{actionSommes}</div>
         )}
         <div className="loc-grille loc-grille-sommes">
           {SOMMES.map((k) => {
@@ -320,8 +332,10 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         </p>
       </div>
 
-      {honoraires !== undefined && <EncadreHonoraires h={honoraires} agence={enCentimes(s.sommes.honorairesAgence)} />}
+      {honoraires !== undefined && <EncadreHonoraires h={honoraires} agence={enCentimes(s.sommes.honorairesAgence)} obligatoire={complet} />}
 
+      {/* 🔴 Arno (25/10/2026) — Mode de règlement et Paiement des charges côte à côte (une rangée à eux deux sur ordinateur). */}
+      <div className={charges === undefined ? 'loc-cond-seul' : 'loc-cond-paire'} data-cond-paire={charges === undefined ? undefined : 'reglement-charges'}>
       <div className="loc-cond-bloc" data-cond="reglement">
         <h4>Mode de règlement <span className="loc-oblig">*</span></h4>
         <Pilules etiquette="Mode de règlement" options={REGLEMENTS} libelle={LIBELLE_REGLEMENT} valeur={s.reglement}
@@ -333,6 +347,23 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
               onChange={(e) => maj({ reglementPrecision: e.target.value })} /></label>
         )}
         {manque('reglement')}{manque('reglementPrecision')}
+      </div>
+      {charges !== undefined && (
+        <div className="loc-cond-bloc" data-cond="charges">
+          <h4>Paiement des charges <span className="loc-oblig">*</span></h4>
+          {charges.indisponible === true ? (
+            <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-charges-sans-migration>Mise à jour de la base à appliquer (migration 400) : le paiement des charges ne sera pas enregistré.</p>
+          ) : (
+            <>
+              <Pilules etiquette="Paiement des charges" options={CHARGES_AFFICHEES} libelle={LIBELLE_PAYEES} valeur={s.chargesCopro ?? null}
+                onChoix={(v) => maj({ chargesCopro: v })} />
+              <small className="loc-muet" data-charges-aide>Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).
+                {charges.duBien ? ` Fiche du bien aujourd’hui : ${PAYEES_PAR[charges.duBien]}.` : ''}</small>
+              {manque('chargesCopro')}
+            </>
+          )}
+        </div>
+      )}
       </div>
 
       <div className="loc-cond-bloc loc-cond-bloc--large" data-cond="commentaire">
@@ -393,7 +424,7 @@ export const MENTION_SURFACE_INCONNUE = 'Surface inconnue : saisissez le montant
  * Arno (21/10/2026, 402) — avec `saisie` (« Nouveau locataire ») : le champ « Montant des honoraires propriétaire (€ TTC) »,
  * toujours là ; pré-rempli par le calcul (bulle ⓘ), librement modifiable ; modifié → « saisi à la main · recalculer ».
  */
-function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: number | null | undefined }) {
+function EncadreHonoraires({ h, agence, obligatoire = false }: { h: ProprieteHonoraires; agence: number | null | undefined; obligatoire?: boolean }) {
   const idHono = useId();
   // Une réponse inattendue se lit comme « pas de calcul » (jamais un écran qui tombe).
   const c = h.calcul != null && ['ok', 'surface_manquante', 'sans_bareme', 'saisi'].includes((h.calcul as { etat?: string }).etat ?? '') ? h.calcul : null;
@@ -420,7 +451,7 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
   return (
     <>
       <div className="loc-cond-bloc" data-cond="honoraires-proprietaire" aria-live="polite">
-        <h4>Honoraires propriétaire</h4>
+        <h4>Honoraires propriétaire{obligatoire && <> <span className="loc-oblig">*</span></>}</h4>
         {sa !== undefined && (
           <div className="loc-champ loc-hono-champ" data-hono-montant>
             <span className="loc-champ-tete">

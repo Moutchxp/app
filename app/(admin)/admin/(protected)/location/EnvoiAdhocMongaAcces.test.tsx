@@ -96,6 +96,14 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
     await clic(pilule('Honoraires du locataire', 'Compte bancaire transaction'));
     await clic(pilule('Honoraires du propriétaire', 'Compte bancaire gestion'));
     await clic(pilule('Mode de règlement', 'Chèque'));
+    { // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence (0 accepté) ; paiement des charges si le bloc est là.
+      for (const sel of ['[data-loyer="principal"] input', '[data-loyer="provisions"] input', '[data-somme="depotGarantie"] input', '[data-somme="honorairesAgence"] input', '[data-hono-montant] input']) {
+        const c = container.querySelector(sel) as HTMLInputElement | null;
+        if (c !== null && c.value === '' && !c.disabled) await saisir(c, '0');
+      }
+      const charges = pilule('Paiement des charges', 'Payées par l’agence');
+      if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
+    }
   };
   const envoyerEtEnregistrer = () => container.querySelector('[data-enregistrer-envoyer]') as HTMLButtonElement;
   const enregistrer = () => container.querySelector('[data-enregistrer-locataire]') as HTMLButtonElement;

@@ -26,6 +26,8 @@ import { etageFr } from './sortieLocataires';
 
 import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
 import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans, honorairesSaisisDisponible, MOTIF_SANS_402 } from './conditionsEntreeRepo';
+import { chargesCoproDisponible, ecrireChargesCoproDans } from './chargesCoproRepo';
+import { indiceDuBailDisponible } from './indicesRepo';
 import { honorairesAEnregistrer } from './honorairesProprietaire';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
 import { bailDisponible, creerBailDans, garantsDisponibles } from './bailRepo';
@@ -848,7 +850,9 @@ export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocat
   let conditions: ConditionsEntree | null = null;
   if (o.conditions !== undefined) {
     if (!(await conditionsEntreeDisponible())) return { etat: 'sans_schema' };
-    const v = verifierConditions(o.conditions);
+    // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence ; l'indice (423) et le paiement des charges (400) dès que
+    // la base les a — exigés ici même si l'écran ne les envoie pas (refus explicite, jamais un enregistrement à moitié).
+    const v = verifierConditions(o.conditions, { complet: true, indice: await indiceDuBailDisponible(), charges: await chargesCoproDisponible() });
     if (!v.ok) return { etat: 'refus', motif: v.motif };
     conditions = v.valeurs;
   }
@@ -884,6 +888,10 @@ export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocat
     if (!h.ok) return { etat: 'refus', motif: h.motif };
     if (h.saisi && !(await honorairesSaisisDisponible())) return { etat: 'refus', motif: MOTIF_SANS_402 };
     honoraires = h.honoraires;
+    // 🔴 Arno (25/10/2026) — le MONTANT des honoraires propriétaire est obligatoire : calculé au barème, sinon saisi (0 accepté).
+    if (honoraires === null || (honoraires.etat !== 'ok' && honoraires.etat !== 'saisi')) {
+      return { etat: 'refus', motif: `Honoraires propriétaire : le montant (€ HT) est obligatoire${honoraires !== null && 'motif' in honoraires ? ` (${honoraires.motif})` : ''} — saisissez-le (0 si aucun).` };
+    }
   }
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
@@ -920,6 +928,8 @@ export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocat
     if (loyer !== null && occupationDuLoyer !== null) await ecrireLoyerDans(q, occupationDuLoyer, lotDuLoyer, loyer, auteur);
     // Une entrée = UN jeu de conditions, porté par toutes les occupations qu'elle vient de créer (migration 391).
     if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, honoraires, auteur, bailId);
+    // 🔴 Arno (25/10/2026) — « Paiement des charges » : la donnée du BIEN loué (migration 400), écrite sur lui et à son Historique.
+    if (conditions?.chargesCopro) await ecrireChargesCoproDans(q, lotId, conditions.chargesCopro, auteur, 'Nouveau locataire');
     const recap = await appliquerPlan(q, fiche, plan.plan, auteur);
     const reintegrations = await reintegrerSiComplet(q, plan.plan.lotsLoues, auteur);
     return { ok: true as const, recap, reintegrations, bailId };

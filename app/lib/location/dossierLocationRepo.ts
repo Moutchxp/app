@@ -1,5 +1,8 @@
 import 'server-only';
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
+import { chargesCoproDisponible, ecrireChargesCoproDans } from './chargesCoproRepo';
+import { indiceDuBailDisponible } from './indicesRepo';
+import { CHARGES_COPRO, type ChargesCopro } from './bienComplet';
 import type { Auteur } from '../gestion/gestes';
 import { modifierPersonne } from '../gestion/annuaireEditionRepo';
 import { colonnesTrace } from '../gestion/traceJournal';
@@ -20,7 +23,7 @@ import {
   changementsDossier, refusDossier, titreDossier, TITRE_BLOC, type CarteLocataireDossier, type ChangementDossier, type LectureDossier,
   type NomsDossier, type SaisieDossier, type SuiviDossier,
 } from './dossierLocation';
-import { CONDITIONS_VIDES, type SaisieConditions } from './conditionsEntree';
+import { CONDITIONS_VIDES, versSaisieConditions, type SaisieConditions } from './conditionsEntree';
 
 /**
  * ══ 🔴🔴 « DOSSIER DE LOCATION » — LECTURE ET MISE À JOUR (Arno, 24/10/2026) ═══════════════════════════════════════════════════
@@ -88,8 +91,13 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
     .map((c) => ({ id: n(c.id), libelle: [(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ') || c.adresse, qualite: c.qualite }));
   const cond = await conditionsParOccupation(occ.map((o) => n(o.id)));
   const c = [...cond.values()][0];
+  // 🔴 Arno (25/10/2026) — le « paiement des charges » du BIEN (migration 400), montré et modifiable avec les conditions du bail.
+  const avec400 = await chargesCoproDisponible();
+  const chargesDuBien = avec400 ? (await query<{ v: string | null }>('SELECT charges_copro AS v FROM gestion_annuaire_lot WHERE id = $1', [lotId])).rows[0]?.v ?? null : undefined;
   const conditions = c === undefined ? null : {
-    occupationId: c.occupationIds[0] ?? n(occ[0].id), valeurs: c.conditions, loyer: c.loyer ?? null,
+    occupationId: c.occupationIds[0] ?? n(occ[0].id),
+    valeurs: chargesDuBien === undefined ? c.conditions : { ...c.conditions, chargesCopro: chargesDuBien === 'agence' || chargesDuBien === 'proprietaire' ? chargesDuBien as ChargesCopro : null },
+    loyer: c.loyer ?? null,
     lignesHonoraires: c.honoraires === null ? [] : c.honoraires.etat === 'ok' || c.honoraires.etat === 'saisi' ? lignesHonoraires(c.honoraires).map((x) => ({ mot: x.mot, valeur: x.valeur })) : [],
   };
   const famille = familleDuLot({ categorie: b.categorie, nature: b.nature, typeBien: b.type_bien });
@@ -134,7 +142,13 @@ export function lireSaisieDossier(brut: Record<string, unknown>, lu: LectureDoss
     return [{ id, champs: o.champs as SaisieDossier['locataires'][number]['champs'] }];
   });
   const condBrut = brut.conditions !== null && typeof brut.conditions === 'object' ? brut.conditions as SaisieConditions : null;
-  const conditions = lu.conditions === null || condBrut === null ? null : { ...CONDITIONS_VIDES, ...condBrut, loyer: { principal: ch(condBrut.loyer?.principal, 40), provisions: ch(condBrut.loyer?.provisions, 40) } };
+  // L'indice et le paiement des charges absents de la saisie gardent la valeur LUE (jamais vidés par omission) ; une valeur inconnue est refusée.
+  const lus = lu.conditions === null ? null : versSaisieConditions(lu.conditions.valeurs, lu.conditions.loyer);
+  const charges = condBrut === null || lus?.chargesCopro === undefined ? undefined
+    : condBrut.chargesCopro === undefined ? lus.chargesCopro : (CHARGES_COPRO as readonly unknown[]).includes(condBrut.chargesCopro) ? condBrut.chargesCopro : null;
+  const conditions = lu.conditions === null || condBrut === null ? null : { ...CONDITIONS_VIDES, ...condBrut, loyer: { principal: ch(condBrut.loyer?.principal, 40), provisions: ch(condBrut.loyer?.provisions, 40) },
+    ...(condBrut.indice === undefined && lus?.indice !== undefined ? { indice: lus.indice } : {}),
+    ...(charges === undefined ? {} : { chargesCopro: charges }) };
   const e = brut.entretien !== null && typeof brut.entretien === 'object' ? brut.entretien as SaisieDossier['entretien'] : null;
   const suivi = brut.suivi !== null && typeof brut.suivi === 'object' ? { ...lu.suivi, ...(brut.suivi as Partial<SuiviDossier>) } : lu.suivi;
   return { version: ch(brut.version, 64), locataires, conditions, entretien: lu.entretien === null ? null : e, suivi };
@@ -192,7 +206,7 @@ export async function modifierDossierLocation(activiteId: number, brut: Record<s
   const lu = l.data;
   const s = lireSaisieDossier(brut, lu);
   if (s.version !== lu.version) return { etat: 'conflit', motif: motifConflitFiche(await derniereModification(lu)) };
-  const refus = refusDossier(lu, s);
+  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined });
   if (refus !== null) return { etat: 'refus', motif: refus };
   const changements = changementsDossier(lu, s, await nomsDuDossier());
   if (changements.length === 0) return { etat: 'ok', data: { changements } };
@@ -210,12 +224,21 @@ export async function modifierDossierLocation(activiteId: number, brut: Record<s
     faits.push(...siens.map((c) => c.champ));
   }
   // ③ LES CONDITIONS D'ENTRÉE (une nouvelle version pour le bail) ; l'ENTRETIEN du bien (sa fiche).
-  const cond = changements.filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens');
+  const cond = changements.filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens' && c.champ !== 'Paiement des charges');
   if (cond.length > 0 && lu.conditions !== null && s.conditions !== null) {
     const r = await modifierConditionsEntree(lu.conditions.occupationId, { ...versEnvoiConditions(s.conditions), loyer: { ...s.conditions.loyer } }, auteur);
     if (r.etat !== 'ok') return partiel('motif' in r && typeof r.motif === 'string' ? r.motif : 'Les conditions d’entrée n’ont pas pu être modifiées.');
     await journaliserChamps({ entite: 'location_bail', id: lu.bailId, lotId: lu.lotId, action: 'location_dossier_conditions', changements: cond, auteur });
     faits.push(...cond.map((c) => c.champ));
+  }
+  // 🔴 Arno (25/10/2026) — le paiement des charges : sur le BIEN (sa colonne, son Historique), et au journal du bail comme le reste.
+  const ch3 = changements.filter((c) => c.bloc === 3 && c.champ === 'Paiement des charges');
+  const nouvelles = s.conditions?.chargesCopro;
+  if (ch3.length > 0 && (nouvelles === 'agence' || nouvelles === 'proprietaire')) {
+    const ok = await withTransaction((q) => ecrireChargesCoproDans(q, lu.lotId, nouvelles, auteur, 'Dossier de location'));
+    if (!ok) return partiel('Le paiement des charges n’a pas pu être enregistré : ce bien n’existe plus.');
+    await journaliserChamps({ entite: 'location_bail', id: lu.bailId, lotId: lu.lotId, action: 'location_dossier_conditions', changements: ch3, auteur });
+    faits.push(...ch3.map((c) => c.champ));
   }
   const ent = changements.filter((c) => c.bloc === 3 && (c.champ === 'Entretien à prévoir' || c.champ === 'Entretiens'));
   if (ent.length > 0 && s.entretien !== null) {
