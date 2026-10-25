@@ -721,6 +721,26 @@ export function entreesGestionParMois(transitions: readonly Transition[], annee:
 }
 
 /**
+ * 🔴 Arno (25/10/2026) — « Mois par mois » en CUMUL, mesure « Gestion » : le SOLDE de gestions de chaque mois (entrées − sorties), avec les
+ * mêmes règles que la section D (`sectionGestion` : entrée en gestion, sortie de la gestion, annexes après la bascule non comptées). PUR.
+ */
+export function soldeGestionParMois(transitions: readonly Transition[], annee: number, regle: RegleAnnexes = SANS_REGLE_ANNEXES): number[] {
+  const entre = (t: Transition): boolean => entreeEnGestion(t) && compteCommeGestion(t.lotId, t.effetLe, regle);
+  const sort = (t: Transition): boolean => t.avant === 'en_gestion' && t.apres !== 'en_gestion' && compteCommeGestion(t.lotId, t.effetLe, regle);
+  return Array.from({ length: 12 }, (_, i) => {
+    const mm = `${annee}-${String(i + 1).padStart(2, '0')}`;
+    const duMois = transitions.filter((t) => t.effetLe.slice(0, 7) === mm);
+    return duMois.filter(entre).length - duMois.filter(sort).length;
+  });
+}
+
+/** Le cumul depuis janvier d'une série de 12 mois (aucun arrondi). PUR. */
+export function cumulDepuisJanvier(valeurs: readonly number[]): number[] {
+  let s = 0;
+  return valeurs.map((v) => (s += v));
+}
+
+/**
  * 🔴 426 — `stockActuel` : le nombre de biens en gestion d'aujourd'hui SELON LA RÈGLE (`stockGestion`) ; les mouvements d'annexes datés de la
  * bascule ou après ne comptent ni en entrée, ni en sortie, ni dans le stock remonté ; avant la bascule, tout est comme avant.
  */

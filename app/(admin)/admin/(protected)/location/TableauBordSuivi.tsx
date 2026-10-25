@@ -4,7 +4,7 @@ import { regleAnnexesDe, stockGestion } from '../../../../lib/location/suivi/ann
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
-  entreesGestionParMois, lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
+  cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
   sectionNegociateurs, totauxPeriode, type TotauxPeriode, tuilesAnnee, variation,
   type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -54,8 +54,14 @@ export const MESURES_MOIS: readonly { cle: MesureMois; mot: string; titre: strin
   { cle: 'ca', mot: 'CA', titre: 'CA HT' }, { cle: 'baux', mot: 'Baux', titre: 'baux signés' }, { cle: 'gestion', mot: 'Gestion', titre: 'nouvelles gestions' },
 ];
 export function mesureDeLAdresse(recherche: string = typeof window === 'undefined' ? '' : window.location.search): MesureMois {
-  const m = new URLSearchParams(recherche).get('mesure');
+  // 🔴 Arno (25/10/2026) — la mesure se lit dans « vue » (?vue=ca|baux|gestion) ; une ancienne adresse « ?mesure= » s'ouvre encore.
+  const q = new URLSearchParams(recherche);
+  const m = q.get('vue') ?? q.get('mesure');
   return m === 'baux' || m === 'gestion' ? m : 'ca';
+}
+/** 🔴 Arno (25/10/2026) — le mode CUMUL de « Mois par mois » (?cumul=1) ; absent : les barres. */
+export function cumulDeLAdresse(recherche: string = typeof window === 'undefined' ? '' : window.location.search): boolean {
+  return new URLSearchParams(recherche).get('cumul') === '1';
 }
 
 /**
@@ -123,6 +129,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const [annee, setAnnee] = useState(() => anneeMoisDeLAdresse(jour).annee);
   const [mois, setMois] = useState(() => anneeMoisDeLAdresse(jour).mois);
   const [mesure, setMesure] = useState<MesureMois>(() => mesureDeLAdresse());
+  const [cumulMois, setCumulMois] = useState<boolean>(() => cumulDeLAdresse());
   // 🔴 Arno (24/10/2026) — le mois de comparaison de la carte « Le mois » (?comparer=AAAA-MM ; absent : même mois N−1), et la carte
   // repliée par défaut (non gardé : un rechargement la replie).
   const [comparer, setComparer] = useState<string | null>(() => comparerDeLAdresse());
@@ -134,16 +141,20 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   useEffect(() => {
     const u = new URL(window.location.href);
     const mesureVoulue = vue === 'mois' && mesure !== 'ca' ? mesure : null;
+    const cumulVoulu = vue === 'mois' && cumulMois ? '1' : null;
     const comparerVoulu = vue === 'mois' ? comparer : null;
-    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('mesure') === mesureVoulue
-      && u.searchParams.get('comparer') === comparerVoulu) return;
+    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('vue') === mesureVoulue
+      && u.searchParams.get('mesure') === null && u.searchParams.get('cumul') === cumulVoulu && u.searchParams.get('comparer') === comparerVoulu) return;
     u.searchParams.set('annee', String(annee));
     u.searchParams.set('mois', String(mois));
-    // Arno (23/10/2026) — la mesure de « Mois par mois » (Suivi du mois) : ?mesure=baux | gestion ; CA (le défaut) n'écrit rien.
-    if (mesureVoulue === null) u.searchParams.delete('mesure'); else u.searchParams.set('mesure', mesureVoulue);
+    // Arno (23/10/2026) — la mesure de « Mois par mois » (Suivi du mois) : ?vue=baux | gestion (25/10/2026 : « vue », plus « mesure ») ;
+    // CA (le défaut) n'écrit rien ; le mode cumul : &cumul=1.
+    u.searchParams.delete('mesure');
+    if (mesureVoulue === null) u.searchParams.delete('vue'); else u.searchParams.set('vue', mesureVoulue);
+    if (cumulVoulu === null) u.searchParams.delete('cumul'); else u.searchParams.set('cumul', cumulVoulu);
     if (comparerVoulu === null) u.searchParams.delete('comparer'); else u.searchParams.set('comparer', comparerVoulu);
     window.history.replaceState(window.history.state, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
-  }, [annee, mois, mesure, vue, comparer]);
+  }, [annee, mois, mesure, cumulMois, vue, comparer]);
   const cmp = moisCompare(annee, mois, comparer);
   // Une comparaison hors des deux années lues (l'année et N−1) : ses lignes se lisent à part, par la même route (lecture seule).
   const horsFenetre = vue === 'mois' && cmp.annee !== annee && cmp.annee !== annee - 1;
@@ -361,19 +372,54 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         const sansN1Gestion = !d.gestion.disponible || !d.gestion.transitions.some((t) => t.effetLe.startsWith(`${annee - 1}-`));
         const sansN1Mesure = mesure === 'gestion' ? sansN1Gestion : sansN1;
         const motDetail = mesure === 'baux' ? 'Baux signés' : 'Nouvelles gestions';
+        /* 🔴 Arno (25/10/2026) — le MODE CUMUL : la courbe du cumul depuis janvier de la mesure choisie, l'année face à N−1, sur le modèle de
+           « Le cumul de <année> » (le même composant `CourbeCumul`) : CA → CA HT cumulé ; Baux → baux cumulés ; Gestion → SOLDE de gestions
+           cumulé (entrées − sorties, la source de la section Gestion). L'année en cours s'arrête au mois courant (pas de plat à venir). */
+        const motCumul = mesure === 'ca' ? 'CA HT' : mesure === 'baux' ? 'baux signés' : 'solde de gestions';
+        const parMoisN = mesure === 'ca' ? B.map((p) => p.ca) : mesure === 'baux' ? B.map((p) => p.nb) : soldeGestionParMois(d.gestion.transitions, annee, regleA);
+        const parMoisN1 = mesure === 'ca' ? B.map((p) => p.caN1) : mesure === 'baux' ? B.map((p) => p.nbN1) : soldeGestionParMois(d.gestion.transitions, annee - 1, regleA);
+        const cumulN = cumulDepuisJanvier(parMoisN);
+        const cumulN1 = cumulDepuisJanvier(parMoisN1);
+        const bauxN = cumulDepuisJanvier(B.map((p) => p.nb));
+        const bauxN1 = cumulDepuisJanvier(B.map((p) => p.nbN1));
+        const moisCourbe = moisDeLaCourbe(annee, jour);
+        const indisponible = mesure === 'gestion' && !d.gestion.disponible;
+        const motCompte = mesure === 'baux' ? 'Baux signés (cumul)' : 'Solde de gestions (cumul)';
+        const bulleCumul = (k: number): InfoBarre => {
+          const aVenir = k > moisCourbe || indisponible;
+          const titre = `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}`;
+          if (mesure === 'ca') return { titre, courant: { libelle: String(annee), ca: aVenir ? null : cumulN[k - 1], nb: aVenir ? null : bauxN[k - 1] },
+            precedent: sansN1 ? null : { libelle: String(annee - 1), ca: cumulN1[k - 1], nb: bauxN1[k - 1] } };
+          return { titre, compte: motCompte, courant: { libelle: String(annee), ca: aVenir ? null : cumulN[k - 1], nb: null },
+            precedent: sansN1Mesure ? null : { libelle: String(annee - 1), ca: cumulN1[k - 1], nb: null } };
+        };
         return (
         <section className="tdb-section" aria-labelledby="tdb-histo" data-bloc="histogramme-mois" data-mesure={mesure}>
           <div className="tdb-titre-mesures">
-            <h3 id="tdb-histo">{mesure === 'ca' ? <>Mois par mois — {annee} <small className="loc-muet">(CA HT ; un mois s’ouvre d’un clic)</small></>
+            <h3 id="tdb-histo">{cumulMois ? <>Mois par mois — {annee} <small className="loc-muet">({motCumul}, cumulé depuis janvier ; un mois s’ouvre d’un clic)</small></>
+              : mesure === 'ca' ? <>Mois par mois — {annee} <small className="loc-muet">(CA HT ; un mois s’ouvre d’un clic)</small></>
               : <>Mois par mois — {annee} <small className="loc-muet">({mm.titre} ; un mois s’ouvre d’un clic)</small></>}</h3>
-            <div className="tdb-mesures" role="group" aria-label="Mesure affichée" data-mesures>
-              {MESURES_MOIS.map((x) => (
-                <button key={x.cle} type="button" className="tdb-onglet tdb-mesure" aria-pressed={mesure === x.cle} data-mesure-bouton={x.cle}
-                  onClick={() => setMesure(x.cle)}>{x.mot}</button>
-              ))}
+            {/* 🔴 Arno (25/10/2026) — « Cumul » au bout de la ligne, à droite : un MODE (marche / arrêt), séparé des trois mesures par un filet. */}
+            <div className="tdb-mesures-ligne">
+              <div className="tdb-mesures" role="group" aria-label="Mesure affichée" data-mesures>
+                {MESURES_MOIS.map((x) => (
+                  <button key={x.cle} type="button" className="tdb-onglet tdb-mesure" aria-pressed={mesure === x.cle} data-mesure-bouton={x.cle}
+                    onClick={() => setMesure(x.cle)}>{x.mot}</button>
+                ))}
+              </div>
+              <span className="tdb-mesures-filet" aria-hidden="true" />
+              <div className="tdb-mesures">
+                <button type="button" className="tdb-onglet tdb-mesure tdb-mesure--cumul" aria-pressed={cumulMois} data-cumul-bouton
+                  title={cumulMois ? 'Revenir aux barres mois par mois' : 'Afficher le cumul depuis janvier'} onClick={() => setCumulMois((c) => !c)}>Cumul</button>
+              </div>
             </div>
           </div>
           {mesure === 'gestion' && !d.gestion.disponible && <p className="loc-muet tdb-note">Statut du bien : migration 403 non appliquée — pas encore de nouvelles gestions à compter.</p>}
+          {cumulMois ? (
+            <CourbeCumul courant={indisponible ? [] : cumulN.slice(0, moisCourbe)} n1={sansN1Mesure ? null : cumulN1} annee={annee} moisSelectionne={mois}
+              entier={mesure !== 'ca'} aria={`${motCumul} cumulé ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}, de janvier à décembre`}
+              bulle={bulleCumul} onChoisir={setMois} />
+          ) : (
           <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'}
             aria={`${mesure === 'ca' ? 'CA HT' : motDetail} par mois, ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}`}
             legende={{ courant: String(annee), n1: sansN1Mesure ? null : String(annee - 1) }}
@@ -391,6 +437,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                 info: { titre: NOMS_MOIS[i], compte: motDetail, courant: { libelle: String(annee), ca: aVenir ? null : v, nb: null },
                   precedent: sansN1Mesure ? null : { libelle: String(annee - 1), ca: v1, nb: null } } };
             })} />
+          )}
         </section>
         );
       })()}
@@ -530,7 +577,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       )}
       <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
         <h3 id="tdb-b">Le cumul de {annee}, mois par mois</h3>
-        <CourbeCumul points={B} annee={annee} sansN1={sansN1} moisSelectionne={mois} />
+        <CourbeCumul courant={B.slice(0, Math.max(mois, B.reduce((k, p, i) => (p.nb > 0 ? i + 1 : k), 0))).map((p) => p.caCumule)}
+          n1={sansN1 ? null : B.map((p) => p.caCumuleN1)} annee={annee} moisSelectionne={mois}
+          aria={`CA HT cumulé ${annee}${sansN1 ? '' : ` et ${annee - 1}`}, de janvier à décembre`} />
         <table className="tdb-table tdb-table--mois">
           <thead><tr><th scope="col">Mois</th><th scope="col">Baux</th><th scope="col">CA HT</th><th scope="col">Cumul {annee}</th><th scope="col">Cumul {annee - 1}</th></tr></thead>
           <tbody>
@@ -696,30 +745,71 @@ function ListeDetail({ detail, parId, ctx, voirCommissions, onFermer }: {
   );
 }
 
-/** B — le CA cumulé de l'année (trait plein) et de N−1 (pointillé), 12 mois. */
-function CourbeCumul({ points, annee, sansN1, moisSelectionne }: { points: ReturnType<typeof sectionCumul>; annee: number; sansN1: boolean; moisSelectionne: number }) {
+/**
+ * B — le CA cumulé de l'année (trait plein) et de N−1 (pointillé), 12 mois. 🔴 Arno (25/10/2026) — le MÊME composant trace le mode
+ * « Cumul » de « Mois par mois » (CA, baux, solde de gestions) : `courant` = les valeurs cumulées de janvier au dernier mois tracé,
+ * `n1` = les 12 de l'année précédente (null : non importée) ; `entier` : axe en nombres entiers (négatifs permis : un solde de gestions) ;
+ * `bulle` : chaque mois se survole et s'ouvre, le détail s'écrit À DROITE (comme l'histogramme). Sans `bulle` : la courbe d'avant, telle quelle.
+ */
+function CourbeCumul({ courant, n1, annee, moisSelectionne, aria, entier = false, bulle, onChoisir }: {
+  courant: readonly number[]; n1: readonly number[] | null; annee: number; moisSelectionne: number; aria: string; entier?: boolean;
+  bulle?: (mois: number) => InfoBarre; onChoisir?: (mois: number) => void;
+}) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 12, b: 28 };
-  const max = Math.max(1, ...points.map((p) => Math.max(p.caCumule, sansN1 ? 0 : p.caCumuleN1)));
+  const [survol, setSurvol] = useState<number | null>(null);
+  const valeurs = [...courant, ...(n1 ?? [])];
+  const haut = Math.max(1, ...valeurs);
+  const bas = Math.min(0, ...valeurs);
+  const pasEntier = Math.max(1, Math.ceil((haut - bas) / 4));
+  const min = entier ? Math.floor(bas / pasEntier) * pasEntier : bas;
+  const max = entier ? min + pasEntier * 4 : haut;
   const x = (i: number): number => m.g + (i * (L - m.g - m.d)) / 11;
-  const y = (v: number): number => H - m.b - (v * (H - m.h - m.b)) / max;
-  const trace = (vals: number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const courant = points.slice(0, Math.max(moisSelectionne, points.reduce((k, p, i) => (p.nb > 0 ? i + 1 : k), 0)));
-  const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  const y = (v: number): number => H - m.b - ((v - min) * (H - m.h - m.b)) / (max - min);
+  const trace = (vals: readonly number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
+  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurRond(v));
+  const pas = (L - m.g - m.d) / 11;
+  const dessin = (
+    <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={aria}>
+      {graduations.map((g) => (
+        <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
+          <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{etiquette(g)}</text></g>
+      ))}
+      {COURT.map((c, i) => <text key={c} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{c}</text>)}
+      {n1 !== null && <path d={trace(n1)} className="tdb-trait-n1" data-trait-cumul="n1" />}
+      {courant.length > 0 && <path d={trace(courant)} className="tdb-trait" data-trait-cumul="courant" />}
+      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={i === moisSelectionne - 1 ? 5 : 3} className="tdb-point" data-point-cumul={i + 1} data-valeur={v} />)}
+      {bulle !== undefined && COURT.map((c, i) => (
+        <rect key={`z-${c}`} x={x(i) - pas / 2} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone tdb-zone-cumul" data-mois-cumul={i + 1}
+          onMouseEnter={() => setSurvol(i + 1)} onClick={() => onChoisir?.(i + 1)} />
+      ))}
+    </svg>
+  );
+  const legende = <><span className="tdb-legende tdb-legende--courant" /> {annee}{n1 !== null && <> · <span className="tdb-legende tdb-legende--n1" /> {annee - 1}</>}</>;
+  if (bulle === undefined) {
+    return (
+      <figure className="tdb-courbe" data-courbe="cumul">
+        {dessin}
+        <figcaption className="loc-muet">{legende}</figcaption>
+      </figure>
+    );
+  }
+  const detail = bulle(survol ?? moisSelectionne);
   return (
-    <figure className="tdb-courbe" data-courbe="cumul">
-      <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={`CA HT cumulé ${annee}${sansN1 ? '' : ` et ${annee - 1}`}, de janvier à décembre`}>
-        {graduations.map((g) => (
-          <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
-            <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurRond(g)}</text></g>
-        ))}
-        {points.map((p, i) => <text key={p.mois} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{COURT[i]}</text>)}
-        {!sansN1 && <path d={trace(points.map((p) => p.caCumuleN1))} className="tdb-trait-n1" />}
-        <path d={trace(courant.map((p) => p.caCumule))} className="tdb-trait" />
-        {courant.map((p, i) => <circle key={p.mois} cx={x(i)} cy={y(p.caCumule)} r={i === moisSelectionne - 1 ? 5 : 3} className="tdb-point" />)}
-      </svg>
-      <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--courant" /> {annee}{!sansN1 && <> · <span className="tdb-legende tdb-legende--n1" /> {annee - 1}</>}</figcaption>
+    <figure className="tdb-courbe tdb-histo" data-courbe="mois-cumul">
+      <div className="tdb-histo-rangee" data-histo-rangee>
+        <div className="tdb-histo-graphe"><div className="tdb-histo-zone" onMouseLeave={() => setSurvol(null)}>{dessin}</div></div>
+        <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail} sous /></div>
+        <figcaption className="loc-muet tdb-histo-legende">{legende}</figcaption>
+      </div>
     </figure>
   );
+}
+
+/** 🔴 Arno (25/10/2026) — le dernier mois tracé d'un cumul : le mois courant pour l'année en cours, 12 pour une année passée, 0 à venir. PUR. */
+export function moisDeLaCourbe(annee: number, jour: string): number {
+  const a = Number(jour.slice(0, 4));
+  return annee < a ? 12 : annee > a ? 0 : Number(jour.slice(5, 7));
 }
 
 /**
@@ -1091,6 +1181,9 @@ export const CSS_TABLEAU_BORD = `
 .tdb-titre-mesures{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 14px;margin:0 0 10px}
 .tdb-titre-mesures h3{margin:0}
 .tdb-mesures{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line)}
+.tdb-mesures-ligne{display:flex;align-items:stretch;gap:10px;margin-left:auto}
+.tdb-mesures-filet{width:1px;align-self:stretch;margin:6px 0;background:var(--color-svv-line-strong)}
+.tdb-zone-cumul{cursor:pointer}
 .tdb-mesure[aria-pressed="true"]{color:var(--color-svv-green-ink);border-bottom-color:var(--color-svv-green-ink)}
 .tdb-filtres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .tdb-champ{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:700;color:var(--color-svv-muted);min-width:0}

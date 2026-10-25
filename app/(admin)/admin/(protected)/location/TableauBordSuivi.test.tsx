@@ -6,10 +6,10 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 // Les fiches ouvertes depuis le panneau (Annuaire, ModifierFicheBien) lisent le routeur de Next : simulé ici.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
-import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
+import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, moisDeLaCourbe, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
-import { natureBienLoue, suiviDuNegociateur, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
+import { cumulDepuisJanvier, natureBienLoue, sectionCumul, soldeGestionParMois, suiviDuNegociateur, totauxPeriode, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * 🔴 Arno (22/10/2026) — « Outils de suivi » : le tableau de bord, sur la copie anonymisée de son suivi 2026 (et deux lignes
@@ -1024,7 +1024,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-bloc="histogramme-mois"] .tdb-titre-mesures h3')?.textContent).toBe('Mois par mois — 2026 (CA HT ; un mois s’ouvre d’un clic)');
       expect(Number(valeur(9))).toBeCloseTo(15471.7, 2);
       expect(axe().every((t) => t.endsWith('€'))).toBe(true);
-      expect(new URLSearchParams(window.location.search).get('mesure')).toBeNull();
+      // 🔴 25/10/2026 — la mesure s'écrit dans « vue » (plus « mesure ») ; CA, le défaut, n'écrit rien.
+      expect(new URLSearchParams(window.location.search).get('vue')).toBeNull();
     });
 
     it('Baux : les baux signés du mois (avenants compris), N−1 hachurée, mois à venir vides ; axe en nombres entiers ; détail en nombre', async () => {
@@ -1036,7 +1037,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect([valeur(11), valeur(12)]).toEqual([null, null]);
       expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
       expect(axe().every((t) => /^\d+$/.test(t))).toBe(true);   // 0, 5, 10… jamais un montant, jamais une décimale
-      expect(new URLSearchParams(window.location.search).get('mesure')).toBe('baux');
+      expect(new URLSearchParams(window.location.search).get('vue')).toBe('baux');
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       const det = container.querySelector('[data-histo-detail]')!;
       expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026Baux signés17');
@@ -1060,9 +1061,9 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const det = container.querySelector('[data-histo-detail]')!;
       expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026Nouvelles gestions0');
       expect(det.querySelector('[data-bulle-pied]')?.textContent).toBe('N−1 non importée');
-      expect(new URLSearchParams(window.location.search).get('mesure')).toBe('gestion');
+      expect(new URLSearchParams(window.location.search).get('vue')).toBe('gestion');
       await cliquer('ca');
-      expect(new URLSearchParams(window.location.search).get('mesure')).toBeNull();
+      expect(new URLSearchParams(window.location.search).get('vue')).toBeNull();
     });
 
     it('l’adresse (?mesure=gestion) rouvre la mesure choisie ; N−1 de gestion : comptée quand elle existe, l’écart nul en gris', async () => {
@@ -1070,10 +1071,104 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       donnees = { ...donnees, gestion: { ...donnees.gestion, transitions: [...donnees.gestion.transitions, { lotId: 9, avant: null, apres: 'en_gestion', effetLe: '2025-09-03' }] } } as typeof donnees;
       await monter('mois');
       expect(presse()).toEqual(['gestion']);
+      // 🔴 25/10/2026 — une ancienne adresse « ?mesure= » s'ouvre encore, et se réécrit en « ?vue= ».
+      expect([new URLSearchParams(window.location.search).get('vue'), new URLSearchParams(window.location.search).get('mesure')]).toEqual(['gestion', null]);
       expect(barre(9).querySelector('[data-barre-n1]')).not.toBeNull();
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-pied]')?.textContent)).toBe('Écart0 (+0 %)');
       expect(container.querySelector('[data-histo-detail] [data-ecart]')?.getAttribute('data-ecart')).toBe('nul');
+    });
+  });
+
+  describe('🔴 Arno (25/10/2026) — « Mois par mois » : le bouton « Cumul »', () => {
+    const presse = () => [...container.querySelectorAll('[data-mesure-bouton]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-mesure-bouton'));
+    const cumul = () => container.querySelector('[data-cumul-bouton]') as HTMLButtonElement;
+    const clic = async (el: Element) => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
+    const url = (k: string) => new URLSearchParams(window.location.search).get(k);
+    const points = () => [...container.querySelectorAll('[data-courbe="mois-cumul"] [data-point-cumul]')].map((c) => Number(c.getAttribute('data-valeur')));
+
+    it('sur la ligne des mesures, à droite, séparé par un filet ; bascule marche / arrêt : barres ↔ courbe du cumul ; l’adresse le porte (&cumul=1)', async () => {
+      await monter('mois');
+      const ligne = container.querySelector('.tdb-mesures-ligne')!;
+      expect([...ligne.children].map((e) => e.hasAttribute('data-mesures') ? 'mesures' : e.classList.contains('tdb-mesures-filet') ? 'filet' : e.querySelector('[data-cumul-bouton]') ? 'cumul' : '?'))
+        .toEqual(['mesures', 'filet', 'cumul']);
+      expect([cumul().textContent, cumul().getAttribute('aria-pressed'), cumul().className]).toEqual(['Cumul', 'false', 'tdb-onglet tdb-mesure tdb-mesure--cumul']);
+      expect(container.querySelector('[data-barre-mois="9"]')).not.toBeNull();
+      expect(url('cumul')).toBeNull();
+      await clic(cumul());
+      expect(cumul().getAttribute('aria-pressed')).toBe('true');
+      expect(container.querySelector('[data-barre-mois]')).toBeNull();
+      expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
+      expect(container.querySelector('[data-bloc="histogramme-mois"] h3')?.textContent).toBe('Mois par mois — 2026 (CA HT, cumulé depuis janvier ; un mois s’ouvre d’un clic)');
+      expect([url('cumul'), url('vue')]).toEqual(['1', null]);
+      await clic(cumul());
+      expect([cumul().getAttribute('aria-pressed'), url('cumul')]).toEqual(['false', null]);
+      expect(container.querySelector('[data-barre-mois="9"]')).not.toBeNull();
+      // « Le cumul de 2026 » (Suivi annuel) n'est pas touché : le même composant, sans détail ni zones de survol.
+    });
+
+    it('une seule mesure à la fois ; changer de mesure GARDE le cumul ; l’adresse ?vue=baux&cumul=1 le rouvre', async () => {
+      await monter('mois');
+      await clic(cumul());
+      await clic(container.querySelector('[data-mesure-bouton="baux"]')!);
+      expect(presse()).toEqual(['baux']);
+      expect(cumul().getAttribute('aria-pressed')).toBe('true');
+      expect([url('vue'), url('cumul')]).toEqual(['baux', '1']);
+      await clic(container.querySelector('[data-mesure-bouton="gestion"]')!);
+      expect(presse()).toEqual(['gestion']);
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?vue=baux&cumul=1');
+      await monter('mois');
+      expect([presse(), cumul().getAttribute('aria-pressed')]).toEqual([['baux'], 'true']);
+      expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
+    });
+
+    it('CA : le cumul au point de chaque mois ; la courbe s’arrête au MOIS COURANT (octobre) ; un mois à venir : « À venir »', async () => {
+      await monter('mois');
+      await clic(cumul());
+      const ctx = { regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, aujourdhui: donnees.aujourdhui };
+      const attendu = sectionCumul(donnees.activites, ctx, 2026).map((p) => p.caCumule);
+      expect(points()).toHaveLength(10);
+      points().forEach((v, i) => expect(v).toBeCloseTo(attendu[i], 6));
+      await act(async () => { container.querySelector('[data-mois-cumul="11"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      const det = container.querySelector('[data-histo-detail]')!;
+      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin novembre');
+      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
+      // Le mois survolé : le cumul de l'année, celui de N−1, l'écart « +x € (+y %) ».
+      await act(async () => { container.querySelector('[data-mois-cumul="9"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      expect(nbsp(det.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025CA HT3 000,00 €Baux2');
+      expect(nbsp(det.querySelector('[data-bulle-pied]')?.textContent)).toMatch(/^Écart\+[\d ]+,\d\d € \(\+[\d ,]+ %\)$/);
+    });
+
+    it('Baux : baux cumulés ; Gestion : SOLDE cumulé (entrées − sorties, la source de la section Gestion), en nombres entiers', async () => {
+      window.history.replaceState(null, '', '/?vue=gestion&cumul=1');
+      await monter('mois');
+      // L'entrée du 12/09/2026 (+1), la sortie du 01/10/2026 (−1) : septembre 1, octobre 0.
+      expect(points()).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
+      const det = container.querySelector('[data-histo-detail]')!;
+      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026Solde de gestions (cumul)0');
+      await clic(container.querySelector('[data-mesure-bouton="baux"]')!);
+      const ctx = { regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, aujourdhui: donnees.aujourdhui };
+      const nb = cumulDepuisJanvier(sectionCumul(donnees.activites, ctx, 2026).map((p) => p.nb));
+      expect(points()).toEqual(nb.slice(0, 10));
+      expect([...container.querySelectorAll('[data-courbe="mois-cumul"] .tdb-axe')].map((t) => nbsp(t.textContent)).filter((t) => /^-?[\d ]+$/.test(t)).every((t) => !t.includes(','))).toBe(true);
+    });
+  });
+
+  describe('🔴 Arno (25/10/2026) — le cumul : décembre = le total de l’année au centime ; jusqu’où trace la courbe', () => {
+    it('cumul de décembre = total de l’année (CA HT au centime, baux) ; solde de gestions = entrées − sorties', () => {
+      const ctx = { regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, aujourdhui: donnees.aujourdhui };
+      const B = sectionCumul(donnees.activites, ctx, 2026);
+      const total = totauxPeriode(donnees.activites, ctx, { annee: 2026, mois: null });
+      const centimes = (x: number) => Math.round(x * 100);
+      expect(centimes(cumulDepuisJanvier(B.map((p) => p.ca))[11])).toBe(centimes(total.ca));
+      expect(cumulDepuisJanvier(B.map((p) => p.nb))[11]).toBe(total.nb);
+      const t = [{ lotId: 1, avant: null, apres: 'en_gestion', effetLe: '2025-01-10' }, { lotId: 2, avant: 'location_seule', apres: 'en_gestion', effetLe: '2025-01-20' },
+        { lotId: 3, avant: 'en_gestion', apres: 'ancienne_gestion', effetLe: '2025-03-02' }, { lotId: 4, avant: null, apres: 'en_gestion', effetLe: '2026-01-02' }];
+      expect(cumulDepuisJanvier(soldeGestionParMois(t, 2025))).toEqual([2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    });
+    it('année en cours : jusqu’au mois courant ; année passée : 12 mois ; année à venir : aucun', () => {
+      expect([moisDeLaCourbe(2026, '2026-10-25'), moisDeLaCourbe(2025, '2026-10-25'), moisDeLaCourbe(2027, '2026-10-25')]).toEqual([10, 12, 0]);
     });
   });
 
