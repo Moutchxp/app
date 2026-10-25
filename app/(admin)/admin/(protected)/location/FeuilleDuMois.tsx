@@ -11,7 +11,7 @@ import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBie
 import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, resultatNetAgence, ventilationCommissions, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue, resultatNetAgence, ventilationCommissions, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -74,9 +74,12 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const cle = `${annee}-${String(mois).padStart(2, '0')}`;
   const duMois = lignes.filter((a) => a.dateSignature.startsWith(cle));
   const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
+  // 🔴 Arno (25/10/2026) — le variable : un administrateur calcule tous les négociateurs ; un autre compte n'a que SA cascade (serveur).
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
   const r = resumeDuMois(t, duMois, g, negos, ctx);
+  const propre = d.variablesPropres?.[`${annee}-${String(mois).padStart(2, '0')}`];
+  const blocsNego = d.voirCommissions ? r.negociateurs : propre !== undefined ? [propre] : [];
   // 🔴 Arno (25/10/2026) — le portefeuille de gestion depuis le 1er janvier (même source et même calcul que la ligne du mois).
   const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle);
   const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
@@ -350,22 +353,21 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             <h4 id="fdm-f6">Résultat net de l’agence — {nom}</h4>
             <CascadeResultatNet x={resultatNetAgence(r, t, d.voirCommissions === true, ventilation)} dossiers={duMois.map((a) => ({ id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca: caLigne(a) }))} />
           </section>
-          <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
-            <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
-            {/* 🔴 Arno (25/10/2026) — le variable en CASCADE (une ligne = une opération), un « i » par ligne de calcul ; droit « Voir les commissions ». */}
-            {d.voirCommissions && r.negociateurs.map((x) => (
-              <div key={x.cle} className="fdm-nego" data-negociateur-resume={x.libelle}>
-                <CascadeNegociateurMois x={x} mois={cle} plusieurs={r.negociateurs.length > 1} />
-              </div>
-            ))}
-            {/* Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de tous les négociateurs du mois. */}
-            {!(d.voirCommissions && r.negociateurs.length === 1) && (
-              <dl className="fdm-cascade-mois">
-                <div><dt>Primes de gestion{d.voirCommissions && r.negociateurs.length > 1 ? ' — tous négociateurs' : ''}</dt><dd data-total="primes">{eur(r.primes)}</dd></div>
-                {d.voirCommissions && <div><dt>Rétrocessions{r.negociateurs.length > 1 ? ' — tous négociateurs' : ''}</dt><dd data-total="retrocessions">{eur(r.retrocessions)}</dd></div>}
-              </dl>
-            )}
-          </section>
+          {/* 🔴 Arno (25/10/2026) — LE BLOC « NÉGOCIATEUR — <nom> », un par négociateur, REPLIÉ à chaque chargement (une ligne, un chevron) ;
+              déplié : la cascade. VISIBLE seulement de ce négociateur et des administrateurs (le serveur ne renvoie rien d'autre) ; pour tout
+              autre compte, ABSENT de la page. */}
+          {blocsNego.length > 0 && (
+            <div className="fdm-negos fdm-famille--large" data-famille="negociateurs">
+              {blocsNego.map((x) => <BlocNegociateur key={x.cle} x={x} mois={cle} />)}
+              {/* Plusieurs négociateurs (administrateur) : les primes et les rétrocessions de tous, comme avant. */}
+              {d.voirCommissions && blocsNego.length > 1 && (
+                <dl className="fdm-cascade-mois fdm-famille">
+                  <div><dt>Primes de gestion — tous négociateurs</dt><dd data-total="primes">{eur(r.primes)}</dd></div>
+                  <div><dt>Rétrocessions — tous négociateurs</dt><dd data-total="retrocessions">{eur(r.retrocessions)}</dd></div>
+                </dl>
+              )}
+            </div>
+          )}
         </div>
         {g.perdues.some((l) => l.origine === 'fichier') && <p className="loc-muet tdb-note" data-note-pertes-fichier>* Mandats perdus notés dans le suivi mensuel : honoraires DÉDUITS (loyers cc du fichier × taux retenu, détail au survol).</p>}
         {ecarts.map((e, i) => (
@@ -480,6 +482,28 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         )}
       </section>
     </div>
+  );
+}
+
+/** 🔴 Arno (25/10/2026) — le bloc d'UN négociateur : replié sur une ligne (nom + chevron, aucun montant) ; déplié, la cascade. */
+function BlocNegociateur({ x, mois }: { x: CascadeNegociateur; mois: string }) {
+  const [ouvert, setOuvert] = useState(false);
+  const id = `fdm-nego-${x.cle.replace(/[^a-z0-9]/gi, '-')}`;
+  return (
+    <section className="fdm-famille fdm-bloc-nego" aria-labelledby={`${id}-titre`} data-negociateur-bloc={x.libelle}>
+      <h4 id={`${id}-titre`} className="fdm-nego-titre">
+        <button type="button" className="fdm-nego-bascule" aria-expanded={ouvert} aria-controls={id} data-deplier-negociateur={x.libelle}
+          onClick={() => setOuvert((v) => !v)}>
+          <span className="fdm-nego-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+          <span>Négociateur — {x.libelle}</span>
+        </button>
+      </h4>
+      {ouvert && (
+        <div id={id} className="fdm-nego" data-negociateur-resume={x.libelle}>
+          <CascadeNegociateurMois x={x} mois={mois} plusieurs={false} />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -816,6 +840,12 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-mini tfoot tr.tdb-signe--negatif td,.fdm-mini tfoot tr.tdb-signe--negatif th{color:var(--color-svv-red)}
 .fdm-mini tfoot tr.tdb-signe--nul td,.fdm-mini tfoot tr.tdb-signe--nul th{color:var(--color-svv-muted)}
 .fdm-nego{display:flex;flex-direction:column;gap:2px}
+.fdm-negos{display:flex;flex-direction:column;gap:14px;min-width:0}
+.fdm-famille > h4.fdm-nego-titre{margin:-6px -8px}
+.fdm-nego-bascule{appearance:none;display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:0 8px;background:none;border:0;border-radius:10px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.fdm-nego-bascule:hover .fdm-nego-chevron{color:var(--color-svv-ink)}
+.fdm-nego-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.fdm-nego-chevron{flex:0 0 1.2em;color:var(--color-svv-muted);font-size:1rem}
 .fdm-cumul{margin-top:10px;padding-top:10px;border-top:1px solid var(--color-svv-line-strong);display:flex;flex-direction:column;gap:6px}
 .fdm-cumul-titre{margin:0;font-size:.84rem;font-weight:800;color:var(--color-svv-ink)}
 .fdm-cumul-biens{list-style:none;margin:0;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:4px;font-size:.84rem}

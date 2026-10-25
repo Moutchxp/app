@@ -845,6 +845,11 @@ export interface DonneesTableau {
   ecartsFichier?: EcartFichier[];
   /** 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois en gestion. */
   recurrents?: ActiviteLue[];
+  /**
+   * 🔴 Arno (25/10/2026) — pour un compte NON administrateur : SA cascade de négociateur, mois par mois (« AAAA-MM »), calculée côté
+   * serveur (le taux et les rétrocessions ne partent pas). Absent pour un administrateur (`voirCommissions` : il calcule tout).
+   */
+  variablesPropres?: Record<string, CascadeNegociateur>;
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
@@ -1317,6 +1322,25 @@ export function resultatNetAgence(r: ResumeDuMois, t: Pick<TotauxPeriode, 'appor
   const net = voirCommissions ? ca - apporteurs - collegues - variables.reduce((s, x) => s + x.variable, 0) : null;
   return { ca, apporteurs, apporteursRecurrents: cent(t.apporteursRecurrents), collegues, colleguesRecurrents: cent(t.colleguesRecurrents), variables, net,
     part: net === null || ca === 0 ? null : net / ca, ventilation };
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — LA CASCADE D'UN SEUL NÉGOCIATEUR (le compte connecté, non administrateur), mois par mois de `annee` (« AAAA-MM ») :
+ * calculée côté serveur avec le vrai taux et SES seules rétrocessions ; les mois sans affaire ni rétrocession de lui sont absents. Rien
+ * d'un autre négociateur n'en sort. PUR.
+ */
+export function variablesDuNegociateur(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, annee: number, negociateurId: number): Record<string, CascadeNegociateur> {
+  const cle = `id:${negociateurId}`;
+  const siennes = activites.filter((a) => a.negociateurId === negociateurId);
+  const ctxPropre: ContexteCalcul = { ...ctx, retrocessions: ctx.retrocessions.filter((r) => r.negociateurId === negociateurId) };
+  const sortie: Record<string, CascadeNegociateur> = {};
+  for (let mois = 1; mois <= 12; mois++) {
+    const n = sectionNegociateurs(siennes, ctxPropre, { annee, mois }).find((x) => x.cle === cle);
+    if (n === undefined) continue;
+    const m = moisDe(annee, mois);
+    sortie[m] = cascadeNegociateur(n, siennes.filter((a) => a.dateSignature.startsWith(m)), ctxPropre);
+  }
+  return sortie;
 }
 
 // ── 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE ───────────────────────────────────────────────────────────────────────

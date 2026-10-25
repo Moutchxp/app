@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
-import { natureBienLoue, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
+import { natureBienLoue, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * 🔴 Arno (22/10/2026) — « Outils de suivi » : le tableau de bord, sur la copie anonymisée de son suivi 2026 (et deux lignes
@@ -62,6 +62,10 @@ const choisir = async (filtre: string, v: string) => {
 };
 const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as HTMLButtonElement;
 const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ');
+/** 🔴 Arno (25/10/2026) — les blocs « Négociateur » sont repliés à chaque chargement : les déplier pour lire la cascade. */
+const deplierNegos = async () => {
+  for (const b of [...container.querySelectorAll('[data-deplier-negociateur][aria-expanded="false"]')]) await act(async () => { (b as HTMLButtonElement).click(); });
+};
 /** 🔴 Arno (24/10/2026) — la carte « Le mois » est repliée par défaut : le chevron la déplie. */
 const deplierCarteMois = async () => { await act(async () => { (container.querySelector('[data-carte-mois-chevron]') as HTMLButtonElement).click(); }); };
 /** 🔴 Arno (24/10/2026) — « Modifier » est dans le panneau déplié : on déplie la ligne (si besoin), puis on clique « Modifier ». */
@@ -222,6 +226,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     // l'ancien « CA HT − apporteurs » (part location, 13 469,45) reste : c'est la base de calcul du négociateur.
     expect(total('ca-net')).toBe('13 469,44 €');
     // 🔴 25/10/2026 — la base du négociateur = CA HT net de commissions (ici : les seules parts location), au centime des montants affichés.
+    await deplierNegos();
     expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,44 €');
     expect(total('primes')).toBe('650,00 €');
     expect(total('avec')).toBe('14 313,36 €');
@@ -1195,7 +1200,8 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     const negos = bas().querySelector('[data-famille="negociateurs"]')!;
     expect(negos.parentElement?.classList.contains('fdm-familles')).toBe(true);
     expect(negos.classList.contains('fdm-famille--large')).toBe(true);
-    expect(negos.querySelector('h4')?.textContent).toBe('Négociateur — Jean-Baptiste PONS');
+    // 🔴 25/10/2026 (suite) — replié sur UNE ligne : le nom et le chevron, aucun montant.
+    expect(nbsp(negos.querySelector('[data-deplier-negociateur]')?.textContent)).toBe('▸Négociateur — Jean-Baptiste PONS');
     // Au téléphone (une colonne) : Résultat, CA par statut, Portefeuille, Honoraires, Négociateurs — l'ordre CSS.
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
     expect(css).toContain('.fdm-familles [data-famille="resultat"]{order:1} .fdm-familles [data-famille="statuts"]{order:2} .fdm-familles [data-famille="portefeuille"]{order:3}');
@@ -1250,7 +1256,8 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
       .toEqual(['resultat', 'resultat', 'resultat', 'resultat', 'resultat']);
     expect([ou('[data-total="avec"]'), ou('[data-total="sans"]')]).toEqual(['gestion', 'gestion']);
     expect(ou('[data-total="balance"]')).toBe('portefeuille');
-    // 🔴 25/10/2026 — les rétrocessions : seulement si ≠ 0 (aucune en septembre).
+    // 🔴 25/10/2026 — les rétrocessions : seulement si ≠ 0 (aucune en septembre). Le bloc du négociateur est replié : le déplier.
+    await deplierNegos();
     expect([ou('[data-total="primes"]'), ou('[data-total-commission="Jean-Baptiste PONS"]'), ou('[data-base-negociateur="Jean-Baptiste PONS"]')])
       .toEqual(['negociateurs', 'negociateurs', 'negociateurs']);
     expect(bas().querySelector('[data-total="retrocessions"]')).toBeNull();
@@ -1259,18 +1266,18 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect(bas().querySelector('button[data-total="ca"]')).not.toBeNull();
   });
 
-  it('🔒 sans « Voir les commissions » : les primes restent (comme avant) ; ni variable, ni rétrocessions', async () => {
+  it('🔒 Arno (25/10/2026) — un compte NON administrateur qui n’est pas négociateur du mois : le bloc Négociateur est ABSENT (ni bloc, ni mention)', async () => {
     donnees = { ...donnees, voirCommissions: false };
     await septembre();
-    expect(bas().querySelector('[data-famille="negociateurs"] h4')?.textContent).toBe('Négociateurs');
-    expect(bas().querySelector('[data-total="primes"]')).not.toBeNull();
-    expect(bas().querySelector('[data-total-commission], [data-total="retrocessions"], [data-base-negociateur]')).toBeNull();
+    expect(bas().querySelector('[data-famille="negociateurs"]')).toBeNull();
+    expect(bas().querySelector('[data-deplier-negociateur], [data-total-commission], [data-total="retrocessions"], [data-base-negociateur]')).toBeNull();
+    expect(bas().textContent).not.toContain('Négociateur');
   });
 });
 
 describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variable en cascade, un « i » par ligne', () => {
   const euros = (t: string | null | undefined): number => Math.round(Number((t ?? '').replace(/[\s  €]/g, '').replace('−', '-').replace(',', '.')) * 100);
-  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); await deplierNegos(); };
   const cascade = () => container.querySelector('[data-cascade-negociateur="Jean-Baptiste PONS"]') as HTMLElement;
   const montant = (cle: string) => cascade().querySelector(`[data-cascade-ligne="${cle}"] .fnc-montant`)?.textContent;
   const info = async (cle: string) => { await act(async () => { (cascade().querySelector(`[data-cascade-info="${cle}"]`) as HTMLButtonElement).click(); }); };
@@ -1319,12 +1326,12 @@ describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variab
     expect(nbsp(cascade().querySelector('[data-cascade-detail="retrocessions"]')?.textContent)).toContain('Avance sur variable');
   });
 
-  it('🔒 sans « Voir les commissions » : pas de variable (les primes restent)', async () => {
+  it('🔒 non administrateur, sans cascade à lui : aucun variable, aucun bloc', async () => {
     donnees = { ...donnees, voirCommissions: false };
     await septembre();
     expect(container.querySelector('[data-cascade-negociateur]')).toBeNull();
     expect(container.querySelector('[data-total-commission]')).toBeNull();
-    expect(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="primes"]')).not.toBeNull();
+    expect(container.querySelector('[data-famille="negociateurs"]')).toBeNull();
   });
 });
 
@@ -1527,6 +1534,7 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(v('[data-net="externes"]')).toBe(ailleurs('[data-total="apporteurs-externes"]'));
     expect(v('[data-net="internes"]')).toBe(ailleurs('[data-total="apporteurs-internes"]'));
     expect(v('[data-net="collegues"]')).toBe(ailleurs('[data-total="collegues"]'));
+    await deplierNegos();
     const variables = [...container.querySelectorAll('[data-famille="negociateurs"] [data-total-commission]')].map((e) => cent(e.textContent));
     expect(variables.length).toBeGreaterThan(0);
     expect(v('[data-net-variable]')).toBe(variables.reduce((s, x) => s + x, 0));
@@ -1556,5 +1564,56 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(t.querySelector('.fdm-titre-suite')?.textContent).toBe('(honoraires de gestion HT)');
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
     expect(css).toContain('@media (max-width:430px){\n  .fdm-famille > h4.fdm-titre-une-ligne{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}\n  .fdm-titre-une-ligne .fdm-titre-suite{display:block}\n}');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible seulement du négociateur concerné et des administrateurs', () => {
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const bas = () => container.querySelector('[data-bloc="bas-de-feuille"]') as HTMLElement;
+
+  it('administrateur : replié à chaque chargement (une ligne, aucun montant) ; le clic déplie la cascade, un second la replie', async () => {
+    await septembre();
+    const bouton = bas().querySelector('[data-deplier-negociateur="Jean-Baptiste PONS"]') as HTMLButtonElement;
+    expect(bouton.getAttribute('aria-expanded')).toBe('false');
+    expect(bouton.tagName).toBe('BUTTON');
+    expect(bas().querySelector('[data-cascade-negociateur]')).toBeNull();
+    expect(bas().querySelector('[data-negociateur-bloc="Jean-Baptiste PONS"]')?.textContent).not.toMatch(/€/);
+    await act(async () => { bouton.click(); });
+    expect(bouton.getAttribute('aria-expanded')).toBe('true');
+    expect(bas().querySelector('[data-cascade-negociateur="Jean-Baptiste PONS"] [data-total-commission]')).not.toBeNull();
+    await act(async () => { bouton.click(); });
+    expect(bas().querySelector('[data-cascade-negociateur]')).toBeNull();
+    // Rechargé : de nouveau replié.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await septembre();
+    expect(bas().querySelector('[data-deplier-negociateur]')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('administrateur, plusieurs négociateurs : un bloc chacun ; le Résultat net montre le variable de chacun et le net', async () => {
+    const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+    donnees = { ...donnees, activites: donnees.activites.map((a) => (a === sept[0] ? { ...a, negociateurId: 9, negociateurLibelle: 'Cédric Jullien' } : a)) };
+    await septembre();
+    expect([...bas().querySelectorAll('[data-negociateur-bloc]')].map((e) => e.getAttribute('data-negociateur-bloc')).sort()).toEqual(['Cédric Jullien', 'Jean-Baptiste PONS']);
+    expect(bas().querySelectorAll('[data-famille="resultat-net"] [data-net-variable]')).toHaveLength(2);
+    expect(bas().querySelector('[data-famille="resultat-net"] [data-net="net"]')).not.toBeNull();
+  });
+
+  it('un négociateur NON administrateur : SON bloc seulement (sa cascade, venue du serveur) ; le Résultat net s’arrête aux commissions', async () => {
+    // L'administrateur calcule la cascade de septembre ; le serveur l'envoie au seul négociateur, rien d'autre (ni taux, ni rétrocession).
+    await septembre();
+    await deplierNegos();
+    const varAdmin = nbsp(bas().querySelector('[data-total-commission="Jean-Baptiste PONS"]')?.textContent);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    const ctx = { regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, aujourdhui: donnees.aujourdhui };
+    const propres = variablesDuNegociateur(donnees.activites, ctx, 2026, 5);
+    donnees = { ...donnees, voirCommissions: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [], variablesPropres: propres };
+    await septembre();
+    expect([...bas().querySelectorAll('[data-negociateur-bloc]')].map((e) => e.getAttribute('data-negociateur-bloc'))).toEqual(['Jean-Baptiste PONS']);
+    await deplierNegos();
+    expect(nbsp(bas().querySelector('[data-total-commission="Jean-Baptiste PONS"]')?.textContent)).toBe(varAdmin);
+    const net = bas().querySelector('[data-famille="resultat-net"]') as HTMLElement;
+    expect(net.querySelector('[data-net-variable], [data-net="net"], [data-net-part]')).toBeNull();
+    expect(net.querySelector('[data-net-sans-droit]')?.textContent).toBe('Variable et net réservés aux administrateurs');
+    expect(net.querySelector('[data-net="collegues"]')).not.toBeNull();
   });
 });

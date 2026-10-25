@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
+import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
@@ -238,17 +238,18 @@ export async function preavisParMois(annees: readonly number[]): Promise<Record<
 
 
 /**
- * Tout ce que l'écran calcule, pour `annee` et l'année précédente. 🔒 Sans « Voir les commissions » : ni règle (taux du
- * négociateur, primes), ni rétrocession, ni prime saisie ne partent — la commission du négociateur n'est pas calculable.
+ * Tout ce que l'écran calcule, pour `annee` et l'année précédente. 🔒 `voirCommissions` = ADMINISTRATEUR (Arno, 25/10/2026) : sinon ni
+ * taux du négociateur, ni rétrocession, ni commission d'historique ne partent — le variable n'est pas calculable. `negociateurPropre` :
+ * le compte non administrateur, qui reçoit SA seule cascade de négociateur, mois par mois, calculée ici (`variablesPropres`).
  */
-export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string): Promise<DonneesTableau> {
+export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string, negociateurPropre: number | null = null): Promise<DonneesTableau> {
   const disponible = await suiviDisponible();
   const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
   const [a, m] = moisFin.split('-').map(Number);
   const depuis = new Date(Date.UTC(a, m - 12, 1)).toISOString().slice(0, 10);
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
-    voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
+    voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
     lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
     lireGestionsPerduesFichier(`${annee}-01-01`, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
   ]);
@@ -262,17 +263,22 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   // 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois tant que le bien est en gestion
   // (419 : celle de l'apporteur ET celle du collègue rémunéré, chacune pendant sa durée).
   const recurrents = toutes.filter((x) => aUnDuMensuel(x, apporteurs));
-  const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions, recurrents, aujourdhui }, voirCommissions);
+  const retroVisibles = voirCommissions ? retrocessions : [];
+  const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions: retroVisibles, recurrents, aujourdhui }, voirCommissions);
+  // 🔴 Arno (25/10/2026) — la cascade du SEUL négociateur connecté (non administrateur), calculée avec le vrai taux et SES rétrocessions.
+  const variablesPropres = !voirCommissions && negociateurPropre !== null
+    ? variablesDuNegociateur(activites, { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui }, annee, negociateurPropre) : {};
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
-    regles, apporteurs, retrocessions, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
+    regles, apporteurs, retrocessions: retroVisibles, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
     gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique, recurrents,
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     dejaClient: await origineDejaClientDisponible(),
     statutBienManuel: await statutBienManuelDisponible(),
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
+    ...(voirCommissions ? {} : { variablesPropres }),
   };
 }

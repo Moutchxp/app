@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerLocation } from '../../../../../../lib/location/garde';
-import { peutVoirCommissions } from '../../../../../../lib/location/suivi/suiviRepo';
+import { estAdministrateurActif } from '../../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau } from '../../../../../../lib/location/suivi/tableauBordRepo';
 import { filtrer, filtreDepuis } from '../../../../../../lib/location/suivi/tableauBord';
 import { classeurSuivi } from '../../../../../../lib/location/suivi/exportXlsx';
@@ -9,7 +9,7 @@ import { aujourdhuiParis } from '../../../../../../lib/location/suivi/suivi';
 /**
  * GET /api/admin/location/suivi/export?annee=AAAA[&negociateur&apporteur&gestion&origine] — le suivi de l'année en .xlsx, un
  * onglet par mois (janvier → mois en cours), avec les filtres de l'écran. Droit « Location » ; primes et commission du
- * négociateur seulement pour qui peut « Voir les commissions ». LECTURE SEULE.
+ * négociateur seulement pour un administrateur (Arno, 25/10/2026). LECTURE SEULE.
  */
 export const runtime = 'nodejs';
 
@@ -21,7 +21,8 @@ export async function GET(request: Request): Promise<Response> {
   const a = Number(url.searchParams.get('annee'));
   const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
   try {
-    const voirCommissions = await peutVoirCommissions(garde.auteurId);
+    // 🔴 Arno (25/10/2026) — primes et commission du négociateur dans l'export : administrateurs seulement.
+    const voirCommissions = await estAdministrateurActif(garde.auteurId);
     const d = await donneesTableau(annee, voirCommissions, jour);
     const filtre = filtreDepuis(url.searchParams);
     const activites = filtrer(d.activites, filtre).filter((x) => x.dateSignature.startsWith(`${annee}-`));

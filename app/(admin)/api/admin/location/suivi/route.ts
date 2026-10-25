@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
-  lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, validerStatutBien, modifierApporteur, peutVoirCommissions,
+  lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, validerStatutBien, modifierApporteur, estAdministrateurActif,
   proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible, enregistrerRattachement,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
@@ -32,7 +32,8 @@ import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
  *   POST action=passer-interne {apporteurId, compteId}  un externe devient interne (ADMINISTRATEUR, 422).
  *   GET ?vue=dossiers-apporteur&id=N : les dossiers d'un apporteur (calcul en direct, cascade).
  *   419 : POST action=remuneration-collegue {apporteurId, remuneration}  la rémunération du collègue de rattachement (ADMINISTRATEUR).
- * Les rétrocessions (montants de commission) ne sont lues que par qui peut « Voir les commissions ».
+ * 🔴 Arno (25/10/2026) — le variable des négociateurs (taux, rétrocessions, commission brute, cascade) ne part qu'aux ADMINISTRATEURS ;
+ * tout autre compte reçoit sa SEULE cascade de négociateur (`variablesPropres`), calculée côté serveur.
  */
 export const runtime = 'nodejs';
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
@@ -47,7 +48,8 @@ export async function GET(request: Request): Promise<Response> {
       const ids = (url.searchParams.get('locataires') ?? '').split(',').map(Number).filter((x) => Number.isInteger(x) && x > 0);
       return json(await proposerActivite(Number(url.searchParams.get('lotId')), ids, url.searchParams.get('date')));
     }
-    const voirCommissions = await peutVoirCommissions(garde.auteurId);
+    // 🔴 Arno (25/10/2026) — le variable des négociateurs : administrateurs seulement ; un autre compte, SA seule cascade.
+    const voirCommissions = await estAdministrateurActif(garde.auteurId);
     if (url.searchParams.get('vue') === 'cumul-apporteur') {
       const id = Number(url.searchParams.get('id'));
       const [annees, apporteurs] = await Promise.all([anneesActives(), lireApporteurs()]);
@@ -73,7 +75,7 @@ export async function GET(request: Request): Promise<Response> {
       const jour = aujourdhuiParis();
       const a = Number(url.searchParams.get('annee'));
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
-      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour) });
+      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
     const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage] = await Promise.all([
@@ -81,7 +83,8 @@ export async function GET(request: Request): Promise<Response> {
       lireComptesInterface(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(), passageDisponible(),
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
-    return json({ etat: 'ok', data: { disponible, apporteurs, regles, retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
+    // 🔴 Arno (25/10/2026) — le taux du négociateur (de quoi recalculer un variable) : administrateurs seulement.
+    return json({ etat: 'ok', data: { disponible, apporteurs, regles: voirCommissions ? regles : regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
       // 414 — le nom de famille et le prénom des apporteurs peuvent-ils être corrigés dans la fiche ?
       nomPrenom,
       // 415 — l'origine « Propriétaire déjà client » peut-elle être proposée ?

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Apporteur } from './suivi';
-import { cascadeNegociateur, sectionNegociateurs, totauxPeriode, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
+import { cascadeNegociateur, sectionNegociateurs, totauxPeriode, variablesDuNegociateur, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026, accord écrit) — LE VARIABLE DU NÉGOCIATEUR : avant le taux, on retire du CA HT toutes les commissions versées SAUF
@@ -69,5 +69,29 @@ describe('🔴 la cascade : chaque ligne affichée se tient au centime', () => {
     expect(x.taux).toBe(0.15);
     expect(x.retroDetail).toEqual([{ libelle: 'Avance', montant: 40.5 }]);
     expect(x.recurrents).toBeCloseTo(15, 10);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — la cascade envoyée à un négociateur NON administrateur : la sienne seulement', () => {
+  const lignes = [ligne(), ligne({ id: 2, negociateurId: 9, negociateurLibelle: 'Cédric' }), ligne({ id: 3, dateSignature: '2026-05-04' })];
+  const c2: ContexteCalcul = { ...ctx, retrocessions: [
+    { negociateurId: 3, negociateurLibelle: 'JB', mois: '2026-03-01', montant: 40.5, libelle: 'Avance JB' },
+    { negociateurId: 9, negociateurLibelle: 'Cédric', mois: '2026-03-01', montant: 999, libelle: 'Avance Cédric' },
+    { negociateurId: 9, negociateurLibelle: 'Cédric', mois: '2026-07-01', montant: 77, libelle: 'Seule Cédric' }] };
+  const v = variablesDuNegociateur(lignes, c2, 2026, 3);
+
+  it('ses seuls mois ; rien d’un autre négociateur (ni dossier, ni rétrocession, ni nom)', () => {
+    expect(Object.keys(v)).toEqual(['2026-03', '2026-05']);
+    expect(Object.values(v).every((x) => x.cle === 'id:3')).toBe(true);
+    expect(v['2026-03'].dossiers.map((d) => d.id)).toEqual([1]);
+    expect(v['2026-03'].retroDetail).toEqual([{ libelle: 'Avance JB', montant: 40.5 }]);
+    expect(JSON.stringify(v)).not.toContain('Cédric');
+  });
+
+  it('identique, au centime, à la cascade que calcule un administrateur avec toutes les données', () => {
+    const [n] = sectionNegociateurs(lignes, c2, { annee: 2026, mois: 3 }).filter((x) => x.cle === 'id:3');
+    const admin = cascadeNegociateur(n, lignes.filter((a) => a.dateSignature.startsWith('2026-03')), c2);
+    expect(Math.round(v['2026-03'].variable * 100)).toBe(Math.round(admin.variable * 100));
+    expect(Math.round(v['2026-03'].variable * 100)).toBe(Math.round((670 * 0.15 + 150 - 40.5) * 100));
   });
 });

@@ -1172,6 +1172,17 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
  * `perm_commissions` (migration 406). RELU EN BASE à chaque appel (un droit retiré l'est aussitôt). Voie de secours (compte
  * sans identifiant, garde administrateur déjà passée) : oui.
  */
+/**
+ * 🔴 Arno (25/10/2026) — LE VARIABLE DES NÉGOCIATEURS (cascade, variable, taux, rétrocessions, commission brute, net de toutes variables) :
+ * un ADMINISTRATEUR voit tout ; tout autre compte ne reçoit que SA propre cascade (calculée ici, côté serveur), jamais celle d'un autre.
+ * Cette règle remplace, pour le variable, le droit « Voir les commissions ». `null` (voie de secours administrateur) : administrateur.
+ */
+export async function estAdministrateurActif(auteurId: number | null): Promise<boolean> {
+  if (auteurId === null) return true;
+  const { rows } = await query<{ ok: boolean }>(`SELECT (role = 'administrateur') AS ok FROM admin_utilisateur WHERE id = $1 AND actif`, [auteurId]);
+  return rows[0]?.ok === true;
+}
+
 export async function peutVoirCommissions(auteurId: number | null): Promise<boolean> {
   if (auteurId === null) return true;
   const avecDroit = await colonneExisteMemo('admin_utilisateur', 'perm_commissions');

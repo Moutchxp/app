@@ -159,7 +159,7 @@ export function CascadeResultatNet({ x, dossiers }: { x: ResultatNetAgence; doss
         { fort: true, attrs: { 'data-net': 'net' } })}
       {x.net !== null && x.part !== null && (
         <p className="fnc-info fnc-part" data-net-part>soit {(x.part * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} % du CA HT global</p>)}
-      {x.net === null && <p className="fnc-info" data-net-sans-droit>Variable des négociateurs et résultat net : réservés au droit « Voir les commissions ».</p>}
+      {x.net === null && <p className="fnc-info" data-net-sans-droit>Variable et net réservés aux administrateurs</p>}
     </div>
   );
 }

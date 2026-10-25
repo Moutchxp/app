@@ -11,7 +11,7 @@ vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async (
 const repo = {
   ajouterBaremeApporteur: vi.fn(), ajouterRegle: vi.fn(), ajouterRetrocession: vi.fn(), annulerRetrocession: vi.fn(), creerApporteur: vi.fn(),
   enregistrerActiviteBail: vi.fn(), lireApporteurs: vi.fn(), lireNegociateurs: vi.fn(), lireRegles: vi.fn(), lireRetrocessions: vi.fn(),
-  peutVoirCommissions: vi.fn(), proposerActivite: vi.fn(), suiviDisponible: vi.fn(),
+  estAdministrateurActif: vi.fn(), proposerActivite: vi.fn(), suiviDisponible: vi.fn(),
   annuaireDisponible: vi.fn(), lireComptesInterface: vi.fn(), modifierActivite: vi.fn(), modifierApporteur: vi.fn(), rattacherApporteur: vi.fn(),
   /* Arno (24/10/2026, 411) — l'origine « Personnalisé » peut-elle être proposée ? */
   personnalisableDisponible: vi.fn(async () => false),
@@ -47,7 +47,8 @@ beforeEach(() => {
   repo.nomPrenomDisponible.mockResolvedValue(false);
   repo.origineDejaClientDisponible.mockResolvedValue(false);
   repo.lireRetrocessions.mockResolvedValue([{ id: 1, montant: 200 }]);
-  repo.peutVoirCommissions.mockResolvedValue(false);
+  repo.estAdministrateurActif.mockResolvedValue(false);
+  repo.lireRegles.mockResolvedValue([{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }]);
   exigerAdministrateur.mockReset().mockResolvedValue({ auteurId: 2 });
   exigerLocation.mockReset().mockResolvedValue({ auteurId: 5 });
 });
@@ -93,24 +94,27 @@ describe('/api/admin/location/suivi', () => {
     expect((await poster({ action: 'enregistrer-activite', bailId: 7 })).status).toBe(403);
     expect((await GET(new Request('http://x/api/admin/location/suivi'))).status).toBe(403);
   });
-  it('🔴 les rétrocessions ne sont lues que par qui peut « Voir les commissions »', async () => {
+  it('🔴 Arno (25/10/2026) — rétrocessions et taux du négociateur : ADMINISTRATEURS seulement (la réponse réseau, pas l’affichage)', async () => {
     let d = await (await GET(new Request('http://x/api/admin/location/suivi'))).json();
     expect(d.data.retrocessions).toEqual([]);
     expect(d.data.voirCommissions).toBe(false);
+    expect(d.data.regles.map((r: { tauxNegociateur: number; primeLogement: number }) => [r.tauxNegociateur, r.primeLogement])).toEqual([[0, 150]]);
     expect(repo.lireRetrocessions).not.toHaveBeenCalled();
-    repo.peutVoirCommissions.mockResolvedValue(true);
+    repo.estAdministrateurActif.mockResolvedValue(true);
     d = await (await GET(new Request('http://x/api/admin/location/suivi'))).json();
     expect(d.data.retrocessions).toEqual([{ id: 1, montant: 200 }]);
+    expect(d.data.regles[0].tauxNegociateur).toBe(0.15);
     expect(d.data.moi).toBe(5);
   });
-  it('🔴 le tableau de bord : l’année demandée, et le droit « Voir les commissions » relu pour la requête', async () => {
+  it('🔴 le tableau de bord : l’année demandée ; administrateur relu pour la requête ; sinon SA seule cascade (son id de compte)', async () => {
     donneesTableau.mockReset().mockResolvedValue({ activites: [] });
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2025'));
-    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
-    repo.peutVoirCommissions.mockResolvedValue(true);
+    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5);
+    repo.estAdministrateurActif.mockResolvedValue(true);
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=n%27importe'));
     expect(donneesTableau.mock.calls[1][0]).toBe(new Date().getFullYear());
     expect(donneesTableau.mock.calls[1][1]).toBe(true);
+    expect(donneesTableau.mock.calls[1][3]).toBeNull();
   });
   it('une action inconnue ou un corps illisible : 400', async () => {
     expect((await poster({ action: 'supprimer' })).status).toBe(400);
