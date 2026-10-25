@@ -9,7 +9,9 @@ import {
   type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
-import { CSS_FEUILLE_MOIS, FeuilleDuMois } from './FeuilleDuMois';
+import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
+import { gestionDepuisLeDebut, resumeDeLAnnee } from '../../../../lib/location/suivi/resumePeriode';
+import { gliEntre } from '../../../../lib/location/suivi/margeGli';
 import { ListeChoix } from './ListeChoix';
 
 /** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
@@ -570,6 +572,20 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           })()}
         </section>
       )}
+      {(() => {
+        /* 🔴 Arno (25/10/2026) — « RÉSUMÉ DE L'ANNÉE » : tout le Résumé du mois (le même composant), calculé sur l'année — la période des
+           tuiles (année en cours : janvier → mois choisi ; année passée : complète) et leurs filtres (les affaires filtrées ; la gestion, non). */
+        const premiere = d.historique?.[0]?.annee ?? annee;
+        const finA = `${annee}-${String(T.moisFin).padStart(2, '0')}`;
+        const libelleA = T.complete ? String(annee) : `${annee} (${periodeT})`;
+        const filtres = mentionFiltres(filtre, d);
+        return (
+          <ResumePeriode d={d} resume={resumeDeLAnnee(d, lignes, ctx, annee, T.moisFin, filtre.negociateur ?? null)} unite="annee" libelle={libelleA} idp="fra"
+            moisCascade={finA} cumul={gestionDepuisLeDebut(d.gestionLignes ?? [], premiere, annee, T.moisFin, regleA)} cumulTitre={`Depuis le début (${premiere})`}
+            gliCumul={gliEntre(d.gli ?? [], d.margesGli ?? [], `${premiere}-01`, finA)} onDetail={(titre, ids) => setDetail({ titre, ids })}
+            mention={filtres === null ? null : <p className="loc-muet tdb-note" data-filtres-actifs>Filtres actifs (comme les tuiles) : {filtres}.</p>} />
+        );
+      })()}
       <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
         <h3 id="tdb-b">Le cumul de {annee}, mois par mois</h3>
         <CourbeCumul courant={B.slice(0, Math.max(mois, B.reduce((k, p, i) => (p.nb > 0 ? i + 1 : k), 0))).map((p) => p.caCumule)}
@@ -836,6 +852,17 @@ function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bull
       </div>
     </figure>
   );
+}
+
+/** 🔴 Arno (25/10/2026) — les filtres actifs de la page, en mots (« Négociateur : X · Avec gestion ») ; null : aucun. PUR. */
+export function mentionFiltres(f: Filtre, d: Pick<DonneesTableau, 'negociateurs' | 'apporteurs'>): string | null {
+  const mots: string[] = [];
+  if (f.negociateur) mots.push(`Négociateur : ${d.negociateurs.find((n) => n.cle === f.negociateur)?.libelle ?? f.negociateur}`);
+  if (f.apporteur === 'aucun') mots.push('Sans apporteur');
+  else if (f.apporteur !== null && f.apporteur !== undefined) mots.push(`Apporteur : ${d.apporteurs.find((a) => a.id === f.apporteur)?.nom ?? f.apporteur}`);
+  if (f.gestion) mots.push(f.gestion === 'avec' ? 'Avec gestion' : 'Sans gestion');
+  if (f.origine) mots.push(f.origine === 'nouveau' ? 'Nouveaux clients' : 'Déjà clients');
+  return mots.length === 0 ? null : mots.join(' · ');
 }
 
 /** 🔴 Arno (25/10/2026) — le dernier mois tracé d'un cumul : le mois courant pour l'année en cours, 12 pour une année passée, 0 à venir. PUR. */

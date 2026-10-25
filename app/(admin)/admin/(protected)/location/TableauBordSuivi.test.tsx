@@ -1943,6 +1943,66 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
   });
 });
 
+describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de l’année » (le Résumé du mois, à l’échelle de l’année)', () => {
+  const resume = () => container.querySelector('[data-bloc="resume-annee"]') as HTMLElement;
+  const montant = (sel: string) => nbsp(resume().querySelector(sel)?.textContent);
+  const choisirFiltre = async (filtre: string, v: string) => {
+    await act(async () => { (container.querySelector(`[data-filtre="${filtre}"]`) as HTMLElement).click(); });
+    await act(async () => { (container.querySelector(`[data-filtre="${filtre}"]`)!.closest('.lch')!.querySelector(`li[data-option="${v}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); });
+    await calmer();
+  };
+
+  it('juste sous « Année par année », avant « Le cumul » ; titre « Résumé de l’année — 2026 (janv. → oct.) » ; les mêmes familles que le mois', async () => {
+    donnees = { ...donnees, historique: [{ annee: 2025, nbBaux: 2, nb: 2, ca: 3000, caNet: 3000, apporteurs: 0, commission: 0 }, { annee: 2026, nbBaux: 1, nb: 1, ca: 1, caNet: 1, apporteurs: 0, commission: 0 }] };
+    await monter('annee');
+    const blocs = [...container.querySelectorAll('[data-section="H"], [data-bloc="resume-annee"], [data-section="B"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
+    expect(blocs).toEqual(['H', 'resume-annee', 'B']);
+    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de l’année — 2026 (janv. → oct.)');
+    expect([...resume().querySelectorAll('[data-famille]')].map((e) => e.getAttribute('data-famille'))).toEqual(['resultat', 'statuts', 'portefeuille', 'gestion', 'resultat-net', 'negociateurs']);
+    expect(resume().querySelector('#fra-f1')?.textContent).toBe('Résultat de l’année');
+    expect(resume().querySelector('[data-titre-portefeuille]')?.textContent).toBe('Portefeuille de gestion — 2026 (janv. → oct.) (honoraires de gestion HT)');
+    expect(resume().querySelector('[data-sous-titre-portefeuille]')?.textContent).toBe('Depuis le début (2025)');
+    expect(resume().querySelector('[data-sous-titre-portefeuille]')?.className).toBe('fdm-titre-bloc fdm-titre-taille');
+    expect(resume().querySelector('[data-famille="resultat-net"] h4')?.textContent).toBe('Résultat net de l’agence — 2026 (janv. → oct.)');
+    // Aucun filtre : aucune mention.
+    expect(resume().querySelector('[data-filtres-actifs]')).toBeNull();
+    // Le CA HT global = la tuile « CA HT 2026 (janv. → oct.) ».
+    expect(montant('[data-total="ca"]')).toBe(nbsp(container.querySelector('[data-tuile="ca-annee"] .tdb-tuile-valeur')?.textContent));
+  });
+
+  it('une année passée : complète ; le cumul « Depuis le début » ; le Négociateur replié', async () => {
+    window.history.replaceState(null, '', '/?annee=2025&mois=10');
+    await monter('annee');
+    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de l’année — 2025');
+    const nego = resume().querySelector('[data-negociateur-bloc]');
+    expect(nego?.querySelector('[data-deplier-negociateur]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(montant('[data-total="ca"]')).toBe('3 000,00 €');
+  });
+
+  it('🔴 les FILTRES des tuiles : le résumé les suit, la mention les dit', async () => {
+    await monter('annee');
+    await choisirFiltre('gestion', 'avec');
+    expect(resume().querySelector('[data-filtres-actifs]')?.textContent).toBe('Filtres actifs (comme les tuiles) : Avec gestion.');
+    expect(montant('[data-total="ca"]')).toBe(nbsp(container.querySelector('[data-tuile="ca-annee"] .tdb-tuile-valeur')?.textContent));
+    expect(montant('[data-gestion-ca="sans"] [data-total="sans"]')).toBe('0,00 €');
+  });
+
+  it('🔴 un collaborateur NON négociateur (sans « Voir les commissions ») : ni bloc Négociateur, ni variable, ni net', async () => {
+    donnees = { ...donnees, voirCommissions: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
+    await monter('annee');
+    expect(resume().querySelector('[data-famille="negociateurs"]')).toBeNull();
+    expect(resume().querySelector('[data-net-sans-droit]')?.textContent).toBe('Variable et net réservés aux administrateurs');
+    expect(resume().querySelector('[data-net="net"]')).toBeNull();
+  });
+
+  it('le Suivi du mois garde son « Résumé du mois » (même composant, mots du mois)', async () => {
+    await monter('mois');
+    expect(container.querySelector('[data-bloc="resume-annee"]')).toBeNull();
+    expect(container.querySelector('[data-bloc="bas-de-feuille"] h3')?.textContent).toMatch(/^Résumé du mois — /);
+    expect(container.querySelector('[data-bloc="bas-de-feuille"] [data-sous-titre-portefeuille]')?.textContent).toBe('Depuis le 1er janvier 2026');
+  });
+});
+
 describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible seulement du négociateur concerné et des administrateurs', () => {
   const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
   const bas = () => container.querySelector('[data-bloc="bas-de-feuille"]') as HTMLElement;

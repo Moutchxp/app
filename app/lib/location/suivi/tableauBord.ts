@@ -1268,8 +1268,12 @@ export interface GestionDepuisJanvier {
 }
 export function gestionDepuisJanvier(lignes: readonly LigneGestion[], mois: string, regle: RegleAnnexes = SANS_REGLE_ANNEXES): GestionDepuisJanvier {
   const annee = mois.slice(0, 4);
-  const moisDeLAnnee = Array.from({ length: Number(mois.slice(5, 7)) }, (_, i) => `${annee}-${String(i + 1).padStart(2, '0')}`);
-  const parMois = moisDeLAnnee.map((m) => gestionDuMois(lignes, m, regle));
+  return gestionSurMois(lignes, Array.from({ length: Number(mois.slice(5, 7)) }, (_, i) => `${annee}-${String(i + 1).padStart(2, '0')}`), regle);
+}
+
+/** 🔴 Arno (25/10/2026) — le même calcul sur une liste de mois « AAAA-MM » quelconque (« Depuis le début » du Suivi annuel). PUR. */
+export function gestionSurMois(lignes: readonly LigneGestion[], moisListe: readonly string[], regle: RegleAnnexes = SANS_REGLE_ANNEXES): GestionDepuisJanvier {
+  const parMois = moisListe.map((m) => gestionDuMois(lignes, m, regle));
   const vers = (l: LigneGestion): MouvementGestion => ({ lotId: l.lotId, libelle: l.libelle, mois: l.effetLe.slice(0, 7), mensuel: honorairesGestionMensuels(l),
     ...(annexeNonComptee(l.lotId, l.effetLe, regle) ? { annexeNonComptee: true } : {}) });
   const entrees = parMois.flatMap((g) => g.nouvelles).map(vers);

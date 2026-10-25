@@ -63,6 +63,10 @@ export const gliDuMois = (lignes: readonly LigneGli[], marges: readonly MargeGli
 export const gliDepuisJanvier = (lignes: readonly LigneGli[], marges: readonly MargeGli[], mois: string): GliPeriode =>
   periode(lignes.filter((l) => l.date.slice(0, 4) === mois.slice(0, 4) && l.date.slice(0, 7) <= mois), marges);
 
+/** 🔴 Arno (25/10/2026) — les GLI de « AAAA-MM » à « AAAA-MM » inclus (« Depuis le début » du Résumé de l'année). PUR. */
+export const gliEntre = (lignes: readonly LigneGli[], marges: readonly MargeGli[], debut: string, fin: string): GliPeriode =>
+  periode(lignes.filter((l) => l.date.slice(0, 7) >= debut && l.date.slice(0, 7) <= fin), marges);
+
 /** « 2,5 % » : la marge telle que saisie (aucun arrondi : 2 décimales au plus en base). */
 export const margeFr = (m: number): string => `${String(m).replace('.', ',')} %`;
 

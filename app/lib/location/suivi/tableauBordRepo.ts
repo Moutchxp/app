@@ -257,15 +257,18 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const anneesHisto = await anneesActives();
   const premiere = anneesHisto.length > 0 ? `${Math.min(...anneesHisto)}-01-01` : `${annee - 1}-01-01`;
   const depuis = [douzeMois, `${annee - 1}-01-01`, premiere].sort()[0];
+  const debutHisto = premiere < `${annee}-01-01` ? premiere : `${annee}-01-01`;
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
     voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
-    lireLignesGestion(`${annee}-01-01`, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
-    lireGestionsPerduesFichier(`${annee}-01-01`, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
+    // 🔴 Arno (25/10/2026) — les gestions gagnées / perdues depuis la PREMIÈRE année d'activité (« Depuis le début » du Résumé de l'année) ;
+    // chaque calcul les filtre par mois ou par année : la feuille du mois et les tuiles ne changent pas.
+    lireLignesGestion(debutHisto, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
+    lireGestionsPerduesFichier(debutHisto, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
   ]);
   const gestionLignes = [...gestionTransitions, ...pertesFichier];
   // 🔴 Arno (25/10/2026, 427) — les nouvelles GLI de l'année (baux avec gestion) et la marge versionnée : visibles de tous ceux qui voient le Portefeuille.
-  const [gli, margesGli] = await Promise.all([lireGli(`${annee}-01-01`, `${annee}-12-31`), lireMargesGli()]);
+  const [gli, margesGli] = await Promise.all([lireGli(debutHisto, `${annee}-12-31`), lireMargesGli()]);
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
      (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
   const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));

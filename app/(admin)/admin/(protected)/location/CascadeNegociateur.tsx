@@ -11,6 +11,11 @@ const c = (x: number): number => Math.round((x + Number.EPSILON) * 100) / 100;
 
 type Cle = 'ca' | 'commissions' | 'net' | 'resultat' | 'primes' | 'retrocessions' | 'variable';
 
+/** 🔴 Arno (25/10/2026) — les mots de la période des cascades : le mois (Suivi du mois) ou l'année (Résumé de l'année du Suivi annuel). */
+export interface MotsPeriode { du: string; ceMoisCi: string; ceMois: string; dueCeMois: string; libelle?: string }
+export const MOTS_MOIS: MotsPeriode = { du: 'du mois', ceMoisCi: 'ce mois-ci', ceMois: 'ce mois', dueCeMois: 'due ce mois' };
+export const MOTS_ANNEE: MotsPeriode = { du: 'de l’année', ceMoisCi: 'cette année', ceMois: 'sur l’année', dueCeMois: 'due sur l’année' };
+
 /**
  * ══ 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE (une ligne = une opération), TOUT EN HT ═══════════════════════════════════
  * CA HT global − commissions déduites (apporteurs et collègues, hors récurrent de gestion) = CA HT net de commissions ; × taux commercial
@@ -36,10 +41,10 @@ function useInfoOuvert<K extends string>() {
   return { id, ouvert, setOuvert };
 }
 
-export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegociateur; mois: string; plusieurs: boolean }) {
+export function CascadeNegociateurMois({ x, mois, plusieurs, mots = MOTS_MOIS }: { x: CascadeNegociateur; mois: string; plusieurs: boolean; mots?: MotsPeriode }) {
   const { id, ouvert, setOuvert } = useInfoOuvert<Cle>();
   const [annee, m] = mois.split('-');
-  const nomMois = `${NOMS_MOIS[Number(m) - 1]} ${annee}`;
+  const nomMois = mots.libelle ?? `${NOMS_MOIS[Number(m) - 1]} ${annee}`;
   const ligne = (cle: Cle | null, signe: string, mot: ReactNode, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
     <div key={mot?.toString()} className={`fnc-ligne${o.fort ? ' fnc-ligne--fort' : ''}`} data-cascade-ligne={cle ?? 'taux'}>
       <div className="fnc-rangee">
@@ -62,11 +67,11 @@ export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegoc
     <div className="fnc" data-cascade-negociateur={x.libelle}>
       {plusieurs && <p className="fdm-nego-nom">{x.libelle}</p>}
       {ligne('ca', '', 'CA HT global', eur(x.ca), <>
-        <p className="fnc-op">Somme des {x.dossiers.length} dossier{x.dossiers.length > 1 ? 's' : ''} du mois = {eur(x.ca)}</p>
+        <p className="fnc-op">Somme des {x.dossiers.length} dossier{x.dossiers.length > 1 ? 's' : ''} {mots.du} = {eur(x.ca)}</p>
         {liste(x.dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.ca)}</span></li>))}</>)}
       {ligne('commissions', '−', 'Commissions déduites (apporteurs et collègues, hors récurrent gestion)', eur(x.deductions), <>
         <p className="fnc-op">Part location et part gestion « One shot » de l’apporteur, et ce qui est dû au collègue à la signature = {eur(x.deductions)}</p>
-        {deduits.length === 0 ? <p className="fnc-op">Aucune commission sur les dossiers du mois.</p> : liste(deduits.map((d) => (
+        {deduits.length === 0 ? <p className="fnc-op">Aucune commission sur les dossiers {mots.du}.</p> : liste(deduits.map((d) => (
           <li key={String(d.id)}><span>{d.libelle}
             {d.partLocation !== 0 && <small>apporteur {d.apporteur ?? '—'} · part location {eur(c(d.partLocation))}</small>}
             {d.gestionOneShot !== 0 && <small>apporteur {d.apporteur ?? '—'} · part gestion « One shot » {eur(c(d.gestionOneShot))}</small>}
@@ -82,15 +87,15 @@ export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegoc
       {ligne('primes', '+', 'Primes de gestion', eur(x.primes), <>
         <p className="fnc-op">Somme des primes des dossiers = {eur(x.primes)}</p>
         {x.dossiers.some((d) => d.prime !== 0) ? liste(x.dossiers.filter((d) => d.prime !== 0).map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.prime)}</span></li>))
-          : <p className="fnc-op">Aucune prime ce mois-ci.</p>}</>, { attrs: plusieurs ? {} : { 'data-total': 'primes' } })}
+          : <p className="fnc-op">Aucune prime {mots.ceMoisCi}.</p>}</>, { attrs: plusieurs ? {} : { 'data-total': 'primes' } })}
       {x.retrocessions !== 0 && ligne('retrocessions', '−', 'Rétrocessions', eur(x.retrocessions), <>
-        <p className="fnc-op">Somme des rétrocessions du mois = {eur(x.retrocessions)}</p>
+        <p className="fnc-op">Somme des rétrocessions {mots.du} = {eur(x.retrocessions)}</p>
         {liste(x.retroDetail.map((r, i) => <li key={i}><span>{r.libelle || 'Rétrocession'}</span><span>{eur(r.montant)}</span></li>))}</>,
         { attrs: plusieurs ? {} : { 'data-total': 'retrocessions' } })}
       {ligne('variable', '=', `Variable HT dû — ${nomMois}`, eur(x.variable),
         <p className="fnc-op">{eur(x.resultat)} + {eur(x.primes)}{x.retrocessions !== 0 ? ` − ${eur(x.retrocessions)}` : ''} = {eur(x.variable)}</p>,
         { fort: true, attrs: { 'data-total-commission': x.libelle } })}
-      {c(x.recurrents) !== 0 && <p className="fnc-info" data-recurrents-non-deduits>Commissions récurrentes de gestion versées ce mois (non déduites) : {eur(c(x.recurrents))}</p>}
+      {c(x.recurrents) !== 0 && <p className="fnc-info" data-recurrents-non-deduits>Commissions récurrentes de gestion versées {mots.ceMois} (non déduites) : {eur(c(x.recurrents))}</p>}
     </div>
   );
 }
@@ -101,7 +106,7 @@ export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegoc
  * = CA net de toutes variables, et sa part du CA global. Les montants sont ceux DÉJÀ affichés (Résultat du mois, cascade du Négociateur) ;
  * le même style et les mêmes « i » que la cascade du Négociateur. Sans le droit « Voir les commissions » : ni variable, ni net.
  */
-export function CascadeResultatNet({ x, dossiers }: { x: ResultatNetAgence; dossiers: { id: number | string; libelle: string; ca: number }[] }) {
+export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: ResultatNetAgence; dossiers: { id: number | string; libelle: string; ca: number }[]; mots?: MotsPeriode }) {
   const { id, ouvert, setOuvert } = useInfoOuvert<string>();
   const e = (centimes: number): string => eur(centimes / 100);
   const ligne = (cle: string | null, signe: string, mot: string, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
@@ -133,25 +138,25 @@ export function CascadeResultatNet({ x, dossiers }: { x: ResultatNetAgence; doss
   return (
     <div className="fnc" data-resultat-net>
       {ligne('ca', '', 'CA HT global', e(x.ca), <>
-        <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} du mois = {e(x.ca)}</p>
+        <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} {mots.du} = {e(x.ca)}</p>
         {liste(dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.ca)}</span></li>))}</>, { attrs: { 'data-net': 'ca' } })}
       {/* 🔴 Arno (25/10/2026, suite) — les commissions VENTILÉES (externes, internes, collègues) ; chaque « i » liste ses bénéficiaires. */}
       {ligne('externes', '−', 'Commissions apporteurs externes (sans accès à l’interface)', e(v.externes.centimes), <>
-        <p className="fnc-op">Parts location et gestion « One shot » à la signature, et part gestion « Récurrent » due ce mois, des apporteurs
+        <p className="fnc-op">Parts location et gestion « One shot » à la signature, et part gestion « Récurrent » {mots.dueCeMois}, des apporteurs
           sans accès à l’interface = {e(v.externes.centimes)}</p>
-        {beneficiaires(v.externes, 'Aucune commission d’apporteur externe ce mois-ci.')}</>, { attrs: { 'data-net': 'externes' } })}
+        {beneficiaires(v.externes, `Aucune commission d’apporteur externe ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'externes' } })}
       {ligne('internes', '−', 'Commissions apporteurs internes (collègues qui apportent en direct)', e(v.internes.centimes), <>
         <p className="fnc-op">Les apporteurs liés à un compte et les collègues qui apportent en direct = {e(v.internes.centimes)}</p>
-        {beneficiaires(v.internes, 'Aucune commission d’apporteur interne ce mois-ci.')}</>, { attrs: { 'data-net': 'internes' } })}
+        {beneficiaires(v.internes, `Aucune commission d’apporteur interne ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'internes' } })}
       {ligne('collegues', '−', 'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', e(v.collegues.centimes), <>
         <p className="fnc-op">Ce qui est dû aux collègues à la signature
-          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ce mois (${e(x.colleguesRecurrents)})` : ''} = {e(v.collegues.centimes)}</p>
-        {beneficiaires(v.collegues, 'Aucune rémunération de collègue ce mois-ci.')}</>, { attrs: { 'data-net': 'collegues' } })}
+          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ${mots.ceMois} (${e(x.colleguesRecurrents)})` : ''} = {e(v.collegues.centimes)}</p>
+        {beneficiaires(v.collegues, `Aucune rémunération de collègue ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'collegues' } })}
       {x.net !== null && (plusieurs
         ? x.variables.map((y) => ligne(`variable-${y.cle}`, '−', `Variable — ${y.libelle}`, e(y.variable),
           <p className="fnc-op">Le « Variable HT dû » de la cascade de {y.libelle}, ci-dessous = {e(y.variable)}</p>, { attrs: { 'data-net-variable': y.libelle } }))
         : ligne('variables', '−', 'Variable des négociateurs', e(sommeVariables), x.variables.length === 0
-          ? <p className="fnc-op">Aucun négociateur ce mois-ci.</p>
+          ? <p className="fnc-op">Aucun négociateur {mots.ceMoisCi}.</p>
           : <p className="fnc-op">Le « Variable HT dû » de la cascade de {x.variables[0].libelle}, ci-dessous = {e(sommeVariables)}</p>,
         { attrs: x.variables.length === 1 ? { 'data-net-variable': x.variables[0].libelle } : {} }))}
       {x.net !== null && ligne('net', '=', 'CA net de toutes variables', e(x.net),
