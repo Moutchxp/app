@@ -319,24 +319,43 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
       <section className="tdb-section" aria-labelledby="fdm-apporteurs" data-bloc="apporteurs-mois">
         <h3 id="fdm-apporteurs">Apporteurs du mois</h3>
-        {ac.apporteurs.length === 0 ? <p className="loc-muet">Aucune affaire apportée ce mois-ci.</p> : (
+        {/* 🔴 Arno (25/10/2026) — TOUS les apporteurs du mois (internes, externes, collègues « directement », commission non nommée), triés
+            par CA apporté ; le meilleur mis en avant (ex aequo compris) ; puis « Sans apporteur » et le Total (= CA HT global du mois). */}
+        {duMois.length === 0 ? <p className="loc-muet">Aucune affaire ce mois-ci.</p> : (
           <div className="fdm-deux">
-            <table className="fdm-table">
+            <table className="fdm-table fdm-apporteurs">
               <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              <tbody>{ac.apporteurs.map((x) => (
-                <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom}>
-                  <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}</th>
+              <tbody>{[...ac.apporteurs.filter((x) => x.sorte !== 'non_nomme'), ...ac.apporteurs.filter((x) => x.sorte === 'non_nomme')].map((x) => (
+                <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom} className={x.meilleur ? 'fdm-meilleur' : undefined}>
+                  <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}
+                    {(x.sorte === 'interne' || x.sorte === 'externe') && <span className={`fdm-sorte fdm-sorte--${x.sorte}`} data-sorte-apporteur={x.sorte}>{x.sorte === 'interne' ? 'Interne' : 'Externe'}</span>}
+                    {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
                   <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${nom}`, x.ids)}>{x.nb}</button></td>
-                  <td data-mot="CA apporté">{eur(x.ca)}</td><td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
-                </tr>))}</tbody>
+                  <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
+                  <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
+                </tr>))}
+                {ac.sans.nb > 0 && (
+                  <tr data-apporteur-mois="sans" className="fdm-sans-apporteur">
+                    <th scope="row">Sans apporteur <small className="loc-muet">(Internet, passage agence, à renseigner…)</small></th>
+                    <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires sans apporteur — ${nom}`, ac.sans.ids)}>{ac.sans.nb}</button></td>
+                    <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires sans apporteur — ${nom}`, ac.sans.ids)}>{eur(ac.sans.ca)}</button></td>
+                    <td data-mot="Hono. d’apporteur">{eur(ac.sans.commission)}</td>
+                  </tr>
+                )}</tbody>
+              <tfoot><tr data-apporteur-mois="total">
+                <th scope="row">Total</th>
+                <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires du mois — ${nom}`, ac.total.ids)}>{ac.total.nb}</button></td>
+                <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(ac.total.ca)}</td><td data-mot="Hono. d’apporteur">{eur(ac.total.commission)}</td>
+              </tr></tfoot>
             </table>
             <table className="fdm-table">
               <thead><tr><th scope="col">Collègue (ses apporteurs)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              <tbody>{ac.collegues.map((x) => (
+              <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun apporteur externe ce mois-ci.</td></tr> : ac.collegues.map((x) => (
                 <tr key={x.cle} data-collegue-mois={x.libelle} className={x.cle === 'a-rattacher' ? 'fdm-orange-ligne' : undefined}>
                   <th scope="row">{x.libelle}</th>
                   <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires apportées — ${x.libelle} — ${nom}`, x.ids)}>{x.nb}</button></td>
-                  <td data-mot="CA apporté">{eur(x.ca)}</td><td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
+                  <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires apportées — ${x.libelle} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
+                  <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
                 </tr>))}</tbody>
             </table>
           </div>
@@ -542,7 +561,7 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
 /** Un tableau en cartes (une ligne = une carte, chaque valeur précédée de son intitulé). */
 const cartes = (t: string): string => `
   ${t} thead{display:none}
-  ${t},${t} tbody,${t} tr,${t} th,${t} td{display:block;width:100%;box-sizing:border-box}
+  ${t},${t} tbody,${t} tfoot,${t} tr,${t} th,${t} td{display:block;width:100%;box-sizing:border-box}
   ${t} tr{border:1px solid var(--color-svv-line);border-radius:12px;padding:6px 10px;margin-bottom:8px}
   ${t} th[scope=row]{border-bottom:0;padding:4px 0;text-align:left}
   ${t} td{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:0;padding:2px 0;text-align:right}
@@ -647,9 +666,16 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-mini tfoot tr.tdb-signe--negatif td,.fdm-mini tfoot tr.tdb-signe--negatif th{color:var(--color-svv-red)}
 .fdm-mini tfoot tr.tdb-signe--nul td,.fdm-mini tfoot tr.tdb-signe--nul th{color:var(--color-svv-muted)}
 .fdm-nego{display:flex;flex-direction:column;gap:2px}
+/* 🔴 Arno (25/10/2026) — Apporteurs du mois : badges discrets ; le meilleur légèrement surligné ; Sans apporteur et Total à part. */
+.fdm-sorte{display:inline-block;margin-left:6px;border-radius:999px;padding:0 7px;font-size:.68rem;font-weight:700;line-height:1.6;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-muted);vertical-align:middle}
+.fdm-sorte--interne{border-color:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.fdm-badge-meilleur{display:inline-block;margin-left:6px;border-radius:999px;padding:0 8px;font-size:.7rem;font-weight:800;line-height:1.6;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);vertical-align:middle;white-space:nowrap}
+.fdm-apporteurs tr.fdm-meilleur > th,.fdm-apporteurs tr.fdm-meilleur > td{background:color-mix(in srgb, var(--color-svv-green-soft) 55%, transparent)}
+.fdm-apporteurs tr.fdm-sans-apporteur > th{font-weight:600;color:var(--color-svv-muted)}
+.fdm-apporteurs tfoot th,.fdm-apporteurs tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
 .fdm-nego-nom{margin:6px 0 0;font-weight:800}
 .fdm-famille .tdb-note{margin:0}
-.fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}
 @media (max-width:900px){ .fdm-deux{grid-template-columns:minmax(0,1fr)} }
 @media (max-width:640px){ ${cartes('.fdm-table')} .fdm-famille{padding:12px} .fdm-mini th,.fdm-mini td{padding:6px 2px} }
 ${CSS_STATUT_BIEN}${CSS_CASCADE_NEGOCIATEUR}`;

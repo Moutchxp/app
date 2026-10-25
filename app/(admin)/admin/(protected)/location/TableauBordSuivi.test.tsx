@@ -789,7 +789,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
         collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }, { depuis: '2026-10-01', collegueId: 5, collegueLibelle: 'Jean-Baptiste PONS' }] }] };
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-    expect(nbsp(container.querySelector('[data-apporteur-mois="Apporteur A"]')?.textContent)).toBe(`Apporteur A${ids.length}3 941,03 €394,10 €`);
+    // 🔴 25/10/2026 — les badges : Externe (sans compte) et « Meilleur apporteur » (le plus fort CA du mois).
+    expect(nbsp(container.querySelector('[data-apporteur-mois="Apporteur A"]')?.textContent)).toBe(`Apporteur AExterneMeilleur apporteur${ids.length}3 941,03 €394,10 €`);
     expect(nbsp(container.querySelector('[data-collegue-mois="Arnaud Jorel"]')?.textContent)).toBe(`Arnaud Jorel${ids.length}3 941,03 €394,10 €`);
     expect(container.querySelector('[data-collegue-mois="Jean-Baptiste PONS"]')).toBeNull();
   });
@@ -1302,5 +1303,22 @@ describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variab
     expect(container.querySelector('[data-cascade-negociateur]')).toBeNull();
     expect(container.querySelector('[data-total-commission]')).toBeNull();
     expect(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="primes"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Apporteurs du mois » : tous les apporteurs, le meilleur mis en avant', () => {
+  it('septembre : le meilleur surligné et badgé ; « Sans apporteur » puis Total = CA HT global du mois (au centime) ; les lignes s’ouvrent sur leurs dossiers', async () => {
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const bloc = container.querySelector('[data-bloc="apporteurs-mois"]') as HTMLElement;
+    const lignes = [...bloc.querySelectorAll('.fdm-apporteurs [data-apporteur-mois]')].map((l) => l.getAttribute('data-apporteur-mois'));
+    expect(lignes.slice(-2)).toEqual(['sans', 'total']);
+    const meilleurs = [...bloc.querySelectorAll('tr.fdm-meilleur')];
+    expect(meilleurs.length).toBeGreaterThanOrEqual(1);
+    expect(meilleurs[0].querySelector('[data-meilleur-apporteur]')?.textContent).toBe('Meilleur apporteur');
+    expect(meilleurs[0]).toBe(bloc.querySelector('.fdm-apporteurs tbody tr'));
+    const total = nbsp(bloc.querySelector('[data-total-apporteurs-ca]')?.textContent);
+    expect(total).toBe(nbsp(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="ca"]')?.textContent));
+    expect(nbsp(bloc.querySelector('[data-apporteur-mois="total"] [data-mot="Affaires"]')?.textContent)).toBe('17');
   });
 });
