@@ -3,10 +3,11 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, historiqueAnnees, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type Transition } from './tableauBord';
+import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
+import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
-import { annuaireDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
+import { annuaireDisponible, statutBienManuelDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : CE QUE LE TABLEAU DE BORD LIT (Arno, 22/10/2026) ════════════════════════════════════════
@@ -36,6 +37,32 @@ export function libelles(r: Record<string, unknown>): { libelleProprietaire: str
     ...(r.source === 'import' && (p !== texteP || l !== texteL) ? { libelleOrigine: { proprietaire: texteP, locataire: texteL } } : {}) };
 }
 
+/**
+ * 🔴 Arno (25/10/2026) — UNE SEULE SOURCE PAR INFORMATION : le « Type de bien » d'une ligne RATTACHÉE à un bien est celui des FICHES de
+ * ses lots (le lot de la ligne et ceux des occupations du bail), par la règle de « Nouveau locataire » (`typeDeBienDesLots` : la
+ * catégorie que montre la fiche, déduite de la nature d'un lot importé). La copie de la ligne (`categorie_prime`, posée à l'import ou à
+ * la saisie) ne l'emporte plus jamais ; elle reste la seule valeur d'une ligne historique sans bien. PUR.
+ */
+export function typeDeBienLu(r: Record<string, unknown>): { categoriePrime: CategoriePrime | null; parking: boolean } {
+  const lots = Array.isArray(r.lots_fiche) ? r.lots_fiche as { id: unknown; categorie?: string | null; nature?: string | null; type_bien?: string | null }[] : [];
+  const t = typeDeBienDesFiches(r.lot_id === null || r.lot_id === undefined ? null : Number(r.lot_id), lots);
+  if (t !== null) return { categoriePrime: t, parking: t === 'parking' };
+  const copie = (r.categorie_prime as CategoriePrime | null) ?? null;
+  return { categoriePrime: copie,
+    parking: copie === 'parking' || familleDuLot({ categorie: r.categorie as string | null, nature: r.nature as string | null, typeBien: r.type_bien as string | null }) === 'parking' };
+}
+
+/** 🔴 Arno (25/10/2026) — un compte (négociateur, collègue) : son nom dans l'interface ; la copie de la ligne seulement sans compte. PUR. */
+export const nomDuCompte = (compte: unknown, copie: unknown): string =>
+  (typeof compte === 'string' && compte.trim() !== '' ? compte : String(copie ?? ''));
+
+/** 🔴 Arno (25/10/2026, 424) — le « Statut du bien » validé à la main : le statut, qui (le compte, sinon le libellé gardé), quand. PUR. */
+export function natureManuelleLue(r: Record<string, unknown>): ActiviteCalcul['natureManuelle'] {
+  if (typeof r.statut_bien_manuel !== 'string' || !(NATURES_BIEN as readonly string[]).includes(r.statut_bien_manuel)) return null;
+  const le = r.statut_bien_valide_le instanceof Date ? r.statut_bien_valide_le.toISOString() : String(r.statut_bien_valide_le ?? '');
+  return { nature: r.statut_bien_manuel as NatureBien, par: nomDuCompte(r.statut_bien_valide_compte, r.statut_bien_valide_par_libelle) || 'compte inconnu', le };
+}
+
 /** Une liste `json_agg` de { id, libelle } (absente : vide). */
 const fiches = (v: unknown): { id: number; libelle: string }[] => (Array.isArray(v) ? v : [])
   .map((x: { id?: unknown; libelle?: unknown }) => ({ id: Number(x.id), libelle: String(x.libelle ?? '') })).filter((x) => Number.isSafeInteger(x.id) && x.id > 0);
@@ -48,6 +75,8 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   const avec413 = await commissionGestionDisponible();
   const avecStatut = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
   const avecBailOcc = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
+  const avec424 = await statutBienManuelDisponible();
+  const compte = (col: string): string => `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = a.${col})`;
   // 🔴 Arno (24/10/2026) — les LOCATAIRES et les BIENS de la ligne, lus dans l'annuaire (la source) : les raccourcis « Fiche
   // locataire » / « Fiche du bien » du panneau déplié. Locataires : les occupants du bail, sinon le locataire de la ligne ; biens :
   // le lot de la ligne et ceux des occupations du bail. Une ligne sans bail ni lot rattaché n'en a pas (« non rattaché »).
@@ -63,6 +92,13 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             a.loyer_hc, a.charges, a.rattachement, a.source, a.lot_id, a.bail_id, l.categorie, l.nature, l.type_bien,
             ${avec407 ? 'a.origine_contact, a.collegue_id, a.collegue_libelle, a.prime_mode' : 'NULL::text AS origine_contact, NULL::bigint AS collegue_id, NULL::text AS collegue_libelle, NULL::text AS prime_mode'},
             ${avec411 ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision'},
+            ${avec424 ? `a.statut_bien_manuel, a.statut_bien_valide_le, ${compte('statut_bien_valide_par')} AS statut_bien_valide_compte, a.statut_bien_valide_par_libelle`
+              : 'NULL::text AS statut_bien_manuel, NULL::timestamptz AS statut_bien_valide_le, NULL::text AS statut_bien_valide_compte, NULL::text AS statut_bien_valide_par_libelle'},
+            ${compte('negociateur_id')} AS negociateur_compte,
+            ${avec407 ? compte('collegue_id') : 'NULL::text'} AS collegue_compte,
+            -- 🔴 Arno (25/10/2026) — les FICHES des lots de la ligne (le « Type de bien » : une seule source, la fiche du bien).
+            (SELECT json_agg(json_build_object('id', lt.id, 'categorie', lt.categorie, 'nature', lt.nature, 'type_bien', lt.type_bien) ORDER BY lt.id) FROM gestion_annuaire_lot lt
+              WHERE lt.id = a.lot_id${avecBailOcc ? ' OR lt.id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)' : ''}) AS lots_fiche,
             ${avec413 ? 'a.apporteur_mode, a.apporteur_taux_gestion, a.taux_gestion_bien_ht' : 'NULL::text AS apporteur_mode, NULL::numeric AS apporteur_taux_gestion, NULL::numeric AS taux_gestion_bien_ht'},
             ${avecStatut ? `(SELECT min(t.effet_le) FROM gestion_bien_statut_transition t
                               WHERE t.lot_id = a.lot_id AND t.avant = 'en_gestion' AND t.apres <> 'en_gestion' AND t.effet_le >= a.date_signature)` : 'NULL::date'} AS fin_gestion,
@@ -89,17 +125,18 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     id: n(r.id), type: r.type as TypeActivite, dateSignature: iso(r.date_signature), dateSupposee: r.date_signature_supposee === true,
     ...libelles(r),
     honoProprietaireHt: n(r.hono_proprietaire_ht), honoLocataireHt: n(r.hono_locataire_ht),
-    primeSaisie: nOuNull(r.prime_gestion_saisie), mandatGestion: r.mandat_gestion === true, categoriePrime: (r.categorie_prime as CategoriePrime | null) ?? null,
+    primeSaisie: nOuNull(r.prime_gestion_saisie), mandatGestion: r.mandat_gestion === true, ...typeDeBienLu(r),
     apporteurId: nOuNull(r.apporteur_id), apporteurNom: (r.apporteur_nom as string | null) ?? null, apporteurTaux: nOuNull(r.apporteur_taux),
     commissionSaisie: nOuNull(r.apporteur_commission_saisie),
-    negociateurId: nOuNull(r.negociateur_id), negociateurLibelle: String(r.negociateur_libelle ?? ''), avecGestion: r.avec_gestion === true,
+    negociateurId: nOuNull(r.negociateur_id), negociateurLibelle: nomDuCompte(r.negociateur_compte, r.negociateur_libelle), avecGestion: r.avec_gestion === true,
     origineProprietaire: (r.origine_proprietaire as Origine | null) ?? null, origineLocataire: (r.origine_locataire as Origine | null) ?? null,
     loyerHc: nOuNull(r.loyer_hc), charges: nOuNull(r.charges), assurance: (r.assurance as Assurance | null) ?? null,
-    parking: r.categorie_prime === 'parking' || familleDuLot({ categorie: r.categorie as string | null, nature: r.nature as string | null, typeBien: r.type_bien as string | null }) === 'parking',
     vacanceJours: nOuNull(r.vacance), rattachement: r.rattachement as ActiviteCalcul['rattachement'],
     lotId: nOuNull(r.lot_id), bailId: nOuNull(r.bail_id), source: String(r.source),
     origineContact: (r.origine_contact as OrigineContact | null) ?? null, collegueId: nOuNull(r.collegue_id),
-    collegueLibelle: (r.collegue_libelle as string | null) ?? null, primeMode: (r.prime_mode as ModePrime | null) ?? null,
+    collegueLibelle: r.collegue_id === null || r.collegue_id === undefined ? (r.collegue_libelle as string | null) ?? null : nomDuCompte(r.collegue_compte, r.collegue_libelle),
+    primeMode: (r.prime_mode as ModePrime | null) ?? null,
+    natureManuelle: natureManuelleLue(r),
     origineContactPrecision: (r.origine_contact_precision as string | null) ?? null,
     apporteurMode: r.apporteur_mode === 'recurrent' || r.apporteur_mode === 'one_shot' ? r.apporteur_mode as ModeApporteur : null,
     apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
@@ -234,6 +271,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique, recurrents,
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     dejaClient: await origineDejaClientDisponible(),
+    statutBienManuel: await statutBienManuelDisponible(),
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
   };

@@ -19,7 +19,7 @@ import { entretiensEnTexte } from './encartBien';
 import { modifierEncartBien } from './encartBienRepo';
 import { empreinte } from './ficheBienEntiere';
 import { annuaireDisponible, mettreAJourActivite } from './suivi/suiviRepo';
-import { MODES_PRIME, type CategoriePrime, type ModeApporteur, type ModePrime, type Origine, type OrigineContact } from './suivi/suivi';
+import { MODES_PRIME, typeDeBienDesFiches, type CategoriePrime, type ModeApporteur, type ModePrime, type Origine, type OrigineContact } from './suivi/suivi';
 import {
   changementsDossier, refusDossier, titreDossier, TITRE_BLOC, type CarteLocataireDossier, type ChangementDossier, type LectureDossier,
   type NomsDossier, type SaisieDossier, type SuiviDossier,
@@ -73,6 +73,10 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
     'SELECT id::text, locataire_id::text, lot_id::text FROM gestion_annuaire_occupation WHERE bail_id = $1 ORDER BY id', [bailId])).rows;
   const locIds = [...new Set(occ.map((o) => n(o.locataire_id)))];
   const lotIds = [...new Set([lotId, ...occ.map((o) => n(o.lot_id))])];
+  // 🔴 Arno (25/10/2026) — le « Type de bien » du bloc 4 : celui des FICHES des lots du bail (la source unique), comme le résumé du Suivi.
+  const fichesLots = (await query<{ id: string; categorie: string | null; nature: string | null; type_bien: string | null }>(
+    'SELECT id::text, categorie, nature, type_bien FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[])', [lotIds])).rows;
+  const typeFiche = typeDeBienDesFiches(lotId, fichesLots);
   const lots = (await query<{ id: string; libelle: string }>(
     `SELECT l.id::text, coalesce(nullif(concat_ws(' — ', nullif(btrim(l.nature), ''), nullif(btrim(concat_ws(' ', l.adresse, l.commune)), '')), ''), 'Bien n° ' || l.id) AS libelle
        FROM gestion_annuaire_lot l WHERE l.id = ANY($1::bigint[]) ORDER BY (l.id = $2) DESC, l.id`, [lotIds, lotId])).rows.map((r) => ({ id: n(r.id), libelle: r.libelle }));
@@ -123,7 +127,7 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
     origineContactPrecision: (a.origine_contact_precision as string | null) ?? '',
     apporteurMode: a.apporteur_mode === 'one_shot' || a.apporteur_mode === 'recurrent' ? a.apporteur_mode as ModeApporteur : null,
     apporteurTauxGestion: textePct(a.apporteur_taux_gestion),
-    categoriePrime: (a.categorie_prime as CategoriePrime | null) ?? null,
+    categoriePrime: typeFiche ?? (a.categorie_prime as CategoriePrime | null) ?? null,
   };
   const adresse = [b.adresse, b.commune].filter((x) => x).join(' ');
   const lecture: Omit<LectureDossier, 'version'> = {

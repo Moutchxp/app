@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
-import type { ActiviteLue, DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
+import { natureBienLoue, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * 🔴 Arno (22/10/2026) — « Outils de suivi » : le tableau de bord, sur la copie anonymisée de son suivi 2026 (et deux lignes
@@ -487,7 +487,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await deplier(x);
       const p = container.querySelector(`[data-detail-ligne="${x}"]`)!;
       expect([...p.querySelectorAll('[data-champ]')].map((e) => e.getAttribute('data-champ'))).toEqual([
-        'Nature du bien', 'Date de signature', 'Nature', 'Type de bien', 'Gestion', 'Origine du contact', 'Apporteur', 'Collègue', 'Hono. d’apporteur',
+        // 🔴 Arno (25/10/2026, 424) — « Nature du bien » devient « Statut du bien » : même place, même ordre (seul le nom change).
+        'Statut du bien', 'Date de signature', 'Nature', 'Type de bien', 'Gestion', 'Origine du contact', 'Apporteur', 'Collègue', 'Hono. d’apporteur',
         'Prime de gestion', 'Choix de prime', 'Négociateur', 'Client']);
       expect(p.querySelector('[data-champ="Négociateur"]')?.textContent).toBe('Jean-Baptiste PONS');
       expect(p.querySelector('[data-champ="Date de signature"]')?.textContent).toBe('01/09/2026 (supposée : le 1er du mois)');
@@ -526,7 +527,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       // Les pastilles « historique » / « à vérifier » restent à côté du nom.
       expect(ligne(ids[0]).querySelector('th[data-mot="Propriétaires"] .loc-pastille')?.textContent).toBe('historique');
       await deplier(ids[1]);
-      expect(nbsp(container.querySelector(`[data-detail-ligne="${ids[1]}"] [data-champ="Nature du bien"]`)?.textContent))
+      expect(nbsp(container.querySelector(`[data-detail-ligne="${ids[1]}"] [data-champ="Statut du bien"]`)?.textContent))
         .toBe('Client hors gestion — propriétaire déjà client, bien sans gestion');
     });
 
@@ -1023,5 +1024,100 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     donnees = { ...donnees, disponible: false, activites: [] };
     await monter();
     expect(container.querySelector('[data-tdb-sans-migration]')?.textContent).toContain('migration 406');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — le résumé de transaction : source unique et « Statut du bien » (424)', () => {
+  const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+  const id = String(sept[0].id);
+  let posts: Record<string, unknown>[];
+  const servir = () => {
+    posts = [];
+    global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  };
+  const ouvrir = async () => {
+    servir();
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector(`[data-deplier-ligne="${id}"]`) as HTMLButtonElement).click(); });
+  };
+  const champ = (mot: string) => container.querySelector(`[data-detail-ligne="${id}"] [data-champ="${mot}"]`);
+  const modale = () => document.querySelector(`[data-modale-statut-bien="${id}"]`);
+  const ouvrirModale = async () => { await act(async () => { (champ('Statut du bien')!.querySelector('[data-statut-bien-ouvrir]') as HTMLButtonElement).click(); }); };
+  const avec = (p: Partial<ActiviteLue>) => { donnees = { ...donnees, statutBienManuel: true, activites: donnees.activites.map((a) => (String(a.id) === id ? { ...a, ...p } : a)) }; };
+
+  it('CHEKROUNE : « Type de bien » = la fiche du bien (« Local ») ; la disposition de l’encart ne change pas', async () => {
+    avec({ categoriePrime: 'local' });
+    await ouvrir();
+    expect(champ('Type de bien')?.textContent).toBe('Local');
+    expect([...container.querySelectorAll(`[data-detail-ligne="${id}"] [data-champ]`)].map((e) => e.getAttribute('data-champ')).slice(0, 4))
+      .toEqual(['Statut du bien', 'Date de signature', 'Nature', 'Type de bien']);
+  });
+
+  it('la modale : les 5 statuts, chacun avec son « i » ; le calculé présélectionné et « proposé » ; fermée seulement par la croix, un clic dehors ou Annuler', async () => {
+    avec({ origineContact: 'internet', avecGestion: false, mandatGestion: false });
+    await ouvrir();
+    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouveau · sans gestion — nouveau client, bien sans gestion');
+    await ouvrirModale();
+    const choix = [...modale()!.querySelectorAll('[data-statut-bien-choix]')];
+    expect(choix.map((b) => [b.getAttribute('data-statut-bien-choix'), b.getAttribute('aria-checked'), b.querySelector('[data-statut-propose]') !== null]))
+      .toEqual([['relocation', 'false', false], ['client_hors_gestion', 'false', false], ['nouveau_gestion', 'false', false], ['nouveau_sans_gestion', 'true', true], ['a_qualifier', 'false', false]]);
+    const infos = [...modale()!.querySelectorAll('.svv-pil-ib-btn')];
+    expect(infos.map((b) => b.getAttribute('aria-label'))).toEqual(['Ce que veut dire « Relocation gestion »', 'Ce que veut dire « Client hors gestion »',
+      'Ce que veut dire « Nouveau · gestion »', 'Ce que veut dire « Nouveau · sans gestion »', 'Ce que veut dire « à qualifier »']);
+    await act(async () => { (infos[1] as HTMLButtonElement).click(); });
+    expect(modale()!.querySelector('[role="tooltip"]')?.textContent).toContain('Le propriétaire était déjà client');
+    // Échap ne ferme pas la modale (seulement la bulle) ; la croix, Annuler et le clic dehors la ferment.
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(modale()).not.toBeNull();
+    await act(async () => { (modale()!.querySelector('[data-fermer-statut-bien]') as HTMLButtonElement).click(); });
+    expect(modale()).toBeNull();
+    await ouvrirModale();
+    await act(async () => { (modale()!.querySelector('[data-annuler-statut-bien]') as HTMLButtonElement).click(); });
+    expect(modale()).toBeNull();
+    await ouvrirModale();
+    const voile = document.querySelector('[data-voile-statut-bien]')!;
+    await act(async () => { voile.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(modale()).toBeNull();
+    expect(posts).toEqual([]);
+  });
+
+  it('« Valider » enregistre le statut choisi sur la ligne ; validé, il l’emporte (pastille, légende, rubrique « validé par … le … ») ; « Revenir au statut calculé »', async () => {
+    avec({ origineContact: 'internet', avecGestion: false, mandatGestion: false });
+    await ouvrir();
+    await ouvrirModale();
+    await act(async () => { (modale()!.querySelector('[data-statut-bien-choix="nouveau_gestion"]') as HTMLButtonElement).click(); });
+    await act(async () => { (modale()!.querySelector('[data-valider-statut-bien]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts).toEqual([{ action: 'statut-bien', id: sept[0].id, statut: 'nouveau_gestion' }]);
+    expect(modale()).toBeNull();
+    // La ligne relue porte le statut validé : il l'emporte partout.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    avec({ natureManuelle: { nature: 'nouveau_gestion', par: 'Arnaud Jorel', le: '2026-10-25T09:00:00Z' } });
+    await ouvrir();
+    expect(container.querySelector(`[data-ligne-feuille="${id}"] [data-mot="Bien"]`)?.getAttribute('data-nature-bien')).toBe('nouveau_gestion');
+    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouveau · gestion — validé par Arnaud Jorel le 25/10/2026');
+    const nb = (n: string) => container.querySelector(`[data-legende-nature-item="${n}"] .fdm-legende-nb`)?.textContent;
+    const duMois = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-09'));
+    expect(nb('nouveau_gestion')).toBe(String(duMois.filter((a) => natureBienLoue(a).nature === 'nouveau_gestion').length));
+    expect(nb('nouveau_gestion')).toBe(String(duMois.filter((a) => natureBienLoue({ ...a, natureManuelle: null }).nature === 'nouveau_gestion').length + 1));
+    await ouvrirModale();
+    expect(modale()!.querySelector('[data-statut-bien-choix="nouveau_gestion"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(modale()!.querySelector('[data-statut-bien-choix="nouveau_sans_gestion"] [data-statut-propose]')).not.toBeNull();
+    await act(async () => { (modale()!.querySelector('[data-statut-bien-calcule]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts).toEqual([{ action: 'statut-bien', id: sept[0].id, statut: null }]);
+  });
+
+  it('sans la migration 424 : la modale le dit, « Valider » est inactif (rien ne part)', async () => {
+    avec({});
+    donnees = { ...donnees, statutBienManuel: false };
+    await ouvrir();
+    await ouvrirModale();
+    expect(modale()!.querySelector('[data-statut-sans-424]')?.textContent).toContain('migration 424');
+    expect((modale()!.querySelector('[data-valider-statut-bien]') as HTMLButtonElement).disabled).toBe(true);
   });
 });

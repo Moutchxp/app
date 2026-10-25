@@ -75,6 +75,8 @@ export interface ActiviteCalcul {
    * fichier gardent leurs montants importés.
    */
   gestionMensuelle?: { lotId: number; libelle: string; mois: LigneMois[] } | null;
+  /** 🔴 Arno (25/10/2026, 424) — le « Statut du bien » validé à la main (`par` : le compte, `le` : la date ISO) ; absent : le calcul. */
+  natureManuelle?: { nature: NatureBien; par: string; le: string } | null;
 }
 
 export interface Retrocession { negociateurId: number | null; negociateurLibelle: string; mois: string; montant: number; libelle: string }
@@ -421,7 +423,32 @@ export const LIBELLE_NATURE_BIEN: Record<NatureBien, string> = {
   relocation: 'Relocation gestion', client_hors_gestion: 'Client hors gestion', nouveau_gestion: 'Nouveau · gestion',
   nouveau_sans_gestion: 'Nouveau · sans gestion', a_qualifier: 'à qualifier',
 };
-export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion'>): { nature: NatureBien; raison: string } {
+/**
+ * 🔴 Arno (25/10/2026, migration 424) — « STATUT DU BIEN » : ce que dit chaque statut, en français simple (le « i » de la modale). Ce sont
+ * les règles du calcul ci-dessous, dans le même ordre.
+ */
+export const DESCRIPTION_NATURE_BIEN: Record<NatureBien, string> = {
+  relocation: 'L’origine du contact est « Relocation (portefeuille de gestion) » : le bien était déjà en gestion chez nous et on l’a reloué.',
+  client_hors_gestion: 'Le propriétaire était déjà client (origine « Propriétaire déjà client ») et ce bien n’est pas en gestion.',
+  nouveau_gestion: 'Un nouveau client — ou un propriétaire déjà client qui nous confie ce bien — et le bien est en gestion (ou un nouveau mandat de gestion est signé).',
+  nouveau_sans_gestion: 'Un nouveau client, et le bien n’est pas en gestion.',
+  a_qualifier: 'L’origine du contact n’est pas renseignée : rien n’est deviné, le statut reste à qualifier.',
+};
+
+/**
+ * 🔴 Arno (25/10/2026, migration 424) — LE STATUT VALIDÉ À LA MAIN l'emporte sur le calcul PARTOUT (pastille de ligne, légende, compteurs,
+ * panneau) ; « Revenir au statut calculé » l'efface. Il ne réécrit ni l'origine du contact ni la gestion (aucun effet de bord). PUR.
+ */
+export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'natureManuelle'>): { nature: NatureBien; raison: string; manuelle?: { par: string; le: string } } {
+  const m = a.natureManuelle;
+  if (m !== null && m !== undefined && (NATURES_BIEN as readonly string[]).includes(m.nature)) {
+    return { nature: m.nature, raison: `validé par ${m.par} le ${m.le.slice(0, 10).split('-').reverse().join('/')}`, manuelle: { par: m.par, le: m.le } };
+  }
+  return natureBienCalculee(a);
+}
+
+/** Le statut CALCULÉ (les règles ci-dessus) : celui que la modale propose. PUR. */
+export function natureBienCalculee(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion'>): { nature: NatureBien; raison: string } {
   const enGestion = a.avecGestion || a.mandatGestion;
   if (a.origineContact === 'relocation') return { nature: 'relocation', raison: 'case « Relocation » cochée (portefeuille de gestion)' };
   if (a.origineContact === 'proprietaire_deja_client' && !enGestion) return { nature: 'client_hors_gestion', raison: 'propriétaire déjà client, bien sans gestion' };
@@ -792,6 +819,8 @@ export interface DonneesTableau {
   personnalisable?: boolean;
   /** 415 — l'origine « Propriétaire déjà client » peut-elle être choisie ? */
   dejaClient?: boolean;
+  /** 424 — le « Statut du bien » peut-il être validé à la main ? */
+  statutBienManuel?: boolean;
   /** Arno (23/10/2026, historique 2019 → 2025) — chaque année d'activité, sans filtre : baux, CA, CA net, commission (droit). */
   historique?: AnneeHistorique[];
   /** 408 — les écarts expliqués avec le fichier, de l'année (notes de la feuille du mois). */

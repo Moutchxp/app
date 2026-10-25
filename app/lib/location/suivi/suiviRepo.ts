@@ -11,6 +11,8 @@ import {
   collegueADate, depuisLibelle, remunerationADate, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
+import { changementsLigne, ECRAN_SUIVI_MOIS, motStatutBien, type EtatCommercialLu } from './ligneSuivi';
+import { NATURES_BIEN, type NatureBien } from './tableauBord';
 import { jourParis } from '../../temps/paris';
 import { motifConflitFiche } from '../../gestion/traceFiche';
 import { changementsFiche, ficheDe, verifierFiche } from './ficheApporteur';
@@ -135,6 +137,11 @@ export function suiviDisponible(): Promise<boolean> {
 /** La migration 407 (origine du contact, annuaire des apporteurs rattachés à un collègue, choix de prime) est-elle appliquée ? */
 export function annuaireDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_activite', 'origine_contact');
+}
+
+/** 🔴 Arno (25/10/2026) — la 424 est-elle appliquée (« Statut du bien » validé à la main sur la ligne) ? */
+export function statutBienManuelDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_activite', 'statut_bien_manuel');
 }
 
 /**
@@ -850,8 +857,61 @@ export async function modifierActivite(activiteId: unknown, brut: unknown, auteu
   const taux = lireTauxPourcent(b.apporteurTaux);
   if (taux === undefined) return { etat: 'refus', motif: 'Taux de l’apporteur : un pourcentage entre 0 et 100.' };
   return withTransaction(async (q) => {
+    // 🔴 Arno (25/10/2026) — la ligne lue AVANT et APRÈS : chaque champ changé entre au journal (compte, session, écran « Suivi du mois »).
+    const avant = await lireEtatCommercial(q as typeof query, id);
     const motif = await ecrireCommercial(q as typeof query, id, c.valeurs, taux, auteur, b.conserverMontants === true);
-    return motif === null ? { etat: 'ok' } as const : { etat: 'refus', motif } as const;
+    if (motif !== null) return { etat: 'refus', motif } as const;
+    const apres = await lireEtatCommercial(q as typeof query, id);
+    if (avant !== null && apres !== null) {
+      for (const ch of changementsLigne(avant, apres)) await journaliserLigne(q as typeof query, id, 'location_suivi_ligne_modifiee', ch, auteur);
+    }
+    return { etat: 'ok' } as const;
+  });
+}
+
+/** Les champs commerciaux d'une ligne, noms résolus (le collègue par son compte, l'apporteur par l'annuaire). */
+async function lireEtatCommercial(q: typeof query, id: number): Promise<EtatCommercialLu | null> {
+  const precision = (await personnalisableDisponible()) ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision';
+  const { rows } = await q<EtatCommercialLu>(
+    `SELECT a.origine_contact, ${precision},
+            CASE WHEN a.collegue_id IS NULL THEN a.collegue_libelle
+                 ELSE (SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = a.collegue_id) END AS collegue,
+            ap.nom AS apporteur, a.apporteur_taux, a.apporteur_commission_saisie, a.prime_mode, a.prime_gestion_saisie
+       FROM gestion_location_activite a LEFT JOIN gestion_location_apporteur ap ON ap.id = a.apporteur_id WHERE a.id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+/** Une ligne du journal de la ligne de suivi : « Champ : ancienne → nouvelle », avec compte, session et écran (`avecTrace`). */
+async function journaliserLigne(q: typeof query, id: number, action: string, ch: { champ: string; avant: string; apres: string }, auteur: Auteur): Promise<void> {
+  const t = await colonnesTrace({ sujet: 'activite', champ: ch.champ }, 8);
+  await q(
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+     VALUES ('location_activite', $1, $2, $3, $4, $5, $6, $7${t.marques})`,
+    [id, action, `${ch.champ} : ${ch.avant}`, `${ch.champ} : ${ch.apres}`, `${ECRAN_SUIVI_MOIS} — ${ch.champ} : ${ch.avant} → ${ch.apres}`, auteur.id, auteur.libelle, ...t.valeurs]);
+}
+
+/**
+ * 🔴 Arno (25/10/2026, migration 424) — « STATUT DU BIEN » validé à la main sur la ligne (`statut` : l'un des 5), ou `null` : « Revenir au
+ * statut calculé ». Il l'emporte sur le calcul partout ; il ne touche NI l'origine du contact NI la gestion (aucun effet de bord). Journalisé.
+ */
+export async function validerStatutBien(activiteId: unknown, statut: unknown, auteur: Auteur): Promise<Reponse> {
+  if (!(await statutBienManuelDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 424) n’est pas encore appliquée.' };
+  const id = typeof activiteId === 'number' && Number.isInteger(activiteId) && activiteId > 0 ? activiteId : null;
+  if (id === null) return { etat: 'refus', motif: 'Ligne inconnue.' };
+  if (statut !== null && !(NATURES_BIEN as readonly unknown[]).includes(statut)) return { etat: 'refus', motif: 'Statut du bien inconnu.' };
+  const nouveau = statut as NatureBien | null;
+  return withTransaction(async (q) => {
+    const ligne = (await q<{ s: string | null }>('SELECT statut_bien_manuel AS s FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL FOR UPDATE', [id])).rows[0];
+    if (ligne === undefined) return { etat: 'refus', motif: 'Cette ligne du suivi n’existe plus.' } as const;
+    if (ligne.s === nouveau) return { etat: 'ok' } as const;
+    await q(`UPDATE gestion_location_activite SET statut_bien_manuel = $2::text,
+                    statut_bien_valide_le = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END,
+                    statut_bien_valide_par = CASE WHEN $2::text IS NULL THEN NULL ELSE $3::bigint END,
+                    statut_bien_valide_par_libelle = CASE WHEN $2::text IS NULL THEN NULL ELSE $4::text END
+              WHERE id = $1`, [id, nouveau, auteur.id, auteur.libelle]);
+    await journaliserLigne(q as typeof query, id, nouveau === null ? 'location_statut_bien_calcule' : 'location_statut_bien_valide',
+      { champ: 'Statut du bien', avant: motStatutBien(ligne.s), apres: motStatutBien(nouveau) }, auteur);
+    return { etat: 'ok' } as const;
   });
 }
 

@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
   ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
-  lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, modifierApporteur, peutVoirCommissions,
+  lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, validerStatutBien, modifierApporteur, peutVoirCommissions,
   proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible, enregistrerRattachement,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
@@ -23,6 +23,7 @@ import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
  *   POST action=creer-apporteur {apporteur}               « + Nouvel apporteur » (module Location) ;
  *   POST action=bareme-apporteur | regle | retrocession | annuler-retrocession   (ADMINISTRATEUR : la roue Paramètres).
  *   407 : POST action=modifier-activite {id, champs}  la feuille du mois corrige origine, collègue, apporteur, prime (Location) ;
+ *   424 : POST action=statut-bien {id, statut|null}  le « Statut du bien » validé à la main, ou rendu au calcul (Location) ;
  *         POST action=modifier-apporteur | rattacher-apporteur  la fiche de l'annuaire, le collègue daté (ADMINISTRATEUR) ;
  *         GET  ?vue=cumul-apporteur&id=N                       les affaires d'un apporteur : total, par an, par mois ;
  *         GET  ?vue=totaux-apporteurs                          les totaux de chaque apporteur depuis le début (dossiers, HT, dû).
@@ -122,7 +123,12 @@ export async function POST(request: Request): Promise<Response> {
       case 'regle': return json(await ajouterRegle(corps.regle, auteur));
       case 'retrocession': return json(await ajouterRetrocession(corps.retrocession, auteur));
       case 'annuler-retrocession': return json(await annulerRetrocession(corps.id, auteur));
-      case 'modifier-activite': return json(await modifierActivite(corps.id, corps.champs, auteur));
+      // 🔴 Arno (25/10/2026) — « Modifier » de l'encart : chaque champ changé au journal, avec compte, session et écran « Suivi du mois ».
+      case 'modifier-activite': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
+        () => modifierActivite(corps.id, corps.champs, auteur)));
+      // 🔴 Arno (25/10/2026, 424) — « Statut du bien » validé à la main (`statut` : l'un des 5) ou rendu au calcul (`statut` : null).
+      case 'statut-bien': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
+        () => validerStatutBien(corps.id, corps.statut ?? null, auteur)));
       case 'modifier-apporteur': return json(await modifierApporteur(corps.apporteurId, corps.fiche, auteur));
       case 'rattacher-apporteur': return json(await rattacherApporteur(corps.apporteurId, corps.rattachement, auteur));
       // 🔴 Arno (24/10/2026) — le panneau « Fiche » : récapitulatif côté écran, conflit (409) et journal (compte, session, écran).

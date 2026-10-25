@@ -7,9 +7,10 @@ import { ModaleFicheLocataire } from './ModaleFicheLocataire';
 import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import { CascadeHonoraires } from './CascadeHonoraires';
+import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, type NatureBien,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -164,7 +165,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                     </tr>,
                     ouvert && (
                       <tr key={`${id}-detail`} className="fdm-detail" id={`fdm-detail-${id}`} data-detail-ligne={id}><td colSpan={10}>
-                        <DetailLigne a={a} ctx={ctx} />
+                        <DetailLigne a={a} ctx={ctx} statutManuel={d.statutBienManuel === true} onRelire={onRelire} />
                         <CascadeLigne a={a} ctx={ctx} />
                         <div className="fdm-detail-gestes">
                           {/* 🔴 Arno (24/10/2026) — « Dossier de location » EN PREMIER : le formulaire « Nouveau locataire » rouvert en
@@ -323,11 +324,6 @@ function CascadeLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
   );
 }
 
-/** La pastille « nature du bien loué » : couleur douce ET texte (jamais la couleur seule) ; « à qualifier » en bordure pointillée. */
-function PastilleNature({ nature }: { nature: NatureBien }) {
-  return <span className={`fdm-nature fdm-nature--${nature}`}>{LIBELLE_NATURE_BIEN[nature]}</span>;
-}
-
 /** Le choix de prime de la ligne : celui en base, sinon déduit (aucune prime → « Aucune » ; montant ≠ la règle → « Personnalisé »). */
 const modePrimeDeLigne = (a: ActiviteLue, ctx: ContexteCalcul): ModePrime =>
   a.primeMode ?? (primeDe(a, ctx.regles) === 0 ? 'aucune' : a.primeSaisie !== null && versionADate(ctx.regles, a.dateSignature)?.primeLogement !== a.primeSaisie ? 'personnalise' : 'regle');
@@ -337,15 +333,15 @@ const LIBELLE_MODE_PRIME: Record<ModePrime, string> = { regle: 'Règle de l’ag
  * 🔴 Arno (24/10/2026) — le panneau déplié : TOUT ce qui a quitté la ligne synthétique (rien ne disparaît), en libellés / valeurs.
  * Chaque valeur porte `data-champ` (son libellé).
  */
-function DetailLigne({ a, ctx }: { a: ActiviteLue; ctx: ContexteCalcul }) {
+function DetailLigne({ a, ctx, statutManuel, onRelire }: { a: ActiviteLue; ctx: ContexteCalcul; statutManuel: boolean; onRelire: () => void }) {
   const col = collegueDeLigne(a, ctx.apporteurs);
   const taux = tauxAffichage(a, ctx.apporteurs);
   const prime = primeDe(a, ctx.regles);
   const aRat = col !== null && 'aRattacher' in col;
   const categorie = a.categoriePrime ?? (a.parking ? 'parking' : null);
-  const nature = natureBienLoue(a);
   const champs: [string, ReactNode][] = [
-    ['Nature du bien', <><PastilleNature nature={nature.nature} /> — {nature.raison}</>],
+    // 🔴 Arno (25/10/2026, 424) — « Statut du bien » (anciennement « Nature du bien ») : pastille et raison inchangées ; un clic ouvre le choix.
+    ['Statut du bien', <RubriqueStatutBien key="statut" a={a} disponible={statutManuel} onFini={onRelire} />],
     // 🔴 Arno (24/10/2026, Q1) — le texte du fichier d'une ligne reprise (la ligne affiche les noms de l'annuaire) : rien ne disparaît.
     ...(a.libelleOrigine !== undefined ? [['Libellé d’origine', `${a.libelleOrigine.proprietaire || '—'} / ${a.libelleOrigine.locataire || '—'}`] as [string, ReactNode]] : []),
     ['Date de signature', `${dateFr(a.dateSignature)}${a.dateSupposee ? ' (supposée : le 1er du mois)' : ''}`],
@@ -566,4 +562,4 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 @media (max-width:900px){ .fdm-deux{grid-template-columns:minmax(0,1fr)} }
 @media (max-width:640px){ ${cartes('.fdm-table')} .fdm-totaux{grid-template-columns:minmax(0,1fr)} }
-`;
+${CSS_STATUT_BIEN}`;

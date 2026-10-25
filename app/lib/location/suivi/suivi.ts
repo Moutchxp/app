@@ -11,6 +11,7 @@
  */
 
 import { estLotParking } from '../bienComplet';
+import { categorieDuBien } from '../locationBien';
 export const TAUX_TVA = 0.2;
 
 /** Aujourd'hui à Paris (AAAA-MM-JJ). */
@@ -50,7 +51,22 @@ export function typeDeBienDesLots(lots: readonly { role: 'logement' | 'annexe'; 
   if (lots.every(estParking)) return { type: 'parking', parkingPermis: true };
   const autres = lots.filter((l) => !estParking(l));
   const principal = autres.find((l) => l.role === 'logement') ?? autres[0];
-  return { type: principal.categorie === 'local' ? 'local' : 'logement', parkingPermis: false };
+  // 🔴 Arno (25/10/2026) — la catégorie que MONTRE la fiche du bien (`categorieDuBien`) : une catégorie vide (lot importé) se déduit de sa
+  // nature ou de son type, comme la fiche (« Local commercial » → Local). Une seule source : la fiche du bien.
+  const categorie = categorieDuBien({ categorie: principal.categorie ?? null, nature: principal.type ?? null, typeBien: principal.libelle ?? null });
+  return { type: categorie === 'local' ? 'local' : 'logement', parkingPermis: false };
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — UNE SEULE SOURCE : le « Type de bien » d'une ligne RATTACHÉE à un bien, d'après les FICHES de ses lots (le lot de la
+ * ligne = le principal, et les lots du bail), par la règle ci-dessus. `null` : pas de fiche (ligne historique sans bien) — la copie de la
+ * ligne reste alors la seule valeur. PUR.
+ */
+export function typeDeBienDesFiches(lotId: number | null, lots: readonly { id: unknown; categorie?: string | null; nature?: string | null; type_bien?: string | null }[]): CategoriePrime | null {
+  if (lotId === null || lots.length === 0) return null;
+  return typeDeBienDesLots(lots.map((l) => ({
+    role: Number(l.id) === lotId ? 'logement' as const : 'annexe' as const, categorie: l.categorie ?? null, place: false,
+    type: [l.nature, l.type_bien].filter((x) => x && x.trim() !== '').join(' ') || null, libelle: null })))?.type ?? null;
 }
 
 export const categoriePrimeDeFamille = (f: string | null | undefined): CategoriePrime => (f === 'parking' ? 'parking' : f === 'local' ? 'local' : 'logement');
