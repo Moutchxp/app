@@ -171,3 +171,18 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » présélectionn�
     expect(signal()).toBe('Valeurs différentes selon les lots : aucune présélection, choisissez.');
   });
 });
+
+describe('🔴 Arno (25/10/2026) — « Type de bien » reporté sur la fiche du bien : lots de familles différentes', () => {
+  it('enregistré, mais la fiche n’est pas écrasée : la modale le dit (« modifier dans Caractéristiques du bien loué ») ; « Fermer » termine', async () => {
+    reponsePost = { status: 200, corps: { etat: 'ok', data: { changements: [], note: 'Type de bien : familles différentes selon les lots — modifier dans « Caractéristiques du bien loué ».' } } };
+    await monter();
+    await choisirNegociateur('Arnaud Jorel');
+    await act(async () => { enregistrer().click(); });
+    await act(async () => { ([...document.querySelectorAll('button')].find((b) => b.textContent === 'Confirmer') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(document.querySelector('[data-modale-issue="attention"]')?.textContent).toContain('familles différentes selon les lots — modifier dans « Caractéristiques du bien loué »');
+    expect(onEnregistre).not.toHaveBeenCalled();
+    await act(async () => { (document.querySelector('[data-fermer-note-dossier]') as HTMLButtonElement).click(); });
+    expect(onEnregistre).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,4 +1,5 @@
 import { libelleOrigineContact, type OrigineContact } from './suivi';
+import { categorieDuBien } from '../locationBien';
 import { LIBELLE_NATURE_BIEN, NATURES_BIEN, type NatureBien } from './tableauBord';
 
 /**
@@ -44,3 +45,12 @@ export function changementsLigne(avant: EtatCommercialLu, apres: EtatCommercialL
 /** Un statut du bien, en mots : le statut validé, ou « statut calculé ». */
 export const motStatutBien = (n: string | null): string =>
   (n !== null && (NATURES_BIEN as readonly string[]).includes(n) ? LIBELLE_NATURE_BIEN[n as NatureBien] : 'statut calculé');
+
+/**
+ * 🔴 Arno (25/10/2026) — les FAMILLES des lots d'une ligne (Logement, Local, Parking ; une cave ou une autre annexe compte à part), d'après
+ * la catégorie que montre chaque fiche. Plus d'une : le « Type de bien » choisi n'écrase pas la fiche du bien. PUR.
+ */
+export function famillesDesLots(lots: readonly { categorie?: string | null; nature?: string | null; type_bien?: string | null }[]): string[] {
+  const famille = (c: string): string => (c === 'box' ? 'parking' : c);
+  return [...new Set(lots.map((l) => famille(categorieDuBien({ categorie: l.categorie ?? null, nature: l.nature ?? null, typeBien: l.type_bien ?? null }))))];
+}

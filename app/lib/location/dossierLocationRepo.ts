@@ -206,7 +206,7 @@ async function derniereModification(lu: LectureDossier): Promise<{ par: string; 
 // ── LA MISE À JOUR ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type IssueModificationDossier =
-  | { etat: 'ok'; data: { changements: ChangementDossier[] } }
+  | { etat: 'ok'; data: { changements: ChangementDossier[]; note?: string } }
   | { etat: 'conflit'; motif: string } | { etat: 'refus'; motif: string } | { etat: 'non_rattache' } | { etat: 'inconnu' } | { etat: 'sans_schema' };
 
 export async function modifierDossierLocation(activiteId: number, brut: Record<string, unknown>, auteur: Auteur): Promise<IssueModificationDossier> {
@@ -260,12 +260,16 @@ export async function modifierDossierLocation(activiteId: number, brut: Record<s
   }
   // ④ LE SUIVI COMMERCIAL — la MÊME ligne, mise à jour.
   const suivi = changements.filter((c) => c.bloc === 4);
+  let note: string | null = null;
   if (suivi.length > 0) {
     const conserver = s.suivi.apporteurTaux === lu.suivi.apporteurTaux && s.suivi.commissionApporteur === lu.suivi.commissionApporteur;
     const r = await mettreAJourActivite(activiteId, s.suivi, auteur, { conserverMontants: conserver });
     if (r.etat !== 'ok') return partiel('motif' in r ? r.motif : 'Le suivi commercial n’a pas pu être modifié.');
     await journaliserChamps({ entite: 'location_activite', id: activiteId, lotId: lu.lotId, action: 'location_dossier_suivi', changements: suivi, auteur });
     faits.push(...suivi.map((c) => c.champ));
+    // 🔴 Arno (25/10/2026) — le « Type de bien » reporté sur la fiche du bien ; des lots de familles différentes : dit, jamais écrasé.
+    const d = (r as { data?: { note?: string } }).data;
+    if (typeof d?.note === 'string') note = d.note;
   }
-  return { etat: 'ok', data: { changements } };
+  return { etat: 'ok', data: { changements, ...(note === null ? {} : { note }) } };
 }

@@ -115,7 +115,9 @@ export async function POST(request: Request): Promise<Response> {
   const auteur = await auteurDeLaRequete(request);
   try {
     switch (action) {
-      case 'enregistrer-activite': return json(await enregistrerActiviteBail(corps.bailId, corps.activite, auteur));
+      // 🔴 Arno (25/10/2026) — le « Type de bien » reporté sur la fiche du bien : journalisé avec compte, session et écran « Nouveau locataire ».
+      case 'enregistrer-activite': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Nouveau locataire' },
+        () => enregistrerActiviteBail(corps.bailId, corps.activite, auteur)));
       case 'creer-apporteur': return json(await creerApporteur(corps.apporteur, auteur));
       // 420 — compte, session et écran journalisés (« Depuis toujours »).
       case 'bareme-apporteur': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },

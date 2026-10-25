@@ -752,12 +752,13 @@ export function MouvementsGestion({ periode, nouveaux, sortis }: { periode: stri
   const solde = nouveaux - sortis;
   return (
     <span className="tdb-gestion" data-gestion-mouvements>
-      <span className="tdb-gestion-comptes"><span className="tdb-gestion-periode">{periode} :</span>
-        <span className="tdb-signe tdb-signe--positif" data-gestion-nouveaux>+{nouveaux}</span>
-        <span className="tdb-signe tdb-signe--negatif" data-gestion-sortis>−{sortis}</span></span>
+      {/* 🔴 Arno (25/10/2026) — le SOLDE d'abord (en grand), puis la petite ligne de la période (« Sept. 2026 : +1 −0 ») ; tout centré. */}
       <span className="tdb-gestion-solde"><span className="tdb-gestion-solde-mot">Solde</span>
         <strong className={`tdb-gestion-solde-valeur tdb-signe tdb-signe--${sensDe(solde)}`} data-gestion-solde={sensDe(solde)}>
           {solde > 0 ? '+' : solde < 0 ? '−' : ''}{Math.abs(solde)}</strong></span>
+      <span className="tdb-gestion-comptes"><span className="tdb-gestion-periode">{periode} :</span>
+        <span className="tdb-signe tdb-signe--positif" data-gestion-nouveaux>+{nouveaux}</span>
+        <span className="tdb-signe tdb-signe--negatif" data-gestion-sortis>−{sortis}</span></span>
     </span>
   );
 }
@@ -1032,7 +1033,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-champ{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:700;color:var(--color-svv-muted);min-width:0}
 .tdb-champ select{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 8px;font:inherit;font-size:.92rem;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%}
 .tdb-tuiles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
-.tdb-tuile{appearance:none;width:100%;height:100%;min-height:9rem;display:flex;flex-direction:column;gap:8px;align-items:flex-start;text-align:left;font:inherit;cursor:pointer;background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:18px;padding:18px 20px;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.tdb-tuile{appearance:none;width:100%;height:100%;min-height:9rem;display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center;font:inherit;cursor:pointer;background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:18px;padding:18px 20px;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
 .tdb-tuile:hover,.tdb-tuile:focus-visible{transform:translateY(-4px);border-color:var(--color-svv-line-strong-hover);box-shadow:0 18px 36px -14px color-mix(in srgb, var(--color-svv-ink) 35%, transparent)}
 .tdb-tuile:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .tdb-tuile-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-muted);text-transform:none}
@@ -1116,10 +1117,11 @@ export const CSS_TABLEAU_BORD = `
 @media (hover:hover){ .tdb-a-total:hover>*,.tdb-a-table:hover .tdb-a-chevron{color:var(--color-svv-ink)} .tdb-a-total:hover>.tdb-signe--positif{color:var(--color-svv-green-ink)} .tdb-a-total:hover>.tdb-signe--negatif{color:var(--color-svv-red)} }
 
 .tdb-tuile:has(.tdb-gestion){min-height:11rem}
-.tdb-gestion{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;width:100%}
-.tdb-gestion-comptes{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:.9rem;font-weight:800}
+/* 🔴 Arno (25/10/2026) — tuiles CENTRÉES (titre, chiffre, comparaison) ; « Biens en gestion » : le Solde, puis la ligne de la période. */
+.tdb-gestion{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1 1 auto;width:100%}
+.tdb-gestion-comptes{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:4px 10px;font-size:.9rem;font-weight:800}
 .tdb-gestion-periode{color:var(--color-svv-muted);font-weight:700}
-.tdb-gestion-solde{display:flex;align-items:baseline;gap:8px;flex:1 1 auto}
+.tdb-gestion-solde{display:flex;justify-content:center;align-items:baseline;gap:8px}
 .tdb-gestion-solde-mot{font-size:.8rem;font-weight:700;color:var(--color-svv-muted)}
 .tdb-gestion-solde-valeur{font-size:2.4rem;font-weight:800;line-height:1}
 .tdb-gestion-recurrent{font-size:.78rem}

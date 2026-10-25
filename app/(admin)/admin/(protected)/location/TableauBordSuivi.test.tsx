@@ -1121,3 +1121,30 @@ describe('🔴 Arno (25/10/2026) — le résumé de transaction : source unique 
     expect((modale()!.querySelector('[data-valider-statut-bien]') as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe('🔴 Arno (25/10/2026) — les tuiles centrées ; « Biens en gestion » : le Solde, puis la ligne de la période', () => {
+  const ordre = () => {
+    const t = container.querySelector('[data-tuile="gestion"]')!;
+    return [...t.children].map((e) => e.className) .concat([...t.querySelector('[data-gestion-mouvements]')!.children].map((e) => e.className));
+  };
+  it('Suivi du mois : titre, chiffre, puis « Solde +N » (en grand), puis « Sept. 2026 : +N −N » en dessous', async () => {
+    await monter('mois');
+    expect(ordre()).toEqual(['tdb-tuile-mot', 'tdb-tuile-valeur', 'tdb-gestion', 'tdb-gestion-solde', 'tdb-gestion-comptes']);
+    expect(container.querySelector('[data-tuile="gestion"] .tdb-gestion-solde')?.textContent).toMatch(/^Solde[+−]?\d+$/);
+    expect(container.querySelector('[data-tuile="gestion"] .tdb-gestion-comptes')?.textContent).toMatch(/^[A-Za-zéû.]+ \d{4} :\+\d+−\d+$/);
+  });
+
+  it('Suivi annuel (même composant) : le même ordre, la ligne « récurrent » reste en dernier', async () => {
+    await monter('annee');
+    expect(ordre()).toEqual(['tdb-tuile-mot', 'tdb-tuile-valeur', 'tdb-gestion', 'tdb-tuile-n1 tdb-gestion-recurrent', 'tdb-gestion-solde', 'tdb-gestion-comptes']);
+  });
+
+  it('tout centré (titre, chiffre, comparaison, solde, ligne du mois) ; mêmes dimensions qu’avant', () => {
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8');
+    expect(css).toContain('.tdb-tuile{appearance:none;width:100%;height:100%;min-height:9rem;display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center;');
+    expect(css).toContain('.tdb-gestion{display:flex;flex-direction:column;align-items:center;');
+    expect(css).toContain('.tdb-gestion-comptes{display:flex;flex-wrap:wrap;justify-content:center;');
+    expect(css).toContain('.tdb-gestion-solde{display:flex;justify-content:center;');
+    expect(css).toContain('.tdb-tuile:has(.tdb-gestion){min-height:11rem}');
+  });
+});

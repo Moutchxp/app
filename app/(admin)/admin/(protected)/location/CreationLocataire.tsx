@@ -383,6 +383,9 @@ export function CreationLocataire() {
       const rs = await posterSuivi({ action: 'enregistrer-activite', bailId,
         activite: { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions } }, { propre: true });
       if (rs.motif !== null) annonces.push(`Le locataire est enregistré, mais pas son suivi commercial : ${rs.motif}`);
+      // 🔴 Arno (25/10/2026) — le « Type de bien » n'a pas été reporté sur la fiche du bien (lots de familles différentes) : dit.
+      const note = (rs.data as { note?: unknown } | undefined)?.note;
+      if (typeof note === 'string') annonces.push(note);
     }
     const envoiDirect = envoyerApres.current && bailId !== null;
     setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoiDirect });

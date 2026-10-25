@@ -57,7 +57,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
   const [entretien, setEntretien] = useState<SaisieEntretien | null>(null);
   const [suivi, setSuivi] = useState<SuiviDossier | null>(null);
   const [ttc, setTtc] = useState<{ proprietaire: string; locataire: string }>({ proprietaire: '', locataire: '' });
-  const [issue, setIssue] = useState<null | { sorte: 'recap' } | { sorte: 'conflit'; motif: string } | { sorte: 'erreur'; motif: string } | { sorte: 'abandon' }>(null);
+  const [issue, setIssue] = useState<null | { sorte: 'recap' } | { sorte: 'conflit'; motif: string } | { sorte: 'erreur'; motif: string } | { sorte: 'note'; motif: string } | { sorte: 'abandon' }>(null);
   const [envoi, setEnvoi] = useState(false);
   const [caracteristiques, setCaracteristiques] = useState(false);
   const lectureVue = useRef<LectureDossier | null>(null);
@@ -150,7 +150,9 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
         body: JSON.stringify({ action: 'modifier-dossier-location', id: activiteId, saisie, ecran: ECRAN_DOSSIER }) });
-      const d = await r.json().catch(() => ({})) as { etat?: string; motif?: string };
+      const d = await r.json().catch(() => ({})) as { etat?: string; motif?: string; data?: { note?: string } };
+      // 🔴 Arno (25/10/2026) — enregistré, mais le « Type de bien » n'a pas été reporté sur la fiche (lots de familles différentes) : dit.
+      if (d.etat === 'ok' && typeof d.data?.note === 'string') { setIssue({ sorte: 'note', motif: d.data.note }); return; }
       if (d.etat === 'ok') { setIssue(null); onEnregistre(); return; }
       if (d.etat === 'conflit') { setIssue({ sorte: 'conflit', motif: d.motif ?? 'Ce dossier a été modifié depuis son ouverture : rechargez-le.' }); return; }
       setIssue({ sorte: 'erreur', motif: d.motif ?? 'Les modifications n’ont pas été enregistrées.' });
@@ -287,6 +289,10 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
         <ModaleIssue sorte="attention" titre="Dossier modifié par ailleurs" onFermer={() => setIssue(null)} notes={[issue.motif]}
           actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), repere: 'revenir-conflit' },
             { libelle: 'Recharger', onClick: () => { setIssue(null); void lire(false); }, principal: true, repere: 'recharger-dossier' }]} />
+      )}
+      {issue?.sorte === 'note' && (
+        <ModaleIssue sorte="attention" titre="Modifications enregistrées — à compléter" onFermer={() => { setIssue(null); onEnregistre(); }} notes={[issue.motif]}
+          actions={[{ libelle: 'Fermer', onClick: () => { setIssue(null); onEnregistre(); }, principal: true, repere: 'fermer-note-dossier' }]} />
       )}
       {issue?.sorte === 'erreur' && (
         <ModaleIssue sorte="erreur" titre="Modifications non enregistrées" onFermer={() => setIssue(null)} notes={[issue.motif]}

@@ -14,11 +14,16 @@ const base = vi.hoisted(() => ({
   etats: [] as Record<string, unknown>[],
   ecrits: [] as { sql: string; params: unknown[] }[],
   statut: null as string | null,
+  /** Les fiches des lots (la base simulée) : « Type de bien » écrit par le geste de la fiche, relu par le résumé. */
+  fiches: [] as { id: number; categorie: string | null; nature: string | null; type_bien: string | null }[],
+  gestesFiche: [] as { lotId: number; groupe: unknown; champs: Record<string, unknown>; ecran: string | null }[],
 }));
 const repondre = (sqlBrut: string, params: unknown[] = []): { rows: unknown[]; rowCount: number } => {
   const s = sqlBrut.replace(/\s+/g, ' ').trim();
   if (/^(INSERT|UPDATE)/.test(s)) base.ecrits.push({ sql: s, params });
-  if (s.includes('AS lots_fiche') && s.includes('FROM gestion_location_activite a')) return { rows: [base.ligne], rowCount: 1 };
+  if (s.includes('AS lots_fiche') && s.includes('FROM gestion_location_activite a')) return { rows: [{ ...base.ligne, lots_fiche: base.fiches.length > 0 ? base.fiches : base.ligne.lots_fiche }], rowCount: 1 };
+  if (s.startsWith('SELECT lot_id, bail_id FROM gestion_location_activite WHERE id = $1')) return { rows: [{ lot_id: '364', bail_id: '520' }], rowCount: 1 };
+  if (s.startsWith('SELECT id::text, categorie, nature, type_bien FROM gestion_annuaire_lot')) return { rows: base.fiches.map((f) => ({ ...f, id: String(f.id) })), rowCount: base.fiches.length };
   if (s.startsWith('SELECT apporteur_id, lot_id FROM gestion_location_activite')) return { rows: [{ apporteur_id: null, lot_id: '364' }], rowCount: 1 };
   if (s.includes('ap.nom AS apporteur, a.apporteur_taux')) { const e = base.etats.shift(); return { rows: e === undefined ? [] : [e], rowCount: 1 }; }
   if (s.startsWith('SELECT statut_bien_manuel AS s FROM gestion_location_activite')) return { rows: [{ s: base.statut }], rowCount: 1 };
@@ -30,9 +35,19 @@ vi.mock('../../db/client', () => ({
   withTransaction: async (fn: (q: unknown) => Promise<unknown>) => fn(async (sql: string, params?: unknown[]) => repondre(sql, params)),
 }));
 vi.mock('../sondeLocation', () => ({ colonneExisteMemo: async () => true }));
+// Le geste de la fiche du bien (« Famille du bien ») : simulé ici — il écrit la catégorie du lot ; son Historique est éprouvé avec la fiche.
+vi.mock('../encartBienRepo', async () => {
+  const { traceCourante } = await import('../../gestion/traceJournal');
+  return { modifierEncartBien: vi.fn(async (lotId: number, groupe: unknown, champs: Record<string, unknown>) => {
+    base.gestesFiche.push({ lotId, groupe, champs, ecran: traceCourante()?.ecran ?? null });
+    const f = base.fiches.find((x) => x.id === lotId);
+    if (f !== undefined) f.categorie = String(champs.categorie);
+    return { etat: 'ok', data: { changements: [] } };
+  }) };
+});
 
 const { lireActivites, typeDeBienLu, natureManuelleLue, nomDuCompte } = await import('./tableauBordRepo');
-const { modifierActivite, validerStatutBien } = await import('./suiviRepo');
+const { modifierActivite, validerStatutBien, typeDeBienVersFiche, MOT_FAMILLES_DIFFERENTES } = await import('./suiviRepo');
 const { typeDeBienDesFiches } = await import('./suivi');
 const { natureBienLoue, natureBienCalculee, primeDe } = await import('./tableauBord');
 const { avecTrace } = await import('../../gestion/traceJournal');
@@ -51,7 +66,7 @@ const LIGNE = {
   proprietaire_source: 'CHEKROUNE Martine', locataires_source: 'STUDIO COIFFURE', vacance: null,
   lots_fiche: [{ id: 364, categorie: null, nature: 'Local commercial', type_bien: null }],
 };
-beforeEach(() => { base.ligne = structuredClone(LIGNE); base.etats = []; base.ecrits = []; base.statut = null; });
+beforeEach(() => { base.ligne = structuredClone(LIGNE); base.etats = []; base.ecrits = []; base.statut = null; base.fiches = []; base.gestesFiche = []; });
 
 describe('🔴 « Type de bien » = la fiche du bien (une seule source)', () => {
   it('CHEKROUNE : la fiche montre « Local » (catégorie vide, nature « Local commercial ») → le résumé dit Local, plus la copie « logement »', async () => {
@@ -161,5 +176,40 @@ describe('🔴 « Statut du bien » validé à la main (424)', () => {
     expect(natureBienLoue(a)).toEqual({ nature: 'nouveau_gestion', raison: 'validé par Arnaud Jorel le 25/10/2026', manuelle: { par: 'Arnaud Jorel', le: '2026-10-25T09:00:00.000Z' } });
     expect(natureBienLoue({ ...a, natureManuelle: null }).nature).toBe('a_qualifier');
     expect(natureManuelleLue({ statut_bien_manuel: 'syndic' })).toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026, réponse (a)) — « Type de bien » choisi dans Nouveau locataire / le Dossier de location → la fiche du bien', () => {
+  it('écrit dans la fiche du LOT PRINCIPAL par le geste de la fiche (écran tracé), puis le résumé le relit', async () => {
+    base.fiches = [{ id: 364, categorie: null, nature: 'Local commercial', type_bien: null }];
+    expect((await lireActivites([2026]))[0].categoriePrime).toBe('local');
+    const note = await avecTrace({ sessionId: 'sess-3', ecran: 'Dossier de location (Suivi du mois)' }, () => typeDeBienVersFiche(99, 'logement', AUTEUR));
+    expect(note).toBeNull();
+    expect(base.gestesFiche).toEqual([{ lotId: 364, groupe: 'bien', champs: { categorie: 'logement' }, ecran: 'Dossier de location (Suivi du mois)' }]);
+    expect((await lireActivites([2026]))[0].categoriePrime).toBe('logement');
+  });
+
+  it('la fiche dit déjà la même chose : rien n’est écrit', async () => {
+    base.fiches = [{ id: 364, categorie: null, nature: 'Local commercial', type_bien: null }];
+    expect(await typeDeBienVersFiche(99, 'local', AUTEUR)).toBeNull();
+    expect(await typeDeBienVersFiche(99, null, AUTEUR)).toBeNull();
+    expect(base.gestesFiche).toEqual([]);
+  });
+
+  it('LOTS DE FAMILLES DIFFÉRENTES : la fiche n’est pas écrasée, le message le dit ; le résumé garde la fiche', async () => {
+    base.fiches = [{ id: 364, categorie: 'logement', nature: 'Appartement', type_bien: null }, { id: 365, categorie: 'parking', nature: null, type_bien: null }];
+    expect(await typeDeBienVersFiche(99, 'local', AUTEUR)).toBe(MOT_FAMILLES_DIFFERENTES);
+    expect(MOT_FAMILLES_DIFFERENTES).toBe('Type de bien : familles différentes selon les lots — modifier dans « Caractéristiques du bien loué ».');
+    expect(base.gestesFiche).toEqual([]);
+    expect((await lireActivites([2026]))[0].categoriePrime).toBe('logement');
+  });
+
+  it('les deux enregistrements passent par ce report (Nouveau locataire : écran tracé « Nouveau locataire » ; Dossier : sa phrase remonte)', () => {
+    const repo = readFileSync('app/lib/location/suivi/suiviRepo.ts', 'utf8');
+    expect(repo).toContain('const note = await typeDeBienVersFiche(r.data.id, categorieChoisie(brut), auteur);');
+    expect(repo).toContain('const note = await typeDeBienVersFiche(activiteId, categorie, auteur);');
+    const route = readFileSync('app/(admin)/api/admin/location/suivi/route.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(route).toContain("case 'enregistrer-activite': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Nouveau locataire' }, () => enregistrerActiviteBail(");
+    expect(readFileSync('app/lib/location/dossierLocationRepo.ts', 'utf8')).toContain('data: { changements, ...(note === null ? {} : { note }) }');
   });
 });

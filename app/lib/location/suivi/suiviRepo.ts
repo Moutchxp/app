@@ -6,12 +6,13 @@ import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
   type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
-  casGestionDuBien, motPrimeDejaVersee, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
+  casGestionDuBien, motPrimeDejaVersee, typeDeBienDesFiches, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
   type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
   collegueADate, depuisLibelle, remunerationADate, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
-import { changementsLigne, ECRAN_SUIVI_MOIS, motStatutBien, type EtatCommercialLu } from './ligneSuivi';
+import { changementsLigne, ECRAN_SUIVI_MOIS, famillesDesLots, motStatutBien, type EtatCommercialLu } from './ligneSuivi';
+import { modifierEncartBien } from '../encartBienRepo';
 import { NATURES_BIEN, type NatureBien } from './tableauBord';
 import { jourParis } from '../../temps/paris';
 import { motifConflitFiche } from '../../gestion/traceFiche';
@@ -891,6 +892,30 @@ async function journaliserLigne(q: typeof query, id: number, action: string, ch:
 }
 
 /**
+ * 🔴 Arno (25/10/2026, réponse (a)) — « TYPE DE BIEN » CHOISI DANS NOUVEAU LOCATAIRE OU LE DOSSIER DE LOCATION (bloc 4) → LA FICHE DU BIEN :
+ * la famille du LOT PRINCIPAL de la ligne est mise à jour par le geste de la fiche (`modifierEncartBien`, groupe « bien » : catégorie,
+ * Historique du bien, compte, session et écran) — la dernière validation se voit partout (fiche, résumé, Dossier). Rien n'est écrit si la
+ * fiche dit déjà la même chose. Des lots de FAMILLES DIFFÉRENTES : la fiche n'est PAS écrasée, le message le dit. Rend la phrase à
+ * montrer (`null` : rien à dire). Appelée APRÈS l'écriture de la ligne (sa transaction close).
+ */
+export const MOT_FAMILLES_DIFFERENTES = 'Type de bien : familles différentes selon les lots — modifier dans « Caractéristiques du bien loué ».';
+export async function typeDeBienVersFiche(activiteId: number, choisi: CategoriePrime | null, auteur: Auteur): Promise<string | null> {
+  if (choisi === null) return null;
+  const ligne = (await query<{ lot_id: string | null; bail_id: string | null }>('SELECT lot_id, bail_id FROM gestion_location_activite WHERE id = $1', [activiteId])).rows[0];
+  if (ligne === undefined || ligne.lot_id === null) return null;
+  const lotId = num(ligne.lot_id);
+  const avecBailOcc = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
+  const lots = (await query<{ id: string; categorie: string | null; nature: string | null; type_bien: string | null }>(
+    `SELECT id::text, categorie, nature, type_bien FROM gestion_annuaire_lot
+      WHERE id = $1${avecBailOcc ? ' OR id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = $2)' : ''}`,
+    avecBailOcc ? [lotId, numOuNull(ligne.bail_id)] : [lotId])).rows;
+  if (typeDeBienDesFiches(lotId, lots) === choisi) return null;
+  if (famillesDesLots(lots).length > 1) return MOT_FAMILLES_DIFFERENTES;
+  const r = await modifierEncartBien(lotId, 'bien', { categorie: choisi }, auteur);
+  return r.etat === 'ok' ? null : `Type de bien non reporté sur la fiche du bien : ${'motif' in r && typeof r.motif === 'string' ? r.motif : 'la fiche n’a pas pu être modifiée'}.`;
+}
+
+/**
  * 🔴 Arno (25/10/2026, migration 424) — « STATUT DU BIEN » validé à la main sur la ligne (`statut` : l'un des 5), ou `null` : « Revenir au
  * statut calculé ». Il l'emporte sur le calcul partout ; il ne touche NI l'origine du contact NI la gestion (aucun effet de bord). Journalisé.
  */
@@ -922,9 +947,13 @@ export async function validerStatutBien(activiteId: unknown, statut: unknown, au
  */
 class RefusSuivi extends Error {}
 
-export async function enregistrerActiviteBail(bailId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse<{ id: number }>> {
+export async function enregistrerActiviteBail(bailId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse<{ id: number; note?: string }>> {
   try {
-    return await enregistrerActiviteBailTx(bailId, brut, auteur);
+    const r = await enregistrerActiviteBailTx(bailId, brut, auteur);
+    if (r.etat !== 'ok' || r.data === undefined) return r;
+    // 🔴 Arno (25/10/2026) — le « Type de bien » choisi : sur la fiche du bien (la source unique).
+    const note = await typeDeBienVersFiche(r.data.id, categorieChoisie(brut), auteur);
+    return note === null ? r : { etat: 'ok', data: { ...r.data, note } };
   } catch (e) {
     if (e instanceof RefusSuivi) return { etat: 'refus', motif: e.message };
     throw e;
@@ -1063,12 +1092,23 @@ export async function mettreAJourActivite(activiteId: number, brut: unknown, aut
         if (motif !== null) throw new RefusSuivi(motif);
       }
       return { etat: 'ok' } as const;
+    }).then(async (r) => {
+      // 🔴 Arno (25/10/2026) — le « Type de bien » du bloc 4 : sur la fiche du bien (la source unique).
+      if (r.etat !== 'ok') return r;
+      const note = await typeDeBienVersFiche(activiteId, categorie, auteur);
+      return note === null ? r : { etat: 'ok' as const, data: { note } };
     });
   } catch (e) {
     if (e instanceof RefusSuivi) return { etat: 'refus', motif: e.message };
     throw e;
   }
 }
+
+/** Le « Type de bien » de la saisie (Logement, Local, Parking), ou `null`. PUR. */
+const categorieChoisie = (brut: unknown): CategoriePrime | null => {
+  const v = ((brut ?? {}) as Record<string, unknown>).categoriePrime;
+  return v === 'parking' || v === 'logement' || v === 'local' ? v : null;
+};
 
 /** Ce que l'écran « Nouveau locataire » propose avant la saisie : le statut de gestion du bien et l'origine déduite. */
 export async function proposerActivite(lotId: unknown, locataireIds: unknown, dateSignature: unknown): Promise<Reponse<{
