@@ -1,7 +1,7 @@
 'use client';
 
 import { regleAnnexesDe, stockGestion } from '../../../../lib/location/suivi/annexesGestion';
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   entreesGestionParMois, lignesDePeriode, NOMS_MOIS, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
@@ -103,6 +103,8 @@ const LIGNES_A: { k: 'nb' | 'caProprietaire' | 'caLocataire' | 'ca' | 'apporteur
  * jamais des données (ni du mois, ni des montants).
  */
 export const LARGEURS_A = { montant: 145, ecart: 215, chevron: 52 } as const;
+/** 🔴 Arno (25/10/2026) — « Année par année » déplié : au plus HUIT années visibles (la hauteur de 2019 → 2026), défilement au-delà. */
+export const HUIT_ANNEES = 8;
 
 type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string; ids: number[] }[] } | null;
 
@@ -125,6 +127,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   // repliée par défaut (non gardé : un rechargement la replie).
   const [comparer, setComparer] = useState<string | null>(() => comparerDeLAdresse());
   const [carteMoisOuverte, setCarteMoisOuverte] = useState(false);
+  // 🔴 Arno (25/10/2026) — « Année par année » REPLIÉ à chaque chargement (l'année en cours seule) ; déplié, une hauteur bornée à
+  // l'en-tête + HUIT années, MESURÉE sur le rendu (tableau ou cartes du téléphone), défilement interne au-delà, ouvert sur l'année en cours.
+  const [histoOuvert, setHistoOuvert] = useState(false);
+  const cadreHisto = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const u = new URL(window.location.href);
     const mesureVoulue = vue === 'mois' && mesure !== 'ca' ? mesure : null;
@@ -179,11 +185,34 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const lignes = useMemo(() => (d === null ? [] : filtrer(d.activites, filtre)), [d, filtre]);
   const activitesCmp = luCmp !== null && 'activites' in luCmp && luCmp.annee === cmp.annee ? luCmp.activites : null;
   const parId = useMemo(() => new Map([...(activitesCmp ?? []), ...(d?.activites ?? [])].map((a) => [String(a.id), a])), [d, activitesCmp]);
+  // La hauteur se remesure à chaque rendu des données (une autre année ouverte, une fenêtre redimensionnée).
+  useLayoutEffect(() => {
+    const cadre = cadreHisto.current;
+    if (cadre === null) return;
+    if (!histoOuvert) { cadre.style.maxHeight = ''; return; }
+    // Un redimensionnement remesure la borne sans toucher au défilement choisi ; l'ouverture se place sur l'année en cours.
+    const mesurer = (): void => {
+      const garde = cadre.scrollTop;
+      cadre.style.maxHeight = '';
+      const rangees = [...cadre.querySelectorAll<HTMLElement>('tr[data-annee-historique]')];
+      if (rangees.length === 0) return;
+      const huitieme = rangees[Math.min(HUIT_ANNEES, rangees.length) - 1];
+      const marge = parseFloat(getComputedStyle(huitieme).marginBottom) || 0;
+      cadre.style.maxHeight = `${huitieme.getBoundingClientRect().bottom + marge - cadre.getBoundingClientRect().top}px`;
+      cadre.scrollTop = garde;
+    };
+    mesurer();
+    const enCours = cadre.querySelector<HTMLElement>('tr[data-annee-en-cours]');
+    if (enCours !== null) cadre.scrollTop = enCours.offsetTop + enCours.offsetHeight - cadre.clientHeight;
+    window.addEventListener('resize', mesurer);
+    return () => window.removeEventListener('resize', mesurer);
+  }, [histoOuvert, d, vue]);
 
   if (lu === null || (lu.annee !== annee)) return <p className="gst-info" role="status">Chargement du tableau de bord…</p>;
   if ('erreur' in lu) return <p className="gst-erreur" role="alert">{lu.erreur}</p>;
   if (d === null) return null;
 
+  const anneeEnCoursH = Number(jour.slice(0, 4));
   const periodeMois: Periode = { annee, mois };
   const periode: Periode = portee === 'mois' ? periodeMois : { annee, mois: null };
   const libellePeriode = portee === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : `l’année ${annee}`;
@@ -455,16 +484,28 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         <section className="tdb-section" aria-labelledby="tdb-h" data-section="H">
           <h3 id="tdb-h">Année par année <small className="loc-muet">(toutes les affaires, sans filtre — une année s’ouvre d’un clic)</small></h3>
           <CourbeAnnees lignes={d.historique ?? []} annee={annee} onAnnee={setAnnee} />
+          {(() => {
+            const toutes = d.historique ?? [];
+            const enCours = toutes.some((h) => h.annee === anneeEnCoursH) ? anneeEnCoursH : toutes[toutes.length - 1].annee;
+            const basculer = (): void => setHistoOuvert((o) => !o);
+            return <>
+          <div className={`tdb-h-cadre${histoOuvert ? ' tdb-h-cadre--ouvert' : ''}`} ref={cadreHisto} id="tdb-h-cadre" data-historique-cadre={histoOuvert ? 'ouvert' : 'replie'}>
           <table className="tdb-table tdb-table--mois" data-historique-annees>
             <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">CA HT</th><th scope="col">Apporteurs</th><th scope="col">CA net</th>
               {d.voirCommissions && <th scope="col">Commission brute</th>}
               {propre !== undefined && <th scope="col">Commission brute — {propre.libelle}</th>}<th scope="col">Évolution du CA</th></tr></thead>
             <tbody>
-              {(d.historique ?? []).map((h, i, t) => {
+              {toutes.map((h, i, t) => {
+                if (!histoOuvert && h.annee !== enCours) return null;
                 const avant = i > 0 ? t[i - 1] : null;
                 const evol = avant === null || avant.ca === 0 ? null : (h.ca - avant.ca) / avant.ca;
+                const courante = h.annee === enCours;
                 return (
-                  <tr key={h.annee} className={h.annee === annee ? 'tdb-fort' : undefined} data-annee-historique={h.annee}>
+                  <tr key={h.annee} className={[h.annee === annee ? 'tdb-fort' : '', courante ? 'tdb-h-en-cours' : ''].filter(Boolean).join(' ') || undefined}
+                    data-annee-historique={h.annee} data-annee-en-cours={courante ? '' : undefined}
+                    tabIndex={courante ? 0 : undefined} aria-label={courante ? `${h.annee} — ${histoOuvert ? 'replier les années' : `${toutes.length} années, déplier`}` : undefined}
+                    onClick={courante ? (e) => { if ((e.target as Element).closest('.tdb-chiffre') === null) basculer(); } : undefined}
+                    onKeyDown={courante ? (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); basculer(); } } : undefined}>
                     <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
                     <td data-mot="Baux">{h.nbBaux}</td><td data-mot="CA HT">{eur(h.ca)}</td><td data-mot="Apporteurs">{eur(h.apporteurs)}</td><td data-mot="CA net">{eur(h.caNet)}</td>
                     {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : eur(h.commission)}</td>}
@@ -476,6 +517,15 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
               })}
             </tbody>
           </table>
+          </div>
+          <p className="tdb-h-bascule">
+            <button type="button" className="tdb-h-bouton" aria-expanded={histoOuvert} aria-controls="tdb-h-cadre" onClick={basculer} data-deplier-historique>
+              <span className="tdb-h-mention">{toutes.length} années — {histoOuvert ? 'cliquer pour replier' : 'cliquer pour tout afficher'}</span>
+              <span className="tdb-h-chevron" aria-hidden="true">{histoOuvert ? '▾' : '▸'}</span>
+            </button>
+          </p>
+            </>;
+          })()}
         </section>
       )}
       <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
@@ -1063,6 +1113,15 @@ export const CSS_TABLEAU_BORD = `
 .tdb-table thead th{font-size:.78rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .tdb-fort th,.tdb-fort td,td.tdb-fort{font-weight:800}
 .tdb-h4{margin:14px 0 6px;font-size:.98rem}
+.tdb-h-cadre--ouvert{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.tdb-h-cadre--ouvert .tdb-table thead th{position:sticky;top:0;z-index:1;background:var(--color-svv-surface);border-bottom:0;box-shadow:inset 0 -1px 0 var(--color-svv-line)}
+.tdb-h-en-cours{cursor:pointer}
+.tdb-h-en-cours:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.tdb-h-bascule{margin:4px 0 0;display:flex;justify-content:flex-end}
+.tdb-h-bouton{appearance:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 6px 0 10px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.82rem;cursor:pointer}
+.tdb-h-chevron{display:inline-flex;align-items:center;justify-content:center;min-width:32px;font-size:1rem}
+.tdb-h-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+@media (hover:hover){ .tdb-h-bouton:hover{color:var(--color-svv-ink)} }
 .tdb-chiffre{appearance:none;border:0;background:none;padding:6px 4px;min-height:36px;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:var(--color-svv-line-strong);text-underline-offset:3px;border-radius:6px}
 .tdb-chiffre:hover{color:var(--color-svv-red);text-decoration-color:currentColor}
 .tdb-chiffre:focus-visible{outline:2px solid var(--color-svv-red)}

@@ -813,8 +813,10 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await monter('annee');
     expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'B', 'C', 'D', 'E', 'F', 'G']);
     expect(container.querySelectorAll('[data-barre-annee]')).toHaveLength(3);
+    // 🔴 25/10/2026 — le tableau s'ouvre REPLIÉ (l'année en cours seule) : on le déplie pour lire les autres années.
+    await act(async () => { (container.querySelector('[data-deplier-historique]') as HTMLElement).click(); });
     expect(nbsp(container.querySelector('[data-annee-historique="2025"]')?.textContent)).toBe('2025130126 660,04 €4 703,29 €121 956,75 €23 930,60 €+33,2 %');
-    expect(container.querySelector('[data-annee-historique="2026"]')?.className).toBe('tdb-fort');
+    expect(container.querySelector('[data-annee-historique="2026"]')?.classList.contains('tdb-fort')).toBe(true);
     const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await calmer();
@@ -839,6 +841,96 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     donnees = { ...donnees, voirCommissions: false, historique: donnees.historique!.map((h) => ({ ...h, commission: null })) };
     await monter('annee');
     expect(container.querySelector('[data-historique-annees] thead')?.textContent).not.toContain('Commission');
+  });
+
+  describe('🔴 Arno (25/10/2026) — « Année par année » replié sur une ligne, défilement interne au-delà de huit années', () => {
+    const histo = (de: number, a: number) => Array.from({ length: a - de + 1 }, (_, i) => ({ annee: de + i, nbBaux: 10 + i, nb: 10 + i, ca: 1000 * (i + 1), caNet: 900 * (i + 1),
+      apporteurs: 100 * (i + 1), commission: 150 * (i + 1) }));
+    const rangees = () => [...container.querySelectorAll('[data-historique-annees] tbody tr')].map((t) => t.getAttribute('data-annee-historique'));
+    const bouton = () => container.querySelector('[data-deplier-historique]') as HTMLButtonElement;
+    const cadre = () => container.querySelector('[data-historique-cadre]') as HTMLDivElement;
+
+    it('REPLIÉ au chargement : l’en-tête et l’année en cours (en gras), le chevron ▸ et « 8 années — cliquer pour tout afficher »', async () => {
+      donnees = { ...donnees, historique: histo(2019, 2026) };
+      await monter('annee');
+      expect(rangees()).toEqual(['2026']);
+      expect(container.querySelector('[data-historique-annees] thead')?.textContent).toBe('AnnéeBauxCA HTApporteursCA netCommission bruteÉvolution du CA');
+      expect(container.querySelector('[data-annee-historique="2026"]')?.classList.contains('tdb-fort')).toBe(true);
+      // L'évolution de l'année en cours reste calculée sur l'année d'avant, même repliée.
+      expect(nbsp(container.querySelector('[data-annee-historique="2026"] td[data-mot="Évolution du CA"]')?.textContent)).toBe('+14,3 %');
+      expect(nbsp(bouton().textContent)).toBe('8 années — cliquer pour tout afficher▸');
+      expect(bouton().getAttribute('aria-expanded')).toBe('false');
+      expect(cadre().getAttribute('data-historique-cadre')).toBe('replie');
+    });
+
+    it('bascule au CLIC (ligne hors lien, chevron) et au CLAVIER (Entrée, Espace) ; le lien de l’année ouvre l’année sans déplier', async () => {
+      donnees = { ...donnees, historique: histo(2019, 2026) };
+      await monter('annee');
+      const ligne = () => container.querySelector('[data-annee-historique="2026"]') as HTMLElement;
+      await act(async () => { (ligne().querySelector('td') as HTMLElement).click(); });
+      expect(rangees()).toEqual(['2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026']);
+      expect([bouton().getAttribute('aria-expanded'), nbsp(bouton().textContent)]).toEqual(['true', '8 années — cliquer pour replier▾']);
+      await act(async () => { bouton().click(); });
+      expect(rangees()).toEqual(['2026']);
+      await act(async () => { ligne().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(rangees()).toHaveLength(8);
+      await act(async () => { ligne().dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })); });
+      expect(rangees()).toEqual(['2026']);
+      expect(ligne().tabIndex).toBe(0);
+      // Le lien de l'année : il garde son geste (ouvrir l'année) et ne déplie rien.
+      await act(async () => { (ligne().querySelector('.tdb-chiffre') as HTMLElement).click(); });
+      expect(rangees()).toEqual(['2026']);
+      expect(ligne().querySelector('.tdb-chiffre')?.getAttribute('aria-current')).toBe('true');
+      const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+      await act(async () => { bouton().click(); });
+      await act(async () => { (container.querySelector('[data-annee-historique="2021"] .tdb-chiffre') as HTMLElement).click(); });
+      expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2021');
+    });
+
+    it('déplié : hauteur MESURÉE = en-tête + 8 années ; au-delà (12 années), défilement interne positionné sur l’année en cours ; en-tête figé', async () => {
+      // Le rendu simulé : en-tête de 30 px, chaque année 40 px ; le cadre en haut (0).
+      const indice = (el: Element) => [...el.parentElement!.children].indexOf(el);
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        const haut = this.matches('tr[data-annee-historique]') ? 30 + indice(this) * 40 : 0;
+        return { top: haut, bottom: haut + (this.matches('tr[data-annee-historique]') ? 40 : 0), left: 0, right: 0, width: 0, height: 0, x: 0, y: haut, toJSON: () => ({}) } as DOMRect;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) { return this.matches('tr[data-annee-historique]') ? 30 + indice(this) * 40 : 0; });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.matches('tr[data-annee-historique]') ? 40 : 0; });
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return parseFloat(this.style.maxHeight) || 0; });
+      const defile: number[] = [];
+      vi.spyOn(HTMLElement.prototype, 'scrollTop', 'set').mockImplementation(function (this: HTMLElement, v: number) { if (this.matches('[data-historique-cadre]')) defile.push(v); });
+
+      donnees = { ...donnees, annees: histo(2015, 2026).map((h) => h.annee), historique: histo(2015, 2026) };
+      await monter('annee');
+      expect(rangees()).toEqual(['2026']);
+      expect(cadre().style.maxHeight).toBe('');
+      expect(nbsp(bouton().textContent)).toBe('12 années — cliquer pour tout afficher▸');
+      await act(async () => { bouton().click(); });
+      expect(rangees()).toHaveLength(12);
+      expect(cadre().style.maxHeight).toBe(`${30 + 8 * 40}px`);
+      // 2026 est la 12e : son bas (30 + 12 × 40) aligné sur le bas du cadre.
+      expect(defile.at(-1)).toBe(30 + 12 * 40 - (30 + 8 * 40));
+      const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+      expect(css).toContain('.tdb-h-cadre--ouvert{overflow-y:auto;overflow-x:hidden;');
+      expect(css).toContain('.tdb-h-cadre--ouvert .tdb-table thead th{position:sticky;top:0;');
+      expect(cadre().classList.contains('tdb-h-cadre--ouvert')).toBe(true);
+      // Replié : plus de borne ni de défilement interne.
+      await act(async () => { bouton().click(); });
+      expect([cadre().style.maxHeight, cadre().classList.contains('tdb-h-cadre--ouvert')]).toEqual(['', false]);
+    });
+
+    it('huit années ou moins : la borne mesurée égale la hauteur du tableau entier (rien ne défile)', async () => {
+      const indice = (el: Element) => [...el.parentElement!.children].indexOf(el);
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        const haut = this.matches('tr[data-annee-historique]') ? 30 + indice(this) * 40 : 0;
+        return { top: haut, bottom: haut + (this.matches('tr[data-annee-historique]') ? 40 : 0), left: 0, right: 0, width: 0, height: 0, x: 0, y: haut, toJSON: () => ({}) } as DOMRect;
+      });
+      donnees = { ...donnees, historique: histo(2022, 2026) };
+      await monter('annee');
+      await act(async () => { bouton().click(); });
+      expect(rangees()).toHaveLength(5);
+      expect(cadre().style.maxHeight).toBe(`${30 + 5 * 40}px`);
+    });
   });
 
   describe('🔴 Arno (23/10/2026) — Suivi du mois : l’histogramme mois par mois', () => {
