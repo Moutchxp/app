@@ -625,7 +625,17 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
 .loc-suffixe-euros{position:absolute;right:.9em;top:50%;transform:translateY(-50%);color:var(--color-svv-muted);pointer-events:none;user-select:none;-webkit-user-select:none;font-weight:600}
 .loc-bulle-calcul{display:flex;flex-direction:column;gap:4px}
 /* Le montant des honoraires propriétaire (Arno, 21/10/2026) : une case de la largeur des autres montants, la mention dessous. */
-.loc-hono-champ{max-width:22rem;min-width:0}
+.loc-hono-champ{min-width:0}
+/* 🔴 Arno (25/10/2026) — bloc moins haut : le libellé (et son ⓘ) à gauche, le champ à DROITE sur la même ligne, aligné sur le bord droit
+   du bloc comme les montants « … € TTC » dessous ; « soit X € TTC » et la mention passent sous le champ, alignés à droite. Au téléphone
+   (≤ 600 px) : le libellé, puis le champ en pleine largeur. */
+@media (min-width:601px){
+  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) minmax(9rem,13rem);column-gap:16px;row-gap:4px;align-items:center}
+  .loc-hono-champ > .loc-champ-tete{grid-column:1;grid-row:1}
+  .loc-hono-champ > .loc-case-euros{grid-column:2;grid-row:1}
+  .loc-hono-champ > :not(.loc-champ-tete):not(.loc-case-euros){grid-column:1 / -1;justify-self:end;text-align:right}
+  .loc-hono-champ > .loc-hono-mention{justify-content:flex-end}
+}
 .loc-hono-libelle{font-weight:700;color:var(--color-svv-ink);min-width:0;overflow-wrap:anywhere}
 .loc-hono-mention{font-size:.85rem;font-weight:400;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;min-height:1.2em}
 .loc-hono-mention:empty{display:none}

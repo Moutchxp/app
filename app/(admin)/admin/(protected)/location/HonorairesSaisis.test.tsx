@@ -332,3 +332,15 @@ describe('🔴 « Honoraires agence (€ HT) » — la part du locataire au bar�
     expect(barre()).toContain('Sommes dues à l’entrée : les honoraires agence');
   });
 });
+
+describe('🔴 Arno (25/10/2026) — « Honoraires propriétaire » compact : libellé à gauche, champ à droite, mentions dessous à droite', () => {
+  it('l’ordre du champ (libellé + ⓘ, case, « soit … TTC », mention) et la grille au-delà de 600 px', async () => {
+    await preparer();
+    const champ = container.querySelector('[data-hono-montant]') as HTMLElement;
+    expect([...champ.children].map((c) => c.className.split(' ')[0])).toEqual(['loc-champ-tete', 'loc-case-euros', 'loc-hono-ttc', 'loc-hono-mention']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('@media (min-width:601px){\n  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) minmax(9rem,13rem)');
+    expect(css).toContain('.loc-hono-champ > .loc-case-euros{grid-column:2;grid-row:1}');
+    expect(css).toContain('.loc-hono-champ > :not(.loc-champ-tete):not(.loc-case-euros){grid-column:1 / -1;justify-self:end;text-align:right}');
+  });
+});
