@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gestionDuMois, NATURES_BIEN, resumeDuMois, totauxPeriode, type ActiviteCalcul, type ContexteCalcul, type LigneGestion } from './tableauBord';
+import { gestionDepuisJanvier, gestionDuMois, NATURES_BIEN, resumeDuMois, totauxPeriode, type ActiviteCalcul, type ContexteCalcul, type LigneGestion } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026) — « Résumé du mois » : les 5 familles du bas de feuille, sur des lignes fictives. Les égalités sont EXACTES :
@@ -51,5 +51,31 @@ describe('🔴 resumeDuMois', () => {
     expect(r.portefeuille.gagnes).toEqual({ nb: 1, mensuel: 66, annuel: 792 });
     expect(r.portefeuille.perdus).toEqual({ nb: 1, mensuel: 40, annuel: 480 });
     expect(r.portefeuille.solde).toEqual({ mensuel: 26, annuel: 312 });
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — le portefeuille de gestion « depuis le 1er janvier » (pas d’effet boule de neige)', () => {
+  const g = (lotId: number, effetLe: string, entree: boolean, loyerHc: number | null, tauxHt: number | null = 10): LigneGestion => ({
+    lotId, libelle: `Bien ${lotId}`, proprietaire: 'P', effetLe, avant: entree ? 'location_seule' : 'en_gestion', apres: entree ? 'en_gestion' : 'ancienne_gestion',
+    loyerHc, provisions: 0, base: 'hc', tauxHt });
+  it('janvier +150 / mois, février +100 / mois → 250 / mois en février (et non 400) ; / an = × 12', () => {
+    const l = [g(1, '2026-01-10', true, 1500), g(2, '2026-02-05', true, 1000)];
+    expect(gestionDepuisJanvier(l, '2026-01').entrees).toMatchObject({ nb: 1, mensuel: 150, annuel: 1800 });
+    expect(gestionDepuisJanvier(l, '2026-02').entrees).toMatchObject({ nb: 2, mensuel: 250, annuel: 3000 });
+  });
+  it('les sorties sont déduites ; le solde cumulé = la somme des soldes mensuels de l’année, au centime ; rien après le mois affiché', () => {
+    const l = [g(1, '2026-01-10', true, 1500), g(2, '2026-02-05', true, 1000), g(3, '2026-03-20', false, 803.33), g(4, '2026-04-02', true, 999), g(5, '2026-12-01', true, 5000)];
+    const c = gestionDepuisJanvier(l, '2026-04');
+    expect([c.entrees.nb, c.sorties.nb]).toEqual([3, 1]);
+    const somme = ['2026-01', '2026-02', '2026-03', '2026-04'].reduce((s, m) => s + gestionDuMois(l, m).balanceMensuelle, 0);
+    expect(Math.round(c.solde.mensuel * 100)).toBe(Math.round(somme * 100));
+    expect(Math.round(c.solde.mensuel * 100)).toBe(Math.round((150 + 100 + 99.9 - 80.333) * 100));
+    expect(c.solde.annuel).toBeCloseTo(c.solde.mensuel * 12, 9);
+  });
+  it('les biens sans loyer de départ : non comptés, comptés à part', () => {
+    const c = gestionDepuisJanvier([g(1, '2026-01-10', true, 1500), g(2, '2026-02-05', true, null), g(3, '2026-02-07', false, 900, null)], '2026-03');
+    expect(c.sansLoyer).toBe(2);
+    expect([c.entrees.nb, c.entrees.mensuel, c.sorties.nb, c.sorties.mensuel]).toEqual([2, 150, 1, 0]);
+    expect(c.entrees.biens.map((b) => [b.lotId, b.mois, b.mensuel])).toEqual([[1, '2026-01', 150], [2, '2026-02', null]]);
   });
 });

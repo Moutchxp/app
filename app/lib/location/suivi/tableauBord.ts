@@ -1130,6 +1130,36 @@ export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): Ge
     sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length };
 }
 
+/**
+ * 🔴 Arno (25/10/2026) — LE PORTEFEUILLE DE GESTION « DEPUIS LE 1ER JANVIER » : les entrées et les sorties de gestion du 1er janvier au
+ * mois affiché (« AAAA-MM »), avec la MÊME source et le MÊME calcul que la ligne du mois (`gestionDuMois`) : / mois = la SOMME des
+ * honoraires de gestion mensuels de chaque entrée (ou sortie) — chaque gain mensuel compte UNE fois (pas d'effet boule de neige :
+ * janvier +150, février +100 → 250 / mois en février, pas 400) ; / an = × 12. Les biens sans loyer de départ ne sont pas comptés
+ * (`sansLoyer`). PUR.
+ */
+export interface MouvementGestion { lotId: number | null; libelle: string; mois: string; mensuel: number | null }
+export interface GestionDepuisJanvier {
+  entrees: { nb: number; mensuel: number; annuel: number; biens: MouvementGestion[] };
+  sorties: { nb: number; mensuel: number; annuel: number; biens: MouvementGestion[] };
+  solde: { mensuel: number; annuel: number }; sansLoyer: number;
+}
+export function gestionDepuisJanvier(lignes: readonly LigneGestion[], mois: string): GestionDepuisJanvier {
+  const annee = mois.slice(0, 4);
+  const moisDeLAnnee = Array.from({ length: Number(mois.slice(5, 7)) }, (_, i) => `${annee}-${String(i + 1).padStart(2, '0')}`);
+  const parMois = moisDeLAnnee.map((m) => gestionDuMois(lignes, m));
+  const vers = (l: LigneGestion): MouvementGestion => ({ lotId: l.lotId, libelle: l.libelle, mois: l.effetLe.slice(0, 7), mensuel: honorairesGestionMensuels(l) });
+  const entrees = parMois.flatMap((g) => g.nouvelles).map(vers);
+  const sorties = parMois.flatMap((g) => g.perdues).map(vers);
+  const gagne = parMois.reduce((s, g) => s + g.gagneMensuel, 0);
+  const perdu = parMois.reduce((s, g) => s + g.perduMensuel, 0);
+  return {
+    entrees: { nb: entrees.length, mensuel: gagne, annuel: gagne * 12, biens: entrees },
+    sorties: { nb: sorties.length, mensuel: perdu, annuel: perdu * 12, biens: sorties },
+    solde: { mensuel: gagne - perdu, annuel: (gagne - perdu) * 12 },
+    sansLoyer: parMois.reduce((s, g) => s + g.sansLoyer, 0),
+  };
+}
+
 // ── 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : LE BAS DE FEUILLE PAR FAMILLES ─────────────────────────────────────────────────────────
 
 /**

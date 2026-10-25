@@ -1186,8 +1186,9 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     await septembre();
     expect(bas().querySelector('h3')?.textContent).toBe('Résumé du mois — Septembre 2026');
     expect([...bas().querySelectorAll('[data-famille]')].map((f) => [f.getAttribute('data-famille'), f.querySelector('h4')?.textContent])).toEqual([
-      ['resultat', 'Résultat du mois'], ['statuts', 'CA par statut du bien'], ['gestion', 'Honoraires avec / sans gestion'],
-      ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)'], ['negociateurs', 'Négociateur — Jean-Baptiste PONS']]);
+      // 🔴 Arno (25/10/2026, suite) — le Portefeuille à gauche (sous le Résultat), Honoraires avec / sans à droite.
+      ['resultat', 'Résultat du mois'], ['statuts', 'CA par statut du bien'], ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)'],
+      ['gestion', 'Honoraires avec / sans gestion'], ['negociateurs', 'Négociateur — Jean-Baptiste PONS']]);
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
       .toEqual(['CA HT global', '− Honoraires d’apporteurs', '− Commissions collègues (apport d’apporteurs)', '= CA HT net']);
     expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
@@ -1370,5 +1371,29 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     const tot = euros(container.querySelector('[data-total-collegues-ca]')?.textContent);
     expect(tot).toBe([...container.querySelectorAll('tr[data-collegue-mois]:not([data-collegue-mois="total"]) [data-mot="CA apporté"]')]
       .reduce((s2, e) => s2 + euros((e.querySelector('[data-pile="total"]') ?? e).textContent), 0));
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — Portefeuille de gestion : « Depuis le 1er janvier »', () => {
+  it('sous le Solde du mois : entrées, sorties, solde mensuel cumulés (chaque gain compté une fois) ; un montant ouvre la liste des biens', async () => {
+    donnees = { ...donnees, gestionLignes: [
+      { lotId: 7, libelle: '1 rue Fictive', proprietaire: 'DUPONT', effetLe: '2026-01-12', avant: 'location_seule', apres: 'en_gestion', loyerHc: 1500, provisions: 0, base: 'hc', tauxHt: 10 },
+      { lotId: 8, libelle: '2 rue Fictive', proprietaire: 'DURAND', effetLe: '2026-02-03', avant: 'location_seule', apres: 'en_gestion', loyerHc: 1000, provisions: 0, base: 'hc', tauxHt: 10 },
+      { lotId: 9, libelle: '3 rue Fictive', proprietaire: 'MARTIN', effetLe: '2026-09-30', avant: 'en_gestion', apres: 'ancienne_gestion', loyerHc: 800, provisions: 0, base: 'hc', tauxHt: 5 },
+      { lotId: 10, libelle: '4 rue Fictive', proprietaire: 'LEROY', effetLe: '2026-05-30', avant: 'location_seule', apres: 'en_gestion', loyerHc: null, provisions: null, base: null, tauxHt: null },
+    ] };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const c = container.querySelector('[data-famille="portefeuille"] [data-portefeuille-cumul]') as HTMLElement;
+    expect(c.querySelector('.fdm-cumul-titre')?.textContent).toBe('Depuis le 1er janvier 2026');
+    const ligne = (k: string) => [...c.querySelectorAll(`[data-cumul="${k}"] th, [data-cumul="${k}"] td`)].map((x) => nbsp(x.textContent));
+    expect(ligne('entrees')).toEqual(['Gestions entrées', '3', '250,00 €', '3 000,00 €']);
+    expect(ligne('sorties')).toEqual(['Gestions sorties', '1', '−40,00 €', '−480,00 €']);
+    expect(ligne('solde')).toEqual(['Solde mensuel', '+2', '+210,00 €', '+2 520,00 €']);
+    expect(c.querySelector('[data-cumul="solde"]')?.classList.contains('tdb-signe--positif')).toBe(true);
+    expect(c.querySelector('[data-cumul-sans-loyer]')?.textContent).toBe('1 bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.');
+    await act(async () => { (c.querySelector('[data-cumul="entrees"] button') as HTMLButtonElement).click(); });
+    expect([...c.querySelectorAll('[data-cumul-biens="entrees"] li')].map((li) => nbsp(li.textContent)))
+      .toEqual(['1 rue FictiveJanvier 2026150,00 € / mois', '2 rue FictiveFévrier 2026100,00 € / mois', '4 rue FictiveMai 2026sans loyer — non compté']);
   });
 });

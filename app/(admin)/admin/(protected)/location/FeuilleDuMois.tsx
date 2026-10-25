@@ -11,7 +11,7 @@ import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBie
 import { CascadeNegociateurMois, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -74,6 +74,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
   const r = resumeDuMois(t, duMois, g, negos, ctx);
+  // 🔴 Arno (25/10/2026) — le portefeuille de gestion depuis le 1er janvier (même source et même calcul que la ligne du mois).
+  const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle);
+  const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
@@ -258,21 +261,6 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             </table>
           </section>
 
-          <section className="fdm-famille" aria-labelledby="fdm-f3" data-famille="gestion">
-            <h4 id="fdm-f3">Honoraires avec / sans gestion</h4>
-            <table className="fdm-mini">
-              <thead><tr><th scope="col">Location</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
-              <tbody>
-                <tr data-gestion-ca="avec"><th scope="row">Avec gestion</th><td data-mot="Dossiers">{r.gestion.avec.nb}</td><td data-mot="CA HT" data-total="avec">{eur(r.gestion.avec.ca)}</td>
-                  <td data-mot="Part">{r.gestion.avec.part === null ? '—' : pctUn(r.gestion.avec.part)}</td></tr>
-                <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot="CA HT" data-total="sans">{eur(r.gestion.sans.ca)}</td>
-                  <td data-mot="Part">{r.gestion.sans.part === null ? '—' : pctUn(r.gestion.sans.part)}</td></tr>
-              </tbody>
-              <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb}</td>
-                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
-            </table>
-          </section>
-
           <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
             <h4 id="fdm-f4">Portefeuille de gestion (honoraires de gestion HT)</h4>
             <table className="fdm-mini">
@@ -289,6 +277,50 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 <td data-mot="/ mois" data-total="balance" colSpan={2}>{signeEur(r.portefeuille.solde.mensuel)} / mois · {signeEur(r.portefeuille.solde.annuel)} / an</td></tr></tfoot>
             </table>
             {g.sansLoyer > 0 && <p className="loc-muet tdb-note">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</p>}
+            {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
+            <div className="fdm-cumul" data-portefeuille-cumul>
+              <p className="fdm-cumul-titre">Depuis le 1er janvier {annee}</p>
+              <table className="fdm-mini">
+                <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
+                <tbody>
+                  <tr data-cumul="entrees"><th scope="row">Gestions entrées</th><td data-mot="Biens">{cumul.entrees.nb}</td>
+                    <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{eur(cumul.entrees.mensuel)}</button></td>
+                    <td data-mot="/ an">{eur(cumul.entrees.annuel)}</td></tr>
+                  <tr data-cumul="sorties"><th scope="row">Gestions sorties</th><td data-mot="Biens">{cumul.sorties.nb}</td>
+                    <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'sorties'} onClick={() => setCumulOuvert((v) => (v === 'sorties' ? null : 'sorties'))}>{cumul.sorties.mensuel === 0 ? eur(0) : `−${eur(cumul.sorties.mensuel)}`}</button></td>
+                    <td data-mot="/ an">{cumul.sorties.annuel === 0 ? eur(0) : `−${eur(cumul.sorties.annuel)}`}</td></tr>
+                </tbody>
+                <tfoot><tr data-cumul="solde" className={`tdb-signe tdb-signe--${sensSolde(cumul.solde.mensuel)}`}><th scope="row">Solde mensuel</th>
+                  <td data-mot="Biens">{cumul.entrees.nb - cumul.sorties.nb >= 0 ? '+' : '−'}{Math.abs(cumul.entrees.nb - cumul.sorties.nb)}</td>
+                  <td data-mot="/ mois">{signeEur(cumul.solde.mensuel)}</td><td data-mot="/ an">{signeEur(cumul.solde.annuel)}</td></tr></tfoot>
+              </table>
+              {cumulOuvert !== null && (
+                <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
+                  {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
+                    <li key={`${x.lotId ?? 'f'}-${x.mois}-${i}`}>
+                      <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
+                      <span>{x.mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(x.mensuel)} / mois`}</span>
+                    </li>))}
+                  {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
+                </ul>
+              )}
+              {cumul.sansLoyer > 0 && <p className="loc-muet tdb-note" data-cumul-sans-loyer>{cumul.sansLoyer} bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.</p>}
+            </div>
+          </section>
+
+          <section className="fdm-famille" aria-labelledby="fdm-f3" data-famille="gestion">
+            <h4 id="fdm-f3">Honoraires avec / sans gestion</h4>
+            <table className="fdm-mini">
+              <thead><tr><th scope="col">Location</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <tbody>
+                <tr data-gestion-ca="avec"><th scope="row">Avec gestion</th><td data-mot="Dossiers">{r.gestion.avec.nb}</td><td data-mot="CA HT" data-total="avec">{eur(r.gestion.avec.ca)}</td>
+                  <td data-mot="Part">{r.gestion.avec.part === null ? '—' : pctUn(r.gestion.avec.part)}</td></tr>
+                <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot="CA HT" data-total="sans">{eur(r.gestion.sans.ca)}</td>
+                  <td data-mot="Part">{r.gestion.sans.part === null ? '—' : pctUn(r.gestion.sans.part)}</td></tr>
+              </tbody>
+              <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb}</td>
+                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+            </table>
           </section>
 
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
@@ -715,6 +747,13 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-mini tfoot tr.tdb-signe--negatif td,.fdm-mini tfoot tr.tdb-signe--negatif th{color:var(--color-svv-red)}
 .fdm-mini tfoot tr.tdb-signe--nul td,.fdm-mini tfoot tr.tdb-signe--nul th{color:var(--color-svv-muted)}
 .fdm-nego{display:flex;flex-direction:column;gap:2px}
+.fdm-cumul{margin-top:10px;padding-top:10px;border-top:1px solid var(--color-svv-line-strong);display:flex;flex-direction:column;gap:6px}
+.fdm-cumul-titre{margin:0;font-size:.84rem;font-weight:800;color:var(--color-svv-ink)}
+.fdm-cumul-biens{list-style:none;margin:0;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:4px;font-size:.84rem}
+.fdm-cumul-biens li{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.fdm-cumul-biens li > span:first-child{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.fdm-cumul-biens li > span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums}
+.fdm-cumul-biens small{color:var(--color-svv-muted)}
 /* 🔴 Arno (25/10/2026) — Apporteurs du mois : badges discrets ; le meilleur légèrement surligné ; Sans apporteur et Total à part. */
 .fdm-sorte{display:inline-block;margin-left:6px;border-radius:999px;padding:0 7px;font-size:.68rem;font-weight:700;line-height:1.6;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-muted);vertical-align:middle}
 .fdm-sorte--interne{border-color:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
