@@ -6,7 +6,7 @@ import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
   cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
   sectionNegociateurs, totauxPeriode, type TotauxPeriode, variation,
-  type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
+  type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
@@ -76,6 +76,9 @@ export function cumulDeLAdresse(recherche: string = typeof window === 'undefined
  *   · A le mois (et N−1) · B le cumul de l'année, en courbes · C les apporteurs · D la gestion récurrente sur 12 mois ·
  *     E les indicateurs (vacance, préavis, GLI / Visale, parkings) · F les négociateurs (droit « Voir les commissions ») ·
  *     G l'export .xlsx, un onglet par mois ;
+ *   · 🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : B (le cumul mois par mois) et D (la gestion récurrente sur 12 mois et
+ *     la commission récurrente année par année) sont RETIRÉS (le cumul : bouton « Cumul » de « Année par année » ; la gestion : le
+ *     Portefeuille du « Résumé de la période ») ; F (négociateurs) prend la place de B ; F et C se replient par défaut (`BlocReplie`) ;
  *   · 🔴 TOUT CHIFFRE S'OUVRE : la liste des baux (ou des biens) qui le font.
  * Les calculs sont ceux de `tableauBord.ts` (reproduction exacte des formules du fichier), sur les lignes de la base.
  */
@@ -120,7 +123,7 @@ type Detail = { titre: string; ids?: (number | string)[]; lots?: { titre: string
 
 /**
  * Arno (23/10/2026) — DEUX BRIQUES : `vue="mois"` (« Suivi du mois » : onglets des mois, section A et la feuille du mois) et
- * `vue="annee"` (« Suivi annuel » : sections B à G). Les filtres, les 4 tuiles et la liste qui s'ouvre sont dans les deux.
+ * `vue="annee"` (« Suivi annuel » : H, le Résumé de la période, F, C, E, G). Les filtres, les 4 tuiles et la liste qui s'ouvre sont dans les deux.
  */
 // `administrateur` : reçu de la page ; le lien « Gérer les apporteurs → » qu'il ouvrait est retiré (Arno, 23/10/2026 : la brique
 // « Annuaire des apporteurs » de l'accueil des Outils de suivi le remplace).
@@ -257,10 +260,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const varCumul = cumul.caCumuleN1 === 0 ? null : (cumul.caCumule - cumul.caCumuleN1) / cumul.caCumuleN1;
   const idsCumul = B.slice(0, mois).flatMap((p) => p.ids);
   const C = sectionApporteurs(lignes, ctx, periode, moisP);
-  const moisFinGestion = `${annee}-${String(mois).padStart(2, '0')}`;
   // 🔴 Arno (25/10/2026, 426) — la règle des annexes : à partir de la bascule, une annexe ne compte ni en entrée, ni en sortie, ni dans le stock.
   const regleA = regleAnnexesDe(d);
   const stockA = stockGestion(d.gestion.stock, d.gestion.transitions, regleA);
+  const moisFinGestion = `${annee}-${String(mois).padStart(2, '0')}`;
   const D = sectionGestion(d.gestion.transitions, stockA, annee === Number(jour.slice(0, 4)) && mois > Number(jour.slice(5, 7)) ? jour.slice(0, 7) : moisFinGestion, regleA);
   const Dm = D.at(-1)!;
   const lignesPeriode = lignesDePeriode(lignes, periode);
@@ -628,83 +631,11 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             mention={filtres === null ? null : <p className="loc-muet tdb-note" data-filtres-actifs>Filtres actifs (comme les tuiles) : {filtres}.</p>} />
         );
       })()}
-      <section className="tdb-section" aria-labelledby="tdb-b" data-section="B">
-        <h3 id="tdb-b">Le cumul de {annee}, mois par mois</h3>
-        <CourbeCumul courant={B.slice(0, Math.max(mois, B.reduce((k, p, i) => (p.nb > 0 ? i + 1 : k), 0))).map((p) => p.caCumule)}
-          n1={sansN1 ? null : B.map((p) => p.caCumuleN1)} annee={annee} selection={mois}
-          aria={`CA HT cumulé ${annee}${sansN1 ? '' : ` et ${annee - 1}`}, de janvier à décembre`} />
-        <table className="tdb-table tdb-table--mois">
-          <thead><tr><th scope="col">Mois</th><th scope="col">Baux</th><th scope="col">CA HT</th><th scope="col">Cumul {annee}</th><th scope="col">Cumul {annee - 1}</th></tr></thead>
-          <tbody>
-            {B.filter((p, i) => i < mois || p.nb > 0).map((p) => (
-              <tr key={p.mois} className={p.mois === moisFinGestion ? 'tdb-fort' : undefined}>
-                <th scope="row">{NOMS_MOIS[Number(p.mois.slice(5)) - 1]}</th>
-                <td data-mot="Baux">{chiffre(String(p.nb), `Baux — ${NOMS_MOIS[Number(p.mois.slice(5)) - 1]} ${annee}`, p.ids)}</td>
-                <td data-mot="CA HT">{chiffre(eur(p.ca), `CA HT — ${NOMS_MOIS[Number(p.mois.slice(5)) - 1]} ${annee}`, p.ids)}</td>
-                <td data-mot={`Cumul ${annee}`}>{eur(p.caCumule)}</td>
-                <td data-mot={`Cumul ${annee - 1}`}>{sansN1 ? '—' : eur(p.caCumuleN1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {/* 🔴 Arno (25/10/2026, accord 1a) — plus de boutons de portée : Apporteurs, indicateurs et négociateurs suivent la période Début / Fin. */}
-      <section className="tdb-section" aria-labelledby="tdb-c" data-section="C">
-        <h3 id="tdb-c">Les apporteurs — {libellePeriode}</h3>
-        {C.length === 0 ? <p className="loc-muet">Aucun bail apporté sur la période.</p> : (
-          <table className="tdb-table tdb-table--large">
-            <thead><tr><th scope="col">Apporteur</th><th scope="col">Baux</th><th scope="col">CA apporté HT</th><th scope="col">Commissions</th><th scope="col">Reste à l’agence</th><th scope="col">Coût pour 1 € de CA</th></tr></thead>
-            <tbody>
-              {C.map((l) => (
-                <tr key={`${l.apporteurId ?? l.nom}`} data-apporteur-ligne={l.apporteurId ?? l.nom}>
-                  <th scope="row">{l.nom}{l.type && <small className="loc-muet"> · {l.type}</small>}</th>
-                  <td data-mot="Baux">{chiffre(String(l.nb), `Baux apportés — ${l.nom}`, l.ids)}</td>
-                  <td data-mot="CA apporté HT">{chiffre(eur(l.ca), `CA apporté — ${l.nom}`, l.ids)}</td>
-                  <td data-mot="Commissions">{eur(l.commissions)}</td>
-                  <td data-mot="Reste à l’agence">{eur(l.net)}</td>
-                  <td data-mot="Coût pour 1 € de CA">{l.coutParEuro === null ? '—' : `${l.coutParEuro.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="tdb-section" aria-labelledby="tdb-d" data-section="D">
-        <h3 id="tdb-d">La gestion récurrente — 12 mois</h3>
-        {!d.gestion.disponible ? <p className="loc-muet">Le statut du bien (migration 403) n’est pas encore en base.</p> : (
-          <>
-            <p className="tdb-ligne-chiffres">
-              <span>Entrées : <strong>{Dm.entrees}</strong></span><span>Sorties : <strong>{Dm.sorties}</strong></span>
-              <span>Solde : <strong>{Dm.solde >= 0 ? '+' : '−'}{Math.abs(Dm.solde)}</strong></span><span>Portefeuille : <strong>{Dm.stock}</strong> biens</span>
-            </p>
-            <CourbeGestion points={D} onMois={(p) => setDetail({ titre: `Gestion — ${NOMS_MOIS[Number(p.mois.slice(5)) - 1].toLowerCase()} ${p.mois.slice(0, 4)}`, lots: [{ titre: 'Entrés en gestion', ids: p.lotsEntres }, { titre: 'Sortis de la gestion', ids: p.lotsSortis }] })} />
-          </>
-        )}
-        <GestionRecurrenteAnnees annees={gestionRecurrenteParAnnee(d.recurrents ?? [], d.apporteurs, d.aujourdhui ?? aujourdhuiParis()).filter((x) => x.annee >= P.anneeDebut && x.annee <= P.anneeFin)} />
-      </section>
-
-      <section className="tdb-section" aria-labelledby="tdb-e" data-section="E">
-        <h3 id="tdb-e">Indicateurs — {libellePeriode}</h3>
-        <ul className="tdb-indicateurs">
-          <li><span className="tdb-tuile-mot">Vacance moyenne avant l’entrée</span>
-            {chiffre(E.vacanceMoyenneJours === null ? '—' : `${Math.round(E.vacanceMoyenneJours)} j`, 'Baux dont la vacance est connue', E.vacanceIds, 'vacance')}
-            <small className="loc-muet">{E.vacanceIds.length} bail(aux) dont la sortie précédente est connue</small></li>
-          <li><span className="tdb-tuile-mot">Préavis reçus</span><strong className="tdb-indic">{E.preavis}</strong>
-            <small className="loc-muet">sur la période</small></li>
-          <li><span className="tdb-tuile-mot">Part GLI / Visale</span>
-            {chiffre(pct(E.partGaranties), 'Baux avec GLI ou Visale', E.garantiesIds, 'garanties')}
-            <small className="loc-muet">parmi {E.assuranceConnue} bail(aux) renseigné(s)</small></li>
-          <li><span className="tdb-tuile-mot">Part des parkings</span>
-            {chiffre(pct(E.partParkingNb), 'Parkings et box', E.parkingIds, 'parkings')}
-            <small className="loc-muet">{pct(E.partParkingCa)} du CA</small></li>
-        </ul>
-      </section>
-
       {(d.voirCommissions || propre !== undefined) && (
-        <section className="tdb-section" aria-labelledby="tdb-f" data-section="F">
-          <h3 id="tdb-f">{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</h3>
+        /* 🔴 Arno (25/10/2026) — À LA PLACE du cumul mois par mois (déplacé, pas copié ; calculs et confidentialité inchangés), REPLIÉ PAR
+           DÉFAUT sur une ligne : titre, nombre de lignes et commission brute totale (le bloc n'existe que pour qui a le droit de la voir). */
+        <BlocReplie id="tdb-f" section="F" titre={<>{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</>}
+          resume={`${F.length} ligne${F.length > 1 ? 's' : ''} · commission brute ${eur(sommeAffichee(F.map((l) => l.totaux.commission)))}`}>
           <p className="loc-muet tdb-note">Commission brute = taux × (CA HT − commissions des apporteurs) + primes de nouvelle gestion − rétrocessions — la formule du suivi mensuel.</p>
           {F.length === 0 ? <p className="loc-muet">Aucune activité sur la période.</p> : (
             <table className="tdb-table tdb-table--large">
@@ -726,8 +657,48 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
               </tbody>
             </table>
           )}
-        </section>
+        </BlocReplie>
       )}
+
+      {/* 🔴 Arno (25/10/2026, accord 1a) — plus de boutons de portée : Apporteurs, indicateurs et négociateurs suivent la période Début / Fin. */}
+      {/* 🔴 Arno (25/10/2026) — REPLIÉ PAR DÉFAUT sur une ligne : titre, nombre d'apporteurs et CA apporté total ; le tableau, inchangé, se déplie. */}
+      <BlocReplie id="tdb-c" section="C" titre={<>Les apporteurs — {libellePeriode}</>}
+        resume={`${C.length} apporteur${C.length > 1 ? 's' : ''} · CA apporté ${eur(sommeAffichee(C.map((l) => l.ca)))}`}>
+        {C.length === 0 ? <p className="loc-muet">Aucun bail apporté sur la période.</p> : (
+          <table className="tdb-table tdb-table--large">
+            <thead><tr><th scope="col">Apporteur</th><th scope="col">Baux</th><th scope="col">CA apporté HT</th><th scope="col">Commissions</th><th scope="col">Reste à l’agence</th><th scope="col">Coût pour 1 € de CA</th></tr></thead>
+            <tbody>
+              {C.map((l) => (
+                <tr key={`${l.apporteurId ?? l.nom}`} data-apporteur-ligne={l.apporteurId ?? l.nom}>
+                  <th scope="row">{l.nom}{l.type && <small className="loc-muet"> · {l.type}</small>}</th>
+                  <td data-mot="Baux">{chiffre(String(l.nb), `Baux apportés — ${l.nom}`, l.ids)}</td>
+                  <td data-mot="CA apporté HT">{chiffre(eur(l.ca), `CA apporté — ${l.nom}`, l.ids)}</td>
+                  <td data-mot="Commissions">{eur(l.commissions)}</td>
+                  <td data-mot="Reste à l’agence">{eur(l.net)}</td>
+                  <td data-mot="Coût pour 1 € de CA">{l.coutParEuro === null ? '—' : `${l.coutParEuro.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </BlocReplie>
+
+      <section className="tdb-section" aria-labelledby="tdb-e" data-section="E">
+        <h3 id="tdb-e">Indicateurs — {libellePeriode}</h3>
+        <ul className="tdb-indicateurs">
+          <li><span className="tdb-tuile-mot">Vacance moyenne avant l’entrée</span>
+            {chiffre(E.vacanceMoyenneJours === null ? '—' : `${Math.round(E.vacanceMoyenneJours)} j`, 'Baux dont la vacance est connue', E.vacanceIds, 'vacance')}
+            <small className="loc-muet">{E.vacanceIds.length} bail(aux) dont la sortie précédente est connue</small></li>
+          <li><span className="tdb-tuile-mot">Préavis reçus</span><strong className="tdb-indic">{E.preavis}</strong>
+            <small className="loc-muet">sur la période</small></li>
+          <li><span className="tdb-tuile-mot">Part GLI / Visale</span>
+            {chiffre(pct(E.partGaranties), 'Baux avec GLI ou Visale', E.garantiesIds, 'garanties')}
+            <small className="loc-muet">parmi {E.assuranceConnue} bail(aux) renseigné(s)</small></li>
+          <li><span className="tdb-tuile-mot">Part des parkings</span>
+            {chiffre(pct(E.partParkingNb), 'Parkings et box', E.parkingIds, 'parkings')}
+            <small className="loc-muet">{pct(E.partParkingCa)} du CA</small></li>
+        </ul>
+      </section>
 
       <section className="tdb-section tdb-export" aria-labelledby="tdb-g" data-section="G">
         <h3 id="tdb-g">Export</h3>
@@ -738,6 +709,30 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 
       {detail !== null && <ListeDetail detail={detail} parId={parId} ctx={ctx} voirCommissions={d.voirCommissions} onFermer={() => setDetail(null)} />}
     </div>
+  );
+}
+
+/** La somme des montants AFFICHÉS (chacun au centime) : le total d'une ligne repliée égale la somme de son tableau, au centime. PUR. */
+export const sommeAffichee = (xs: readonly number[]): number => xs.reduce((t, x) => t + Math.round((x + Number.EPSILON) * 100), 0) / 100;
+
+/**
+ * 🔴 Arno (25/10/2026) — UN BLOC REPLIÉ PAR DÉFAUT (négociateurs, apporteurs du Suivi annuel) : une ligne — titre, résumé, chevron — qui se
+ * déplie au clic (sur la ligne ou le chevron), à Entrée ou Espace (un vrai bouton) ; replié à chaque chargement. Déplié : le contenu
+ * d'avant, inchangé, avec la mécanique de « Année par année » (défilement interne au-delà d'une hauteur, en-tête de tableau figé).
+ */
+function BlocReplie({ id, section, titre, resume, children }: { id: string; section: string; titre: ReactNode; resume: string; children: ReactNode }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <section className={`tdb-section tdb-replie${ouvert ? ' tdb-replie--ouvert' : ''}`} aria-labelledby={id} data-section={section} data-replie={ouvert ? 'ouvert' : 'replie'}>
+      <h3 id={id} className="tdb-replie-titre">
+        <button type="button" className="tdb-replie-ligne" aria-expanded={ouvert} aria-controls={`${id}-contenu`} onClick={() => setOuvert((o) => !o)} data-deplier={section}>
+          <span className="tdb-replie-mot">{titre}</span>
+          <span className="tdb-replie-resume" data-resume-replie={section}>{resume}</span>
+          <span className="tdb-h-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+        </button>
+      </h3>
+      {ouvert && <div className="tdb-h-cadre tdb-h-cadre--ouvert tdb-replie-cadre" id={`${id}-contenu`} data-contenu-replie={section}>{children}</div>}
+    </section>
   );
 }
 
@@ -924,44 +919,8 @@ interface Barre { cle: number; libelle: string; valeur: number | null; n1?: numb
 /** Le sens d'un nombre, pour sa couleur : positif (vert), négatif (rouge), nul (gris). PUR. */
 export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'positif' : x < 0 ? 'negatif' : 'nul');
 
-/** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
-/**
- * 🔴 Arno (25/10/2026) — LA COMMISSION RÉCURRENTE SUR LA GESTION, TOUS BIENS, ANNÉE PAR ANNÉE : honoraires de gestion perçus HT et
- * commissions à reverser HT, par apporteur et au total (sans filtre : toutes les affaires « Récurrent »). Recalculé à chaque lecture.
- */
-export function GestionRecurrenteAnnees({ annees }: { annees: readonly AnneeGestionRecurrente[] }) {
-  if (annees.length === 0) return null;
-  const avecCollegue = annees.some((a) => a.total.collegue !== 0);
-  const eu = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-  return (
-    <div data-gestion-recurrente-annees>
-      <h4 className="tdb-h4">Commission récurrente sur la gestion — année par année <small className="loc-muet">(tous biens)</small></h4>
-      <table className="tdb-table tdb-table--large">
-        <thead><tr><th scope="col">Année · apporteur</th><th scope="col">Honoraires de gestion perçus HT</th><th scope="col">Commissions à reverser HT</th>
-          {avecCollegue && <th scope="col">dont collègue HT</th>}</tr></thead>
-        <tbody>
-          {annees.flatMap((a) => [
-            ...a.lignes.map((l) => (
-              <tr key={`${a.annee}-${l.apporteurId}`} data-gestion-annee={a.annee} data-gestion-apporteur={l.apporteurId}>
-                <th scope="row">{a.annee} · {l.nom}</th>
-                <td data-mot="Honoraires de gestion perçus HT">{eu(l.honoraires)}</td>
-                <td data-mot="Commissions à reverser HT">{eu(l.commission + l.collegue)}</td>
-                {avecCollegue && <td data-mot="dont collègue HT">{eu(l.collegue)}</td>}
-              </tr>
-            )),
-            <tr key={`${a.annee}-total`} className="tdb-fort" data-gestion-total={a.annee}>
-              <th scope="row">Total {a.annee}</th>
-              <td data-mot="Honoraires de gestion perçus HT">{eu(a.total.honoraires)}</td>
-              <td data-mot="Commissions à reverser HT">{eu(a.total.commission + a.total.collegue)}</td>
-              {avecCollegue && <td data-mot="dont collègue HT">{eu(a.total.collegue)}</td>}
-            </tr>,
-          ])}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
+/** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
   if (info.compte !== undefined) return <BulleCompte info={info} sous={sous} />;
   const { courant: c, precedent: p } = info;
@@ -1270,37 +1229,6 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
     })} />;
 }
 
-/** D — le portefeuille en gestion (trait) et les entrées / sorties de chaque mois (barres), 12 mois ; un mois s'ouvre. */
-function CourbeGestion({ points, onMois }: { points: ReturnType<typeof sectionGestion>; onMois: (p: ReturnType<typeof sectionGestion>[number]) => void }) {
-  const L = 640; const H = 220; const m = { g: 40, d: 40, h: 26, b: 28 };
-  const maxStock = Math.max(1, ...points.map((p) => p.stock));
-  const minStock = Math.min(...points.map((p) => p.stock));
-  const bas = Math.max(0, minStock - Math.ceil((maxStock - minStock) * 0.2) - 1);
-  const maxMvt = Math.max(1, ...points.map((p) => Math.max(p.entrees, p.sorties)));
-  const pas = (L - m.g - m.d) / 12;
-  const xc = (i: number): number => m.g + pas * (i + 0.5);
-  const yS = (v: number): number => H - m.b - ((v - bas) * (H - m.h - m.b)) / Math.max(1, maxStock - bas);
-  const hB = (v: number): number => (v * (H - m.h - m.b) * 0.45) / maxMvt;
-  return (
-    <figure className="tdb-courbe" data-courbe="gestion">
-      <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label="Biens en gestion sur 12 mois, entrées et sorties">
-        <line x1={m.g} x2={L - m.d} y1={H - m.b} y2={H - m.b} className="tdb-grille" />
-        {points.map((p, i) => (
-          <g key={p.mois} className="tdb-mois-gestion" role="button" tabIndex={0} aria-label={`${NOMS_MOIS[Number(p.mois.slice(5)) - 1]} ${p.mois.slice(0, 4)} : ${p.entrees} entrée(s), ${p.sorties} sortie(s), ${p.stock} biens`}
-            onClick={() => onMois(p)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMois(p); } }}>
-            <rect x={xc(i) - pas / 2} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-cible" />
-            <rect x={xc(i) - 9} y={H - m.b - hB(p.entrees)} width={8} height={hB(p.entrees)} className="tdb-barre-entree" />
-            <rect x={xc(i) + 1} y={H - m.b - hB(p.sorties)} width={8} height={hB(p.sorties)} className="tdb-barre-sortie" />
-            <text x={xc(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{COURT[Number(p.mois.slice(5)) - 1]}</text>
-          </g>
-        ))}
-        <path d={points.map((p, i) => `${i === 0 ? 'M' : 'L'}${xc(i).toFixed(1)},${yS(p.stock).toFixed(1)}`).join(' ')} className="tdb-trait" />
-        {points.map((p, i) => <text key={`s${p.mois}`} x={xc(i)} y={yS(p.stock) - 8} textAnchor="middle" className="tdb-axe tdb-axe--fort">{p.stock}</text>)}
-      </svg>
-      <figcaption className="loc-muet"><span className="tdb-legende tdb-legende--courant" /> biens en gestion · <span className="tdb-legende tdb-legende--entree" /> entrées · <span className="tdb-legende tdb-legende--sortie" /> sorties</figcaption>
-    </figure>
-  );
-}
 
 /** Un tableau en cartes (une ligne = une carte, chaque valeur précédée de son intitulé) : au téléphone, et dès 1024 px pour les larges. */
 const cartes = (t: string): string => `
@@ -1366,7 +1294,6 @@ export const CSS_TABLEAU_BORD = `
 .tdb-table th[scope=row],.tdb-table thead th:first-child{text-align:left}
 .tdb-table thead th{font-size:.78rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .tdb-fort th,.tdb-fort td,td.tdb-fort{font-weight:800}
-.tdb-h4{margin:14px 0 6px;font-size:.98rem}
 .tdb-h-cadre--ouvert{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
 .tdb-h-cadre--ouvert .tdb-table thead th{position:sticky;top:0;z-index:1;background:var(--color-svv-surface);border-bottom:0;box-shadow:inset 0 -1px 0 var(--color-svv-line)}
 .tdb-h-en-cours{cursor:pointer}
@@ -1385,7 +1312,15 @@ export const CSS_TABLEAU_BORD = `
 .tdb-periode strong{color:var(--color-svv-ink)}
 .tdb-pilule{appearance:none;min-height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .tdb-pilule[aria-pressed=true]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
-.tdb-ligne-chiffres{display:flex;flex-wrap:wrap;gap:8px 22px;margin:0 0 8px}
+/* 🔴 25/10/2026 — le bloc replié : toute la ligne est le bouton (cible tactile, clavier) ; déplié, défilement interne et en-tête figé. */
+.tdb-replie .tdb-replie-titre{margin:0}
+.tdb-replie--ouvert .tdb-replie-titre{margin:0 0 10px}
+.tdb-replie-ligne{appearance:none;display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;width:100%;min-height:44px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;border-radius:10px}
+.tdb-replie-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.tdb-replie-mot{font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
+.tdb-replie-resume{margin-left:auto;font-size:.92rem;font-weight:600;color:var(--color-svv-muted)}
+@media (hover:hover){ .tdb-replie-ligne:hover .tdb-replie-resume{color:var(--color-svv-ink)} }
+.tdb-replie-cadre{max-height:min(70vh,640px)}
 .tdb-indicateurs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .tdb-indicateurs li{display:flex;flex-direction:column;gap:4px;align-items:flex-start;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-field)}
 .tdb-indicateurs .tdb-chiffre,.tdb-indic{font-size:1.4rem;font-weight:800;padding:2px 0}
@@ -1481,14 +1416,11 @@ export const CSS_TABLEAU_BORD = `
 .tdb-bulle-ligne,.tdb-bulle-pied{display:flex;justify-content:space-between;gap:14px}
 .tdb-bulle-montant{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tdb-bulle-pied{border-top:1px solid var(--color-svv-line);margin-top:4px !important;padding-top:4px;color:var(--color-svv-ink)}
-.tdb-barre-entree{fill:var(--color-svv-green-ink)}
-.tdb-barre-sortie{fill:var(--color-svv-amber)}
 .tdb-cible{fill:transparent;cursor:pointer}
 .tdb-mois-gestion:hover .tdb-cible,.tdb-mois-gestion:focus-visible .tdb-cible{fill:color-mix(in srgb, var(--color-svv-ink) 6%, transparent)}
 .tdb-mois-gestion:focus-visible{outline:none}
 .tdb-legende{display:inline-block;width:18px;height:3px;vertical-align:middle;background:var(--color-svv-red)}
 .tdb-legende--n1{background:repeating-linear-gradient(90deg,var(--color-svv-muted) 0 5px,transparent 5px 9px)}
-.tdb-legende--entree{background:var(--color-svv-green-ink);height:8px;width:8px}
 .tdb-legende--sortie{background:var(--color-svv-amber);height:8px;width:8px}
 .tdb-legende--barre{background:var(--color-svv-red);height:10px;width:12px}
 .tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--color-svv-muted) 0 2px,var(--color-svv-field) 2px 5px);border:1px solid var(--color-svv-muted);height:10px;width:12px;box-sizing:border-box}

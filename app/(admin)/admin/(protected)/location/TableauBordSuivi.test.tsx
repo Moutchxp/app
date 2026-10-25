@@ -237,13 +237,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await monter();
     expect(container.querySelector('[data-portee]')).toBeNull();
     await choisir('debut', '2026');
+    await act(async () => { (container.querySelector('[data-deplier="F"]') as HTMLButtonElement).click(); });   // 🔴 25/10/2026 : replié par défaut
     const lignes = [...container.querySelectorAll('[data-negociateur-ligne]')].map((l) => l.getAttribute('data-negociateur-ligne'));
     expect(lignes).toHaveLength(9);
     const sept = container.querySelector('[data-negociateur-ligne="Jean-Baptiste PONS|2026-09"] .tdb-fort');
     expect(nbsp(sept?.textContent)).toBe('2 670,42 €');
   });
 
-  it('🔴 les deux briques se partagent les sections : A et la feuille au mois, B à G à l’année — rien ne manque', async () => {
+  it('🔴 les deux briques se partagent les sections : A et la feuille au mois, H, F, C, E, G à l’année (B et D retirés, accord d’Arno)', async () => {
     await monter('mois');
     expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['A']);
     expect(container.querySelector('[data-feuille-mois]')).not.toBeNull();
@@ -252,7 +253,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     act(() => { root.unmount(); }); root = createRoot(container);
     await monter('annee');
     // 🔴 25/10/2026 — « Année par année » (H) suit la période : il est là dès qu'elle compte une année.
-    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'B', 'C', 'D', 'E', 'F', 'G']);
+    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'F', 'C', 'E', 'G']);
     expect(container.querySelector('[data-onglets-mois]')).toBeNull();
   });
 
@@ -852,7 +853,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     donnees = { ...donnees, annees: [2024, 2025, 2026], activites: [...donnees.activites.map((a) => (a.dateSignature < '2026' ? bail(a) : a)),
       bail(n1('a24-1', '2024-02-10', 600, 400)), bail(n1('a24-2', '2024-11-05', 1000, 500)), bail(n1('a25-d', '2025-12-15', 200, 200))] };
     await monter('annee');
-    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'B', 'C', 'D', 'E', 'F', 'G']);
+    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'F', 'C', 'E', 'G']);
     expect(container.querySelectorAll('[data-barre-annee]')).toHaveLength(3);
     expect([...container.querySelectorAll('[data-barre-annee] [data-valeur]')].map((r) => Number(r.getAttribute('data-valeur')))).toEqual([2500, 3400, 94612.61]);
     await act(async () => { (container.querySelector('[data-deplier-historique]') as HTMLElement).click(); });
@@ -2009,10 +2010,10 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
     await calmer();
   };
 
-  it('juste sous « Année par année », avant « Le cumul » ; « Résumé de la période — Origine → aujourd’hui (…) » ; les mêmes familles que le mois', async () => {
+  it('juste sous « Année par année », avant « Les négociateurs » (à la place du cumul) ; « Résumé de la période — Origine → aujourd’hui (…) » ; les mêmes familles que le mois', async () => {
     await monter('annee');
-    const blocs = [...container.querySelectorAll('[data-section="H"], [data-bloc="resume-periode"], [data-section="B"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
-    expect(blocs).toEqual(['H', 'resume-periode', 'B']);
+    const blocs = [...container.querySelectorAll('[data-section="H"], [data-bloc="resume-periode"], [data-section="F"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
+    expect(blocs).toEqual(['H', 'resume-periode', 'F']);
     expect(resume().querySelector('h3')?.textContent).toBe('Résumé de la période — Origine → aujourd’hui (2025 → 22/10/2026)');
     expect([...resume().querySelectorAll('[data-famille]')].map((e) => e.getAttribute('data-famille'))).toEqual(['resultat', 'statuts', 'portefeuille', 'gestion', 'resultat-net', 'negociateurs']);
     expect(resume().querySelector('#fra-f1')?.textContent).toBe('Résultat de la période');
@@ -2141,11 +2142,88 @@ describe('🔴 Arno (25/10/2026, suite) — Suivi annuel vu par un négociateur 
     await monter('annee');
     const f = container.querySelector('[data-section="F"]') as HTMLElement;
     expect(f.querySelector('h3')?.textContent).toMatch(/^Négociateur — Jean-Baptiste PONS — /);
+    await act(async () => { (f.querySelector('[data-deplier="F"]') as HTMLButtonElement).click(); });
     const lignesF = [...f.querySelectorAll('[data-negociateur-ligne]')].map((e) => e.getAttribute('data-negociateur-ligne')!.split('|')[0]);
     expect(lignesF.length).toBeGreaterThan(0);
     expect(new Set(lignesF)).toEqual(new Set(['Jean-Baptiste PONS']));
     expect(container.querySelector('[data-historique-annees] th:nth-of-type(6)')?.textContent).toBe('Commission brute — Jean-Baptiste PONS');
     expect(container.querySelector('[data-commission-propre="2026"]')?.textContent).not.toBe('—');
     expect(container.querySelector('[data-ligne-a="commission"]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : deux blocs retirés, négociateurs à la place du cumul, tableaux repliés', () => {
+  const centimes = (t: string | null | undefined): number => Math.round(Number(nbsp(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  const resumeDe = (k: string) => nbsp(container.querySelector(`[data-resume-replie="${k}"]`)?.textContent);
+  const deplier = async (k: string) => { await act(async () => { (container.querySelector(`[data-deplier="${k}"]`) as HTMLButtonElement).click(); }); };
+
+  it('« Le cumul … mois par mois » et « La gestion récurrente — 12 mois » (et sa commission récurrente) ont disparu ; le Suivi du mois ne change pas', async () => {
+    await monter('annee');
+    expect(container.querySelector('[data-section="B"]')).toBeNull();
+    expect(container.querySelector('[data-section="D"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/Le cumul de \d{4}, mois par mois/);
+    expect(container.textContent).not.toContain('La gestion récurrente — 12 mois');
+    expect(container.textContent).not.toContain('Commission récurrente sur la gestion — année par année');
+    // Le cumul reste sous le bouton « Cumul » de « Année par année ».
+    expect(container.querySelector('[data-section="H"] [aria-pressed]')).not.toBeNull();
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await monter('mois');
+    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['A']);
+    expect(container.querySelector('[data-feuille-mois]')).not.toBeNull();
+  });
+
+  it('« Les négociateurs » À LA PLACE du cumul (juste après le Résumé de la période) ; négociateurs et apporteurs REPLIÉS par défaut, sur une ligne', async () => {
+    await monter('annee');
+    const ordre = [...container.querySelectorAll('[data-section], [data-bloc="resume-periode"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
+    expect(ordre).toEqual(['H', 'resume-periode', 'F', 'C', 'E', 'G']);
+    for (const k of ['F', 'C']) {
+      const s = container.querySelector(`[data-section="${k}"]`) as HTMLElement;
+      expect(s.getAttribute('data-replie')).toBe('replie');
+      expect(s.querySelector('table')).toBeNull();
+      const b = s.querySelector(`[data-deplier="${k}"]`) as HTMLButtonElement;
+      expect([b.tagName, b.getAttribute('aria-expanded'), b.closest('h3') !== null]).toEqual(['BUTTON', 'false', true]);   // un vrai bouton : Entrée / Espace
+    }
+    expect(nbsp(container.querySelector('[data-section="F"] h3')?.textContent)).toMatch(/^Les négociateurs — .+\d+ lignes? · commission brute [\d ]+,\d\d €▸$/);
+    expect(nbsp(container.querySelector('[data-section="C"] h3')?.textContent)).toMatch(/^Les apporteurs — .+\d+ apporteurs? · CA apporté [\d ]+,\d\d €▸$/);
+  });
+
+  it('déplié au clic : le tableau d’avant, inchangé, dans un cadre à défilement interne (en-tête figé) ; replié à nouveau ; replié à chaque chargement', async () => {
+    await monter('annee');
+    await deplier('F');
+    const f = container.querySelector('[data-section="F"]') as HTMLElement;
+    expect(f.getAttribute('data-replie')).toBe('ouvert');
+    expect(f.querySelector('[data-deplier="F"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(f.querySelector('[data-contenu-replie="F"]')?.className).toBe('tdb-h-cadre tdb-h-cadre--ouvert tdb-replie-cadre');
+    expect([...f.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Négociateur', 'Mois', 'Baux', 'CA HT', 'Apporteurs', 'CA − apporteurs', 'Primes', 'Rétrocessions', 'Commission brute']);
+    expect(f.textContent).toContain('Commission brute = taux × (CA HT − commissions des apporteurs)');
+    await deplier('C');
+    expect([...container.querySelectorAll('[data-section="C"] thead th')].map((t) => t.textContent)).toEqual(['Apporteur', 'Baux', 'CA apporté HT', 'Commissions', 'Reste à l’agence', 'Coût pour 1 € de CA']);
+    await deplier('F');
+    expect(f.querySelector('table')).toBeNull();
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await monter('annee');
+    expect(container.querySelector('[data-section="C"]')?.getAttribute('data-replie')).toBe('replie');
+  });
+
+  it('🔴 les totaux de la ligne repliée = les sommes du tableau, au centime', async () => {
+    await monter('annee');
+    await deplier('F');
+    await deplier('C');
+    const lignesF = [...container.querySelectorAll('[data-negociateur-ligne]')];
+    const commission = lignesF.reduce((t, l) => t + centimes(l.querySelector('td[data-mot="Commission brute"]')?.textContent), 0);
+    expect(resumeDe('F')).toBe(`${lignesF.length} ligne${lignesF.length > 1 ? 's' : ''} · commission brute ${nbsp(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(commission / 100))}`);
+    const lignesC = [...container.querySelectorAll('[data-apporteur-ligne]')];
+    expect(lignesC.length).toBeGreaterThan(0);
+    const ca = lignesC.reduce((t, l) => t + centimes(l.querySelector('td[data-mot="CA apporté HT"]')?.textContent), 0);
+    expect(centimes(resumeDe('C').split('CA apporté ')[1])).toBe(ca);
+    expect(resumeDe('C')).toMatch(new RegExp(`^${lignesC.length} apporteurs? · `));
+  });
+
+  it('🔴 confidentialité : un collaborateur NON négociateur n’a pas le bloc des négociateurs (ni sa ligne repliée) ; les apporteurs, oui', async () => {
+    donnees = { ...donnees, voirCommissions: false };
+    await monter('annee');
+    expect(container.querySelector('[data-section="F"]')).toBeNull();
+    expect(container.textContent).not.toContain('commission brute');
+    expect(container.querySelector('[data-section="C"]')?.getAttribute('data-replie')).toBe('replie');
   });
 });
