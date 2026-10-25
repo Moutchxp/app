@@ -44,8 +44,17 @@ export function resumeDuMoisComplet(d: DonneesTableau, lignes: readonly Activite
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const ventilation = ventilationCommissions(ac, t, duMois, ctx, cle);
   const propre = d.variablesPropres?.[cle];
+  // 🔴 Arno (26/10/2026, 428) — un collaborateur autorisé au « Résultat net de l'agence » : le variable de chaque négociateur, calculé avec
+  // le taux réel et les rétrocessions reçus À PART (`ctxResultatNet`), pour ce seul bloc ; les autres blocs gardent `ctx` (inchangés).
+  const net = d.voirCommissions || d.ctxResultatNet === undefined
+    ? resultatNetAgence(r, t, d.voirCommissions === true, ventilation)
+    : (() => {
+      const ctxNet: ContexteCalcul = { ...ctx, regles: d.ctxResultatNet.regles, retrocessions: d.ctxResultatNet.retrocessions };
+      const rNet = resumeDuMois(t, duMois, g, sectionNegociateurs(lignes, ctxNet, { annee, mois }), ctxNet);
+      return resultatNetAgence(rNet, t, true, ventilation);
+    })();
   return {
-    mois: [cle], dossiers: duMois, ids: t.ids, r, ventilation, net: resultatNetAgence(r, t, d.voirCommissions === true, ventilation),
+    mois: [cle], dossiers: duMois, ids: t.ids, r, ventilation, net,
     negociateurs: d.voirCommissions ? r.negociateurs : propre !== undefined ? [propre] : [],
     gli: gliDuMois(d.gli ?? [], d.margesGli ?? [], cle),
     pertesFichier: g.perdues.some((l) => l.origine === 'fichier'),

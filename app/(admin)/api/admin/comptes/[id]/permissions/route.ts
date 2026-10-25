@@ -1,6 +1,8 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { trouverCompteParId, modifierPermissions } from '../../../../../../lib/admin/comptes';
+import { definirResultatNet } from '../../../../../../lib/admin/resultatNet';
+import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -55,7 +57,16 @@ export async function POST(request: Request, ctx: Ctx) {
 
   // La VALIDATION est faite AVANT toute écriture — jamais après (piège `withTransaction`, qui COMMITE au retour normal).
   const ok = await modifierPermissions(idNum, perms, (body as Record<string, unknown>)?.permis_modif === true, garde.auteurId, envoi); // RATT-EDIT lot A3 — sous-droit lu au niveau racine (forcé false si perms.permis off, côté repo)
-  if (ok) return Response.json({ ok: true });
+  if (ok) {
+    /* 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? », la question de la tuile Location : écrite APRÈS les permissions
+       (elle ne vaut qu'avec la tuile, relue en base). Tuile décochée → le droit est retiré ; réponse absente (écran d'avant) → inchangée.
+       Journalisée (avant / après, l'administrateur auteur, sa session). */
+    const rn = (body as Record<string, unknown>)?.resultat_net;
+    if (!perms.location || typeof rn === 'boolean') {
+      await definirResultatNet(idNum, perms.location && rn === true, garde.auteurId, (await lireSessionCuration(request)).jti);
+    }
+    return Response.json({ ok: true });
+  }
 
   // 0 ligne : compte absent, ou administrateur (permissions implicites, non éditables).
   const c = await trouverCompteParId(idNum);

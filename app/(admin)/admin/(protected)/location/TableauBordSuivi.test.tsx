@@ -1980,15 +1980,32 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(nbsp(bloc.querySelector('[data-cascade-detail="net"]')?.textContent)).toContain(`= ${nbsp(bloc.querySelector('[data-net="net"]')?.textContent)}`);
   });
 
-  it('sans le droit « Voir les commissions » : ni variable, ni net (comme le Négociateur)', async () => {
-    donnees = { ...donnees, voirCommissions: false };
+  it('🔴 26/10/2026 (428) — un compte SANS « Accès au Résultat net » : le bloc est ABSENT (ni version tronquée, ni mention)', async () => {
+    donnees = { ...donnees, voirCommissions: false, voirResultatNet: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
     await septembre();
-    const bloc = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
-    expect(bloc.querySelector('[data-net="net"]')).toBeNull();
-    expect(bloc.querySelector('[data-net-variable]')).toBeNull();
-    expect(bloc.querySelector('[data-net-part]')).toBeNull();
-    expect(bloc.querySelector('[data-net-sans-droit]')).not.toBeNull();
-    expect(bloc.querySelector('[data-net="ca"]')).not.toBeNull();
+    expect(container.querySelector('[data-famille="resultat-net"]')).toBeNull();
+    expect(container.querySelector('[data-net-sans-droit]')).toBeNull();
+    expect(container.textContent).not.toContain('Résultat net de l’agence');
+  });
+
+  it('🔴 26/10/2026 (428) — un collaborateur avec Location + « Oui » : le bloc EN ENTIER (commissions, variable, net, %), au centime de l’administrateur', async () => {
+    await septembre();
+    const lire = () => {
+      const b = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+      return [...b.querySelectorAll('[data-net-ligne]')].map((l) => `${l.getAttribute('data-net-ligne')}=${nbsp(l.querySelector('.fnc-montant')?.textContent)}`);
+    };
+    const admin = lire();
+    expect(admin.some((x) => x.startsWith('net='))).toBe(true);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    // Ce que le serveur envoie à ce compte : les taux à zéro et aucune rétrocession pour TOUS les blocs, et — à part — le taux réel et les
+    // rétrocessions, pour ce seul bloc (`ctxResultatNet`).
+    donnees = { ...donnees, voirCommissions: false, voirResultatNet: true, ctxResultatNet: { regles: donnees.regles, retrocessions: donnees.retrocessions },
+      regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
+    await septembre();
+    expect(lire()).toEqual(admin);
+    expect(container.querySelector('[data-net-sans-droit]')).toBeNull();
+    // Les autres blocs gardent leurs règles : aucun bloc Négociateur (il n'est ni administrateur ni ce négociateur).
+    expect(container.querySelector('[data-negociateur-bloc]')).toBeNull();
   });
 
   it('titre du Portefeuille : sous 430 px seulement, la fin passe à la ligne (plancher 13 px conservé)', async () => {
@@ -2045,12 +2062,24 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
     expect(montant('[data-gestion-ca="sans"] [data-total="sans"]')).toBe('0,00 €');
   });
 
-  it('🔴 un collaborateur NON négociateur (sans « Voir les commissions ») : ni bloc Négociateur, ni variable, ni net', async () => {
-    donnees = { ...donnees, voirCommissions: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
+  it('🔴 un collaborateur NON négociateur, sans « Accès au Résultat net » (428) : ni bloc Négociateur, ni bloc « Résultat net »', async () => {
+    donnees = { ...donnees, voirCommissions: false, voirResultatNet: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
     await monter('annee');
     expect(resume().querySelector('[data-famille="negociateurs"]')).toBeNull();
-    expect(resume().querySelector('[data-net-sans-droit]')?.textContent).toBe('Variable et net réservés aux administrateurs');
-    expect(resume().querySelector('[data-net="net"]')).toBeNull();
+    expect(resume().querySelector('[data-famille="resultat-net"]')).toBeNull();
+    expect(resume().querySelector('[data-net-sans-droit]')).toBeNull();
+  });
+
+  it('🔴 Location + « Oui » (428) : le « Résumé de la période » porte le bloc entier, au centime de l’administrateur', async () => {
+    await monter('annee');
+    const net = () => nbsp(resume().querySelector('[data-famille="resultat-net"] [data-net-ligne="net"] .fnc-montant')?.textContent);
+    const admin = net();
+    expect(admin).toMatch(/€$/);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    donnees = { ...donnees, voirCommissions: false, voirResultatNet: true, ctxResultatNet: { regles: donnees.regles, retrocessions: donnees.retrocessions },
+      regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [] };
+    await monter('annee');
+    expect(net()).toBe(admin);
   });
 
   it('le Suivi du mois garde son « Résumé du mois » (même composant, mots du mois)', async () => {
@@ -2092,7 +2121,7 @@ describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible 
     expect(bas().querySelector('[data-famille="resultat-net"] [data-net="net"]')).not.toBeNull();
   });
 
-  it('un négociateur NON administrateur : SON bloc seulement (sa cascade, venue du serveur) ; le Résultat net s’arrête aux commissions', async () => {
+  it('un négociateur NON administrateur : SON bloc seulement (sa cascade, venue du serveur) ; sans « Accès au Résultat net » (428), pas de bloc « Résultat net »', async () => {
     // L'administrateur calcule la cascade de septembre ; le serveur l'envoie au seul négociateur, rien d'autre (ni taux, ni rétrocession).
     await septembre();
     await deplierNegos();
@@ -2105,10 +2134,7 @@ describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible 
     expect([...bas().querySelectorAll('[data-negociateur-bloc]')].map((e) => e.getAttribute('data-negociateur-bloc'))).toEqual(['Jean-Baptiste PONS']);
     await deplierNegos();
     expect(nbsp(bas().querySelector('[data-total-commission="Jean-Baptiste PONS"]')?.textContent)).toBe(varAdmin);
-    const net = bas().querySelector('[data-famille="resultat-net"]') as HTMLElement;
-    expect(net.querySelector('[data-net-variable], [data-net="net"], [data-net-part]')).toBeNull();
-    expect(net.querySelector('[data-net-sans-droit]')?.textContent).toBe('Variable et net réservés aux administrateurs');
-    expect(net.querySelector('[data-net="collegues"]')).not.toBeNull();
+    expect(bas().querySelector('[data-famille="resultat-net"]')).toBeNull();
   });
 });
 

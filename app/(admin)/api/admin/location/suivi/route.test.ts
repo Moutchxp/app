@@ -30,6 +30,9 @@ const repo = {
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
+// 🔴 26/10/2026 (428) — le droit « Accès au Résultat net de l'agence », relu en base (simulé).
+const peutVoirResultatNet = vi.fn();
+vi.mock('../../../../../lib/admin/resultatNet', () => ({ peutVoirResultatNet: (...a: unknown[]) => peutVoirResultatNet(...a) }));
 vi.mock('../../../../../lib/location/suivi/tableauBordRepo', () => ({ donneesTableau: (...a: unknown[]) => donneesTableau(...a), lireActivites: async () => [], anneesActives: async () => [] }));
 const { GET, POST } = await import('./route');
 
@@ -108,17 +111,34 @@ describe('/api/admin/location/suivi', () => {
   });
   it('🔴 le tableau de bord : l’année demandée ; administrateur relu pour la requête ; sinon SA seule cascade (son id de compte)', async () => {
     donneesTableau.mockReset().mockResolvedValue({ activites: [] });
+    peutVoirResultatNet.mockReset().mockResolvedValue(false);
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2025'));
-    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: false });
+    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: false, resultatNet: false });
     // 🔴 25/10/2026 — le Suivi annuel (« Début / Fin ») lit toutes les années ; la cascade reste celle du compte.
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2026&toutes=1'));
-    expect(donneesTableau).toHaveBeenLastCalledWith(2026, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: true });
+    expect(donneesTableau).toHaveBeenLastCalledWith(2026, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: true, resultatNet: false });
     donneesTableau.mockClear();
     repo.estAdministrateurActif.mockResolvedValue(true);
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=n%27importe'));
     expect(donneesTableau.mock.calls[0][0]).toBe(new Date().getFullYear());
     expect(donneesTableau.mock.calls[0][1]).toBe(true);
     expect(donneesTableau.mock.calls[0][3]).toBeNull();
+  });
+  it('🔴 « Résultat net de l’agence » (428) : administrateur → oui (sans relire le droit) ; Location + Oui → oui ; tout autre compte → non', async () => {
+    donneesTableau.mockReset().mockResolvedValue({ activites: [] });
+    repo.estAdministrateurActif.mockResolvedValue(true);
+    peutVoirResultatNet.mockReset().mockResolvedValue(false);
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2026'));
+    expect(donneesTableau.mock.calls.at(-1)?.[4]).toEqual({ toutes: false, resultatNet: true });
+    expect(peutVoirResultatNet).not.toHaveBeenCalled();
+    repo.estAdministrateurActif.mockResolvedValue(false);
+    peutVoirResultatNet.mockResolvedValue(true);
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2026'));
+    expect(peutVoirResultatNet).toHaveBeenLastCalledWith(5);
+    expect(donneesTableau.mock.calls.at(-1)?.[4]).toEqual({ toutes: false, resultatNet: true });
+    peutVoirResultatNet.mockResolvedValue(false);
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2026'));
+    expect(donneesTableau.mock.calls.at(-1)?.[4]).toEqual({ toutes: false, resultatNet: false });
   });
   it('une action inconnue ou un corps illisible : 400', async () => {
     expect((await poster({ action: 'supprimer' })).status).toBe(400);

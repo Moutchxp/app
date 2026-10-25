@@ -13,6 +13,7 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { autresConditions } from '../../../../../lib/location/suivi/detailDossier';
 import { avecTrace } from '../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
+import { peutVoirResultatNet } from '../../../../../lib/admin/resultatNet';
 import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
 import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
 import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
@@ -87,7 +88,9 @@ export async function GET(request: Request): Promise<Response> {
       const a = Number(url.searchParams.get('annee'));
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
       // 🔴 Arno (25/10/2026) — le Suivi annuel (« Début / Fin ») lit toutes les années (`toutes=1`) ; la confidentialité ne change pas.
-      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId, { toutes: url.searchParams.get('toutes') === '1' }) });
+      // 🔴 Arno (26/10/2026, 428) — le « Résultat net de l'agence » : administrateur, ou tuile Location + « Accès au Résultat net » à Oui (relu en base).
+      const resultatNet = voirCommissions || await peutVoirResultatNet(garde.auteurId);
+      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId, { toutes: url.searchParams.get('toutes') === '1', resultatNet }) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
     const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage, margesGli, margeGli] = await Promise.all([

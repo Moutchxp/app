@@ -135,7 +135,8 @@ describe('🔴 Suivi du mois : la commission du collègue', () => {
     const regles = [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }];
     const ctx: ContexteCalcul = { regles, apporteurs: [EXTERNE, INTERNE], retrocessions: [], recurrents: lignes, aujourdhui: '2026-10-24' };
     const d = { disponible: true, annee: 2026, annees: [2026], aujourdhui: '2026-10-24', activites: lignes, regles, apporteurs: [EXTERNE, INTERNE], retrocessions: [],
-      negociateurs: [], gestion: { transitions: [], stock: 0, disponible: true }, preavis: {}, voirCommissions: false, gestionLignes: [], collegues: [], annuaire: true, ecartsFichier: [] } as DonneesTableau;
+      negociateurs: [], gestion: { transitions: [], stock: 0, disponible: true }, preavis: {}, voirCommissions: false, gestionLignes: [], collegues: [], annuaire: true, ecartsFichier: [],
+      voirResultatNet: true } as DonneesTableau;   // 🔴 26/10/2026 (428) : un compte qui a « Accès au Résultat net de l’agence » (le bloc lu plus bas)
     await act(async () => { root.render(createElement(FeuilleDuMois, { d, lignes, ctx, annee: 2026, mois: 10, negociateur: null, onDetail: () => {}, onRelire: () => {} })); });
     await calmer();
     await clic(container.querySelector('[data-deplier-ligne="1"]')!);

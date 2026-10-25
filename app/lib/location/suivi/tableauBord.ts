@@ -901,6 +901,17 @@ export interface DonneesTableau {
    */
   variablesPropres?: Record<string, CascadeNegociateur>;
   /**
+   * 🔴 Arno (26/10/2026, 428) — le bloc « Résultat net de l'agence » se voit-il ? Administrateur : toujours ; collaborateur : tuile Location
+   * ET « Accès au Résultat net » à Oui. Faux (ou absent) : le bloc est ABSENT de la page, et rien de ce qui lui est propre ne part.
+   */
+  voirResultatNet?: boolean;
+  /**
+   * 🔴 Arno (26/10/2026, 428) — pour un collaborateur autorisé (pas un administrateur, qui a déjà tout) : le taux réel des négociateurs et
+   * les rétrocessions, À PART, qui ne servent QU'au calcul du « Résultat net de l'agence » (le variable de chaque négociateur). Les autres
+   * blocs gardent `regles` (taux à zéro) et `retrocessions` (vides) : leurs règles ne changent pas. Absent pour tout autre compte.
+   */
+  ctxResultatNet?: { regles: RegleCommission[]; retrocessions: (Retrocession & { id: number })[] };
+  /**
    * 🔴 Arno (25/10/2026, suite) — pour un compte NON administrateur qui est négociateur : SA commission dans le Suivi annuel (ses lignes,
    * mois par mois de l'année), l'historique année par année et l'export — calculée côté serveur, rien d'un autre.
    */
@@ -1392,6 +1403,18 @@ export interface ResultatNetAgence {
   /** 🔴 Arno (25/10/2026, suite) — les commissions ventilées : externes + internes = `apporteurs` ; `collegues` = rattachement rémunéré. */
   ventilation: VentilationCommissions;
 }
+/**
+ * 🔴 Arno (26/10/2026, 428) — CE QUE L'API ENVOIE DU « RÉSULTAT NET DE L'AGENCE », selon le compte : administrateur → l'indicateur (il a déjà
+ * le taux réel et les rétrocessions de tous) ; collaborateur autorisé (tuile Location + Oui) → l'indicateur ET, à part, le taux réel et les
+ * rétrocessions qui ne servent qu'à ce bloc ; tout autre compte → l'indicateur à faux et RIEN d'autre. PUR.
+ */
+export function champsResultatNet(voirCommissions: boolean, autorise: boolean, reglesLues: RegleCommission[], retrocessions: (Retrocession & { id: number })[]):
+  Pick<DonneesTableau, 'voirResultatNet' | 'ctxResultatNet'> {
+  if (voirCommissions) return { voirResultatNet: true };
+  if (!autorise) return { voirResultatNet: false };
+  return { voirResultatNet: true, ctxResultatNet: { regles: reglesLues, retrocessions } };
+}
+
 export function resultatNetAgence(r: ResumeDuMois, t: Pick<TotauxPeriode, 'apporteursRecurrents' | 'colleguesRecurrents'>, voirCommissions: boolean,
   ventilation: VentilationCommissions): ResultatNetAgence {
   const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);

@@ -3,6 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { trouverCompteParId, permsDuCompte, capaciteModifPermis, etatEnvoiGestion } from '../../../../../lib/admin/comptes';
 import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
 import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
+import { lireResultatNet } from '../../../../../lib/admin/resultatNet';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -39,6 +40,8 @@ export async function GET(request: Request, ctx: Ctx) {
       serviceGestion: await lireServiceGestion(c.id),
       // LOCATION « Outils de suivi » (406) — « Voir les commissions » (administrateur : implicite).
       voirCommissions: await lireVoirCommissions(c.id),
+      // 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location).
+      resultatNet: await lireResultatNet(c.id),
     },
   });
 }

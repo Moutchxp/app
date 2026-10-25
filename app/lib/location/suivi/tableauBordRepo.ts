@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition, type CascadeNegociateur } from './tableauBord';
+import { aUnDuMensuel, champsResultatNet, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition, type CascadeNegociateur } from './tableauBord';
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
@@ -249,7 +249,7 @@ export async function preavisParMois(annees: readonly number[]): Promise<Record<
  * administrateur, SES cascades et SES lignes de TOUTES les années d'activité ; la page choisit sa période. Sans : l'année et N−1, comme avant.
  */
 export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string, negociateurPropre: number | null = null,
-  o: { toutes?: boolean } = {}): Promise<DonneesTableau> {
+  o: { toutes?: boolean; resultatNet?: boolean } = {}): Promise<DonneesTableau> {
   const disponible = await suiviDisponible();
   const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
   const [a, m] = moisFin.split('-').map(Number);
@@ -267,7 +267,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const anneesLues = o.toutes === true ? toutesAnnees : [annee - 1, annee];
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites(anneesLues), anneesActives(), lireRegles(), lireApporteurs(),
-    voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois(anneesLues),
+    voirCommissions || negociateurPropre !== null || o.resultatNet === true ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois(anneesLues),
     // 🔴 Arno (25/10/2026) — les gestions gagnées / perdues depuis la PREMIÈRE année d'activité (« Depuis le début » du Résumé de l'année) ;
     // chaque calcul les filtre par mois ou par année : la feuille du mois et les tuiles ne changent pas.
     lireLignesGestion(debutHisto, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
@@ -314,6 +314,9 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
     ...(voirCommissions ? {} : { variablesPropres }),
+    // 🔴 Arno (26/10/2026, 428) — le « Résultat net de l'agence » : administrateur (implicite) ou collaborateur autorisé ; pour ce dernier,
+    // le taux réel et les rétrocessions, à part, pour ce seul bloc. Tout autre compte : rien.
+    ...champsResultatNet(voirCommissions, o.resultatNet === true, reglesLues, retrocessions),
     ...(suiviPropre === null ? {} : { negociateurPropre: suiviPropre }),
     basculeAnnexes: regleAnnexes.basculeAnnexes, annexes: regleAnnexes.annexes,
     gli, margesGli,

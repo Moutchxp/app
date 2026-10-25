@@ -32,6 +32,8 @@ interface DetailCompte extends CompteVue {
   serviceGestion?: ServiceGestionVue;
   /** LOCATION « Outils de suivi » (406) — « Voir les commissions ». Absent d'une réponse d'avant ce lot. */
   voirCommissions?: { valeur: boolean; disponible: boolean };
+  /** 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location). Absent d'une réponse d'avant ce lot. */
+  resultatNet?: { valeur: boolean; disponible: boolean };
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
@@ -41,6 +43,9 @@ export const LIBELLE_SERVICE_GESTION = 'Appartient au service gestion';
 export const LIBELLE_VOIR_COMMISSIONS = 'Voir les commissions';
 export const MENTION_VOIR_COMMISSIONS_SANS_EFFET = 'Sans effet actuellement : le variable est visible par le négociateur concerné et les administrateurs.';
 export const AIDE_VOIR_COMMISSIONS = 'Location, « Outils de suivi » : la section « Négociateurs » et les montants de commission. Un administrateur les voit toujours.';
+/** 🔴 Arno (26/10/2026, 428) — la question de la tuile Location, et sa note : écrites une fois, relues par les tests. */
+export const LIBELLE_RESULTAT_NET = 'Accès au Résultat net de l’agence ?';
+export const AIDE_RESULTAT_NET = 'Le bloc « Résultat net de l’agence » du Suivi du mois et du Résumé de la période : commissions, variable des négociateurs, net et part du CA. Un administrateur le voit toujours.';
 export const AIDE_SERVICE_GESTION = 'Les mails écrits depuis la gestion n’affichent pas de cartouche d’alerte sur le nom.';
 
 const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
@@ -163,7 +168,11 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
   onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions,
+  resultatNet = false, onChoisirResultatNet,
 }: {
+  /** 🔴 Arno (26/10/2026, 428) — la réponse à « Accès au Résultat net de l'agence ? » (Non par défaut), enregistrée avec les permissions. */
+  resultatNet?: boolean;
+  onChoisirResultatNet?: (v: boolean) => void;
   /** LOT PROFIL-GESTION — coche / décoche « Appartient au service gestion » (enregistré aussitôt, historisé). */
   onBasculerServiceGestion?: () => void;
   onBasculerVoirCommissions?: () => void;
@@ -291,6 +300,17 @@ export function DetailContenu({
                   obligatoire {collaborateur && <>— tant qu’elle n’est pas donnée, l’envoi est <strong>refusé</strong></>}.
                 </span>
               </>
+            ) : m.cle === 'location' && compte.resultatNet !== undefined ? (
+              /* 🔴 Arno (26/10/2026, 428) — rattachée à la tuile Location : elle n'existe que tuile cochée (décochée, le droit est retiré). */
+              <div data-question-resultat-net>
+                <div className="cpt-sous-titre" id={`resultat-net-${compte.id}`}>{LIBELLE_RESULTAT_NET}</div>
+                <ChoixOuiNon valeur={collaborateur ? resultatNet : true} disabled={!collaborateur || enCours || !compte.resultatNet.disponible}
+                  onChoisir={(v) => onChoisirResultatNet?.(v)} idGroupe={`resultat-net-${compte.id}`} />
+                <span className="cpt-note" style={{ display: 'block' }}>{AIDE_RESULTAT_NET}</span>
+                {!compte.resultatNet.disponible && (
+                  <span className="cpt-note" style={{ display: 'block' }}>Mise à jour de la base à appliquer (migration 428) avant de pouvoir répondre Oui.</span>
+                )}
+              </div>
             ) : undefined} />
         ))}
       </div>
@@ -328,6 +348,8 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   // LOT 5-DROITS — `null` tant qu'Arno n'a pas répondu. On NE remplace JAMAIS ce null par false au chargement : ce
   //   serait répondre « non » à sa place, et effacer la différence entre un refus assumé et une question en attente.
   const [envoi, setEnvoi] = useState<ReponseEnvoi>(null);
+  // 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » : Non par défaut ; décocher la tuile Location le remet à Non.
+  const [resultatNet, setResultatNet] = useState(false);
   const [idPrenom, setIdPrenom] = useState('');
   const [idNom, setIdNom] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -342,7 +364,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       if (annule) return;
       if (!res.ok) { setMsg('Détail indisponible.'); return; }
       const body = await res.json();
-      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setResultatNet(body.compte.resultatNet?.valeur === true); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
     })();
     return () => { annule = true; };
   }, [id]);
@@ -351,7 +373,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     const res = await fetch(`/api/admin/comptes/${id}`);
     if (!res.ok) { setMsg('Détail indisponible.'); return; }
     const body = await res.json();
-    setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
+    setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setResultatNet(body.compte.resultatNet?.valeur === true); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
   }
   async function enregistrerIdentite() {
     const prenom = idPrenom.trim(); const nom = idNom.trim();
@@ -366,7 +388,8 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   async function enregistrer() {
     setEnCours(true); setMsg(null);
     try {
-      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms, permis_modif: peutModifierPermis, gestion_envoi: envoi }) }); // RATT-EDIT lot A3 ; LOT 5-DROITS — gestion_envoi
+      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms, permis_modif: peutModifierPermis, gestion_envoi: envoi,
+        ...(d?.resultatNet?.disponible === true ? { resultat_net: perms.location && resultatNet } : {}) }) }); // RATT-EDIT lot A3 ; LOT 5-DROITS — gestion_envoi ; 428 — resultat_net
       if (res.ok) { setMsg('Permissions enregistrées.'); await recharger(); onRafraichir(); }
       else {
         // Le serveur refuse lui aussi l'accès Gestion sans réponse : on affiche SON message, pas une reformulation.
@@ -418,8 +441,10 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
               // LOT 5-DROITS (décision d) — retirer la tuile Gestion remet la question À DÉCIDER, jamais à « non » :
               //   si on la rouvre, elle se repose. Aucun droit ne revient — ni ne reste fermé — en silence.
               if (cle === 'gestion') setEnvoi(null);
+              if (cle === 'location' && perms.location) setResultatNet(false); // 428 — décocher la tuile Location retire le droit
               setPerms((p) => ({ ...p, [cle]: !p[cle] }));
             }}
+            resultatNet={resultatNet} onChoisirResultatNet={setResultatNet}
             onToggleModif={() => setPeutModifierPermis((v) => !v)} onChoisirEnvoi={setEnvoi}
             onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} onBasculerVoirCommissions={basculerVoirCommissions} />
         : (msg ?? 'Chargement…')}

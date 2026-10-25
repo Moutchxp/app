@@ -78,3 +78,12 @@ export function serviceGestionDisponible(): Promise<boolean> {
 export function droitCommissionsDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_commissions', () => colonneExiste('admin_utilisateur', 'perm_commissions'));
 }
+
+/**
+ * 🔴 Arno (26/10/2026) — la migration 428 est-elle appliquée ? Elle porte le droit « Accès au Résultat net de l'agence »
+ * (`perm_resultat_net`). Tant qu'elle ne l'est pas : seuls les administrateurs voient le bloc, et la question de la page Comptes
+ * n'écrit rien.
+ */
+export function droitResultatNetDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_resultat_net', () => colonneExiste('admin_utilisateur', 'perm_resultat_net'));
+}

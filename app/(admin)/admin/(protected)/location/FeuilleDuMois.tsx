@@ -486,11 +486,15 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           </section>
 
           </div>
-          {/* 🔴 Arno (25/10/2026) — le RÉSULTAT NET DE L'AGENCE : après les 4 blocs, avant les négociateurs, sur toute la largeur. */}
-          <section className="fdm-famille fdm-famille--large" aria-labelledby={`${idp}-f6`} data-famille="resultat-net">
-            <h4 id={`${idp}-f6`}>Résultat net de l’agence — {libelle}</h4>
-            <CascadeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} mots={mots} />
-          </section>
+          {/* 🔴 Arno (25/10/2026) — le RÉSULTAT NET DE L'AGENCE : après les 4 blocs, avant les négociateurs, sur toute la largeur.
+              🔴 Arno (26/10/2026, 428) — administrateur, ou tuile Location + « Accès au Résultat net » à Oui ; pour tout autre compte, ABSENT
+              (ni version tronquée, ni mention — et le serveur n'en envoie rien). */}
+          {(d.voirCommissions || d.voirResultatNet === true) && (
+            <section className="fdm-famille fdm-famille--large" aria-labelledby={`${idp}-f6`} data-famille="resultat-net">
+              <h4 id={`${idp}-f6`}>Résultat net de l’agence — {libelle}</h4>
+              <CascadeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} mots={mots} />
+            </section>
+          )}
           {/* 🔴 Arno (25/10/2026) — LE BLOC « NÉGOCIATEUR — <nom> », un par négociateur, REPLIÉ à chaque chargement (une ligne, un chevron) ;
               déplié : la cascade. VISIBLE seulement de ce négociateur et des administrateurs (le serveur ne renvoie rien d'autre) ; pour tout
               autre compte, ABSENT de la page. */}
