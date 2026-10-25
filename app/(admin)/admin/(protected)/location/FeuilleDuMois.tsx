@@ -230,7 +230,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           Aucun calcul ne change (sauf le CA HT net, qui retire aussi les commissions collègues) ; chaque chiffre d'avant s'y retrouve. */}
       <section className="tdb-section fdm-bas" aria-labelledby="fdm-bas" data-bloc="bas-de-feuille">
         <h3 id="fdm-bas">Résumé du mois — {nom}</h3>
+        {/* 🔴 Arno (25/10/2026) — DEUX COLONNES INDÉPENDANTES (des piles) : chaque bloc démarre juste sous le précédent ; au téléphone, une
+            seule colonne (Résultat, CA par statut, Portefeuille, Honoraires) ; les négociateurs dessous, sur toute la largeur. */}
         <div className="fdm-familles">
+          <div className="fdm-colonne" data-colonne="gauche">
           <section className="fdm-famille" aria-labelledby="fdm-f1" data-famille="resultat">
             <h4 id="fdm-f1">Résultat du mois</h4>
             <dl className="fdm-cascade-mois">
@@ -242,6 +245,55 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             </dl>
           </section>
 
+          <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
+            <h4 id="fdm-f4">Portefeuille de gestion (honoraires de gestion HT)</h4>
+            {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
+                au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
+            <table className="fdm-mini fdm-portefeuille">
+              <colgroup><col className="fdm-pf-c1" /><col className="fdm-pf-c2" /><col className="fdm-pf-c3" /><col className="fdm-pf-c4" /></colgroup>
+              <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
+              <tbody data-portefeuille-mois>
+                <tr data-portefeuille="gagnes"><th scope="row">Gagnées (entrées)</th><td data-mot="Biens">{r.portefeuille.gagnes.nb}</td>
+                  <td data-mot="/ mois">{eur(r.portefeuille.gagnes.mensuel)}</td><td data-mot="/ an">{eur(r.portefeuille.gagnes.annuel)}</td></tr>
+                <tr data-portefeuille="perdus"><th scope="row">Perdues (sorties)</th><td data-mot="Biens">{r.portefeuille.perdus.nb}</td>
+                  <td data-mot="/ mois">{r.portefeuille.perdus.mensuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.mensuel)}`}</td>
+                  <td data-mot="/ an">{r.portefeuille.perdus.annuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.annuel)}`}</td></tr>
+                <tr data-portefeuille="solde" className={`fdm-pf-solde tdb-signe tdb-signe--${sensSolde(r.portefeuille.solde.mensuel)}`}><th scope="row">Solde</th>
+                  <td data-mot="Biens">{r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb >= 0 ? '+' : '−'}{Math.abs(r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb)}</td>
+                  <td data-mot="/ mois" data-total="balance">{signeEur(r.portefeuille.solde.mensuel)}</td>
+                  <td data-mot="/ an" data-total="balance-an">{signeEur(r.portefeuille.solde.annuel)}</td></tr>
+                {g.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</td></tr>}
+              </tbody>
+              {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
+              <tbody data-portefeuille-cumul>
+                <tr className="fdm-pf-sous-titre"><th colSpan={4} scope="colgroup" className="fdm-cumul-titre">Depuis le 1er janvier {annee}</th></tr>
+                <tr className="fdm-pf-entetes" aria-hidden="true"><th>Gestions</th><th>Biens</th><th>/ mois</th><th>/ an</th></tr>
+                <tr data-cumul="entrees"><th scope="row">Gestions entrées</th><td data-mot="Biens">{cumul.entrees.nb}</td>
+                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{eur(cumul.entrees.mensuel)}</button></td>
+                  <td data-mot="/ an">{eur(cumul.entrees.annuel)}</td></tr>
+                <tr data-cumul="sorties"><th scope="row">Gestions sorties</th><td data-mot="Biens">{cumul.sorties.nb}</td>
+                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'sorties'} onClick={() => setCumulOuvert((v) => (v === 'sorties' ? null : 'sorties'))}>{cumul.sorties.mensuel === 0 ? eur(0) : `−${eur(cumul.sorties.mensuel)}`}</button></td>
+                  <td data-mot="/ an">{cumul.sorties.annuel === 0 ? eur(0) : `−${eur(cumul.sorties.annuel)}`}</td></tr>
+                <tr data-cumul="solde" className={`fdm-pf-solde tdb-signe tdb-signe--${sensSolde(cumul.solde.mensuel)}`}><th scope="row">Solde mensuel</th>
+                  <td data-mot="Biens">{cumul.entrees.nb - cumul.sorties.nb >= 0 ? '+' : '−'}{Math.abs(cumul.entrees.nb - cumul.sorties.nb)}</td>
+                  <td data-mot="/ mois">{signeEur(cumul.solde.mensuel)}</td><td data-mot="/ an">{signeEur(cumul.solde.annuel)}</td></tr>
+                {cumul.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-cumul-sans-loyer>{cumul.sansLoyer} bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.</td></tr>}
+              </tbody>
+            </table>
+            {cumulOuvert !== null && (
+              <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
+                {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
+                  <li key={`${x.lotId ?? 'f'}-${x.mois}-${i}`}>
+                    <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
+                    <span>{x.mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(x.mensuel)} / mois`}</span>
+                  </li>))}
+                {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
+              </ul>
+            )}
+          </section>
+
+          </div>
+          <div className="fdm-colonne" data-colonne="droite">
           <section className="fdm-famille" aria-labelledby="fdm-f2" data-famille="statuts">
             <h4 id="fdm-f2">CA par statut du bien</h4>
             <table className="fdm-mini">
@@ -261,53 +313,6 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             </table>
           </section>
 
-          <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
-            <h4 id="fdm-f4">Portefeuille de gestion (honoraires de gestion HT)</h4>
-            <table className="fdm-mini">
-              <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
-              <tbody>
-                <tr data-portefeuille="gagnes"><th scope="row">Gagnées (entrées)</th><td data-mot="Biens">{r.portefeuille.gagnes.nb}</td>
-                  <td data-mot="/ mois">{eur(r.portefeuille.gagnes.mensuel)}</td><td data-mot="/ an">{eur(r.portefeuille.gagnes.annuel)}</td></tr>
-                <tr data-portefeuille="perdus"><th scope="row">Perdues (sorties)</th><td data-mot="Biens">{r.portefeuille.perdus.nb}</td>
-                  <td data-mot="/ mois">{r.portefeuille.perdus.mensuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.mensuel)}`}</td>
-                  <td data-mot="/ an">{r.portefeuille.perdus.annuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.annuel)}`}</td></tr>
-              </tbody>
-              <tfoot><tr data-portefeuille="solde" className={`tdb-signe tdb-signe--${sensSolde(r.portefeuille.solde.mensuel)}`}><th scope="row">Solde</th>
-                <td data-mot="Biens">{r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb >= 0 ? '+' : '−'}{Math.abs(r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb)}</td>
-                <td data-mot="/ mois" data-total="balance" colSpan={2}>{signeEur(r.portefeuille.solde.mensuel)} / mois · {signeEur(r.portefeuille.solde.annuel)} / an</td></tr></tfoot>
-            </table>
-            {g.sansLoyer > 0 && <p className="loc-muet tdb-note">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</p>}
-            {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
-            <div className="fdm-cumul" data-portefeuille-cumul>
-              <p className="fdm-cumul-titre">Depuis le 1er janvier {annee}</p>
-              <table className="fdm-mini">
-                <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
-                <tbody>
-                  <tr data-cumul="entrees"><th scope="row">Gestions entrées</th><td data-mot="Biens">{cumul.entrees.nb}</td>
-                    <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{eur(cumul.entrees.mensuel)}</button></td>
-                    <td data-mot="/ an">{eur(cumul.entrees.annuel)}</td></tr>
-                  <tr data-cumul="sorties"><th scope="row">Gestions sorties</th><td data-mot="Biens">{cumul.sorties.nb}</td>
-                    <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'sorties'} onClick={() => setCumulOuvert((v) => (v === 'sorties' ? null : 'sorties'))}>{cumul.sorties.mensuel === 0 ? eur(0) : `−${eur(cumul.sorties.mensuel)}`}</button></td>
-                    <td data-mot="/ an">{cumul.sorties.annuel === 0 ? eur(0) : `−${eur(cumul.sorties.annuel)}`}</td></tr>
-                </tbody>
-                <tfoot><tr data-cumul="solde" className={`tdb-signe tdb-signe--${sensSolde(cumul.solde.mensuel)}`}><th scope="row">Solde mensuel</th>
-                  <td data-mot="Biens">{cumul.entrees.nb - cumul.sorties.nb >= 0 ? '+' : '−'}{Math.abs(cumul.entrees.nb - cumul.sorties.nb)}</td>
-                  <td data-mot="/ mois">{signeEur(cumul.solde.mensuel)}</td><td data-mot="/ an">{signeEur(cumul.solde.annuel)}</td></tr></tfoot>
-              </table>
-              {cumulOuvert !== null && (
-                <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
-                  {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
-                    <li key={`${x.lotId ?? 'f'}-${x.mois}-${i}`}>
-                      <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
-                      <span>{x.mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(x.mensuel)} / mois`}</span>
-                    </li>))}
-                  {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
-                </ul>
-              )}
-              {cumul.sansLoyer > 0 && <p className="loc-muet tdb-note" data-cumul-sans-loyer>{cumul.sansLoyer} bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.</p>}
-            </div>
-          </section>
-
           <section className="fdm-famille" aria-labelledby="fdm-f3" data-famille="gestion">
             <h4 id="fdm-f3">Honoraires avec / sans gestion</h4>
             <table className="fdm-mini">
@@ -323,6 +328,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             </table>
           </section>
 
+          </div>
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
             <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
             {/* 🔴 Arno (25/10/2026) — le variable en CASCADE (une ligne = une opération), un « i » par ligne de calcul ; droit « Voir les commissions ». */}
@@ -727,8 +733,28 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-edition-corps .fdm-manque{display:block;margin-top:4px;color:var(--color-svv-red);font-size:.8rem;font-weight:700}
 /* 🔴 Arno (25/10/2026) — « Résumé du mois » : une famille par encadré ; 2 colonnes au bureau (les négociateurs sur toute la largeur), 1 au
    téléphone. Libellés à gauche, montants à droite en chiffres tabulaires, jamais coupés. */
-.fdm-familles{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
-@media (min-width:900px){ .fdm-familles{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start} .fdm-famille--large{grid-column:1 / -1} }
+.fdm-familles{display:flex;flex-direction:column;gap:14px}
+.fdm-colonne{display:contents}
+.fdm-familles [data-famille="resultat"]{order:1} .fdm-familles [data-famille="statuts"]{order:2} .fdm-familles [data-famille="portefeuille"]{order:3}
+.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="negociateurs"]{order:5}
+@media (min-width:900px){
+  .fdm-familles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+  .fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .fdm-famille--large{grid-column:1 / -1}
+}
+/* Le Portefeuille : une seule grille de colonnes pour les deux parties (largeurs fixes), même hauteur de ligne. */
+.fdm-portefeuille{table-layout:fixed}
+.fdm-portefeuille col.fdm-pf-c1{width:38%} .fdm-portefeuille col.fdm-pf-c2{width:14%} .fdm-portefeuille col.fdm-pf-c3{width:24%} .fdm-portefeuille col.fdm-pf-c4{width:24%}
+.fdm-portefeuille th,.fdm-portefeuille td{height:2rem;padding-top:4px;padding-bottom:4px;overflow:hidden;text-overflow:ellipsis}
+.fdm-portefeuille .tdb-chiffre{min-height:0;padding:0 2px}
+.fdm-portefeuille tr.fdm-pf-solde th,.fdm-portefeuille tr.fdm-pf-solde td{font-weight:800;border-top:2px solid var(--color-svv-line-strong)}
+.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--positif th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--positif td{color:var(--color-svv-green-ink)}
+.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--negatif th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--negatif td{color:var(--color-svv-red)}
+.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--nul th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--nul td{color:var(--color-svv-muted)}
+.fdm-portefeuille tr.fdm-pf-note td{height:auto;text-align:left;white-space:normal;font-size:.8rem;border-bottom:0}
+.fdm-portefeuille tr.fdm-pf-sous-titre th{height:auto;padding-top:14px;text-align:left;border-bottom:0}
+.fdm-portefeuille tbody[data-portefeuille-cumul] tr.fdm-pf-sous-titre th{border-top:1px solid var(--color-svv-line-strong)}
+.fdm-portefeuille tr.fdm-pf-entetes th{font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
 .fdm-famille{border:1px solid var(--color-svv-line);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
 .fdm-famille > h4{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
 .fdm-cascade-mois{margin:0;display:flex;flex-direction:column}

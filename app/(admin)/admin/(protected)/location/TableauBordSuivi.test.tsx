@@ -237,7 +237,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
     expect(nbsp(container.querySelector('[data-bloc="nouvelles-gestions"] [data-ligne-gestion="7"]')?.textContent)).toContain('66,00 €792,00 €');
     expect(nbsp(container.querySelector('[data-bloc="mandats-perdus"] [data-ligne-gestion="8"]')?.textContent)).toContain('30/09/2026Ancienne gestion40,00 €480,00 €');
-    expect(nbsp(container.querySelector('[data-total="balance"]')?.textContent)).toBe('+26,00 € / mois · +312,00 € / an');
+    // 🔴 25/10/2026 — le Solde du Portefeuille réparti dans ses colonnes (/ mois, / an).
+    expect([nbsp(container.querySelector('[data-total="balance"]')?.textContent), nbsp(container.querySelector('[data-total="balance-an"]')?.textContent)]).toEqual(['+26,00 €', '+312,00 €']);
   });
 
   it('une ligne se corrige dans la feuille : origine, apporteur « à rattacher » non choisissable, prime ; la confirmation est celle de la tuile', async () => {
@@ -767,7 +768,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(perte.querySelector('a')).toBeNull();   // non rattachée : pas de lien vers un bien
     expect(perte.querySelector('[data-perte-fichier]')?.textContent).toBe('suivi mensuel · non rattaché');
     expect(nbsp(perte.textContent)).toContain('09/2026 (mois)Perdue (suivi mensuel)62,10 € *745,20 €');
-    expect(nbsp(container.querySelector('[data-total="balance"]')?.textContent)).toBe('−62,10 € / mois · −745,20 € / an');
+    expect([nbsp(container.querySelector('[data-total="balance"]')?.textContent), nbsp(container.querySelector('[data-total="balance-an"]')?.textContent)]).toEqual(['−62,10 €', '−745,20 €']);
     const notes = [...container.querySelectorAll('[data-ecart-fichier]')];
     expect(notes.map((n) => n.getAttribute('data-ecart-fichier'))).toEqual(['apporteurs', 'commission']);
     expect(notes[0].textContent).toContain('Écart avec le fichier, expliqué');
@@ -1185,10 +1186,21 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
   it('5 encadrés titrés, dans l’ordre : Résultat, CA par statut, avec / sans gestion, portefeuille, négociateur', async () => {
     await septembre();
     expect(bas().querySelector('h3')?.textContent).toBe('Résumé du mois — Septembre 2026');
-    expect([...bas().querySelectorAll('[data-famille]')].map((f) => [f.getAttribute('data-famille'), f.querySelector('h4')?.textContent])).toEqual([
-      // 🔴 Arno (25/10/2026, suite) — le Portefeuille à gauche (sous le Résultat), Honoraires avec / sans à droite.
-      ['resultat', 'Résultat du mois'], ['statuts', 'CA par statut du bien'], ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)'],
-      ['gestion', 'Honoraires avec / sans gestion'], ['negociateurs', 'Négociateur — Jean-Baptiste PONS']]);
+    // 🔴 Arno (25/10/2026, suite) — deux colonnes indépendantes : à gauche Résultat puis Portefeuille, à droite CA par statut puis Honoraires ;
+    // les négociateurs dessous, sur toute la largeur (hors des colonnes).
+    const col = (c: string) => [...bas().querySelectorAll(`[data-colonne="${c}"] > [data-famille]`)].map((f) => [f.getAttribute('data-famille'), f.querySelector('h4')?.textContent]);
+    expect(col('gauche')).toEqual([['resultat', 'Résultat du mois'], ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)']]);
+    expect(col('droite')).toEqual([['statuts', 'CA par statut du bien'], ['gestion', 'Honoraires avec / sans gestion']]);
+    const negos = bas().querySelector('[data-famille="negociateurs"]')!;
+    expect(negos.parentElement?.classList.contains('fdm-familles')).toBe(true);
+    expect(negos.classList.contains('fdm-famille--large')).toBe(true);
+    expect(negos.querySelector('h4')?.textContent).toBe('Négociateur — Jean-Baptiste PONS');
+    // Au téléphone (une colonne) : Résultat, CA par statut, Portefeuille, Honoraires, Négociateurs — l'ordre CSS.
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
+    expect(css).toContain('.fdm-familles [data-famille="resultat"]{order:1} .fdm-familles [data-famille="statuts"]{order:2} .fdm-familles [data-famille="portefeuille"]{order:3}');
+    expect(css).toContain('.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="negociateurs"]{order:5}');
+    expect(css).toContain('.fdm-colonne{display:contents}');
+    expect(css).toContain('.fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}');
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
       .toEqual(['CA HT global', '− Honoraires d’apporteurs', '− Commissions collègues (apport d’apporteurs)', '= CA HT net']);
     expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
@@ -1219,9 +1231,9 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     const ligne = (k: string) => [...bas().querySelectorAll(`[data-portefeuille="${k}"] th, [data-portefeuille="${k}"] td`)].map((x) => nbsp(x.textContent));
     expect(ligne('gagnes')).toEqual(['Gagnées (entrées)', '2', '66,00 €', '792,00 €']);
     expect(ligne('perdus')).toEqual(['Perdues (sorties)', '1', '−40,00 €', '−480,00 €']);
-    expect(ligne('solde')).toEqual(['Solde', '+1', '+26,00 € / mois · +312,00 € / an']);
+    expect(ligne('solde')).toEqual(['Solde', '+1', '+26,00 €', '+312,00 €']);
     expect(bas().querySelector('[data-portefeuille="solde"]')?.classList.contains('tdb-signe--positif')).toBe(true);
-    expect(bas().querySelector('[data-famille="portefeuille"] .tdb-note')?.textContent).toBe('1 bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).');
+    expect(bas().querySelector('[data-famille="portefeuille"] [data-portefeuille-mois] .fdm-pf-note')?.textContent).toBe('1 bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).');
   });
 
   it('🔴 RIEN NE DISPARAÎT : chaque chiffre de l’ancien bas de feuille est dans une famille', async () => {
@@ -1393,7 +1405,25 @@ describe('🔴 Arno (25/10/2026) — Portefeuille de gestion : « Depuis le 1er 
     expect(c.querySelector('[data-cumul="solde"]')?.classList.contains('tdb-signe--positif')).toBe(true);
     expect(c.querySelector('[data-cumul-sans-loyer]')?.textContent).toBe('1 bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.');
     await act(async () => { (c.querySelector('[data-cumul="entrees"] button') as HTMLButtonElement).click(); });
-    expect([...c.querySelectorAll('[data-cumul-biens="entrees"] li')].map((li) => nbsp(li.textContent)))
+    expect([...container.querySelectorAll('[data-famille="portefeuille"] [data-cumul-biens="entrees"] li')].map((li) => nbsp(li.textContent)))
       .toEqual(['1 rue FictiveJanvier 2026150,00 € / mois', '2 rue FictiveFévrier 2026100,00 € / mois', '4 rue FictiveMai 2026sans loyer — non compté']);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — Portefeuille : une seule grille de colonnes pour le mois et « Depuis le 1er janvier »', () => {
+  it('un seul tableau, deux groupes de lignes, mêmes en-têtes ; le Solde du haut dans ses colonnes', async () => {
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const pf = container.querySelector('[data-famille="portefeuille"]') as HTMLElement;
+    expect(pf.querySelectorAll('table')).toHaveLength(1);
+    const table = pf.querySelector('table.fdm-portefeuille')!;
+    expect(table.querySelectorAll('col')).toHaveLength(4);
+    expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
+    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr.fdm-pf-entetes th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
+    expect([...table.querySelectorAll('[data-portefeuille-mois] tr[data-portefeuille] th')].map((x) => x.textContent)).toEqual(['Gagnées (entrées)', 'Perdues (sorties)', 'Solde']);
+    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr[data-cumul] th')].map((x) => x.textContent)).toEqual(['Gestions entrées', 'Gestions sorties', 'Solde mensuel']);
+    // Chaque ligne de chiffres a ses 4 cellules (le Solde du haut aussi : plus de cellule fusionnée).
+    for (const tr of table.querySelectorAll('tr[data-portefeuille], tr[data-cumul]')) expect(tr.children).toHaveLength(4);
+    expect(table.querySelector('[data-portefeuille="solde"] [colspan]')).toBeNull();
   });
 });
