@@ -164,6 +164,25 @@ describe('🔴 Arno (25/10/2026) — la « Fiche locataire » porte aussi le blo
     expect(enregistrer().disabled).toBe(true);
   });
 
+  it('🔴 GLI (Arno, 25/10/2026) : « Garantme » enregistré présélectionne Garantme ; un autre texte, Personnaliser avec le texte ; Garanties | Honoraires', async () => {
+    const valeurs = DOSSIER.conditions!.valeurs;
+    try {
+      DOSSIER.conditions!.valeurs = { ...valeurs, assurance: 'gli', assurancePrecision: 'GARANTME' };
+      await monterAvecBail();
+      expect(pilule('GLI : laquelle ?', 'Garantme').getAttribute('aria-pressed')).toBe('true');
+      expect(bloc3().querySelector('[data-cond-precision="assurance"]')).toBeNull();
+      expect([...bloc3().querySelectorAll('[data-conditions-entree] > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond')).slice(2, 4)).toEqual(['garanties', 'honoraires']);
+      act(() => { root.unmount(); }); root = createRoot(hote);
+      DOSSIER.conditions!.valeurs = { ...valeurs, assurance: 'gli', assurancePrecision: 'Assureur X' };
+      await monterAvecBail();
+      expect(pilule('GLI : laquelle ?', 'Personnaliser').getAttribute('aria-pressed')).toBe('true');
+      expect((bloc3().querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement).value).toBe('Assureur X');
+      // Personnaliser vidé : « Enregistrer » le refuse (le texte est obligatoire).
+      await saisir(bloc3().querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement, '');
+      expect(bloc3().querySelector('[data-cond-precision="assurance"]')).not.toBeNull();
+    } finally { DOSSIER.conditions!.valeurs = valeurs; }
+  });
+
   it('UN SEUL « Enregistrer » : le récapitulatif GROUPÉ PAR BLOC ; « Confirmer » envoie les cartes ET le bloc 3 (bail) ; aucun envoi de mail ; la modale reste ouverte', async () => {
     await monterAvecBail();
     await modifierLea();

@@ -11,7 +11,7 @@
  * 🔴 Toute information absente n'est PAS affichée (jamais « non renseigné »), sauf le bandeau GLI. Le mot « client » n'apparaît
  *    nulle part. Les données viennent de la base (`mailNouvelleLocationRepo.ts`) : rien n'est saisi en plus.
  */
-import { LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
+import { estGarantme, GLI_GARANTME, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
 import { PAYEES_PAR } from './bienComplet';
@@ -392,7 +392,8 @@ export function bandeauGli(c: { assurance: string; precision: string | null; gar
     return { etat: 'inconnue', sorte: null, titre: 'GARANTIE NON RENSEIGNÉE', detail: 'À vérifier : les conditions d’entrée de ce bail ne disent pas quelle garantie le couvre.' };
   }
   const precision = present(c.precision) ? c.precision.trim() : null;
-  if (c.assurance === 'gli') return { etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: precision };
+  // 🔴 Arno (25/10/2026) — « GLI — Garantme » ou « GLI — <texte saisi> ».
+  if (c.assurance === 'gli') return { etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: precision === null ? null : `GLI — ${estGarantme(precision) ? GLI_GARANTME : precision}` };
   if (c.assurance === 'visale') return { etat: 'oui', sorte: 'visale', titre: 'GARANTIE VISALE', detail: precision === null ? null : `N° de visa : ${precision}` };
   if (c.assurance === 'autre') return { etat: 'oui', sorte: 'autre', titre: precision === null ? 'AUTRE GARANTIE' : `GARANTIE : ${precision}`, detail: null };
   const caution = c.garantPhysique ? (garants.length > 0 ? `Caution en place : ${garants.join(' et ')}` : 'Caution en place : garant personne physique') : null;

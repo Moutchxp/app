@@ -324,7 +324,7 @@ export function CreationLocataire() {
     if (garantSansLocataire) { echec('champs', 'Un garant doit garantir au moins un locataire : cochez-le sous « Garantit : ».'); return; }
     // Bloc 3 : tant qu'un choix manque, rien n'est envoyé ; le message est sous le champ et la page y descend.
     if (Object.keys(manque).length > 0) {
-      const raison = `Il manque : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`;
+      const raison = `Il manque : ${Object.values(manque).map((m) => m.replace(/\s*[.?]$/, '')).join(' · ')}.`;
       setIssue({ sorte: 'erreur', cause: 'champs', motif: raison });
       journaliserEchecPage({ ecran: 'nouveau-locataire', pour: 'creer-locataires', cause: 'champs', raison });
       setTente(true); setMotif(null);
@@ -551,7 +551,7 @@ export function CreationLocataire() {
         <p className="loc-manques" role="status">
           {nbLocataires === 0 ? 'Reste à renseigner : au moins un locataire (client).' : bien === null ? 'Reste à choisir : le bien loué.'
             : !dateEntreeSaisie ? 'Reste à renseigner : la date d’entrée dans les lieux.'
-            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`
+            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\s*[.?]$/, '')).join(' · ')}.`
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires" data-annuler-locataire

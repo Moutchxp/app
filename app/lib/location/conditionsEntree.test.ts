@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONDITIONS_VIDES, enCentimes, eurosExacts, formuleProrata, LIBELLE_JOUR, montantDeuxDecimales, prorataEntree, totalLoyerCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
+  choixGliDe, CONDITIONS_VIDES, enCentimes, estGarantme, eurosExacts, formuleProrata, LIBELLE_JOUR, montantDeuxDecimales, prorataEntree, totalLoyerCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
   versEnvoiConditions, versSaisieConditions, type SaisieConditions,
 } from './conditionsEntree';
 
@@ -32,7 +32,8 @@ describe('🔴 conditions d’entrée — choix obligatoires', () => {
   });
 
   it('« préciser » : GLI et Autre exigent le texte ; Visale le garde, facultatif (n° de visa, Arno 21/10/2026) ; Aucune le vide', () => {
-    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, assurance: 'gli', assurancePrecision: '  ' }))).toEqual({ assurancePrecision: 'GLI : précisez laquelle.' });
+    // 🔴 Arno (25/10/2026) : GLI sans texte ni choix = « Garantme ou Personnaliser ? » (le choix est obligatoire).
+    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, assurance: 'gli', assurancePrecision: '  ' }))).toEqual({ gliChoix: 'GLI : Garantme ou Personnaliser ?' });
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, assurance: 'autre' }))).toEqual({ assurancePrecision: 'Autre assurance : précisez laquelle.' });
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, reglement: 'autre' }))).toEqual({ reglementPrecision: 'Autre mode de règlement : précisez lequel.' });
     const gli = verifierConditions(versEnvoiConditions({ ...COMPLET, assurance: 'gli', assurancePrecision: ' Assureur X ' }));
@@ -48,6 +49,43 @@ describe('🔴 conditions d’entrée — choix obligatoires', () => {
   it('le serveur refuse ce qui manque, avec les mêmes mots', () => {
     expect(verifierConditions({})).toEqual({ ok: false, motif: expect.stringContaining('Dépôt de garantie') });
     expect(verifierConditions({ ...versEnvoiConditions(COMPLET), depot: 'ailleurs' }).ok).toBe(false);
+  });
+});
+
+describe('🔴 « GLI : laquelle ? » — Garantme ou Personnaliser (Arno, 25/10/2026)', () => {
+  const gli = (p: Partial<SaisieConditions>): SaisieConditions => ({ ...COMPLET, assurance: 'gli', assurancePrecision: '', ...p });
+  it('aucun choix par défaut : la réponse est obligatoire', () => {
+    expect(choixGliDe(gli({}))).toBeNull();
+    expect(manquesConditions(versEnvoiConditions(gli({})))).toEqual({ gliChoix: 'GLI : Garantme ou Personnaliser ?' });
+    expect(manquesConditions(versEnvoiConditions(gli({ gliChoix: null, assurancePrecision: 'AXA' })))).toEqual({ gliChoix: 'GLI : Garantme ou Personnaliser ?' });
+  });
+  it('Garantme : enregistré « Garantme » dans la même précision, rien d’autre à saisir', () => {
+    expect(manquesConditions(versEnvoiConditions(gli({ gliChoix: 'garantme' })))).toEqual({});
+    const v = verifierConditions(versEnvoiConditions(gli({ gliChoix: 'garantme', assurancePrecision: 'un ancien texte' })));
+    expect(v.ok && v.valeurs.assurancePrecision).toBe('Garantme');
+    expect(v.ok && lignesConditions(v.valeurs).find((l) => l.mot === 'Assurance loyers impayés')?.valeur).toBe('GLI — Garantme');
+  });
+  it('Personnaliser exige le texte ; le texte saisi est enregistré tel quel (« garantme » saisi = Garantme)', () => {
+    expect(manquesConditions(versEnvoiConditions(gli({ gliChoix: 'personnaliser', assurancePrecision: '  ' }))))
+      .toEqual({ assurancePrecision: 'GLI personnalisée : précisez l’assureur ou le contrat.' });
+    const v = verifierConditions(versEnvoiConditions(gli({ gliChoix: 'personnaliser', assurancePrecision: ' AXA · contrat 123 ' })));
+    expect(v.ok && v.valeurs.assurancePrecision).toBe('AXA · contrat 123');
+    const g = verifierConditions(versEnvoiConditions(gli({ gliChoix: 'personnaliser', assurancePrecision: ' garant me ' })));
+    expect(g.ok && g.valeurs.assurancePrecision).toBe('Garantme');
+  });
+  it('présélection depuis une valeur existante : « Garantme » (casse et espaces ignorés) → Garantme ; tout autre texte → Personnaliser', () => {
+    for (const t of ['Garantme', 'garantme', '  GARANTME ', 'Garant Me']) expect(choixGliDe(gli({ assurancePrecision: t }))).toBe('garantme');
+    expect(choixGliDe(gli({ assurancePrecision: 'Assureur X' }))).toBe('personnaliser');
+    expect(estGarantme('Garantme Plus')).toBe(false);
+    // Une valeur relue (« Modifier ») : la précision enregistrée, le choix déduit.
+    const relue = verifierConditions(versEnvoiConditions(gli({ gliChoix: 'personnaliser', assurancePrecision: 'Assureur X' })));
+    expect(relue.ok && choixGliDe(versSaisieConditions(relue.valeurs))).toBe('personnaliser');
+  });
+  it('le serveur (sans le choix de l’écran) : GLI sans précision est refusée', () => {
+    const b = { ...versEnvoiConditions(gli({ gliChoix: 'garantme' })), assurancePrecision: '' };
+    delete (b as Record<string, unknown>).gliChoix;
+    expect(manquesConditions(b)).toEqual({ assurancePrecision: 'GLI : Garantme, ou Personnaliser avec le nom de l’assureur ou du contrat.' });
+    expect(verifierConditions(b).ok).toBe(false);
   });
 });
 

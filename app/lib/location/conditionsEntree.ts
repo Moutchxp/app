@@ -39,6 +39,31 @@ const A_PRECISER: readonly Assurance[] = ['gli', 'autre'];
 /** Arno (21/10/2026) — celles dont la précision se GARDE : GLI et Autre (obligatoire), Visale (le n° de visa, facultatif). */
 export const AVEC_PRECISION: readonly Assurance[] = ['gli', 'visale', 'autre'];
 
+/**
+ * 🔴 Arno (25/10/2026) — « GLI : LAQUELLE ? » : deux boutons exclusifs, « Garantme » et « Personnaliser » (le champ libre d'avant),
+ * aucun choix par défaut, réponse obligatoire. Le stockage ne change pas : `assurance_precision` vaut « Garantme » ou le texte saisi.
+ * Une valeur égale à « Garantme » (casse et espaces ignorés) présélectionne Garantme ; toute autre valeur, Personnaliser avec le texte.
+ */
+export const GLI_GARANTME = 'Garantme';
+export const CHOIX_GLI = ['garantme', 'personnaliser'] as const;
+export type ChoixGli = typeof CHOIX_GLI[number];
+export const LIBELLE_CHOIX_GLI: Record<ChoixGli, string> = { garantme: 'Garantme', personnaliser: 'Personnaliser' };
+/** « Garantme », « garantme », « GARANT ME »… : Garantme. PUR. */
+export const estGarantme = (t: string | null | undefined): boolean => (t ?? '').replace(/\s+/g, '').toLowerCase() === GLI_GARANTME.toLowerCase();
+/** Le choix GLI d'une saisie : celui fait à l'écran, sinon celui que dit la précision enregistrée ; null : pas encore répondu. PUR. */
+export function choixGliDe(s: Pick<SaisieConditions, 'assurance' | 'assurancePrecision' | 'gliChoix'>): ChoixGli | null {
+  if (s.assurance !== 'gli') return null;
+  if (s.gliChoix !== undefined) return s.gliChoix;
+  if (estGarantme(s.assurancePrecision)) return 'garantme';
+  return s.assurancePrecision.trim() !== '' ? 'personnaliser' : null;
+}
+/** La précision enregistrée d'une GLI : « Garantme », ou le texte saisi (« Garantme » s'il le dit) ; vide sans choix. PUR. */
+function precisionGli(s: Pick<SaisieConditions, 'assurance' | 'assurancePrecision' | 'gliChoix'>): string {
+  const c = choixGliDe(s);
+  if (c === 'garantme' || (c === 'personnaliser' && estGarantme(s.assurancePrecision))) return GLI_GARANTME;
+  return c === 'personnaliser' ? s.assurancePrecision : '';
+}
+
 export const COMPTES = ['agence', 'gestion'] as const;
 export type Compte = typeof COMPTES[number];
 // Arno (21/10/2026) : le libellé AFFICHÉ de « agence » est « Compte bancaire transaction » ; la valeur enregistrée (« agence ») ne change pas.
@@ -65,6 +90,8 @@ export interface SaisieConditions {
   garant: boolean | null;
   assurance: Assurance | null;
   assurancePrecision: string;
+  /** 🔴 Arno (25/10/2026) — GLI : « Garantme » ou « Personnaliser » choisi à l'écran ; absent : déduit de la précision (`choixGliDe`). */
+  gliChoix?: ChoixGli | null;
   honorairesLocataire: Compte | null;
   honorairesProprietaire: Compte | null;
   sommes: Record<Somme, string>;
@@ -234,7 +261,9 @@ export function totalCentimes(sommes: Partial<Record<Somme, unknown>>): number |
 export function versEnvoiConditions(s: SaisieConditions): Record<string, unknown> {
   return {
     depot: s.depot, prelevement: s.prelevement, jour: s.prelevement === true ? s.jour : null, garant: s.garant,
-    assurance: s.assurance, assurancePrecision: s.assurance !== null && AVEC_PRECISION.includes(s.assurance) ? s.assurancePrecision : '',
+    assurance: s.assurance,
+    assurancePrecision: s.assurance === 'gli' ? precisionGli(s) : s.assurance !== null && AVEC_PRECISION.includes(s.assurance) ? s.assurancePrecision : '',
+    ...(s.assurance === 'gli' ? { gliChoix: choixGliDe(s) } : {}),
     honorairesLocataire: s.honorairesLocataire, honorairesProprietaire: s.honorairesProprietaire,
     sommes: { ...s.sommes }, reglement: s.reglement, reglementPrecision: s.reglement === 'autre' ? s.reglementPrecision : '',
     commentaire: s.commentaire, loyer: { ...s.loyer }, ...(s.indice !== undefined ? { indice: { ...s.indice } } : {}),
@@ -287,8 +316,11 @@ export function manquesConditions(b: Record<string, unknown>, o: ExigencesCondit
   if (ouiNon(b.garant) === null) m.garant = 'Garant personne physique : répondez Oui ou Non.';
   const assurance = dans(ASSURANCES, b.assurance);
   if (assurance === null) m.assurance = 'Assurance loyers impayés : GLI, Visale, Autre ou Aucune.';
+  else if (assurance === 'gli' && b.gliChoix === null) m.gliChoix = 'GLI : Garantme ou Personnaliser ?';
   else if (A_PRECISER.includes(assurance) && texte(b.assurancePrecision, 120) === null) {
-    m.assurancePrecision = assurance === 'gli' ? 'GLI : précisez laquelle.' : 'Autre assurance : précisez laquelle.';
+    // Sans `gliChoix` (le serveur) : le choix est obligatoire, et Personnaliser exige le texte.
+    m.assurancePrecision = assurance === 'autre' ? 'Autre assurance : précisez laquelle.'
+      : b.gliChoix === 'personnaliser' ? 'GLI personnalisée : précisez l’assureur ou le contrat.' : 'GLI : Garantme, ou Personnaliser avec le nom de l’assureur ou du contrat.';
   }
   if (dans(COMPTES, b.honorairesLocataire) === null) m.honorairesLocataire = 'Honoraires du locataire : compte agence ou compte gestion ?';
   if (dans(COMPTES, b.honorairesProprietaire) === null) m.honorairesProprietaire = 'Honoraires du propriétaire : compte agence ou compte gestion ?';
@@ -329,7 +361,8 @@ export function verifierConditions(brut: unknown, o: ExigencesConditions = {}): 
   const reglement = dans(REGLEMENTS, b.reglement) as Reglement;
   return { ok: true, valeurs: {
     depot: dans(DEPOTS, b.depot) as Depot, prelevement, jour: prelevement ? Number(b.jour) as JourNumero : null,
-    garant: ouiNon(b.garant) as boolean, assurance, assurancePrecision: AVEC_PRECISION.includes(assurance) ? texte(b.assurancePrecision, 120) : null,
+    garant: ouiNon(b.garant) as boolean, assurance,
+    assurancePrecision: assurance === 'gli' && estGarantme(texte(b.assurancePrecision, 120)) ? GLI_GARANTME : AVEC_PRECISION.includes(assurance) ? texte(b.assurancePrecision, 120) : null,
     honorairesLocataire: dans(COMPTES, b.honorairesLocataire) as Compte, honorairesProprietaire: dans(COMPTES, b.honorairesProprietaire) as Compte,
     sommes: { prorataLoyer: enCentimes(sommes.prorataLoyer) ?? null, prorataCharges: enCentimes(sommes.prorataCharges) ?? null,
       depotGarantie: enCentimes(sommes.depotGarantie) ?? null, honorairesAgence: enCentimes(sommes.honorairesAgence) ?? null },
@@ -348,7 +381,8 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
     { mot: 'Dépôt de garantie', valeur: LIBELLE_DEPOT[c.depot] },
     { mot: 'Prélèvement', valeur: c.prelevement ? `Oui, ${LIBELLE_JOUR[String(c.jour) as JourPrelevement]}` : 'Non' },
     { mot: 'Garant personne physique', valeur: c.garant ? 'Oui' : 'Non' },
-    { mot: 'Assurance loyers impayés', valeur: `${LIBELLE_ASSURANCE[c.assurance]}${c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}` },
+    { mot: 'Assurance loyers impayés', valeur: `${LIBELLE_ASSURANCE[c.assurance]}${c.assurancePrecision
+      ? ` — ${c.assurance === 'gli' && estGarantme(c.assurancePrecision) ? GLI_GARANTME : c.assurancePrecision}` : ''}` },
     { mot: 'Honoraires du locataire', valeur: LIBELLE_COMPTE[c.honorairesLocataire] },
     { mot: 'Honoraires du propriétaire', valeur: LIBELLE_COMPTE[c.honorairesProprietaire] },
     ...(loyer === null ? [] : [

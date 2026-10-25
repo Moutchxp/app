@@ -135,7 +135,8 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect([...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond')))
       // 🔴 Arno (25/10/2026, 423) : « Indice des loyers » juste à droite de « Loyer mensuel ».
       // 🔴 Arno (25/10/2026) : « Paiement des charges » juste à droite de « Mode de règlement ».
-      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'loyer', 'indice', 'sommes', 'honoraires-proprietaire', 'reglement', 'charges', 'commentaire']);
+      // 🔴 Arno (25/10/2026) : Garanties | Honoraires sur la même rangée, « Entretien à prévoir » juste après.
+      .toEqual(['depot', 'prelevement', 'garanties', 'honoraires', 'entretien', 'loyer', 'indice', 'sommes', 'honoraires-proprietaire', 'reglement', 'charges', 'commentaire']);
     expect([...container.querySelectorAll('[aria-label="Assurance loyers impayés"] button')].map((b) => b.textContent)).toEqual(['GLI', 'Visale', 'Autre', 'Aucune']);
     expect(container.querySelector('[aria-label="Dépôt de garantie"]')?.className).toBe('loc-pilules');
     // Le même composant de boutons que « Nouveau bien » (aucune copie).
@@ -265,19 +266,63 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(CSS_PILULES).toContain('.loc-pilules button[aria-pressed="true"]::before{visibility:visible}');
   });
 
-  it('« préciser » : GLI et Autre ouvrent un champ obligatoire ; changer de choix le referme', async () => {
+  it('« préciser » : Autre ouvre un champ obligatoire ; changer de choix le referme', async () => {
     await preparer();
     await toutRepondre();
-    await clic(pilule('Assurance loyers impayés', 'GLI'));
-    expect(container.querySelector('[data-cond-precision="assurance"] span')?.textContent).toBe('GLI : laquelle ? *');
-    expect(barre()).toBe('Reste à renseigner : GLI : précisez laquelle.');
-    await saisir(container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement, 'Assureur fictif');
+    await clic(pilule('Assurance loyers impayés', 'Autre'));
+    expect(container.querySelector('[data-cond-precision="assurance"] span')?.textContent).toBe('Autre assurance : laquelle ? *');
+    expect(barre()).toBe('Reste à renseigner : Autre assurance : précisez laquelle.');
+    await saisir(container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement, 'caution bancaire');
     await clic(pilule('Mode de règlement', 'Autre'));
     expect(barre()).toBe('Reste à renseigner : Autre mode de règlement : précisez lequel.');
     await saisir(container.querySelector('[data-cond-precision="reglement"] input') as HTMLInputElement, 'espèces');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     await clic(pilule('Assurance loyers impayés', 'Aucune'));
     expect(container.querySelector('[data-cond-precision="assurance"]')).toBeNull();
+  });
+
+  it('🔴 GLI : laquelle ? — « Garantme » / « Personnaliser », aucun choix par défaut, obligatoire ; Personnaliser exige le texte (Arno, 25/10/2026)', async () => {
+    await preparer();
+    await toutRepondre();
+    await clic(pilule('Assurance loyers impayés', 'GLI'));
+    const boutons = () => [...container.querySelectorAll('[aria-label="GLI : laquelle ?"] button')] as HTMLButtonElement[];
+    expect(boutons().map((b) => b.textContent)).toEqual(['Garantme', 'Personnaliser']);
+    expect(boutons().map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
+    // Les mêmes boutons que GLI / Visale / Autre.
+    expect(container.querySelector('[aria-label="GLI : laquelle ?"]')?.className).toBe(container.querySelector('[aria-label="Assurance loyers impayés"]')?.className);
+    expect(container.querySelector('[data-cond-precision="assurance"]')).toBeNull();
+    expect(barre()).toBe('Reste à renseigner : GLI : Garantme ou Personnaliser.');
+    await soumettre();
+    expect(posts.filter((p) => p.action === 'creer-locataires')).toEqual([]);
+    expect(container.querySelector('[data-cond="garanties"] .loc-manque')?.textContent).toBe('GLI : Garantme ou Personnaliser ?');
+    // Personnaliser : le champ libre d'avant, obligatoire.
+    await clic(pilule('GLI : laquelle ?', 'Personnaliser'));
+    const champ = () => container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement | null;
+    expect(container.querySelector('[data-cond-precision="assurance"] span')?.textContent).toBe('GLI personnalisée : laquelle ? *');
+    expect(champ()?.placeholder).toBe('ex. nom de l’assureur ou du contrat');
+    expect(barre()).toBe('Reste à renseigner : GLI personnalisée : précisez l’assureur ou le contrat.');
+    await saisir(champ()!, 'Assureur fictif');
+    expect(barre()).toBe('1 locataire, prêt à enregistrer.');
+    // Garantme : rien d'autre à saisir.
+    await clic(pilule('GLI : laquelle ?', 'Garantme'));
+    expect(champ()).toBeNull();
+    expect(boutons().map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+    expect(barre()).toBe('1 locataire, prêt à enregistrer.');
+    await soumettre();
+    await soumettre();
+    const creer = posts.find((p) => p.action === 'creer-locataires')!;
+    expect(creer.conditions).toMatchObject({ assurance: 'gli', assurancePrecision: 'Garantme' });
+  });
+
+  it('🔴 GLI personnalisée envoyée avec son texte', async () => {
+    await preparer();
+    await toutRepondre();
+    await clic(pilule('Assurance loyers impayés', 'GLI'));
+    await clic(pilule('GLI : laquelle ?', 'Personnaliser'));
+    await saisir(container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement, 'AXA · contrat 123');
+    await soumettre();
+    await soumettre();
+    expect(posts.find((p) => p.action === 'creer-locataires')!.conditions).toMatchObject({ assurance: 'gli', assurancePrecision: 'AXA · contrat 123' });
   });
 
   it('TOTAL calculé en direct, au centime ; un montant illisible le dit et bloque', async () => {

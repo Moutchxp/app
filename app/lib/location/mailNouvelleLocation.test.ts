@@ -82,8 +82,14 @@ describe('🔴 BANDEAU GARANTIE (Arno, 21/10/2026) : GLI, Visale, Autre en vert 
   const sansSuffixe = 'Nouvelle location · NOUVEAU PROPRIÉTAIRE · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026';
   it('GLI : vert ✓ « ASSURANCE LOYERS IMPAYÉS (GLI) » + l’assureur et le n° de contrat saisis ; l’objet sans suffixe', () => {
     const g = bandeauGli({ assurance: 'gli', precision: 'AXA · contrat 123', garantPhysique: false }, []);
-    expect(g).toEqual({ etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: 'AXA · contrat 123' });
+    expect(g).toEqual({ etat: 'oui', sorte: 'gli', titre: 'ASSURANCE LOYERS IMPAYÉS (GLI)', detail: 'GLI — AXA · contrat 123' });
     expect(objetNouvelleLocation(donnees({ gli: g }))).toBe(sansSuffixe);
+  });
+  it('🔴 Arno (25/10/2026) — GLI Garantme : « GLI — Garantme » (casse et espaces de la saisie ignorés) ; GLI personnalisée : « GLI — <texte> »', () => {
+    expect(bandeauGli({ assurance: 'gli', precision: 'Garantme', garantPhysique: false }, []).detail).toBe('GLI — Garantme');
+    expect(bandeauGli({ assurance: 'gli', precision: ' garant me ', garantPhysique: false }, []).detail).toBe('GLI — Garantme');
+    expect(bandeauGli({ assurance: 'gli', precision: 'Assureur X', garantPhysique: false }, []).detail).toBe('GLI — Assureur X');
+    expect(bandeauGli({ assurance: 'gli', precision: null, garantPhysique: false }, []).detail).toBeNull();
   });
   it('Visale : vert ✓ « GARANTIE VISALE » + le n° de visa s’il est saisi ; jamais « SANS GLI »', () => {
     expect(bandeauGli({ assurance: 'visale', precision: null, garantPhysique: true }, ['M. MARTIN Henri'])).toEqual({ etat: 'oui', sorte: 'visale', titre: 'GARANTIE VISALE', detail: null });

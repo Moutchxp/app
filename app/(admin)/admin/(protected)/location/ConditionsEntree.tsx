@@ -5,7 +5,7 @@ import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { htVersTtc, lireMontant, ttcVersHt } from '../../../../lib/location/suivi/suivi';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
-  ASSURANCES, COMPTES, DEPOTS, formaterCentimes, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
+  ASSURANCES, CHOIX_GLI, choixGliDe, COMPTES, DEPOTS, estGarantme, formaterCentimes, LIBELLE_CHOIX_GLI, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
   LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, formuleProrata, montantDeuxDecimales, prorataEntree, totalCentimes,
   totalLoyerCentimes, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
@@ -230,15 +230,28 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         <div className="loc-cond-sous">
           <span className="loc-cond-mot">Assurance loyers impayés</span>
           <Pilules etiquette="Assurance loyers impayés" options={ASSURANCES} libelle={LIBELLE_ASSURANCE} valeur={s.assurance}
-            onChoix={(v) => maj({ assurance: v,
-              // GLI ↔ Autre gardent le texte (comme avant) ; le n° de visa ne passe jamais à une autre garantie, ni l'inverse.
-              assurancePrecision: (v === 'gli' || v === 'autre') && s.assurance !== 'visale' ? s.assurancePrecision : v === 'visale' && s.assurance === 'visale' ? s.assurancePrecision : '' })} />
+            onChoix={(v) => {
+              // GLI ↔ Autre gardent le texte (comme avant), sauf « Garantme » qui n'est pas un texte saisi ; le n° de visa ne passe jamais à une
+              // autre garantie, ni l'inverse. Le choix GLI se redéduit du texte gardé (`choixGliDe`).
+              const texteGarde = s.assurance === 'gli' && choixGliDe(s) === 'garantme' ? '' : s.assurancePrecision;
+              maj({ assurance: v, gliChoix: undefined,
+                assurancePrecision: (v === 'gli' || v === 'autre') && s.assurance !== 'visale' ? texteGarde : v === 'visale' && s.assurance === 'visale' ? s.assurancePrecision : '' });
+            }} />
         </div>
-        {(s.assurance === 'gli' || s.assurance === 'autre') && (
+        {/* 🔴 Arno (25/10/2026) — « GLI : laquelle ? » : Garantme ou Personnaliser (le champ libre d'avant), aucun choix par défaut. */}
+        {s.assurance === 'gli' && (
+          <div className="loc-cond-sous" data-cond-gli>
+            <span className="loc-cond-mot">GLI : laquelle ? <span className="loc-oblig">*</span></span>
+            <Pilules etiquette="GLI : laquelle ?" options={CHOIX_GLI} libelle={LIBELLE_CHOIX_GLI} valeur={choixGliDe(s)}
+              onChoix={(v) => maj({ gliChoix: v, assurancePrecision: v === 'garantme' || estGarantme(s.assurancePrecision) ? '' : s.assurancePrecision })} />
+          </div>
+        )}
+        {s.assurance === 'gli' && manque('gliChoix')}
+        {((s.assurance === 'gli' && choixGliDe(s) === 'personnaliser') || s.assurance === 'autre') && (
           <label className="loc-champ" data-cond-precision="assurance">
-            <span>{s.assurance === 'gli' ? 'GLI : laquelle ?' : 'Autre assurance : laquelle ?'} <span className="loc-oblig">*</span></span>
+            <span>{s.assurance === 'gli' ? 'GLI personnalisée : laquelle ?' : 'Autre assurance : laquelle ?'} <span className="loc-oblig">*</span></span>
             <input value={s.assurancePrecision} maxLength={120} placeholder={s.assurance === 'gli' ? 'ex. nom de l’assureur ou du contrat' : 'ex. caution bancaire'}
-              onChange={(e) => maj({ assurancePrecision: e.target.value })} /></label>
+              onChange={(e) => maj({ assurancePrecision: e.target.value, ...(s.assurance === 'gli' ? { gliChoix: 'personnaliser' as const } : {}) })} /></label>
         )}
         {/* Arno (21/10/2026) : le n° de visa Visale, FACULTATIF — repris dans le bandeau vert du mail « Nouvelle location ». */}
         {s.assurance === 'visale' && (
@@ -248,8 +261,6 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         )}
         {manque('assurance')}{manque('assurancePrecision')}
       </div>
-
-      {entretien !== undefined && <div className="loc-cond-bloc" data-cond="entretien">{entretien}</div>}
 
       <div className="loc-cond-bloc" data-cond="honoraires">
         <h4>Honoraires <span className="loc-oblig">*</span></h4>
@@ -266,6 +277,9 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         </div>
         {manque('honorairesProprietaire')}
       </div>
+
+      {/* 🔴 Arno (25/10/2026) — Garanties | Honoraires sur la même rangée ; « Entretien à prévoir » (pleine largeur) juste après. */}
+      {entretien !== undefined && <div className="loc-cond-bloc" data-cond="entretien">{entretien}</div>}
 
       {/* 423 — Loyer mensuel et Indice des loyers côte à côte (une rangée à eux deux sur ordinateur, l'un sous l'autre au téléphone). */}
       <div className={indice === undefined ? 'loc-cond-seul' : 'loc-cond-paire'} data-cond-paire={indice === undefined ? undefined : 'loyer-indice'}>

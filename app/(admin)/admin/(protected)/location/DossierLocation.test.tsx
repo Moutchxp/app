@@ -186,3 +186,45 @@ describe('🔴 Arno (25/10/2026) — « Type de bien » reporté sur la fiche du
     expect(onEnregistre).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('🔴 Arno (25/10/2026) — « GLI : laquelle ? » et la rangée Garanties | Honoraires (Dossier de location)', () => {
+  const servir = (l: LectureDossier) => {
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+      if (url.includes('dossierLocation=100')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: l }) } as unknown as Response;
+      if (url.startsWith('/api/admin/location/suivi') && !url.includes('vue=')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: parametres }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'inconnu' }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  };
+  const avecGli = (precision: string): LectureDossier => ({ ...lecture, entretien: { aPrevoir: false, entretiens: [] },
+    conditions: { ...lecture.conditions!, valeurs: { ...lecture.conditions!.valeurs, assurance: 'gli', assurancePrecision: precision } } });
+  const gli = () => [...document.querySelectorAll('[aria-label="GLI : laquelle ?"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const champ = () => document.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement | null;
+
+  it('« Garantme » enregistré (casse et espaces ignorés) : Garantme présélectionné, aucun champ ; rien à enregistrer', async () => {
+    servir(avecGli(' garantme '));
+    await monter();
+    expect(gli()).toEqual([['Garantme', 'true'], ['Personnaliser', 'false']]);
+    expect(champ()).toBeNull();
+    expect(document.querySelector('[data-etat-dossier]')?.textContent).toBe('Aucune modification.');
+  });
+
+  it('un autre texte : Personnaliser présélectionné avec le texte ; passer à Garantme se lit dans le récapitulatif', async () => {
+    servir(avecGli('Assureur X'));
+    await monter();
+    expect(gli()).toEqual([['Garantme', 'false'], ['Personnaliser', 'true']]);
+    expect(champ()?.value).toBe('Assureur X');
+    await act(async () => { ([...document.querySelectorAll('[aria-label="GLI : laquelle ?"] button')].find((b) => b.textContent === 'Garantme') as HTMLButtonElement).click(); });
+    expect(champ()).toBeNull();
+    await act(async () => { enregistrer().click(); });
+    expect([...document.querySelectorAll('[data-recap-champ]')].map((l) => l.textContent)).toContain('Assurance loyers impayés : GLI — Assureur X → GLI — Garantme');
+  });
+
+  it('Garanties | Honoraires côte à côte (même rangée de la grille), « Entretien à prévoir » juste après, pleine largeur', async () => {
+    servir(avecGli('Garantme'));
+    await monter();
+    const ordre = [...document.querySelectorAll('[data-conditions-entree] > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'));
+    expect(ordre.slice(0, 5)).toEqual(['depot', 'prelevement', 'garanties', 'honoraires', 'entretien']);
+  });
+});
