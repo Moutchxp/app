@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
+import { BlocOrigineLocation } from './BlocOrigineLocation';
 import { ModaleFicheLocataire } from './ModaleFicheLocataire';
 import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
@@ -93,7 +94,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const basculerCollegue = (c: string): void => setColOuverts((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; });
   const [edition, setEdition] = useState<number | string | null>(null);
   // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
-  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null; activiteId?: number | null } | null>(null);
+  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null; activiteId?: number | null; origineLigne?: string } | null>(null);
   const ficheEnregistree = (): void => { setFiche(null); onRelire(); };
   // Les lignes dépliées (plusieurs à la fois). Replier une ligne en édition abandonne la saisie, comme « Fermer ».
   const [deplies, setDeplies] = useState<ReadonlySet<string>>(() => new Set());
@@ -126,8 +127,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <ModaleFicheLocataire locataireId={fiche.id} bailId={fiche.bailId ?? null} activiteId={fiche.activiteId ?? null} libelle={fiche.libelle} onFermer={() => setFiche(null)} onEnregistre={onRelire} />
       )}
       {fiche !== null && fiche.sorte === 'lot' && (
+        // 🔴 Arno (25/10/2026, 425) — depuis une ligne du Suivi : le bloc 9 « Origine du contact » (la location de la ligne ; la modale reste ouverte).
         <ModaleCaracteristiquesBien lotId={fiche.id} titre="Fiche du bien" retourMot="Suivi du mois" trace={TRACE_SUIVI}
-          onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
+          onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree}
+          blocApres={(numero) => <BlocOrigineLocation activiteId={fiche.activiteId ?? null} numero={numero} origineLigne={fiche.origineLigne ?? ''} onEnregistre={onRelire} />} />
       )}
       <section className="tdb-section" aria-labelledby="fdm-locations" data-bloc="locations">
         <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>
@@ -210,7 +213,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                               data-fiche-locataire={l.id}>{(a.locataires ?? []).length > 1 ? `Fiche locataire — ${l.libelle}` : 'Fiche locataire'}</button>
                           )) : <span className="fdm-non-rattache" data-locataire-non-rattache>Fiche locataire : non rattaché</span>}
                           {(a.lots ?? []).length > 0 ? (a.lots ?? []).map((b) => (
-                            <button key={`lot-${b.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'lot', id: b.id, libelle: b.libelle })}
+                            <button key={`lot-${b.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'lot', id: b.id, libelle: b.libelle, activiteId: a.bailId !== null ? Number(a.id) : null,
+                              origineLigne: libelleOrigineContact(a.origineContact ?? null, a.origineContactPrecision ?? null) })}
                               data-fiche-bien={b.id} title={b.libelle}>{(a.lots ?? []).length > 1 ? `Fiche du bien — ${b.libelle}` : 'Fiche du bien'}</button>
                           )) : <span className="fdm-non-rattache" data-bien-non-rattache>Fiche du bien : non rattaché</span>}
                         </div>

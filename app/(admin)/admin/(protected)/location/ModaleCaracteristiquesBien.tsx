@@ -15,8 +15,10 @@ import type { EcranTrace } from '../../../../lib/gestion/traceFiche';
  * la question habituelle si la saisie a changé) ; l'enregistrement referme et prévient l'hôte, qui relit le bien.
  * Échap pendant la lecture de la fiche (formulaire pas encore là) referme aussi ; ensuite, c'est le formulaire qui le traite.
  */
-export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre, trace, titre: titreVisible = 'Caractéristiques du bien loué', retourMot = 'Nouveau locataire' }: {
+export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre, trace, titre: titreVisible = 'Caractéristiques du bien loué', retourMot = 'Nouveau locataire', blocApres }: {
   lotId: number; onFermer: () => void; onEnregistre: () => void;
+  /** 🔴 425 — depuis une ligne du Suivi du mois : le bloc 9 « Origine du contact » sous « Statut du bien ». */
+  blocApres?: (numero: number) => React.ReactNode;
   /** 🔴 Arno (24/10/2026) — la MÊME modale ouverte depuis « Suivi du mois » (« Fiche du bien ») : l'écran tracé, son titre, son retour. */
   trace?: { ecran: EcranTrace }; titre?: string; retourMot?: string;
 }) {
@@ -47,7 +49,7 @@ export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre, trac
         <h2 id={titre} className="mcb-titre-cache">{titreVisible}</h2>
         <section className="gst-page">
           <ModifierFicheBien lotId={lotId} retour={{ href: `/admin/location/bien/${lotId}`, mot: retourMot }}
-            modale={{ onFermer: fermer, onEnregistre }} {...(trace !== undefined ? { trace } : {})} />
+            modale={{ onFermer: fermer, onEnregistre }} {...(trace !== undefined ? { trace } : {})} {...(blocApres !== undefined ? { blocApres } : {})} />
         </section>
       </div>
     </div>

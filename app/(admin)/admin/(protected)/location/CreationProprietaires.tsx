@@ -1,5 +1,7 @@
 'use client';
 
+import { CSS_SUIVI_COMMERCIAL } from './SuiviCommercial';
+import { corpsOrigineProprietaire, manqueOrigineProprietaire, ORIGINE_PROPRIETAIRE_VIDE, useOrigineProprietaire, type SaisieOrigineProprietaire } from './ChoixOrigineProprietaire';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer } from './commun';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
@@ -38,6 +40,9 @@ export function CreationProprietaires() {
   /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
   const [enGestion, setEnGestion] = useState<boolean | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact des propriétaires créés ici (obligatoire ; « Origine inconnue » est un choix). */
+  const [origine, setOrigine] = useState<SaisieOrigineProprietaire>(ORIGINE_PROPRIETAIRE_VIDE);
+  const choixOrigine = useOrigineProprietaire(origine, (v) => { setOrigine(v); setMotif(null); });
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
   /** Le formulaire du bien est-il ouvert sous les cartes ? */
   const [formulaire, setFormulaire] = useState(false);
@@ -55,7 +60,8 @@ export function CreationProprietaires() {
   const empeche = nbProprietaires === 0
     ? (etat.contacts.length > 0 ? 'Un contact n’est pas un client : ajoutez au moins une carte « Propriétaire (client) ».'
       : 'Remplissez et enregistrez au moins une carte « Propriétaire (client) » (ou utilisez une fiche déjà connue).')
-    : etat.ouvertes > 0 ? 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.' : null;
+    : etat.ouvertes > 0 ? 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'
+      : etat.clients.length > 0 && choixOrigine.disponible === true ? manqueOrigineProprietaire(origine) : null;
 
   const continuer = (): void => {
     if (empeche !== null) { setMotif(empeche); return; }
@@ -69,7 +75,7 @@ export function CreationProprietaires() {
     if (empeche !== null) return { motif: empeche, cause: 'champs' };
     const r = await envoyer({
       action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', numeroMandatTransaction: enGestion === false ? transaction : '', enGestion,
-      cartes: etat.clients, existants: etat.existants.map((x) => x.id),
+      cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine),
     });
     if (r.motif !== null) return { motif: r.motif, cause: r.cause };
     const ids = (r.data as { ids?: number[] } | undefined)?.ids ?? [];
@@ -109,7 +115,7 @@ export function CreationProprietaires() {
 
   return (
     <div className="loc-page loc-ample">
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_FETE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_FETE + CSS_SUIVI_COMMERCIAL}</style>
       <EnTeteLocation titre="Créer un nouveau propriétaire"
         sous="Une carte par personne (couple, copropriétaires, SCI…) : tous seront propriétaires du même futur bien." />
 
@@ -145,6 +151,18 @@ export function CreationProprietaires() {
             <label className="loc-champ">N° de mandat de transaction locative (texte libre)
               <input value={transaction} onChange={(e) => setTransaction(e.target.value)} placeholder="ex. MT 2026-041" maxLength={80} autoFocus /></label>
           </div>
+        </section>
+      )}
+
+      {/* 🔴 Arno (25/10/2026, 425) — L'ORIGINE DU CONTACT, obligatoire pour toute fiche créée ici ; reprise ensuite par ses biens et locations. */}
+      {etat.clients.length > 0 && choixOrigine.disponible === true && (
+        <section className="loc-section" aria-labelledby="loc-p4" data-origine-proprietaire>
+          <h3 id="loc-p4"><span className="loc-num">4</span>Origine du contact</h3>
+          <p className="loc-section-phrase">D’où vient ce propriétaire : elle sera <strong>reprise</strong> pour chacun de ses biens et chaque nouvelle location
+            (modifiable sur la location). Inconnue pour l’instant : « Origine inconnue — à compléter ».</p>
+          <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux">{choixOrigine.champs}</div>
+          {choixOrigine.apres}
+          {manqueOrigineProprietaire(origine) !== null && <p className="loc-manque" data-manque-origine>{manqueOrigineProprietaire(origine)}</p>}
         </section>
       )}
 

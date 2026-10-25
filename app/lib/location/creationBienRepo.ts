@@ -7,7 +7,9 @@ import { estDoublon, phraseDoublon, type BienComparable } from './doublonBien';
 import { verifierCoordonnees, type CoordonneeSaisie } from '../gestion/annuaireEdition';
 import { creerPersonne, type ChampsPersonne } from '../gestion/annuaireEditionRepo';
 import type { Auteur } from '../gestion/gestes';
-import { verifierAnnexesSaisies, verifierBienComplet, verifierComplements, type ComplementsBien, type ComplementsFiche, type SaisieBien } from './bienComplet';
+import { verifierAnnexesSaisies, verifierBienComplet, verifierComplements, type ComplementsBien, type ComplementsFiche, type SaisieBien } from './bienComplet';import { origineProprietaireDisponible } from './origineProprietaireRepo';
+import { verifierOrigineProprietaire, type OrigineProprietaire } from './origineProprietaire';
+
 export type { ComplementsFiche } from './bienComplet';
 import type { ChampsBien, Categorie } from './locationBien';
 import { analyserTermePortefeuille, type ResultatPortefeuille } from './recherchePortefeuille';
@@ -107,6 +109,8 @@ export interface CartesProprietaires {
   numeroMandat?: string | null;
   /** « Propriétaire(s) en gestion ? » (Arno, 17/10/2026) : obligatoire ; Oui exige le N° de mandat, Non n'en garde aucun. */
   enGestion?: boolean | null;
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact des propriétaires CRÉÉS ici (obligatoire avec la 425 ; « Origine inconnue » est un choix). */
+  origine?: unknown;
   /** Arno, 18/10/2026 — Non ⇒ le N° de mandat de TRANSACTION LOCATIVE, exigé (même règle que le mandat de gestion). */
   numeroMandatTransaction?: string | null;
 }
@@ -150,9 +154,16 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
   if (avecTransaction && !o.enGestion && transaction === null) {
     return { etat: 'refus', motif: 'Propriétaire non en gestion : le N° de mandat de transaction locative est à renseigner.' };
   }
+  // 🔴 Arno (25/10/2026, 425) — l'origine du contact : obligatoire pour toute carte créée (les fiches retenues gardent la leur).
+  let origine: OrigineProprietaire | null = null;
+  if (cartes.length > 0 && await origineProprietaireDisponible()) {
+    const v = verifierOrigineProprietaire(o.origine);
+    if (!v.ok) return { etat: 'refus', motif: v.motif };
+    origine = v.valeur;
+  }
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
-    const cree = await creerPersonne('proprietaire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
+    const cree = await creerPersonne('proprietaire', { ...c, nom: (c.nom ?? '').trim() }, auteur, { origine });
     if (cree.etat !== 'ok') {
       const motif = cree.etat === 'refus' ? cree.motif : 'l’annuaire n’est pas modifiable';
       return { etat: 'refus', motif: ids.length === 0 ? `Carte ${i + 1} : ${motif}` : `${ids.length} fiche(s) créée(s), mais la carte ${i + 1} a échoué : ${motif}` };

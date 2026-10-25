@@ -350,6 +350,7 @@ export async function POST(request: Request): Promise<Response> {
           proprietaire: (corps.proprietaire ?? {}) as CreationProprietaireBien['proprietaire'],
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
+          origine: corps.origine,
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un propriétaire est « en gestion = Oui » (Arno, 18/10/2026).
         // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
@@ -370,6 +371,7 @@ export async function POST(request: Request): Promise<Response> {
           numeroMandat: typeof corps.numeroMandat === 'string' ? corps.numeroMandat : null,
           enGestion: typeof corps.enGestion === 'boolean' ? corps.enGestion : null,
           numeroMandatTransaction: typeof corps.numeroMandatTransaction === 'string' ? corps.numeroMandatTransaction : null,
+          origine: corps.origine,
         }, auteur));
       case 'detacher-annexe':
         // « Détacher » / « Rattacher » une annexe (Arno, 18/10/2026) : une marque ; le lien parent n'est jamais touché.

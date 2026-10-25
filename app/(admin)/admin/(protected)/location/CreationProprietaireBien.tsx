@@ -1,5 +1,7 @@
 'use client';
 
+import { CSS_SUIVI_COMMERCIAL } from './SuiviCommercial';
+import { corpsOrigineProprietaire, manqueOrigineProprietaire, ORIGINE_PROPRIETAIRE_VIDE, useOrigineProprietaire, type SaisieOrigineProprietaire } from './ChoixOrigineProprietaire';
 import { ListeChoix } from './ListeChoix';
 import { useEffect, useState } from 'react';
 import { API, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, phraseMail } from './commun';
@@ -61,8 +63,12 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
   const ajouterAnnexe = (categorie: Categorie): void =>
     setAnnexes((a) => [...a, { cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '' }]);
 
+  // 🔴 Arno (25/10/2026, 425) — l'origine du contact du propriétaire CRÉÉ ici : obligatoire (« Origine inconnue » est un choix).
+  const [origine, setOrigine] = useState<SaisieOrigineProprietaire>(ORIGINE_PROPRIETAIRE_VIDE);
+  const choixOrigine = useOrigineProprietaire(origine, (v) => { setOrigine(v); setMotif(null); });
   const enregistrer = async (): Promise<void> => {
     if (existant === null && p.nom.trim() === '') { setMotif('Le nom du propriétaire est obligatoire.'); return; }
+    if (existant === null && choixOrigine.disponible === true && manqueOrigineProprietaire(origine) !== null) { setMotif(manqueOrigineProprietaire(origine)); return; }
     if (logement.adresse.trim() === '') { setMotif('L’adresse du logement est obligatoire.'); return; }
     const v = verifierChampsBien(logement);
     if (!v.ok) { setMotif(v.motif); return; }
@@ -70,7 +76,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
     if (Object.keys(manque).length > 0) { setMotif(`Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.`); return; }
     setEnvoi(true);
     const r = await envoyer({
-      action: 'creer', proprietaireId: existant?.id ?? null, proprietaire: p,
+      action: 'creer', proprietaireId: existant?.id ?? null, proprietaire: p, ...(existant === null ? { origine: corpsOrigineProprietaire(origine) } : {}),
       logement: { ...logement, categorie: 'logement', dpeClasse: dpe.classe, dpeDate: dpe.date, ...versEnvoiEntretien(entretien) },
       annexes: annexes.map(({ categorie, etage, numLotCopro, porte }) => ({ categorie, etage, numLotCopro, porte })),
     });
@@ -85,7 +91,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
 
   return (
     <form className="loc-page" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_ENTRETIEN + CSS_DPE_PNO}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_ENTRETIEN + CSS_DPE_PNO + CSS_SUIVI_COMMERCIAL}</style>
       <EnTeteLocation titre="Nouveau propriétaire + bien" sous="Une seule page : obligatoires — le nom du propriétaire, l’adresse du logement, le DPE et l’entretien à prévoir." />
 
       <section className="loc-bloc" aria-labelledby="loc-s1">
@@ -123,6 +129,13 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
               </div>
             )}
           </>
+        )}
+        {existant === null && choixOrigine.disponible === true && (
+          <div data-origine-proprietaire style={{ marginTop: 10 }}>
+            <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux">{choixOrigine.champs}</div>
+            {choixOrigine.apres}
+            <small className="loc-muet">Reprise ensuite pour ses biens et chaque nouvelle location (modifiable sur la location).</small>
+          </div>
         )}
         <div className="loc-grille" style={{ marginTop: 10 }}>
           {champP('numeroMandat', 'N° de mandat de gestion (facultatif, texte libre)', { placeholder: 'ex. MG 2026-041' })}

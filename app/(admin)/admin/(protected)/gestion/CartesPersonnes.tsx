@@ -1605,7 +1605,9 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    * ⚠️ AUCUN APPELANT EXISTANT NE CHANGE : les quatre qui la passent gardent leur tuile, leur choix et leur
    * formulaire, au caractère près.
    */
-  creation?: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
+  creation?: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null>;
+    /** 🔴 Arno (25/10/2026, 425) — un complément sous le formulaire de la carte d'ajout (l'origine du contact d'un propriétaire). */
+    complement?: React.ReactNode };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DE CE CÔTÉ ════════════════════════════════════════════
    *
@@ -1831,6 +1833,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
                 const motif = poser === undefined ? 'Aucun enregistrement possible ici.' : await poser(champs);
                 if (motif === null) { setAjout(false); setRefusAjout(null); } else setRefusAjout(motif);
               }} />
+            {ajout === 'client' && creation?.complement}
           </article>
         ) : ajout === 'choix' && creationContact !== undefined ? (
           /* ══ 🔴🔴 LE PETIT CHOIX, À LA PLACE DE LA TUILE ════════════════════════════════════════════════════

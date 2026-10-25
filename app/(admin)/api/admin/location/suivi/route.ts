@@ -13,6 +13,7 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { autresConditions } from '../../../../../lib/location/suivi/detailDossier';
 import { avecTrace } from '../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
+import { lireOrigineActivite, modifierOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -49,6 +50,13 @@ export async function GET(request: Request): Promise<Response> {
       return json(await proposerActivite(Number(url.searchParams.get('lotId')), ids, url.searchParams.get('date')));
     }
     // 🔴 Arno (25/10/2026) — le variable des négociateurs : administrateurs seulement ; un autre compte, SA seule cascade.
+    // 🔴 Arno (25/10/2026, 425) — BLOC 9 de la Fiche du bien (Suivi du mois) : l'origine de la location, son empreinte, l'héritage du bien.
+    if (url.searchParams.get('vue') === 'origine-activite') {
+      const id = Number(url.searchParams.get('id'));
+      if (!Number.isInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
+      const lu = await lireOrigineActivite(id);
+      return json(lu === null ? { etat: 'non_rattache' } : { etat: 'ok', data: lu });
+    }
     const voirCommissions = await estAdministrateurActif(garde.auteurId);
     if (url.searchParams.get('vue') === 'cumul-apporteur') {
       const id = Number(url.searchParams.get('id'));
@@ -84,7 +92,7 @@ export async function GET(request: Request): Promise<Response> {
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     // 🔴 Arno (25/10/2026) — le taux du négociateur (de quoi recalculer un variable) : administrateurs seulement.
-    return json({ etat: 'ok', data: { disponible, apporteurs, regles: voirCommissions ? regles : regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
+    return json({ etat: 'ok', data: { disponible, origineProprietaire: await origineProprietaireDisponible(), apporteurs, regles: voirCommissions ? regles : regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions, negociateurs, voirCommissions, moi: garde.auteurId ?? null, collegues, annuaire, personnalisable,
       // 414 — le nom de famille et le prénom des apporteurs peuvent-ils être corrigés dans la fiche ?
       nomPrenom,
       // 415 — l'origine « Propriétaire déjà client » peut-elle être proposée ?
@@ -132,6 +140,12 @@ export async function POST(request: Request): Promise<Response> {
       case 'modifier-activite': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
         () => modifierActivite(corps.id, corps.champs, auteur)));
       // 🔴 Arno (25/10/2026, 424) — « Statut du bien » validé à la main (`statut` : l'un des 5) ou rendu au calcul (`statut` : null).
+      // 🔴 425 — le bloc 9 « Origine du contact » de la Fiche du bien (Suivi du mois) : la location seule, conflit refusé.
+      case 'origine-activite': {
+        const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Fiche du bien (Suivi du mois)' },
+          () => modifierOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur));
+        return json(r, r.etat === 'conflit' ? 409 : 200);
+      }
       case 'statut-bien': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
         () => validerStatutBien(corps.id, corps.statut ?? null, auteur)));
       case 'modifier-apporteur': return json(await modifierApporteur(corps.apporteurId, corps.fiche, auteur));

@@ -5,7 +5,8 @@
  *   · « Dernière modification : <nom>, le <date> à <heure> ».
  * PUR : aucune base, aucun réseau.
  */
-export const ECRANS_TRACES = ['Suivi du mois', 'Dossier de location (Suivi du mois)', 'Annuaire des apporteurs', 'Fiche locataire (Suivi du mois)', 'Nouveau locataire'] as const;
+export const ECRANS_TRACES = ['Suivi du mois', 'Dossier de location (Suivi du mois)', 'Annuaire des apporteurs', 'Fiche locataire (Suivi du mois)', 'Nouveau locataire',
+  'Fiche du bien (Suivi du mois)', 'Fiche du propriétaire'] as const;
 export type EcranTrace = typeof ECRANS_TRACES[number];
 export type SujetTrace = 'locataire' | 'proprietaire' | 'lot' | 'bail' | 'activite' | 'apporteur';
 

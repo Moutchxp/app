@@ -25,6 +25,8 @@ import { honorairesGestionDisponible } from '../../gestion/schema';
 import { lireReglages } from '../../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../../gestion/honorairesGestion';
 import { bailDisponible } from '../bailRepo';
+import { origineDuBien } from '../origineProprietaireRepo';
+import type { OrigineDuBien } from '../origineProprietaire';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : ACCÈS À LA BASE (Arno, 22/10/2026, migration 406) ════════════════════════════════════
@@ -1122,6 +1124,8 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
   entreeGestion: string | null;
   dejaLoueEnGestion: boolean;
   primeDejaVersee: { date: string; bail: string } | null;
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact du titulaire du bien, héritée par la nouvelle location (null : sans la 425). */
+  origineBien: OrigineDuBien | null;
 }>> {
   const lot = typeof lotId === 'number' && Number.isInteger(lotId) && lotId > 0 ? lotId : null;
   const date = typeof dateSignature === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateSignature) ? dateSignature : null;
@@ -1161,6 +1165,7 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
       tauxGestionBien: await tauxGestionDuBien(query, lot, null),
       cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
+      origineBien: await origineDuBien(lot),
     },
   };
 }

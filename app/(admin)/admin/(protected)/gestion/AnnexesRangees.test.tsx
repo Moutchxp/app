@@ -163,7 +163,7 @@ describe('🔴 détacher, puis rattacher', () => {
 
   it('les GESTES sur « tous les biens en gestion » (co-propriétaire, contacts) gardent la liste COMPLÈTE, annexes comprises', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
-    expect(src).toContain("onCreer('proprietaire', enGestionTous.map((b) => b.id), champs)");
+    expect(src).toContain("onCreer('proprietaire', enGestionTous.map((b) => b.id), champs, extra)");
     expect(src).toContain('useContactsDuProprietaire(enGestionTous.map((b) => b.numero), gestes.modifiable)');
   });
 });

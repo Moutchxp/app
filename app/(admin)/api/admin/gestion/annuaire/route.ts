@@ -17,6 +17,10 @@ import {
   supprimerPersonne,
   modifierPersonne, ordonnerPersonnes, remplacerProprietaireDuLot, separerPersonne,
 } from '../../../../../lib/gestion/annuaireEditionRepo';
+import {
+  locationsDuProprietaire, lireOrigineProprietaire, modifierOrigineProprietaire, origineProprietaireDisponible, proprietairesOrigineACompleter,
+} from '../../../../../lib/location/origineProprietaireRepo';
+import { verifierOrigineProprietaire } from '../../../../../lib/location/origineProprietaire';
 
 /**
  * /api/admin/gestion/annuaire — LOT ANNUAIRE-1 : LA SEULE PORTE DE LECTURE DE L'ANNUAIRE.
@@ -68,6 +72,19 @@ export async function GET(request: Request): Promise<Response> {
      SEULE ; jamais depuis la Location (la même fiche y montre tout), jamais pour les sélecteurs de mails (ils ne la posent pas). */
   const vue = { horsLocationSeule: url.searchParams.get('vue') === 'gestion' && !requeteDepuisLaLocation(request) };
   try {
+    /* 🔴 Arno (25/10/2026, 425) — L'ORIGINE DU CONTACT d'un propriétaire (fiche) et ses locations (le report proposé) ; la liste
+       « Origine à compléter » (« Origine inconnue » ou à renseigner). */
+    const idOrigine = identifiant(url.searchParams.get('origineProprietaire'));
+    if (idOrigine !== null) {
+      const [origine, locations] = await Promise.all([lireOrigineProprietaire(idOrigine), locationsDuProprietaire(idOrigine)]);
+      return Response.json({ etat: 'ok', data: { disponible: origine !== null, origine, locations } }, { headers: ENTETES });
+    }
+    if (url.searchParams.get('origineDisponible') === '1') {
+      return Response.json({ etat: 'ok', data: { disponible: await origineProprietaireDisponible() } }, { headers: ENTETES });
+    }
+    if (url.searchParams.get('origineACompleter') === '1') {
+      return Response.json({ etat: 'ok', data: await proprietairesOrigineACompleter() }, { headers: ENTETES });
+    }
     const idProprietaire = identifiant(url.searchParams.get('proprietaire'));
     if (idProprietaire !== null) return Response.json(await ficheProprietaire(idProprietaire, vue), { headers: ENTETES });
 
@@ -169,6 +186,13 @@ export async function POST(request: Request): Promise<Response> {
       const issue = await avecTrace(trace, () => modifierPersonne(sujet, id, champs, auteur, depuis === undefined ? {} : { depuisJournalId: depuis }));
       return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
     }
+    // 🔴 Arno (25/10/2026, 425) — l'origine du contact d'un propriétaire, modifiée dans sa fiche ; `reporter` : aux seules locations « à renseigner ».
+    if (action === 'origine-proprietaire') {
+      if (id === null) return mauvaiseDemande();
+      const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: 'Fiche du propriétaire' as const };
+      const issue = await avecTrace(trace, () => modifierOrigineProprietaire(id, corps.origine, corps.reporter === true, auteur));
+      return Response.json(issue, { headers: ENTETES });
+    }
     if (action === 'ordonner') {
       if (sujet === null || !Array.isArray(corps.ids)) return mauvaiseDemande();
       const ids = corps.ids.filter((x): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x > 0);
@@ -210,6 +234,12 @@ export async function POST(request: Request): Promise<Response> {
        * transaction. Deux appels laisseraient, au moindre refus du second, une fiche nue dans l'annuaire.
        */
       const champs = (corps.champs ?? {}) as Parameters<typeof creerPersonne>[1];
+      // 🔴 Arno (25/10/2026, 425) — un PROPRIÉTAIRE ne se crée qu'avec son origine du contact (« Origine inconnue » est un choix).
+      if (sujet === 'proprietaire' && await origineProprietaireDisponible()) {
+        const o = verifierOrigineProprietaire(corps.origine);
+        if (!o.ok) return Response.json({ etat: 'refus', motif: o.motif }, { headers: ENTETES });
+        return Response.json(await creerPersonne(sujet, { ...champs, nom: corps.nom }, auteur, { origine: o.valeur }), { headers: ENTETES });
+      }
       return Response.json(
         await creerPersonne(sujet, { ...champs, nom: corps.nom }, auteur), { headers: ENTETES });
     }

@@ -25,6 +25,8 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 // 🔴 LOT L1 — le loyer de départ et le taux, écrits avec l'occupant quand l'écran les donne.
 import { enregistrerConditions } from './honorairesGestionRepo';
 import { reintegrerSiComplet } from '../location/regroupementRepo';
+import { ecrireOrigineProprietaireTx, origineProprietaireDisponible } from '../location/origineProprietaireRepo';
+import type { OrigineProprietaire } from '../location/origineProprietaire';
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -606,6 +608,14 @@ export async function separerPersonne(sujet: Sujet, id: number, o: {
         [cle, second, normaliserTexte(second), p.adresse, p.commune, p.code_postal,
           p.adresse_normalisee, p.relation_depuis, id]);
       nouvelId = Number(neuf[0].id);
+      // 🔴 Arno (25/10/2026, 425) — « Séparer en deux personnes » : la seconde fiche reprend l'origine du contact de la première.
+      if (await origineProprietaireDisponible()) {
+        await q(`UPDATE gestion_annuaire_proprietaire n SET origine_contact = o.origine_contact, origine_contact_precision = o.origine_contact_precision,
+                        origine_apporteur_id = o.origine_apporteur_id, origine_collegue_id = o.origine_collegue_id, origine_collegue_libelle = o.origine_collegue_libelle,
+                        origine_modifiee_le = CASE WHEN o.origine_contact IS NULL THEN NULL ELSE now() END,
+                        origine_modifiee_par_libelle = CASE WHEN o.origine_contact IS NULL THEN NULL ELSE $3 END
+                   FROM gestion_annuaire_proprietaire o WHERE n.id = $1 AND o.id = $2`, [nouvelId, id, auteur.libelle]);
+      }
     } else {
       const { rows: neuf } = await q<{ id: string }>(
         `INSERT INTO gestion_annuaire_locataire
@@ -766,6 +776,8 @@ export async function remplacerProprietaireDuLot(lotId: number, o: {
 /** CRÉE une personne dans l'annuaire, à la main. Rend son identifiant. */
 export async function creerPersonne(
   sujet: Sujet, o: ChampsPersonne & { nom: string }, auteur: Auteur,
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact d'un PROPRIÉTAIRE, VÉRIFIÉE par l'appelant, écrite dans la même transaction. */
+  options: { origine?: OrigineProprietaire | null } = {},
 ): Promise<IssueEdition<{ id: number }>> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   const nom = texteOuRien(o.nom, 200);
@@ -830,6 +842,10 @@ export async function creerPersonne(
       commentaire: `fiche créée à la main dans l’annuaire, avec ${retenues.retenues.length} coordonnée(s)`,
       auteur,
     });
+    if (sujet === 'proprietaire' && options.origine && await origineProprietaireDisponible()) {
+      await ecrireOrigineProprietaireTx(q as unknown as Parameters<typeof ecrireOrigineProprietaireTx>[0], id, options.origine, auteur,
+        'origine du contact saisie à la création du propriétaire');
+    }
     return { etat: 'ok' as const, data: { id } };
   });
 

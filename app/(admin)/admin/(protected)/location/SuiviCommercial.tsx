@@ -1,20 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ListeChoix } from './ListeChoix';
 import {
-  aRattacher, aujourdhuiParis, type Apporteur, CATEGORIES_PRIME, type CasGestion, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_APPORTEUR,
+  aujourdhuiParis, type Apporteur, CATEGORIES_PRIME, type CasGestion, type CategoriePrime, collegueADate, htVersTtc, LIBELLE_ORIGINE_CONTACT,
   LIBELLE_CATEGORIE_PRIME, lireMontant, lireTauxPourcent, type ModePrime, montantPrime, motPrimeDejaVersee, type Origine, originesProposees, type OrigineContact, pourcent,
-  PRECISION_ORIGINE_MAX, preremplissageGestion, type RegleCommission,
-  type SaisieActivite, ttcVersHt, TYPES_APPORTEUR, type TypeApporteur, verifierActivite, versionADate,
+  preremplissageGestion, type RegleCommission,
+  type SaisieActivite, ttcVersHt, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
-import { ModaleAnnuaireApporteurs } from './ModaleAnnuaireApporteurs';
+import { useChoixOrigine } from './ChoixOrigine';
+import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../../lib/location/origineProprietaire';
 import { InfoBulle } from '../InfoBulle';
 import { CaseEuros } from './ConditionsEntree';
 import {
   type ActiviteCalcul, honorairesGestionDuBail, MOT_MANQUE_GESTION, partGestionMensuelleDe, partGestionSignatureDe, partLocationDe,
 } from '../../../../lib/location/suivi/tableauBord';
-import { LIBELLE_MODE_APPORTEUR, libelleApporteur, MODES_APPORTEUR, type ModeApporteur, origineApresCases, trierApporteurs, estInterne, badgeApporteur, baremeADate } from '../../../../lib/location/suivi/suivi';
+import { LIBELLE_MODE_APPORTEUR, MODES_APPORTEUR, type ModeApporteur, origineApresCases, estInterne, baremeADate } from '../../../../lib/location/suivi/suivi';
+
+/** 🔴 425 — des champs d'origine vides, et les champs d'une origine héritée du propriétaire, au format de la saisie. PUR. */
+const champsVides = () => ({ origineContact: '' as const, origineContactPrecision: '', apporteurId: '', collegueId: '' });
+function versSaisieOrigine(c: ReturnType<typeof prerempliOrigine>['champs']): Partial<SaisieSuivi> {
+  return { ...champsOrigine(c.origineContact === '' ? null : c.origineContact), origineContactPrecision: c.origineContactPrecision,
+    apporteurId: c.apporteurId === '' ? null : Number(c.apporteurId), collegueId: c.collegueId === '' ? null : Number(c.collegueId) };
+}
 
 /** Les champs d'une origine choisie : ceux des autres origines se vident (apporteur, collègue, texte « Personnalisé »). PUR. */
 function champsOrigine(v: OrigineContact | null): Partial<SaisieSuivi> {
@@ -56,6 +64,8 @@ export interface ParametresSuivi {
   personnalisable?: boolean;
   /** 415 — l'origine « Propriétaire déjà client » peut-elle être choisie ? */
   dejaClient?: boolean;
+  /** 🔴 425 — l'origine du contact se saisit-elle sur le propriétaire ? */
+  origineProprietaire?: boolean;
 }
 
 export interface SaisieSuivi extends SaisieActivite { categoriePrime: CategoriePrime | null }
@@ -89,7 +99,8 @@ export function lireParametres(d: unknown): ParametresSuivi {
   const negociateurs = Array.isArray(o.negociateurs) ? o.negociateurs : [];
   return { disponible: o.disponible === true && Array.isArray(o.apporteurs), apporteurs, negociateurs, moi: typeof o.moi === 'number' ? o.moi : null,
     collegues: Array.isArray(o.collegues) ? o.collegues : [], regles: Array.isArray(o.regles) ? o.regles : [], annuaire: o.annuaire === true,
-    ...(o.personnalisable === true ? { personnalisable: true } : {}), ...(o.dejaClient === true ? { dejaClient: true } : {}) };
+    ...(o.personnalisable === true ? { personnalisable: true } : {}), ...(o.dejaClient === true ? { dejaClient: true } : {}),
+    ...(o.origineProprietaire === true ? { origineProprietaire: true } : {}) };
 }
 
 /** Lit les paramètres du suivi (apporteurs, négociateurs) ; `rafraichir` relit (après « + Nouvel apporteur »). */
@@ -167,7 +178,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     /* 🔴 Arno (24/10/2026) — la situation du bien (première location en gestion, relocation, prime déjà versée, hors gestion). */
     cas?: CasGestion; primeDejaVersee?: { date: string; bail: string } | null;
     /** 413 — le taux de gestion HT du bien (en %). */
-    tauxGestionBien?: number | null } | null>(null);
+    tauxGestionBien?: number | null;
+    /** 🔴 425 — l'origine du contact du titulaire du bien (héritée par la location), son nom, la divergence entre copropriétaires. */
+    origineBien?: OrigineDuBien | null } | null>(null);
   const cle = lotId !== null && /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? `${lotId}|${locataireIds.join(',')}|${s.dateSignature}` : null;
   useEffect(() => {
     if (cle === null || lu?.disponible !== true) return;
@@ -199,30 +212,64 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     const r = lu?.annuaire === true ? origineApresCases({ origine: s.origineContact ?? null, auto: origineAuto, avecGestion: p.avecGestion,
       mandatGestion: p.mandatGestion, dejaClient: propose.origineProprietaire === 'deja' && lu?.dejaClient === true }) : null;
     if (r !== null) setOrigineAuto(r.auto);
+    // 🔴 Arno (25/10/2026, 425) — les règles des cases d'abord ; si elles laissent l'origine VIDE, celle du propriétaire (« reprise du propriétaire »).
+    const herite = r !== null && r.origine === null ? prerempliOrigine(champsVides(), propose.origineBien ?? null) : null;
     onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
       ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
-      ...(r !== null && r.origine !== (s.origineContact ?? null) ? champsOrigine(r.origine) : {}) });
+      ...(herite?.reprise ? versSaisieOrigine(herite.champs)
+        : r !== null && r.origine !== (s.origineContact ?? null) ? champsOrigine(r.origine) : {}) });
   }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire, lu?.dejaClient, origineAuto, sansPreremplissage]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
+  /* 🔴 Arno (25/10/2026, 425) — UNE LIGNE EXISTANTE (Dossier de location) encore « à renseigner » : l'origine du propriétaire la complète
+     (une fois par bien) ; une origine déjà saisie n'est jamais remplacée. */
+  const heritagePourLot = useRef<number | null>(null);
+  useEffect(() => {
+    if (!sansPreremplissage || lu?.annuaire !== true || deduit === null || lotId === null || heritagePourLot.current === lotId) return;
+    heritagePourLot.current = lotId;
+    if (s.origineContact !== null || s.apporteurId !== null) return;
+    const h = prerempliOrigine(champsVides(), deduit.origineBien ?? null);
+    if (h.reprise) onChange({ ...s, ...versSaisieOrigine(h.champs) });
+  }, [sansPreremplissage, lu?.annuaire, deduit, lotId, s, onChange]);
+  const mentions = lu?.annuaire === true ? mentionsOrigine({ origineContact: s.origineContact ?? '', origineContactPrecision: s.origineContactPrecision ?? '',
+    apporteurId: s.apporteurId === null || s.apporteurId === undefined ? '' : String(s.apporteurId), collegueId: s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId) },
+  deduit?.origineBien ?? null) : [];
 
-  // « + Nouvel apporteur » : une petite carte, enregistrée tout de suite (le référentiel), puis choisie.
-  const [nouveau, setNouveau] = useState<{ nom: string; type: TypeApporteur; taux: string; collegueId: number | null; societe: string; telephone: string; email: string } | null>(null);
-  const [motifNouveau, setMotifNouveau] = useState<string | null>(null);
-  const [envoiNouveau, setEnvoiNouveau] = useState(false);
-  const creerApporteur = async (): Promise<void> => {
-    if (nouveau === null) return;
-    setEnvoiNouveau(true); setMotifNouveau(null);
-    const r = await posterSuivi({ action: 'creer-apporteur', apporteur: { ...nouveau, depuis: aujourdhuiParis() } });
-    setEnvoiNouveau(false);
-    if (r.motif !== null) { setMotifNouveau(r.motif); return; }
-    const id = (r.data as { id?: number } | undefined)?.id ?? null;
-    setNouveau(null);
-    parametres.rafraichir();
-    if (id !== null) poser({ apporteurId: id, apporteurTaux: '', commissionApporteur: '', ...(lu?.annuaire ? { origineContact: 'apporteur' as const } : {}) });
-  };
-  /* Arno (24/10/2026) — l'annuaire COMPLET en modale ; fermée, la liste du champ est relue (apporteur créé ou rattaché). */
-  const [annuaireOuvert, setAnnuaireOuvert] = useState(false);
-  const nouvelApporteur = () => setNouveau({ nom: '', type: 'partenaire', taux: '', collegueId: lu?.moi ?? null, societe: '', telephone: '', email: '' });
+  // 🔴 425 — le choix de l'origine (liste, précision, collègue, apporteur, annuaire, création rapide) : le composant extrait du bloc 4.
+  const actifsHook = (lu?.apporteurs ?? []).filter((a) => !a.archive);
+  const apporteurHook = actifsHook.find((a) => a.id === s.apporteurId) ?? null;
+  const dateHook = /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? s.dateSignature : aujourdhuiParis();
+  const baremeHook = apporteurHook === null ? null : baremeADate(apporteurHook, dateHook);
+  const rattacheHook = apporteurHook === null ? null : collegueADate(apporteurHook, dateHook);
+  const choix = useChoixOrigine({
+    valeur: { origine: s.origineContact ?? '', precision: s.origineContactPrecision ?? '', collegueId: s.collegueId ?? null, apporteurId: s.apporteurId ?? null },
+    lu: { apporteurs: lu?.apporteurs ?? [], collegues: lu?.collegues ?? [], moi: lu?.moi ?? null, annuaire: lu?.annuaire === true },
+    rafraichir: parametres.rafraichir,
+    options: originesProposees(lu?.personnalisable === true, lu?.dejaClient === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o],
+      ...(o === 'relocation' && !s.avecGestion ? { bloque: true, mention: ' — cochez « Relocation »' } : {}) })),
+    libelle: 'Origine du contact propriétaire',
+    // « Relocation » n'est choisissable qu'avec la case « Relocation » (grisée sinon) ; la case cochée l'IMPOSE (liste figée).
+    desactive: s.avecGestion,
+    sousOrigine: <>
+      {s.avecGestion && <small className="loc-muet" data-origine-imposee>Imposée par « Relocation » (portefeuille de gestion).</small>}
+      {deduit?.cas === 'relocation' && <small className="loc-muet">Le bien a déjà été loué dans notre portefeuille de gestion : « Relocation » proposée.</small>}
+      {mentions.map((m) => <small key={m} className="loc-muet" data-mention-origine={m.startsWith('reprise') ? 'reprise' : m.startsWith('différente') ? 'differente' : 'coproprietaires'}>{m}</small>)}
+    </>,
+    sousApporteur: <>
+      {lu?.annuaire === true && apporteurHook !== null && (estInterne(apporteurHook)
+        ? <small className="loc-muet" data-collegue-rattache>Apporteur interne — rattaché à personne</small>
+        : <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {rattacheHook?.collegueLibelle ?? 'à rattacher'}</small>)}
+      {/* 🔴 Arno (24/10/2026) — les conditions de l'apporteur choisi, gestion comprise : aucun 0 % implicite (création rapide comprise). */}
+      {apporteurHook !== null && (
+        <small className="loc-muet" data-conditions-apporteur-choisi>{baremeHook === null ? 'Conditions : aucun taux à cette date'
+          : `Conditions : ${LIBELLE_MODE_APPORTEUR[baremeHook.mode ?? 'one_shot']} — location ${pourcent(baremeHook.taux)} · gestion : ${pourcent(baremeHook.tauxGestion ?? 0)}`}</small>
+      )}
+    </>,
+    onOrigine: (x) => { setOrigineAuto(false); poser(champsOrigine(x === '' ? null : x as OrigineContact)); },
+    onPrecision: (t) => poser({ origineContactPrecision: t }),
+    onCollegue: (id) => poser({ collegueId: id }),
+    onApporteur: (id, depuisAnnuaire) => poser({ apporteurId: id, apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '',
+      ...(depuisAnnuaire && lu?.annuaire === true ? { origineContact: 'apporteur' as const, collegueId: null, origineContactPrecision: '' } : {}) }),
+  });
 
   if (lu === null) return <p className={parametres.erreur ? 'gst-erreur' : 'gst-info'} role={parametres.erreur ? 'alert' : 'status'}>{parametres.erreur ?? 'Chargement…'}</p>;
   if (!lu.disponible) {
@@ -355,55 +402,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
-          {annuaire && (
-            <label className="loc-champ">{libelle('Origine du contact propriétaire', true)}
-              {/* « Relocation » n'est choisissable qu'avec la case « Relocation » (grisée sinon) ; la case cochée l'IMPOSE (liste figée). */}
-              <ListeChoix options={originesProposees(lu.personnalisable === true, lu.dejaClient === true).map((o) => ({ id: o, libelle: LIBELLE_ORIGINE_CONTACT[o],
-                ...(o === 'relocation' && !s.avecGestion ? { bloque: true, mention: ' — cochez « Relocation »' } : {}) }))} valeur={s.origineContact ?? ''}
-                libelle="Origine du contact propriétaire" donnees={{ 'data-origine-contact': '' }} desactive={s.avecGestion}
-                onChange={(x) => { setOrigineAuto(false); poser(champsOrigine(x === '' ? null : x as OrigineContact)); }} />
-              {s.avecGestion && <small className="loc-muet" data-origine-imposee>Imposée par « Relocation » (portefeuille de gestion).</small>}
-              {deduit?.cas === 'relocation' && <small className="loc-muet">Le bien a déjà été loué dans notre portefeuille de gestion : « Relocation » proposée.</small>}</label>
-          )}
-          {annuaire && s.origineContact === 'personnalise' && (
-            <label className="loc-champ">{libelle('Origine personnalisée', true)}
-              <input value={s.origineContactPrecision ?? ''} maxLength={PRECISION_ORIGINE_MAX} placeholder="ex. Salon de l’immobilier" required
-                onChange={(e) => poser({ origineContactPrecision: e.target.value })} data-origine-precision />
-              <small className="loc-muet">{PRECISION_ORIGINE_MAX} caractères au plus.</small></label>
-          )}
-          {annuaire && s.origineContact === 'collegue' && (
-            <label className="loc-champ">{libelle('Collègue', true)}
-              <ListeChoix options={lu.collegues} valeur={s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId)} libelle="Collègue"
-                onChange={(v) => poser({ collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-collegue': '' }} /></label>
-          )}
-          {avecApporteur && (
-            <label className="loc-champ">
-              <span className="loc-suivi-libelle loc-suivi-libelle--action">
-                <span>Apporteur d’affaires{annuaire && <> <span className="loc-oblig">*</span></>}</span>
-                <button type="button" className="loc-suivi-annuaire" onClick={(e) => { e.preventDefault(); setAnnuaireOuvert(true); }} data-ouvrir-annuaire>Ouvrir l’annuaire</button>
-              </span>
-              {/* Un apporteur « à rattacher » reste MONTRÉ dans la liste, avec sa mention, sans être choisissable. Arno (24/10/2026,
-                  accord explicite) : l'aide qui le redisait sous le champ est retirée — le champ s'aligne sur son voisin de gauche. */}
-              <ListeChoix valeur={s.apporteurId === null || s.apporteurId === undefined ? '' : String(s.apporteurId)} vide={annuaire ? '— choisir dans l’annuaire —' : '— aucun —'}
-                options={[...[...trierApporteurs(actifs.filter(estInterne)), ...trierApporteurs(actifs.filter((a) => !estInterne(a)))].map((a) => {
-                  // Arno (24/10/2026, 414) — « NOM Prénom », dans l'ordre alphabétique des noms de famille (une structure par son nom).
-                  // 🔴 419 — GROUPÉS : les internes (badge « INTERNE »), puis les partenaires externes ; rien d'autre ne change.
-                  const bloque = annuaire && aRattacher(a);
-                  const interne = estInterne(a);
-                  return { id: a.id, libelle: interne ? `${libelleApporteur(a)} (${badgeApporteur(a)})` : `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque,
-                    mention: bloque ? ' — à rattacher' : undefined, ...(annuaire ? { groupe: interne ? 'Internes' : 'Partenaires externes' } : {}) };
-                }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
-                libelle="Apporteur d’affaires" donnees={{ 'data-apporteur': '' }}
-                onChange={(v) => { if (v === '+') { nouvelApporteur(); return; } poser({ apporteurId: v === '' ? null : Number(v), apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '' }); }} />
-              {annuaire && apporteur !== null && (estInterne(apporteur)
-                ? <small className="loc-muet" data-collegue-rattache>Apporteur interne — rattaché à personne</small>
-                : <small className="loc-muet" data-collegue-rattache>Collègue de rattachement : {collegueRattache?.collegueLibelle ?? 'à rattacher'}</small>)}
-              {/* 🔴 Arno (24/10/2026) — les conditions de l'apporteur choisi, gestion comprise : aucun 0 % implicite (création rapide comprise). */}
-              {apporteur !== null && (
-                <small className="loc-muet" data-conditions-apporteur-choisi>{baremeDuJour === null ? 'Conditions : aucun taux à cette date'
-                  : `Conditions : ${LIBELLE_MODE_APPORTEUR[baremeDuJour.mode ?? 'one_shot']} — location ${pourcent(baremeDuJour.taux)} · gestion : ${pourcent(baremeDuJour.tauxGestion ?? 0)}`}</small>
-              )}</label>
-          )}
+          {choix.champs}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}
               <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
@@ -432,44 +431,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         </div>
       )}
       {avecApporteur && ligneDirecte !== null && <EncartCommission a={ligneDirecte} apporteur={apporteur!} euros={euros} />}
-      {annuaireOuvert && (
-        <ModaleAnnuaireApporteurs
-          onFermer={() => { setAnnuaireOuvert(false); parametres.rafraichir(); }}
-          onChoisir={(a) => {
-            setAnnuaireOuvert(false);
-            parametres.rafraichir();
-            poser({ apporteurId: a.id, apporteurTaux: '', commissionApporteur: '', ...(annuaire ? { origineContact: 'apporteur' as const, collegueId: null, origineContactPrecision: '' } : {}) });
-          }} />
-      )}
-      {nouveau !== null && (
-        <div className="loc-suivi-nouveau" data-nouvel-apporteur>
-          <p className="loc-muet" style={{ margin: 0 }}>Nouvel apporteur : il rejoint le référentiel (roue « Paramètres Location ») ; son taux vaut à partir d’aujourd’hui.</p>
-          <div className="loc-grille">
-            <label className="loc-champ">Nom<input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} data-nouvel-apporteur-nom /></label>
-            <label className="loc-champ">Type
-              <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur"
-                onChange={(v) => setNouveau({ ...nouveau, type: v as TypeApporteur })} donnees={{ 'data-nouvel-apporteur-type': '' }} /></label>
-            <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} />
-              <small className="loc-muet" data-nouvel-apporteur-gestion>One shot · gestion : 0 % (modifiable ensuite dans l’annuaire, panneau « Taux »)</small></label>
-            {annuaire && (
-              <>
-                <label className="loc-champ"><span>Collègue de rattachement <span className="loc-oblig">*</span></span>
-                  <ListeChoix options={lu.collegues} valeur={nouveau.collegueId === null || nouveau.collegueId === undefined ? '' : String(nouveau.collegueId)} libelle="Collègue de rattachement"
-                    onChange={(v) => setNouveau({ ...nouveau, collegueId: v === '' ? null : Number(v) })} donnees={{ 'data-nouvel-apporteur-collegue': '' }} /></label>
-                <label className="loc-champ">Société (facultatif)<input value={nouveau.societe} onChange={(e) => setNouveau({ ...nouveau, societe: e.target.value })} /></label>
-                <label className="loc-champ">Téléphone (facultatif)<input inputMode="tel" value={nouveau.telephone} onChange={(e) => setNouveau({ ...nouveau, telephone: e.target.value })} /></label>
-                <label className="loc-champ">E-mail (facultatif)<input inputMode="email" value={nouveau.email} onChange={(e) => setNouveau({ ...nouveau, email: e.target.value })} /></label>
-              </>
-            )}
-          </div>
-          {motifNouveau !== null && <p className="loc-manque" role="alert">{motifNouveau}</p>}
-          <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setNouveau(null); setMotifNouveau(null); }} disabled={envoiNouveau}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void creerApporteur(); }} disabled={envoiNouveau} data-creer-apporteur>
-              {envoiNouveau ? 'Enregistrement…' : 'Ajouter l’apporteur'}</button>
-          </div>
-        </div>
-      )}
+      {choix.apres}
       {/* 🔴 Arno (24/10/2026, accord explicite) — le bloc « Origine client » (Propriétaire / Locataire) est retiré du formulaire :
           l'origine client reste DÉDUITE à l'enregistrement (`deduireOrigines`), affichée et filtrable dans le Suivi et les exports. */}
       {manque}

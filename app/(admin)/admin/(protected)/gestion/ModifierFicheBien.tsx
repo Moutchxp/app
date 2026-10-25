@@ -29,7 +29,9 @@ const API = '/api/admin/gestion/annuaire/location';
  * locataire ») ; « Annuler », Échap et le lien de l'en-tête la referment sans rien écrire, l'enregistrement la referme et prévient
  * l'hôte (qui relit le bien). Absent : la page, qui revient à la fiche (comportement inchangé).
  */
-export function ModifierFicheBien({ lotId, retour, modale, trace }: { lotId: number; retour: { href: string; mot: string };
+export function ModifierFicheBien({ lotId, retour, modale, trace, blocApres }: { lotId: number; retour: { href: string; mot: string };
+  /** 🔴 425 — un bloc ajouté sous « Statut du bien » (le bloc 9 « Origine du contact », depuis le Suivi du mois). */
+  blocApres?: (numero: number) => React.ReactNode;
   modale?: { onFermer: () => void; onEnregistre: () => void };
   /**
    * 🔴 Arno (24/10/2026, 417) — ouvert depuis un écran TRACÉ (« Suivi du mois ») : « Dernière modification » et l'historique de la
@@ -82,7 +84,7 @@ export function ModifierFicheBien({ lotId, retour, modale, trace }: { lotId: num
       {trace !== undefined && <BlocTraceFiche trace={historique} />}
       <CreationBien key={`${lecture.version}-${n}`} proprietairesInitiaux={[]}
         modification={{
-          lotId, lecture, versionDistante, importe, retour, ...(modale !== undefined ? { dansModale: true } : {}),
+          lotId, lecture, versionDistante, importe, retour, ...(modale !== undefined ? { dansModale: true } : {}), ...(blocApres !== undefined ? { blocApres } : {}),
           onFermer: revenir,
           onEnregistre: () => { annoncerBienModifie(lotId); if (modale !== undefined) modale.onEnregistre(); else revenir(); },
           onRecharger: () => { void lire(); if (trace !== undefined) relireTrace(); },

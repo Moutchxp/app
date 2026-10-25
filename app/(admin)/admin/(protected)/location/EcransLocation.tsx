@@ -1,5 +1,6 @@
 'use client';
 
+import { FiltreOrigineACompleter } from './FiltreOrigineACompleter';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 import { TableauBordSuivi } from './TableauBordSuivi';
@@ -39,6 +40,8 @@ export function EcranProprietairesBiens() {
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
       </ul>
+      {/* 🔴 Arno (25/10/2026, 425) — le filtre « Origine à compléter » (replié) : les propriétaires dont l'origine du contact reste à compléter. */}
+      <FiltreOrigineACompleter lien={(id) => `/admin/location/proprietaire/${id}`} />
     </div>
   );
 }

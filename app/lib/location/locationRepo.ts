@@ -29,7 +29,9 @@ import { annotationPropre } from './annexeLocation';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 import { fichesAutonomesDuLot, type FicheAutonomeAffichee } from './regroupementRepo';
-import { conditionsEntreeDisponible, conditionsParOccupation, type ConditionsEntreeLues } from './conditionsEntreeRepo';
+import { conditionsEntreeDisponible, conditionsParOccupation, type ConditionsEntreeLues } from './conditionsEntreeRepo';import { origineProprietaireDisponible } from './origineProprietaireRepo';
+import { verifierOrigineProprietaire, type OrigineProprietaire } from './origineProprietaire';
+
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE DÉPÔT (correction d'Arno du 17/10/2026). IMPUR (base). ══════════════════════════════════
@@ -547,6 +549,8 @@ export interface CreationProprietaireBien {
     codePostal?: string | null; commune?: string | null; telephone?: string; email?: string; numeroMandat?: string };
   logement: Record<string, unknown>;
   annexes: Record<string, unknown>[];
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact du propriétaire CRÉÉ ici (obligatoire avec la 425). */
+  origine?: unknown;
 }
 
 /**
@@ -588,10 +592,17 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
       ...(p.telephone && p.telephone.trim() !== '' ? [{ sorte: 'telephone' as const, valeur: p.telephone, libelle: 'Mobile' }] : []),
       ...(p.email && p.email.trim() !== '' ? [{ sorte: 'email' as const, valeur: p.email, libelle: 'E-mail' }] : []),
     ];
+    // 🔴 Arno (25/10/2026, 425) — l'origine du contact, obligatoire (« Origine inconnue » est un choix).
+    let origine: OrigineProprietaire | null = null;
+    if (await origineProprietaireDisponible()) {
+      const v = verifierOrigineProprietaire(o.origine);
+      if (!v.ok) return { etat: 'refus', motif: v.motif };
+      origine = v.valeur;
+    }
     const cree = await creerPersonne('proprietaire', {
       nom: p.nom ?? '', prenom: p.prenom ?? null, civilite: p.civilite ?? null, adresse: p.adresse ?? null,
       codePostal: p.codePostal ?? null, commune: p.commune ?? null, coordonnees,
-    }, auteur);
+    }, auteur, { origine });
     if (cree.etat !== 'ok') return cree.etat === 'refus' ? { etat: 'refus', motif: cree.motif } : { etat: 'sans_schema' };
     proprietaireId = cree.data.id;
   }

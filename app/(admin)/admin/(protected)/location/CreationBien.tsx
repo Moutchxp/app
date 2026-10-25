@@ -144,6 +144,11 @@ export interface ModificationBien {
    */
   dansModale?: boolean;
   /**
+   * 🔴 Arno (25/10/2026, 425) — un bloc AJOUTÉ sous « Statut du bien » par l'hôte (le bloc 9 « Origine du contact », seulement depuis le
+   * Suivi du mois), avec son numéro ; il a son propre enregistrement, indépendant du formulaire du bien.
+   */
+  blocApres?: (numero: number) => React.ReactNode;
+  /**
    * Les appels de la FICHE COMMUNE (la route de la Gestion, gardée par `perm_gestion`), fournis par l'hôte : ce formulaire de la
    * Location ne parle qu'à sa propre route (garde `locationBien.test.ts`).
    */
@@ -989,7 +994,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       </section>
 
       {modification !== undefined ? (
-        <BlocStatutModification numero={n('gestion')} lu={modification.lecture.statut} mandat={modification.lecture.mandat} valeur={transition} onChange={setTransition} />
+        <>
+          <BlocStatutModification numero={n('gestion')} lu={modification.lecture.statut} mandat={modification.lecture.mandat} valeur={transition} onChange={setTransition} />
+          {modification.blocApres?.(n('gestion') + 1)}
+        </>
       ) : continuite === undefined && (
         <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Statut du bien" sorte="bien" obligatoire valeur={enGestionSaisi}
           libelles={{ oui: 'En gestion', non: 'Location seule' }}

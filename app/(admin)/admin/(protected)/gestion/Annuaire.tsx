@@ -1,5 +1,8 @@
 'use client';
 
+import { FiltreOrigineACompleter } from '../location/FiltreOrigineACompleter';
+import { BlocOrigineProprietaire } from '../location/BlocOrigineProprietaire';
+import { corpsOrigineProprietaire, manqueOrigineProprietaire, ORIGINE_PROPRIETAIRE_VIDE, OrigineALaCreation, type CibleOrigineCreation } from '../location/ChoixOrigineProprietaire';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ContexteEditionTracee } from './editionTracee';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
@@ -462,11 +465,13 @@ export function Annuaire({
    */
   const creerEtRattacher = useCallback(async (
     sujet: Sujet, lots: readonly number[], champs: ChampsSaisis,
+    /** 🔴 425 — l'origine du contact d'un propriétaire créé (obligatoire côté serveur avec la 425). */
+    extra: Record<string, unknown> = {},
   ): Promise<string | null> => {
     try {
       const res = await fetch('/api/admin/gestion/annuaire', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'creer', sujet, nom: champs.nom ?? '', champs }),
+        body: JSON.stringify({ action: 'creer', sujet, nom: champs.nom ?? '', champs, ...extra }),
       });
       const cree = (await res.json()) as { etat?: string; motif?: string; data?: { id?: number } };
       if (cree.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
@@ -619,7 +624,11 @@ export function Annuaire({
          * colonnes (lot ANNUAIRE-BLOC-DEDIE) ; ici il n'y a rien d'autre sur l'écran, et un cadre ne séparerait
          * la barre de rien.
          */
-        <BarreAnnuaire onFiche={onFiche} focusAuMontage />
+        <>
+          <BarreAnnuaire onFiche={onFiche} focusAuMontage />
+          {/* 🔴 Arno (25/10/2026, 425) — le filtre « Origine à compléter » (replié) : un clic ouvre la fiche du propriétaire. */}
+          <FiltreOrigineACompleter ouvrir={(id) => onFiche({ sorte: 'proprietaire', id })} />
+        </>
       )}
     </div>
     </EcrireDepuisGestion.Provider>
@@ -786,6 +795,21 @@ export function motAnnexe(b: Pick<BienDuProprietaire, 'annexeDe' | 'annexes' | '
 
 function RefWippimmo({ numero }: { numero: string }) {
   return <span className="ann-carte-ref">Réf. Wippimmo {numero}</span>;
+}
+
+/**
+ * 🔴 Arno (25/10/2026, 425) — CRÉER UN PROPRIÉTAIRE AVEC SON ORIGINE DU CONTACT : obligatoire avec la 425 (« Origine inconnue » est un
+ * choix) ; refusée ici, rien n'est envoyé. Réussie, la saisie repart vide pour la carte suivante.
+ */
+async function avecOrigine(cible: { current: CibleOrigineCreation }, creer: (extra: Record<string, unknown>) => Promise<string | null>): Promise<string | null> {
+  const { saisie, disponible } = cible.current;
+  if (disponible === true) {
+    const manque = manqueOrigineProprietaire(saisie);
+    if (manque !== null) return manque;
+  }
+  const motif = await creer(disponible === true ? { origine: corpsOrigineProprietaire(saisie) } : {});
+  if (motif === null) cible.current = { saisie: ORIGINE_PROPRIETAIRE_VIDE(), disponible };
+  return motif;
 }
 
 /**
@@ -1029,8 +1053,11 @@ function VueProprietaire({
   onEvenements: (lotId: number) => void;
   gestes: GestesCartes;
   /** Crée une personne et la rattache aux biens donnés. Rend le motif du refus, ou `null`. */
-  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis, extra?: Record<string, unknown>) => Promise<string | null>;
 }) {
+  // 🔴 Arno (25/10/2026, 425) — l'origine du contact saisie dans la carte d'ajout d'un propriétaire (lue à l'enregistrement).
+  const origineCreation = useRef<CibleOrigineCreation>({ saisie: ORIGINE_PROPRIETAIRE_VIDE(), disponible: null });
+  const poserOrigineCreation = useCallback((c: CibleOrigineCreation) => { origineCreation.current = c; }, []);
   const [anciensOuverts, setAnciensOuverts] = useState(false);
   /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA RÈGLE N'EST PLUS ÉCRITE ICI : elle vit dans le module PUR
      `bienEnGestion`, que la barre Annuaire lit aussi pour compter les biens d'un propriétaire. Deux écritures de
@@ -1148,7 +1175,8 @@ function VueProprietaire({
             ? 'Cette fiche n’a aucun bien en gestion : la personne sera créée dans l’annuaire, sans rattachement.'
             : `Sera ajouté comme co-propriétaire sur ${enGestionTous.length === 1 ? 'le bien'
               : `les ${enGestionTous.length} biens`} de cette fiche.`,
-          onCreer: (champs) => onCreer('proprietaire', enGestionTous.map((b) => b.id), champs),
+          onCreer: (champs) => avecOrigine(origineCreation, (extra) => onCreer('proprietaire', enGestionTous.map((b) => b.id), champs, extra)),
+          complement: <OrigineALaCreation initiale={ORIGINE_PROPRIETAIRE_VIDE()} onChange={poserOrigineCreation} />,
         }}
         creationContact={{
           motClient: 'Propriétaire (client)',
@@ -1157,6 +1185,9 @@ function VueProprietaire({
             : `Rangé comme contact du propriétaire sur ${enGestionTous.length === 1 ? 'le bien' : `les ${enGestionTous.length} biens`} en gestion de cette fiche.`,
           onCreer: contactsProp.creer,
         }} />
+
+      {/* 🔴 Arno (25/10/2026, 425) — l'origine du contact du propriétaire (modifiable ; report proposé aux seules locations « à renseigner »). */}
+      <BlocOrigineProprietaire proprietaireId={f.id} modifiable={!ficheArchivee && gestes.modifiable} />
 
       <p className="ann-depuis">
         {f.relationDepuis
@@ -1342,7 +1373,7 @@ function VueLot({
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   gestes: GestesCartes;
   /** Crée une personne et la rattache aux biens donnés. Rend le motif du refus, ou `null`. */
-  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis, extra?: Record<string, unknown>) => Promise<string | null>;
   /** Enregistre un départ. Rend le motif du refus, ou `null`. */
   onDepart: (occupationId: number, sortie: string | null) => Promise<string | null>;
   /** Vrai quand on arrive ici par « Historique » ou par un cartouche : la fiche se pose sur la « vie du bien ». */
@@ -1362,6 +1393,9 @@ function VueLot({
   /** 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement du bloc « Événements » sur lequel se poser. */
   evenementVise?: number | null;
 }) {
+  // 🔴 Arno (25/10/2026, 425) — l'origine du contact saisie dans la carte d'ajout d'un propriétaire (lue à l'enregistrement).
+  const origineCreation = useRef<CibleOrigineCreation>({ saisie: ORIGINE_PROPRIETAIRE_VIDE(), disponible: null });
+  const poserOrigineCreation = useCallback((c: CibleOrigineCreation) => { origineCreation.current = c; }, []);
   /**
    * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RÈGLE UNIQUE, ET NON `o.encours` LU À LA MAIN. Le verdict est le même
    * (le dépôt remplit déjà `encours` avec elle), mais il n'y a plus qu'un endroit où il est ÉCRIT.
@@ -1702,7 +1736,8 @@ function VueLot({
         }}
         creation={{
           rappel: `Sera ajouté comme co-propriétaire du lot ${f.numero}.`,
-          onCreer: (champs) => onCreer('proprietaire', [f.id], champs),
+          onCreer: (champs) => avecOrigine(origineCreation, (extra) => onCreer('proprietaire', [f.id], champs, extra)),
+          complement: <OrigineALaCreation initiale={ORIGINE_PROPRIETAIRE_VIDE()} onChange={poserOrigineCreation} />,
         }}
         /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — le choix « client ou contact », côté propriétaire. */
         creationContact={{
@@ -2177,7 +2212,7 @@ function VueLocataire({
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   onHistoriqueDuBien: (lotId: number) => void;
-  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis, extra?: Record<string, unknown>) => Promise<string | null>;
   gestes: GestesCartes;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
