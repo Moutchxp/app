@@ -5,7 +5,7 @@ import { ListeChoix } from './ListeChoix';
 import { ModaleAnnuaireApporteurs } from './ModaleAnnuaireApporteurs';
 import { posterSuivi } from './suiviApi';
 import {
-  aRattacher, aujourdhuiParis, badgeApporteur, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, PRECISION_ORIGINE_MAX, trierApporteurs,
+  aRattacher, aujourdhuiParis, badgeApporteur, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, PRECISION_ORIGINE_MAX, texteRechercheApporteur, trierApporteurs,
   TYPES_APPORTEUR, type Apporteur, type TypeApporteur,
 } from '../../../../lib/location/suivi/suivi';
 import { ChampNombre } from './ChampNombre';
@@ -68,7 +68,8 @@ export function useChoixOrigine(c: ConfigOrigine): { champs: ReactNode; apres: R
     c.rafraichir();
     if (id !== null) c.onApporteur(id, true);
   };
-  const nouvelApporteur = () => setNouveau({ nom: '', type: 'partenaire', taux: '', collegueId: lu.moi ?? null, societe: '', telephone: '', email: '' });
+  // 🔴 25/10/2026 — la création rapide, pré-remplie avec le texte cherché (« Aucun résultat » → « + Créer « texte » »).
+  const nouvelApporteur = (nom = '') => setNouveau({ nom, type: 'partenaire', taux: '', collegueId: lu.moi ?? null, societe: '', telephone: '', email: '' });
 
   const champs = (
     <>
@@ -100,10 +101,11 @@ export function useChoixOrigine(c: ConfigOrigine): { champs: ReactNode; apres: R
             options={[...[...trierApporteurs(actifs.filter(estInterne)), ...trierApporteurs(actifs.filter((a) => !estInterne(a)))].map((a) => {
               const bloque = annuaire && aRattacher(a);
               const interne = estInterne(a);
-              return { id: a.id, libelle: interne ? `${libelleApporteur(a)} (${badgeApporteur(a)})` : `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque,
+              return { id: a.id, libelle: interne ? `${libelleApporteur(a)} (${badgeApporteur(a)})` : `${libelleApporteur(a)} (${LIBELLE_TYPE_APPORTEUR[a.type]})`, bloque, recherche: texteRechercheApporteur(a),
                 mention: bloque ? ' — à rattacher' : undefined, ...(annuaire ? { groupe: interne ? 'Internes' : 'Partenaires externes' } : {}) };
             }), { id: '+', libelle: '+ Nouvel apporteur…' }]}
             libelle="Apporteur d’affaires" donnees={{ 'data-apporteur': '' }}
+            recherche={{ placeholder: 'Chercher un apporteur : nom, société, téléphone, e-mail…', onCreer: (t) => nouvelApporteur(t), onAnnuaire: () => setAnnuaireOuvert(true) }}
             onChange={(x) => { if (x === '+') { nouvelApporteur(); return; } c.onApporteur(x === '' ? null : Number(x), false); }} />
           {c.sousApporteur}</label>
       )}

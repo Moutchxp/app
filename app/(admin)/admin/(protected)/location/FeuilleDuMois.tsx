@@ -12,7 +12,7 @@ import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
 import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_MOIS, MOTS_PERIODE, type MotsPeriode } from './CascadeNegociateur';
 import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../../../lib/location/suivi/resumePeriode';
-import { estInterne } from '../../../../lib/location/suivi/suivi';
+import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
   type ActiviteLue, type GestionDepuisJanvier, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
@@ -701,11 +701,12 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
         <>
           <label className="tdb-champ fdm-champ-large"><span className="fdm-libelle">Apporteur *</span>
             <ListeChoix valeur={v.apporteurId} vide="— choisir dans l’annuaire —" libelle="Apporteur" onChange={(x) => poser({ apporteurId: x })} donnees={{ 'data-edition-apporteur': '' }}
+              recherche={{ placeholder: 'Chercher un apporteur : nom, société, téléphone, e-mail…' }}
               options={ctx.apporteurs.filter((x) => !x.archive).map((x) => {
                 const bloque = aRattacher(x) && String(x.id) !== String(a.apporteurId ?? '');
                 // L'apporteur CHOISI s'affiche par son seul nom (jamais tronqué) ; « à rattacher » passe alors en badge sous le champ.
                 const choisi = String(x.id) === v.apporteurId;
-                return { id: x.id, libelle: x.nom, bloque, mention: aRattacher(x) && !choisi ? ' — à rattacher' : undefined };
+                return { id: x.id, libelle: x.nom, bloque, mention: aRattacher(x) && !choisi ? ' — à rattacher' : undefined, recherche: texteRechercheApporteur(x) };
               })} />
             {apporteurChoisi !== undefined && aRattacher(apporteurChoisi) && <span className="fdm-badge-orange" data-edition-apporteur-a-rattacher>à rattacher</span>}</label>
           <label className="tdb-champ fdm-champ-court"><span className="fdm-libelle">Taux (%)</span>

@@ -205,6 +205,21 @@ describe('🔴 407 — origine du contact, apporteur rattaché, prime de gestion
     await saisir(htLocataire(), '200');
     expect((container.querySelector('input[data-commission-apporteur]') as HTMLInputElement).placeholder).toBe('60,00');
   });
+  it('🔴 Arno (25/10/2026) — recherche d’apporteur : on tape, la liste se filtre ; « Aucun résultat » → « + Créer » ouvre la création rapide PRÉ-REMPLIE', async () => {
+    avec407();
+    await preparer();
+    await clic(container.querySelector('input[data-avec-gestion]')!); await calmer();
+    await choisir(container.querySelector('[data-origine-contact]')!, 'apporteur');
+    await clic(container.querySelector('[data-apporteur]')!);
+    const recherche = container.querySelector('[data-recherche-liste]') as HTMLInputElement;
+    expect(recherche.placeholder).toBe('Chercher un apporteur : nom, société, téléphone, e-mail…');
+    await saisir(recherche, 'kin');
+    expect([...container.querySelectorAll('[data-liste-choix] [role="option"]')].map((o) => o.getAttribute('data-option'))).toEqual(['3', '+']);
+    await saisir(recherche, 'Agence Zorglub');
+    expect(container.querySelector('[data-aucun-resultat]')?.textContent).toContain('Aucun résultat pour « Agence Zorglub ».');
+    await clic(container.querySelector('[data-creer-depuis-recherche]')!);
+    expect((container.querySelector('[data-nouvel-apporteur-nom]') as HTMLInputElement).value).toBe('Agence Zorglub');
+  });
   it('🔴 419 — la liste « Apporteur » : les INTERNES puis les partenaires EXTERNES, groupés, badge ; un interne choisi : « rattaché à personne »', async () => {
     avec407();
     (parametres as { apporteurs: unknown[] }).apporteurs.push({ id: 9, nom: 'Jean-Baptiste Pons', type: 'collaborateur', archive: false, compteId: 5, collegues: [],

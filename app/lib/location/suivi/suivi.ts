@@ -389,6 +389,15 @@ export function libelleApporteur(a: Pick<Apporteur, 'nom' | 'type' | 'nomFamille
 }
 
 /** Le tri : par nom de famille, puis prénom ; une structure par son nom (accents et casse ignorés). PUR, sans modifier l'entrée. */
+/**
+ * 🔴 Arno (25/10/2026) — le texte CHERCHABLE d'un apporteur (le mini moteur de recherche de la liste) : nom, nom de famille, prénom,
+ * société, téléphones et e-mails (principaux et autres). PUR.
+ */
+export function texteRechercheApporteur(a: Pick<Apporteur, 'nom' | 'nomFamille' | 'prenom' | 'societe' | 'telephone' | 'email' | 'telephonesAutres' | 'emailsAutres'>): string {
+  return [a.nom, a.nomFamille, a.prenom, a.societe, a.telephone, ...(a.telephonesAutres ?? []), a.email, ...(a.emailsAutres ?? [])]
+    .filter((x): x is string => typeof x === 'string' && x.trim() !== '').join(' ; ');
+}
+
 export function trierApporteurs<T extends Pick<Apporteur, 'id' | 'nom' | 'type' | 'nomFamille' | 'prenom'>>(liste: readonly T[]): T[] {
   const cle = (a: T): [string, string] => { const p = nomEtPrenom(a); return p === null ? [a.nom, ''] : [p.nomFamille, p.prenom ?? '']; };
   const comparer = (x: string, y: string): number => x.localeCompare(y, 'fr', { sensitivity: 'base' });

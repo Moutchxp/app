@@ -8,7 +8,7 @@ import {
   sectionNegociateurs, totauxPeriode, type TotauxPeriode, variation,
   type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
 } from '../../../../lib/location/suivi/tableauBord';
-import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
+import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
 import { gestionDepuisLeDebut, resumeDeLaPeriode } from '../../../../lib/location/suivi/resumePeriode';
 import { gliEntre } from '../../../../lib/location/suivi/margeGli';
@@ -341,7 +341,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <ListeChoix options={d.negociateurs.map((n) => ({ id: n.cle, libelle: n.libelle }))} valeur={filtre.negociateur ?? ''} vide="Tous" libelle="Négociateur"
             onChange={(v) => poser({ negociateur: v || null })} donnees={{ 'data-filtre': 'negociateur' }} /></label>
         <label className="tdb-champ">Apporteur
-          <ListeChoix options={[{ id: 'aucun', libelle: 'Sans apporteur' }, ...d.apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, libelle: a.nom }))]}
+          <ListeChoix options={[{ id: 'aucun', libelle: 'Sans apporteur' }, ...d.apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, libelle: a.nom, recherche: texteRechercheApporteur(a) }))]}
+            recherche={{ placeholder: 'Chercher un apporteur : nom, société, téléphone, e-mail…' }}
             valeur={filtre.apporteur === null || filtre.apporteur === undefined ? '' : String(filtre.apporteur)} vide="Tous" libelle="Apporteur"
             onChange={(v) => poser({ apporteur: v === '' ? null : v === 'aucun' ? 'aucun' : Number(v) })} donnees={{ 'data-filtre': 'apporteur' }} /></label>
         <label className="tdb-champ">Gestion
