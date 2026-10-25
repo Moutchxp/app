@@ -902,8 +902,9 @@ export interface LigneDetailCollegue {
 
 /**
  * 🔴 Arno (25/10/2026) — LE DÉTAIL D'UN COLLÈGUE : « via ses apporteurs » (et, dès DEUX apporteurs, une sous-ligne par apporteur ; avec un
- * seul, son nom), « en direct », « Total » — seulement les origines présentes. Chaque montant au centime ; via = Σ apporteurs ; total =
- * via + direct. `depliable` : plus d'une ligne de détail (deux origines, ou plusieurs apporteurs). PUR.
+ * seul, son nom), « en direct », « Total » — seulement les origines présentes ; le sous-total « via » n'est écrit que s'il y a aussi
+ * « en direct ». Chaque montant au centime ; via = Σ apporteurs ; total = via + direct. `depliable` : plus d'une ligne de détail (deux
+ * origines, ou plusieurs apporteurs). PUR.
  */
 export function detailCollegue(x: CollegueDuMois): { lignes: LigneDetailCollegue[]; depliable: boolean; seulApporteur: string | null; mention: string } {
   const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);
@@ -918,7 +919,8 @@ export function detailCollegue(x: CollegueDuMois): { lignes: LigneDetailCollegue
     const sous = apps.map((a): LigneDetailCollegue => ({ cle: `apporteur:${a.cle}`, sorte: 'apporteur', mot: a.nom, nb: a.nb, caCentimes: cent(a.ca), commissionCentimes: cent(a.commission), ids: a.ids }));
     viaCa = plusieurs ? sous.reduce((t, l) => t + l.caCentimes, 0) : cent(via.ca);
     viaCom = plusieurs ? sous.reduce((t, l) => t + l.commissionCentimes, 0) : cent(via.commission);
-    lignes.push({ cle: 'via', sorte: 'via', mot: 'via ses apporteurs', nb: via.nb, caCentimes: viaCa, commissionCentimes: viaCom, ids: via.ids });
+    // 🔴 Arno (25/10/2026, suite) — le sous-total « via » seulement s'il y a AUSSI « en direct » (seul, il répéterait le Total).
+    if (direct !== null) lignes.push({ cle: 'via', sorte: 'via', mot: 'via ses apporteurs', nb: via.nb, caCentimes: viaCa, commissionCentimes: viaCom, ids: via.ids });
     if (plusieurs) lignes.push(...sous);
   }
   const dCa = direct === null ? 0 : cent(direct.ca);
@@ -1253,6 +1255,24 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
     negociateurs: ctx === undefined ? [] : negos.map((n) => cascadeNegociateur(n, lignesDuMois, ctx)),
     primes: t.primes, retrocessions: t.retrocessions,
   };
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — LE RÉSULTAT NET DE L'AGENCE du mois, en CENTIMES : les montants DÉJÀ affichés (Résultat du mois, variable de chaque
+ * négociateur), aucun nouveau calcul — le net est leur différence au centime, et sa part du CA global. `variables` vide : pas de droit
+ * « Voir les commissions » (ni variable, ni net). PUR.
+ */
+export interface ResultatNetAgence {
+  ca: number; apporteurs: number; apporteursRecurrents: number; collegues: number; colleguesRecurrents: number;
+  variables: { cle: string; libelle: string; variable: number }[]; net: number | null; part: number | null;
+}
+export function resultatNetAgence(r: ResumeDuMois, t: Pick<TotauxPeriode, 'apporteursRecurrents' | 'colleguesRecurrents'>, voirCommissions: boolean): ResultatNetAgence {
+  const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);
+  const variables = voirCommissions ? r.negociateurs.map((x) => ({ cle: x.cle, libelle: x.libelle, variable: cent(x.variable) })) : [];
+  const ca = cent(r.resultat.ca); const apporteurs = cent(r.resultat.apporteurs); const collegues = cent(r.resultat.collegues);
+  const net = voirCommissions ? ca - apporteurs - collegues - variables.reduce((s, x) => s + x.variable, 0) : null;
+  return { ca, apporteurs, apporteursRecurrents: cent(t.apporteursRecurrents), collegues, colleguesRecurrents: cent(t.colleguesRecurrents), variables, net,
+    part: net === null || ca === 0 ? null : net / ca };
 }
 
 // ── 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE ───────────────────────────────────────────────────────────────────────

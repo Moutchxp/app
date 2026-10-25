@@ -121,21 +121,21 @@ describe('🔴 Arno (25/10/2026) — le détail d’un collègue, apporteur par 
 
   it('un seul chemin et un seul apporteur : AUCUN détail (pas de chevron) ; le nom de l’apporteur est connu pour « via ses apporteurs »', () => {
     const { x, d } = de('Cédric Jullien');
-    expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'total']);
+    expect(d.lignes.map((l) => l.sorte)).toEqual(['total']);
     expect(d.depliable).toBe(false);
     expect(d.seulApporteur).toBe('Solo');
-    expect(d.lignes[1].caCentimes).toBe(Math.round(x.ca * 100));
+    expect(d.lignes[0].caCentimes).toBe(Math.round(x.ca * 100));
   });
 
   it('« À rattacher » suit la même règle (détail par apporteur à rattacher) ; un seul apporteur : pas de chevron', () => {
     const { d } = de('À rattacher');
-    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['via', 'via ses apporteurs'], ['total', 'Total']]);
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['total', 'Total']]);
     expect(d.depliable).toBe(false);
     expect(d.seulApporteur).toBe('Orphelin');
-    expect(d.lignes[1].commissionCentimes).toBe(4001);
+    expect(d.lignes[0].commissionCentimes).toBe(4001);
     const deux = apporteursEtCollegues([...mois, via(9, 50, 5, 5, 'Orphelin 2')], [...apps, { ...ap(5, 'Orphelin 2', null), collegues: [] } as Apporteur]);
     const dr = detailCollegue(deux.collegues.find((c) => c.cle === 'a-rattacher')!);
-    expect(dr.lignes.map((l) => l.mot)).toEqual(['via ses apporteurs', 'Orphelin', 'Orphelin 2', 'Total']);
+    expect(dr.lignes.map((l) => l.mot)).toEqual(['Orphelin', 'Orphelin 2', 'Total']);
     expect(dr.depliable).toBe(true);
   });
 
@@ -145,5 +145,26 @@ describe('🔴 Arno (25/10/2026) — le détail d’un collègue, apporteur par 
     expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'direct', 'total']);
     expect(d.depliable).toBe(true);
     expect(d.seulApporteur).toBe('Frédéric Rousseau');
+  });
+});
+
+describe('🔴 Arno (25/10/2026, suite) — pas de sous-total « via » quand le collègue n’a QU’UNE origine (il répéterait le Total)', () => {
+  const ext = (id: number, nom: string): Apporteur => ({ ...ap(id, nom, null), collegues: [{ depuis: '0001-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] } as Apporteur);
+  const mois = [
+    ligne(1, 3941.03, { apporteurId: 1, apporteurNom: 'Frédéric Rousseau', origineContact: 'apporteur', commissionSaisie: 394.1 }),
+    ligne(2, 1866.04, { apporteurId: 3, apporteurNom: 'Hélène Beketov', origineContact: 'apporteur', commissionSaisie: 933.02 }),
+  ];
+  it('seulement « via » (deux apporteurs) : les sous-lignes par apporteur puis le Total ; Σ apporteurs = Total au centime', () => {
+    const d = detailCollegue(apporteursEtCollegues(mois, [ext(1, 'Frédéric Rousseau'), ext(3, 'Hélène Beketov')]).collegues[0]);
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['apporteur', 'Frédéric Rousseau'], ['apporteur', 'Hélène Beketov'], ['total', 'Total']]);
+    expect(d.lignes.some((l) => l.sorte === 'via')).toBe(false);
+    expect(d.lignes[2].caCentimes).toBe(d.lignes[0].caCentimes + d.lignes[1].caCentimes);
+    expect(d.lignes[2].commissionCentimes).toBe(132712);
+    expect(d.depliable).toBe(true);
+  });
+  it('via ET direct : le sous-total « via » reste', () => {
+    const d = detailCollegue(apporteursEtCollegues([...mois, ligne(3, 100, { origineContact: 'collegue', collegueId: 2, collegueLibelle: 'Arnaud Jorel', commissionSaisie: 0 })],
+      [ext(1, 'Frédéric Rousseau'), ext(3, 'Hélène Beketov')]).collegues[0]);
+    expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'apporteur', 'apporteur', 'direct', 'total']);
   });
 });

@@ -1198,7 +1198,7 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     // Au téléphone (une colonne) : Résultat, CA par statut, Portefeuille, Honoraires, Négociateurs — l'ordre CSS.
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
     expect(css).toContain('.fdm-familles [data-famille="resultat"]{order:1} .fdm-familles [data-famille="statuts"]{order:2} .fdm-familles [data-famille="portefeuille"]{order:3}');
-    expect(css).toContain('.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="negociateurs"]{order:5}');
+    expect(css).toContain('.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="resultat-net"]{order:5} .fdm-familles [data-famille="negociateurs"]{order:6}');
     expect(css).toContain('.fdm-colonne{display:contents}');
     expect(css).toContain('.fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}');
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
@@ -1422,14 +1422,15 @@ describe('🔴 Arno (25/10/2026) — les collègues dépliables, apporteur par a
     expect(aj().hasAttribute('data-collegue-deplie')).toBe(true);
     expect(aj().querySelector('button[data-deplier-collegue]')?.textContent).toBe('▾');
     const ca = [...aj().querySelectorAll('[data-mot="CA apporté"] [data-pile]')].map((e) => [e.getAttribute('data-pile'), euros(e.textContent)] as [string, number]);
-    expect(ca.map((x) => x[0])).toEqual(['via', 'apporteur', 'apporteur', 'total']);
+    // 🔴 Une seule origine : pas de sous-total « via » (il répéterait le Total) — les apporteurs puis le Total.
+    expect(ca.map((x) => x[0])).toEqual(['apporteur', 'apporteur', 'total']);
+    expect(aj().querySelector('[data-pile="via"]')).toBeNull();
     const mots = [...aj().querySelectorAll('th [data-pile="apporteur"]')].map((e) => nbsp(e.textContent));
     expect(mots.length).toBe(2);
-    expect(ca[1][1]).toBeGreaterThanOrEqual(ca[2][1]);
-    expect(ca[0][1]).toBe(ca[1][1] + ca[2][1]);
-    expect(ca[3][1]).toBe(ca[0][1]);
+    expect(ca[0][1]).toBeGreaterThanOrEqual(ca[1][1]);
+    expect(ca[2][1]).toBe(ca[0][1] + ca[1][1]);
     // Les mêmes emplacements dans CHAQUE cellule : les lignes s'alignent.
-    for (const cell of aj().querySelectorAll('th, td')) expect(cell.querySelectorAll('.fdm-pile-l').length).toBe(5);
+    for (const cell of aj().querySelectorAll('th, td')) expect(cell.querySelectorAll('.fdm-pile-l').length).toBe(4);
     // Le Total du tableau ne bouge pas au dépliage.
     expect(euros(container.querySelector('[data-total-collegues-ca]')?.textContent)).toBe(totalTableau);
     // Le chevron replie (Entrée / Espace : c'est un vrai bouton).
@@ -1490,5 +1491,60 @@ describe('🔴 Arno (25/10/2026) — Portefeuille : une seule grille de colonnes
     // Chaque ligne de chiffres a ses 4 cellules (le Solde du haut aussi : plus de cellule fusionnée).
     for (const tr of table.querySelectorAll('tr[data-portefeuille], tr[data-cumul]')) expect(tr.children).toHaveLength(4);
     expect(table.querySelector('[data-portefeuille="solde"] [colspan]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après les 4 blocs, avant le Négociateur, pleine largeur', () => {
+  const cent = (t: string | null | undefined): number => Math.round(Number(nbsp(t).replace(/[\s€]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+
+  it('placé entre les colonnes et le Négociateur, sur toute la largeur ; titre avec le mois', async () => {
+    await septembre();
+    const familles = container.querySelector('.fdm-familles') as HTMLElement;
+    expect([...familles.children].map((e) => e.getAttribute('data-colonne') ?? e.getAttribute('data-famille'))).toEqual(['gauche', 'droite', 'resultat-net', 'negociateurs']);
+    const bloc = familles.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+    expect(bloc.classList.contains('fdm-famille--large')).toBe(true);
+    expect(bloc.querySelector('h4')?.textContent).toBe('Résultat net de l’agence — Septembre 2026');
+    expect([...bloc.querySelectorAll('[data-net-ligne] .fnc-mot')].map((e) => e.textContent))
+      .toEqual(['CA HT global', 'Honoraires d’apporteurs', 'Commissions collègues', 'Variable des négociateurs', 'CA net de toutes variables']);
+  });
+
+  it('les montants sont ceux des autres blocs ; net = CA − apporteurs − collègues − variables au centime ; sa part du CA', async () => {
+    await septembre();
+    const bloc = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+    const v = (sel: string) => cent(bloc.querySelector(sel)?.textContent);
+    const ailleurs = (sel: string) => cent(container.querySelector(`[data-famille="resultat"] ${sel}`)?.textContent);
+    expect(v('[data-net="ca"]')).toBe(ailleurs('[data-total="ca"]'));
+    expect(v('[data-net="apporteurs"]')).toBe(ailleurs('[data-total="apporteurs"]'));
+    expect(v('[data-net="collegues"]')).toBe(ailleurs('[data-total="collegues"]'));
+    const variables = [...container.querySelectorAll('[data-famille="negociateurs"] [data-total-commission]')].map((e) => cent(e.textContent));
+    expect(variables.length).toBeGreaterThan(0);
+    expect(v('[data-net-variable]')).toBe(variables.reduce((s, x) => s + x, 0));
+    expect(v('[data-net="net"]')).toBe(v('[data-net="ca"]') - v('[data-net="apporteurs"]') - v('[data-net="collegues"]') - v('[data-net-variable]'));
+    const part = (v('[data-net="net"]') / v('[data-net="ca"]')) * 100;
+    expect(nbsp(bloc.querySelector('[data-net-part]')?.textContent)).toBe(`soit ${part.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).replace(/ | /g, ' ')} % du CA HT global`);
+    // Le « i » du net : l'opération avec les vrais chiffres.
+    await act(async () => { (bloc.querySelector('[data-cascade-info="net"]') as HTMLButtonElement).click(); });
+    expect(nbsp(bloc.querySelector('[data-cascade-detail="net"]')?.textContent)).toContain(`= ${nbsp(bloc.querySelector('[data-net="net"]')?.textContent)}`);
+  });
+
+  it('sans le droit « Voir les commissions » : ni variable, ni net (comme le Négociateur)', async () => {
+    donnees = { ...donnees, voirCommissions: false };
+    await septembre();
+    const bloc = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+    expect(bloc.querySelector('[data-net="net"]')).toBeNull();
+    expect(bloc.querySelector('[data-net-variable]')).toBeNull();
+    expect(bloc.querySelector('[data-net-part]')).toBeNull();
+    expect(bloc.querySelector('[data-net-sans-droit]')).not.toBeNull();
+    expect(bloc.querySelector('[data-net="ca"]')).not.toBeNull();
+  });
+
+  it('titre du Portefeuille : sous 430 px seulement, la fin passe à la ligne (plancher 13 px conservé)', async () => {
+    await septembre();
+    const t = container.querySelector('[data-titre-portefeuille]') as HTMLElement;
+    expect(t.textContent).toBe('Portefeuille de gestion — septembre 2026 (honoraires de gestion HT)');
+    expect(t.querySelector('.fdm-titre-suite')?.textContent).toBe('(honoraires de gestion HT)');
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
+    expect(css).toContain('@media (max-width:430px){\n  .fdm-famille > h4.fdm-titre-une-ligne{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}\n  .fdm-titre-une-ligne .fdm-titre-suite{display:block}\n}');
   });
 });

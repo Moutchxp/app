@@ -8,10 +8,10 @@ import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
-import { CascadeNegociateurMois, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
+import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, resultatNetAgence, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -67,6 +67,9 @@ interface Props {
   onRelire: () => void;
 }
 
+/** 🔴 Arno (25/10/2026) — la fin du titre du Portefeuille, qui passe à la ligne sous 430 px (et seulement là). */
+const TITRE_SUITE = '(honoraires de gestion HT)';
+
 export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDetail, onRelire }: Props) {
   const cle = `${annee}-${String(mois).padStart(2, '0')}`;
   const duMois = lignes.filter((a) => a.dateSignature.startsWith(cle));
@@ -105,7 +108,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
     return () => window.removeEventListener('keydown', clavier);
   }, [edition]);
   const nom = `${NOMS_MOIS[mois - 1]} ${annee}`;
-  const titrePortefeuille = `Portefeuille de gestion — ${nom.toLowerCase()} (honoraires de gestion HT)`;
+  const titreMois = `Portefeuille de gestion — ${nom.toLowerCase()}`;
+  const titrePortefeuille = `${titreMois} ${TITRE_SUITE}`;
   const annuaire = d.annuaire === true;
 
   return (
@@ -274,7 +278,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           <div className="fdm-colonne" data-colonne="droite">
           <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
             {/* 🔴 Arno (25/10/2026) — le titre porte le mois, sur UNE ligne (police réduite si besoin, jamais coupé). */}
-            <h4 id="fdm-f4" className="fdm-titre-une-ligne" data-titre-portefeuille style={{ '--lettres': titrePortefeuille.length } as CSSProperties}>{titrePortefeuille}</h4>
+            <h4 id="fdm-f4" className="fdm-titre-une-ligne" data-titre-portefeuille
+              style={{ '--lettres': titrePortefeuille.length, '--lettres-ligne': Math.max(titreMois.length, TITRE_SUITE.length) } as CSSProperties}>
+              <span>{titreMois}</span> <span className="fdm-titre-suite">{TITRE_SUITE}</span></h4>
             {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
                 au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
             <table className="fdm-mini fdm-portefeuille">
@@ -336,6 +342,11 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           </section>
 
           </div>
+          {/* 🔴 Arno (25/10/2026) — le RÉSULTAT NET DE L'AGENCE : après les 4 blocs, avant les négociateurs, sur toute la largeur. */}
+          <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f6" data-famille="resultat-net">
+            <h4 id="fdm-f6">Résultat net de l’agence — {nom}</h4>
+            <CascadeResultatNet x={resultatNetAgence(r, t, d.voirCommissions === true)} dossiers={duMois.map((a) => ({ id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca: caLigne(a) }))} />
+          </section>
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
             <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
             {/* 🔴 Arno (25/10/2026) — le variable en CASCADE (une ligne = une opération), un « i » par ligne de calcul ; droit « Voir les commissions ». */}
@@ -753,7 +764,7 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-familles{display:flex;flex-direction:column;gap:14px}
 .fdm-colonne{display:contents}
 .fdm-familles [data-famille="resultat"]{order:1} .fdm-familles [data-famille="statuts"]{order:2} .fdm-familles [data-famille="portefeuille"]{order:3}
-.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="negociateurs"]{order:5}
+.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="resultat-net"]{order:5} .fdm-familles [data-famille="negociateurs"]{order:6}
 @media (min-width:900px){
   .fdm-familles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
   .fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}
@@ -778,6 +789,10 @@ export const CSS_FEUILLE_MOIS = `
    lettre, mesuré : 0,44), plancher 13 px, jamais coupée. */
 .fdm-familles [data-famille="portefeuille"]{container-type:inline-size}
 .fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible;font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}
+@media (max-width:430px){
+  .fdm-famille > h4.fdm-titre-une-ligne{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}
+  .fdm-titre-une-ligne .fdm-titre-suite{display:block}
+}
 .fdm-cascade-mois{margin:0;display:flex;flex-direction:column}
 .fdm-cascade-mois div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
 .fdm-cascade-mois dt{color:var(--color-svv-muted)}

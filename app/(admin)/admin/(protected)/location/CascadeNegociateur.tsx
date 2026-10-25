@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import type { CascadeNegociateur } from '../../../../lib/location/suivi/tableauBord';
+import type { CascadeNegociateur, ResultatNetAgence } from '../../../../lib/location/suivi/tableauBord';
 import { NOMS_MOIS } from '../../../../lib/location/suivi/tableauBord';
 
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -18,9 +18,10 @@ type Cle = 'ca' | 'commissions' | 'net' | 'resultat' | 'primes' | 'retrocessions
  * HT dû. Un « i » sur chaque ligne de calcul : le détail se déplie DANS l'encadré, sous la ligne (l'opération avec les vrais chiffres et,
  * pour une somme, ses composants dossier par dossier) ; un seul ouvert ; second clic, clic ailleurs ou Échap le referment.
  */
-export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegociateur; mois: string; plusieurs: boolean }) {
+/** Un seul « i » ouvert ; second clic, clic ailleurs ou Échap le referment. */
+function useInfoOuvert<K extends string>() {
   const id = useId();
-  const [ouvert, setOuvert] = useState<Cle | null>(null);
+  const [ouvert, setOuvert] = useState<K | null>(null);
   useEffect(() => {
     if (ouvert === null) return;
     const ailleurs = (e: MouseEvent): void => {
@@ -32,6 +33,11 @@ export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegoc
     document.addEventListener('keydown', echap);
     return () => { document.removeEventListener('mousedown', ailleurs); document.removeEventListener('keydown', echap); };
   }, [ouvert, id]);
+  return { id, ouvert, setOuvert };
+}
+
+export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegociateur; mois: string; plusieurs: boolean }) {
+  const { id, ouvert, setOuvert } = useInfoOuvert<Cle>();
   const [annee, m] = mois.split('-');
   const nomMois = `${NOMS_MOIS[Number(m) - 1]} ${annee}`;
   const ligne = (cle: Cle | null, signe: string, mot: ReactNode, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
@@ -89,6 +95,63 @@ export function CascadeNegociateurMois({ x, mois, plusieurs }: { x: CascadeNegoc
   );
 }
 
+/**
+ * ══ 🔴 Arno (25/10/2026) — LE RÉSULTAT NET DE L'AGENCE DU MOIS, EN CASCADE, TOUT EN HT ═══════════════════════════════════════════════════
+ * CA HT global − honoraires d'apporteurs − commissions collègues − variable des négociateurs (une ligne par négociateur s'il y en a plusieurs)
+ * = CA net de toutes variables, et sa part du CA global. Les montants sont ceux DÉJÀ affichés (Résultat du mois, cascade du Négociateur) ;
+ * le même style et les mêmes « i » que la cascade du Négociateur. Sans le droit « Voir les commissions » : ni variable, ni net.
+ */
+export function CascadeResultatNet({ x, dossiers }: { x: ResultatNetAgence; dossiers: { id: number | string; libelle: string; ca: number }[] }) {
+  const { id, ouvert, setOuvert } = useInfoOuvert<string>();
+  const e = (centimes: number): string => eur(centimes / 100);
+  const ligne = (cle: string | null, signe: string, mot: string, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
+    <div key={cle ?? mot} className={`fnc-ligne${o.fort ? ' fnc-ligne--fort' : ''}`} data-net-ligne={cle ?? 'part'}>
+      <div className="fnc-rangee">
+        <span className="fnc-signe" aria-hidden="true">{signe}</span>
+        <span className="fnc-mot">{mot}</span>
+        {cle !== null && (
+          <button type="button" className="fnc-i" aria-expanded={ouvert === cle} aria-controls={`${id}-${cle}`} data-cascade-info={cle} data-cascade-de={id}
+            aria-label={`Détail du calcul : ${mot}`} onClick={() => setOuvert((v) => (v === cle ? null : cle))}>
+            <span className="fnc-i-pastille" aria-hidden="true">i</span></button>
+        )}
+        <span className="fnc-montant" {...(o.attrs ?? {})}>{montant}</span>
+      </div>
+      {cle !== null && ouvert === cle && <div id={`${id}-${cle}`} className="fnc-detail" data-cascade-detail={cle} data-cascade-de={id}>{detail}</div>}
+    </div>
+  );
+  const liste = (lignes: ReactNode[]) => <ul className="fnc-liste">{lignes}</ul>;
+  const sommeVariables = x.variables.reduce((s, v) => s + v.variable, 0);
+  const plusieurs = x.variables.length > 1;
+  return (
+    <div className="fnc" data-resultat-net>
+      {ligne('ca', '', 'CA HT global', e(x.ca), <>
+        <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} du mois = {e(x.ca)}</p>
+        {liste(dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.ca)}</span></li>))}</>, { attrs: { 'data-net': 'ca' } })}
+      {ligne('apporteurs', '−', 'Honoraires d’apporteurs', e(x.apporteurs), <>
+        <p className="fnc-op">Le montant du « Résultat du mois » : parts location et gestion « One shot » à la signature
+          {x.apporteursRecurrents !== 0 ? `, et part gestion « Récurrent » due ce mois (${e(x.apporteursRecurrents)})` : ''} = {e(x.apporteurs)}</p></>,
+        { attrs: { 'data-net': 'apporteurs' } })}
+      {ligne('collegues', '−', 'Commissions collègues', e(x.collegues), <>
+        <p className="fnc-op">Le montant du « Résultat du mois » : ce qui est dû aux collègues à la signature
+          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ce mois (${e(x.colleguesRecurrents)})` : ''} = {e(x.collegues)}</p></>,
+        { attrs: { 'data-net': 'collegues' } })}
+      {x.net !== null && (plusieurs
+        ? x.variables.map((v) => ligne(`variable-${v.cle}`, '−', `Variable — ${v.libelle}`, e(v.variable),
+          <p className="fnc-op">Le « Variable HT dû » de la cascade de {v.libelle}, ci-dessous = {e(v.variable)}</p>, { attrs: { 'data-net-variable': v.libelle } }))
+        : ligne('variables', '−', 'Variable des négociateurs', e(sommeVariables), x.variables.length === 0
+          ? <p className="fnc-op">Aucun négociateur ce mois-ci.</p>
+          : <p className="fnc-op">Le « Variable HT dû » de la cascade de {x.variables[0].libelle}, ci-dessous = {e(sommeVariables)}</p>,
+        { attrs: x.variables.length === 1 ? { 'data-net-variable': x.variables[0].libelle } : {} }))}
+      {x.net !== null && ligne('net', '=', 'CA net de toutes variables', e(x.net),
+        <p className="fnc-op">{e(x.ca)} − {e(x.apporteurs)} − {e(x.collegues)} − {plusieurs ? x.variables.map((v) => e(v.variable)).join(' − ') : e(sommeVariables)} = {e(x.net)}</p>,
+        { fort: true, attrs: { 'data-net': 'net' } })}
+      {x.net !== null && x.part !== null && (
+        <p className="fnc-info fnc-part" data-net-part>soit {(x.part * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} % du CA HT global</p>)}
+      {x.net === null && <p className="fnc-info" data-net-sans-droit>Variable des négociateurs et résultat net : réservés au droit « Voir les commissions ».</p>}
+    </div>
+  );
+}
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; chiffres tabulaires ; cibles de 44 px. */
 export const CSS_CASCADE_NEGOCIATEUR = `
 .fnc{display:flex;flex-direction:column}
@@ -111,4 +174,7 @@ export const CSS_CASCADE_NEGOCIATEUR = `
 .fnc-liste li > span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums}
 .fnc-liste small{color:var(--color-svv-muted);font-size:.78rem}
 .fnc-info{margin:8px 0 0;font-size:.86rem;color:var(--color-svv-muted)}
+.fnc-part{text-align:right;font-variant-numeric:tabular-nums}
+[data-famille="resultat-net"] .fnc-ligne--fort{background:var(--color-svv-green-soft);border-radius:0 0 10px 10px;padding:0 8px;margin:0 -8px}
+[data-famille="resultat-net"] .fnc-ligne--fort .fnc-mot,[data-famille="resultat-net"] .fnc-ligne--fort .fnc-montant{color:var(--color-svv-green-ink)}
 `;
