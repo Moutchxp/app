@@ -410,29 +410,34 @@ export function apporteurAffiche(a: ActiviteCalcul, apporteurs: readonly Apporte
  *   ① « Relocation gestion » : l'origine est « Relocation (portefeuille de gestion) » — elle n'existe qu'avec la case « Relocation »
  *     cochée (`origineApresCases`, refus serveur sinon). ⚠️ Pas `avecGestion` seul : sur les lignes reprises du fichier, ce champ porte la
  *     ventilation « avec gestion » de l'Excel (bien en gestion), pas la case ;
- *   ② « Client hors gestion » : origine « Propriétaire déjà client » ET bien sans gestion ;
- *   ③ origine à renseigner → « à qualifier » (rien n'est deviné) ;
- *   ④ « Nouveau · gestion » / ⑤ « Nouveau · sans gestion » selon que le bien est en gestion.
+ *   ② « Relocation sans gestion » (ex « Client hors gestion ») : origine « Propriétaire déjà client » ET bien sans gestion ;
+ *   ③ origine à renseigner → « À qualifier » (rien n'est deviné) ;
+ *   ④ « Nouvelle gestion » / ⑤ « Nouveau sans gestion » selon que le bien est en gestion.
  * « En gestion » = la case « Relocation » OU « Nouveau mandat de gestion signé (prime) » de la ligne (`avecGestion || mandatGestion`,
  * comme `honorairesGestionDuBail`) : c'est la seule source présente sur TOUTES les lignes (la moitié des lignes reprises n'ont pas de
  * bien rattaché, donc pas d'historique de statut). PUR.
  */
-export const NATURES_BIEN = ['relocation', 'client_hors_gestion', 'nouveau_gestion', 'nouveau_sans_gestion', 'a_qualifier'] as const;
+/**
+ * 🔴 Arno (25/10/2026) — L'ORDRE ET LES LIBELLÉS des 5 statuts (modale, légende, pastilles, compteurs) : Nouvelle gestion, Relocation
+ * gestion, Nouveau sans gestion, Relocation sans gestion (ex « Client hors gestion » : même règle), À qualifier. Les valeurs internes (et
+ * en base) ne changent pas : les statuts déjà validés gardent leur sens.
+ */
+export const NATURES_BIEN = ['nouveau_gestion', 'relocation', 'nouveau_sans_gestion', 'client_hors_gestion', 'a_qualifier'] as const;
 export type NatureBien = typeof NATURES_BIEN[number];
 export const LIBELLE_NATURE_BIEN: Record<NatureBien, string> = {
-  relocation: 'Relocation gestion', client_hors_gestion: 'Client hors gestion', nouveau_gestion: 'Nouveau · gestion',
-  nouveau_sans_gestion: 'Nouveau · sans gestion', a_qualifier: 'à qualifier',
+  nouveau_gestion: 'Nouvelle gestion', relocation: 'Relocation gestion', nouveau_sans_gestion: 'Nouveau sans gestion',
+  client_hors_gestion: 'Relocation sans gestion', a_qualifier: 'À qualifier',
 };
 /**
  * 🔴 Arno (25/10/2026, migration 424) — « STATUT DU BIEN » : ce que dit chaque statut, en français simple (le « i » de la modale). Ce sont
  * les règles du calcul ci-dessous, dans le même ordre.
  */
 export const DESCRIPTION_NATURE_BIEN: Record<NatureBien, string> = {
-  relocation: 'L’origine du contact est « Relocation (portefeuille de gestion) » : le bien était déjà en gestion chez nous et on l’a reloué.',
-  client_hors_gestion: 'Le propriétaire était déjà client (origine « Propriétaire déjà client ») et ce bien n’est pas en gestion.',
-  nouveau_gestion: 'Un nouveau client — ou un propriétaire déjà client qui nous confie ce bien — et le bien est en gestion (ou un nouveau mandat de gestion est signé).',
-  nouveau_sans_gestion: 'Un nouveau client, et le bien n’est pas en gestion.',
-  a_qualifier: 'L’origine du contact n’est pas renseignée : rien n’est deviné, le statut reste à qualifier.',
+  nouveau_gestion: 'Nouvelle gestion : un nouveau client — ou un propriétaire déjà client qui nous confie ce bien — et le bien est en gestion (ou un nouveau mandat de gestion est signé).',
+  relocation: 'Relocation gestion : l’origine du contact est « Relocation (portefeuille de gestion) » — le bien était déjà en gestion chez nous et on l’a reloué.',
+  nouveau_sans_gestion: 'Nouveau sans gestion : un nouveau client, et le bien n’est pas en gestion.',
+  client_hors_gestion: 'Relocation sans gestion : le propriétaire était déjà client (origine « Propriétaire déjà client ») et ce bien n’est pas en gestion.',
+  a_qualifier: 'À qualifier : l’origine du contact n’est pas renseignée. Rien n’est deviné : choisissez le statut, ou renseignez l’origine.',
 };
 
 /**

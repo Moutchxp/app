@@ -1,8 +1,7 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import {
   type ActiviteLue, DESCRIPTION_NATURE_BIEN, LIBELLE_NATURE_BIEN, NATURES_BIEN, natureBienCalculee, natureBienLoue, type NatureBien,
@@ -10,7 +9,7 @@ import {
 
 const API = '/api/admin/location/suivi';
 
-/** La pastille « nature du bien loué » : couleur douce ET texte (jamais la couleur seule) ; « à qualifier » en bordure pointillée. */
+/** La pastille « nature du bien loué » : couleur douce ET texte (jamais la couleur seule) ; « À qualifier » en bordure pointillée. */
 export function PastilleNature({ nature }: { nature: NatureBien }) {
   return <span className={`fdm-nature fdm-nature--${nature}`}>{LIBELLE_NATURE_BIEN[nature]}</span>;
 }
@@ -44,6 +43,20 @@ export function ModaleStatutBien({ a, disponible, onFermer, onFini }: { a: Activ
   const [choix, setChoix] = useState<NatureBien>(actuel.nature);
   const [envoi, setEnvoi] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
+  /* 🔴 Arno (25/10/2026) — UNE description ouverte à la fois : au clic sur le « i » ; refermée par un second clic, un clic ailleurs ou Échap
+     (Échap ne ferme pas la modale). */
+  const [info, setInfo] = useState<NatureBien | null>(null);
+  useEffect(() => {
+    if (info === null) return;
+    const ailleurs = (e: MouseEvent): void => {
+      const cible = e.target as Element | null;
+      if (cible?.closest?.(`[data-statut-info="${info}"], [data-statut-description="${info}"]`) == null) setInfo(null);
+    };
+    const echap = (e: KeyboardEvent): void => { if (e.key === 'Escape') setInfo(null); };
+    document.addEventListener('mousedown', ailleurs);
+    document.addEventListener('keydown', echap);
+    return () => { document.removeEventListener('mousedown', ailleurs); document.removeEventListener('keydown', echap); };
+  }, [info]);
   const envoyer = async (statut: NatureBien | null): Promise<void> => {
     if (envoi || !disponible) return;
     setEnvoi(true); setMotif(null);
@@ -58,7 +71,7 @@ export function ModaleStatutBien({ a, disponible, onFermer, onFini }: { a: Activ
   };
   const contenu = (
     <div className="mis-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }} data-voile-statut-bien>
-      <style>{CSS_MODALE_ISSUE + INFOBULLE_CSS + CSS_STATUT_BIEN}</style>
+      <style>{CSS_MODALE_ISSUE + CSS_STATUT_BIEN}</style>
       <div className="mis-boite msb-boite" role="dialog" aria-modal="true" aria-labelledby={idTitre} data-modale-statut-bien={String(a.id)}>
         <div className="msb-tete">
           <h2 id={idTitre} className="mis-titre">Statut du bien</h2>
@@ -69,14 +82,19 @@ export function ModaleStatutBien({ a, disponible, onFermer, onFini }: { a: Activ
         <ul className="msb-choix" role="radiogroup" aria-label="Statut du bien">
           {NATURES_BIEN.map((n) => (
             <li key={n} className="msb-option">
-              <button type="button" role="radio" aria-checked={choix === n} className={`msb-statut${choix === n ? ' msb-statut--choisi' : ''}`}
-                onClick={() => setChoix(n)} data-statut-bien-choix={n}>
-                <span className="msb-coche" aria-hidden="true">{choix === n ? '✓' : ''}</span>
-                <PastilleNature nature={n} />
-                {n === calcule.nature && <span className="msb-propose" data-statut-propose>proposé</span>}
-              </button>
-              <InfoBulle libelle={LIBELLE_NATURE_BIEN[n]} texte={DESCRIPTION_NATURE_BIEN[n]} cible={`statut-${String(a.id)}-${n}`} dansLEcran
-                etiquette={`Ce que veut dire « ${LIBELLE_NATURE_BIEN[n]} »`} />
+              <div className="msb-rangee">
+                <button type="button" role="radio" aria-checked={choix === n} className={`msb-statut${choix === n ? ' msb-statut--choisi' : ''}`}
+                  onClick={() => setChoix(n)} data-statut-bien-choix={n}>
+                  <span className="msb-coche" aria-hidden="true">{choix === n ? '✓' : ''}</span>
+                  <PastilleNature nature={n} />
+                  {n === calcule.nature && <span className="msb-propose" data-statut-propose>proposé</span>}
+                </button>
+                {/* 🔴 Arno (25/10/2026) — le « i » ouvre la description DANS la modale, sous la ligne (jamais par-dessus un autre bouton). */}
+                <button type="button" className="msb-i" aria-expanded={info === n} aria-controls={`${idTitre}-desc-${n}`}
+                  aria-label={`Ce que veut dire « ${LIBELLE_NATURE_BIEN[n]} »`} data-statut-info={n}
+                  onClick={() => setInfo((x) => (x === n ? null : n))}><span className="msb-i-pastille" aria-hidden="true">i</span></button>
+              </div>
+              {info === n && <p id={`${idTitre}-desc-${n}`} className="msb-desc" data-statut-description={n}>{DESCRIPTION_NATURE_BIEN[n]}</p>}
             </li>
           ))}
         </ul>
@@ -110,7 +128,13 @@ export const CSS_STATUT_BIEN = `
 .msb-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .msb-ligne{margin:0;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .msb-choix{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.msb-option{display:flex;align-items:center;gap:6px}
+.msb-option{display:flex;flex-direction:column;gap:6px}
+.msb-rangee{display:flex;align-items:center;gap:6px}
+.msb-i{appearance:none;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;background:none;border:0;border-radius:999px;cursor:pointer;color:var(--color-svv-muted)}
+.msb-i-pastille{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;border:1px solid currentColor;font-size:.75rem;font-weight:800;font-style:italic;line-height:1;font-family:Georgia,serif}
+.msb-i:hover,.msb-i[aria-expanded="true"]{color:var(--color-svv-red)}
+.msb-i:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.msb-desc{margin:0;padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);font-size:.92rem;line-height:1.45;overflow-wrap:anywhere}
 .msb-statut{appearance:none;flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 14px;border-radius:14px;border:2px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;cursor:pointer;text-align:left}
 .msb-statut:hover{border-color:var(--color-svv-green-ink)}
 .msb-statut--choisi{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}

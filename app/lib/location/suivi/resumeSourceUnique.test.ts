@@ -154,8 +154,8 @@ describe('🔴 « Statut du bien » validé à la main (424)', () => {
     expect(maj.params).toEqual([99, 'nouveau_gestion', 4, 'arno@exemple.fr']);
     expect(maj.sql).not.toMatch(/origine_contact|avec_gestion|mandat_gestion/);
     const j = base.ecrits.find((e) => e.sql.startsWith('INSERT INTO gestion_journal'))!;
-    expect(j.params.slice(0, 5)).toEqual([99, 'location_statut_bien_valide', 'Statut du bien : statut calculé', 'Statut du bien : Nouveau · gestion',
-      'Suivi du mois — Statut du bien : statut calculé → Nouveau · gestion']);
+    expect(j.params.slice(0, 5)).toEqual([99, 'location_statut_bien_valide', 'Statut du bien : statut calculé', 'Statut du bien : Nouvelle gestion',
+      'Suivi du mois — Statut du bien : statut calculé → Nouvelle gestion']);
     expect(j.params.slice(-2)).toEqual(['sess-2', 'Suivi du mois']);
   });
 

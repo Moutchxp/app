@@ -516,19 +516,23 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const pastille = (id: string) => ligne(id).querySelector('[data-mot="Bien"]');
       expect(pastille(ids[0])?.getAttribute('data-nature-bien')).toBe('relocation');
       expect(pastille(ids[0])?.textContent).toBe('Relocation gestion');
-      expect(pastille(ids[1])?.textContent).toBe('Client hors gestion');
-      expect(pastille(ids[2])?.textContent).toBe('Nouveau · gestion');
-      expect(pastille(ids[3])?.textContent).toBe('Nouveau · sans gestion');
-      expect(pastille(ids[4])?.textContent).toBe('à qualifier');
+      // 🔴 Arno (25/10/2026) — les nouveaux libellés (valeurs internes inchangées).
+      expect(pastille(ids[1])?.textContent).toBe('Relocation sans gestion');
+      expect(pastille(ids[2])?.textContent).toBe('Nouvelle gestion');
+      expect(pastille(ids[3])?.textContent).toBe('Nouveau sans gestion');
+      expect(pastille(ids[4])?.textContent).toBe('À qualifier');
       expect(pastille(ids[4])?.querySelector('.fdm-nature--a_qualifier')).not.toBeNull();
       // La légende : chaque pastille et son compte, sur la ligne au-dessus du tableau.
       const legende = [...container.querySelectorAll('[data-legende-nature-item]')].map((e) => [e.getAttribute('data-legende-nature-item'), e.querySelector('.fdm-legende-nb')?.textContent]);
-      expect(legende).toEqual([['relocation', '1'], ['client_hors_gestion', '1'], ['nouveau_gestion', '1'], ['nouveau_sans_gestion', '1'], ['a_qualifier', String(sept.length - 4)]]);
+      // 🔴 Arno (25/10/2026) — le nouvel ordre : Nouvelle gestion, Relocation gestion, Nouveau sans gestion, Relocation sans gestion, À qualifier.
+      expect(legende).toEqual([['nouveau_gestion', '1'], ['relocation', '1'], ['nouveau_sans_gestion', '1'], ['client_hors_gestion', '1'], ['a_qualifier', String(sept.length - 4)]]);
+      expect([...container.querySelectorAll('[data-legende-nature-item] .fdm-nature')].map((e) => e.textContent))
+        .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
       // Les pastilles « historique » / « à vérifier » restent à côté du nom.
       expect(ligne(ids[0]).querySelector('th[data-mot="Propriétaires"] .loc-pastille')?.textContent).toBe('historique');
       await deplier(ids[1]);
       expect(nbsp(container.querySelector(`[data-detail-ligne="${ids[1]}"] [data-champ="Statut du bien"]`)?.textContent))
-        .toBe('Client hors gestion — propriétaire déjà client, bien sans gestion');
+        .toBe('Relocation sans gestion — propriétaire déjà client, bien sans gestion');
     });
 
     it('🔴 les fiches complètes : un bouton par locataire et par bien ; « non rattaché » sinon ; chacun ouvre sa grande modale', async () => {
@@ -1060,18 +1064,36 @@ describe('🔴 Arno (25/10/2026) — le résumé de transaction : source unique 
   it('la modale : les 5 statuts, chacun avec son « i » ; le calculé présélectionné et « proposé » ; fermée seulement par la croix, un clic dehors ou Annuler', async () => {
     avec({ origineContact: 'internet', avecGestion: false, mandatGestion: false });
     await ouvrir();
-    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouveau · sans gestion — nouveau client, bien sans gestion');
+    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouveau sans gestion — nouveau client, bien sans gestion');
     await ouvrirModale();
     const choix = [...modale()!.querySelectorAll('[data-statut-bien-choix]')];
     expect(choix.map((b) => [b.getAttribute('data-statut-bien-choix'), b.getAttribute('aria-checked'), b.querySelector('[data-statut-propose]') !== null]))
-      .toEqual([['relocation', 'false', false], ['client_hors_gestion', 'false', false], ['nouveau_gestion', 'false', false], ['nouveau_sans_gestion', 'true', true], ['a_qualifier', 'false', false]]);
-    const infos = [...modale()!.querySelectorAll('.svv-pil-ib-btn')];
-    expect(infos.map((b) => b.getAttribute('aria-label'))).toEqual(['Ce que veut dire « Relocation gestion »', 'Ce que veut dire « Client hors gestion »',
-      'Ce que veut dire « Nouveau · gestion »', 'Ce que veut dire « Nouveau · sans gestion »', 'Ce que veut dire « à qualifier »']);
-    await act(async () => { (infos[1] as HTMLButtonElement).click(); });
-    expect(modale()!.querySelector('[role="tooltip"]')?.textContent).toContain('Le propriétaire était déjà client');
-    // Échap ne ferme pas la modale (seulement la bulle) ; la croix, Annuler et le clic dehors la ferment.
-    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      .toEqual([['nouveau_gestion', 'false', false], ['relocation', 'false', false], ['nouveau_sans_gestion', 'true', true], ['client_hors_gestion', 'false', false], ['a_qualifier', 'false', false]]);
+    expect(choix.map((b) => b.querySelector('.fdm-nature')?.textContent)).toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
+    const infos = [...modale()!.querySelectorAll('[data-statut-info]')] as HTMLButtonElement[];
+    expect(infos.map((b) => b.getAttribute('aria-label'))).toEqual(['Ce que veut dire « Nouvelle gestion »', 'Ce que veut dire « Relocation gestion »',
+      'Ce que veut dire « Nouveau sans gestion »', 'Ce que veut dire « Relocation sans gestion »', 'Ce que veut dire « À qualifier »']);
+    // 🔴 Arno (25/10/2026) — le « i » déplie la description DANS la modale, sous SA ligne ; une seule ouverte ; le « i » suivant reste cliquable.
+    const desc = () => [...modale()!.querySelectorAll('[data-statut-description]')].map((e) => [e.getAttribute('data-statut-description'), e.closest('li')?.querySelector('[data-statut-bien-choix]')?.getAttribute('data-statut-bien-choix')]);
+    await act(async () => { infos[0].click(); });
+    expect(desc()).toEqual([['nouveau_gestion', 'nouveau_gestion']]);
+    expect(infos[0].getAttribute('aria-expanded')).toBe('true');
+    expect(modale()!.querySelector('[role="tooltip"]')).toBeNull();
+    await act(async () => { infos[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); infos[1].click(); });
+    expect(desc()).toEqual([['relocation', 'relocation']]);
+    expect([infos[0].getAttribute('aria-expanded'), infos[1].getAttribute('aria-expanded')]).toEqual(['false', 'true']);
+    await act(async () => { infos[3].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); infos[3].click(); });
+    expect(desc()).toEqual([['client_hors_gestion', 'client_hors_gestion']]);
+    expect(modale()!.querySelector('[data-statut-description]')?.textContent).toContain('Relocation sans gestion : le propriétaire était déjà client');
+    // Un second clic referme ; un clic ailleurs referme ; Échap referme la description, jamais la modale.
+    await act(async () => { infos[3].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); infos[3].click(); });
+    expect(desc()).toEqual([]);
+    await act(async () => { infos[4].click(); });
+    await act(async () => { modale()!.querySelector('.msb-note')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(desc()).toEqual([]);
+    await act(async () => { infos[2].click(); });
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(desc()).toEqual([]);
     expect(modale()).not.toBeNull();
     await act(async () => { (modale()!.querySelector('[data-fermer-statut-bien]') as HTMLButtonElement).click(); });
     expect(modale()).toBeNull();
@@ -1099,7 +1121,7 @@ describe('🔴 Arno (25/10/2026) — le résumé de transaction : source unique 
     avec({ natureManuelle: { nature: 'nouveau_gestion', par: 'Arnaud Jorel', le: '2026-10-25T09:00:00Z' } });
     await ouvrir();
     expect(container.querySelector(`[data-ligne-feuille="${id}"] [data-mot="Bien"]`)?.getAttribute('data-nature-bien')).toBe('nouveau_gestion');
-    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouveau · gestion — validé par Arnaud Jorel le 25/10/2026');
+    expect(nbsp(champ('Statut du bien')?.textContent)).toBe('Nouvelle gestion — validé par Arnaud Jorel le 25/10/2026');
     const nb = (n: string) => container.querySelector(`[data-legende-nature-item="${n}"] .fdm-legende-nb`)?.textContent;
     const duMois = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-09'));
     expect(nb('nouveau_gestion')).toBe(String(duMois.filter((a) => natureBienLoue(a).nature === 'nouveau_gestion').length));
