@@ -719,7 +719,8 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    * 🔴 LE CHAMP DATE A DISPARU (lot FICHE-SAISIE-UNIFORME) : il exigeait une saisie qui ne servait à rien, et
    * « Créée le … » la remplace sans rien demander à personne.
    */
-  creation?: { rappel: string };
+  /** `titre` (Arno, 25/10/2026) : une carte EXISTANTE rouverte dans un écran de création (« Fiche locataire » du Suivi). Absent : « Nouvelle fiche ». */
+  creation?: { rappel: string; titre?: string };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE MÊME FORMULAIRE, POUR UN CONTACT ════════════════════════════════
    *
@@ -986,7 +987,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
           ]} onFermer={() => setFenetre(null)} />
       )}
       <p className="cp-form-titre">
-        {contact?.titre ?? (creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche')}
+        {contact?.titre ?? (creation === undefined ? 'Modifier la fiche' : creation.titre ?? 'Nouvelle fiche')}
       </p>
       {/* 🔴 LE RAPPEL DIT CE QUE LE GESTE VA FAIRE, avant de le faire : « Sera ajouté comme co-propriétaire sur
           les N biens de cette fiche ». Sans lui, on remplit sept champs sans savoir où la personne atterrit. */}

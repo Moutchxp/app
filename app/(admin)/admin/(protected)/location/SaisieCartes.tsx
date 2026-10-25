@@ -32,6 +32,8 @@ interface Carte {
   cle: number; sorte: SorteCarte; champs: ChampsSaisis | null; ouverte: boolean; doublons: Doublon[];
   /** Ce qui pré-remplit une carte NEUVE (ex. qualité « Garant » — Arno, 20/10/2026) : pas encore une saisie validée. */
   modele?: ChampsSaisis;
+  /** 🔴 Arno (25/10/2026) — une carte EXISTANTE (la fiche ou la carte de contact déjà enregistrée), ouverte en modification. */
+  id?: number;
 }
 export interface EtatCartes {
   clients: ChampsSaisis[];
@@ -43,6 +45,9 @@ export interface EtatCartes {
   /** Arno (20/10/2026, 393) : la clé de chaque carte client / contact validée (même ordre que `clients` / `contacts`). */
   clesClients?: number[];
   clesContacts?: number[];
+  /** 🔴 Arno (25/10/2026) — l'identifiant de chaque carte EXISTANTE validée (même ordre ; `null` : une carte ajoutée). */
+  idsClients?: (number | null)[];
+  idsContacts?: (number | null)[];
 }
 
 function ficheDeChamps(c: ChampsSaisis): FicheAEditer {
@@ -60,7 +65,7 @@ export function BadgeCarte({ cote, sorte }: { cote: CoteCarte; sorte: SorteCarte
   return <span className={`cp-role cp-role--${ton}`} data-badge={sorte}>{sorte === 'contact' ? BADGE_CONTACT[cote] : BADGE_CLIENT[cote]}</span>;
 }
 
-export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait = false, sousContact }: {
+export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait = false, sousContact, initiales }: {
   cote: CoteCarte; onChange: (e: EtatCartes) => void;
   /**
    * Arno (20/10/2026) — « Ajouter un garant » : chaque nouvelle valeur de `n` ouvre une carte « Contact du … » avec cette
@@ -75,8 +80,16 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
   confirmerRetrait?: boolean;
   /** Arno (20/10/2026, 393) : sous une carte contact validée, son rattachement (« Garantit : », « Contact de : »). */
   sousContact?: (cle: number, champs: ChampsSaisis) => React.ReactNode;
+  /**
+   * 🔴 Arno (25/10/2026) — EN MODIFICATION (« Fiche locataire » du Suivi du mois) : les cartes déjà enregistrées, préremplies et
+   * validées ; « Modifier » les rouvre ; elles ne se retirent pas d'ici (un locataire sort par sa sortie, un contact se range dans la
+   * Gestion). Absent : la création d'avant (une carte client vide).
+   */
+  initiales?: readonly { id: number; sorte: SorteCarte; champs: ChampsSaisis }[];
 }) {
-  const [cartes, setCartes] = useState<Carte[]>([{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]);
+  const [cartes, setCartes] = useState<Carte[]>(() => (initiales !== undefined && initiales.length > 0
+    ? initiales.map((x, i) => ({ cle: i + 1, sorte: x.sorte, champs: x.champs, ouverte: false, doublons: [], id: x.id }))
+    : [{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]));
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
   const [choix, setChoix] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
@@ -120,8 +133,9 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
     onChange({
       clients: clients.map((c) => c.champs as ChampsSaisis), contacts: contacts.map((c) => c.champs as ChampsSaisis),
       existants, ouvertes: cartes.filter((c) => c.ouverte).length, clesClients: clients.map((c) => c.cle), clesContacts: contacts.map((c) => c.cle),
+      ...(initiales !== undefined ? { idsClients: clients.map((c) => c.id ?? null), idsContacts: contacts.map((c) => c.id ?? null) } : {}),
     });
-  }, [cartes, existants, onChange]);
+  }, [cartes, existants, onChange, initiales]);
 
   const changer = (cle: number, f: (c: Carte) => Carte): void => setCartes((l) => l.map((c) => (c.cle === cle ? f(c) : c)));
   const ajouter = (sorte: SorteCarte): void => {
@@ -139,7 +153,8 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
       const qs = remplies.map((k) => `${k.sorte === 'email' ? 'email' : 'telephone'}=${encodeURIComponent(k.valeur)}`).join('&');
       void fetch(`${API}?${qs}`, { cache: 'no-store' })
         .then((r) => r.json() as Promise<{ etat?: string; data?: Doublon[] }>)
-        .then((d) => setCartes((l) => l.map((c) => (c.cle === cle ? { ...c, doublons: d.etat === 'ok' ? [...liste(d.data)] : [] } : c))))
+        // Une carte EXISTANTE ne se signale jamais elle-même comme doublon (sa propre fiche).
+        .then((d) => setCartes((l) => l.map((c) => (c.cle === cle ? { ...c, doublons: d.etat === 'ok' ? [...liste(d.data)].filter((x) => !(c.id !== undefined && c.sorte === 'client' && x.sujet === cote && x.id === c.id)) : [] } : c))))
         .catch(() => {});
     }, 400));
   }, []);
@@ -173,7 +188,8 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
                 <p className="loc-carte-badge"><BadgeCarte cote={cote} sorte={c.sorte} /></p>
                 {c.sorte === 'client' ? (
                   <FormulaireCarte p={c.champs === null ? null : ficheDeChamps(c.champs)} refus={null}
-                    creation={{ rappel: `${cote === 'proprietaire' ? 'Sera propriétaire du futur bien.' : 'Sera locataire du bien choisi.'} ${estPremiere(c)
+                    creation={{ ...(c.id !== undefined ? { titre: 'Modifier la fiche' } : {}),
+                      rappel: `${c.id !== undefined ? 'Locataire du bail : la modification part à « Enregistrer les modifications ».' : cote === 'proprietaire' ? 'Sera propriétaire du futur bien.' : 'Sera locataire du bien choisi.'} ${estPremiere(c)
                       ? 'Obligatoires : le nom, un téléphone ET un e-mail (première carte client).'
                       : 'Obligatoire : le nom ; un téléphone et un e-mail complètent la carte.'}` }}
                     exigence={(f) => manquesClientLocation(f, estPremiere(c))}
@@ -185,7 +201,7 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
                       : changer(c.cle, (x) => ({ ...x, ouverte: false })))} />
                 ) : (
                   <FormulaireCarte p={c.champs !== null ? ficheDeChamps(c.champs) : c.modele !== undefined ? ficheDeChamps(c.modele) : null} refus={null}
-                    contact={{ titre: `Nouveau ${MOT_CONTACT[cote].toLowerCase()}`,
+                    contact={{ titre: `${c.id !== undefined ? 'Modifier le' : 'Nouveau'} ${MOT_CONTACT[cote].toLowerCase()}`,
                       rappel: `Un contact n’est pas un client : il sera rangé comme ${MOT_CONTACT[cote].toLowerCase()} du bien. Obligatoires : le nom et un e-mail.` }}
                     qualiteEnAvant={EXEMPLES_QUALITE[cote]} qualitesProposees={QUALITES_CONTACT} qualiteApresPrenom={cote === 'locataire'}
                     avertir={manquesAAvertir}
@@ -204,7 +220,9 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
                 {c.sorte === 'contact' && sousContact !== undefined ? sousContact(c.cle, c.champs) : null}
                 <div className="loc-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changer(c.cle, (x) => ({ ...x, ouverte: true }))}>Modifier</button>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => (confirmerRetrait ? setARetirer(c.cle) : retirer(c))}>Retirer cette carte</button>
+                  {c.id === undefined && (
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => (confirmerRetrait ? setARetirer(c.cle) : retirer(c))}>Retirer cette carte</button>
+                  )}
                 </div>
                 {confirmerRetrait && aRetirer === c.cle && (
                   <div className="loc-confirmer" role="alert" data-confirmer-retrait>

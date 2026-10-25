@@ -1415,3 +1415,42 @@ export async function cartesLocataireSansRattachement(): Promise<{ id: number; l
       ORDER BY c.id`);
   return rows.map((r) => ({ id: Number(r.id), lotId: r.lot_id === null ? null : Number(r.lot_id), numero: r.numero, qualite: r.qualite }));
 }
+
+/** 🔴 Arno (25/10/2026) — une carte de contact d'un locataire, ENTIÈRE (le formulaire « Fiche locataire » du Suivi du mois la modifie). */
+export interface CarteContactEntiere {
+  id: number; civilite: string | null; prenom: string | null; nom: string; qualite: string | null; adressePostale: string | null;
+  codePostal: string | null; commune: string | null; note: string | null; coordonnees: CoordonneeDeCarte[]; telephone: string | null;
+  /** Le locataire dont elle est le contact (« Contact de »), sinon null (un garant l'est par ses garanties). */
+  locataireId: number | null;
+}
+
+/**
+ * Les cartes de contact VIVANTES de ces locataires (contact de l'un d'eux, ou garant de l'un d'eux), avec tous leurs champs — ici parce
+ * que ce dépôt est le seul à nommer la table des cartes. Sans les migrations de la fiche (305-306) : les champs absents valent null.
+ */
+export async function lireCartesContactDesLocataires(locataireIds: readonly number[]): Promise<CarteContactEntiere[]> {
+  if (locataireIds.length === 0 || !(await contactCarteDisponible())) return [];
+  const avecFiche = await ficheContactCarteDisponible();
+  const avecNote = await noteContactCarteDisponible();
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT c.id::text, c.nom, c.telephone, c.locataire_id::text AS loc_id,
+            ${avecFiche ? 'c.civilite, c.prenom, c.qualite, c.adresse_postale, c.code_postal, c.commune, c.coordonnees' : 'NULL::text AS civilite, c.prenom, c.qualite, NULL::text AS adresse_postale, NULL::text AS code_postal, NULL::text AS commune, NULL::jsonb AS coordonnees'},
+            ${avecNote ? 'c.note' : 'NULL::text AS note'}
+       FROM gestion_contact_carte c
+      WHERE c.retire_le IS NULL AND c.cote IN ('locataire', 'ancien_locataire')
+        AND (c.locataire_id = ANY($1::bigint[])
+             OR EXISTS (SELECT 1 FROM gestion_bail_garant g WHERE g.carte_id = c.id AND g.locataire_id = ANY($1::bigint[]) AND g.retire_le IS NULL))
+      ORDER BY c.id`, [[...locataireIds]]);
+  return rows.map((r) => {
+    const coord = coordonneesDeLaCarte(r.coordonnees);
+    const tel = typeof r.telephone === 'string' && r.telephone.trim() !== '' ? r.telephone.trim() : null;
+    return {
+      id: Number(r.id), civilite: (r.civilite as string | null) ?? null, prenom: (r.prenom as string | null) ?? null, nom: String(r.nom ?? ''),
+      qualite: (r.qualite as string | null) ?? null, adressePostale: (r.adresse_postale as string | null) ?? null, codePostal: (r.code_postal as string | null) ?? null,
+      commune: (r.commune as string | null) ?? null, note: (r.note as string | null) ?? null,
+      // Une carte d'avant la fiche complète n'a que sa colonne téléphone : elle reste visible.
+      coordonnees: coord.length > 0 ? coord : tel === null ? [] : [{ sorte: 'telephone', valeur: tel, libelle: null }],
+      telephone: tel, locataireId: r.loc_id === null || r.loc_id === undefined ? null : Number(r.loc_id),
+    };
+  });
+}

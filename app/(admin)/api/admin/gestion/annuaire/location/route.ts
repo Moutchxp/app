@@ -25,6 +25,8 @@ import { avecTrace, ecranDemande, historiqueFiche, repereJournal } from '../../.
 import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
 import { lireDossierLocation, modifierDossierLocation } from '../../../../../../lib/location/dossierLocationRepo';
 import { ECRAN_DOSSIER } from '../../../../../../lib/location/dossierLocation';
+import { enregistrerFicheLocataireCartes, lireFicheLocataireCartes } from '../../../../../../lib/location/ficheLocataireCartesRepo';
+import { ECRAN_FICHE_LOCATAIRE } from '../../../../../../lib/location/ficheLocataireCartes';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -81,6 +83,9 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : les 4 blocs de « Nouveau locataire », lus pour une ligne de suivi rattachée.
     const dl = identifiant(url.searchParams.get('dossierLocation'));
     if (dl !== null) return Response.json(await lireDossierLocation(dl), { headers: ENTETES });
+    // 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : les cartes du bloc 1, en modification (le bail de la ligne).
+    const flc = identifiant(url.searchParams.get('ficheLocataireCartes'));
+    if (flc !== null) return Response.json(await lireFicheLocataireCartes(flc, identifiant(url.searchParams.get('bail'))), { headers: ENTETES });
     const fe = identifiant(url.searchParams.get('ficheEntiere'));
     if (fe !== null) return Response.json(await lireFicheEntiere(fe), { headers: ENTETES });
     const vb = identifiant(url.searchParams.get('versionBien'));
@@ -177,6 +182,13 @@ export async function POST(request: Request): Promise<Response> {
         if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
         const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: ECRAN_DOSSIER };
         const issue = await avecTrace(trace, () => modifierDossierLocation(id, corps.saisie as Record<string, unknown>, auteur));
+        return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
+      }
+      case 'modifier-fiche-locataire': {
+        if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
+        const bail = typeof corps.bailId === 'number' && Number.isSafeInteger(corps.bailId) && corps.bailId > 0 ? corps.bailId : null;
+        const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: ECRAN_FICHE_LOCATAIRE };
+        const issue = await avecTrace(trace, () => enregistrerFicheLocataireCartes(id, bail, corps.saisie, auteur));
         return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
       }
       case 'modifier-fiche-bien': {
