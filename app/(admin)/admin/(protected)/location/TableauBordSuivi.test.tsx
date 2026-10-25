@@ -1339,21 +1339,36 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     const aj = container.querySelector('tr[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
     expect(container.querySelectorAll('tr[data-collegue-mois="Arnaud Jorel"]')).toHaveLength(1);
     expect(container.querySelector('[data-collegue-part]')).toBeNull();
-    // Le détail : via puis direct, chacun avec son nombre et son CA cliquables.
-    const d = aj.querySelector('[data-origines-collegue]')!;
-    expect([...d.querySelectorAll('[data-origine]')].map((e) => e.getAttribute('data-origine'))).toEqual(['via', 'direct']);
-    expect(euros(aj.querySelector('[data-mot="CA apporté"]')?.textContent)).toBe(euros(d.querySelector('[data-detail-origine="via-ca"]')?.textContent) + euros(d.querySelector('[data-detail-origine="direct-ca"]')?.textContent));
-    expect(Number(aj.querySelector('[data-mot="Affaires"]')?.textContent)).toBe(Number(d.querySelector('[data-detail-origine="via-nb"]')?.textContent) + Number(d.querySelector('[data-detail-origine="direct-nb"]')?.textContent));
-    expect(nbsp(d.querySelector('[data-origine="via"]')?.textContent)).toMatch(/^via ses apporteurs \d+ · [\d ]+,\d\d € · hono\. [\d ]+,\d\d €$/);
-    expect(nbsp(d.querySelector('[data-origine="direct"]')?.textContent)).toMatch(/^en direct 1 · [\d ]+,\d\d €$/);
-    expect(d.querySelectorAll('button')).toHaveLength(4);
-    // Une seule origine : la mention seule, sans montant répété.
+    // 🔴 25/10/2026 (suite) — DEUX chemins : dans chaque cellule, 3 valeurs empilées (via, direct, total), alignées d'une colonne à l'autre.
+    expect(aj.hasAttribute('data-deux-chemins')).toBe(true);
+    const pile = (mot: string) => [...aj.querySelectorAll(`[data-mot="${mot}"] [data-pile]`)].map((e) => [e.getAttribute('data-pile'), nbsp(e.textContent)]);
+    expect(pile('Affaires').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
+    expect(pile('CA apporté').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
+    expect(pile('Hono. d’apporteur').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
+    expect([...aj.querySelectorAll('th [data-pile]')].map((e) => nbsp(e.textContent))).toEqual(['via ses apporteurs', 'en direct', 'Total']);
+    // Les mêmes emplacements (le nom, puis via, direct, total) dans CHAQUE cellule : les lignes s'alignent.
+    for (const cell of aj.querySelectorAll('th, td')) {
+      expect([...cell.querySelectorAll('.fdm-pile-l')].map((e) => e.className.replace('fdm-pile-l ', ''))).toEqual(['fdm-pile-l--nom', 'fdm-pile-l--detail', 'fdm-pile-l--detail', 'fdm-pile-l--total']);
+    }
+    const [v, d, t] = pile('CA apporté').map((x) => euros(x[1]));
+    expect(t).toBe(v + d);
+    const [nv, nd, nt] = pile('Affaires').map((x) => Number(x[1]));
+    expect(nt).toBe(nv + nd);
+    // Cliquables : nombre et CA de chaque origine, et le total.
+    expect([...aj.querySelectorAll('button[data-detail-origine]')].map((b) => b.getAttribute('data-detail-origine')))
+      .toEqual(['via-nb', 'direct-nb', 'total-nb', 'via-ca', 'direct-ca', 'total-ca']);
+    // UN seul chemin : inchangé (une ligne de chiffres, la mention en petit).
     const cj = container.querySelector('tr[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
+    expect(cj.querySelector('[data-pile]')).toBeNull();
     expect(nbsp(cj.querySelector('[data-origines-collegue]')?.textContent)).toBe('en direct');
-    expect(cj.querySelector('[data-origines-collegue] button')).toBeNull();
+    expect(cj.querySelector('[data-mot="Affaires"] button')?.textContent).toBe('1');
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
+    expect(css).toContain('.fdm-pile-l--detail{height:1.3rem;');
+    expect(css).toContain('.fdm-pile-l--total{height:1.7rem;');
     expect(aj.querySelector('[data-meilleur-collegue]')?.textContent).toBe('Meilleur collègue');
     // Le Total du tableau : la somme des collègues.
     const tot = euros(container.querySelector('[data-total-collegues-ca]')?.textContent);
-    expect(tot).toBe([...container.querySelectorAll('tr[data-collegue-mois]:not([data-collegue-mois="total"]) [data-mot="CA apporté"]')].reduce((s2, e) => s2 + euros(e.textContent), 0));
+    expect(tot).toBe([...container.querySelectorAll('tr[data-collegue-mois]:not([data-collegue-mois="total"]) [data-mot="CA apporté"]')]
+      .reduce((s2, e) => s2 + euros((e.querySelector('[data-pile="total"]') ?? e).textContent), 0));
   });
 });

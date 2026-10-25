@@ -359,19 +359,41 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 const deux = via.nb > 0 && direct.nb > 0;
                 const lien = (texte: string, titre: string, ids: (number | string)[], repere: string) => (
                   <button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${nom}`, ids)} data-detail-origine={repere}>{texte}</button>);
+                const tVia = `Affaires de ${x.libelle} — via ses apporteurs`;
+                const tDirect = `Affaires de ${x.libelle} — en direct`;
+                const tTout = `Affaires de ${x.libelle}`;
+                const badge = x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>;
+                /* 🔴 Arno (25/10/2026) — LES DEUX CHEMINS : une ligne de tableau, et dans chaque cellule les valeurs EMPILÉES et ALIGNÉES d'une
+                   colonne à l'autre : (le nom), via ses apporteurs, en direct (petit, gris), Total (gras). */
+                const pile = (v: ReactNode, d: ReactNode, t: ReactNode) => (
+                  <span className="fdm-pile">
+                    <span className="fdm-pile-l fdm-pile-l--nom" aria-hidden="true" />
+                    <span className="fdm-pile-l fdm-pile-l--detail" data-pile="via">{v}</span>
+                    <span className="fdm-pile-l fdm-pile-l--detail" data-pile="direct">{d}</span>
+                    <span className="fdm-pile-l fdm-pile-l--total" data-pile="total">{t}</span>
+                  </span>);
+                if (deux) {
+                  return (
+                    <tr key={x.cle} data-collegue-mois={x.libelle} data-deux-chemins className={`fdm-collegue fdm-collegue--deux${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`}>
+                      <th scope="row">
+                        <span className="fdm-pile">
+                          <span className="fdm-pile-l fdm-pile-l--nom">{x.libelle}{badge}</span>
+                          <span className="fdm-pile-l fdm-pile-l--detail" data-pile="via">via ses apporteurs</span>
+                          <span className="fdm-pile-l fdm-pile-l--detail" data-pile="direct">en direct</span>
+                          <span className="fdm-pile-l fdm-pile-l--total" data-pile="total">Total</span>
+                        </span></th>
+                      <td data-mot="Affaires">{pile(lien(String(via.nb), tVia, via.ids, 'via-nb'), lien(String(direct.nb), tDirect, direct.ids, 'direct-nb'), lien(String(x.nb), tTout, x.ids, 'total-nb'))}</td>
+                      <td data-mot="CA apporté">{pile(lien(eur(via.ca), tVia, via.ids, 'via-ca'), lien(eur(direct.ca), tDirect, direct.ids, 'direct-ca'), lien(eur(x.ca), tTout, x.ids, 'total-ca'))}</td>
+                      <td data-mot="Hono. d’apporteur">{pile(eur(via.commission), eur(direct.commission), eur(x.commission))}</td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={x.cle} data-collegue-mois={x.libelle} className={`fdm-collegue${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`}>
-                    <th scope="row">{x.libelle}{x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>}
-                      <small className="fdm-origine-collegue" data-origines-collegue>
-                        {deux ? (<>
-                          <span data-origine="via">via ses apporteurs {lien(String(via.nb), `Affaires de ${x.libelle} — via ses apporteurs`, via.ids, 'via-nb')} · {lien(eur(via.ca), `Affaires de ${x.libelle} — via ses apporteurs`, via.ids, 'via-ca')}
-                            {auCentime(via.commission) !== 0 && <> · hono. {eur(via.commission)}</>}</span>
-                          {' · '}
-                          <span data-origine="direct">en direct {lien(String(direct.nb), `Affaires de ${x.libelle} — en direct`, direct.ids, 'direct-nb')} · {lien(eur(direct.ca), `Affaires de ${x.libelle} — en direct`, direct.ids, 'direct-ca')}</span>
-                        </>) : <span data-origine={direct.nb > 0 ? 'direct' : 'via'}>{direct.nb > 0 ? 'en direct' : 'via ses apporteurs'}</span>}
-                      </small></th>
-                    <td data-mot="Affaires" className="fdm-fort-cellule"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.libelle} — ${nom}`, x.ids)}>{x.nb}</button></td>
-                    <td data-mot="CA apporté" className="fdm-fort-cellule"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.libelle} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
+                    <th scope="row">{x.libelle}{badge}
+                      <small className="fdm-origine-collegue" data-origines-collegue>{direct.nb > 0 ? 'en direct' : 'via ses apporteurs'}</small></th>
+                    <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(x.nb), tTout, x.ids, 'total-nb')}</td>
+                    <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(x.ca), tTout, x.ids, 'total-ca')}</td>
                     <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(x.commission)}</td>
                   </tr>
                 );
@@ -704,8 +726,22 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-collegues tr.fdm-collegue > td.fdm-fort-cellule{font-weight:800}
 .fdm-collegues tr.fdm-collegue > th{font-weight:800}
 .fdm-origine-collegue{display:block;margin-top:2px;font-size:.74rem;font-weight:400;line-height:1.35;color:var(--color-svv-muted);white-space:normal}
-.fdm-origine-collegue .tdb-chiffre{font-size:inherit;font-weight:600;color:inherit;min-height:0;padding:0}
-.fdm-origine-collegue > span{white-space:nowrap}
+.fdm-collegues tr.fdm-collegue--deux > th,.fdm-collegues tr.fdm-collegue--deux > td{vertical-align:top}
+.fdm-pile{display:flex;flex-direction:column;align-items:stretch}
+.fdm-pile-l{display:flex;align-items:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+td .fdm-pile-l{justify-content:flex-end}
+.fdm-pile-l--nom{min-height:1.9rem;font-weight:800}
+.fdm-pile-l--detail{height:1.3rem;font-size:.76rem;font-weight:400;color:var(--color-svv-muted)}
+.fdm-pile-l--total{height:1.7rem;font-weight:800}
+.fdm-pile-l .tdb-chiffre{min-height:0;padding:0 2px;font:inherit;color:inherit}
+@media (max-width:640px){
+  .fdm-collegues tr.fdm-collegue--deux > td{align-items:flex-start}
+  .fdm-collegues td .fdm-pile-l--nom,.fdm-collegues th .fdm-pile-l[data-pile]{display:none}
+  .fdm-collegues td .fdm-pile-l[data-pile]::before{margin-right:6px;color:var(--color-svv-muted);font-weight:400;font-size:.76rem}
+  .fdm-collegues td .fdm-pile-l--detail[data-pile="via"]::before{content:"via ses apporteurs"}
+  .fdm-collegues td .fdm-pile-l--detail[data-pile="direct"]::before{content:"en direct"}
+  .fdm-collegues td .fdm-pile-l--total::before{content:"total"}
+}
 .fdm-collegues tfoot th,.fdm-collegues tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
 .fdm-nego-nom{margin:6px 0 0;font-weight:800}
 .fdm-famille .tdb-note{margin:0}
