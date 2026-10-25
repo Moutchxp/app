@@ -124,6 +124,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const nom = `${NOMS_MOIS[mois - 1]} ${annee}`;
   const titreMois = `Portefeuille de gestion — ${nom.toLowerCase()}`;
   const titrePortefeuille = `${titreMois} ${TITRE_SUITE}`;
+  const tailleTitrePortefeuille = { '--lettres': titrePortefeuille.length, '--lettres-ligne': Math.max(titreMois.length, TITRE_SUITE.length) } as CSSProperties;
   const annuaire = d.annuaire === true;
 
   return (
@@ -296,10 +297,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
           </div>
           <div className="fdm-colonne" data-colonne="droite">
-          <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
+          {/* 🔴 Arno (25/10/2026) — la taille du titre (portée par le bloc) vaut aussi pour le sous-titre « Depuis le 1er janvier ». */}
+          <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille" style={tailleTitrePortefeuille}>
             {/* 🔴 Arno (25/10/2026) — le titre porte le mois, sur UNE ligne (police réduite si besoin, jamais coupé). */}
-            <h4 id="fdm-f4" className="fdm-titre-une-ligne" data-titre-portefeuille
-              style={{ '--lettres': titrePortefeuille.length, '--lettres-ligne': Math.max(titreMois.length, TITRE_SUITE.length) } as CSSProperties}>
+            <h4 id="fdm-f4" className="fdm-titre-une-ligne" data-titre-portefeuille style={tailleTitrePortefeuille}>
               <span>{titreMois}</span> <span className="fdm-titre-suite">{TITRE_SUITE}</span></h4>
             {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
                 au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
@@ -323,7 +324,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
               </tbody>
               {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
               <tbody data-portefeuille-cumul>
-                <tr className="fdm-pf-sous-titre"><th colSpan={4} scope="colgroup" className="fdm-cumul-titre">Depuis le 1er janvier {annee}</th></tr>
+                <tr className="fdm-pf-sous-titre"><th colSpan={4} scope="colgroup" className="fdm-cumul-titre"><span className="fdm-titre-bloc fdm-titre-taille" data-sous-titre-portefeuille>Depuis le 1er janvier {annee}</span></th></tr>
                 <tr className="fdm-pf-entetes" aria-hidden="true"><th>Gestions</th><th>Biens</th><th>/ mois</th><th>/ an</th></tr>
                 <tr data-cumul="entrees"><th scope="row">Gestions entrées</th><td data-mot="Biens">{cumul.entrees.nb}</td>
                   <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{eur(cumul.entrees.mensuel)}</button></td>
@@ -874,13 +875,15 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-portefeuille tbody[data-portefeuille-cumul] tr.fdm-pf-sous-titre th{border-top:1px solid var(--color-svv-line-strong)}
 .fdm-portefeuille tr.fdm-pf-entetes th{font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
 .fdm-famille{border:1px solid var(--color-svv-line);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
-.fdm-famille > h4{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+/* 🔴 Arno (25/10/2026) — LE STYLE DU TITRE D'UN BLOC, partagé par ses sous-titres (« Depuis le 1er janvier ») : une seule règle. */
+.fdm-famille > h4,.fdm-titre-bloc{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
 /* 🔴 Arno (25/10/2026) — un titre sur UNE ligne : la police se réduit selon la largeur de l'encadré et le nombre de lettres (0,46 em par
    lettre, mesuré : 0,44), plancher 13 px, jamais coupée. */
 .fdm-familles [data-famille="portefeuille"]{container-type:inline-size}
-.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible;font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}
+.fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}
+.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible}
 @media (max-width:430px){
-  .fdm-famille > h4.fdm-titre-une-ligne{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}
+  .fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}
   .fdm-titre-une-ligne .fdm-titre-suite{display:block}
 }
 .fdm-cascade-mois{margin:0;display:flex;flex-direction:column}
@@ -906,7 +909,8 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-nego-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .fdm-nego-chevron{flex:0 0 1.2em;color:var(--color-svv-muted);font-size:1rem}
 .fdm-cumul{margin-top:10px;padding-top:10px;border-top:1px solid var(--color-svv-line-strong);display:flex;flex-direction:column;gap:6px}
-.fdm-cumul-titre{margin:0;font-size:.84rem;font-weight:800;color:var(--color-svv-ink)}
+.fdm-cumul-titre{margin:0;white-space:normal}
+.fdm-titre-bloc{display:block}
 .fdm-cumul-biens{list-style:none;margin:0;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:4px;font-size:.84rem}
 .fdm-cumul-biens li{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
 .fdm-cumul-biens li > span:first-child{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}

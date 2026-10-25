@@ -1779,7 +1779,12 @@ describe('🔴 Arno (25/10/2026) — le titre du Portefeuille porte le mois, sur
     await act(async () => { (container.querySelector('[data-onglet-mois="6"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-titre-portefeuille]')?.textContent).toBe('Portefeuille de gestion — juin 2026 (honoraires de gestion HT)');
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
-    expect(css).toContain('.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible;font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}');
+    // 🔴 25/10/2026 — la taille du titre est PARTAGÉE avec le sous-titre « Depuis le 1er janvier » (une seule règle) ; le titre reste sur une ligne.
+    expect(css).toContain('.fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}');
+    expect(css).toContain('.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible}');
+    expect(css).toContain('.fdm-famille > h4,.fdm-titre-bloc{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}');
+    expect(container.querySelector('[data-sous-titre-portefeuille]')?.className).toBe('fdm-titre-bloc fdm-titre-taille');
+    expect((container.querySelector('[data-famille="portefeuille"]') as HTMLElement).style.getPropertyValue('--lettres')).toBe('62');
     expect((container.querySelector('[data-titre-portefeuille]') as HTMLElement).style.getPropertyValue('--lettres')).toBe('62');
     expect(css).not.toMatch(/fdm-titre-une-ligne\{[^}]*(ellipsis|overflow:hidden)/);
   });
@@ -1934,7 +1939,7 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(t.textContent).toBe('Portefeuille de gestion — septembre 2026 (honoraires de gestion HT)');
     expect(t.querySelector('.fdm-titre-suite')?.textContent).toBe('(honoraires de gestion HT)');
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
-    expect(css).toContain('@media (max-width:430px){\n  .fdm-famille > h4.fdm-titre-une-ligne{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}\n  .fdm-titre-une-ligne .fdm-titre-suite{display:block}\n}');
+    expect(css).toContain('@media (max-width:430px){\n  .fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}\n  .fdm-titre-une-ligne .fdm-titre-suite{display:block}\n}');
   });
 });
 
