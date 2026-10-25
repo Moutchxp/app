@@ -74,6 +74,8 @@ const gestes = vi.hoisted(() => ({
   mettreAJourActivite: vi.fn(async () => ({ etat: 'ok' })),
 }));
 const ecrits: { sql: string; params: unknown[] }[] = [];
+/** 🔴 25/10/2026 — « Paiement des charges » (migration 400) : absent par défaut ; `lots` : la valeur de chaque lot du bail. */
+const c400 = vi.hoisted(() => ({ actif: false, lots: [] as { id: string; v: string | null }[] }));
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({
   query: async (sql: string, params: unknown[] = []) => {
@@ -84,8 +86,13 @@ vi.mock('../db/client', () => ({
       categorie_prime: 'logement', origine_proprietaire_saisie: null, origine_locataire_saisie: null, origine_contact: 'relocation', collegue_id: null, prime_mode: 'aucune',
       prime_gestion_saisie: '0', origine_contact_precision: null, apporteur_mode: null, apporteur_taux_gestion: null, modifie_le: null }] };
     if (s.includes('FROM gestion_bail b JOIN gestion_annuaire_lot')) return { rows: [{ lot_id: '51', entree: '2026-09-12', adresse: '7 rue des Essais', commune: 'Courbevoie', nature: 'Appartement', categorie: 'logement', type_bien: null }] };
-    if (s.startsWith('SELECT id::text, locataire_id::text, lot_id::text FROM gestion_annuaire_occupation')) return { rows: [{ id: '900', locataire_id: '230', lot_id: '51' }] };
-    if (s.includes('FROM gestion_annuaire_lot l WHERE l.id = ANY')) return { rows: [{ id: '51', libelle: 'Appartement — 7 rue des Essais Courbevoie' }] };
+    if (s.startsWith('SELECT id::text, locataire_id::text, lot_id::text FROM gestion_annuaire_occupation')) {
+      return { rows: [{ id: '900', locataire_id: '230', lot_id: '51' }, ...c400.lots.filter((l) => l.id !== '51').map((l, i) => ({ id: String(901 + i), locataire_id: '230', lot_id: l.id }))] };
+    }
+    if (s.includes('charges_copro AS v FROM gestion_annuaire_lot WHERE id = ANY')) return { rows: c400.lots.filter((l) => (params[0] as number[]).includes(Number(l.id))) };
+    if (s.includes('FROM gestion_annuaire_lot l WHERE l.id = ANY')) {
+      return { rows: (params[0] as number[]).map((id) => ({ id: String(id), libelle: id === 51 ? 'Appartement — 7 rue des Essais Courbevoie' : `Parking n° ${id}` })) };
+    }
     if (s.includes('FROM gestion_annuaire_locataire WHERE id = ANY')) return { rows: [{ id: '230', civilite: 'Mme', prenom: 'Léa', nom: 'MARTIN', qualite: null, adresse: '7 rue des Essais', code_postal: '92400', commune: 'COURBEVOIE', note: null }] };
     if (s.includes('FROM gestion_annuaire_contact')) return { rows: [] };
     if (s.includes('FROM gestion_contact_carte')) return { rows: [] };
@@ -99,7 +106,7 @@ vi.mock('../db/client', () => ({
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 // Ce fichier éprouve les gestes d'avant : base SANS l'indice (423) ni le paiement des charges (400) — `dossierComplet.test.ts` les éprouve.
-vi.mock('./chargesCoproRepo', () => ({ chargesCoproDisponible: async () => false, ecrireChargesCoproDans: vi.fn() }));
+vi.mock('./chargesCoproRepo', () => ({ chargesCoproDisponible: async () => c400.actif, ecrireChargesCoproDans: vi.fn() }));
 vi.mock('./indicesRepo', () => ({ indiceDuBailDisponible: async () => false }));
 vi.mock('./suivi/suiviRepo', () => ({ annuaireDisponible: async () => true, mettreAJourActivite: gestes.mettreAJourActivite }));
 vi.mock('../gestion/annuaireEditionRepo', () => ({ modifierPersonne: gestes.modifierPersonne }));
@@ -118,7 +125,26 @@ vi.mock('./brancheBailDriveRepo', () => ({ creerBrancheBail: DRIVE_INTERDIT, ren
 const { lireDossierLocation, modifierDossierLocation } = await import('./dossierLocationRepo');
 const { avecTrace } = await import('../gestion/traceJournal');
 const auteur = { id: 12, libelle: 'lea.martin@exemple.fr' };
-beforeEach(() => { ecrits.length = 0; for (const g of Object.values(gestes)) g.mockClear(); });
+beforeEach(() => { ecrits.length = 0; c400.actif = false; c400.lots = []; for (const g of Object.values(gestes)) g.mockClear(); });
+
+describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONNÉ depuis la fiche du bien (Dossier de location)', () => {
+  it('la valeur du bien est la valeur lue (le bouton est présélectionné) ; chaque lot porte la sienne', async () => {
+    c400.actif = true; c400.lots = [{ id: '51', v: 'proprietaire' }];
+    const r = await lireDossierLocation(100);
+    expect(r.etat === 'ok' && r.data.conditions?.valeurs.chargesCopro).toBe('proprietaire');
+    expect(r.etat === 'ok' && r.data.lots).toEqual([{ id: 51, libelle: 'Appartement — 7 rue des Essais Courbevoie', chargesCopro: 'proprietaire' }]);
+  });
+
+  it('un lot sans valeur ne contredit rien ; des lots aux valeurs DIFFÉRENTES : aucune présélection', async () => {
+    c400.actif = true; c400.lots = [{ id: '51', v: 'agence' }, { id: '52', v: null }];
+    let r = await lireDossierLocation(100);
+    expect(r.etat === 'ok' && r.data.conditions?.valeurs.chargesCopro).toBe('agence');
+    c400.lots = [{ id: '51', v: 'agence' }, { id: '52', v: 'proprietaire' }];
+    r = await lireDossierLocation(100);
+    expect(r.etat === 'ok' && r.data.conditions?.valeurs.chargesCopro).toBeNull();
+    expect(r.etat === 'ok' && r.data.lots.map((l) => l.chargesCopro)).toEqual(['agence', 'proprietaire']);
+  });
+});
 
 describe('🔴 le dépôt du dossier', () => {
   it('préremplissage fidèle : les 4 blocs lus dans les sources', async () => {

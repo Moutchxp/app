@@ -137,3 +137,37 @@ describe('🔴 Arno (25/10/2026) — un dossier ANCIEN incomplet : il s’ouvre 
     expect(posts).toEqual([]);
   });
 });
+
+describe('🔴 Arno (25/10/2026) — « Paiement des charges » présélectionné depuis la fiche du bien (Dossier de location)', () => {
+  const servir = (l: LectureDossier) => {
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+      if (url.includes('dossierLocation=100')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: l }) } as unknown as Response;
+      if (url.startsWith('/api/admin/location/suivi') && !url.includes('vue=')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: parametres }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'inconnu' }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  };
+  const boutons = () => [...document.querySelectorAll('[aria-label="Paiement des charges"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const signal = () => document.querySelector('[data-charges-signal]')?.textContent ?? null;
+
+  it('la valeur de la fiche est choisie ; mêmes boutons, même ordre (Agence, Propriétaire) ; modifiée ici : « différent de la fiche du bien », dans le récapitulatif', async () => {
+    servir({ ...lecture, lots: [{ ...lecture.lots[0], chargesCopro: 'proprietaire' }],
+      conditions: { ...lecture.conditions!, valeurs: { ...lecture.conditions!.valeurs, chargesCopro: 'proprietaire' } } });
+    await monter();
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    expect(signal()).toBeNull();
+    expect(document.querySelector('[data-cond="charges"]')?.textContent).not.toContain('Fiche du bien aujourd’hui');
+    await act(async () => { ([...document.querySelectorAll('[aria-label="Paiement des charges"] button')].find((b) => b.textContent === 'Agence') as HTMLButtonElement).click(); });
+    expect(signal()).toBe('Différent de la fiche du bien (Propriétaire) : la fiche sera mise à jour à l’enregistrement.');
+    expect(document.querySelector('[data-etat-dossier]')?.textContent).not.toBe('Aucune modification.');
+  });
+
+  it('des lots aux valeurs DIFFÉRENTES : aucune présélection, « valeurs différentes selon les lots »', async () => {
+    servir({ ...lecture, lots: [{ ...lecture.lots[0], chargesCopro: 'agence' }, { id: 52, libelle: 'Parking n° 52', chargesCopro: 'proprietaire' }],
+      conditions: { ...lecture.conditions!, valeurs: { ...lecture.conditions!.valeurs, chargesCopro: null } } });
+    await monter();
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
+    expect(signal()).toBe('Valeurs différentes selon les lots : aucune présélection, choisissez.');
+  });
+});

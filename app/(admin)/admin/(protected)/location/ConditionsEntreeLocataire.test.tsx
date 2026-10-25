@@ -36,11 +36,15 @@ let loyerDisponible: boolean;
 let loyerConnu: unknown;
 /** 🔴 25/10/2026 — la migration 400 (« paiement des charges » du bien) : absente par défaut dans ce fichier (le bloc le dit). */
 let chargesDisponible = false;
+/** 🔴 25/10/2026 (suite) — « Paiement des charges » de chaque lot du bien N (le 1er = le lot N, puis ses annexes N0, N1…) ; et 3 biens au choix. */
+let chargesLots: Record<number, (string | null)[]> = {};
+let troisBiens = false;
+const TITRES: Record<number, string> = { 7: '4 rue Fictive, Puteaux', 8: '8 rue Fictive, Puteaux', 9: '9 rue Fictive, Puteaux' };
 const CALCUL_OK = { etat: 'ok', surface: '41.8', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, baremeId: 1, baremeDepuis: '2026-01-01',
   source: 'Arrêté du 17/07/2025', tarifZone: '12.1', tarifEdl: '3.03', visiteBail: '505.78', etatDesLieux: '126.654', total: '632.434' };
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  posts = []; chargesDisponible = false; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] }; calcul = CALCUL_OK; loyerDisponible = true; loyerConnu = null;
+  posts = []; chargesDisponible = false; chargesLots = {}; troisBiens = false; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] }; calcul = CALCUL_OK; loyerDisponible = true; loyerConnu = null;
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = decodeURIComponent(String(url));
@@ -50,11 +54,18 @@ beforeEach(() => {
       return ok(corps.action === 'apercu-lots' ? { recap: ['Le logement est loué.'] } : { locataireIds: [50], reintegrations: [] });
     }
     if (u.includes('schemaConditionsEntree')) return ok({ conditions: disponible, loyer: loyerDisponible, charges: chargesDisponible, manquantes: [...(disponible ? [] : ['391', '392']), ...(loyerDisponible ? [] : ['370'])] });
-    if (u.includes('loyerDuBien=7')) return ok(loyerConnu);
-    if (u.includes('honorairesProprietaire=7')) return ok(calcul);
-    if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement', loue: false }]);
-    if (u.includes('lotsBail=7')) return ok({ lots: [{ id: 7, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
-    if (u.includes('lot=7')) return ok({ bien: { id: 7, categorie }, complements: { ...entretienDuBien } });
+    const id = (cle: string): number | null => { const m = new RegExp(`[?&]${cle}=([789])(?:&|$)`).exec(u); return m === null ? null : Number(m[1]); };
+    if (id('loyerDuBien') !== null) return ok(loyerConnu);
+    if (id('honorairesProprietaire') !== null) return ok(calcul);
+    if (u.includes('biensPourLocataire=')) return ok((troisBiens ? [7, 8, 9] : [7]).map((n) => ({ id: n, titre: TITRES[n], detail: 'Appartement', loue: false })));
+    const lb = id('lotsBail');
+    if (lb !== null) {
+      const valeurs = chargesLots[lb] ?? [null];
+      return ok({ lots: valeurs.map((v, i) => ({ id: i === 0 ? lb : lb * 10 + i - 1, role: i === 0 ? 'logement' : 'annexe', libelle: i === 0 ? 'logement' : `parking ${i}`, type: null, etage: null,
+        numeroLot: null, porte: null, place: i > 0, occupants: [], noms: [], chargesCopro: v })), sorte: 'simple', origineLibelle: '' });
+    }
+    const lo = id('lot');
+    if (lo !== null) return ok({ bien: { id: lo, categorie }, complements: { ...entretienDuBien } });
     return ok([]);
   }) as unknown as typeof fetch;
   Object.defineProperty(window, 'location', { value: { href: '' }, writable: true, configurable: true });
@@ -868,16 +879,18 @@ describe('🔴 intitulés et picto sur une ligne, « € » en suffixe dans la c
 });
 
 describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier COMPLET (Nouveau locataire)', () => {
-  it('le bloc juste à droite de « Mode de règlement », titre « * », deux boutons exclusifs, AUCUN choix par défaut ; la fiche du bien rappelée', async () => {
+  it('le bloc juste à droite de « Mode de règlement », titre « * », deux boutons exclusifs ; le choix de la fiche du bien PRÉSÉLECTIONNÉ (plus de ligne de rappel)', async () => {
     chargesDisponible = true;
-    entretienDuBien = { entretienAPrevoir: null, entretiens: [], chargesCopro: 'proprietaire' } as never;
+    chargesLots = { 7: ['proprietaire'] };
     await preparer();
     const paire = container.querySelector('[data-cond-paire="reglement-charges"]')!;
     expect([...paire.querySelectorAll(':scope > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'))).toEqual(['reglement', 'charges']);
     expect(paire.querySelector('[data-cond="charges"] h4')?.innerHTML).toBe('Paiement des charges <span class="loc-oblig">*</span>');
     const boutons = [...container.querySelectorAll('[aria-label="Paiement des charges"] button')];
-    expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
-    expect(container.querySelector('[data-charges-aide]')?.textContent).toContain('Fiche du bien aujourd’hui : payées par le propriétaire');
+    // 🔴 Arno (25/10/2026, suite) : la valeur de la fiche du bien (lue avec les lots) est présélectionnée ; la phrase d'aide reste, seule.
+    expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    expect(container.querySelector('[data-charges-aide]')?.textContent).toBe('Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).');
+    expect(container.querySelector('[data-cond="charges"]')?.textContent).not.toContain('Fiche du bien aujourd’hui');
     await clic(boutons[1]);
     await clic(boutons[0]);
     expect(boutons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
@@ -911,5 +924,86 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     expect(barre()).toBe('Reste à renseigner : Honoraires propriétaire : le montant (€ HT), 0 si aucun.');
     await saisir(container.querySelector('[data-hono-montant] input') as HTMLInputElement, '0');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONNÉ depuis la fiche du bien (Nouveau locataire)', () => {
+  const boutons = () => [...container.querySelectorAll('[aria-label="Paiement des charges"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const signal = () => container.querySelector('[data-charges-signal]')?.textContent ?? null;
+  const choisirBien = async (n: number) => {
+    const changer = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Changer de bien');
+    if (changer !== undefined) { await clic(changer); await calmer(); }
+    await clic([...container.querySelectorAll('.loc-choix button')].find((b) => b.textContent?.includes(TITRES[n]))!);
+    await calmer();
+  };
+
+  it('PRÉSÉLECTION : le bouton de la fiche du bien est choisi d’office et COMPTE COMME REMPLI ; un bien sans valeur : aucun choix, champ obligatoire', async () => {
+    chargesDisponible = true;
+    troisBiens = true;
+    chargesLots = { 7: ['agence'] };
+    await preparer();
+    expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
+    expect(barre()).not.toContain('Paiement des charges');
+    expect(signal()).toBeNull();
+    await choisirBien(9);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
+    expect(barre()).toContain('Paiement des charges');
+  });
+
+  it('SUIVI AU CHANGEMENT DE BIEN : la présélection suit le nouveau bien ; un choix À LA MAIN est gardé et signalé « différent de la fiche du bien »', async () => {
+    chargesDisponible = true;
+    troisBiens = true;
+    chargesLots = { 7: ['agence'], 8: ['proprietaire'] };
+    await preparer();
+    expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
+    await choisirBien(8);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    await choisirBien(7);
+    expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
+    // À la main : gardé d'un bien à l'autre, et signalé là où il diffère de la fiche.
+    await clic(pilule('Paiement des charges', 'Propriétaire'));
+    expect(signal()).toBe('Différent de la fiche du bien (Agence) : la fiche sera mise à jour à l’enregistrement.');
+    await choisirBien(9);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    expect(signal()).toBeNull();
+    await choisirBien(8);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    expect(signal()).toBeNull();
+    await choisirBien(7);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    expect(signal()).toContain('Différent de la fiche du bien');
+  });
+
+  it('LOTS DIVERGENTS : aucune présélection, « valeurs différentes selon les lots » ; décocher le lot divergent rend la présélection', async () => {
+    chargesDisponible = true;
+    chargesLots = { 7: ['agence', 'proprietaire'] };
+    await preparer();
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
+    expect(signal()).toBe('Valeurs différentes selon les lots : aucune présélection, choisissez.');
+    expect(barre()).toContain('Paiement des charges');
+    await clic(container.querySelector('[data-coche-lot="70"]')!);
+    await calmer();
+    expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
+    expect(signal()).toBeNull();
+  });
+
+  it('ÉCRITURE DANS LES DEUX SENS : la fiche du bien modifiée se voit ici (relue) ; un choix modifié ici part avec le bail (écrit sur la fiche : chargesDesLots.test.ts)', async () => {
+    chargesDisponible = true;
+    troisBiens = true;
+    chargesLots = { 7: ['agence'] };
+    await preparer();
+    expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
+    // La page bien a changé la fiche : relue, la présélection suit.
+    chargesLots = { 7: ['proprietaire'] };
+    await choisirBien(7);
+    expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
+    // Modifiée ici : envoyée avec le bail (le serveur l'écrit sur la fiche du bien et à son Historique).
+    await clic(pilule('Paiement des charges', 'Agence'));
+    await toutRepondre();
+    expect(barre()).toBe('1 locataire, prêt à enregistrer.');
+    await soumettre();
+    await soumettre();
+    const creer = posts.find((p) => p.action === 'creer-locataires')!;
+    expect(creer).toMatchObject({ lotId: 7, conditions: { chargesCopro: 'agence' } });
   });
 });

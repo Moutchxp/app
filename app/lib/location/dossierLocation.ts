@@ -36,7 +36,8 @@ export interface LectureDossier {
   version: string;
   titre: string;
   bien: { id: number; titre: string; famille: string | null };
-  lots: { id: number; libelle: string }[];
+  /** `chargesCopro` : « Paiement des charges » de chaque lot (migration 400 ; absent sans elle) — la présélection, Arno 25/10/2026. */
+  lots: { id: number; libelle: string; chargesCopro?: 'agence' | 'proprietaire' | null }[];
   entree: string | null;
   locataires: CarteLocataireDossier[];
   /** Les contacts du locataire (garants, conjoint…) rattachés au bail : montrés, modifiables depuis leur fiche. */

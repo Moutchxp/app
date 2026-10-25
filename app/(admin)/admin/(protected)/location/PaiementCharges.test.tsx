@@ -54,7 +54,7 @@ const parkingComplet = async () => {
 };
 
 describe('🔴 « Paiement des charges » — l’encadré de « Nouveau bien »', () => {
-  it('dans le bloc « Caractéristiques complémentaires », pour les TROIS familles : titre, Propriétaire / Agence, mention discrète', async () => {
+  it('dans le bloc « Caractéristiques complémentaires », pour les TROIS familles : titre, Agence / Propriétaire (l’ordre de « Nouveau locataire »), mention discrète', async () => {
     await rendre();
     for (const f of ['logement', 'local', 'parking']) {
       await clic(container.querySelector(`[data-famille="${f}"]`)!);
@@ -63,7 +63,7 @@ describe('🔴 « Paiement des charges » — l’encadré de « Nouveau bien »
       expect(e?.closest('section')?.querySelector('h3')?.textContent).toMatch(/Caractéristiques complémentaires$/);
       expect(e?.querySelector('h4')?.textContent).toBe('Paiement des charges');
       expect([...(e?.querySelectorAll('[aria-label="Paiement des charges"] button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')]))
-        .toEqual([['Propriétaire', 'false'], ['Agence', 'false']]);
+        .toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
       expect(e?.querySelector('.loc-charges-mention')?.textContent).toBe('Qui règle les charges de copropriété au syndic');
     }
   });
@@ -104,6 +104,30 @@ describe('🔴 « Paiement des charges » — l’encadré de « Nouveau bien »
     expect(choix('Agence').getAttribute('aria-pressed')).toBe('false');
     expect(CSS_DPE_PNO).toContain('border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field)}');
     expect(CSS_DPE_PNO).toContain('.loc-charges-bloc{display:flex;flex-direction:column;gap:10px;min-width:0;max-width:100%;box-sizing:border-box;');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — page bien : « Entretien à prévoir » encadré, sur la MÊME rangée que « Paiement des charges »', () => {
+  it('logement : deux encadrés gris identiques, côte à côte (Entretien puis Paiement des charges), mêmes colonnes que DPE / PNO ; l’un sous l’autre au téléphone', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-famille="logement"]')!);
+    const rangee = container.querySelector('[data-ligne-entretien-charges]') as HTMLElement;
+    expect(rangee.className).toBe('loc-charges loc-charges--paire');
+    expect([...rangee.children].map((e) => [e.className, (e as HTMLElement).dataset.entretienEncadre !== undefined ? 'entretien' : (e as HTMLElement).dataset.chargesCopro !== undefined ? 'charges' : '?']))
+      .toEqual([['loc-charges-bloc loc-entretien-encadre', 'entretien'], ['loc-charges-bloc', 'charges']]);
+    // L'entretien : le même composant, son titre « * » rouge (obligatoire à la création), ses boutons Oui / Non.
+    expect(rangee.querySelector('[data-entretien-encadre] [data-entretien-bloc] h4')?.innerHTML).toBe('Entretien à prévoir <span class="loc-oblig">*</span>');
+    expect(rangee.previousElementSibling?.matches('[data-ligne-dpe-pno]')).toBe(true);
+    expect(CSS_DPE_PNO).toContain('.loc-charges.loc-charges--paire{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:stretch}');
+    expect(CSS_DPE_PNO).toContain('@media (min-width:900px){ .loc-charges.loc-charges--paire{grid-template-columns:minmax(0,3fr) minmax(0,2fr);column-gap:24px} }');
+  });
+
+  it('parking nu : « Paiement des charges » seul, comme avant (pas de rangée à deux)', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-famille="parking"]')!);
+    const rangee = container.querySelector('[data-ligne-entretien-charges]') as HTMLElement;
+    expect(rangee.className).toBe('loc-charges');
+    expect(rangee.querySelector('[data-entretien-encadre]')).toBeNull();
   });
 });
 

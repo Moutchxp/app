@@ -7,7 +7,7 @@ import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  AVERTISSEMENT_ID_FISCAL, CHARGES_COPRO, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
   LIBELLE_CHARGES_COPRO, type ChargesCopro, type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
@@ -37,6 +37,7 @@ import { contactsSyndicEnTexte, entretiensEnTexte, LIBELLE_CATEGORIE, type Valeu
 import { changementsFiche, refusFiche, titreAnnexeSaisie, type ChangementFiche, type SaisieFiche, type TransitionSaisie } from '../../../../lib/location/ficheBienEntiere';
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
 import { LIBELLE_DESTINATION } from '../../../../lib/gestion/statutBien';
+import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -361,6 +362,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const avecComplements = famille !== 'parking';
   const montre = (cle: 'avecAg' | 'avecIdFiscal' | 'avecCharges' | 'avecPno' | 'avecEntretien'): boolean =>
     lu === undefined || (lu[cle] === true && (cle === 'avecAg' || cle === 'avecEntretien' || !lu.annexe));
+  /** « Entretien à prévoir » : dans le bloc des caractéristiques complémentaires (pas pour un parking), là où la fiche le porte. */
+  const avecEntretienEncadre = avecComplements && montre('avecEntretien');
   const [transition, setTransition] = useState<TransitionSaisie | null>(null);
   /** Les valeurs de l'import WIPPIMMO que l'encart affiche quand la Location est vide : DITES au-dessus des champs vides, jamais recopiées. */
   const importesModif: string[] = (() => {
@@ -959,18 +962,24 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               <div className="loc-dpe-pno-notes" />
             </div>}
           </div>
-          {montre('avecEntretien') && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire={modification === undefined}
-            manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />}
           </>}
-          {/* « PAIEMENT DES CHARGES » (Arno, 21/10/2026) : petit encadré, même style que DPE / Assurance PNO ; FACULTATIF (ne bloque
-              pas « Enregistrer le bien », absent de « Reste à renseigner ») ; pour les trois familles. */}
-          {montre('avecCharges') && <div className="loc-charges" data-charges-copro>
-            <div className="loc-charges-bloc">
-              <h4>Paiement des charges</h4>
-              <Pilules etiquette="Paiement des charges" options={CHARGES_COPRO} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
-              <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
+          {/* 🔴 Arno (25/10/2026) — « ENTRETIEN À PRÉVOIR » dans un petit encadré gris identique à « Paiement des charges », et les deux
+              CÔTE À CÔTE sur une même rangée, de même hauteur (comme DPE / Assurance PNO au-dessus) ; au téléphone, l'un sous l'autre.
+              « PAIEMENT DES CHARGES » (Arno, 21/10/2026) : FACULTATIF (ne bloque pas « Enregistrer le bien », absent de « Reste à
+              renseigner ») ; pour les trois familles ; boutons Agence puis Propriétaire, comme « Nouveau locataire ». */}
+          {(avecEntretienEncadre || montre('avecCharges')) && (
+            <div className={`loc-charges${avecEntretienEncadre && montre('avecCharges') ? ' loc-charges--paire' : ''}`} data-ligne-entretien-charges>
+              {avecEntretienEncadre && <div className="loc-charges-bloc loc-entretien-encadre" data-entretien-encadre>
+                <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire={modification === undefined}
+                  manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
+              </div>}
+              {montre('avecCharges') && <div className="loc-charges-bloc" data-charges-copro>
+                <h4>Paiement des charges</h4>
+                <Pilules etiquette="Paiement des charges" options={ORDRE_BOUTONS_CHARGES} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
+                <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
+              </div>}
             </div>
-          </div>}
+          )}
         </section>
 
       <section className="loc-section" aria-labelledby="loc-b7">

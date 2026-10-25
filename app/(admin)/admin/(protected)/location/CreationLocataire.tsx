@@ -11,7 +11,8 @@ import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
 import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, motifSuivi, posterSuivi, SUIVI_VIDE, useParametresSuivi, type SaisieSuivi } from './SuiviCommercial';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
-import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
+import { familleDeCategorie, manquesEntretien, type ChargesCopro } from '../../../../lib/location/bienComplet';
+import { chargesDesLots, choixSelonFiche, signalCharges } from '../../../../lib/location/chargesDesLots';
 import { typeDeBienDesLots } from '../../../../lib/location/suivi/suivi';
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
@@ -23,7 +24,7 @@ import { explicationEchec, type CauseEchec } from '../../../../lib/location/issu
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
-  porte: string | null; place: boolean; occupants: number[]; noms: string[]; categorie?: string | null }
+  porte: string | null; place: boolean; occupants: number[]; noms: string[]; categorie?: string | null; chargesCopro?: ChargesCopro | null }
 
 /**
  * Arno (19/10/2026) — « LOTS LOUÉS » : une ligne par lot du bien choisi (le logement et chaque annexe), avec type, étage,
@@ -165,7 +166,17 @@ export function CreationLocataire() {
   // 🔴 Arno (25/10/2026) — « Paiement des charges » (la donnée du bien, migration 400) : posé à « pas encore répondu » dès que la base
   // l'a — jamais un choix par défaut ; sans elle, le bloc le dit et rien n'est exigé.
   const avecCharges = avecConditions && schema?.charges === true;
-  const saisieConditions: SaisieConditions = avecCharges && conditions.chargesCopro === undefined ? { ...conditions, chargesCopro: null } : conditions;
+  /* 🔴 Arno (25/10/2026) — « PAIEMENT DES CHARGES » PRÉSÉLECTIONNÉ DEPUIS LE BIEN : la valeur des lots loués cochés (la même donnée que
+     la fiche du bien, relue avec les lots — après « Caractéristiques du bien loué » aussi). Elle SUIT le bien choisi tant que le choix
+     n'a pas été fait à la main ; un choix à la main est gardé, et signalé s'il diffère de la fiche. Des lots divergents : aucun choix. */
+  const [chargesManuel, setChargesManuel] = useState(false);
+  const lotsLus = bien !== null && lotsDuBien !== null && lotsDuBien.lotId === bien.id ? lotsDuBien.lots : null;
+  const ficheCharges = lotsLus === null ? null
+    : chargesDesLots(lotsLus.filter((l) => (coches ?? lotsLus.filter((x) => x.occupants.length === 0).map((x) => x.id)).includes(l.id)).map((l) => l.chargesCopro));
+  // Dérivée au rendu (aucun effet) : tant que rien n'a été choisi à la main, la valeur montrée ET envoyée est celle de la fiche.
+  const chargesVues = !avecCharges ? conditions.chargesCopro
+    : ficheCharges === null ? (conditions.chargesCopro ?? null) : choixSelonFiche(conditions.chargesCopro ?? null, chargesManuel, ficheCharges);
+  const saisieConditions: SaisieConditions = chargesVues === conditions.chargesCopro ? conditions : { ...conditions, chargesCopro: chargesVues };
   const ficheBien = useLecture<FicheBienLocation>(bien !== null ? `lot=${bien.id}` : null);
   const lueBien = ficheBien.etat.etat === 'ok' && bien !== null && ficheBien.etat.data.bien?.id === bien.id ? ficheBien.etat.data : null;
   const famille = lueBien === null ? null : familleDeCategorie(lueBien.bien.categorie);
@@ -458,7 +469,8 @@ export function CreationLocataire() {
               garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
               loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
               dateEntree={entree} actionSommes={boutonCaracteristiques('sommes')} agenceEnHt indice={{ famille }} complet
-              charges={schema === null ? undefined : { duBien: lueBien?.complements?.chargesCopro ?? null, indisponible: !avecCharges }}
+              charges={schema === null ? undefined : { indisponible: !avecCharges, onChoix: () => setChargesManuel(true),
+                signal: ficheCharges === null ? null : signalCharges(saisieConditions.chargesCopro, ficheCharges) }}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
                 charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}`,
                 saisie: { ...honoSaisie, onChange: setHonoSaisie, erreur: manqueDe('honorairesProprietaireMontant') } }}

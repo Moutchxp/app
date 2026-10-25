@@ -3,6 +3,7 @@ import { query, withTransaction } from '../db/client';
 import { chargesCoproDisponible, ecrireChargesCoproDans } from './chargesCoproRepo';
 import { indiceDuBailDisponible } from './indicesRepo';
 import { CHARGES_COPRO, type ChargesCopro } from './bienComplet';
+import { chargesDesLots } from './chargesDesLots';
 import type { Auteur } from '../gestion/gestes';
 import { modifierPersonne } from '../gestion/annuaireEditionRepo';
 import { colonnesTrace } from '../gestion/traceJournal';
@@ -92,11 +93,15 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
   const cond = await conditionsParOccupation(occ.map((o) => n(o.id)));
   const c = [...cond.values()][0];
   // 🔴 Arno (25/10/2026) — le « paiement des charges » du BIEN (migration 400), montré et modifiable avec les conditions du bail.
+  // Arno (25/10/2026, suite) : PRÉSÉLECTIONNÉ depuis les lots du bail (`chargesDesLots`) ; des lots divergents → aucune présélection.
   const avec400 = await chargesCoproDisponible();
-  const chargesDuBien = avec400 ? (await query<{ v: string | null }>('SELECT charges_copro AS v FROM gestion_annuaire_lot WHERE id = $1', [lotId])).rows[0]?.v ?? null : undefined;
+  const chargesLues = avec400 ? (await query<{ id: string; v: string | null }>('SELECT id::text, charges_copro AS v FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[])', [lotIds])).rows : null;
+  const lotsCharges: LectureDossier['lots'] = chargesLues === null ? lots
+    : lots.map((x) => { const v = chargesLues.find((r) => n(r.id) === x.id)?.v; return { ...x, chargesCopro: v === 'agence' || v === 'proprietaire' ? v as ChargesCopro : null }; });
+  const fiche = chargesLues === null ? null : chargesDesLots(lotsCharges.map((x) => x.chargesCopro));
   const conditions = c === undefined ? null : {
     occupationId: c.occupationIds[0] ?? n(occ[0].id),
-    valeurs: chargesDuBien === undefined ? c.conditions : { ...c.conditions, chargesCopro: chargesDuBien === 'agence' || chargesDuBien === 'proprietaire' ? chargesDuBien as ChargesCopro : null },
+    valeurs: fiche === null ? c.conditions : { ...c.conditions, chargesCopro: fiche.sorte === 'valeur' ? fiche.valeur : null },
     loyer: c.loyer ?? null,
     lignesHonoraires: c.honoraires === null ? [] : c.honoraires.etat === 'ok' || c.honoraires.etat === 'saisi' ? lignesHonoraires(c.honoraires).map((x) => ({ mot: x.mot, valeur: x.valeur })) : [],
   };
@@ -123,7 +128,7 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
   const adresse = [b.adresse, b.commune].filter((x) => x).join(' ');
   const lecture: Omit<LectureDossier, 'version'> = {
     activiteId, bailId, lotId, titre: titreDossier(locataires, adresse),
-    bien: { id: lotId, titre: adresse || `Bien n° ${lotId}`, famille }, lots, entree: b.entree, locataires, contacts, conditions, entretien, suivi,
+    bien: { id: lotId, titre: adresse || `Bien n° ${lotId}`, famille }, lots: lotsCharges, entree: b.entree, locataires, contacts, conditions, entretien, suivi,
   };
   return { etat: 'ok', data: { ...lecture, version: empreinte({ ...lecture, modifie: a.modifie_le }) } };
 }

@@ -26,6 +26,8 @@ export interface LotDeFiche {
   place: boolean;
   /** Arno (24/10/2026) — la catégorie du lot (logement, local, parking, box, cave…) : la famille des lots loués (« Type de bien »). */
   categorie?: string | null;
+  /** 🔴 Arno (25/10/2026) — « Paiement des charges » du lot (migration 400 ; `null` sans valeur ou sans la migration) : la présélection. */
+  chargesCopro?: 'agence' | 'proprietaire' | null;
   /** Les locataires EN PLACE (identifiants triés) et leurs noms. Vide = libre. */
   occupants: number[];
   noms: string[];

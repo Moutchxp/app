@@ -14,13 +14,14 @@ import {
   totalDesHonoraires, ZERO, type CalculHonoraires,
 } from '../../../../lib/location/honorairesProprietaire';
 import type { SaisieIndice } from '../../../../lib/location/indicesLoyers';
-import { PAYEES_PAR, type ChargesCopro } from '../../../../lib/location/bienComplet';
+import type { ChargesCopro } from '../../../../lib/location/bienComplet';
+import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
 
 /**
  * 🔴 Arno (25/10/2026) — « Agence » / « Propriétaire » : deux boutons exclusifs, côte à côte sur UNE ligne, comme Chèque / Virement / Autre ;
- * aucun choix par défaut. Les valeurs en base ne changent pas (agence / proprietaire) ; le mail garde « payées par l'agence / … ».
+ * aucun choix par défaut inventé : seule la fiche du bien présélectionne (l'hôte, `chargesDesLots`). Les valeurs en base ne changent pas (agence / proprietaire) ; le mail garde « payées par l'agence / … ».
  */
-const CHARGES_AFFICHEES = ['agence', 'proprietaire'] as const satisfies readonly ChargesCopro[];
+const CHARGES_AFFICHEES = ORDRE_BOUTONS_CHARGES;
 const LIBELLE_PAYEES: Record<ChargesCopro, string> = { agence: 'Agence', proprietaire: 'Propriétaire' };
 import { BlocIndiceLoyers, CSS_INDICES } from './IndicesLoyers';
 
@@ -114,9 +115,10 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   indice?: { famille: string | null | undefined };
   /**
    * 🔴 Arno (25/10/2026) — le bloc « PAIEMENT DES CHARGES », juste à droite de « Mode de règlement » : la donnée du bien (migration 400).
-   * `duBien` : ce que la fiche du bien dit aujourd'hui (rappelé sous les boutons, jamais choisi à la place de l'utilisateur). Absent : pas de bloc.
+   * Absent : pas de bloc. Arno (25/10/2026, suite) : le bouton de la fiche du bien est PRÉSÉLECTIONNÉ par l'hôte (`chargesDesLots`) ;
+   * `signal` : la phrase « valeurs différentes selon les lots » / « différent de la fiche du bien » ; `onChoix` : un choix À LA MAIN.
    */
-  charges?: { duBien?: ChargesCopro | null; indisponible?: boolean };
+  charges?: { indisponible?: boolean; signal?: string | null; onChoix?: (v: ChargesCopro | null) => void };
   /** 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, dépôt, honoraires agence et honoraires propriétaire obligatoires (titres « * »). */
   complet?: boolean;
 }) {
@@ -359,9 +361,9 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
           ) : (
             <>
               <Pilules etiquette="Paiement des charges" options={CHARGES_AFFICHEES} libelle={LIBELLE_PAYEES} valeur={s.chargesCopro ?? null}
-                onChoix={(v) => maj({ chargesCopro: v })} />
-              <small className="loc-muet" data-charges-aide>Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).
-                {charges.duBien ? ` Fiche du bien aujourd’hui : ${PAYEES_PAR[charges.duBien]}.` : ''}</small>
+                onChoix={(v) => { charges.onChoix?.(v); maj({ chargesCopro: v }); }} />
+              <small className="loc-muet" data-charges-aide>Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).</small>
+              {charges.signal ? <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-charges-signal>{charges.signal}</p> : null}
               {manque('chargesCopro')}
             </>
           )}

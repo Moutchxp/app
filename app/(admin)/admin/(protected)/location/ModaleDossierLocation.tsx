@@ -11,6 +11,7 @@ import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien, 
 import { ModaleIssue } from './ModaleIssue';
 import { CSS_MODALE_CARACTERISTIQUES, ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
+import { chargesDesLots, signalCharges } from '../../../../lib/location/chargesDesLots';
 import { ficheFormatee } from '../../../../lib/gestion/saisieFiche';
 import { changementsCarte, saisieDesChangements, type CarteApres } from '../../../../lib/gestion/traceFiche';
 import {
@@ -59,6 +60,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
   const [issue, setIssue] = useState<null | { sorte: 'recap' } | { sorte: 'conflit'; motif: string } | { sorte: 'erreur'; motif: string } | { sorte: 'abandon' }>(null);
   const [envoi, setEnvoi] = useState(false);
   const [caracteristiques, setCaracteristiques] = useState(false);
+  const lectureVue = useRef<LectureDossier | null>(null);
   const parametres = useParametresSuivi();
 
   /* La lecture ; `garder` : relire la base (version, valeurs) en GARDANT la saisie en cours (après « Caractéristiques du bien »). */
@@ -70,9 +72,17 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
     }
     {
       const l = d.data;
+      const avant = lectureVue.current?.conditions?.valeurs.chargesCopro ?? null;
+      lectureVue.current = l;
       setLecture(l);
       setErreur(null);
-      if (garder) return;
+      if (garder) {
+        /* 🔴 Arno (25/10/2026) — « Paiement des charges » modifié dans la fiche du bien (« Caractéristiques du bien loué ») : la saisie
+           SUIT la fiche relue, sauf un choix fait ici à la main (gardé, et signalé « différent de la fiche du bien »). */
+        const apres = l.conditions?.valeurs.chargesCopro;
+        if (apres !== undefined) setConditions((c) => (c === null || c.chargesCopro === undefined || (c.chargesCopro ?? null) !== avant ? c : { ...c, chargesCopro: apres }));
+        return;
+      }
       setCartes({});
       setConditions(l.conditions === null ? null : versSaisieConditions(l.conditions.valeurs, l.conditions.loyer));
       setEntretien(l.entretien === null ? null : versSaisieEntretien(l.entretien.aPrevoir, l.entretien.entretiens as Parameters<typeof versSaisieEntretien>[1]));
@@ -219,7 +229,8 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
                 <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
               ) : (
                 <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }} complet
-                  charges={conditions.chargesCopro === undefined ? undefined : {}}
+                  charges={conditions.chargesCopro === undefined ? undefined
+                    : { signal: signalCharges(conditions.chargesCopro, chargesDesLots(l.lots.map((x) => x.chargesCopro))) }}
                   entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire /> : undefined} />
               )}
               {conditions === null && entretien !== null && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire />}

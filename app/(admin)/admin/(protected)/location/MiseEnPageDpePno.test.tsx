@@ -54,9 +54,11 @@ describe('🔴 DPE et assurance PNO : deux blocs, rangées partagées', () => {
     const blocs = [...ligne.children];
     expect(blocs.map((b) => (b as HTMLElement).dataset.dpe !== undefined ? 'dpe' : (b as HTMLElement).dataset.pno !== undefined ? 'pno' : '?')).toEqual(['dpe', 'pno']);
     for (const b of blocs) expect(rangees(b)).toEqual(['titre', 'choix', 'date', 'notes']);
-    // « Entretien à prévoir » reste EN DESSOUS, sur toute la largeur (hors de la paire).
+    // « Entretien à prévoir » reste EN DESSOUS (hors de la paire DPE / PNO) — 🔴 Arno (25/10/2026) : dans son encadré gris, sur la rangée
+    // qu'il partage avec « Paiement des charges ».
     expect(ligne.querySelector('[data-entretien-bloc]')).toBeNull();
-    expect(ligne.nextElementSibling?.matches('[data-entretien-bloc]')).toBe(true);
+    expect(ligne.nextElementSibling?.matches('[data-ligne-entretien-charges]')).toBe(true);
+    expect(ligne.nextElementSibling?.querySelector(':scope > [data-entretien-encadre] > [data-entretien-bloc]')).not.toBeNull();
     // Époque / Chauffage / Dernière AG : inchangés, alignés en haut.
     expect([...container.querySelectorAll('[data-ligne-epoque] > label')].map((l) => l.firstChild?.textContent)).toEqual(['Époque de construction', 'Chauffage', 'Date de la dernière AG']);
   });

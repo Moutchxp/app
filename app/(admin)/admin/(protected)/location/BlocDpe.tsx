@@ -93,9 +93,15 @@ export const CSS_DPE_PNO = `
 .loc-charges-bloc > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
 .loc-charges-mention{color:var(--color-svv-muted);font-size:.9rem;line-height:1.4}
 @media (max-width:600px){ .loc-charges-bloc{padding:16px 12px;width:100%} }
+/* 🔴 Arno (25/10/2026) — « Entretien à prévoir » dans le même encadré gris, et la rangée Entretien + Paiement des charges : côte à
+   côte, même hauteur, mêmes colonnes que DPE / PNO (à partir de 900 px) ; en dessous, l'un sous l'autre. Seul, l'entretien prend la ligne. */
+.loc-entretien-encadre{flex:1 1 auto}
+.loc-entretien-encadre > .loc-sous-section{padding-top:0}
+.loc-charges.loc-charges--paire{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:stretch}
+@media (min-width:900px){ .loc-charges.loc-charges--paire{grid-template-columns:minmax(0,3fr) minmax(0,2fr);column-gap:24px} }
 /* Bureau étroit : DPE plus large que PNO, encadrés un peu resserrés (les pastilles gardent leur taille). */
 @media (min-width:900px) and (max-width:1099px){
-  .loc-dpe-pno{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+  .loc-dpe-pno,.loc-charges.loc-charges--paire{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
   .loc-dpe-pno-bloc{padding:18px 16px}
   .loc-pilules--dpe{gap:6px}
 }

@@ -26,7 +26,7 @@ const detachementDisponible = (): Promise<boolean> => colonneExisteMemo('gestion
 type Lecteur = RequeteTx;
 
 interface LigneLot { id: string; categorie: string | null; nature: string | null; type_bien: string | null; etage: string | null; porte: string | null;
-  wippimmo_id: string; adresse: string | null; commune: string | null }
+  wippimmo_id: string; adresse: string | null; commune: string | null; charges_copro: string | null }
 
 async function colonne(c: string): Promise<string> {
   return (await colonneExisteMemo('gestion_annuaire_lot', c)) ? `lo.${c}::text` : 'NULL::text';
@@ -38,7 +38,7 @@ async function lireLots(q: Lecteur, ids: readonly number[], roleDe: (id: number)
   if (verrou) await q('SELECT id FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE', [[...ids]]);
   const { rows } = await q<LigneLot>(
     `SELECT lo.id::text, ${await colonne('categorie')} AS categorie, lo.nature, lo.type_bien, ${await colonne('etage')} AS etage,
-            ${await colonne('porte')} AS porte, lo.wippimmo_id, lo.adresse, lo.commune
+            ${await colonne('porte')} AS porte, lo.wippimmo_id, lo.adresse, lo.commune, ${await colonne('charges_copro')} AS charges_copro
        FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[])`, [[...ids]]);
   const { rows: occ } = await q<{ lot_id: string; locataire_id: string; nom: string }>(
     `SELECT o.lot_id::text, o.locataire_id::text, l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
@@ -55,6 +55,7 @@ async function lireLots(q: Lecteur, ids: readonly number[], roleDe: (id: number)
       type: [r?.nature, r?.type_bien].filter((x) => x && x.trim() !== '').join(' ') || (r?.categorie ?? null),
       etage: r?.etage ?? null, numeroLot: r === undefined || r.wippimmo_id.startsWith('app-') ? null : r.wippimmo_id, porte: r?.porte ?? null, place,
       categorie: r?.categorie ?? null,
+      chargesCopro: r?.charges_copro === 'agence' || r?.charges_copro === 'proprietaire' ? r.charges_copro : null,
       occupants: [...new Set(occupants.map((o) => Number(o.locataire_id)))].sort((a, b) => a - b),
       noms: [...new Set(occupants.map((o) => o.nom))],
     };
