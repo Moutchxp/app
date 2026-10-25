@@ -73,7 +73,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const [edition, setEdition] = useState<number | string | null>(null);
   // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
-  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null } | null>(null);
+  const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null; activiteId?: number | null } | null>(null);
   const ficheEnregistree = (): void => { setFiche(null); onRelire(); };
   // Les lignes dépliées (plusieurs à la fois). Replier une ligne en édition abandonne la saisie, comme « Fermer ».
   const [deplies, setDeplies] = useState<ReadonlySet<string>>(() => new Set());
@@ -101,7 +101,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
       )}
       {fiche !== null && fiche.sorte === 'locataire' && (
         // 🔴 Arno (25/10/2026) — les cartes du bloc 1 en modification ; enregistrée, elle RESTE ouverte et la ligne se relit derrière.
-        <ModaleFicheLocataire locataireId={fiche.id} bailId={fiche.bailId ?? null} libelle={fiche.libelle} onFermer={() => setFiche(null)} onEnregistre={onRelire} />
+        <ModaleFicheLocataire locataireId={fiche.id} bailId={fiche.bailId ?? null} activiteId={fiche.activiteId ?? null} libelle={fiche.libelle} onFermer={() => setFiche(null)} onEnregistre={onRelire} />
       )}
       {fiche !== null && fiche.sorte === 'lot' && (
         <ModaleCaracteristiquesBien lotId={fiche.id} titre="Fiche du bien" retourMot="Suivi du mois" trace={TRACE_SUIVI}
@@ -184,7 +184,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                           {/* 🔴 Arno (24/10/2026) — les fiches COMPLÈTES et modifiables, dans la source unique : un bouton par locataire, un
                               par bien ; sans locataire ou bien rattaché, « non rattaché » (jamais un bouton grisé sans explication). */}
                           {(a.locataires ?? []).length > 0 ? (a.locataires ?? []).map((l) => (
-                            <button key={`loc-${l.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'locataire', id: l.id, libelle: l.libelle, bailId: a.bailId })}
+                            <button key={`loc-${l.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'locataire', id: l.id, libelle: l.libelle, bailId: a.bailId, activiteId: a.bailId !== null ? Number(a.id) : null })}
                               data-fiche-locataire={l.id}>{(a.locataires ?? []).length > 1 ? `Fiche locataire — ${l.libelle}` : 'Fiche locataire'}</button>
                           )) : <span className="fdm-non-rattache" data-locataire-non-rattache>Fiche locataire : non rattaché</span>}
                           {(a.lots ?? []).length > 0 ? (a.lots ?? []).map((b) => (

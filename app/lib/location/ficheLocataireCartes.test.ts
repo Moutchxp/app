@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { avertissementCartes, changementsFiche, refusFiche, type CarteFicheLue, type LectureFicheLocataire } from './ficheLocataireCartes';
 
 /**
@@ -73,13 +74,26 @@ vi.mock('../gestion/partieCategorieRepo', () => ({
 }));
 vi.mock('./contactsLocationRepo', () => ({ creerContactsDuBien: gestes.creerContactsDuBien }));
 vi.mock('./rattachementsRepo', () => ({ ecrireRattachementsDans: gestes.ecrireRattachementsDans }));
+// 🔴 25/10/2026 — le bloc 3 : le chemin du Dossier de location (simulé ici ; éprouvé avec le Dossier : dossierLocation.test.ts).
+const dossier = vi.hoisted(() => ({
+  ordre: [] as string[],
+  preparation: { etat: 'pret', changements: [{ bloc: 3, champ: 'Mode de règlement', avant: 'Virement', apres: 'Chèque' }] } as Record<string, unknown>,
+  preparerDossier: vi.fn(async () => dossier.preparation),
+  modifierDossierLocation: vi.fn(async () => { dossier.ordre.push('bloc3'); return { etat: 'ok', data: { changements: [{ bloc: 3, champ: 'Mode de règlement', avant: 'Virement', apres: 'Chèque' }] } }; }),
+}));
+vi.mock('./dossierLocationRepo', () => ({ preparerDossier: dossier.preparerDossier, modifierDossierLocation: dossier.modifierDossierLocation }));
 
-const { lireFicheLocataireCartes, enregistrerFicheLocataireCartes } = await import('./ficheLocataireCartesRepo');
+const { lireFicheLocataireCartes, enregistrerFicheLocataireCartes, enregistrerFicheLocataire } = await import('./ficheLocataireCartesRepo');
 const { avecTrace } = await import('../gestion/traceJournal');
 const AUTEUR = { id: 4, libelle: 'arno@exemple.fr' };
 const ecrits = () => appels.filter((a) => /^(INSERT|UPDATE|DELETE)\b/.test(a.sql));
 
-beforeEach(() => { appels.length = 0; for (const g of Object.values(gestes)) g.mockClear(); });
+beforeEach(() => {
+  appels.length = 0; for (const g of Object.values(gestes)) g.mockClear();
+  dossier.ordre = []; dossier.preparerDossier.mockClear(); dossier.modifierDossierLocation.mockClear();
+  dossier.preparation = { etat: 'pret', changements: [{ bloc: 3, champ: 'Mode de règlement', avant: 'Virement', apres: 'Chèque' }] };
+  gestes.modifierPersonne.mockImplementation(async () => { dossier.ordre.push('cartes'); return { etat: 'ok', data: undefined }; });
+});
 
 describe('🔴 la lecture et l’écriture', () => {
   it('PRÉREMPLISSAGE : le locataire (fiche de l’annuaire) et ses contacts, préremplis ; une version', async () => {
@@ -137,5 +151,62 @@ describe('🔴 la lecture et l’écriture', () => {
     expect(await enregistrerFicheLocataireCartes(230, 70, { version: lu.data.version, modifiees: [{ id: 230, sorte: 'client', champs: { nom: '' } }], nouvelles: [] }, AUTEUR))
       .toEqual({ etat: 'refus', motif: 'Mme MARTIN Léa : le nom ne peut pas être vide.' });
     expect(gestes.modifierPersonne).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — les cartes (bloc 1) ET les conditions d’entrée (bloc 3) : un seul enregistrement', () => {
+  const SAISIE3 = { version: 'd1', conditions: { reglement: 'cheque' }, entretien: null };
+  const cartes = async () => {
+    const lu = await lireFicheLocataireCartes(230, 70);
+    if (lu.etat !== 'ok') throw new Error('lecture');
+    return { version: lu.data.version, modifiees: [{ id: 230, sorte: 'client' as const, champs: { commune: 'PUTEAUX' } }], nouvelles: [] };
+  };
+
+  it('ÉCRITURE DANS LE BAIL, sans doublon : le bloc 3 par le chemin du Dossier (bloc 3 seul), PUIS les cartes ; rien n’est créé', async () => {
+    const r = await enregistrerFicheLocataire(230, 70, await cartes(), { activiteId: 100, saisie: SAISIE3 }, AUTEUR);
+    expect(r.etat).toBe('ok');
+    expect(dossier.preparerDossier).toHaveBeenCalledWith(100, SAISIE3, { seulBloc3: true });
+    expect(dossier.modifierDossierLocation).toHaveBeenCalledTimes(1);
+    expect(dossier.modifierDossierLocation).toHaveBeenCalledWith(100, SAISIE3, AUTEUR, { seulBloc3: true });
+    expect(dossier.ordre).toEqual(['bloc3', 'cartes']);
+    expect(r.etat === 'ok' && r.data.dossier.map((c) => c.champ)).toEqual(['Mode de règlement']);
+    for (const g of [gestes.creerPersonne, gestes.ajouterOccupantDans, gestes.creerContactsDuBien]) expect(g).not.toHaveBeenCalled();
+    expect(ecrits().some((a) => /INSERT INTO gestion_bail\b/.test(a.sql))).toBe(false);
+  });
+
+  it('CHAMP OBLIGATOIRE vide (bloc 3 refusé) : RIEN n’est écrit, ni le bloc 3 ni les cartes', async () => {
+    dossier.preparation = { etat: 'refus', motif: 'Sommes dues à l’entrée : le dépôt de garantie (0 si aucun).' };
+    const r = await enregistrerFicheLocataire(230, 70, await cartes(), { activiteId: 100, saisie: SAISIE3 }, AUTEUR);
+    expect(r).toEqual({ etat: 'refus', motif: 'Sommes dues à l’entrée : le dépôt de garantie (0 si aucun).' });
+    expect(dossier.modifierDossierLocation).not.toHaveBeenCalled();
+    expect(gestes.modifierPersonne).not.toHaveBeenCalled();
+  });
+
+  it('CONFLIT sur le bail : refusé sans rien écraser ; une carte en conflit : le bloc 3 non plus n’est pas écrit', async () => {
+    dossier.preparation = { etat: 'conflit', motif: 'Cette fiche a été modifiée par X : rechargez-la.' };
+    expect((await enregistrerFicheLocataire(230, 70, await cartes(), { activiteId: 100, saisie: SAISIE3 }, AUTEUR)).etat).toBe('conflit');
+    dossier.preparation = { etat: 'pret', changements: [{ bloc: 3, champ: 'Mode de règlement', avant: 'Virement', apres: 'Chèque' }] };
+    expect((await enregistrerFicheLocataire(230, 70, { ...(await cartes()), version: 'ancienne' }, { activiteId: 100, saisie: SAISIE3 }, AUTEUR)).etat).toBe('conflit');
+    expect(dossier.modifierDossierLocation).not.toHaveBeenCalled();
+    expect(gestes.modifierPersonne).not.toHaveBeenCalled();
+  });
+
+  it('LIGNE SANS BAIL : « Dossier non rattaché — à rattacher d’abord », rien n’est créé ; sans bloc 3 envoyé, les cartes seules', async () => {
+    dossier.preparation = { etat: 'non_rattache' };
+    const r = await enregistrerFicheLocataire(230, 70, await cartes(), { activiteId: 100, saisie: SAISIE3 }, AUTEUR);
+    expect(r.etat === 'refus' && r.motif).toMatch(/^Dossier non rattaché — à rattacher d’abord/);
+    expect(gestes.modifierPersonne).not.toHaveBeenCalled();
+    expect((await enregistrerFicheLocataire(230, 70, await cartes(), null, AUTEUR)).etat).toBe('ok');
+    expect(dossier.preparerDossier).toHaveBeenCalledTimes(1);
+  });
+
+  it('AUCUN ENVOI DE MAIL NI GESTE DRIVE : le dépôt n’importe ni l’envoi ADHOC & MONGA, ni le Drive', () => {
+    const imports = readFileSync('app/lib/location/ficheLocataireCartesRepo.ts', 'utf8').split('\n').filter((l) => l.startsWith('import ')).join('\n');
+    expect(imports).not.toMatch(/mail|envoi|adhoc|monga|drive/i);
+  });
+
+  it('la copie du loyer sur la ligne de suivi suit le bail, dans la transaction des conditions d’entrée', () => {
+    const src = readFileSync('app/lib/location/conditionsEntreeRepo.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(src).toContain('await q(`UPDATE gestion_location_activite SET loyer_hc = $2, charges = $3 WHERE bail_id = $1 AND annule_le IS NULL`');
   });
 });

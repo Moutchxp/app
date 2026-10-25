@@ -209,15 +209,33 @@ export type IssueModificationDossier =
   | { etat: 'ok'; data: { changements: ChangementDossier[]; note?: string } }
   | { etat: 'conflit'; motif: string } | { etat: 'refus'; motif: string } | { etat: 'non_rattache' } | { etat: 'inconnu' } | { etat: 'sans_schema' };
 
-export async function modifierDossierLocation(activiteId: number, brut: Record<string, unknown>, auteur: Auteur): Promise<IssueModificationDossier> {
+/**
+ * LIRE → REFUSER, sans rien écrire : la lecture, le conflit (version), les refus, les changements. Sert aussi à la « Fiche locataire »
+ * du Suivi du mois, qui vérifie TOUT (cartes et bloc 3) avant d'écrire quoi que ce soit.
+ */
+export async function preparerDossier(activiteId: number, brutRecu: Record<string, unknown>, o: { seulBloc3?: boolean } = {}):
+  Promise<{ etat: 'pret'; lu: LectureDossier; s: SaisieDossier; changements: ChangementDossier[] } | Exclude<IssueModificationDossier, { etat: 'ok' }> | { etat: 'ok'; data: { changements: ChangementDossier[] } }> {
   const l = await lireDossierLocation(activiteId);
   if (l.etat !== 'ok') return l;
   const lu = l.data;
+  const brut = o.seulBloc3 === true ? { version: brutRecu.version, conditions: brutRecu.conditions, entretien: brutRecu.entretien } : brutRecu;
   const s = lireSaisieDossier(brut, lu);
   if (s.version !== lu.version) return { etat: 'conflit', motif: motifConflitFiche(await derniereModification(lu)) };
-  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined });
+  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined, ...(o.seulBloc3 === true ? { suivi: false } : {}) });
   if (refus !== null) return { etat: 'refus', motif: refus };
   const changements = changementsDossier(lu, s, await nomsDuDossier());
+  return { etat: 'pret', lu, s, changements };
+}
+
+export async function modifierDossierLocation(activiteId: number, brutRecu: Record<string, unknown>, auteur: Auteur,
+  /**
+   * 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : le SEUL bloc 3 (conditions d'entrée, paiement des charges, entretien du
+   * bien) par ce même chemin ; les cartes (bloc 1) ont leur propre geste, le bloc 4 n'est ni lu dans la saisie ni exigé.
+   */
+  o: { seulBloc3?: boolean } = {}): Promise<IssueModificationDossier> {
+  const p = await preparerDossier(activiteId, brutRecu, o);
+  if (p.etat !== 'pret') return p;
+  const { lu, s, changements } = p;
   if (changements.length === 0) return { etat: 'ok', data: { changements } };
   const faits: string[] = [];
   const partiel = (motif: string): IssueModificationDossier => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });

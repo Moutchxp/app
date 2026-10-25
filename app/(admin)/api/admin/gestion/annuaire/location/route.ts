@@ -25,7 +25,7 @@ import { avecTrace, ecranDemande, historiqueFiche, repereJournal } from '../../.
 import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
 import { lireDossierLocation, modifierDossierLocation } from '../../../../../../lib/location/dossierLocationRepo';
 import { ECRAN_DOSSIER } from '../../../../../../lib/location/dossierLocation';
-import { enregistrerFicheLocataireCartes, lireFicheLocataireCartes } from '../../../../../../lib/location/ficheLocataireCartesRepo';
+import { enregistrerFicheLocataire, lireFicheLocataireCartes } from '../../../../../../lib/location/ficheLocataireCartesRepo';
 import { ECRAN_FICHE_LOCATAIRE } from '../../../../../../lib/location/ficheLocataireCartes';
 
 /**
@@ -188,7 +188,11 @@ export async function POST(request: Request): Promise<Response> {
         if (id === null || corps.saisie === null || typeof corps.saisie !== 'object') return incomplet();
         const bail = typeof corps.bailId === 'number' && Number.isSafeInteger(corps.bailId) && corps.bailId > 0 ? corps.bailId : null;
         const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: ECRAN_FICHE_LOCATAIRE };
-        const issue = await avecTrace(trace, () => enregistrerFicheLocataireCartes(id, bail, corps.saisie, auteur));
+        // 🔴 Arno (25/10/2026) — le bloc 3 « Conditions d'entrée » (le Dossier de location de la ligne) dans le MÊME enregistrement.
+        const d = corps.dossier !== null && typeof corps.dossier === 'object' ? corps.dossier as Record<string, unknown> : null;
+        const activiteId = d !== null && typeof d.activiteId === 'number' && Number.isSafeInteger(d.activiteId) && d.activiteId > 0 ? d.activiteId : null;
+        const dossier = activiteId !== null && d !== null && d.saisie !== null && typeof d.saisie === 'object' ? { activiteId, saisie: d.saisie as Record<string, unknown> } : null;
+        const issue = await avecTrace(trace, () => enregistrerFicheLocataire(id, bail, corps.saisie, dossier, auteur));
         return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
       }
       case 'modifier-fiche-bien': {

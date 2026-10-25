@@ -296,7 +296,15 @@ export async function modifierConditionsEntree(occupationId: number, brut: unkno
       const avant = p === undefined ? null : { principal: enCentimes(p.loyer) ?? null, provisions: enCentimes(p.provisions) ?? null };
       const change = avant === null ? (loyer.principal !== null || loyer.provisions !== null)
         : avant.principal !== loyer.principal || avant.provisions !== loyer.provisions;
-      if (p !== undefined && change) await ecrireLoyerDans(q, Number(p.id), Number(p.lot_id), loyer, auteur, true);
+      if (p !== undefined && change) {
+        await ecrireLoyerDans(q, Number(p.id), Number(p.lot_id), loyer, auteur, true);
+        // 🔴 Arno (25/10/2026) — LA COPIE du loyer sur la ligne de suivi du bail (honoraires de gestion du Suivi) suit, dans la MÊME
+        // transaction : le bail est la source, la copie ne l'emporte jamais.
+        if (bailId !== null && await colonneExisteMemo('gestion_location_activite', 'loyer_hc')) {
+          await q(`UPDATE gestion_location_activite SET loyer_hc = $2, charges = $3 WHERE bail_id = $1 AND annule_le IS NULL`,
+            [bailId, loyer.principal === null ? null : loyer.principal / 100, loyer.provisions === null ? null : loyer.provisions / 100]);
+        }
+      }
     }
     return { etat: 'ok', data: undefined };
   });

@@ -6,6 +6,11 @@ import { CSS_MODALE_CARACTERISTIQUES } from './ModaleCaracteristiquesBien';
 import { BlocTraceFiche, CSS_TRACE_FICHE, useTraceFiche } from './TraceFiche';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
+import { CSS_CONDITIONS } from './ConditionsEntree';
+import { CSS_ENTRETIEN } from './EntretienBien';
+import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
+import { ContenuConditionsBail, CSS_CONDITIONS_BAIL, useConditionsBail } from './BlocConditionsBail';
+import { refusDossier, TITRE_BLOC } from '../../../../lib/location/dossierLocation';
 import {
   avertissementCartes, champsModifies, changementsFiche, ECRAN_FICHE_LOCATAIRE, refusFiche, type CarteFicheLue, type ChangementFiche,
   type LectureFicheLocataire, type SaisieFicheLocataire,
@@ -20,6 +25,10 @@ import {
  * « Enregistrer les modifications » → le récapitulatif (ancienne → nouvelle), Confirmer / Revenir ; un conflit est refusé sans rien
  * écraser ; après confirmation, la modale RESTE ouverte (« ✓ Modifications enregistrées ») et la ligne du Suivi se relit derrière.
  * Aucun geste Drive.
+ * 🔴 Arno (25/10/2026) — EN DESSOUS, LE BLOC 3 « CONDITIONS D'ENTRÉE » de la ligne (le Dossier de location : `activiteId`), complet, en
+ * modification — le MÊME contenu que le Dossier (`ContenuConditionsBail`) — et « Caractéristiques du bien loué ». UN SEUL « Enregistrer
+ * les modifications » pour les deux blocs : récapitulatif groupé par bloc, un seul enregistrement (tout est vérifié avant d'écrire).
+ * Une ligne sans bail : « Dossier non rattaché — à rattacher d'abord » (rien n'est créé). Aucun envoi à ADHOC & MONGA.
  */
 const API = '/api/admin/gestion/annuaire/location';
 
@@ -47,8 +56,10 @@ export function saisieDesCartes(lu: LectureFicheLocataire, e: EtatCartes): Saisi
 
 type Issue = { sorte: 'recap' } | { sorte: 'erreur'; motif: string } | { sorte: 'conflit'; motif: string } | { sorte: 'abandon' } | null;
 
-export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFermer, onEnregistre }: {
+export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = null, libelle, onFermer, onEnregistre }: {
   locataireId: number; bailId?: number | null; libelle: string; onFermer: () => void;
+  /** 🔴 Arno (25/10/2026) — la ligne du Suivi (son Dossier de location : le bloc 3) ; `null` : ligne sans bail rattaché. */
+  activiteId?: number | null;
   /** La ligne du Suivi se relit DERRIÈRE la modale, qui reste ouverte. */
   onEnregistre: () => void;
 }) {
@@ -62,6 +73,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
   const [issue, setIssue] = useState<Issue>(null);
   const [envoi, setEnvoi] = useState(false);
   const [ok, setOk] = useState<string | null>(null);
+  const bloc3 = useConditionsBail(activiteId);
+  const [caracteristiques, setCaracteristiques] = useState(false);
   useEffect(() => {
     let vivant = true;
     fetch(`${API}?ficheLocataireCartes=${locataireId}${bailId !== null ? `&bail=${bailId}` : ''}`, { cache: 'no-store' })
@@ -75,13 +88,16 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
   }, [locataireId, bailId, n]);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); }, []);
   const initiales = useMemo(() => (lu === null ? [] : lu.cartes.map((c) => ({ id: c.id, sorte: c.sorte, champs: champsDeCarte(c) }))), [lu]);
-  const saisie = lu === null || etat === null ? null : saisieDesCartes(lu, etat);
-  const changements: ChangementFiche[] = lu === null || saisie === null ? [] : changementsFiche(lu, saisie);
+  const saisie = lu === null ? null : etat === null ? { version: lu.version, modifiees: [], nouvelles: [] } : saisieDesCartes(lu, etat);
+  const changementsCartes: ChangementFiche[] = lu === null || saisie === null ? [] : changementsFiche(lu, saisie);
+  // Le nombre de modifications des DEUX blocs (cartes et conditions d'entrée) : un seul enregistrement.
+  const changements = [...changementsCartes, ...bloc3.changements];
+  const nbChangements = changements.length;
   const ouvertes = etat?.ouvertes ?? 0;
   const fermer = useCallback((): void => {
-    if (changements.length > 0 && !envoi) { setIssue({ sorte: 'abandon' }); return; }
+    if (nbChangements > 0 && !envoi) { setIssue({ sorte: 'abandon' }); return; }
     onFermer();
-  }, [changements.length, envoi, onFermer]);
+  }, [nbChangements, envoi, onFermer]);
   useEffect(() => {
     // Échap referme — jamais quand une fenêtre est ouverte par-dessus, ni pendant la saisie d'une carte.
     const clavier = (e: KeyboardEvent): void => {
@@ -105,6 +121,11 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
     if ((etat?.existants.length ?? 0) > 0) { setIssue({ sorte: 'erreur', motif: 'Une fiche déjà connue a été retenue (« Utiliser cette fiche ») : elle ne peut pas rejoindre le bail depuis cette fenêtre. Retirez-la, ou faites-la entrer par « Nouveau locataire ».' }); return; }
     const refus = refusFiche(lu, saisie);
     if (refus !== null) { setIssue({ sorte: 'erreur', motif: refus }); return; }
+    // Le bloc 3 : les mêmes contrôles que le Dossier de location (dossier complet : 0 valide, vide refusé) ; le bloc 4 n'est pas ici.
+    if (bloc3.changements.length > 0 && bloc3.etat.sorte === 'ok' && bloc3.saisie !== null) {
+      const r3 = refusDossier(bloc3.etat.l, bloc3.saisie, { suivi: false, charges: bloc3.etat.conditions?.chargesCopro !== undefined });
+      if (r3 !== null) { setIssue({ sorte: 'erreur', motif: r3 }); return; }
+    }
     setOk(null);
     setIssue({ sorte: 'recap' });
   };
@@ -113,10 +134,11 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
     setEnvoi(true);
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
-        body: JSON.stringify({ action: 'modifier-fiche-locataire', id: locataireId, bailId: lu.bailId, saisie, ecran: ECRAN_FICHE_LOCATAIRE }) });
+        body: JSON.stringify({ action: 'modifier-fiche-locataire', id: locataireId, bailId: lu.bailId, saisie, ecran: ECRAN_FICHE_LOCATAIRE,
+          ...(bloc3.changements.length > 0 && bloc3.envoi !== null ? { dossier: bloc3.envoi } : {}) }) });
       const d = await r.json().catch(() => ({})) as { etat?: string; motif?: string };
       if (d.etat === 'ok') {
-        setIssue(null); setOk('✓ Modifications enregistrées'); setN((x) => x + 1); trace.relire(); onEnregistre();
+        setIssue(null); setOk('✓ Modifications enregistrées'); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); onEnregistre();
         return;
       }
       if (d.etat === 'conflit') { setIssue({ sorte: 'conflit', motif: d.motif ?? 'Cette fiche a été modifiée depuis son ouverture : rechargez-la. Rien n’a été enregistré.' }); return; }
@@ -128,10 +150,10 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
 
   const avert = lu === null ? null : avertissementCartes(lu.cartes);
   const parCarte = new Map<string, ChangementFiche[]>();
-  for (const c of changements) parCarte.set(c.carte, [...(parCarte.get(c.carte) ?? []), c]);
+  for (const c of changementsCartes) parCarte.set(c.carte, [...(parCarte.get(c.carte) ?? []), c]);
   return (
     <div className="mcb-voile">
-      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_TRACE_FICHE + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_MODALE_LOCATAIRE}</style>
+      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_TRACE_FICHE + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CONDITIONS + CSS_CONDITIONS_BAIL + CSS_ENTRETIEN + CSS_MODALE_LOCATAIRE}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-fiche-locataire={locataireId}>
         <div className="mfl-tete">
           <h2 id={titre} className="mfl-titre">{lu?.titre ?? `Fiche locataire — ${libelle}`}</h2>
@@ -155,6 +177,24 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
                   « Enregistrer les modifications ». Rien n’est fusionné, rien n’est supprimé.</p>
                 <SaisieCartes key={n} cote="locataire" onChange={surCartes} initiales={initiales} confirmerRetrait />
               </section>
+              {/* 🔴 Arno (25/10/2026) — le bloc 3 de « Nouveau locataire », celui du Dossier de location de la ligne. */}
+              <section className="loc-section" aria-labelledby="mfl-3" data-bloc-conditions-locataire>
+                <h3 id="mfl-3"><span className="loc-num">3</span>{TITRE_BLOC[3]}</h3>
+                {bloc3.etat.sorte === 'non_rattache' ? (
+                  <p className="loc-alerte loc-alerte--orange" role="status" data-bloc3-non-rattache>Dossier non rattaché — à rattacher d’abord.</p>
+                ) : bloc3.etat.sorte === 'erreur' ? (
+                  <p className="gst-erreur" role="alert">{bloc3.etat.motif}</p>
+                ) : bloc3.etat.sorte !== 'ok' ? (
+                  <p className="gst-info" role="status">Lecture des conditions d’entrée…</p>
+                ) : (
+                  <>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" onClick={() => setCaracteristiques(true)} data-caracteristiques-bien="fiche-locataire">
+                      Caractéristiques du bien loué</button>
+                    <ContenuConditionsBail l={bloc3.etat.l} conditions={bloc3.etat.conditions} onConditions={bloc3.poserConditions}
+                      entretien={bloc3.etat.entretien} onEntretien={bloc3.poserEntretien} />
+                  </>
+                )}
+              </section>
             </>
           )}
         </section>
@@ -172,10 +212,20 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
               <>
                 <h3>Enregistrer ces modifications ?</h3>
                 <div data-recap-fiche>
-                  {[...parCarte.entries()].map(([carte, l]) => (
-                    <div key={carte} className="mfl-recap-carte"><strong>{carte}</strong>
-                      <ul>{l.map((c) => <li key={`${c.champ}-${c.apres}`}>{c.champ} : <span className="mfl-avant">{c.avant}</span> → <strong>{c.apres}</strong></li>)}</ul></div>
-                  ))}
+                  {/* 🔴 Arno (25/10/2026) — les champs modifiés, GROUPÉS PAR BLOC (ancienne → nouvelle). */}
+                  {changementsCartes.length > 0 && (
+                    <div className="mfl-recap-bloc" data-recap-bloc="1"><p className="mfl-recap-titre">1. Le ou les locataires</p>
+                      {[...parCarte.entries()].map(([carte, l]) => (
+                        <div key={carte} className="mfl-recap-carte"><strong>{carte}</strong>
+                          <ul>{l.map((c) => <li key={`${c.champ}-${c.apres}`}>{c.champ} : <span className="mfl-avant">{c.avant}</span> → <strong>{c.apres}</strong></li>)}</ul></div>
+                      ))}
+                    </div>
+                  )}
+                  {bloc3.changements.length > 0 && (
+                    <div className="mfl-recap-bloc" data-recap-bloc="3"><p className="mfl-recap-titre">3. {TITRE_BLOC[3]}</p>
+                      <ul>{bloc3.changements.map((c) => <li key={c.champ}>{c.champ} : <span className="mfl-avant">{c.avant}</span> → <strong>{c.apres}</strong></li>)}</ul>
+                    </div>
+                  )}
                 </div>
                 <div className="mfl-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setIssue(null)} disabled={envoi} data-revenir>Revenir</button>
@@ -197,13 +247,17 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, libelle, onFe
                 <h3>{issue.sorte === 'conflit' ? 'Fiche modifiée entre-temps' : 'Rien n’a été enregistré'}</h3>
                 <p data-motif-fiche>{issue.motif}</p>
                 <div className="mfl-boutons">
-                  {issue.sorte === 'conflit' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setIssue(null); setN((x) => x + 1); trace.relire(); }} data-recharger>Recharger</button>}
+                  {issue.sorte === 'conflit' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setIssue(null); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); }} data-recharger>Recharger</button>}
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setIssue(null)}>Fermer</button>
                 </div>
               </>
             )}
           </div>
         </div>
+      )}
+      {caracteristiques && bloc3.etat.sorte === 'ok' && (
+        <ModaleCaracteristiquesBien lotId={bloc3.etat.l.lotId} retourMot="Fiche locataire" trace={{ ecran: ECRAN_FICHE_LOCATAIRE }}
+          onFermer={() => setCaracteristiques(false)} onEnregistre={() => { setCaracteristiques(false); void bloc3.lire(true); onEnregistre(); }} />
       )}
     </div>
   );
@@ -222,6 +276,9 @@ const CSS_MODALE_LOCATAIRE = `
 .mfl-boite h3{margin:0;font-size:1.1rem}
 .mfl-boite p{margin:0}
 .mfl-recap-carte{padding:8px 0;border-bottom:1px solid var(--color-svv-line)}
+.mfl-recap-bloc{display:flex;flex-direction:column;gap:2px;padding:6px 0}
+.mfl-recap-bloc > ul{margin:4px 0 0;padding-left:1.2rem;overflow-wrap:anywhere}
+.mfl-recap-titre{margin:0;font-weight:800;color:var(--color-svv-ink)}
 .mfl-recap-carte ul{margin:4px 0 0;padding-left:1.2rem;overflow-wrap:anywhere}
 .mfl-avant{color:var(--color-svv-muted);text-decoration:line-through}
 .mfl-boutons{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}

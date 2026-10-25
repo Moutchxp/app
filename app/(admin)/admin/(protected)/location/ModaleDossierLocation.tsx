@@ -4,14 +4,13 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
 import { CSS_CARTES, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
-import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
-import { LoyersRevises } from './IndicesLoyers';
+import { CSS_CONDITIONS } from './ConditionsEntree';
 import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, ttcDepuisHt, useParametresSuivi } from './SuiviCommercial';
-import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
+import { CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { ModaleIssue } from './ModaleIssue';
 import { CSS_MODALE_CARACTERISTIQUES, ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
+import { conditionsApresRelecture, ContenuConditionsBail, CSS_CONDITIONS_BAIL } from './BlocConditionsBail';
 import { versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
-import { chargesDesLots, signalCharges } from '../../../../lib/location/chargesDesLots';
 import { ficheFormatee } from '../../../../lib/gestion/saisieFiche';
 import { changementsCarte, saisieDesChangements, type CarteApres } from '../../../../lib/gestion/traceFiche';
 import {
@@ -79,8 +78,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
       if (garder) {
         /* 🔴 Arno (25/10/2026) — « Paiement des charges » modifié dans la fiche du bien (« Caractéristiques du bien loué ») : la saisie
            SUIT la fiche relue, sauf un choix fait ici à la main (gardé, et signalé « différent de la fiche du bien »). */
-        const apres = l.conditions?.valeurs.chargesCopro;
-        if (apres !== undefined) setConditions((c) => (c === null || c.chargesCopro === undefined || (c.chargesCopro ?? null) !== avant ? c : { ...c, chargesCopro: apres }));
+        setConditions((c) => conditionsApresRelecture(c, avant, l.conditions?.valeurs.chargesCopro));
         return;
       }
       setCartes({});
@@ -164,7 +162,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
   const l = lecture;
   return (
     <div className="mcb-voile">
-      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_CONDITIONS + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL + CSS_DOSSIER}</style>
+      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_CONDITIONS + CSS_CONDITIONS_BAIL + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL + CSS_DOSSIER}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titreId} data-modale-dossier-location={activiteId}>
         <div className="mdl-tete">
           <h2 id={titreId} className="mdl-titre">{l?.titre ?? 'Dossier de location'}</h2>
@@ -227,20 +225,8 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
 
             <section className="loc-section" aria-labelledby="mdl-3" data-bloc-dossier="3">
               <h3 id="mdl-3"><span className="loc-num">3</span>Conditions d’entrée et sommes dues</h3>
-              {conditions === null ? (
-                <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
-              ) : (
-                <BlocConditionsEntree valeur={conditions} onChange={setConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }} complet
-                  charges={conditions.chargesCopro === undefined ? undefined
-                    : { signal: signalCharges(conditions.chargesCopro, chargesDesLots(l.lots.map((x) => x.chargesCopro))) }}
-                  entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire /> : undefined} />
-              )}
-              {conditions === null && entretien !== null && <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire />}
-              {/* 🔴 Arno (25/10/2026, Q2) — le loyer révisé RÉEL du bail (prioritaire sur le calcul, « réel » dans le tableau mensuel). */}
-              <LoyersRevises bailId={l.bailId} />
-              {l.conditions !== null && l.conditions.lignesHonoraires.length > 0 && (
-                <dl className="mdl-honoraires" data-honoraires-dossier>{l.conditions.lignesHonoraires.map((x) => <div key={x.mot}><dt>{x.mot}</dt><dd>{x.valeur}</dd></div>)}</dl>
-              )}
+              {/* 🔴 Arno (25/10/2026) — le contenu du bloc 3, partagé avec la « Fiche locataire » du Suivi du mois (aucune copie). */}
+              <ContenuConditionsBail l={l} conditions={conditions} onConditions={setConditions} entretien={entretien} onEntretien={setEntretien} />
             </section>
 
             <section className="loc-section" aria-labelledby="mdl-4" data-bloc-dossier="4" data-suivi-commercial>
@@ -327,10 +313,6 @@ const CSS_DOSSIER = `
 .mdl-carte-dl dd{margin:0;overflow-wrap:anywhere}
 .mdl-contacts ul,.mdl-lots{margin:0;padding-left:18px}
 .mdl-bien{margin:0 0 6px}
-.mdl-honoraires{margin:10px 0 0;display:flex;flex-direction:column;gap:4px;font-size:.88rem}
-.mdl-honoraires div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--color-svv-line);padding:4px 0}
-.mdl-honoraires dt{color:var(--color-svv-muted)}
-.mdl-honoraires dd{margin:0;text-align:right}
 .mdl-recap-bloc{margin:0 0 8px}
 .mdl-recap-titre{margin:0 0 4px;font-weight:800}
 `;

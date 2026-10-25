@@ -154,14 +154,16 @@ export function changementsDossier(lu: LectureDossier, s: SaisieDossier, noms: N
 /** Le motif d'une saisie que le serveur refuserait (vérifiée AVANT tout envoi, et au serveur avant toute écriture). PUR. */
 export function refusDossier(lu: LectureDossier, s: SaisieDossier,
   /** Le serveur : l'indice (423) et le paiement des charges (400) exigés quand la base les a, même si la saisie ne les porte pas. */
-  exiger: { indice?: boolean; charges?: boolean } = {}): string | null {
+  exiger: { indice?: boolean; charges?: boolean; suivi?: boolean } = {}): string | null {
   if (lu.conditions !== null && s.conditions !== null) {
     // 🔴 Arno (25/10/2026) — à l'ENREGISTREMENT, le dossier complet (loyer, dépôt, honoraires agence, indice, paiement des charges) ; un
     // dossier ancien incomplet s'ouvre et se lit toujours : seule cette vérification, au moment d'enregistrer, l'exige.
-    const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true, ...exiger });
+    const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true, indice: exiger.indice, charges: exiger.charges });
     if (!v.ok) return v.motif;
     if (loyerDeLaSaisieDossier(s.conditions.loyer) === undefined) return 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).';
   }
+  // 🔴 Arno (25/10/2026) — « Fiche locataire » : le bloc 4 n'y est pas (`suivi: false`) — il n'est ni écrit ni exigé depuis cet écran.
+  if (exiger.suivi === false) return null;
   const v = verifierActivite(s.suivi, { origineObligatoire: true });
   return v.ok ? null : v.motif;
 }

@@ -8,6 +8,8 @@ import { creerContactsDuBien } from './contactsLocationRepo';
 import { ecrireRattachementsDans } from './rattachementsRepo';
 import { estGarant } from './cartesLocation';
 import { empreinte } from './ficheBienEntiere';
+import { modifierDossierLocation, preparerDossier } from './dossierLocationRepo';
+import type { ChangementDossier } from './dossierLocation';
 import {
   changementsFiche, nomCarte, refusFiche, type CarteFicheLue, type ChampsCarte, type ChangementFiche, type LectureFicheLocataire, type SaisieFicheLocataire,
 } from './ficheLocataireCartes';
@@ -105,8 +107,9 @@ function ficheContact(c: CarteFicheLue, m: ChampsCarte) {
   };
 }
 
-export async function enregistrerFicheLocataireCartes(locataireId: number, bailIdDemande: number | null, brut: unknown, auteur: Auteur):
-  Promise<Issue<{ changements: ChangementFiche[] }>> {
+/** LIRE → REFUSER, sans rien écrire : la version (conflit), les contrôles des cartes, les changements. */
+export async function verifierFicheLocataireCartes(locataireId: number, bailIdDemande: number | null, brut: unknown):
+  Promise<Issue<{ lu: LectureFicheLocataire; s: SaisieFicheLocataire; changements: ChangementFiche[] }>> {
   const l = await lireFicheLocataireCartes(locataireId, bailIdDemande);
   if (l.etat !== 'ok') return l;
   const lu = l.data;
@@ -115,9 +118,51 @@ export async function enregistrerFicheLocataireCartes(locataireId: number, bailI
   if (s.version !== lu.version) return { etat: 'conflit', motif: 'Cette fiche a été modifiée depuis son ouverture : rechargez-la avant d’enregistrer. Rien n’a été enregistré.' };
   const refus = refusFiche(lu, s);
   if (refus !== null) return { etat: 'refus', motif: refus };
-  const changements = changementsFiche(lu, s);
-  if (changements.length === 0) return { etat: 'ok', data: { changements } };
   if (s.nouvelles.some((x) => x.sorte === 'client') && lu.bailId === null) return { etat: 'refus', motif: 'Ce locataire n’a pas de bail rattaché : un colocataire ne peut pas le rejoindre ici.' };
+  return { etat: 'ok', data: { lu, s, changements: changementsFiche(lu, s) } };
+}
+
+/**
+ * ══ 🔴 Arno (25/10/2026) — « FICHE LOCATAIRE » : LES CARTES (bloc 1) ET LES CONDITIONS D'ENTRÉE (bloc 3), UN SEUL ENREGISTREMENT ═══════════
+ * ① TOUT est vérifié AVANT d'écrire (les deux versions — conflit refusé sans rien écraser —, les contrôles des cartes, les champs
+ * obligatoires du bloc 3) ; ② le bloc 3 s'écrit par le chemin du Dossier de location (`modifierDossierLocation`, bloc 3 seul : le bail,
+ * le paiement des charges et l'entretien sur la fiche du bien) ; ③ puis les cartes. Le journal porte l'écran de l'appelant (`avecTrace`).
+ * Aucun envoi à ADHOC & MONGA, aucune écriture Drive. `dossier` absent : les cartes seules (ligne sans bail rattaché).
+ */
+export async function enregistrerFicheLocataire(locataireId: number, bailIdDemande: number | null, brut: unknown,
+  dossier: { activiteId: number; saisie: Record<string, unknown> } | null, auteur: Auteur):
+  Promise<Issue<{ changements: ChangementFiche[]; dossier: ChangementDossier[]; note?: string }>> {
+  let bloc3: ChangementDossier[] = [];
+  if (dossier !== null) {
+    const p = await preparerDossier(dossier.activiteId, dossier.saisie, { seulBloc3: true });
+    if (p.etat === 'conflit' || p.etat === 'refus') return p;
+    if (p.etat === 'non_rattache') return { etat: 'refus', motif: 'Dossier non rattaché — à rattacher d’abord : les conditions d’entrée ne peuvent pas être enregistrées ici.' };
+    if (p.etat === 'inconnu' || p.etat === 'sans_schema') return p;
+    if (p.etat === 'pret') bloc3 = p.changements;
+  }
+  const v = await verifierFicheLocataireCartes(locataireId, bailIdDemande, brut);
+  if (v.etat !== 'ok') return v;
+  let note: string | undefined;
+  if (dossier !== null && bloc3.length > 0) {
+    const r = await modifierDossierLocation(dossier.activiteId, dossier.saisie, auteur, { seulBloc3: true });
+    if (r.etat === 'non_rattache') return { etat: 'refus', motif: 'Dossier non rattaché — à rattacher d’abord.' };
+    if (r.etat !== 'ok') return r;
+    bloc3 = r.data.changements;
+    note = r.data.note;
+  }
+  const c = await enregistrerFicheLocataireCartes(locataireId, bailIdDemande, brut, auteur);
+  if (c.etat !== 'ok') {
+    return c.etat === 'refus' && bloc3.length > 0 ? { etat: 'refus', motif: `${c.motif} Les conditions d’entrée, elles, ont été enregistrées.` } : c;
+  }
+  return { etat: 'ok', data: { changements: c.data.changements, dossier: bloc3, ...(note === undefined ? {} : { note }) } };
+}
+
+export async function enregistrerFicheLocataireCartes(locataireId: number, bailIdDemande: number | null, brut: unknown, auteur: Auteur):
+  Promise<Issue<{ changements: ChangementFiche[] }>> {
+  const v = await verifierFicheLocataireCartes(locataireId, bailIdDemande, brut);
+  if (v.etat !== 'ok') return v;
+  const { lu, s, changements } = v.data;
+  if (changements.length === 0) return { etat: 'ok', data: { changements } };
   const faits: string[] = [];
   const partiel = (motif: string): Issue<{ changements: ChangementFiche[] }> => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
 
