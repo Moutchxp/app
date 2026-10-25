@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ModaleDossierLocation } from './ModaleDossierLocation';
 import type { LectureDossier } from '../../../../lib/location/dossierLocation';
+import { calculerHonorairesProprietaire } from '../../../../lib/location/honorairesProprietaire';
 
 /**
  * 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : le formulaire « Nouveau locataire » rouvert en modification. On éprouve à l'écran :
@@ -226,5 +227,40 @@ describe('🔴 Arno (25/10/2026) — « GLI : laquelle ? » et la rangée Garant
     await monter();
     const ordre = [...document.querySelectorAll('[data-conditions-entree] > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'));
     expect(ordre.slice(0, 5)).toEqual(['depot', 'prelevement', 'garanties', 'honoraires', 'entretien']);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Honoraires agence » au barème dans le Dossier de location (mêmes règles que Nouveau locataire)', () => {
+  const BAREME = [{ id: 1, depuis: '2026-01-01', tresTendue: '12.1', tendue: '10', autre: '8', etatDesLieux: '3.03', source: 'Arrêté' }];
+  const calcul = calculerHonorairesProprietaire({ surface: '21.3', zone: 'tres_tendue', baremes: BAREME, date: '2026-09-12', dateSupposee: false });
+  const servir = (l: LectureDossier) => {
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok' }) } as unknown as Response; }
+      if (url.includes('honorairesProprietaire=51')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: calcul }) } as unknown as Response;
+      if (url.includes('dossierLocation=100')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: l }) } as unknown as Response;
+      if (url.startsWith('/api/admin/location/suivi') && !url.includes('vue=')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: parametres }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'inconnu' }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  };
+  const agence = () => document.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement;
+  const mention = () => document.querySelector('[data-agence-mention]')?.textContent ?? '';
+
+  it('un montant ENREGISTRÉ n’est jamais remplacé à l’ouverture : il reste, le barème est dit ; « recalculer » le remet', async () => {
+    servir(lecture);
+    await monter();
+    expect(agence().value).toBe('567,38');
+    expect(mention()).toBe('saisi à la main · barème : 268,56 € HT — votre saisie : 567,38 € HT · recalculer');
+    expect(document.querySelector('[data-etat-dossier]')?.textContent).toBe('Aucune modification.');
+    await act(async () => { (document.querySelector('[data-agence-recalculer]') as HTMLButtonElement).click(); });
+    expect(agence().value).toBe('268,56');
+    expect(mention()).toBe('calculé avec la surface du bien — modifiable');
+  });
+
+  it('aucun montant enregistré : pré-rempli au barème (322,27 € TTC = 268,56 € HT)', async () => {
+    servir({ ...lecture, conditions: { ...lecture.conditions!, valeurs: { ...lecture.conditions!.valeurs, sommes: { ...lecture.conditions!.valeurs.sommes, honorairesAgence: null } } } });
+    await monter();
+    expect(agence().value).toBe('268,56');
+    expect(document.querySelector('[data-agence-ttc]')?.textContent).toBe('soit 322,27 € TTC');
   });
 });

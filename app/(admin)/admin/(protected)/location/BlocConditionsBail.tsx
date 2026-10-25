@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BlocConditionsEntree } from './ConditionsEntree';
 import { LoyersRevises } from './IndicesLoyers';
+import { useLecture } from './commun';
+import type { CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { BlocEntretien, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { chargesDesLots, signalCharges } from '../../../../lib/location/chargesDesLots';
@@ -20,12 +22,15 @@ export function ContenuConditionsBail({ l, conditions, onConditions, entretien, 
   l: LectureDossier; conditions: SaisieConditions | null; onConditions: (c: SaisieConditions) => void;
   entretien: SaisieEntretien | null; onEntretien: (e: SaisieEntretien) => void;
 }) {
+  // 🔴 Arno (25/10/2026) — le barème des honoraires agence (part du locataire) : le même calcul que « Nouveau locataire » (bien, date d'entrée).
+  const bareme = useLecture<CalculHonoraires>(`honorairesProprietaire=${l.lotId}${l.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(l.entree) ? `&entree=${l.entree}` : ''}`);
   return (
     <>
       {conditions === null ? (
         <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
       ) : (
         <BlocConditionsEntree valeur={conditions} onChange={onConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }} complet
+          baremeAgence={{ calcul: bareme.etat.etat === 'ok' ? bareme.etat.data : null, charge: bareme.etat.etat === 'charge' }}
           charges={conditions.chargesCopro === undefined ? undefined
             : { signal: signalCharges(conditions.chargesCopro, chargesDesLots(l.lots.map((x) => x.chargesCopro))) }}
           entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={onEntretien} obligatoire /> : undefined} />

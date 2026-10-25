@@ -109,6 +109,12 @@ export interface SaisieConditions {
    */
   prorataManuel: { prorataLoyer: boolean; prorataCharges: boolean };
   /**
+   * 🔴 Arno (25/10/2026) — « Honoraires agence » (la part du LOCATAIRE) se pré-remplit au barème (le même calcul que la part propriétaire :
+   * le plafond légal du locataire est le même montant) TANT QU'on ne l'a pas saisie à la main ; saisie à la main, elle n'est plus jamais
+   * écrasée (« recalculer » remet le barème). Absent : non saisie à la main. État d'écran seulement (jamais envoyé).
+   */
+  agenceManuel?: boolean;
+  /**
    * 🔴 Arno (25/10/2026, migration 423) — l'INDICE DES LOYERS du bail (type, trimestre de référence, date de révision annuelle). Absent
    * (`undefined`) : l'écran ne montre pas le bloc (ou la base n'a pas la 423) — rien n'est exigé, rien n'est envoyé ; présent : les trois
    * champs sont OBLIGATOIRES.
@@ -287,6 +293,8 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
     loyer: { principal: montant(loyer?.principal ?? null), provisions: montant(loyer?.provisions ?? null) },
     // Des proratas déjà enregistrés restent tels quels (« recalculer » remet le calcul).
     prorataManuel: { prorataLoyer: c.sommes.prorataLoyer !== null, prorataCharges: c.sommes.prorataCharges !== null },
+    // Des honoraires agence déjà enregistrés restent tels quels (jamais remplacés par le barème à l'ouverture ; « recalculer » le remet).
+    agenceManuel: c.sommes.honorairesAgence !== null,
     // L'indice enregistré est repris tel quel (et renvoyé : « Modifier » ne le perd jamais, même sans le bloc à l'écran).
     ...(c.indice ? { indice: { type: c.indice.type, reference: cleTrimestre(c.indice.annee, c.indice.trimestre), revision: c.indice.revision } } : {}),
     ...(c.chargesCopro !== undefined ? { chargesCopro: c.chargesCopro } : {}),

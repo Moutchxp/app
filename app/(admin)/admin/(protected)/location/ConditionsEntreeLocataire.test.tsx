@@ -329,7 +329,8 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await preparer();
     const somme = (k: string) => container.querySelector(`[data-somme="${k}"] input`) as HTMLInputElement;
     const total = () => container.querySelector('[data-total] strong')?.textContent?.replace(/\s/g, ' ');
-    expect(total()).toBe('—');
+    // 🔴 Arno (25/10/2026) : les honoraires agence sont pré-remplis au barème (632,43 € TTC) — le total les compte d'emblée.
+    expect(total()).toBe('632,43 €');
     await saisir(somme('prorataLoyer'), '412,26');
     await saisir(somme('prorataCharges'), '33,33');
     await saisir(somme('depotGarantie'), '1 180');
@@ -573,7 +574,7 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     expect(bloc.querySelector('[data-detail-calcul]')?.textContent?.replace(/\s/g, ' ')).toBe('41,8 m² × 12,10 €/m² (zone très tendue)= 505,78 €');
     expect(bloc.querySelector('[data-zone-tarif]')?.textContent?.replace(/\s/g, ' ')).toContain('Zone : zone très tendue — tarif 12,10 €/m², état des lieux 3,03 €/m² ; barème du 01/01/2026');
     const total = () => container.querySelector('[data-total-honoraires] strong')?.textContent?.replace(/\s/g, ' ');
-    expect(total()).toBe('632,43 €');
+    expect(total()).toBe('1 264,86 €');   // 🔴 Arno (25/10/2026) : agence pré-remplie au barème (632,43) + propriétaire (632,43)
     await saisir(container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '450');
     expect(total()).toBe('1 172,43 €');   // 450 € HT d'honoraires agence = 540 € TTC, + 632,43 € (Arno, 24/10/2026)
   });
@@ -735,7 +736,8 @@ describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata 
     expect(sous('prorataLoyer')).toBeUndefined();
     expect(await detail('prorataLoyer')).toContain('1 240,00 € × 12/31 jours (du 20/10 au 31/10) = 480,00 €');
     expect(await detail('prorataCharges')).toContain('180,00 € × 12/31 jours (du 20/10 au 31/10) = 69,68 €');
-    expect(container.querySelector('[data-total] strong')?.textContent?.replace(/\s/g, ' ')).toBe('549,68 €');
+    // + 632,43 € d'honoraires agence pré-remplis au barème (Arno, 25/10/2026).
+    expect(container.querySelector('[data-total] strong')?.textContent?.replace(/\s/g, ' ')).toBe('1 182,11 €');
   });
 
   it('recalcul IMMÉDIAT quand la date ou un montant change : 01/11 (mois entier), 15/02/2027 (14/28), 15/02/2028 (15/29), 31/10 (1/31)', async () => {
@@ -945,7 +947,11 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     chargesDisponible = true;
     await preparer();
     for (const k of ['Loyer mensuel : le loyer principal', 'Loyer mensuel : la provision pour charges', 'Sommes dues à l’entrée : le dépôt de garantie',
-      'Sommes dues à l’entrée : les honoraires agence', 'Paiement des charges']) expect(barre()).toContain(k);
+      'Paiement des charges']) expect(barre()).toContain(k);
+    // 🔴 Arno (25/10/2026) : les honoraires agence sont pré-remplis au barème — ils ne manquent plus ; vidés, ils manquent.
+    expect(barre()).not.toContain('Sommes dues à l’entrée : les honoraires agence');
+    await saisir(container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '');
+    expect(barre()).toContain('Sommes dues à l’entrée : les honoraires agence');
     const enregistrer = container.querySelector('[data-enregistrer-locataire]') as HTMLButtonElement;
     const envoyer = container.querySelector('[data-enregistrer-envoyer]') as HTMLButtonElement;
     expect([enregistrer.getAttribute('aria-disabled'), envoyer.getAttribute('aria-disabled')]).toEqual(['true', 'true']);

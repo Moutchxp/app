@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
+import { calculerHonorairesProprietaire } from '../../../../lib/location/honorairesProprietaire';
 import { GestesConditionsBail } from '../gestion/SectionsLocationFiche';
 import { htDuTtc, ttcDuHt } from './ConditionsEntree';
 import type { ConditionsEntreeLues } from '../../../../lib/location/conditionsEntree';
@@ -115,7 +116,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ HT) » — Nouveau l
     expect(container.querySelector('[data-hono-ttc]')?.textContent).toBe('soit 935,03 € TTC');
     expect(mention()).toBe('calculé avec la surface du bien — modifiable');
     expect(container.querySelector('[data-hono-montant] .svv-pil-ib')).not.toBeNull();
-    expect(total()).toBe('935,03 €');                                               // le total des honoraires reste en TTC
+    expect(total()).toBe('1\u202f870,06 €');                                        // TTC : propriétaire 935,03 + agence pré-remplie au barème 935,03 (Arno, 25/10/2026)
   });
 
   it('modifié à la main : « saisi à la main · recalculer » ; le total suit ; ENVOYÉ tel quel ; « recalculer » remet le calcul', async () => {
@@ -125,7 +126,7 @@ describe('🔴 « Montant des honoraires propriétaire (€ HT) » — Nouveau l
     expect(champ().value).toBe('1 000');                                            // ce qui est tapé reste
     expect(container.querySelector('[data-hono-ttc]')?.textContent).toBe('soit 1\u202f200,00 € TTC');
     expect(mention()).toBe('saisi à la main · au barème : 779,19 € HT (écart : −220,81 €) · recalculer');   // l'écart, en HT
-    expect(total()).toBe('1\u202f200,00 €');
+    expect(total()).toBe('2\u202f135,03 €');                                        // 1 200,00 + agence au barème 935,03
     await soumettre(); await soumettre();
     // ENREGISTRÉ EN TTC (une seule conversion, à la frappe) : rien ne change en base
     expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ honorairesSaisis: '1200,00' });
@@ -232,5 +233,99 @@ describe('🔴 Arno (24/10/2026) — HT saisi, TTC enregistré : une seule conve
     expect(ttcDuHt('')).toBe('');
     expect(ttcDuHt('12,345')).toBeNull();
     expect(ttcDuHt('abc')).toBeNull();
+  });
+});
+
+/* 🔴 Arno (25/10/2026) — LES HONORAIRES AGENCE (la part du LOCATAIRE) AU BARÈME : le même calcul que la part propriétaire (zone, tarifs
+   au m², date du barème, surface du bien) — le plafond légal du locataire est le même montant ; HT = TTC ÷ 1,2. Zone très tendue, 21,3 m². */
+describe('🔴 « Honoraires agence (€ HT) » — la part du locataire au barème', () => {
+  const BAREME = [{ id: 1, depuis: '2026-01-01', tresTendue: '12.1', tendue: '10', autre: '8', etatDesLieux: '3.03', source: 'Arrêté' }];
+  const auBareme = (surface: string) => calculerHonorairesProprietaire({ surface, zone: 'tres_tendue', baremes: BAREME, date: '2026-11-01', dateSupposee: false });
+  const agence = () => container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement;
+  const mentionAgence = () => container.querySelector('[data-agence-mention]')?.textContent ?? '';
+  const totalSommes = () => container.querySelector('[data-total] strong')?.textContent ?? '';
+  const locataireHt = () => container.querySelector('[data-hono-locataire-ht]') as HTMLInputElement;
+  const totalHt = () => container.querySelector('[data-hono-total-ht]') as HTMLInputElement;
+  /** Le bloc 4 « Suivi commercial » (ses paramètres lus) : seulement pour les tests qui le regardent (il exige sa propre saisie). */
+  const avecBloc4 = () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = decodeURIComponent(String(url));
+      if (init?.method !== 'POST' && u.includes('/suivi') && !u.includes('vue=')) {
+        return ok({ disponible: true, moi: 5, negociateurs: [{ id: 5, libelle: 'Jean-Baptiste PONS' }], apporteurs: [], regles: [], retrocessions: [] });
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+  };
+
+  it('PRÉ-REMPLI au barème, au centime : 21,3 m² × (12,10 + 3,03) €/m² = 322,269 → 322,27 € TTC = 268,56 € HT ; la bulle ⓘ ; les totaux suivent', async () => {
+    calcul = auBareme('21.3');
+    expect(calcul).toMatchObject({ etat: 'ok', visiteBail: '257.73', etatDesLieux: '64.539', total: '322.269' });
+    await preparer();
+    expect(agence().value).toBe('268,56');
+    expect(container.querySelector('[data-agence-ttc]')?.textContent).toBe('soit 322,27 € TTC');
+    expect(mentionAgence()).toBe('calculé avec la surface du bien — modifiable');
+    // La même valeur que la part propriétaire (le plafond légal du locataire).
+    expect(champ().value).toBe('268,56');
+    await clic(container.querySelector('[data-somme="honorairesAgence"] .svv-pil-ib-btn')!);
+    const bulle = container.querySelector('[data-detail-calcul="agence"]')?.textContent?.replace(/\s/g, ' ') ?? '';
+    expect(bulle).toContain('21,3 m² × 12,10 €/m² (zone très tendue) = 257,73 €');
+    expect(bulle).toContain('Plafond légal du locataire : le même montant que la part du propriétaire.');
+    expect(bulle).toContain('322,27 € TTC ÷ 1,2 = 268,56 € HT');
+    // Les totaux : sommes dues (TTC), total des honoraires (agence + propriétaire), bloc 4 (HT).
+    expect(totalSommes().replace(/\s/g, ' ')).toBe('322,27 €');
+    expect(total().replace(/\s/g, ' ')).toBe('644,54 €');
+    // Enregistré en TTC, comme avant.
+    await toutRepondre();
+    await soumettre(); await soumettre();
+    expect((posts.find((p) => p.action === 'creer-locataires')!.conditions as { sommes: Record<string, string> }).sommes.honorairesAgence).toBe('322,27');
+  });
+
+  it('le bloc 4 suit : « Honoraires locataire HT » 268,56, total HT 537,12 ; une saisie dans le bloc 4 compte comme une saisie à la main', async () => {
+    avecBloc4();
+    calcul = auBareme('21.3');
+    await preparer();
+    expect(locataireHt().value).toBe('268,56');
+    expect(totalHt().value.replace(/\s/g, ' ')).toBe('537,12');
+    await saisir(locataireHt(), '250');
+    expect(agence().value).toBe('250,00');
+    expect(mentionAgence()).toBe('saisi à la main · barème : 268,56 € HT — votre saisie : 250,00 € HT · recalculer');
+    expect(totalHt().value.replace(/\s/g, ' ')).toBe('518,56');
+  });
+
+  it('SAISIE À LA MAIN jamais écrasée : la surface change → « barème : X € HT — votre saisie : Y € HT » ; « recalculer » remet le barème', async () => {
+    calcul = auBareme('21.3');
+    await preparer();
+    await saisir(agence(), '300');
+    expect(mentionAgence()).toBe('saisi à la main · barème : 268,56 € HT — votre saisie : 300,00 € HT · recalculer');
+    expect(totalSommes().replace(/\s/g, ' ')).toBe('360,00 €');
+    // Une autre surface (relue avec une autre date d'entrée) : la saisie reste, le nouveau barème est dit.
+    calcul = auBareme('25');
+    await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-02');
+    await calmer();
+    expect(agence().value).toBe('300');
+    expect(mentionAgence()).toBe('saisi à la main · barème : 315,21 € HT — votre saisie : 300,00 € HT · recalculer');   // 25 × 15,13 = 378,25 TTC
+    // La part propriétaire, non touchée, suit le barème.
+    expect(champ().value).toBe('315,21');
+    await clic(container.querySelector('[data-agence-recalculer]')!);
+    expect(agence().value).toBe('315,21');
+    expect(mentionAgence()).toBe('calculé avec la surface du bien — modifiable');
+  });
+
+  it('non touché : il SUIT le barème quand la surface change', async () => {
+    calcul = auBareme('21.3');
+    await preparer();
+    calcul = auBareme('25');
+    await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-02');
+    await calmer();
+    expect(agence().value).toBe('315,21');
+  });
+
+  it('SANS surface : champ vide, « Surface inconnue : saisissez le montant », saisie obligatoire', async () => {
+    calcul = SANS_SURFACE;
+    await preparer();
+    expect(agence().value).toBe('');
+    expect(mentionAgence()).toBe('Surface inconnue : saisissez le montant');
+    expect(barre()).toContain('Sommes dues à l’entrée : les honoraires agence');
   });
 });

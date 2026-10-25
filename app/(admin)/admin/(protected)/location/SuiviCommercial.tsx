@@ -146,8 +146,8 @@ interface Props {
   /** 413 — le loyer mensuel des « Conditions d'entrée » (texte saisi) : la base de la part gestion de l'apporteur, en direct. */
   loyer?: { principal: string; provisions: string };
   /**
-   * Arno (24/10/2026) — le « Type de bien » d'après les LOTS LOUÉS cochés (`typeDeBienDesLots`) : « Parking » n'est proposé que si
-   * tous les lots loués sont des parkings. null : pas encore de lots ; absent : un hôte sans lots (toutes les valeurs proposées).
+   * Arno (24/10/2026) — le « Type de bien » d'après les LOTS LOUÉS cochés (`typeDeBienDesLots`) : la PRÉSÉLECTION (Parking quand tous
+   * les lots loués sont des parkings). 🔴 25/10/2026 : les trois valeurs sont toujours proposées. null : pas encore de lots ; absent : un hôte sans lots.
    */
   typeBien?: { type: CategoriePrime; parkingPermis: boolean } | null;
   /**
@@ -305,7 +305,6 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
   const commissionProposee = tauxRetenu === null ? null : caHt * tauxRetenu;
   const regleDuJour = versionADate(lu.regles, dateRef);
   const categorie: CategoriePrime = s.categoriePrime ?? typeBien?.type ?? deduit?.categoriePrime ?? 'logement';
-  const parkingPermis = typeBien === undefined || typeBien?.parkingPermis === true || (typeBien === null && categorie === 'parking');
   const primeRegle = regleDuJour === null ? 150 : montantPrime(regleDuJour, categorie);
   const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
   /* 🔴 Arno (24/10/2026, 413) — LA COMMISSION DE L'APPORTEUR, EN DIRECT : la même règle que le Suivi (`tableauBord`), sur ce que l'écran
@@ -381,10 +380,10 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
               valeur={s.mandatGestion ? s.primeMode ?? 'aucune' : 'aucune'} vide={null} libelle="Prime de gestion" desactive={!s.mandatGestion}
               onChange={(v) => poser({ primeMode: v as ModePrime })} donnees={{ 'data-prime-mode': '' }} /></label>
         )}
-        {/* 🔴 Arno (24/10/2026) — « Prime de nouvelle gestion » devient « TYPE DE BIEN » : pré-rempli d'après les lots loués ;
-            « Parking » seulement si tous les lots loués sont des parkings. */}
+        {/* 🔴 Arno (24/10/2026) — « Prime de nouvelle gestion » devient « TYPE DE BIEN » : pré-rempli d'après les lots loués (Parking quand
+            tous les lots loués sont des parkings). 🔴 Arno (25/10/2026) : Logement · Local · Parking TOUJOURS proposés, quel que soit le bien. */}
         <label className="loc-champ">{libelle('Type de bien')}
-          <ListeChoix options={CATEGORIES_PRIME.filter((c) => c !== 'parking' || parkingPermis).map((c) => ({ id: c, libelle: LIBELLE_CATEGORIE_PRIME[c] }))} valeur={categorie} vide={null}
+          <ListeChoix options={CATEGORIES_PRIME.map((c) => ({ id: c, libelle: LIBELLE_CATEGORIE_PRIME[c] }))} valeur={categorie} vide={null}
             libelle="Type de bien" desactive={!s.mandatGestion || (annuaire && s.primeMode !== 'regle')}
             onChange={(v) => poser({ categoriePrime: (CATEGORIES_PRIME as readonly string[]).includes(v) ? v as CategoriePrime : 'logement' })} donnees={{ 'data-categorie-prime': '' }} /></label>
         {annuaire && s.mandatGestion && s.primeMode === 'personnalise' && (

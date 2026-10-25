@@ -256,12 +256,21 @@ describe('🔴 Arno (24/10/2026) — « Type de bien » d’après les lots lou�
     expect(typeBien().closest('label')?.querySelector('.loc-suivi-libelle')?.textContent).toBe('Type de bien');
     expect(container.textContent).not.toContain('Prime de nouvelle gestion');
   });
-  it('logement + parking loués : « Logement », et « Parking » n’est pas proposé', async () => {
+  it('logement + parking loués : « Logement » présélectionné ; 🔴 « Parking » TOUJOURS proposé (Arno, 25/10/2026)', async () => {
     lotsBail = [LOT(7, 'logement', 'logement'), LOT(8, 'annexe', 'parking', true)];
     await preparer();
     expect(typeBien().getAttribute('data-valeur')).toBe('logement');
     await avecMandat();
-    expect(await optionsType()).toEqual(['logement', 'local']);
+    expect(await optionsType()).toEqual(['logement', 'local', 'parking']);
+  });
+  it('🔴 un logement seul : « Parking » proposé aussi, et choisissable (Arno, 25/10/2026)', async () => {
+    lotsBail = [LOT(7, 'logement', 'logement')];
+    await preparer();
+    expect(typeBien().getAttribute('data-valeur')).toBe('logement');
+    await avecMandat();
+    expect(await optionsType()).toEqual(['logement', 'local', 'parking']);
+    await choisir(typeBien(), 'parking');
+    expect(typeBien().getAttribute('data-valeur')).toBe('parking');
   });
   it('un local : « Local »', async () => {
     lotsBail = [LOT(7, 'logement', 'local')];
@@ -276,10 +285,10 @@ describe('🔴 Arno (24/10/2026) — « Type de bien » d’après les lots lou�
     expect(typeBien().getAttribute('data-valeur')).toBe('parking');
     await avecMandat();
     expect(await optionsType()).toEqual(['logement', 'local', 'parking']);
-    // on recoche le logement : retour à « Logement », « Parking » n'est plus proposé
+    // on recoche le logement : retour à « Logement » ; « Parking » reste proposé (Arno, 25/10/2026)
     await clic(container.querySelector('[data-coche-lot="7"]')!); await calmer();
     expect(typeBien().getAttribute('data-valeur')).toBe('logement');
-    expect(await optionsType()).toEqual(['logement', 'local']);
+    expect(await optionsType()).toEqual(['logement', 'local', 'parking']);
   });
   it('« Négociateur » : la personne connectée par défaut (compte de la session), modifiable', async () => {
     parametres = { ...(parametres as object), moi: 2 };

@@ -252,7 +252,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
                 onTtcLocataire={(t) => {
                   setTtc((x) => ({ ...x, locataire: t }));
                   // La règle de « Nouveau locataire » : les honoraires locataire du suivi SONT les honoraires agence des sommes dues.
-                  setConditions((c) => (c === null ? c : { ...c, sommes: { ...c.sommes, honorairesAgence: t } }));
+                  setConditions((c) => (c === null ? c : { ...c, sommes: { ...c.sommes, honorairesAgence: t }, agenceManuel: t !== '' }));
                 }}
                 manque={null} loyer={conditions?.loyer} sansPreremplissage origineFlux={{ activiteId, onEnregistree: () => { void origineRelue(); } }} />
             </section>

@@ -79,7 +79,7 @@ export function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false, indice, charges, complet = false }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, baremeAgence, garants, honoraires, loyer, dateEntree, actionSommes, agenceEnHt = false, indice, charges, complet = false }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -108,6 +108,12 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
    * fiche du locataire (même composant) reste en TTC.
    */
   agenceEnHt?: boolean;
+  /**
+   * 🔴 Arno (25/10/2026) — le BARÈME des « Honoraires agence » (la part du locataire) : le même calcul que la part propriétaire (zone,
+   * tarifs au m², date du barème, surface du bien) — le plafond légal du locataire est le même montant. Absent : celui de `honoraires`
+   * (« Nouveau locataire ») ; ni l'un ni l'autre : pas de pré-remplissage. `charge` : pendant la lecture.
+   */
+  baremeAgence?: { calcul: CalculHonoraires | null; charge?: boolean };
   /**
    * 🔴 Arno (25/10/2026, 423) — le bloc « INDICE DES LOYERS », juste à droite de « Loyer mensuel » (même hauteur, même dessin) :
    * « Nouveau locataire » et le Dossier de location. `famille` : celle du bien (la présélection du type). Absent : pas de bloc.
@@ -176,6 +182,22 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
       </span>
     );
   };
+  // ══ 🔴 LES HONORAIRES AGENCE (la part du locataire) AU BARÈME (Arno, 25/10/2026) : pré-remplis (TTC enregistré, HT affiché) tant
+  //    qu'ils n'ont pas été saisis à la main ; une saisie à la main n'est jamais écrasée (le barème est alors seulement dit).
+  const sourceAgence = baremeAgence ?? (honoraires === undefined ? undefined : { calcul: honoraires.calcul, charge: honoraires.charge });
+  const calcAgence = calculLisible(sourceAgence?.calcul);
+  const cibleAgence = calcAgence !== null && calcAgence.etat === 'ok' ? montantPourChamp(calcAgence) : '';
+  const lectureAgence = !agenceEnHt || sourceAgence === undefined || sourceAgence.charge === true || calcAgence === null ? null : cibleAgence;
+  useEffect(() => {
+    if (lectureAgence === null) return;
+    const base = courante.current;
+    if (base.agenceManuel === true || base.sommes.honorairesAgence === lectureAgence) return;
+    const n = { ...base, sommes: { ...base.sommes, honorairesAgence: lectureAgence } };
+    courante.current = n;
+    onChange(n);
+  }, [lectureAgence, onChange]);
+  const agenceManuel = s.agenceManuel === true;
+  const detailAgence = calcAgence !== null && calcAgence.etat === 'ok' ? lignesHonoraires(calcAgence) : [];
   const idChamps = useId();
   const maj = (p: Partial<SaisieConditions>): void => onChange({ ...s, ...p });
   // L'indice se pose de lui-même (à la lecture des indices, à un changement de date d'entrée) : sur la saisie À JOUR, jamais une copie ancienne.
@@ -326,11 +348,22 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
                 <span className="loc-champ-tete">
                   <Intitule htmlFor={id}>{enHt ? 'Honoraires\u00a0agence\u00a0(€\u00a0HT)' : LIBELLE_SOMME[k]}</Intitule>
                   {calcule && <InfoBulle libelle={LIBELLE_SOMME[k]} etiquette="Détail du calcul" cible={`${idChamps}-${k}-detail`} contenu={detailProrata(k)} dansLEcran />}
+                  {enHt && !agenceManuel && detailAgence.length > 0 && (
+                    <InfoBulle libelle="Honoraires agence" etiquette="Détail du calcul" cible={`${idChamps}-${k}-bareme`} dansLEcran
+                      contenu={<span className="loc-bulle-calcul" data-detail-calcul="agence">{detailAgence.map((l) => (
+                        <span key={l.mot}>{l.mot === 'Total honoraires propriétaire' ? 'Total au barème' : l.mot} : {l.detail !== undefined ? `${l.detail} = ` : ''}<strong>{l.valeur}</strong></span>))}
+                        <span data-plafond-locataire>Plafond légal du locataire : le même montant que la part du propriétaire.</span>
+                        <span data-detail-ht>Soit, hors taxes : {cibleAgence} € TTC ÷ 1,2 = <strong>{htDuTtc(cibleAgence)} € HT</strong></span></span>} />
+                  )}
                 </span>
                 {enHt ? (
                   // HT affiché (TTC ÷ 1,2) ; un HT saisi → TTC enregistré (× 1,2 au centime), une fois, à la frappe — illisible : tel quel.
                   <CaseEuros id={id} value={frappeAgence ?? htDuTtc(s.sommes.honorairesAgence)} placeholder="ex. 983,75" data-agence-ht
-                    onChange={(e) => { const v = e.target.value; setFrappeAgence(v); const t = ttcDuHt(v); maj({ sommes: { ...s.sommes, honorairesAgence: t === null ? v : t } }); }}
+                    onChange={(e) => {
+                      const v = e.target.value; setFrappeAgence(v); const t = ttcDuHt(v);
+                      // Vidé alors qu'aucun barème n'existe : rien de « saisi » (comme la part propriétaire).
+                      maj({ sommes: { ...s.sommes, honorairesAgence: t === null ? v : t }, agenceManuel: !(v.trim() === '' && cibleAgence === '') });
+                    }}
                     onBlur={() => { if (frappeAgence !== null && ttcDuHt(frappeAgence) !== null) setFrappeAgence(null); }} />
                 ) : (
                 <CaseEuros id={id} value={s.sommes[k]} placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
@@ -340,6 +373,16 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
                 )}
                 <span className="loc-champ-pied">{calcule && sousProrata(k)}
                   {enHt && typeof ttcAgence === 'number' && <small className="loc-hono-ttc" data-agence-ttc>soit {formaterCentimes(ttcAgence)} TTC</small>}
+                  {enHt && sourceAgence !== undefined && (
+                    <span className="loc-hono-mention" data-agence-mention>
+                      {agenceManuel ? (
+                        <>{MENTION_SAISI_MAIN}{ecartAgence(s.sommes.honorairesAgence, cibleAgence) !== null && <span data-agence-ecart>{' · '}{ecartAgence(s.sommes.honorairesAgence, cibleAgence)}</span>}
+                          {cibleAgence !== '' && s.sommes.honorairesAgence !== cibleAgence && <>{' · '}<button type="button" className="loc-lien-recalculer" data-agence-recalculer
+                            onClick={() => { setFrappeAgence(null); maj({ sommes: { ...s.sommes, honorairesAgence: cibleAgence }, agenceManuel: false }); }}>recalculer</button></>}</>
+                      ) : sourceAgence.charge !== true && calcAgence !== null && calcAgence.etat === 'surface_manquante' ? MENTION_SURFACE_INCONNUE
+                        : sourceAgence.charge !== true && calcAgence !== null && calcAgence.etat === 'ok' ? 'calculé avec la surface du bien — modifiable' : null}
+                    </span>
+                  )}
                   {manque(`somme-${k}`)}</span>
               </div>
             );
@@ -433,6 +476,22 @@ export const ttcDuHt = (ht: string): string | null => {
   const m = montantHonorairesSaisi(ht);
   return m === null ? '' : m === false ? null : deuxDecimales(htVersTtc(Number(m)));
 };
+
+/**
+ * 🔴 Arno (25/10/2026) — les honoraires agence saisis à la main et le barème qui diffère : « barème : 779,19 € HT — votre saisie :
+ * 800,00 € HT » (en HT, comme le champ). `null` : pas de barème, montant illisible, ou aucun écart. PUR.
+ */
+export function ecartAgence(saisieTtc: string, cibleTtc: string): string | null {
+  const a = enCentimes(htDuTtc(saisieTtc));
+  const b = enCentimes(htDuTtc(cibleTtc));
+  if (cibleTtc.trim() === '' || typeof a !== 'number' || typeof b !== 'number' || a === b) return null;
+  return `barème : ${formaterCentimes(b)} HT — votre saisie : ${formaterCentimes(a)} HT`;
+}
+
+/** Une réponse de calcul inattendue se lit comme « pas de calcul » (jamais un écran qui tombe). */
+function calculLisible(c: CalculHonoraires | null | undefined): CalculHonoraires | null {
+  return c != null && ['ok', 'surface_manquante', 'sans_bareme', 'saisi'].includes((c as { etat?: string }).etat ?? '') ? c : null;
+}
 
 /** La mention sous un champ vide sans surface (Arno, 21/10/2026). */
 export const MENTION_SURFACE_INCONNUE = 'Surface inconnue : saisissez le montant';
@@ -569,6 +628,8 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
 .loc-hono-libelle{font-weight:700;color:var(--color-svv-ink);min-width:0;overflow-wrap:anywhere}
 .loc-hono-mention{font-size:.85rem;font-weight:400;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;min-height:1.2em}
 .loc-hono-mention:empty{display:none}
+/* 🔴 25/10/2026 — sous « Honoraires agence » (une colonne étroite) : la mention se lit comme une phrase qui passe à la ligne, pas en morceaux. */
+.loc-hono-mention[data-agence-mention]{display:block;line-height:1.45}
 .loc-bulle-calcul > span{display:block}
 .loc-champ-pied{display:flex;flex-direction:column;gap:4px;min-width:0}
 .loc-champ-pied:empty{display:none}

@@ -499,7 +499,7 @@ export function CreationLocataire() {
           locataireIds={etat.existants.map((x) => x.id)}
           ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
           onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
-          onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t } }))}
+          onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t }, agenceManuel: t !== '' }))}
           manque={manqueDe('suivi')} loyer={conditions.loyer} typeBien={typeBien} />
       </section>
 
