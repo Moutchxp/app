@@ -399,18 +399,21 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             <h3 id="tdb-histo">{cumulMois ? <>Mois par mois — {annee} <small className="loc-muet">({motCumul}, cumulé depuis janvier ; un mois s’ouvre d’un clic)</small></>
               : mesure === 'ca' ? <>Mois par mois — {annee} <small className="loc-muet">(CA HT ; un mois s’ouvre d’un clic)</small></>
               : <>Mois par mois — {annee} <small className="loc-muet">({mm.titre} ; un mois s’ouvre d’un clic)</small></>}</h3>
-            {/* 🔴 Arno (25/10/2026) — « Cumul » au bout de la ligne, à droite : un MODE (marche / arrêt), séparé des trois mesures par un filet. */}
+            {/* 🔴 Arno (25/10/2026) — la BASCULE « Mensuel / Cumul » À GAUCHE des trois mesures (le groupe reste à droite), un écart franc, pas
+                de filet ; son libellé dit le graphique affiché (barres : « Mensuel » ; courbe : « Cumul ») ; un clic, Entrée ou Espace bascule ;
+                un vrai bouton (fond, bordure, coins arrondis), la même apparence dans les deux états. */}
             <div className="tdb-mesures-ligne">
+              <button type="button" className="tdb-bascule-cumul" data-cumul-bouton data-cumul-etat={cumulMois ? 'cumul' : 'mensuel'}
+                title={cumulMois ? 'Afficher le mensuel' : 'Afficher le cumul'} aria-label={cumulMois ? 'Cumul — afficher le mensuel' : 'Mensuel — afficher le cumul'}
+                onClick={() => setCumulMois((c) => !c)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCumulMois((c) => !c); } }}>
+                <span className="tdb-bascule-cumul-icone" aria-hidden="true">⇄</span><span data-cumul-libelle>{cumulMois ? 'Cumul' : 'Mensuel'}</span>
+              </button>
               <div className="tdb-mesures" role="group" aria-label="Mesure affichée" data-mesures>
                 {MESURES_MOIS.map((x) => (
                   <button key={x.cle} type="button" className="tdb-onglet tdb-mesure" aria-pressed={mesure === x.cle} data-mesure-bouton={x.cle}
                     onClick={() => setMesure(x.cle)}>{x.mot}</button>
                 ))}
-              </div>
-              <span className="tdb-mesures-filet" aria-hidden="true" />
-              <div className="tdb-mesures">
-                <button type="button" className="tdb-onglet tdb-mesure tdb-mesure--cumul" aria-pressed={cumulMois} data-cumul-bouton
-                  title={cumulMois ? 'Revenir aux barres mois par mois' : 'Afficher le cumul depuis janvier'} onClick={() => setCumulMois((c) => !c)}>Cumul</button>
               </div>
             </div>
           </div>
@@ -1181,8 +1184,12 @@ export const CSS_TABLEAU_BORD = `
 .tdb-titre-mesures{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 14px;margin:0 0 10px}
 .tdb-titre-mesures h3{margin:0}
 .tdb-mesures{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line)}
-.tdb-mesures-ligne{display:flex;align-items:stretch;gap:10px;margin-left:auto}
-.tdb-mesures-filet{width:1px;align-self:stretch;margin:6px 0;background:var(--color-svv-line-strong)}
+.tdb-mesures-ligne{display:flex;align-items:center;gap:20px;margin-left:auto}
+.tdb-bascule-cumul{appearance:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-weight:800;cursor:pointer;white-space:nowrap}
+.tdb-bascule-cumul-icone{color:var(--color-svv-muted);font-size:1.05em}
+.tdb-bascule-cumul:hover{border-color:var(--color-svv-ink);background:var(--color-svv-surface)}
+.tdb-bascule-cumul:hover .tdb-bascule-cumul-icone{color:var(--color-svv-ink)}
+.tdb-bascule-cumul:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .tdb-zone-cumul{cursor:pointer}
 .tdb-mesure[aria-pressed="true"]{color:var(--color-svv-green-ink);border-bottom-color:var(--color-svv-green-ink)}
 .tdb-filtres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}

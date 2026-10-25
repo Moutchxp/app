@@ -1087,24 +1087,41 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     const url = (k: string) => new URLSearchParams(window.location.search).get(k);
     const points = () => [...container.querySelectorAll('[data-courbe="mois-cumul"] [data-point-cumul]')].map((c) => Number(c.getAttribute('data-valeur')));
 
-    it('sur la ligne des mesures, à droite, séparé par un filet ; bascule marche / arrêt : barres ↔ courbe du cumul ; l’adresse le porte (&cumul=1)', async () => {
+    const libelle = () => cumul().querySelector('[data-cumul-libelle]')?.textContent;
+    it('🔴 la bascule À GAUCHE des trois mesures, sans filet ; son libellé dit le graphique : « Mensuel » (barres) ↔ « Cumul » (courbe) ; l’adresse le porte', async () => {
       await monter('mois');
       const ligne = container.querySelector('.tdb-mesures-ligne')!;
-      expect([...ligne.children].map((e) => e.hasAttribute('data-mesures') ? 'mesures' : e.classList.contains('tdb-mesures-filet') ? 'filet' : e.querySelector('[data-cumul-bouton]') ? 'cumul' : '?'))
-        .toEqual(['mesures', 'filet', 'cumul']);
-      expect([cumul().textContent, cumul().getAttribute('aria-pressed'), cumul().className]).toEqual(['Cumul', 'false', 'tdb-onglet tdb-mesure tdb-mesure--cumul']);
+      expect([...ligne.children].map((e) => (e.hasAttribute('data-mesures') ? 'mesures' : e.hasAttribute('data-cumul-bouton') ? 'bascule' : '?'))).toEqual(['bascule', 'mesures']);
+      expect(container.querySelector('.tdb-mesures-filet')).toBeNull();
+      // Un vrai bouton, distinct des onglets ; l'icône ⇄ ; l'infobulle dit l'action.
+      expect([cumul().tagName, cumul().type, cumul().className]).toEqual(['BUTTON', 'button', 'tdb-bascule-cumul']);
+      expect([cumul().textContent, libelle(), cumul().title]).toEqual(['⇄Mensuel', 'Mensuel', 'Afficher le cumul']);
       expect(container.querySelector('[data-barre-mois="9"]')).not.toBeNull();
       expect(url('cumul')).toBeNull();
       await clic(cumul());
-      expect(cumul().getAttribute('aria-pressed')).toBe('true');
+      expect([libelle(), cumul().title, cumul().getAttribute('data-cumul-etat')]).toEqual(['Cumul', 'Afficher le mensuel', 'cumul']);
+      expect(cumul().className).toBe('tdb-bascule-cumul');   // la même apparence dans les deux états
       expect(container.querySelector('[data-barre-mois]')).toBeNull();
       expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
       expect(container.querySelector('[data-bloc="histogramme-mois"] h3')?.textContent).toBe('Mois par mois — 2026 (CA HT, cumulé depuis janvier ; un mois s’ouvre d’un clic)');
       expect([url('cumul'), url('vue')]).toEqual(['1', null]);
       await clic(cumul());
-      expect([cumul().getAttribute('aria-pressed'), url('cumul')]).toEqual(['false', null]);
+      expect([libelle(), url('cumul')]).toEqual(['Mensuel', null]);
       expect(container.querySelector('[data-barre-mois="9"]')).not.toBeNull();
-      // « Le cumul de 2026 » (Suivi annuel) n'est pas touché : le même composant, sans détail ni zones de survol.
+    });
+
+    it('au CLAVIER : Entrée et Espace basculent ; les autres touches non', async () => {
+      await monter('mois');
+      const touche = async (key: string) => { await act(async () => { cumul().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); }); await calmer(); };
+      await touche('Enter');
+      expect([libelle(), url('cumul')]).toEqual(['Cumul', '1']);
+      await touche(' ');
+      expect([libelle(), url('cumul')]).toEqual(['Mensuel', null]);
+      await touche('a');
+      expect(libelle()).toBe('Mensuel');
+      const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8');
+      expect(css).toContain('.tdb-bascule-cumul:focus-visible{outline:2px solid var(--color-svv-red)');
+      expect(css).toContain('.tdb-bascule-cumul:hover{');
     });
 
     it('une seule mesure à la fois ; changer de mesure GARDE le cumul ; l’adresse ?vue=baux&cumul=1 le rouvre', async () => {
@@ -1112,14 +1129,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await clic(cumul());
       await clic(container.querySelector('[data-mesure-bouton="baux"]')!);
       expect(presse()).toEqual(['baux']);
-      expect(cumul().getAttribute('aria-pressed')).toBe('true');
+      expect(libelle()).toBe('Cumul');
       expect([url('vue'), url('cumul')]).toEqual(['baux', '1']);
       await clic(container.querySelector('[data-mesure-bouton="gestion"]')!);
       expect(presse()).toEqual(['gestion']);
       act(() => { root.unmount(); }); root = createRoot(container);
       window.history.replaceState(null, '', '/?vue=baux&cumul=1');
       await monter('mois');
-      expect([presse(), cumul().getAttribute('aria-pressed')]).toEqual([['baux'], 'true']);
+      expect([presse(), libelle()]).toEqual([['baux'], 'Cumul']);
       expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
     });
 
