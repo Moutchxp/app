@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, TableauBordSuivi } from './TableauBordSuivi';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
-import { natureBienLoue, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
+import { natureBienLoue, suiviDuNegociateur, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * 🔴 Arno (22/10/2026) — « Outils de suivi » : le tableau de bord, sur la copie anonymisée de son suivi 2026 (et deux lignes
@@ -83,7 +83,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await monter('mois');
     await ongletMois(9);
     expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-valeur')?.textContent)).toBe('15 471,70 €');
-    expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-n1')?.textContent)).toBe('2 000,00 € en 2025 · +673,6 %');
+    expect(nbsp(tuile('ca-mois').querySelector('.tdb-tuile-n1')?.textContent)).toBe('2 000,00 € en 2025 (+673,6 %)');
     expect(tuile('baux-mois').querySelector('.tdb-tuile-valeur')?.textContent).toBe('17');
     expect(nbsp(tuile('ca-cumul').querySelector('.tdb-tuile-valeur')?.textContent)).toBe('94 612,61 €');
     expect(tuile('gestion').querySelector('.tdb-tuile-valeur')?.textContent).toBe('121');
@@ -136,7 +136,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-tuile="ca-mois"]')).toBeNull();
       expect(mot('ca-annee')).toBe('CA HT 2026 (janv. → oct.)');
       expect(val('ca-annee')).toBe('94 612,61 €');
-      expect(n1('ca-annee')).toBe('janv. → oct. 2025 : 3 000,00 € · +91 612,61 € · +3 053,8 %');
+      expect(n1('ca-annee')).toBe('janv. → oct. 2025 : 3 000,00 € · +91 612,61 € (+3 053,8 %)');
       expect(mot('baux-annee')).toBe('Baux signés en 2026 (janv. → oct.)');
       expect(mot('ca-net-annee')).toBe('CA net d’apporteurs 2026 (janv. → oct.)');
       expect(val('ca-net-annee')).toBe('90 538,16 €');
@@ -147,7 +147,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await choisir('mois', '3');
       expect(mot('ca-annee')).toBe('CA HT 2026 (janv. → mars)');
       expect(val('ca-annee')).toBe('25 305,33 €');
-      expect(n1('ca-annee')).toBe('janv. → mars 2025 : 1 000,00 € · +24 305,33 € · +2 430,5 %');
+      expect(n1('ca-annee')).toBe('janv. → mars 2025 : 1 000,00 € · +24 305,33 € (+2 430,5 %)');
     });
 
     it('année passée (2025) : l’année complète, face à 2024 entière ; N−1 absente : « 2024 : non importé »', async () => {
@@ -330,7 +330,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(nbsp(carte.querySelector('[data-ligne-a="ca"] th')?.textContent)).toBe('TOTAL CA HT');
       expect(resume('courant')).toBe('15 471,70 €');
       expect(container.querySelector('[data-a-ecart]')?.className).toMatch(/tdb-signe--(positif|negatif|nul)/);
-      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toMatch(/^[+−][\d ]+,\d\d € · /);
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toMatch(/^[+−][\d ]+,\d\d € \([+−][\d ]+,\d %\)$/);
       // Le chevron couvre les deux lignes.
       expect(container.querySelector('[data-carte-mois-chevron]')?.closest('td')?.getAttribute('rowspan')).toBe('2');
       // Un clic sur un sélecteur ne déplie pas.
@@ -376,7 +376,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(entetes()).toEqual(['Septembre 2026', 'Août 2026', 'Écart']);
       expect(resume('compare')).toBe('13 471,10 €');
       expect(container.querySelector('[data-a-ecart]')?.getAttribute('data-a-ecart')).toBe('positif');
-      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+2 000,60 € · +14,9 %');
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+2 000,60 € (+14,9 %)');
       await deplierCarteMois();
       expect(entetes()).toEqual(['Septembre 2026', 'Août 2026', 'Écart']);
       // Le choix survit au changement d'onglet de mois (absolu, porté par l'adresse).
@@ -388,9 +388,10 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       window.history.replaceState(null, '', '/?comparer=2026-12');
       await ouvrirSeptembre();
       expect(resume('compare')).toBe('0,00 €');
-      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+15 471,70 € · —');
+      expect(nbsp(container.querySelector('[data-a-ecart]')?.textContent)).toBe('+15 471,70 € (—)');
       await deplierCarteMois();
-      expect(container.querySelector('[data-ligne-a="nb"] td:nth-of-type(3)')?.textContent).toBe('—');
+      // 🔴 25/10/2026 — sans base (comparé à 0) : l'écart en valeur, et « (—) » pour le pourcentage.
+      expect(container.querySelector('[data-ligne-a="nb"] td:nth-of-type(3)')?.textContent).toBe('+17 (—)');
       act(() => { root.unmount(); }); root = createRoot(container);
       window.history.replaceState(null, '', '/?comparer=2026-99');
       await ouvrirSeptembre();
@@ -1615,5 +1616,44 @@ describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible 
     expect(net.querySelector('[data-net-variable], [data-net="net"], [data-net-part]')).toBeNull();
     expect(net.querySelector('[data-net-sans-droit]')?.textContent).toBe('Variable et net réservés aux administrateurs');
     expect(net.querySelector('[data-net="collegues"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — l’écart : « +9 004,81 € (+139,2 %) », le pourcentage entre parenthèses ; sans base : « (—) »', () => {
+  it('le format, le cas sans base, et le pire cas tient sur une ligne', async () => {
+    const { ecartEtPct } = await import('./TableauBordSuivi');
+    expect(nbsp(ecartEtPct('+9 004,81 €', 1.392))).toBe('+9 004,81 € (+139,2 %)');
+    expect(nbsp(ecartEtPct('−123 456,78 €', -1))).toBe('−123 456,78 € (−100 %)');
+    expect(nbsp(ecartEtPct('+12,00 €', null))).toBe('+12,00 € (—)');
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8');
+    expect(css).toContain('.tdb-a-ecart,.tdb-a-ecart-ligne{white-space:nowrap}');
+    expect(css).not.toMatch(/ecartEur\([^)]*\)\} · \$\{signe/);
+  });
+
+  it('carte « Le mois » dépliée : chaque indicateur porte son écart « montant (%) » ; le nombre de baux « +n (%) »', async () => {
+    await monter('mois');
+    await deplierCarteMois();
+    const ecart = (k: string) => nbsp(container.querySelector(`[data-ligne-a="${k}"] [data-mot="Écart"]`)?.textContent);
+    expect(ecart('caProprietaire')).toMatch(/^[+−][\d ]+,\d\d € \(([+−][\d ]+,\d %|—)\)$/);
+    expect(ecart('nb')).toMatch(/^[+−]\d+ \(([+−][\d ]+,\d %|—)\)$/);
+  });
+});
+
+describe('🔴 Arno (25/10/2026, suite) — Suivi annuel vu par un négociateur NON administrateur : SA commission seulement', () => {
+  it('section « Négociateur — JB » avec ses seules lignes ; historique avec sa commission ; rien de la commission globale', async () => {
+    const ctx = { regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, aujourdhui: donnees.aujourdhui };
+    const propre = suiviDuNegociateur(donnees.activites, donnees.activites, ctx, 2026, 5)!;
+    donnees = { ...donnees, voirCommissions: false, regles: donnees.regles.map((r) => ({ ...r, tauxNegociateur: 0 })), retrocessions: [], negociateurPropre: propre,
+      historique: [{ annee: 2025, nbBaux: 1, nb: 1, ca: 1000, caNet: 900, apporteurs: 100, commission: null }, { annee: 2026, nbBaux: 2, nb: 2, ca: 2000, caNet: 1800, apporteurs: 200, commission: null }] };
+    window.history.replaceState(null, '', '/?annee=2026&mois=9');
+    await monter('annee');
+    const f = container.querySelector('[data-section="F"]') as HTMLElement;
+    expect(f.querySelector('h3')?.textContent).toMatch(/^Négociateur — Jean-Baptiste PONS — /);
+    const lignesF = [...f.querySelectorAll('[data-negociateur-ligne]')].map((e) => e.getAttribute('data-negociateur-ligne')!.split('|')[0]);
+    expect(lignesF.length).toBeGreaterThan(0);
+    expect(new Set(lignesF)).toEqual(new Set(['Jean-Baptiste PONS']));
+    expect(container.querySelector('[data-historique-annees] th:nth-of-type(6)')?.textContent).toBe('Commission brute — Jean-Baptiste PONS');
+    expect(container.querySelector('[data-commission-propre="2026"]')?.textContent).not.toBe('—');
+    expect(container.querySelector('[data-ligne-a="commission"]')).toBeNull();
   });
 });

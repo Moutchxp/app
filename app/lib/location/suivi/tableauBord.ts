@@ -850,6 +850,11 @@ export interface DonneesTableau {
    * serveur (le taux et les rétrocessions ne partent pas). Absent pour un administrateur (`voirCommissions` : il calcule tout).
    */
   variablesPropres?: Record<string, CascadeNegociateur>;
+  /**
+   * 🔴 Arno (25/10/2026, suite) — pour un compte NON administrateur qui est négociateur : SA commission dans le Suivi annuel (ses lignes,
+   * mois par mois de l'année), l'historique année par année et l'export — calculée côté serveur, rien d'un autre.
+   */
+  negociateurPropre?: { cle: string; libelle: string; lignes: LigneNegociateur[]; historique: { annee: number; commission: number }[] };
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
@@ -1341,6 +1346,24 @@ export function variablesDuNegociateur(activites: readonly ActiviteCalcul[], ctx
     sortie[m] = cascadeNegociateur(n, siennes.filter((a) => a.dateSignature.startsWith(m)), ctxPropre);
   }
   return sortie;
+}
+
+/**
+ * 🔴 Arno (25/10/2026, suite) — LE SUIVI D'UN SEUL NÉGOCIATEUR (compte non administrateur) : ses lignes « Les négociateurs » de l'année
+ * (mois par mois) et sa commission brute de chaque année d'activité — avec le vrai taux, SES rétrocessions et SES seules affaires.
+ * `null` : il n'a ni affaire ni rétrocession. PUR.
+ */
+export function suiviDuNegociateur(activitesAnnee: readonly ActiviteCalcul[], toutes: readonly ActiviteCalcul[], ctx: ContexteCalcul, annee: number, negociateurId: number):
+  { cle: string; libelle: string; lignes: LigneNegociateur[]; historique: { annee: number; commission: number }[] } | null {
+  const cle = `id:${negociateurId}`;
+  const ctxPropre: ContexteCalcul = { ...ctx, retrocessions: ctx.retrocessions.filter((r) => r.negociateurId === negociateurId),
+    recurrents: ctx.recurrents?.filter((a) => a.negociateurId === negociateurId) };
+  const siennes = activitesAnnee.filter((a) => a.negociateurId === negociateurId);
+  const siennesToutes = toutes.filter((a) => a.negociateurId === negociateurId);
+  const lignes = sectionNegociateurs(siennes, ctxPropre, { annee, mois: null }).filter((l) => l.cle === cle);
+  const historique = historiqueAnnees(siennesToutes, ctxPropre, true).map((h) => ({ annee: h.annee, commission: h.commission ?? 0 }));
+  const libelle = lignes[0]?.libelle ?? siennesToutes[0]?.negociateurLibelle ?? null;
+  return libelle === null ? null : { cle, libelle, lignes, historique };
 }
 
 // ── 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE ───────────────────────────────────────────────────────────────────────

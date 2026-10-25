@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import { formaterDate, Chip, DetailContenu, LIBELLE_SERVICE_GESTION, AIDE_SERVICE_GESTION } from './page';
+import { formaterDate, Chip, DetailContenu, LIBELLE_SERVICE_GESTION, AIDE_SERVICE_GESTION, LIBELLE_VOIR_COMMISSIONS, MENTION_VOIR_COMMISSIONS_SANS_EFFET } from './page';
 
 describe('formaterDate (M3-4 Lot E)', () => {
   it('null → « jamais »', () => {
@@ -274,5 +274,17 @@ describe('🔴 LOT PROFIL-GESTION — « Appartient au service gestion » dans l
     const html = rendre({ valeur: false, disponible: false, modifieLe: null, modifiePar: null });
     expect(html).toContain('migration 341');
     expect(rendre(undefined)).not.toContain(LIBELLE_SERVICE_GESTION);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Voir les commissions » : la case RESTE, avec la mention qu’elle est sans effet', () => {
+  it('la case et la mention discrète sous elle', () => {
+    const html = renderToStaticMarkup(createElement(DetailContenu, {
+      compte: { ...compteCollab, voirCommissions: { valeur: true, disponible: true } }, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
+      peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop, onBasculerVoirCommissions: noop,
+    }));
+    expect(html).toContain(LIBELLE_VOIR_COMMISSIONS);
+    expect(html).toContain(`data-voir-commissions-sans-effet="true">${MENTION_VOIR_COMMISSIONS_SANS_EFFET}</span>`);
+    expect(MENTION_VOIR_COMMISSIONS_SANS_EFFET).toBe('Sans effet actuellement : le variable est visible par le négociateur concerné et les administrateurs.');
   });
 });

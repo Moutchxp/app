@@ -39,6 +39,7 @@ export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modif
 /** Le libellé et l'aide de la case : écrits une fois, relus par les tests. */
 export const LIBELLE_SERVICE_GESTION = 'Appartient au service gestion';
 export const LIBELLE_VOIR_COMMISSIONS = 'Voir les commissions';
+export const MENTION_VOIR_COMMISSIONS_SANS_EFFET = 'Sans effet actuellement : le variable est visible par le négociateur concerné et les administrateurs.';
 export const AIDE_VOIR_COMMISSIONS = 'Location, « Outils de suivi » : la section « Négociateurs » et les montants de commission. Un administrateur les voit toujours.';
 export const AIDE_SERVICE_GESTION = 'Les mails écrits depuis la gestion n’affichent pas de cartouche d’alerte sur le nom.';
 
@@ -254,6 +255,8 @@ export function DetailContenu({
           <Chip libelle={LIBELLE_VOIR_COMMISSIONS} coche={compte.voirCommissions.valeur}
             disabled={enCours || !compte.voirCommissions.disponible} onToggle={onBasculerVoirCommissions} />
           <span className="cpt-note">{AIDE_VOIR_COMMISSIONS}</span>
+          {/* 🔴 Arno (25/10/2026) — la case reste, sans effet pour l'instant : le variable suit la règle « négociateur concerné + administrateurs ». */}
+          <span className="cpt-note" data-voir-commissions-sans-effet>{MENTION_VOIR_COMMISSIONS_SANS_EFFET}</span>
           {!compte.voirCommissions.disponible && (
             <span className="cpt-note">Mise à jour de la base à appliquer (migration 406) avant de pouvoir la cocher.</span>
           )}

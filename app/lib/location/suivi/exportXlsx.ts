@@ -20,6 +20,8 @@ const LIBELLE_TYPE: Record<ActiviteCalcul['type'], string> = { bail: 'Bail', ave
 
 export async function classeurSuivi(o: {
   annee: number; moisMax: number; activites: readonly ActiviteCalcul[]; ctx: ContexteCalcul; voirCommissions: boolean; filtres: string;
+  /** 🔴 Arno (25/10/2026) — un négociateur non administrateur : SA commission brute de chaque mois (calculée côté serveur), rien d'autre. */
+  commissionPropre?: { libelle: string; parMois: Record<string, { commission: number; retrocessions: number }> };
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Sans Vis-à-Vis® — Outils de suivi';
@@ -85,6 +87,13 @@ export async function classeurSuivi(o: {
         : t.commission;
       if (t.retrocessions > 0) { ws.getCell(`E${rT + 2}`).value = 'dont rétrocessions'; ws.getCell(`F${rT + 2}`).value = t.retrocessions; ws.getCell(`F${rT + 2}`).numFmt = EUROS; }
       ws.getCell(`C${rT + 2}`).numFmt = EUROS;
+    }
+    if (!o.voirCommissions && o.commissionPropre !== undefined) {
+      const p = o.commissionPropre.parMois[prefixe] ?? { commission: 0, retrocessions: 0 };
+      ws.getCell(`A${rT + 2}`).value = `COMS négociateur brut — ${o.commissionPropre.libelle}`;
+      ws.getCell(`C${rT + 2}`).value = p.commission;
+      ws.getCell(`C${rT + 2}`).numFmt = EUROS;
+      if (p.retrocessions > 0) { ws.getCell(`E${rT + 2}`).value = 'dont rétrocessions'; ws.getCell(`F${rT + 2}`).value = p.retrocessions; ws.getCell(`F${rT + 2}`).numFmt = EUROS; }
     }
     const rV = rT + 4;
     ws.getCell(`A${rV}`).value = 'VENTILATION';

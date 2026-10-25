@@ -76,6 +76,9 @@ const signe = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+
 const moisCourt = (m: string): string => `${NOMS_MOIS[Number(m.slice(5, 7)) - 1].slice(0, 4).replace(/\.$/, '')}. ${m.slice(0, 4)}`;
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
 const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
+/** 🔴 Arno (25/10/2026) — un écart et son pourcentage : « +9 004,81 € (+139,2 %) » ; sans base (comparé à 0) : « +x € (—) ». */
+export const ecartEtPct = (ecart: string, part: number | null): string => `${ecart} (${signe(part)})`;
+const ecartNb = (x: number): string => `${x >= 0 ? '+' : '−'}${Math.abs(x)}`;
 const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 /** A — les lignes du tableau du mois ; `commission` : seulement avec « Voir les commissions ». */
@@ -197,7 +200,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const lignesPeriode = lignesDePeriode(lignes, periode);
   const preavis = portee === 'mois' ? d.preavis[moisFinGestion] ?? 0 : Object.entries(d.preavis).filter(([k]) => k.startsWith(`${annee}-`)).reduce((s, [, v]) => s + v, 0);
   const E = sectionIndicateurs(lignesPeriode, preavis);
-  const F = d.voirCommissions ? sectionNegociateurs(lignes, ctx, periode) : [];
+  // 🔴 Arno (25/10/2026) — un administrateur calcule tous les négociateurs ; un négociateur non administrateur reçoit SES lignes (serveur).
+  const propre = d.voirCommissions ? undefined : d.negociateurPropre;
+  const F = d.voirCommissions ? sectionNegociateurs(lignes, ctx, periode)
+    : (propre?.lignes ?? []).filter((l) => periode.mois === null || l.mois === `${periode.annee}-${String(periode.mois).padStart(2, '0')}`);
   const sansN1 = !d.activites.some((a) => a.dateSignature.startsWith(`${annee - 1}-`));
   // Arno (23/10/2026) — Suivi annuel : les tuiles montrent l'ANNÉE (en cours : du 1er janvier à la fin du mois choisi), face à N−1 sur la même période.
   const T = tuilesAnnee(lignes, ctx, annee, jour, mois, d.gestionLignes ?? []);
@@ -265,15 +271,15 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-annee">
             <span className="tdb-tuile-mot">CA HT {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
             <strong className="tdb-tuile-valeur">{eur(T.courant.ca)}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${eur(T.precedent.ca)} · ${ecartEur(T.ecartCa)} · ${signe(T.variationCa)}`}</span></button></li>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {eur(T.precedent.ca)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCa), T.variationCa)}</span></>}</span></button></li>
           <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Baux signés en ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="baux-annee">
             <span className="tdb-tuile-mot">Baux signés en {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
             <strong className="tdb-tuile-valeur">{T.courant.nbBaux}{T.courant.nbAvenants + T.courant.nbGestionSeule > 0 && <small> + {T.courant.nbAvenants + T.courant.nbGestionSeule} autre(s)</small>}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${T.precedent.nbBaux} · ${T.ecartNb >= 0 ? '+' : '−'}${Math.abs(T.ecartNb)} · ${signe(T.variationNb)}`}</span></button></li>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {T.precedent.nbBaux} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartNb(T.ecartNb), T.variationNb)}</span></>}</span></button></li>
           <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net d’apporteurs ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-net-annee">
             <span className="tdb-tuile-mot">CA net d’apporteurs {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
             <strong className="tdb-tuile-valeur">{eur(T.courant.caNet)}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${periodeN1} : ${eur(T.precedent.caNet)} · ${ecartEur(T.ecartCaNet)} · ${signe(T.variationCaNet)}`}</span></button></li>
+            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {eur(T.precedent.caNet)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCaNet), T.variationCaNet)}</span></>}</span></button></li>
           <li><button type="button" className="tdb-tuile" data-tuile="gestion"
             onClick={() => setDetail({ titre: `Gestion — ${annee}${T.complete ? '' : ` (${periodeT})`}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
             <span className="tdb-tuile-mot">Biens en gestion</span>
@@ -288,15 +294,15 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT — ${NOMS_MOIS[mois - 1]} ${annee}`, A.courant.ids)} data-tuile="ca-mois">
           <span className="tdb-tuile-mot">CA HT — {NOMS_MOIS[mois - 1].toLowerCase()}</span>
           <strong className="tdb-tuile-valeur">{eur(A.courant.ca)}</strong>
-          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(A.precedent.ca)} en ${annee - 1} · ${signe(A.variationCa)}`}</span></button></li>
+          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(A.precedent.ca)} en ${annee - 1} (${signe(A.variationCa)})`}</span></button></li>
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Baux signés — ${NOMS_MOIS[mois - 1]} ${annee}`, A.courant.ids)} data-tuile="baux-mois">
           <span className="tdb-tuile-mot">Baux signés — {NOMS_MOIS[mois - 1].toLowerCase()}</span>
           <strong className="tdb-tuile-valeur">{A.courant.nbBaux}{A.courant.nbAvenants + A.courant.nbGestionSeule > 0 && <small> + {A.courant.nbAvenants + A.courant.nbGestionSeule} autre(s)</small>}</strong>
-          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${A.precedent.nbBaux} en ${annee - 1} · ${signe(A.variationNb)}`}</span></button></li>
+          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${A.precedent.nbBaux} en ${annee - 1} (${signe(A.variationNb)})`}</span></button></li>
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA cumulé — janvier à ${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`, idsCumul)} data-tuile="ca-cumul">
           <span className="tdb-tuile-mot">CA cumulé {annee} (à fin {NOMS_MOIS[mois - 1].toLowerCase()})</span>
           <strong className="tdb-tuile-valeur">{eur(cumul.caCumule)}</strong>
-          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(cumul.caCumuleN1)} en ${annee - 1} · ${signe(varCumul)}`}</span></button></li>
+          <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(cumul.caCumuleN1)} en ${annee - 1} (${signe(varCumul)})`}</span></button></li>
         <li><button type="button" className="tdb-tuile" data-tuile="gestion"
           onClick={() => setDetail({ titre: `Gestion — ${NOMS_MOIS[Number(Dm.mois.slice(5)) - 1].toLowerCase()} ${Dm.mois.slice(0, 4)}`, lots: [{ titre: 'Entrés en gestion', ids: Dm.lotsEntres }, { titre: 'Sortis de la gestion', ids: Dm.lotsSortis }] })}>
           <span className="tdb-tuile-mot">Biens en gestion</span>
@@ -424,8 +430,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                   <td data-mot={`${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`} data-a-total={total ? 'compare' : undefined}>{P === null ? <span className="loc-muet">…</span> : sansCmp ? <span className="loc-muet">—</span> : chiffre(valeur(p), `${l.mot} — ${NOMS_MOIS[cmp.mois - 1]} ${cmp.annee}`, ids(P))}</td>
                   {total ? (
                     <td data-mot="Écart" className={`tdb-a-ecart tdb-signe tdb-signe--${ecartCa === null ? 'nul' : sensDe(ecartCa)}`} data-a-ecart={ecartCa === null ? 'nul' : sensDe(ecartCa)}>
-                      {ecartCa === null ? '—' : `${ecartEur(ecartCa)} · ${signe(variation(A.courant.ca, P!.ca))}`}</td>
-                  ) : <td data-mot="Écart">{sansCmp || p === 0 ? '—' : l.k === 'nb' ? `${c - p >= 0 ? '+' : '−'}${Math.abs(c - p)}` : signe((c - p) / p)}</td>}
+                      {ecartCa === null ? '—' : ecartEtPct(ecartEur(ecartCa), variation(A.courant.ca, P!.ca))}</td>
+                  ) : <td data-mot="Écart" className="tdb-a-ecart-ligne">{sansCmp ? '—' : ecartEtPct(l.k === 'nb' ? ecartNb(c - p) : ecartEur(c - p), variation(c, p))}</td>}
                 </tr>
               );
             })}
@@ -447,7 +453,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <CourbeAnnees lignes={d.historique ?? []} annee={annee} onAnnee={setAnnee} />
           <table className="tdb-table tdb-table--mois" data-historique-annees>
             <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">CA HT</th><th scope="col">Apporteurs</th><th scope="col">CA net</th>
-              {d.voirCommissions && <th scope="col">Commission brute</th>}<th scope="col">Évolution du CA</th></tr></thead>
+              {d.voirCommissions && <th scope="col">Commission brute</th>}
+              {propre !== undefined && <th scope="col">Commission brute — {propre.libelle}</th>}<th scope="col">Évolution du CA</th></tr></thead>
             <tbody>
               {(d.historique ?? []).map((h, i, t) => {
                 const avant = i > 0 ? t[i - 1] : null;
@@ -457,6 +464,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
                     <td data-mot="Baux">{h.nbBaux}</td><td data-mot="CA HT">{eur(h.ca)}</td><td data-mot="Apporteurs">{eur(h.apporteurs)}</td><td data-mot="CA net">{eur(h.caNet)}</td>
                     {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : eur(h.commission)}</td>}
+                    {propre !== undefined && (() => { const x = propre.historique.find((y) => y.annee === h.annee);
+                      return <td data-mot={`Commission brute — ${propre.libelle}`} data-commission-propre={h.annee}>{x === undefined ? '—' : eur(x.commission)}</td>; })()}
                     <td data-mot="Évolution du CA">{evol === null ? '—' : signe(evol)}</td>
                   </tr>
                 );
@@ -544,9 +553,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         </ul>
       </section>
 
-      {d.voirCommissions && (
+      {(d.voirCommissions || propre !== undefined) && (
         <section className="tdb-section" aria-labelledby="tdb-f" data-section="F">
-          <h3 id="tdb-f">Les négociateurs — {libellePeriode}</h3>
+          <h3 id="tdb-f">{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</h3>
           <p className="loc-muet tdb-note">Commission brute = taux × (CA HT − commissions des apporteurs) + primes de nouvelle gestion − rétrocessions — la formule du suivi mensuel.</p>
           {F.length === 0 ? <p className="loc-muet">Aucune activité sur la période.</p> : (
             <table className="tdb-table tdb-table--large">
@@ -1040,6 +1049,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-tuile-valeur{font-size:1.65rem;font-weight:800;line-height:1.15;overflow-wrap:anywhere}
 .tdb-tuile-valeur small{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
 .tdb-tuile-n1{font-size:.85rem;color:var(--color-svv-muted)}
+.tdb-ecart-insecable{white-space:nowrap}
 .tdb-note{margin:0}
 .tdb-section{border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px;background:var(--color-svv-surface);min-width:0}
 .tdb-section h3{margin:0 0 10px;font-size:1.05rem}
@@ -1110,7 +1120,8 @@ export const CSS_TABLEAU_BORD = `
 .tdb-a-choix>.lch:last-child{width:96px}
 .tdb-a-choix .lch-champ.tdb-a-champ--mois,.tdb-a-choix .lch-champ.tdb-a-champ--annee{width:100%}
 .tdb-a-total{cursor:pointer}
-.tdb-a-ecart{font-weight:800;white-space:nowrap}
+.tdb-a-ecart{font-weight:800}
+.tdb-a-ecart,.tdb-a-ecart-ligne{white-space:nowrap}
 .tdb-a-chevron-case{padding:0 !important;text-align:center !important;vertical-align:middle !important;border-bottom:0 !important}
 .tdb-a-chevron{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);font-size:1rem;cursor:pointer}
 .tdb-a-chevron:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}

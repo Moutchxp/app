@@ -23,7 +23,10 @@ export async function GET(request: Request): Promise<Response> {
   try {
     // 🔴 Arno (25/10/2026) — primes et commission du négociateur dans l'export : administrateurs seulement.
     const voirCommissions = await estAdministrateurActif(garde.auteurId);
-    const d = await donneesTableau(annee, voirCommissions, jour);
+    const d = await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId);
+    const p = d.negociateurPropre;
+    const commissionPropre = p === undefined ? undefined
+      : { libelle: p.libelle, parMois: Object.fromEntries(p.lignes.map((l) => [l.mois, { commission: l.totaux.commission, retrocessions: l.totaux.retrocessions }])) };
     const filtre = filtreDepuis(url.searchParams);
     const activites = filtrer(d.activites, filtre).filter((x) => x.dateSignature.startsWith(`${annee}-`));
     const moisMax = annee < Number(jour.slice(0, 4)) ? 12 : Math.max(Number(jour.slice(5, 7)), ...activites.map((x) => Number(x.dateSignature.slice(5, 7))));
@@ -33,7 +36,7 @@ export async function GET(request: Request): Promise<Response> {
       .filter((x) => x).join(', ');
     const tampon = await classeurSuivi({ annee, moisMax, activites, ctx: { regles: d.regles, apporteurs: d.apporteurs, retrocessions: d.retrocessions,
       // 413 — la part gestion « Récurrent » des affaires de toutes les années, avec les mêmes filtres.
-      recurrents: filtrer(d.recurrents ?? [], filtre), aujourdhui: d.aujourdhui }, voirCommissions, filtres });
+      recurrents: filtrer(d.recurrents ?? [], filtre), aujourdhui: d.aujourdhui }, voirCommissions, filtres, commissionPropre });
     return new Response(new Uint8Array(tampon), {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

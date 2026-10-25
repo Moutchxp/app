@@ -34,4 +34,20 @@ describe('GET /api/admin/location/suivi/export', () => {
     expect(o.voirCommissions).toBe(false);
     expect(o.filtres).toBe('sans gestion');
   });
+  it('🔴 Arno (25/10/2026) — un négociateur non administrateur : SA commission brute de chaque mois, demandée pour SON compte ; rien d’un autre', async () => {
+    donneesTableau.mockResolvedValue({ activites: [], regles: [], apporteurs: [], retrocessions: [], negociateurs: [],
+      negociateurPropre: { cle: 'id:5', libelle: 'JB', lignes: [{ cle: 'id:5', libelle: 'JB', mois: '2026-03', totaux: { commission: 412.5, retrocessions: 40 } }], historique: [] } });
+    await GET(new Request('http://x/export?annee=2026'));
+    expect(donneesTableau.mock.calls[0][3]).toBe(5);
+    const o = classeurSuivi.mock.calls[0][0];
+    expect(o.voirCommissions).toBe(false);
+    expect(o.commissionPropre).toEqual({ libelle: 'JB', parMois: { '2026-03': { commission: 412.5, retrocessions: 40 } } });
+  });
+  it('un administrateur : tout, sans commission « propre »', async () => {
+    estAdministrateurActif.mockResolvedValue(true);
+    await GET(new Request('http://x/export?annee=2026'));
+    expect(donneesTableau.mock.calls[0][1]).toBe(true);
+    expect(donneesTableau.mock.calls[0][3]).toBeNull();
+    expect(classeurSuivi.mock.calls[0][0].commissionPropre).toBeUndefined();
+  });
 });

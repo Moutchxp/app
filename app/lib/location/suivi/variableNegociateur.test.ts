@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Apporteur } from './suivi';
-import { cascadeNegociateur, sectionNegociateurs, totauxPeriode, variablesDuNegociateur, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
+import { cascadeNegociateur, sectionNegociateurs, suiviDuNegociateur, totauxPeriode, variablesDuNegociateur, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026, accord écrit) — LE VARIABLE DU NÉGOCIATEUR : avant le taux, on retire du CA HT toutes les commissions versées SAUF
@@ -93,5 +93,33 @@ describe('🔴 Arno (25/10/2026) — la cascade envoyée à un négociateur NON 
     const admin = cascadeNegociateur(n, lignes.filter((a) => a.dateSignature.startsWith('2026-03')), c2);
     expect(Math.round(v['2026-03'].variable * 100)).toBe(Math.round(admin.variable * 100));
     expect(Math.round(v['2026-03'].variable * 100)).toBe(Math.round((670 * 0.15 + 150 - 40.5) * 100));
+  });
+});
+
+describe('🔴 Arno (25/10/2026, suite) — le Suivi annuel d’un négociateur non administrateur : SA commission, rien d’un autre', () => {
+  const lignes = [ligne(), ligne({ id: 2, negociateurId: 9, negociateurLibelle: 'Cédric' }), ligne({ id: 3, dateSignature: '2026-05-04' })];
+  const anciennes = [...lignes, ligne({ id: 4, dateSignature: '2025-02-02' }), ligne({ id: 5, dateSignature: '2025-03-03', negociateurId: 9, negociateurLibelle: 'Cédric' })];
+  const c2: ContexteCalcul = { ...ctx, retrocessions: [
+    { negociateurId: 3, negociateurLibelle: 'JB', mois: '2026-03-01', montant: 40.5, libelle: 'Avance JB' },
+    { negociateurId: 9, negociateurLibelle: 'Cédric', mois: '2026-03-01', montant: 999, libelle: 'Avance Cédric' }] };
+  const s3 = suiviDuNegociateur(lignes, anciennes, c2, 2026, 3)!;
+
+  it('ses lignes du Suivi annuel, mois par mois : ses seuls dossiers et rétrocessions ; commission = celle que calcule un administrateur', () => {
+    expect(s3.lignes.map((l) => [l.cle, l.mois, l.totaux.nb])).toEqual([['id:3', '2026-03', 1], ['id:3', '2026-05', 1]]);
+    const admin = sectionNegociateurs(lignes, c2, { annee: 2026, mois: null }).filter((l) => l.cle === 'id:3');
+    expect(s3.lignes.map((l) => Math.round(l.totaux.commission * 100))).toEqual(admin.map((l) => Math.round(l.totaux.commission * 100)));
+    expect(s3.lignes[0].totaux.retrocessions).toBe(40.5);
+    expect(JSON.stringify(s3)).not.toContain('Cédric');
+    expect(JSON.stringify(s3)).not.toContain('999');
+  });
+
+  it('son historique année par année : sa commission de chaque année, rien d’un autre', () => {
+    expect(s3.historique.map((h) => h.annee)).toEqual([2025, 2026]);
+    // 2025 : le barème de l'apporteur ne court que depuis 2026 → rien de déduit : 1 000 × 15 % + 150 de prime.
+    expect(Math.round(s3.historique[0].commission * 100)).toBe(Math.round((1000 * 0.15 + 150) * 100));
+  });
+
+  it('un compte sans affaire ni rétrocession : rien', () => {
+    expect(suiviDuNegociateur(lignes, anciennes, c2, 2026, 42)).toBeNull();
   });
 });

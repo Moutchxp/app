@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
+import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
@@ -268,6 +268,9 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   // 🔴 Arno (25/10/2026) — la cascade du SEUL négociateur connecté (non administrateur), calculée avec le vrai taux et SES rétrocessions.
   const variablesPropres = !voirCommissions && negociateurPropre !== null
     ? variablesDuNegociateur(activites, { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui }, annee, negociateurPropre) : {};
+  // 🔴 Arno (25/10/2026, suite) — SA commission dans le Suivi annuel, l'historique et l'export (rien d'un autre).
+  const suiviPropre = !voirCommissions && negociateurPropre !== null
+    ? suiviDuNegociateur(activites, toutes, { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui }, annee, negociateurPropre) : null;
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {
@@ -280,5 +283,6 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     // La commission d'un écart n'est montrée qu'à qui peut « Voir les commissions ».
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
     ...(voirCommissions ? {} : { variablesPropres }),
+    ...(suiviPropre === null ? {} : { negociateurPropre: suiviPropre }),
   };
 }
