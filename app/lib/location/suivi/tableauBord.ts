@@ -885,11 +885,16 @@ export interface ApporteurDuMois extends CumulAffaires {
    */
   sorte?: 'interne' | 'externe' | 'non_nomme' | null; meilleur?: boolean;
 }
-export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: string }
+/**
+ * 🔴 Arno (25/10/2026) — un COLLÈGUE du mois : `via` (les affaires de SES apporteurs externes), `direct` (« Collègue directement », ou un
+ * apporteur interne lié à son compte) ; les champs de `CumulAffaires` portent le TOTAL (via + direct). `meilleur` : le plus fort CA total.
+ */
+export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: string; via?: CumulAffaires; direct?: CumulAffaires; meilleur?: boolean }
 
 /**
  * Les apporteurs d'un ensemble de lignes (nombre d'affaires, CA apporté, honoraires d'apporteur), et pour chaque COLLÈGUE le
- * cumul des affaires apportées par SES apporteurs (collègue à la date de chaque affaire ; « à rattacher » à part). PUR.
+ * cumul des affaires apportées par SES apporteurs (collègue à la date de chaque affaire ; « à rattacher » à part) ET de ses apports
+ * en direct (🔴 Arno, 25/10/2026 : « Collègue directement », apporteur interne lié à son compte). PUR.
  */
 export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[],
   /** 413 — les affaires « Récurrent » (toutes années) et les mois : leur part gestion due ces mois-là s'ajoute au dû. */
@@ -902,41 +907,47 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
   /** 🔴 Arno (25/10/2026) — un collègue « directement » (origine du contact, sans apporteur) : un apporteur INTERNE du mois. */
   const collegueDirect = (a: ActiviteCalcul): boolean => a.apporteurId === null && a.apporteurNom === null && a.origineContact === 'collegue' && !!a.collegueLibelle;
   const nonNomme = (a: ActiviteCalcul): boolean => a.apporteurId === null && a.apporteurNom === null && !collegueDirect(a) && (a.commissionSaisie ?? 0) !== 0;
-  const lignesDe = (a: ActiviteCalcul): { ligneA: ApporteurDuMois; ligneC: CollegueDuMois | null } => {
+  const collegue = (cle: string, libelle: string): CollegueDuMois => {
+    const l = parCol.get(cle) ?? { ...cumulVide(), cle, libelle, via: cumulVide(), direct: cumulVide() };
+    parCol.set(cle, l);
+    return l;
+  };
+  type Part = { ligneC: CollegueDuMois; part: 'via' | 'direct' } | null;
+  const lignesDe = (a: ActiviteCalcul): { ligneA: ApporteurDuMois; c: Part } => {
     const ap = a.apporteurId === null ? undefined : apporteurs.find((x) => x.id === a.apporteurId);
     if (collegueDirect(a) || nonNomme(a)) {
       const direct = collegueDirect(a);
-      const cleD = direct ? `collegue:${a.collegueId !== null && a.collegueId !== undefined ? `id:${a.collegueId}` : (a.collegueLibelle ?? '').toLowerCase()}` : 'non-nomme';
+      const cleCol = a.collegueId !== null && a.collegueId !== undefined ? `id:${a.collegueId}` : `nom:${(a.collegueLibelle ?? '').toLowerCase()}`;
+      const cleD = direct ? `collegue:${cleCol}` : 'non-nomme';
       const ligneD = parApp.get(cleD) ?? { ...cumulVide(), apporteurId: null, nom: direct ? String(a.collegueLibelle) : 'Apporteur non nommé', aRattacher: false, sorte: direct ? 'interne' as const : 'non_nomme' as const };
       parApp.set(cleD, ligneD);
-      return { ligneA: ligneD, ligneC: null };
+      // 🔴 Arno (25/10/2026) — le collègue « directement » : son apport EN DIRECT, cumulé avec celui de ses apporteurs.
+      return { ligneA: ligneD, c: direct ? { ligneC: collegue(cleCol, String(a.collegueLibelle)), part: 'direct' } : null };
     }
     const cleA = a.apporteurId !== null ? `id:${a.apporteurId}` : `nom:${(a.apporteurNom ?? '').toLowerCase()}`;
     const ligneA = parApp.get(cleA) ?? { ...cumulVide(), apporteurId: a.apporteurId, nom: ap?.nom ?? a.apporteurNom ?? '—', aRattacher: ap !== undefined && ap.collegues !== undefined && ap.collegues.length === 0,
       sorte: ap === undefined ? null : interneADate(ap, a.dateSignature) ? 'interne' as const : 'externe' as const };
     parApp.set(cleA, ligneA);
-    // 🔴 Arno (25/10/2026) — les COLLÈGUES : ceux des seuls apporteurs EXTERNES (un interne n'est rattaché à personne).
-    if (ap !== undefined && interneADate(ap, a.dateSignature)) return { ligneA, ligneC: null };
     const col = collegueDeLigne({ ...a, origineContact: 'apporteur' }, apporteurs);
-    if (col === null) return { ligneA, ligneC: null };
-    const cleC = 'aRattacher' in col ? 'a-rattacher' : col.cle;
-    const ligneC = parCol.get(cleC) ?? { ...cumulVide(), cle: cleC, libelle: 'aRattacher' in col ? 'À rattacher' : col.libelle };
-    parCol.set(cleC, ligneC);
-    return { ligneA, ligneC };
+    if (col === null) return { ligneA, c: null };
+    if ('aRattacher' in col) return { ligneA, c: { ligneC: collegue('a-rattacher', 'À rattacher'), part: 'via' } };
+    // 🔴 Arno (25/10/2026) — un apporteur INTERNE lié au compte du collègue : son apport EN DIRECT ; un externe : VIA ses apporteurs.
+    const direct = ap !== undefined && interneADate(ap, a.dateSignature) && col.cle === `id:${ap.compteId}`;
+    return { ligneA, c: { ligneC: collegue(col.cle, col.libelle), part: direct ? 'direct' : 'via' } };
   };
   for (const a of lignes) {
     ajouter(total, a, apporteurs);
     if (a.apporteurId === null && a.apporteurNom === null && !collegueDirect(a) && !nonNomme(a)) { ajouter(sans, a, apporteurs); continue; }
-    const { ligneA, ligneC } = lignesDe(a);
+    const { ligneA, c } = lignesDe(a);
     ajouter(ligneA, a, apporteurs);
-    if (ligneC !== null) ajouter(ligneC, a, apporteurs);
+    if (c !== null) { ajouter(c.ligneC, a, apporteurs); ajouter(c.ligneC[c.part] as CumulAffaires, a, apporteurs); }
   }
   for (const a of recurrent?.lignes ?? []) {
     const du = duRecurrent([a], apporteurs, recurrent!.mois, recurrent!.aujourdhui);
     if (du === 0) continue;
-    const { ligneA, ligneC } = lignesDe(a);
+    const { ligneA, c } = lignesDe(a);
     ajouterDu(ligneA, du);
-    if (ligneC !== null) ajouterDu(ligneC, du);
+    if (c !== null) { ajouterDu(c.ligneC, du); ajouterDu(c.ligneC[c.part] as CumulAffaires, du); }
   }
   const tri = <T extends { ca: number; nom?: string; libelle?: string }>(x: T[]): T[] => x.sort((p, q) => q.ca - p.ca || String(p.nom ?? p.libelle).localeCompare(String(q.nom ?? q.libelle)));
   const liste = tri([...parApp.values()]);
@@ -945,7 +956,12 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
   const haut = nommes.length === 0 ? 0 : auCentime(nommes[0].ca);
   for (const x of liste) x.meilleur = x.sorte !== 'non_nomme' && haut > 0 && auCentime(x.ca) === haut;
   total.commission = liste.reduce((s2, x) => s2 + x.commission, 0) + sans.commission;
-  return { apporteurs: liste, collegues: tri([...parCol.values()]), sans, total };
+  // Le MEILLEUR collègue : le plus fort CA total (via + direct, au centime) ; « À rattacher » n'en est pas un.
+  const collegues = tri([...parCol.values()]);
+  const vrais = collegues.filter((x) => x.cle !== 'a-rattacher');
+  const hautC = vrais.length === 0 ? 0 : auCentime(vrais[0].ca);
+  for (const x of collegues) x.meilleur = x.cle !== 'a-rattacher' && hautC > 0 && auCentime(x.ca) === hautC;
+  return { apporteurs: liste, collegues, sans, total };
 }
 
 /**

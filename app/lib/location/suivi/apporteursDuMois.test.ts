@@ -52,7 +52,36 @@ describe('🔴 apporteurs du mois', () => {
     expect(r.total.nb).toBe(8);
   });
 
-  it('COLLÈGUES : seulement ceux des apporteurs EXTERNES (ni l’interne, ni les collègues « directement »)', () => {
-    expect(r.collegues.map((x) => [x.libelle, x.nb, Math.round(x.ca * 100)])).toEqual([['Jean-Baptiste Pons', 2, Math.round((528.9 + 937.35) * 100)]]);
+  it('🔴 COLLÈGUES (25/10/2026) : via leurs apporteurs externes ET en direct (« Collègue directement », apporteur interne lié à leur compte)', () => {
+    expect(r.collegues.map((x) => [x.libelle, x.via?.nb, x.direct?.nb, x.nb])).toEqual([
+      ['Arnaud Jorel', 0, 1, 1], ['Jean-Baptiste Pons', 2, 0, 2], ['Mylène Interne', 0, 1, 1], ['Cédric Jullien', 0, 1, 1]]);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — les collègues : via leurs apporteurs et en direct, cumulés (juin 2026)', () => {
+  const rousseau = { ...ap(1, 'Frédéric Rousseau', null), collegues: [{ depuis: '0001-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] } as Apporteur;
+  const via = [[528.9, 52.89], [937.35, 93.735], [730.6, 73.06], [644.75, 64.475], [83.34, 8.334], [649.55, 64.955]]
+    .map(([ca, com], i) => ligne(100 + i, ca, { apporteurId: 1, apporteurNom: 'Frédéric Rousseau', origineContact: 'apporteur', commissionSaisie: com }));
+  const juin = [...via,
+    ligne(200, 1693.54, { origineContact: 'collegue', collegueId: 2, collegueLibelle: 'Arnaud Jorel', commissionSaisie: 0 }),
+    ligne(201, 460.96, { origineContact: 'collegue', collegueId: null, collegueLibelle: 'Cédric Jullien', commissionSaisie: 0 }),
+    ligne(202, 1701.62, { origineContact: 'internet' })];
+  const r = apporteursEtCollegues(juin, [rousseau]);
+  const c = (x: number) => Math.round(x * 100) / 100;
+
+  it('les chiffres de juin : Arnaud Jorel via 6 / 3 574,49 / 357,45 ; en direct 1 / 1 693,54 / 0 ; total 7 / 5 268,03 / 357,45 — Cédric Jullien en direct 1 / 460,96', () => {
+    const aj = r.collegues.find((x) => x.libelle === 'Arnaud Jorel')!;
+    expect([aj.via!.nb, c(aj.via!.ca), c(aj.via!.commission)]).toEqual([6, 3574.49, 357.45]);
+    expect([aj.direct!.nb, c(aj.direct!.ca), c(aj.direct!.commission)]).toEqual([1, 1693.54, 0]);
+    expect([aj.nb, c(aj.ca), c(aj.commission)]).toEqual([7, 5268.03, 357.45]);
+    const cj = r.collegues.find((x) => x.libelle === 'Cédric Jullien')!;
+    expect([cj.via!.nb, cj.direct!.nb, c(cj.ca), c(cj.commission)]).toEqual([0, 1, 460.96, 0]);
+  });
+
+  it('total = via + direct au centime ; tri par CA total ; « Meilleur collègue » (ex aequo : tous) ; « Sans apporteur » n’est pas un collègue', () => {
+    for (const x of r.collegues) expect(Math.round(x.ca * 100)).toBe(Math.round((x.via!.ca + x.direct!.ca) * 100));
+    expect(r.collegues.map((x) => [x.libelle, x.meilleur])).toEqual([['Arnaud Jorel', true], ['Cédric Jullien', false]]);
+    const egal = apporteursEtCollegues([...juin, ligne(203, 4807.07, { origineContact: 'collegue', collegueId: null, collegueLibelle: 'Cédric Jullien', commissionSaisie: 0 })], [rousseau]);
+    expect(egal.collegues.filter((x) => x.meilleur).map((x) => x.libelle).sort()).toEqual(['Arnaud Jorel', 'Cédric Jullien']);
   });
 });

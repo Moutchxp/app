@@ -791,7 +791,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
     // 🔴 25/10/2026 — les badges : Externe (sans compte) et « Meilleur apporteur » (le plus fort CA du mois).
     expect(nbsp(container.querySelector('[data-apporteur-mois="Apporteur A"]')?.textContent)).toBe(`Apporteur AExterneMeilleur apporteur${ids.length}3 941,03 €394,10 €`);
-    expect(nbsp(container.querySelector('[data-collegue-mois="Arnaud Jorel"]')?.textContent)).toBe(`Arnaud Jorel${ids.length}3 941,03 €394,10 €`);
+    // 🔴 25/10/2026 — un seul apport (via ses apporteurs) : une ligne, la mention en petit ; le badge du meilleur collègue.
+    expect(nbsp(container.querySelector('[data-collegue-mois="Arnaud Jorel"]')?.textContent)).toBe(`Arnaud JorelMeilleur collèguevia ses apporteurs${ids.length}3 941,03 €394,10 €`);
     expect(container.querySelector('[data-collegue-mois="Jean-Baptiste PONS"]')).toBeNull();
   });
 
@@ -1320,5 +1321,33 @@ describe('🔴 Arno (25/10/2026) — « Apporteurs du mois » : tous les apporte
     const total = nbsp(bloc.querySelector('[data-total-apporteurs-ca]')?.textContent);
     expect(total).toBe(nbsp(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="ca"]')?.textContent));
     expect(nbsp(bloc.querySelector('[data-apporteur-mois="total"] [data-mot="Affaires"]')?.textContent)).toBe('17');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — les collègues : via leurs apporteurs et en direct', () => {
+  it('les DEUX origines : « via ses apporteurs », « en direct », puis « Total <collègue> » ; un seul apport : une ligne et sa mention ; Total = somme des collègues', async () => {
+    const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+    const viaA = sept.filter((a) => a.apporteurNom === 'Apporteur A');
+    const sansApp = sept.filter((a) => a.apporteurNom === null && a.apporteurId === null);
+    donnees = { ...donnees, activites: donnees.activites.map((a) => (viaA.includes(a) ? { ...a, apporteurId: 9 }
+      : a === sansApp[0] ? { ...a, origineContact: 'collegue', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }
+      : a === sansApp[1] ? { ...a, origineContact: 'collegue', collegueId: 7, collegueLibelle: 'Cédric Jullien' } : a)),
+      apporteurs: [{ id: 9, nom: 'Apporteur A', type: 'partenaire', archive: false, baremes: [], collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] }] };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const aj = container.querySelector('[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
+    expect([...aj.querySelectorAll('[data-collegue-part]')].map((l) => l.getAttribute('data-collegue-part'))).toEqual(['via', 'direct', 'total']);
+    const ca = (sel: string) => Math.round(Number(nbsp(aj.querySelector(`[data-collegue-part="${sel}"] [data-mot="CA apporté"]`)?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    expect(ca('total')).toBe(ca('via') + ca('direct'));
+    expect(nbsp(aj.querySelector('[data-collegue-part="total"] th')?.textContent)).toBe('Total Arnaud Jorel');
+    const cj = container.querySelector('[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
+    expect([...cj.querySelectorAll('[data-collegue-part]')].map((l) => l.getAttribute('data-collegue-part'))).toEqual(['direct']);
+    expect(cj.querySelector('.fdm-origine-collegue')?.textContent).toBe('en direct');
+    expect(aj.querySelector('[data-meilleur-collegue]')?.textContent).toBe('Meilleur collègue');
+    const tot = Math.round(Number(nbsp(container.querySelector('[data-total-collegues-ca]')?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const caDe = (t: Element) => Math.round(Number(nbsp((t.querySelector('[data-collegue-part="total"] [data-mot="CA apporté"]') ?? t.querySelector('[data-mot="CA apporté"]'))?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const blocs = [...container.querySelectorAll('tbody[data-collegue-mois]')];
+    expect(blocs.length).toBeGreaterThanOrEqual(2);
+    expect(tot).toBe(blocs.reduce((s2, t) => s2 + caDe(t), 0));
   });
 });

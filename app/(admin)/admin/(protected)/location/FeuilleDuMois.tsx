@@ -348,15 +348,43 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(ac.total.ca)}</td><td data-mot="Hono. d’apporteur">{eur(ac.total.commission)}</td>
               </tr></tfoot>
             </table>
-            <table className="fdm-table">
-              <thead><tr><th scope="col">Collègue (ses apporteurs)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun apporteur externe ce mois-ci.</td></tr> : ac.collegues.map((x) => (
-                <tr key={x.cle} data-collegue-mois={x.libelle} className={x.cle === 'a-rattacher' ? 'fdm-orange-ligne' : undefined}>
-                  <th scope="row">{x.libelle}</th>
-                  <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires apportées — ${x.libelle} — ${nom}`, x.ids)}>{x.nb}</button></td>
-                  <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires apportées — ${x.libelle} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
-                  <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
-                </tr>))}</tbody>
+            {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
+                deux existent ; triés par CA total ; le meilleur badgé ; Total = somme des totaux des collègues. */}
+            <table className="fdm-table fdm-collegues">
+              <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
+              {ac.collegues.length === 0 ? <tbody><tr><td colSpan={4} className="loc-muet">Aucun collègue ce mois-ci.</td></tr></tbody> : ac.collegues.map((x) => {
+                const via = x.via ?? { ...x, nb: 0, ca: 0, commission: 0, ids: [] };
+                const direct = x.direct ?? { ...x, nb: 0, ca: 0, commission: 0, ids: [] };
+                const deux = via.nb > 0 && direct.nb > 0;
+                const cellules = (c: { nb: number; ca: number; commission: number; ids: (number | string)[] }, titre: string) => (<>
+                  <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${nom}`, c.ids)}>{c.nb}</button></td>
+                  <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${nom}`, c.ids)}>{eur(c.ca)}</button></td>
+                  <td data-mot="Hono. d’apporteur">{eur(c.commission)}</td></>);
+                const nomC = <>{x.libelle}{x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>}</>;
+                return (
+                  <tbody key={x.cle} data-collegue-mois={x.libelle} className={`${x.cle === 'a-rattacher' ? 'fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`}>
+                    {deux ? (<>
+                      <tr className="fdm-collegue-tete"><th scope="rowgroup" colSpan={4}>{nomC}</th></tr>
+                      <tr data-collegue-part="via"><th scope="row" className="fdm-sous">via ses apporteurs</th>{cellules(via, `Affaires de ${x.libelle} — via ses apporteurs`)}</tr>
+                      <tr data-collegue-part="direct"><th scope="row" className="fdm-sous">en direct</th>{cellules(direct, `Affaires de ${x.libelle} — en direct`)}</tr>
+                      <tr data-collegue-part="total" className="fdm-collegue-total"><th scope="row">Total {x.libelle}</th>{cellules(x, `Affaires de ${x.libelle}`)}</tr>
+                    </>) : (
+                      <tr data-collegue-part={direct.nb > 0 ? 'direct' : 'via'}>
+                        <th scope="row">{nomC}<small className="fdm-origine-collegue">{direct.nb > 0 ? 'en direct' : 'via ses apporteurs'}</small></th>
+                        {cellules(x, `Affaires de ${x.libelle}`)}
+                      </tr>
+                    )}
+                  </tbody>
+                );
+              })}
+              {ac.collegues.length > 0 && (
+                <tfoot><tr data-collegue-mois="total">
+                  <th scope="row">Total</th>
+                  <td data-mot="Affaires">{ac.collegues.reduce((t2, x) => t2 + x.nb, 0)}</td>
+                  <td data-mot="CA apporté" data-total-collegues-ca>{eur(ac.collegues.reduce((t2, x) => t2 + x.ca, 0))}</td>
+                  <td data-mot="Hono. d’apporteur">{eur(ac.collegues.reduce((t2, x) => t2 + x.commission, 0))}</td>
+                </tr></tfoot>
+              )}
             </table>
           </div>
         )}
@@ -673,6 +701,18 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-apporteurs tr.fdm-meilleur > th,.fdm-apporteurs tr.fdm-meilleur > td{background:color-mix(in srgb, var(--color-svv-green-soft) 55%, transparent)}
 .fdm-apporteurs tr.fdm-sans-apporteur > th{font-weight:600;color:var(--color-svv-muted)}
 .fdm-apporteurs tfoot th,.fdm-apporteurs tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
+.fdm-collegues tbody.fdm-meilleur th,.fdm-collegues tbody.fdm-meilleur td{background:color-mix(in srgb, var(--color-svv-green-soft) 55%, transparent)}
+.fdm-collegues tr.fdm-collegue-tete th{border-bottom:0;padding-bottom:0;font-weight:800;text-align:left}
+@media (max-width:640px){
+  .fdm-collegues tbody{border:1px solid var(--color-svv-line);border-radius:12px;padding:6px 10px;margin-bottom:8px}
+  .fdm-collegues tbody tr{border:0;border-radius:0;padding:2px 0;margin:0}
+  .fdm-collegues tbody tr + tr{border-top:1px dashed var(--color-svv-line);padding-top:6px;margin-top:4px}
+  .fdm-collegues th.fdm-sous{padding-left:0}
+}
+.fdm-collegues th.fdm-sous{font-weight:400;color:var(--color-svv-muted);padding-left:18px}
+.fdm-collegues tr.fdm-collegue-total th,.fdm-collegues tr.fdm-collegue-total td{font-weight:800}
+.fdm-origine-collegue{display:block;font-size:.74rem;font-weight:400;color:var(--color-svv-muted)}
+.fdm-collegues tfoot th,.fdm-collegues tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
 .fdm-nego-nom{margin:6px 0 0;font-weight:800}
 .fdm-famille .tdb-note{margin:0}
 .fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}
