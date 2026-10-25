@@ -543,7 +543,8 @@ function EncadreHonoraires({ h, agence, obligatoire = false }: { h: ProprieteHon
                     <span data-detail-ht>Soit, hors taxes : {montantPourChamp(c)} € TTC ÷ 1,2 = <strong>{htDuTtc(montantPourChamp(c))} € HT</strong></span></span>} />
               )}
             </span>
-            <CaseEuros id={idChamp} value={htAffiche} placeholder={manuel ? '' : 'ex. 779,19'} data-hono-saisie
+            {/* 🔴 25/10/2026 — le MÊME format que « Honoraires agence (€ HT) » : largeur (une colonne des sommes dues), hauteur, police, « € », rayon, exemple. */}
+            <CaseEuros id={idChamp} value={htAffiche} placeholder="ex. 983,75" data-hono-saisie
               onChange={(e) => {
                 const v = e.target.value;
                 setFrappe(v);
@@ -630,7 +631,7 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
    du bloc comme les montants « … € TTC » dessous ; « soit X € TTC » et la mention passent sous le champ, alignés à droite. Au téléphone
    (≤ 600 px) : le libellé, puis le champ en pleine largeur. */
 @media (min-width:601px){
-  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) minmax(9rem,13rem);column-gap:16px;row-gap:4px;align-items:center}
+  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) var(--l-montant);column-gap:16px;row-gap:4px;align-items:center}
   .loc-hono-champ > .loc-champ-tete{grid-column:1;grid-row:1}
   .loc-hono-champ > .loc-case-euros{grid-column:2;grid-row:1}
   .loc-hono-champ > :not(.loc-champ-tete):not(.loc-case-euros){grid-column:1 / -1;justify-self:end;text-align:right}
@@ -652,7 +653,19 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
 @media (min-width:960px){ .loc-cond-bloc .loc-grille.loc-grille-sommes{grid-template-columns:repeat(4,minmax(0,1fr))} }
 .loc-grille-sommes > .loc-champ-somme{display:grid;grid-row:span 3;grid-template-rows:subgrid;align-content:start;row-gap:8px}
 .loc-grille-sommes > .loc-champ-somme > .loc-champ-tete{align-self:end}
-.loc-cond{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.loc-cond{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;container-type:inline-size}
+/* 🔴 Arno (25/10/2026) — UN SEUL FORMAT POUR LES MONTANTS ISOLÉS DU BLOC 3 (honoraires propriétaire, montant du dépôt) : la largeur EXACTE
+   d'un champ des « Sommes dues » (« Honoraires agence (€ HT) ») — une colonne de leur grille (4 dès 960 px, 2 dès 560 px, sinon toute la
+   largeur), calculée sur la largeur du formulaire (100cqw) moins le cadre d'un bloc (2 × 20 px de marge + 2 × 2 px de bordure) et les
+   écarts de la grille (22 px dans les écrans amples, 14 px sinon). Hauteur, police, « € » et rayon : le même composant (CaseEuros). */
+.loc-cond{--g-montant:14px}
+.loc-ample .loc-cond{--g-montant:22px}
+.loc-cond{--l-montant:100%}
+@media (min-width:560px){ .loc-cond{--l-montant:calc((100cqw - 44px - var(--g-montant)) / 2)} }
+@media (min-width:960px){ .loc-cond{--l-montant:calc((100cqw - 44px - 3 * var(--g-montant)) / 4)} }
+@media (max-width:480px){ .loc-cond{--l-montant:100%} }
+.loc-cond-bloc[data-cond="depot"] [data-depot-montant] > .loc-case-euros,.loc-hono-champ > .loc-case-euros{width:var(--l-montant);max-width:100%}
+@media (max-width:600px){ .loc-hono-champ > .loc-case-euros{justify-self:end;margin-left:auto} }
 @media (min-width:900px){ .loc-cond{grid-template-columns:repeat(2,minmax(0,1fr))} .loc-cond-bloc--large,.loc-cond-bloc[data-cond="sommes"],.loc-cond-bloc[data-cond="entretien"],.loc-cond-bloc[data-cond="honoraires-proprietaire"],.loc-cond-total--general{grid-column:1 / -1} }
 .loc-cond-bloc{display:flex;flex-direction:column;gap:12px;min-width:0;border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field);box-sizing:border-box}
 @media (max-width:480px){ .loc-cond-bloc{padding:16px 12px} }

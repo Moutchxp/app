@@ -339,8 +339,24 @@ describe('🔴 Arno (25/10/2026) — « Honoraires propriétaire » compact : li
     const champ = container.querySelector('[data-hono-montant]') as HTMLElement;
     expect([...champ.children].map((c) => c.className.split(' ')[0])).toEqual(['loc-champ-tete', 'loc-case-euros', 'loc-hono-ttc', 'loc-hono-mention']);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
-    expect(css).toContain('@media (min-width:601px){\n  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) minmax(9rem,13rem)');
+    // 🔴 25/10/2026 : la colonne du champ = la largeur d'un champ des sommes dues (--l-montant).
+    expect(css).toContain('@media (min-width:601px){\n  .loc-hono-champ{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) var(--l-montant)');
     expect(css).toContain('.loc-hono-champ > .loc-case-euros{grid-column:2;grid-row:1}');
     expect(css).toContain('.loc-hono-champ > :not(.loc-champ-tete):not(.loc-case-euros){grid-column:1 / -1;justify-self:end;text-align:right}');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Honoraires propriétaire » au format EXACT de « Honoraires agence (€ HT) »', () => {
+  it('même composant (« € », hauteur, police, rayon), même exemple, même largeur (une colonne des sommes dues), sur la ligne du libellé', async () => {
+    await preparer();
+    const agence = container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement;
+    const proprio = champ();
+    expect([proprio.placeholder, proprio.className, proprio.parentElement?.className]).toEqual([agence.placeholder, agence.className, agence.parentElement?.className]);
+    expect(proprio.placeholder).toBe('ex. 983,75');
+    expect(proprio.closest('.loc-hono-champ')?.querySelector('.loc-suffixe-euros')?.textContent).toBe('€');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('grid-template-columns:minmax(0,1fr) var(--l-montant)');
+    expect(css).toContain('@media (min-width:960px){ .loc-cond{--l-montant:calc((100cqw - 44px - 3 * var(--g-montant)) / 4)} }');
+    expect(css).toContain('.loc-cond-bloc[data-cond="depot"] [data-depot-montant] > .loc-case-euros,.loc-hono-champ > .loc-case-euros{width:var(--l-montant);max-width:100%}');
   });
 });

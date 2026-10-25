@@ -614,13 +614,19 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
   const [motif, setMotif] = useState<string | null>(null);
+  /* 🔴 Arno (25/10/2026) — choix en cascade remis à zéro : quitter « Autre annexe » vide son nom (le message le dit) ; seul le chemin choisi part. */
+  const [nomEfface, setNomEfface] = useState(false);
+  const changerCategorie = (val: string): void => {
+    setNomEfface(v.categorie === 'autre' && val !== 'autre' && v.nomAnnexe.trim() !== '');
+    setV((x) => ({ ...x, categorie: val, ...(x.categorie === 'autre' && val !== 'autre' ? { nomAnnexe: '' } : {}) }));
+  };
   const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /> : <input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} />}</label>
   );
   const enregistrer = async (): Promise<void> => {
     const verdict = verifierChampsBien(v);
     if (!verdict.ok) { setMotif(verdict.motif); return; }
-    const m = await envoyer({ action: 'modifier-bien', id: b.id, champs: v });
+    const m = await envoyer({ action: 'modifier-bien', id: b.id, champs: v.categorie === 'autre' ? v : { ...v, nomAnnexe: '' } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -645,9 +651,10 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
         <form onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
           <div className="loc-grille">
             <label className="loc-champ">Catégorie
-              <select value={v.categorie} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, categorie: val })); }}>
+              <select value={v.categorie} onChange={(e) => changerCategorie(e.target.value)} data-categorie-fiche>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{LIBELLE_CATEGORIE[c]}</option>)}
-              </select></label>
+              </select>
+              {nomEfface && <small className="loc-muet" role="status" data-chemin-efface="autre">Les informations propres à « {LIBELLE_CATEGORIE.autre} » ont été effacées.</small>}</label>
             {v.categorie === 'autre' && champ('nomAnnexe', 'Nom de l’annexe *', { placeholder: 'ex. Cellier, Grenier, Local vélo', maxLength: 80 })}
             {champ('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
             {champ('porte', 'N° de porte / de place')}

@@ -354,3 +354,22 @@ describe('🔴 le MÊME écran dans la Gestion et dans la Location', () => {
     expect(nouveau).toContain('<CreationBien proprietairesInitiaux={ids} />');
   });
 });
+
+describe('🔴 Arno (25/10/2026) — choix en cascade remis à zéro, en MODIFICATION d’un bien existant', () => {
+  it('Logement → Local : les champs propres au logement sont vidés (message) ; l’envoi ne porte que le chemin choisi, les champs communs intacts', async () => {
+    await ouvrir();
+    await clic('[data-famille="local"]');
+    expect(q('[data-chemin-efface]')?.textContent).toBe('Les informations propres à « Logement » ont été effacées.');
+    await clic([...document.querySelectorAll('[aria-label="Type de local"] button')][1] as HTMLElement);
+    await clic('[data-valider-modification]');
+    const confirmer = q('[data-confirmer-modification]')!;
+    await act(async () => { confirmer.click(); });
+    await attendre();
+    const corps = JSON.parse(String(posts()[0].init?.body));
+    const v = corps.saisie.valeurs as Record<string, string>;
+    expect([v.categorie, v.typeLogement, v.meuble, v.nombrePieces, v.surfaceHabitableM2, v.surfaceCarrezM2]).toEqual(['local', '', '', '', '', '']);
+    expect(v.typeLocal).not.toBe('');
+    // Les champs communs ne bougent pas.
+    expect([v.adresse, v.codePostal, v.dpeClasse, v.commentaire, v.etage, v.porte]).toEqual([VALEURS.adresse, VALEURS.codePostal, VALEURS.dpeClasse, VALEURS.commentaire, VALEURS.etage, VALEURS.porte]);
+  });
+});

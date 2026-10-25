@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API, CSS_ANNEXE_CARTE, liste } from './commun';
-import { FenetreCarte, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
+import { FenetreCarte, FormulaireCarte, Rangee, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
 import { carteEstComplete, manquesAAvertir, MOTIF_DERNIERE_COMPLETE_SUPPRESSION } from '../../../../lib/gestion/carteComplete';
 import type { CoordonneeSaisie } from '../../../../lib/gestion/annuaireEdition';
 import type { Doublon } from '../../../../lib/location/locationRepo';
@@ -180,7 +180,9 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
           ))}
         </ul>
       )}
-      <div className="loc-cartes-creation">
+      {/* 🔴 Arno (25/10/2026) — une RANGÉE qui défile (accroche douce, fondu et flèches ‹ › seulement s'il reste du contenu) : la 3ᵉ carte
+          se voit coupée par le bord droit ; à 600 px, une carte par écran et le début de la suivante. */}
+      <Rangee nb={cartes.length + 1} classe="loc-cartes-creation">
         {cartes.map((c, i) => (
           <div key={c.cle} data-carte={i + 1} data-sorte={c.sorte} data-cle-carte={c.cle}>
             {c.ouverte ? (
@@ -260,7 +262,7 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
         ) : (
           <button type="button" className="loc-ajouter-carte" onClick={() => setChoix(true)}>+ Ajouter…</button>
         )}
-      </div>
+      </Rangee>
     </>
   );
 }

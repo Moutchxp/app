@@ -39,6 +39,7 @@ import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo
 import { LIBELLE_DESTINATION } from '../../../../lib/gestion/statutBien';
 import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
 import { ChampNombre } from './ChampNombre';
+import { CHAMPS_DU_CHEMIN, champsRemplisDuChemin, messageEffacement, restreindreAuChemin, viderHorsChemin, type FamilleBien } from '../../../../lib/location/cheminsBien';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -215,6 +216,26 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [ascenseur, setAscenseur] = useState<boolean | null>(init?.ascenseur ?? null);
   const [digicode, setDigicode] = useState<boolean | null>(init?.digicode ?? null);
   const [adresseVerifiee, setAdresseVerifiee] = useState(init !== null);
+  /* 🔴 Arno (25/10/2026) — CHOIX EN CASCADE REMIS À ZÉRO : quitter une famille vide ses sous-choix et ses champs propres (type, meublé,
+     pièces, surfaces, type de local, parking) ; les champs communs ne bougent pas. Le message dit ce qui a été effacé. */
+  const [effaces, setEffaces] = useState<FamilleBien | null>(null);
+  const changerFamille = (f: Famille): void => {
+    if (f === famille) return;
+    if (famille !== null) {
+      const avant = famille as FamilleBien;
+      const valeurs: Record<string, unknown> = { ...b, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble };
+      // Le message reste tant qu'un autre effacement ne le remplace pas (il est toujours vrai).
+      if (champsRemplisDuChemin(avant, valeurs).length > 0) setEffaces(avant);
+      const propres = CHAMPS_DU_CHEMIN[avant];
+      if (propres.includes('typeLogement')) setType(null);
+      if (propres.includes('meuble')) setMeuble(null);
+      if (propres.includes('typeLocal')) setTypeLocal(null);
+      if (propres.includes('parkingSituation')) setParkingSituation(null);
+      if (propres.includes('parkingType')) setParkingType(null);
+      setB((x) => ({ ...x, ...Object.fromEntries(propres.filter((k) => k in x).map((k) => [k, ''])) }));
+    }
+    setFamille(f);
+  };
   const [annexes, setAnnexes] = useState<Annexe[]>(init?.annexes ?? []);
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -395,6 +416,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     const v = l.encart.valeurs;
     const e = versEnvoiEntretien(entretien);
     const categorie = l.encart.annexe || famille === null ? v.categorie : famille === 'parking' ? (v.categorie === 'box' ? 'box' : 'parking') : famille;
+    // 🔴 25/10/2026 — seuls les champs du chemin choisi partent : ceux des autres chemins sont vidés (viderHorsChemin, plus bas).
     const valeurs: ValeursEncart = {
       ...v, categorie, adresse: b.adresse, codePostal: b.codePostal, commune: b.commune,
       assurancePno: enOuiNon(assurancePno), pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '',
@@ -407,8 +429,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       chargesCopro: chargesCopro ?? '', idFiscal: b.idFiscal, derniereAg: b.derniereAg, dpeClasse: b.dpeClasse, dpeDate: b.dpeDate,
       entretienAPrevoir: enOuiNon(e.entretienAPrevoir), entretiens: entretiensEnTexte(e.entretiens), commentaire: b.commentaire,
     };
+    const valeursDuChemin = l.encart.annexe || famille === null ? valeurs : viderHorsChemin(valeurs, famille as FamilleBien);
     return {
-      version: l.version, valeurs, statut: transition,
+      version: l.version, valeurs: valeursDuChemin, statut: transition,
       annexes: annexes.map((a) => ({
         id: a.id ?? null, categorie: a.categorie, etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
         detachee: a.detachee, parkingSituation: a.parkingSituation ?? '', parkingType: a.parkingType ?? '', autreAdresse: a.autreAdresse,
@@ -547,9 +570,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         const m = mandats[sorte];
         return (m.numero ?? '').trim() !== '' || m.signeLe !== null ? { mandat: { sorte, numero: (m.numero ?? '').trim(), signeLe: m.signeLe ?? '' } } : {};
       })() : {}),
-      logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
+      // 🔴 25/10/2026 — seuls les champs du chemin CHOISI partent (ceux des autres familles sont retirés de l'envoi).
+      logement: restreindreAuChemin({ ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)),
-        ...(chargesCopro === null ? {} : { chargesCopro }) },
+        ...(chargesCopro === null ? {} : { chargesCopro }) } as Record<string, unknown>, famille as FamilleBien | null),
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
@@ -684,10 +708,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         <div className="loc-gros-boutons loc-gros-boutons--3d loc-familles" role="group" aria-label="Famille du bien">
           {FAMILLES.map((f) => (
             <button key={f} type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={famille === f} data-famille={f}
-              onClick={() => setFamille(f)}>{famille === f ? `✓ ${LIBELLE_FAMILLE[f]}` : LIBELLE_FAMILLE[f]}</button>
+              onClick={() => changerFamille(f)}>{famille === f ? `✓ ${LIBELLE_FAMILLE[f]}` : LIBELLE_FAMILLE[f]}</button>
           ))}
         </div>
         )}
+        {effaces !== null && <p className="loc-muet" role="status" style={{ margin: 0 }} data-chemin-efface={effaces}>{messageEffacement(effaces)}</p>}
         {manqueDe('famille')}
         {famille === 'logement' && (
           <>

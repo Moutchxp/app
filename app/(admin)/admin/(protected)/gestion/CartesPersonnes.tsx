@@ -142,7 +142,11 @@ export interface ChampsSaisis {
  * ⚠️ `scrollend` N'EST PAS DISPONIBLE PARTOUT : on écoute `scroll`, qui l'est. Le calcul est une comparaison de
  * trois nombres, pas de quoi s'en priver.
  */
-function Rangee({ children, nb }: { children: React.ReactNode; nb: number }) {
+export function Rangee({ children, nb, classe }: {
+  children: React.ReactNode; nb: number;
+  /** 🔴 Arno (25/10/2026) — une classe de plus sur la piste (les cartes du bloc 1 de Location : leur largeur, leur écart). */
+  classe?: string;
+}) {
   const piste = useRef<HTMLDivElement | null>(null);
   const [bords, setBords] = useState<{ gauche: boolean; droite: boolean }>({ gauche: false, droite: false });
 
@@ -188,7 +192,7 @@ function Rangee({ children, nb }: { children: React.ReactNode; nb: number }) {
         <button type="button" className="cp-fleche cp-fleche--g" aria-label="Voir les cartes précédentes"
           onClick={() => pousser(-1)}>‹</button>
       )}
-      <div ref={piste} className={`cp-piste${bords.droite ? ' cp-piste--suite' : ''}`}
+      <div ref={piste} className={`cp-piste${classe ? ` ${classe}` : ''}${bords.droite ? ' cp-piste--suite' : ''}`} data-piste-cartes
         onPointerDown={(e) => {
           if (e.pointerType !== 'mouse' || piste.current === null) return;
           glisse.current = { actif: true, depart: e.clientX, gauche: piste.current.scrollLeft, bouge: false };

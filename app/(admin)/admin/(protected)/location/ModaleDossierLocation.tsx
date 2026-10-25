@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
-import { CSS_CARTES, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
+import { CSS_CARTES, FormulaireCarte, Rangee, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { CSS_CONDITIONS } from './ConditionsEntree';
 import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, ttcDepuisHt, useParametresSuivi } from './SuiviCommercial';
@@ -189,7 +189,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
             <section className="loc-section" aria-labelledby="mdl-1" data-bloc-dossier="1">
               <h3 id="mdl-1"><span className="loc-num">1</span>Le ou les locataires</h3>
               <p className="loc-section-phrase">Les cartes des locataires du bail : « Modifier » une carte, puis « Enregistrer les modifications » en bas.</p>
-              <div className="mdl-cartes">
+              <Rangee nb={l.locataires.length} classe="mdl-cartes">
                 {l.locataires.map((c) => {
                   const courante = carteCourante(c, cartes[c.id]);
                   if (enEdition === c.id) {
@@ -221,7 +221,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
                     </article>
                   );
                 })}
-              </div>
+              </Rangee>
               {l.contacts.length > 0 && (
                 <div className="mdl-contacts" data-contacts-dossier>
                   <p className="loc-muet" style={{ margin: '8px 0 4px' }}>Contacts du locataire (modifiables depuis leur fiche) :</p>
@@ -315,7 +315,13 @@ const CSS_DOSSIER = `
 .mdl-titre{margin:0;font-size:1.15rem;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .mdl-fermer{width:auto;min-height:44px;margin:0;flex:0 0 auto}
 .mdl-page{padding-bottom:0}
-.mdl-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+/* 🔴 Arno (25/10/2026) — en RANGÉE QUI DÉFILE (fondu et flèches seulement s'il reste du contenu) ; chaque carte fait 90 % de la colonne
+   d'avant (la grille « au moins 280 px, écart 12 px » : 1 colonne sous 572 px, 2 jusqu'à 863, 3 jusqu'à 1155, 4 au-delà). */
+.mdl-cartes{container-type:inline-size;gap:12px;align-items:flex-start}
+.mdl-cartes>*{flex:0 0 calc(100cqw * .9);min-width:0;box-sizing:border-box}
+@container (min-width:572px){ .mdl-cartes>*{flex-basis:calc((100cqw - 12px) / 2 * .9)} }
+@container (min-width:864px){ .mdl-cartes>*{flex-basis:calc((100cqw - 24px) / 3 * .9)} }
+@container (min-width:1156px){ .mdl-cartes>*{flex-basis:calc((100cqw - 36px) / 4 * .9)} }
 .mdl-carte{padding:12px 14px}
 .mdl-carte--modifiee{border-color:var(--color-svv-amber)}
 .mdl-carte-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}

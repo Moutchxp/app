@@ -344,7 +344,12 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-ample .loc-grille.loc-grille--debut{align-items:start}
 /* Bloc 4 (Arno, 21/10/2026) : N° de lot et ID fiscal côte à côte, même largeur ; le syndic (pleine largeur) dessous. */
 .loc-ample .loc-grille.loc-grille--copro{grid-template-columns:repeat(2,minmax(0,1fr))}
-.loc-cartes-creation{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:20px;align-items:start}
+/* 🔴 Arno (25/10/2026) — le bloc 1 en RANGÉE QUI DÉFILE (Rangee : accroche douce, fondu à droite, flèches seulement s'il reste du contenu).
+   Chaque carte fait 90 % de la colonne d'avant (une colonne sous 780 px de large, deux au-delà, écart 20 px) : à 1200 px, deux cartes
+   et le DÉBUT de la 3ᵉ, coupée par le bord ; à 600 px, une carte et le début de la suivante. Le contenu des cartes ne change pas. */
+.loc-cartes-creation{container-type:inline-size;gap:20px;align-items:flex-start}
+.loc-cartes-creation>*{flex:0 0 calc(100cqw * .9);min-width:0;box-sizing:border-box}
+@container (min-width:780px){ .loc-cartes-creation>*{flex-basis:calc((100cqw - 20px) / 2 * .9)} }
 .loc-cartes-creation .cp-carte{width:auto;max-width:100%;min-width:0;border-radius:22px;padding:20px}
 .loc-ample .cp-saisie{min-height:52px;font-size:1.05rem;border-radius:12px}
 .loc-ample .cp-form-titre{font-size:1.15rem}
