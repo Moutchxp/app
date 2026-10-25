@@ -10,7 +10,7 @@ import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, NATURES_BIEN, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -38,6 +38,10 @@ import {
  */
 const API = '/api/admin/location/suivi';
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+/** Une part (0,452 → « 45,2 % »), une décimale ; le solde signé ; son sens (vert, rouge, gris). */
+const pctUn = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+const signeEur = (x: number): string => `${x > 0 ? '+' : x < 0 ? '−' : ''}${eur(Math.abs(x))}`;
+const sensSolde = (x: number): 'positif' | 'negatif' | 'nul' => (auCentime(x) > 0 ? 'positif' : auCentime(x) < 0 ? 'negatif' : 'nul');
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %`;
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
 /** Une valeur en base, dans une case : virgule française, sans le bruit des flottants (64,362 et non 64,36200000000001) — jamais arrondie. */
@@ -68,6 +72,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
+  const r = resumeDuMois(t, duMois, g, negos);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
@@ -217,24 +222,97 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <TableGestion lignes={g.perdues} perdus />
       </section>
 
+      {/* 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : le bas de feuille rangé par FAMILLES, chacune dans son encadré titré, sans mélange.
+          Aucun calcul ne change (sauf le CA HT net, qui retire aussi les commissions collègues) ; chaque chiffre d'avant s'y retrouve. */}
       <section className="tdb-section fdm-bas" aria-labelledby="fdm-bas" data-bloc="bas-de-feuille">
-        <h3 id="fdm-bas">Bas de feuille — {nom}</h3>
-        <dl className="fdm-totaux">
-          <div className="fdm-fort"><dt>TOTAL CA HT</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL CA HT — ${nom}`, t.ids)} data-total="ca">{eur(t.ca)}</button></dd></div>
-          <div><dt>Honoraires d’apporteurs</dt><dd data-total="apporteurs">{eur(t.apporteurs)}</dd></div>
-          <div className="fdm-fort"><dt>CA HT − apporteurs</dt><dd data-total="ca-net">{eur(t.caNet)}</dd></div>
-          <div><dt>Primes de gestion</dt><dd data-total="primes">{eur(t.primes)}</dd></div>
-          {/* 🔴 Arno (24/10/2026, 419) — une ligne À PART : les totaux existants ne changent pas. */}
-          <div><dt>Commissions collègues (apport d’apporteurs)</dt><dd data-total="collegues">{eur(t.collegues)}</dd></div>
-          {d.voirCommissions && <div><dt>Rétrocessions</dt><dd data-total="retrocessions">{eur(t.retrocessions)}</dd></div>}
-          {d.voirCommissions && negos.map((n) => (
-            <div key={n.cle} className="fdm-fort"><dt>Commission brute — {n.libelle}</dt><dd data-total-commission={n.libelle}>{eur(n.totaux.commission)}</dd></div>
-          ))}
-          <div><dt>Location avec gestion</dt><dd data-total="avec">{eur(t.avecGestion)}</dd></div>
-          <div><dt>Location sans gestion</dt><dd data-total="sans">{eur(t.sansGestion)}</dd></div>
-          <div className="fdm-fort"><dt>Balance de gestion récurrente (gagné − perdu)</dt>
-            <dd data-total="balance">{g.balanceMensuelle >= 0 ? '+' : '−'}{eur(Math.abs(g.balanceMensuelle))} / mois · {g.balanceAnnuelle >= 0 ? '+' : '−'}{eur(Math.abs(g.balanceAnnuelle))} / an</dd></div>
-        </dl>
+        <h3 id="fdm-bas">Résumé du mois — {nom}</h3>
+        <div className="fdm-familles">
+          <section className="fdm-famille" aria-labelledby="fdm-f1" data-famille="resultat">
+            <h4 id="fdm-f1">Résultat du mois</h4>
+            <dl className="fdm-cascade-mois">
+              <div className="fdm-fort"><dt>CA HT global</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL CA HT — ${nom}`, t.ids)} data-total="ca">{eur(r.resultat.ca)}</button></dd></div>
+              <div><dt>− Honoraires d’apporteurs</dt><dd data-total="apporteurs">{eur(r.resultat.apporteurs)}</dd></div>
+              {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
+              <div><dt>− Commissions collègues (apport d’apporteurs)</dt><dd data-total="collegues">{eur(r.resultat.collegues)}</dd></div>
+              <div className="fdm-fort fdm-egal"><dt>= CA HT net</dt><dd data-total="ca-net">{eur(r.resultat.caNet)}</dd></div>
+            </dl>
+          </section>
+
+          <section className="fdm-famille" aria-labelledby="fdm-f2" data-famille="statuts">
+            <h4 id="fdm-f2">CA par statut du bien</h4>
+            <table className="fdm-mini">
+              <thead><tr><th scope="col">Statut</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <tbody>
+                {r.parStatut.map((x) => (
+                  <tr key={x.nature} data-statut-ca={x.nature}>
+                    <th scope="row"><PastilleNature nature={x.nature} /></th>
+                    <td data-mot="Dossiers">{x.nb}</td>
+                    <td data-mot="CA HT">{x.nb === 0 ? eur(0) : <button type="button" className="tdb-chiffre" onClick={() => onDetail(`CA — ${LIBELLE_NATURE_BIEN[x.nature]} — ${nom}`, x.ids)}>{eur(x.ca)}</button>}</td>
+                    <td data-mot="Part">{x.part === null ? '—' : pctUn(x.part)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr data-statut-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.parStatut.reduce((s, x) => s + x.nb, 0)}</td>
+                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+            </table>
+          </section>
+
+          <section className="fdm-famille" aria-labelledby="fdm-f3" data-famille="gestion">
+            <h4 id="fdm-f3">Honoraires avec / sans gestion</h4>
+            <table className="fdm-mini">
+              <thead><tr><th scope="col">Location</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <tbody>
+                <tr data-gestion-ca="avec"><th scope="row">Avec gestion</th><td data-mot="Dossiers">{r.gestion.avec.nb}</td><td data-mot="CA HT" data-total="avec">{eur(r.gestion.avec.ca)}</td>
+                  <td data-mot="Part">{r.gestion.avec.part === null ? '—' : pctUn(r.gestion.avec.part)}</td></tr>
+                <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot="CA HT" data-total="sans">{eur(r.gestion.sans.ca)}</td>
+                  <td data-mot="Part">{r.gestion.sans.part === null ? '—' : pctUn(r.gestion.sans.part)}</td></tr>
+              </tbody>
+              <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb}</td>
+                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+            </table>
+          </section>
+
+          <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
+            <h4 id="fdm-f4">Portefeuille de gestion (honoraires de gestion HT)</h4>
+            <table className="fdm-mini">
+              <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
+              <tbody>
+                <tr data-portefeuille="gagnes"><th scope="row">Gagnées (entrées)</th><td data-mot="Biens">{r.portefeuille.gagnes.nb}</td>
+                  <td data-mot="/ mois">{eur(r.portefeuille.gagnes.mensuel)}</td><td data-mot="/ an">{eur(r.portefeuille.gagnes.annuel)}</td></tr>
+                <tr data-portefeuille="perdus"><th scope="row">Perdues (sorties)</th><td data-mot="Biens">{r.portefeuille.perdus.nb}</td>
+                  <td data-mot="/ mois">{r.portefeuille.perdus.mensuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.mensuel)}`}</td>
+                  <td data-mot="/ an">{r.portefeuille.perdus.annuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.annuel)}`}</td></tr>
+              </tbody>
+              <tfoot><tr data-portefeuille="solde" className={`tdb-signe tdb-signe--${sensSolde(r.portefeuille.solde.mensuel)}`}><th scope="row">Solde</th>
+                <td data-mot="Biens">{r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb >= 0 ? '+' : '−'}{Math.abs(r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb)}</td>
+                <td data-mot="/ mois" data-total="balance" colSpan={2}>{signeEur(r.portefeuille.solde.mensuel)} / mois · {signeEur(r.portefeuille.solde.annuel)} / an</td></tr></tfoot>
+            </table>
+            {g.sansLoyer > 0 && <p className="loc-muet tdb-note">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</p>}
+          </section>
+
+          <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
+            <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
+            {d.voirCommissions && r.negociateurs.map((x) => (
+              <div key={x.cle} className="fdm-nego" data-negociateur-resume={x.libelle}>
+                {r.negociateurs.length > 1 && <p className="fdm-nego-nom">{x.libelle}</p>}
+                <dl className="fdm-cascade-mois">
+                  <div className="fdm-fort"><dt>Variable HT dû</dt><dd data-total-commission={x.libelle}>{eur(x.variable)}</dd></div>
+                  {/* Un seul négociateur : SES primes et rétrocessions SONT celles du mois (mêmes montants) — pas de ligne en double. */}
+                  <div><dt>dont primes de gestion</dt><dd {...(r.negociateurs.length === 1 ? { 'data-total': 'primes' } : {})}>{eur(x.primes)}</dd></div>
+                  <div><dt>Rétrocessions (déduites)</dt><dd {...(r.negociateurs.length === 1 ? { 'data-total': 'retrocessions' } : {})}>{eur(x.retrocessions)}</dd></div>
+                  <div><dt>Base de calcul : CA HT − apporteurs (part location)</dt><dd data-base-negociateur={x.libelle}>{eur(x.base)}</dd></div>
+                </dl>
+              </div>
+            ))}
+            {/* Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de tous les négociateurs du mois. */}
+            {!(d.voirCommissions && r.negociateurs.length === 1) && (
+              <dl className="fdm-cascade-mois">
+                <div><dt>Primes de gestion{d.voirCommissions && r.negociateurs.length > 1 ? ' — tous négociateurs' : ''}</dt><dd data-total="primes">{eur(r.primes)}</dd></div>
+                {d.voirCommissions && <div><dt>Rétrocessions{r.negociateurs.length > 1 ? ' — tous négociateurs' : ''}</dt><dd data-total="retrocessions">{eur(r.retrocessions)}</dd></div>}
+              </dl>
+            )}
+          </section>
+        </div>
         {g.perdues.some((l) => l.origine === 'fichier') && <p className="loc-muet tdb-note" data-note-pertes-fichier>* Mandats perdus notés dans le suivi mensuel : honoraires DÉDUITS (loyers cc du fichier × taux retenu, détail au survol).</p>}
         {ecarts.map((e, i) => (
           <p key={i} className="fdm-ecart" data-ecart-fichier={e.champ}
@@ -242,7 +320,6 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             <span className="fdm-ecart-mot">Écart avec le fichier, expliqué</span> {e.libelle}.
             {!(e.champ === 'commission' && !d.voirCommissions) && <span className="fdm-ecart-montants"> ({LIBELLE_CHAMP[e.champ]} : fichier {eur(e.fichier)} · outil {eur(e.outil)})</span>}</p>
         ))}
-        {g.sansLoyer > 0 && <p className="loc-muet tdb-note">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés dans la balance (rien n’est inventé).</p>}
       </section>
 
       <section className="tdb-section" aria-labelledby="fdm-apporteurs" data-bloc="apporteurs-mois">
@@ -491,7 +568,6 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-table thead th{font-size:.72rem;color:var(--color-svv-muted);font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .fdm-table th[scope=row] a{color:inherit;font-weight:800}
 .fdm-table td[data-mot*="HT"],.fdm-table td[data-mot^="Hono"],.fdm-table td[data-mot^="Prime"],.fdm-table td[data-mot^="CA "],.fdm-table td[data-mot*="/ "]{white-space:nowrap}
-.fdm-totaux dd[data-total]:not([data-total="balance"]),.fdm-totaux dd[data-total-commission]{white-space:nowrap}
 .fdm-table .loc-pastille{margin-left:6px}
 .fdm-historique th[scope=row]{color:var(--color-svv-muted)}
 .fdm-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -554,12 +630,31 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-edition-corps select:focus-visible,.fdm-saisie:focus-within{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .fdm-badge-orange{align-self:flex-start;margin-top:4px;padding:2px 8px;border-radius:999px;background:var(--color-svv-amber);color:var(--color-svv-surface);font-size:.72rem;font-weight:800}
 .fdm-edition-corps .fdm-manque{display:block;margin-top:4px;color:var(--color-svv-red);font-size:.8rem;font-weight:700}
-.fdm-totaux{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 18px;margin:0}
-.fdm-totaux div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
-.fdm-totaux dt{color:var(--color-svv-muted)}
-.fdm-totaux dd{margin:0;text-align:right}
+/* 🔴 Arno (25/10/2026) — « Résumé du mois » : une famille par encadré ; 2 colonnes au bureau (les négociateurs sur toute la largeur), 1 au
+   téléphone. Libellés à gauche, montants à droite en chiffres tabulaires, jamais coupés. */
+.fdm-familles{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media (min-width:900px){ .fdm-familles{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start} .fdm-famille--large{grid-column:1 / -1} }
+.fdm-famille{border:1px solid var(--color-svv-line);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
+.fdm-famille > h4{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+.fdm-cascade-mois{margin:0;display:flex;flex-direction:column}
+.fdm-cascade-mois div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
+.fdm-cascade-mois dt{color:var(--color-svv-muted)}
+.fdm-cascade-mois dd{margin:0;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fdm-egal{border-top:2px solid var(--color-svv-ink);border-bottom:0 !important}
 .fdm-fort dt,.fdm-fort dd{font-weight:800;color:var(--color-svv-ink)}
+.fdm-mini{width:100%;border-collapse:collapse;font-size:.86rem}
+.fdm-mini th,.fdm-mini td{padding:6px 4px;border-bottom:1px solid var(--color-svv-line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fdm-mini thead th{font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
+.fdm-mini th:first-child{text-align:left}
+.fdm-mini tbody th{font-weight:600;color:var(--color-svv-ink)}
+.fdm-mini tfoot th,.fdm-mini tfoot td{font-weight:800;border-bottom:0;border-top:2px solid var(--color-svv-line-strong)}
+.fdm-mini tfoot tr.tdb-signe--positif td,.fdm-mini tfoot tr.tdb-signe--positif th{color:var(--color-svv-green-ink)}
+.fdm-mini tfoot tr.tdb-signe--negatif td,.fdm-mini tfoot tr.tdb-signe--negatif th{color:var(--color-svv-red)}
+.fdm-mini tfoot tr.tdb-signe--nul td,.fdm-mini tfoot tr.tdb-signe--nul th{color:var(--color-svv-muted)}
+.fdm-nego{display:flex;flex-direction:column;gap:2px}
+.fdm-nego-nom{margin:6px 0 0;font-weight:800}
+.fdm-famille .tdb-note{margin:0}
 .fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 @media (max-width:900px){ .fdm-deux{grid-template-columns:minmax(0,1fr)} }
-@media (max-width:640px){ ${cartes('.fdm-table')} .fdm-totaux{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:640px){ ${cartes('.fdm-table')} .fdm-famille{padding:12px} .fdm-mini th,.fdm-mini td{padding:6px 2px} }
 ${CSS_STATUT_BIEN}`;

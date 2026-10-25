@@ -1,5 +1,5 @@
 import type { LigneMois } from './gestionMensuelle';
-import { montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
+import { auCentime, montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
 
@@ -1068,6 +1068,52 @@ export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): Ge
   const perduMensuel = somme(perdues);
   return { nouvelles, perdues, gagneMensuel, perduMensuel, balanceMensuelle: gagneMensuel - perduMensuel, balanceAnnuelle: (gagneMensuel - perduMensuel) * 12,
     sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length };
+}
+
+// ── 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : LE BAS DE FEUILLE PAR FAMILLES ─────────────────────────────────────────────────────────
+
+/**
+ * Le bas de feuille du Suivi du mois, rangé en 5 familles (aucune règle de calcul ne change ; seul le CA HT NET retire aussi les
+ * commissions des collègues — voulu par Arno, il remplace l'ancien « CA HT − apporteurs ») :
+ *   ① le résultat : CA HT − honoraires d'apporteurs − commissions collègues = CA HT net (cascade, au centime) ;
+ *   ② le CA par STATUT DU BIEN (le statut validé à la main l'emporte), dans l'ordre des 5 statuts — total = CA HT ;
+ *   ③ avec / sans gestion — total = CA HT ;
+ *   ④ le portefeuille de gestion : gagnés, perdus, solde (mensuel et annuel) ;
+ *   ⑤ les négociateurs (droit « Voir les commissions ») : variable HT dû, primes, rétrocessions, base de calcul. PUR.
+ */
+export interface ResumeDuMois {
+  resultat: { ca: number; apporteurs: number; collegues: number; caNet: number };
+  parStatut: { nature: NatureBien; nb: number; ca: number; part: number | null; ids: (number | string)[] }[];
+  gestion: { avec: { nb: number; ca: number; part: number | null }; sans: { nb: number; ca: number; part: number | null } };
+  portefeuille: { gagnes: { nb: number; mensuel: number; annuel: number }; perdus: { nb: number; mensuel: number; annuel: number }; solde: { mensuel: number; annuel: number }; sansLoyer: number };
+  negociateurs: { cle: string; libelle: string; variable: number; primes: number; retrocessions: number; base: number }[];
+  /** Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de TOUS les négociateurs du mois. */
+  primes: number; retrocessions: number;
+}
+
+export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCalcul[], g: GestionDuMois, negos: readonly LigneNegociateur[]): ResumeDuMois {
+  const part = (x: number): number | null => (t.ca === 0 ? null : x / t.ca);
+  const parStatut = NATURES_BIEN.map((nature) => {
+    const siens = lignesDuMois.filter((a) => natureBienLoue(a).nature === nature);
+    const ca = siens.reduce((s, a) => s + caLigne(a), 0);
+    return { nature, nb: siens.length, ca, part: part(ca), ids: siens.map((a) => a.id) };
+  });
+  const avec = lignesDuMois.filter((a) => a.avecGestion);
+  const sans = lignesDuMois.filter((a) => !a.avecGestion);
+  return {
+    // La cascade se lit au centime : le CA net est celui des trois montants AFFICHÉS (chacun au centime), l'égalité tombe juste.
+    resultat: { ca: t.ca, apporteurs: t.apporteurs, collegues: t.collegues,
+      caNet: Math.round((auCentime(t.ca) - auCentime(t.apporteurs) - auCentime(t.collegues)) * 100) / 100 },
+    parStatut,
+    gestion: { avec: { nb: avec.length, ca: t.avecGestion, part: part(t.avecGestion) }, sans: { nb: sans.length, ca: t.sansGestion, part: part(t.sansGestion) } },
+    portefeuille: {
+      gagnes: { nb: g.nouvelles.length, mensuel: g.gagneMensuel, annuel: g.gagneMensuel * 12 },
+      perdus: { nb: g.perdues.length, mensuel: g.perduMensuel, annuel: g.perduMensuel * 12 },
+      solde: { mensuel: g.balanceMensuelle, annuel: g.balanceAnnuelle }, sansLoyer: g.sansLoyer,
+    },
+    negociateurs: negos.map((n) => ({ cle: n.cle, libelle: n.libelle, variable: n.totaux.commission, primes: n.totaux.primes, retrocessions: n.totaux.retrocessions, base: n.totaux.caNet })),
+    primes: t.primes, retrocessions: t.retrocessions,
+  };
 }
 
 // ── 🔴 Arno (24/10/2026) — L'EFFET D'UN RÉGLAGE, EN DIRECT, ET LA CASCADE DES HONORAIRES ─────────────────────────────────────

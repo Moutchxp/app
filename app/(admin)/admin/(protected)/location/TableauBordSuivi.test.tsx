@@ -217,7 +217,10 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     const total = (k: string) => nbsp(container.querySelector(`[data-total="${k}"]`)?.textContent);
     expect(total('ca')).toBe('15 471,70 €');
     expect(total('apporteurs')).toBe('2 002,26 €');
-    expect(total('ca-net')).toBe('13 469,45 €');
+    // 🔴 Arno (25/10/2026) — le CA HT NET retire aussi les collègues (0 ici) : 15 471,70 − 2 002,26 − 0,00 = 13 469,44 au centime affiché ;
+    // l'ancien « CA HT − apporteurs » (part location, 13 469,45) reste : c'est la base de calcul du négociateur.
+    expect(total('ca-net')).toBe('13 469,44 €');
+    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,45 €');
     expect(total('primes')).toBe('650,00 €');
     expect(total('avec')).toBe('14 313,36 €');
     expect(total('sans')).toBe('1 158,34 €');
@@ -1168,5 +1171,73 @@ describe('🔴 Arno (25/10/2026) — les tuiles centrées ; « Biens en gestion 
     expect(css).toContain('.tdb-gestion-comptes{display:flex;flex-wrap:wrap;justify-content:center;');
     expect(css).toContain('.tdb-gestion-solde{display:flex;justify-content:center;');
     expect(css).toContain('.tdb-tuile:has(.tdb-gestion){min-height:11rem}');
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille par familles', () => {
+  const euros = (t: string | null | undefined): number => Number((t ?? '').replace(/[\s  €]/g, '').replace('−', '-').replace(',', '.'));
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const bas = () => container.querySelector('[data-bloc="bas-de-feuille"]') as HTMLElement;
+
+  it('5 encadrés titrés, dans l’ordre : Résultat, CA par statut, avec / sans gestion, portefeuille, négociateur', async () => {
+    await septembre();
+    expect(bas().querySelector('h3')?.textContent).toBe('Résumé du mois — Septembre 2026');
+    expect([...bas().querySelectorAll('[data-famille]')].map((f) => [f.getAttribute('data-famille'), f.querySelector('h4')?.textContent])).toEqual([
+      ['resultat', 'Résultat du mois'], ['statuts', 'CA par statut du bien'], ['gestion', 'Honoraires avec / sans gestion'],
+      ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)'], ['negociateurs', 'Négociateur — Jean-Baptiste PONS']]);
+    expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
+      .toEqual(['CA HT global', '− Honoraires d’apporteurs', '− Commissions collègues (apport d’apporteurs)', '= CA HT net']);
+    expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
+      .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
+  });
+
+  it('les contrôles au centime : CA net = CA − apporteurs − collègues ; Σ statuts = CA ; avec + sans = CA ; dossiers comptés une fois', async () => {
+    await septembre();
+    const v = (k: string) => euros(bas().querySelector(`[data-total="${k}"]`)?.textContent);
+    expect(Math.round((v('ca') - v('apporteurs') - v('collegues')) * 100)).toBe(Math.round(v('ca-net') * 100));
+    const ca = (sel: string) => [...bas().querySelectorAll(`${sel} [data-mot="CA HT"]`)].map((x) => euros(x.textContent));
+    const statuts = ca('tbody [data-statut-ca]');
+    expect(Math.abs(statuts.reduce((s, x) => s + x, 0) - v('ca'))).toBeLessThanOrEqual(0.05);
+    expect(euros(bas().querySelector('[data-statut-ca="total"] [data-mot="CA HT"]')?.textContent)).toBe(v('ca'));
+    expect(Math.round((v('avec') + v('sans')) * 100)).toBe(Math.round(v('ca') * 100));
+    const nb = (sel: string) => [...bas().querySelectorAll(`${sel} [data-mot="Dossiers"]`)].map((x) => Number(x.textContent));
+    expect(nb('tbody [data-statut-ca]').reduce((s, x) => s + x, 0)).toBe(17);
+    expect(nb('tbody [data-gestion-ca]').reduce((s, x) => s + x, 0)).toBe(17);
+  });
+
+  it('portefeuille : gagnées, perdues, solde = gagnées − perdues (mensuel et annuel), coloré ; la mention « sans loyer » dans l’encadré', async () => {
+    donnees = { ...donnees, gestionLignes: [
+      { lotId: 7, libelle: '1 rue Fictive', proprietaire: 'DUPONT', effetLe: '2026-09-12', avant: 'location_seule', apres: 'en_gestion', loyerHc: 1000, provisions: 100, base: 'cc', tauxHt: 6 },
+      { lotId: 8, libelle: '2 rue Fictive', proprietaire: 'DURAND', effetLe: '2026-09-30', avant: 'en_gestion', apres: 'ancienne_gestion', loyerHc: 800, provisions: 0, base: 'hc', tauxHt: 5 },
+      { lotId: 9, libelle: '3 rue Fictive', proprietaire: 'MARTIN', effetLe: '2026-09-15', avant: 'location_seule', apres: 'en_gestion', loyerHc: null, provisions: null, base: null, tauxHt: null },
+    ] };
+    await septembre();
+    const ligne = (k: string) => [...bas().querySelectorAll(`[data-portefeuille="${k}"] th, [data-portefeuille="${k}"] td`)].map((x) => nbsp(x.textContent));
+    expect(ligne('gagnes')).toEqual(['Gagnées (entrées)', '2', '66,00 €', '792,00 €']);
+    expect(ligne('perdus')).toEqual(['Perdues (sorties)', '1', '−40,00 €', '−480,00 €']);
+    expect(ligne('solde')).toEqual(['Solde', '+1', '+26,00 € / mois · +312,00 € / an']);
+    expect(bas().querySelector('[data-portefeuille="solde"]')?.classList.contains('tdb-signe--positif')).toBe(true);
+    expect(bas().querySelector('[data-famille="portefeuille"] .tdb-note')?.textContent).toBe('1 bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).');
+  });
+
+  it('🔴 RIEN NE DISPARAÎT : chaque chiffre de l’ancien bas de feuille est dans une famille', async () => {
+    await septembre();
+    const ou = (sel: string) => bas().querySelector(sel)?.closest('[data-famille]')?.getAttribute('data-famille');
+    expect([ou('[data-total="ca"]'), ou('[data-total="apporteurs"]'), ou('[data-total="collegues"]'), ou('[data-total="ca-net"]')]).toEqual(['resultat', 'resultat', 'resultat', 'resultat']);
+    expect([ou('[data-total="avec"]'), ou('[data-total="sans"]')]).toEqual(['gestion', 'gestion']);
+    expect(ou('[data-total="balance"]')).toBe('portefeuille');
+    expect([ou('[data-total="primes"]'), ou('[data-total="retrocessions"]'), ou('[data-total-commission="Jean-Baptiste PONS"]'), ou('[data-base-negociateur="Jean-Baptiste PONS"]')])
+      .toEqual(['negociateurs', 'negociateurs', 'negociateurs', 'negociateurs']);
+    expect(nbsp(bas().querySelector('[data-total="primes"]')?.textContent)).toBe('650,00 €');
+    // Le TOTAL CA HT garde son clic (le détail des baux).
+    expect(bas().querySelector('button[data-total="ca"]')).not.toBeNull();
+  });
+
+  it('🔒 sans « Voir les commissions » : les primes restent (comme avant) ; ni variable, ni rétrocessions', async () => {
+    donnees = { ...donnees, voirCommissions: false };
+    await septembre();
+    expect(bas().querySelector('[data-famille="negociateurs"] h4')?.textContent).toBe('Négociateurs');
+    expect(bas().querySelector('[data-total="primes"]')).not.toBeNull();
+    expect(bas().querySelector('[data-total-commission], [data-total="retrocessions"], [data-base-negociateur]')).toBeNull();
   });
 });
