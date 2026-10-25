@@ -64,6 +64,8 @@ const CONDITIONS = {
   honorairesLocataire: 'agence', honorairesProprietaire: 'gestion',
   sommes: { prorataLoyer: '1 240', prorataCharges: '180', depotGarantie: '1 240', honorairesAgence: '776,82' },
   reglement: 'virement', reglementPrecision: '', commentaire: '',
+  // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer (dans les conditions, comme l'écran l'envoie), paiement des charges, indice.
+  loyer: { principal: '1 240', provisions: '180' }, chargesCopro: 'agence', indice: { type: 'irl', reference: '2026-2', revision: '2027-10-01' },
 };
 
 /** Les envois du transport factice de l'épreuve ; `refuser` : le prochain envoi échoue. */
@@ -137,6 +139,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     expect(d).not.toBeNull();
     const html = htmlNouvelleLocation(d!);
     const objet = objetNouvelleLocation(d!);
+    // 🔴 Arno (25/10/2026) — sous le loyer : l'indice de révision du bail et le paiement des charges du bien.
+    expect(texteNouvelleLocation(d!)).toMatch(/Total charges comprises : 1 420,00 €\nIndice de révision : IRL T2 2026( — [\d,]+)? · révision annuelle le 01\/10\nPaiement des charges : payées par l’agence/);
     ecrire('mail-bail-complet.html', html);
     expect(objet).toBe(`Nouvelle location · NOUVEAUX PROPRIÉTAIRES · 12 rue Essai ${S}, COURBEVOIE · MARTIN${S.toUpperCase()} · 01/10/2026 · SANS GLI`);
     expect(d!.statut).toMatchObject({ sorte: 'nouveau', pastille: ['NOUVEAUX', 'PROPRIÉTAIRES'], mandat: `Mandat de gestion n° G-${S}` });

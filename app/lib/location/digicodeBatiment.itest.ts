@@ -179,8 +179,10 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 399 — un digicode par bâtimen
       existants: [], contacts: [], rattachements: [],
       lotId: lot.logementId, entree: '2026-11-01', lotIds: [lot.logementId, cave, parking],
       conditions: { depot: 'agence', prelevement: false, jour: null, garant: false, assurance: 'visale', assurancePrecision: 'V123456789', honorairesLocataire: 'agence',
-        honorairesProprietaire: 'gestion', sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '', honorairesAgence: '' }, reglement: 'virement', reglementPrecision: '', commentaire: '' },
-      loyer: { principal: '900', provisions: '50' },
+        honorairesProprietaire: 'gestion', sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '0', honorairesAgence: '0' }, reglement: 'virement', reglementPrecision: '', commentaire: '',
+        // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer, paiement des charges, indice ; le montant des honoraires propriétaire (saisi, 402).
+        loyer: { principal: '900', provisions: '50' }, chargesCopro: 'proprietaire', indice: { type: 'irl', reference: '2026-2', revision: '2027-11-01' } },
+      loyer: { principal: '900', provisions: '50' }, honorairesSaisis: '0',
     }, AUTEUR, SANS_DRIVE));
     const d = await donneesNouvelleLocation((i as { bailId: number }).bailId);
     expect(d).not.toBeNull();

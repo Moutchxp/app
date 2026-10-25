@@ -52,8 +52,10 @@ const contact = (nom: string, qualite: string) => ({ nom, qualite, coordonnees: 
 const CONDITIONS = {
   depot: 'agence', prelevement: true, jour: '5', garant: true, assurance: 'aucune', assurancePrecision: '',
   honorairesLocataire: 'agence', honorairesProprietaire: 'gestion',
-  sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '1 200', honorairesAgence: '' },
+  sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '1 200', honorairesAgence: '0' },
   reglement: 'virement', reglementPrecision: '', commentaire: '',
+  // 🔴 Arno (25/10/2026) — le dossier COMPLET : loyer (dans les conditions, comme l'écran l'envoie), paiement des charges, indice.
+  loyer: { principal: '900', provisions: '50' }, chargesCopro: 'agence', indice: { type: 'irl', reference: '2026-2', revision: '2027-11-02' },
 };
 const oublier = (): void => { oublierSchemaLocation(); oublierSchema(); };
 
@@ -153,7 +155,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 393 — le bail, les garants et 
     const r = ok(await creerLocatairesSurBien({ cartes: [carte(`COLOC UN ${S}`, 2), carte(`COLOC DEUX ${S}`, 3)], existants: [],
       contacts: [contact(`GARANT ${S}`, 'Garant'), contact(`CONJOINT ${S}`, 'Conjoint'), contact(`ARTISAN ${S}`, 'Artisan')],
       rattachements: [{ garantit: [0, 1] }, { locataire: 1 }, { locataire: null }],
-      lotId: libre, entree: null, lotIds: [libre], conditions: CONDITIONS, loyer: { principal: '900', provisions: '50' } }, AUTEUR));
+      // 🔴 25/10/2026 — sans surface, le montant des honoraires propriétaire se SAISIT (obligatoire, migration 402).
+      lotId: libre, entree: null, lotIds: [libre], conditions: CONDITIONS, loyer: { principal: '900', provisions: '50' }, honorairesSaisis: '500' }, AUTEUR));
     const [un1, deux] = r.locataireIds;
     expect(r.dateBaremeSupposee).toBe(true);
     expect(r.rattaches).toBe(3);
@@ -230,7 +233,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 393 — le bail, les garants et 
     const r = ok(await creerLocatairesSurBien({ cartes: [carte('ESSAI RATTACHEMENT Locataire Un', 4), carte('ESSAI RATTACHEMENT Locataire Deux', 5)], existants: [],
       contacts: [contact(`ESSAI RATTACHEMENT Garant ${S}`, 'Garant'), contact(`ESSAI RATTACHEMENT Conjoint ${S}`, 'Conjoint')],
       rattachements: [{ garantit: [0, 1] }, { locataire: 0 }],
-      lotId: 7, entree: '2026-11-02', lotIds: [7], conditions: CONDITIONS, loyer: { principal: '1 200', provisions: '130' } }, AUTEUR));
+      lotId: 7, entree: '2026-11-02', lotIds: [7], conditions: { ...CONDITIONS, loyer: { principal: '1 200', provisions: '130' } }, loyer: { principal: '1 200', provisions: '130' },
+      honorairesSaisis: '500' }, AUTEUR));
     expect(r.dateBaremeSupposee).toBe(false);
     expect(r.rattaches).toBe(3);
     const mots = (await contactsRattachesDuBien(7))?.filter((c) => c.nom.includes(S)).map((c) => c.mot);
@@ -239,16 +243,18 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 393 — le bail, les garants et 
     // Les anciennes cartes 1480 / 1481 restent visibles, « à rattacher à un locataire ».
     expect((await contactsRattachesDuBien(7))?.filter((c) => c.carteId === 1480 || c.carteId === 1481).map((c) => c.mot))
       .toEqual(['à rattacher à un locataire', 'à rattacher à un locataire']);
-    // ⑥ LE RECALCUL : honoraires enregistrés sans surface ; la surface connue depuis ; rien ne bouge tant qu'on ne demande pas.
+    // ⑥ LE RECALCUL : honoraires SAISIS sans surface (obligatoires depuis le 25/10/2026) ; la surface connue depuis ; rien ne bouge
+    // tant qu'on ne demande pas, et le montant saisi n'est remplacé qu'avec la confirmation explicite.
     const occ7 = Number((await un<{ id: string }>('SELECT id::text FROM gestion_annuaire_occupation WHERE locataire_id = $1', [r.locataireIds[0]])).id);
     const avant = (await conditionsParOccupation([occ7])).get(occ7);
-    expect(avant?.honoraires?.etat).toBe('surface_manquante');
+    expect(avant?.honoraires?.etat).toBe('saisi');
     expect(avant?.surfaceActuelle ?? null).toBeNull();
     await query('UPDATE gestion_annuaire_lot SET surface_carrez_m2 = 61.8 WHERE id = 7');
     const connue = (await conditionsParOccupation([occ7])).get(occ7);
-    expect([connue?.honoraires?.etat, Number(connue?.surfaceActuelle)]).toEqual(['surface_manquante', 61.8]);
+    expect([connue?.honoraires?.etat, Number(connue?.surfaceActuelle)]).toEqual(['saisi', 61.8]);
     const n = Number((await un<{ n: string }>('SELECT count(*)::text AS n FROM gestion_location_conditions_entree WHERE bail_id = $1', [r.bailId])).n);
-    expect((await modifierConditionsEntree(occ7, CONDITIONS, AUTEUR, true)).etat).toBe('ok');
+    expect((await modifierConditionsEntree(occ7, CONDITIONS, AUTEUR, true)).etat).toBe('refus');
+    expect((await modifierConditionsEntree(occ7, CONDITIONS, AUTEUR, true, true)).etat).toBe('ok');
     const apres = await un<{ s: string; d: string; sup: boolean; n: string }>(
       `SELECT hono_surface_m2::text AS s, hono_date_bareme::text AS d, hono_date_supposee AS sup,
               (SELECT count(*)::text FROM gestion_location_conditions_entree WHERE bail_id = $1) AS n
