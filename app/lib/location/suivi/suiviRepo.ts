@@ -26,6 +26,8 @@ import { lireReglages } from '../../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../../gestion/honorairesGestion';
 import { bailDisponible } from '../bailRepo';
 import { origineDuBien } from '../origineProprietaireRepo';
+import { lireRegleAnnexes, principalDeLAnnexe } from './annexesGestionRepo';
+import type { AnnexeLouee } from './annexesGestion';
 import type { OrigineDuBien } from '../origineProprietaire';
 
 /**
@@ -1126,6 +1128,8 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
   primeDejaVersee: { date: string; bail: string } | null;
   /** 🔴 Arno (25/10/2026, 425) — l'origine du contact du titulaire du bien, héritée par la nouvelle location (null : sans la 425). */
   origineBien: OrigineDuBien | null;
+  /** 🔴 Arno (25/10/2026, 426) — le bien loué est une ANNEXE (date de la bascule ou après) : son lot principal ; comptée en relocation. */
+  annexe: AnnexeLouee | null;
 }>> {
   const lot = typeof lotId === 'number' && Number.isInteger(lotId) && lotId > 0 ? lotId : null;
   const date = typeof dateSignature === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateSignature) ? dateSignature : null;
@@ -1157,6 +1161,12 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
                       AND a.date_signature <= $2::date AND ($3::date IS NULL OR a.date_signature >= $3::date)) AS deja`,
     [lot, date, entreeGestion])).rows[0]?.deja === true;
   const deja = await primeDejaVersee(query, lot);
+  // 🔴 Arno (25/10/2026, 426) — une ANNEXE louée (après la bascule) : « Relocation » selon la gestion de son lot principal à la signature,
+  // jamais « Nouvelle gestion » ; la prime reste possible (sa propre première entrée en gestion, une seule pour toute sa vie).
+  const regleAnnexes = await lireRegleAnnexes();
+  const annexe = regleAnnexes.basculeAnnexes !== null && date >= regleAnnexes.basculeAnnexes && regleAnnexes.annexes.includes(lot)
+    ? await principalDeLAnnexe(lot, date) : null;
+  const casCalcule = casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null });
   return {
     etat: 'ok',
     data: {
@@ -1164,8 +1174,8 @@ export async function proposerActivite(lotId: unknown, locataireIds: unknown, da
       categoriePrime: categoriePrimeDeFamille(familleDuLot({ categorie: rows[0].categorie, nature: rows[0].nature, typeBien: rows[0].type_bien })),
       origineProprietaire: origines.proprietaire, origineLocataire: origines.locataire, enGestionAvant,
       tauxGestionBien: await tauxGestionDuBien(query, lot, null),
-      cas: casGestionDuBien({ enGestion, dejaLoueEnGestion, primeDejaVersee: deja !== null }), entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
-      origineBien: await origineDuBien(lot),
+      cas: annexe === null ? casCalcule : annexe.principalEnGestion ? 'relocation' : 'hors_gestion', entreeGestion, dejaLoueEnGestion, primeDejaVersee: deja,
+      origineBien: await origineDuBien(lot), annexe,
     },
   };
 }

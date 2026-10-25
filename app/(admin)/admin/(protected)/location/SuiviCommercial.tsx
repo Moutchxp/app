@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { useChoixOrigine } from './ChoixOrigine';
 import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../../lib/location/origineProprietaire';
+import { motAnnexeLouee, type AnnexeLouee } from '../../../../lib/location/suivi/annexesGestion';
 import { InfoBulle } from '../InfoBulle';
 import { CaseEuros } from './ConditionsEntree';
 import {
@@ -180,7 +181,9 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     /** 413 — le taux de gestion HT du bien (en %). */
     tauxGestionBien?: number | null;
     /** 🔴 425 — l'origine du contact du titulaire du bien (héritée par la location), son nom, la divergence entre copropriétaires. */
-    origineBien?: OrigineDuBien | null } | null>(null);
+    origineBien?: OrigineDuBien | null;
+    /** 🔴 426 — le bien loué est une annexe (après la bascule) : son lot principal ; comptée en relocation. */
+    annexe?: AnnexeLouee | null } | null>(null);
   const cle = lotId !== null && /^\d{4}-\d{2}-\d{2}$/.test(s.dateSignature) ? `${lotId}|${locataireIds.join(',')}|${s.dateSignature}` : null;
   useEffect(() => {
     if (cle === null || lu?.disponible !== true) return;
@@ -359,12 +362,15 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           <label className={`loc-suivi-case${s.avecGestion ? ' loc-suivi-case--cochee' : ''}`}>
             <input type="checkbox" checked={s.avecGestion} onChange={(e) => cocherGestion(e.target.checked)} data-avec-gestion />
             <span>Relocation</span></label>
-          {deduit !== null && <small className="loc-muet">D’après la fiche du bien : {deduit.avecGestion ? 'en gestion' : 'pas en gestion'}.</small>}</div>
+          {deduit !== null && <small className="loc-muet">D’après la fiche du bien : {deduit.avecGestion ? 'en gestion' : 'pas en gestion'}.</small>}
+          {/* 🔴 Arno (25/10/2026, 426) — une annexe louée : comptée en relocation (selon la gestion de son lot principal), jamais en nouvelle gestion. */}
+          {deduit?.annexe && <small className="loc-muet" data-annexe-louee>{motAnnexeLouee(deduit.annexe)}{deduit.annexe.principalEnGestion ? '' : ' (lot principal sans gestion)'}.</small>}</div>
         <div className="loc-champ">{libelle('Nouvelle gestion')}
           <label className={`loc-suivi-case${s.mandatGestion ? ' loc-suivi-case--cochee' : ''}${primeBloquee !== null && !s.mandatGestion ? ' loc-suivi-case--inactive' : ''}`}>
             <input type="checkbox" checked={s.mandatGestion} disabled={primeBloquee !== null && !s.mandatGestion} onChange={(e) => cocherMandat(e.target.checked)} data-mandat-gestion />
             <span>Nouveau mandat de gestion signé (prime)</span></label>
-          {primeBloquee !== null && <small className="loc-muet" data-prime-deja-versee>{motPrimeDejaVersee(primeBloquee)} : une seule prime de nouvelle gestion par bien.</small>}</div>
+          {primeBloquee !== null && <small className="loc-muet" data-prime-deja-versee>{motPrimeDejaVersee(primeBloquee)} : une seule prime de nouvelle gestion par bien.</small>}
+          {deduit?.annexe && primeBloquee === null && <small className="loc-muet" data-prime-seulement>Annexe : prime seulement, pas de nouvelle gestion.</small>}</div>
         {annuaire && (
           <label className="loc-champ">{libelle('Prime de gestion')}
             <ListeChoix options={[{ id: 'regle', libelle: euros(primeRegle).replace(',00', '') }, { id: 'personnalise', libelle: 'Personnalisé' }, { id: 'aucune', libelle: 'Aucune' }]}

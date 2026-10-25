@@ -1,5 +1,6 @@
 'use client';
 
+import { regleAnnexesDe, stockGestion } from '../../../../lib/location/suivi/annexesGestion';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
@@ -195,7 +196,10 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
     (_, i) => `${annee}-${String(portee === 'mois' ? mois : i + 1).padStart(2, '0')}`);
   const C = sectionApporteurs(lignes, ctx, periode, moisEcoules);
   const moisFinGestion = `${annee}-${String(mois).padStart(2, '0')}`;
-  const D = sectionGestion(d.gestion.transitions, d.gestion.stock, annee === Number(jour.slice(0, 4)) && mois > Number(jour.slice(5, 7)) ? jour.slice(0, 7) : moisFinGestion);
+  // 🔴 Arno (25/10/2026, 426) — la règle des annexes : à partir de la bascule, une annexe ne compte ni en entrée, ni en sortie, ni dans le stock.
+  const regleA = regleAnnexesDe(d);
+  const stockA = stockGestion(d.gestion.stock, d.gestion.transitions, regleA);
+  const D = sectionGestion(d.gestion.transitions, stockA, annee === Number(jour.slice(0, 4)) && mois > Number(jour.slice(5, 7)) ? jour.slice(0, 7) : moisFinGestion, regleA);
   const Dm = D.at(-1)!;
   const lignesPeriode = lignesDePeriode(lignes, periode);
   const preavis = portee === 'mois' ? d.preavis[moisFinGestion] ?? 0 : Object.entries(d.preavis).filter(([k]) => k.startsWith(`${annee}-`)).reduce((s, [, v]) => s + v, 0);
@@ -206,7 +210,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
     : (propre?.lignes ?? []).filter((l) => periode.mois === null || l.mois === `${periode.annee}-${String(periode.mois).padStart(2, '0')}`);
   const sansN1 = !d.activites.some((a) => a.dateSignature.startsWith(`${annee - 1}-`));
   // Arno (23/10/2026) — Suivi annuel : les tuiles montrent l'ANNÉE (en cours : du 1er janvier à la fin du mois choisi), face à N−1 sur la même période.
-  const T = tuilesAnnee(lignes, ctx, annee, jour, mois, d.gestionLignes ?? []);
+  const T = tuilesAnnee(lignes, ctx, annee, jour, mois, d.gestionLignes ?? [], regleA);
   const periodeT = T.complete ? String(annee) : `${COURT[0]} → ${COURT[T.moisFin - 1]}`;
   const periodeN1 = T.complete ? String(annee - 1) : `${COURT[0]} → ${COURT[T.moisFin - 1]} ${annee - 1}`;
   const reprises = d.activites.filter((a) => a.source === 'import' && a.dateSignature.startsWith(`${annee}-`));
@@ -283,7 +287,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <li><button type="button" className="tdb-tuile" data-tuile="gestion"
             onClick={() => setDetail({ titre: `Gestion — ${annee}${T.complete ? '' : ` (${periodeT})`}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
             <span className="tdb-tuile-mot">Biens en gestion</span>
-            <strong className="tdb-tuile-valeur">{d.gestion.disponible ? d.gestion.stock : '—'}</strong>
+            <strong className="tdb-tuile-valeur" data-biens-en-gestion>{d.gestion.disponible ? stockA : '—'}</strong>
             {d.gestion.disponible ? <>
               <MouvementsGestion periode={`${annee}${T.complete ? '' : ` (${periodeT})`}`} nouveaux={T.gestion.nouvelles} sortis={T.gestion.perdues} />
               <span className="tdb-tuile-n1 tdb-gestion-recurrent">récurrent {ecartEur(T.gestion.gagneMensuel)} / −{eur(T.gestion.perduMensuel)} par mois{T.gestion.sansLoyer > 0 ? ` (${T.gestion.sansLoyer} sans loyer saisi, non comptés)` : ''}</span>
@@ -323,8 +327,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         /* Arno (23/10/2026) — trois mesures, mois par mois : CA HT (comme avant), baux signés (`nb` : la ligne « Baux signés (avenants
            compris) » du tableau du mois), nouvelles gestions (passages au statut « En gestion », sans soustraire les sorties). */
         const mm = MESURES_MOIS.find((x) => x.cle === mesure) ?? MESURES_MOIS[0];
-        const gestionN = entreesGestionParMois(d.gestion.transitions, annee);
-        const gestionN1 = entreesGestionParMois(d.gestion.transitions, annee - 1);
+        const gestionN = entreesGestionParMois(d.gestion.transitions, annee, regleA);
+        const gestionN1 = entreesGestionParMois(d.gestion.transitions, annee - 1, regleA);
         const sansN1Gestion = !d.gestion.disponible || !d.gestion.transitions.some((t) => t.effetLe.startsWith(`${annee - 1}-`));
         const sansN1Mesure = mesure === 'gestion' ? sansN1Gestion : sansN1;
         const motDetail = mesure === 'baux' ? 'Baux signés' : 'Nouvelles gestions';

@@ -1,4 +1,5 @@
 import type { LigneMois } from './gestionMensuelle';
+import { annexeNonComptee, compteCommeGestion, SANS_REGLE_ANNEXES, type AnnexeLouee, type RegleAnnexes } from './annexesGestion';
 import { auCentime, montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
@@ -25,6 +26,11 @@ import { auCentime, montantPrime, baremeADate, type BaremeApporteur, type ModeAp
 export type Assurance = 'gli' | 'visale' | 'autre' | 'aucune';
 
 export interface ActiviteCalcul {
+  /**
+   * 🔴 Arno (25/10/2026, 426) — une location d'ANNEXE datée de la bascule ou après (lue par le serveur) : son lot principal, en gestion ou
+   * non à la signature. Le statut calculé est alors « Relocation gestion » / « Relocation sans gestion », jamais « Nouvelle gestion ».
+   */
+  annexe?: AnnexeLouee | null;
   id: number | string;
   type: TypeActivite;
   dateSignature: string;
@@ -444,7 +450,7 @@ export const DESCRIPTION_NATURE_BIEN: Record<NatureBien, string> = {
  * 🔴 Arno (25/10/2026, migration 424) — LE STATUT VALIDÉ À LA MAIN l'emporte sur le calcul PARTOUT (pastille de ligne, légende, compteurs,
  * panneau) ; « Revenir au statut calculé » l'efface. Il ne réécrit ni l'origine du contact ni la gestion (aucun effet de bord). PUR.
  */
-export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'natureManuelle'>): { nature: NatureBien; raison: string; manuelle?: { par: string; le: string } } {
+export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'natureManuelle' | 'annexe'>): { nature: NatureBien; raison: string; manuelle?: { par: string; le: string } } {
   const m = a.natureManuelle;
   if (m !== null && m !== undefined && (NATURES_BIEN as readonly string[]).includes(m.nature)) {
     return { nature: m.nature, raison: `validé par ${m.par} le ${m.le.slice(0, 10).split('-').reverse().join('/')}`, manuelle: { par: m.par, le: m.le } };
@@ -453,7 +459,12 @@ export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecG
 }
 
 /** Le statut CALCULÉ (les règles ci-dessus) : celui que la modale propose. PUR. */
-export function natureBienCalculee(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion'>): { nature: NatureBien; raison: string } {
+export function natureBienCalculee(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'annexe'>): { nature: NatureBien; raison: string } {
+  // 🔴 Arno (25/10/2026, 426) — une annexe louée (après la bascule) : une relocation, selon la gestion de son lot principal à la signature.
+  if (a.annexe) {
+    return a.annexe.principalEnGestion ? { nature: 'relocation', raison: `annexe de ${a.annexe.libelle}, lot principal en gestion à la signature` }
+      : { nature: 'client_hors_gestion', raison: `annexe de ${a.annexe.libelle}, lot principal sans gestion à la signature` };
+  }
   const enGestion = a.avecGestion || a.mandatGestion;
   if (a.origineContact === 'relocation') return { nature: 'relocation', raison: 'case « Relocation » cochée (portefeuille de gestion)' };
   if (a.origineContact === 'proprietaire_deja_client' && !enGestion) return { nature: 'client_hors_gestion', raison: 'propriétaire déjà client, bien sans gestion' };
@@ -602,7 +613,7 @@ export interface TuilesAnnee {
 }
 
 export function tuilesAnnee(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, annee: number, aujourdhui: string, moisChoisi: number,
-  gestionLignes: readonly LigneGestion[] = []): TuilesAnnee {
+  gestionLignes: readonly LigneGestion[] = [], regle: RegleAnnexes = SANS_REGLE_ANNEXES): TuilesAnnee {
   const enCours = annee === Number(aujourdhui.slice(0, 4));
   const moisFin = enCours ? Math.min(12, Math.max(1, moisChoisi)) : 12;
   const dans = (a: number) => (x: { dateSignature: string }) => x.dateSignature >= `${a}-01` && x.dateSignature.slice(0, 7) <= moisDe(a, moisFin);
@@ -617,7 +628,9 @@ export function tuilesAnnee(activites: readonly ActiviteCalcul[], ctx: ContexteC
     ecartCa: courant.ca - precedent.ca, variationCa: variation(courant.ca, precedent.ca),
     ecartNb: courant.nbBaux - precedent.nbBaux, variationNb: variation(courant.nbBaux, precedent.nbBaux),
     ecartCaNet: courant.caNet - precedent.caNet, variationCaNet: variation(courant.caNet, precedent.caNet),
-    gestion: { nouvelles: nouvelles.length, perdues: perdues.length, gagneMensuel: somme(nouvelles), perduMensuel: somme(perdues),
+    // 🔴 426 — le NOMBRE de gestions : sans les annexes après la bascule (avant : comme avant) ; les montants inchangés.
+    gestion: { nouvelles: nouvelles.filter((l) => compteCommeGestion(l.lotId, l.effetLe, regle)).length,
+      perdues: perdues.filter((l) => compteCommeGestion(l.lotId, l.effetLe, regle)).length, gagneMensuel: somme(nouvelles), perduMensuel: somme(perdues),
       sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length,
       lotsEntres: nouvelles.map((l) => l.lotId).filter((x): x is number => x !== null), lotsSortis: perdues.map((l) => l.lotId).filter((x): x is number => x !== null) },
   };
@@ -699,21 +712,25 @@ export function entreeEnGestion(t: Transition): boolean { return t.apres === 'en
  * Arno (23/10/2026) — « Mois par mois », mesure « Gestion » : les NOUVELLES gestions de chaque mois civil de l'année (les passages au
  * statut « En gestion »), sans soustraire les sorties. Douze nombres, janvier → décembre. PUR.
  */
-export function entreesGestionParMois(transitions: readonly Transition[], annee: number): number[] {
+export function entreesGestionParMois(transitions: readonly Transition[], annee: number, regle: RegleAnnexes = SANS_REGLE_ANNEXES): number[] {
   return Array.from({ length: 12 }, (_, i) => {
     const mm = `${annee}-${String(i + 1).padStart(2, '0')}`;
-    return transitions.filter((t) => t.effetLe.slice(0, 7) === mm && entreeEnGestion(t)).length;
+    return transitions.filter((t) => t.effetLe.slice(0, 7) === mm && entreeEnGestion(t) && compteCommeGestion(t.lotId, t.effetLe, regle)).length;
   });
 }
 
-export function sectionGestion(transitions: readonly Transition[], stockActuel: number, moisFin: string): PointGestion[] {
+/**
+ * 🔴 426 — `stockActuel` : le nombre de biens en gestion d'aujourd'hui SELON LA RÈGLE (`stockGestion`) ; les mouvements d'annexes datés de la
+ * bascule ou après ne comptent ni en entrée, ni en sortie, ni dans le stock remonté ; avant la bascule, tout est comme avant.
+ */
+export function sectionGestion(transitions: readonly Transition[], stockActuel: number, moisFin: string, regle: RegleAnnexes = SANS_REGLE_ANNEXES): PointGestion[] {
   const [a, m] = moisFin.split('-').map(Number);
   const mois = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(Date.UTC(a, m - 12 + i, 1));
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   });
-  const entre = entreeEnGestion;
-  const sort = (t: Transition): boolean => t.avant === 'en_gestion' && t.apres !== 'en_gestion';
+  const entre = (t: Transition): boolean => entreeEnGestion(t) && compteCommeGestion(t.lotId, t.effetLe, regle);
+  const sort = (t: Transition): boolean => t.avant === 'en_gestion' && t.apres !== 'en_gestion' && compteCommeGestion(t.lotId, t.effetLe, regle);
   const delta = (t: Transition): number => (entre(t) ? 1 : sort(t) ? -1 : 0);
   return mois.map((mm) => {
     const duMois = transitions.filter((t) => t.effetLe.slice(0, 7) === mm);
@@ -855,6 +872,9 @@ export interface DonneesTableau {
    * mois par mois de l'année), l'historique année par année et l'export — calculée côté serveur, rien d'un autre.
    */
   negociateurPropre?: { cle: string; libelle: string; lignes: LigneNegociateur[]; historique: { annee: number; commission: number }[] };
+  /** 🔴 Arno (25/10/2026, 426) — la date de bascule de la règle des annexes (null : aucune, tout comme avant) et les lots reliés à un lot principal. */
+  basculeAnnexes?: string | null;
+  annexes?: number[];
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
@@ -1176,18 +1196,25 @@ export function honorairesGestionMensuels(l: Pick<LigneGestion, 'loyerHc' | 'pro
 
 export interface GestionDuMois {
   nouvelles: LigneGestion[]; perdues: LigneGestion[];
+  /**
+   * 🔴 426 — le NOMBRE de gestions gagnées / perdues : les lignes sans les annexes datées de la bascule ou après (montrées, marquées « annexe —
+   * non comptée ») ; avant la bascule, la longueur des listes, comme avant.
+   */
+  nbNouvelles: number; nbPerdues: number;
   gagneMensuel: number; perduMensuel: number; balanceMensuelle: number; balanceAnnuelle: number; sansLoyer: number;
 }
 
 /** Les nouvelles gestions et les mandats perdus d'un mois (« AAAA-MM »), et la balance gagné − perdu (mensuelle, annualisée). PUR. */
-export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): GestionDuMois {
+export function gestionDuMois(lignes: readonly LigneGestion[], mois: string, regle: RegleAnnexes = SANS_REGLE_ANNEXES): GestionDuMois {
   const duMois = lignes.filter((l) => l.effetLe.slice(0, 7) === mois);
   const nouvelles = duMois.filter((l) => l.apres === 'en_gestion' && l.avant !== 'en_gestion');
   const perdues = duMois.filter((l) => l.avant === 'en_gestion' && l.apres !== 'en_gestion');
   const somme = (x: LigneGestion[]): number => x.reduce((s, l) => s + (honorairesGestionMensuels(l) ?? 0), 0);
   const gagneMensuel = somme(nouvelles);
   const perduMensuel = somme(perdues);
-  return { nouvelles, perdues, gagneMensuel, perduMensuel, balanceMensuelle: gagneMensuel - perduMensuel, balanceAnnuelle: (gagneMensuel - perduMensuel) * 12,
+  const compte = (l: LigneGestion): boolean => compteCommeGestion(l.lotId, l.effetLe, regle);
+  return { nouvelles, perdues, nbNouvelles: nouvelles.filter(compte).length, nbPerdues: perdues.filter(compte).length,
+    gagneMensuel, perduMensuel, balanceMensuelle: gagneMensuel - perduMensuel, balanceAnnuelle: (gagneMensuel - perduMensuel) * 12,
     sansLoyer: [...nouvelles, ...perdues].filter((l) => honorairesGestionMensuels(l) === null).length };
 }
 
@@ -1198,24 +1225,27 @@ export function gestionDuMois(lignes: readonly LigneGestion[], mois: string): Ge
  * janvier +150, février +100 → 250 / mois en février, pas 400) ; / an = × 12. Les biens sans loyer de départ ne sont pas comptés
  * (`sansLoyer`). PUR.
  */
-export interface MouvementGestion { lotId: number | null; libelle: string; mois: string; mensuel: number | null }
+export interface MouvementGestion { lotId: number | null; libelle: string; mois: string; mensuel: number | null;
+  /** 🔴 426 — une annexe datée de la bascule ou après : montrée, non comptée. */
+  annexeNonComptee?: boolean }
 export interface GestionDepuisJanvier {
   entrees: { nb: number; mensuel: number; annuel: number; biens: MouvementGestion[] };
   sorties: { nb: number; mensuel: number; annuel: number; biens: MouvementGestion[] };
   solde: { mensuel: number; annuel: number }; sansLoyer: number;
 }
-export function gestionDepuisJanvier(lignes: readonly LigneGestion[], mois: string): GestionDepuisJanvier {
+export function gestionDepuisJanvier(lignes: readonly LigneGestion[], mois: string, regle: RegleAnnexes = SANS_REGLE_ANNEXES): GestionDepuisJanvier {
   const annee = mois.slice(0, 4);
   const moisDeLAnnee = Array.from({ length: Number(mois.slice(5, 7)) }, (_, i) => `${annee}-${String(i + 1).padStart(2, '0')}`);
-  const parMois = moisDeLAnnee.map((m) => gestionDuMois(lignes, m));
-  const vers = (l: LigneGestion): MouvementGestion => ({ lotId: l.lotId, libelle: l.libelle, mois: l.effetLe.slice(0, 7), mensuel: honorairesGestionMensuels(l) });
+  const parMois = moisDeLAnnee.map((m) => gestionDuMois(lignes, m, regle));
+  const vers = (l: LigneGestion): MouvementGestion => ({ lotId: l.lotId, libelle: l.libelle, mois: l.effetLe.slice(0, 7), mensuel: honorairesGestionMensuels(l),
+    ...(annexeNonComptee(l.lotId, l.effetLe, regle) ? { annexeNonComptee: true } : {}) });
   const entrees = parMois.flatMap((g) => g.nouvelles).map(vers);
   const sorties = parMois.flatMap((g) => g.perdues).map(vers);
   const gagne = parMois.reduce((s, g) => s + g.gagneMensuel, 0);
   const perdu = parMois.reduce((s, g) => s + g.perduMensuel, 0);
   return {
-    entrees: { nb: entrees.length, mensuel: gagne, annuel: gagne * 12, biens: entrees },
-    sorties: { nb: sorties.length, mensuel: perdu, annuel: perdu * 12, biens: sorties },
+    entrees: { nb: parMois.reduce((s, g) => s + g.nbNouvelles, 0), mensuel: gagne, annuel: gagne * 12, biens: entrees },
+    sorties: { nb: parMois.reduce((s, g) => s + g.nbPerdues, 0), mensuel: perdu, annuel: perdu * 12, biens: sorties },
     solde: { mensuel: gagne - perdu, annuel: (gagne - perdu) * 12 },
     sansLoyer: parMois.reduce((s, g) => s + g.sansLoyer, 0),
   };
@@ -1240,6 +1270,8 @@ export interface ResumeDuMois {
   negociateurs: CascadeNegociateur[];
   /** Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de TOUS les négociateurs du mois. */
   primes: number; retrocessions: number;
+  /** 🔴 426 — les annexes louées séparément ce mois (après la bascule) : comptées en relocation, pas en nouvelle gestion. */
+  annexesLouees: number;
 }
 
 export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCalcul[], g: GestionDuMois, negos: readonly LigneNegociateur[], ctx?: ContexteCalcul): ResumeDuMois {
@@ -1258,12 +1290,13 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
     parStatut,
     gestion: { avec: { nb: avec.length, ca: t.avecGestion, part: part(t.avecGestion) }, sans: { nb: sans.length, ca: t.sansGestion, part: part(t.sansGestion) } },
     portefeuille: {
-      gagnes: { nb: g.nouvelles.length, mensuel: g.gagneMensuel, annuel: g.gagneMensuel * 12 },
-      perdus: { nb: g.perdues.length, mensuel: g.perduMensuel, annuel: g.perduMensuel * 12 },
+      gagnes: { nb: g.nbNouvelles, mensuel: g.gagneMensuel, annuel: g.gagneMensuel * 12 },
+      perdus: { nb: g.nbPerdues, mensuel: g.perduMensuel, annuel: g.perduMensuel * 12 },
       solde: { mensuel: g.balanceMensuelle, annuel: g.balanceAnnuelle }, sansLoyer: g.sansLoyer,
     },
     negociateurs: ctx === undefined ? [] : negos.map((n) => cascadeNegociateur(n, lignesDuMois, ctx)),
     primes: t.primes, retrocessions: t.retrocessions,
+    annexesLouees: lignesDuMois.filter((a) => a.annexe).length,
   };
 }
 

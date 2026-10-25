@@ -1,5 +1,6 @@
 'use client';
 
+import { annexeNonComptee, regleAnnexesDe, type RegleAnnexes } from '../../../../lib/location/suivi/annexesGestion';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
@@ -77,12 +78,14 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
   // 🔴 Arno (25/10/2026) — le variable : un administrateur calcule tous les négociateurs ; un autre compte n'a que SA cascade (serveur).
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
-  const g = gestionDuMois(d.gestionLignes ?? [], cle);
+  // 🔴 Arno (25/10/2026, 426) — la règle des annexes (à partir de la bascule, une annexe ne compte pas comme une gestion).
+  const regleA = regleAnnexesDe(d);
+  const g = gestionDuMois(d.gestionLignes ?? [], cle, regleA);
   const r = resumeDuMois(t, duMois, g, negos, ctx);
   const propre = d.variablesPropres?.[`${annee}-${String(mois).padStart(2, '0')}`];
   const blocsNego = d.voirCommissions ? r.negociateurs : propre !== undefined ? [propre] : [];
   // 🔴 Arno (25/10/2026) — le portefeuille de gestion depuis le 1er janvier (même source et même calcul que la ligne du mois).
-  const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle);
+  const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle, regleA);
   const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
@@ -235,12 +238,12 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
       </section>
 
       <section className="tdb-section" aria-labelledby="fdm-gestions" data-bloc="nouvelles-gestions">
-        <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet">({g.nouvelles.length})</small></h3>
-        <TableGestion lignes={g.nouvelles} perdus={false} />
+        <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet">({g.nbNouvelles}{g.nouvelles.length > g.nbNouvelles ? ` · ${g.nouvelles.length - g.nbNouvelles} annexe(s) non comptée(s)` : ''})</small></h3>
+        <TableGestion lignes={g.nouvelles} perdus={false} regle={regleA} />
       </section>
       <section className="tdb-section" aria-labelledby="fdm-perdus" data-bloc="mandats-perdus">
-        <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet">({g.perdues.length})</small></h3>
-        <TableGestion lignes={g.perdues} perdus />
+        <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet">({g.nbPerdues}{g.perdues.length > g.nbPerdues ? ` · ${g.perdues.length - g.nbPerdues} annexe(s) non comptée(s)` : ''})</small></h3>
+        <TableGestion lignes={g.perdues} perdus regle={regleA} />
       </section>
 
       {/* 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : le bas de feuille rangé par FAMILLES, chacune dans son encadré titré, sans mélange.
@@ -307,6 +310,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                   <td data-mot="/ mois" data-total="balance">{signeEur(r.portefeuille.solde.mensuel)}</td>
                   <td data-mot="/ an" data-total="balance-an">{signeEur(r.portefeuille.solde.annuel)}</td></tr>
                 {g.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</td></tr>}
+                {/* 🔴 Arno (25/10/2026, 426) — les annexes louées séparément ce mois (après la bascule seulement). */}
+                {r.annexesLouees > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-annexes-louees>{r.annexesLouees} annexe(s) louée(s) séparément : comptées en relocation, pas en nouvelle gestion.</td></tr>}
               </tbody>
               {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
               <tbody data-portefeuille-cumul>
@@ -328,7 +333,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
               <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
                   <li key={`${x.lotId ?? 'f'}-${x.mois}-${i}`}>
-                    <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
+                    <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}{x.annexeNonComptee ? ' · annexe — non comptée' : ''}</small></span>
                     <span>{x.mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(x.mensuel)} / mois`}</span>
                   </li>))}
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
@@ -511,7 +516,7 @@ function BlocNegociateur({ x, mois }: { x: CascadeNegociateur; mois: string }) {
   );
 }
 
-function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; perdus: boolean }) {
+function TableGestion({ lignes, perdus, regle }: { lignes: readonly LigneGestion[]; perdus: boolean; regle: RegleAnnexes }) {
   if (lignes.length === 0) return <p className="loc-muet">{perdus ? 'Aucun mandat perdu ce mois-ci.' : 'Aucune nouvelle gestion ce mois-ci.'}</p>;
   return (
     <table className="fdm-table">
@@ -526,7 +531,8 @@ function TableGestion({ lignes, perdus }: { lignes: readonly LigneGestion[]; per
           <tr key={`${l.lotId ?? 'fichier'}-${l.effetLe}-${i}`} data-ligne-gestion={l.lotId ?? 'fichier'}>
             <th scope="row">{l.lotId !== null ? <a href={`/admin/location/bien/${l.lotId}`}>{l.libelle}</a> : <span>{l.libelle}</span>}
               {l.origine === 'fichier' && <span className="loc-pastille" title={[l.commentaire, l.lotId === null ? 'Bien non rattaché' : null].filter(Boolean).join(' · ') || undefined}
-                data-perte-fichier>suivi mensuel{l.lotId === null ? ' · non rattaché' : ''}</span>}</th>
+                data-perte-fichier>suivi mensuel{l.lotId === null ? ' · non rattaché' : ''}</span>}
+              {annexeNonComptee(l.lotId, l.effetLe, regle) && <span className="loc-pastille" data-annexe-non-comptee>annexe — non comptée</span>}</th>
             <td data-mot="Propriétaire">{l.proprietaire || '—'}</td>
             {perdus ? <><td data-mot="Sortie le">{l.origine === 'fichier' ? `${dateFr(l.effetLe).slice(3)} (mois)` : dateFr(l.effetLe)}</td>
               <td data-mot="Statut d’arrivée">{STATUT_ARRIVEE[l.apres] ?? l.apres}</td></>

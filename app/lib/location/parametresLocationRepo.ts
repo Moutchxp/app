@@ -9,6 +9,7 @@ import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { baremesDisponibles } from './honorairesProprietaireRepo';
 import { refusVersionBareme, verifierBareme, type VersionBareme } from './honorairesProprietaire';
 import type { Issue } from './locationRepo';
+import { lireBasculeAnnexes } from './suivi/annexesGestionRepo';
 
 /**
  * ══ 🔴🔴 LOCATION — L'ESPACE « PARAMÈTRES LOCATION » (roue crantée de l'accueil, administrateurs seulement) (Arno, 21/10/2026). ═
@@ -40,6 +41,8 @@ export interface ParametresLocation {
   aujourdhui: string;
   /** Ce qui manque en base, pour le dire à l'écran (« migration 395 »). */
   manquantes: string[];
+  /** 🔴 Arno (25/10/2026, 426) — la date de bascule de la règle des annexes (lecture seule) ; null : la 426 n'est pas appliquée. */
+  basculeAnnexes?: string | null;
 }
 
 /** Les versions des barèmes, avec le nombre de baux qui les utilisent et qui les a créées / corrigées. */
@@ -70,6 +73,7 @@ export async function lireParametresLocation(): Promise<ParametresLocation> {
     archivage: { mois: await delaiArchivageMois(), disponible: await colonneExisteMemo('gestion_location_reglage', 'valeur_entiere') },
     destinataires: await lireDestinatairesDefaut(), destinatairesSaisis: saisis, versions: await lireVersionsBaremes(),
     aujourdhui: j[0]?.jour ?? new Date().toISOString().slice(0, 10), manquantes: avec395 ? [] : ['395'],
+    basculeAnnexes: await lireBasculeAnnexes(),
   };
 }
 

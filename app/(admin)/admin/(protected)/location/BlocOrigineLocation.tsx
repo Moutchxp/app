@@ -8,6 +8,7 @@ import { API_SUIVI, posterSuivi } from './suiviApi';
 import { CSS_SUIVI_COMMERCIAL, useParametresSuivi } from './SuiviCommercial';
 import { libelleOrigineContact, LIBELLE_ORIGINE_CONTACT, originesProposees, type OrigineContact } from '../../../../lib/location/suivi/suivi';
 import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../../lib/location/origineProprietaire';
+import { motAnnexeLouee, type AnnexeLouee } from '../../../../lib/location/suivi/annexesGestion';
 
 /**
  * ══ 🔴 Arno (25/10/2026, 425) — BLOC 9 « ORIGINE DU CONTACT » DE LA FICHE DU BIEN, OUVERTE DEPUIS UNE LIGNE DU SUIVI DU MOIS ══════════
@@ -17,7 +18,9 @@ import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../
  * refusé ; journal (écran « Fiche du bien (Suivi du mois) ») ; la modale reste ouverte, la page se relit derrière. Encore « à
  * renseigner » : l'origine du propriétaire est proposée (« reprise du propriétaire <nom> »). Ligne sans location : en lecture.
  */
-interface Lu { origineContact: OrigineContact | null; origineContactPrecision: string | null; apporteurId: number | null; collegueId: number | null; empreinte: string; avecGestion: boolean; bien: OrigineDuBien | null }
+interface Lu { origineContact: OrigineContact | null; origineContactPrecision: string | null; apporteurId: number | null; collegueId: number | null; empreinte: string; avecGestion: boolean; bien: OrigineDuBien | null;
+  /** 🔴 426 — une location d'annexe (après la bascule). */
+  annexe?: AnnexeLouee | null }
 type Saisie = { origine: string; precision: string; collegueId: number | null; apporteurId: number | null };
 
 const versSaisie = (l: Lu): Saisie => ({ origine: l.origineContact ?? '', precision: l.origineContactPrecision ?? '', collegueId: l.collegueId, apporteurId: l.apporteurId });
@@ -111,6 +114,7 @@ export function BlocOrigineLocation({ activiteId, numero, origineLigne, onEnregi
       <style>{CSS_SUIVI_COMMERCIAL}</style>
       {titre}
       <p className="loc-muet" style={{ margin: '0 0 8px' }}>L’origine du contact de cette location (la même que dans le Dossier de location). Son enregistrement est indépendant du bien.</p>
+      {lu?.annexe && <p className="loc-muet" style={{ margin: '0 0 8px' }} data-annexe-louee>{motAnnexeLouee(lu.annexe)}{lu.annexe.principalEnGestion ? '' : ' (lot principal sans gestion)'}.</p>}
       {motifLecture !== null ? <p className="gst-erreur" role="alert">{motifLecture}</p> : lu === null || pl === null ? <p className="gst-info" role="status">{parametres.erreur ?? 'Lecture…'}</p> : (
         <>
           <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-origine-contact-bloc>{choix.champs}</div>

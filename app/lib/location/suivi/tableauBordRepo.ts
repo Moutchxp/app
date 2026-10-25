@@ -7,6 +7,7 @@ import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, varia
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
+import { annexesDesLocations, lireRegleAnnexes } from './annexesGestionRepo';
 import { annuaireDisponible, statutBienManuelDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
@@ -257,7 +258,10 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
      (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
   const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));
-  const visibles = activites;
+  // 🔴 Arno (25/10/2026, 426) — la règle des annexes : les locations d'annexes datées de la bascule ou après portent leur lot principal.
+  const regleAnnexes = await lireRegleAnnexes();
+  const annexesLouees = await annexesDesLocations(activites, regleAnnexes);
+  const visibles = annexesLouees.size === 0 ? activites : activites.map((a) => (annexesLouees.has(String(a.id)) ? { ...a, annexe: annexesLouees.get(String(a.id)) } : a));
   // L'historique de toutes les années (Suivi annuel, « année par année ») : calculé ici, seules les sommes partent.
   const toutes = annees.length > 0 ? await lireActivites(annees) : [];
   // 413 — les affaires « Récurrent » de toutes les années : leur part gestion est due chaque mois tant que le bien est en gestion
@@ -284,5 +288,6 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     ecartsFichier: ecartsFichier.map((e) => (e.champ === 'commission' && !voirCommissions ? { ...e, fichier: 0, outil: 0 } : e)),
     ...(voirCommissions ? {} : { variablesPropres }),
     ...(suiviPropre === null ? {} : { negociateurPropre: suiviPropre }),
+    basculeAnnexes: regleAnnexes.basculeAnnexes, annexes: regleAnnexes.annexes,
   };
 }

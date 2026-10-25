@@ -7,6 +7,8 @@ import {
   type OrigineDuBien, type OrigineProprietaire, type OrigineProprietaireContact,
 } from './origineProprietaire';
 import { libelleOrigineContact, verifierCommercial, type OrigineContact } from './suivi/suivi';
+import { lireRegleAnnexes, principalDeLAnnexe } from './suivi/annexesGestionRepo';
+import type { AnnexeLouee } from './suivi/annexesGestion';
 
 /**
  * ══ 🔴 Arno (25/10/2026, migration 425) — L'ORIGINE DU CONTACT DU PROPRIÉTAIRE : lecture, écriture, héritage par ses locations ══════════
@@ -178,12 +180,18 @@ export const empreinteOrigine = (r: { origine_contact?: unknown; origine_contact
 
 /** L'origine d'une location (bloc 9), son empreinte et ce qu'elle hérite de son bien. */
 export async function lireOrigineActivite(activiteId: number): Promise<{ origineContact: OrigineContact | null; origineContactPrecision: string | null; apporteurId: number | null;
-  collegueId: number | null; empreinte: string; avecGestion: boolean; bien: OrigineDuBien | null } | null> {
+  collegueId: number | null; empreinte: string; avecGestion: boolean; bien: OrigineDuBien | null;
+  /** 🔴 426 — la location est celle d'une annexe (après la bascule) : son lot principal. */
+  annexe: AnnexeLouee | null } | null> {
   const precision = (await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision')) ? 'origine_contact_precision' : 'NULL::text AS origine_contact_precision';
-  const r = (await query<Record<string, unknown>>(`SELECT origine_contact, ${precision}, apporteur_id, collegue_id, lot_id, avec_gestion FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL`, [activiteId])).rows[0];
+  const r = (await query<Record<string, unknown>>(`SELECT origine_contact, ${precision}, apporteur_id, collegue_id, lot_id, avec_gestion, date_signature::text AS date_signature FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL`, [activiteId])).rows[0];
   if (r === undefined) return null;
+  const regle = await lireRegleAnnexes();
+  const lot = nombre(r.lot_id);
+  const date = String(r.date_signature ?? '').slice(0, 10);
+  const annexe = lot !== null && regle.basculeAnnexes !== null && date >= regle.basculeAnnexes && regle.annexes.includes(lot) ? await principalDeLAnnexe(lot, date) : null;
   return { origineContact: (r.origine_contact as OrigineContact | null) ?? null, origineContactPrecision: (r.origine_contact_precision as string | null) ?? null,
-    apporteurId: nombre(r.apporteur_id), collegueId: nombre(r.collegue_id), empreinte: empreinteOrigine(r), avecGestion: r.avec_gestion === true, bien: await origineDuBien(nombre(r.lot_id)) };
+    apporteurId: nombre(r.apporteur_id), collegueId: nombre(r.collegue_id), empreinte: empreinteOrigine(r), avecGestion: r.avec_gestion === true, bien: await origineDuBien(lot), annexe };
 }
 
 /**

@@ -114,6 +114,7 @@
     "location:reparer-categorie-prime": "tsx app/scripts/reparer-categorie-prime.ts",
     "location:apporteurs-internes": "tsx app/scripts/apporteurs-internes.ts",
     "location:origine-proprietaires": "tsx app/scripts/origine-proprietaires.ts",
+    "location:liens-annexes": "tsx app/scripts/liens-annexes.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
     "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",

@@ -31,6 +31,8 @@ interface Parametres {
   archivage?: { mois: number; disponible: boolean };
   destinataires: Destinataire[]; destinatairesSaisis: { le: string; par: string } | null;
   versions: VersionBareme[]; aujourdhui: string; manquantes: string[];
+  /** 🔴 426 — la date de bascule de la règle des annexes (lecture seule). */
+  basculeAnnexes?: string | null;
 }
 export type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
 /** Arno (22/10/2026, 406) — les onglets du suivi de l'activité enregistrent par leurs propres boutons (une ligne = un geste). */
@@ -222,6 +224,11 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
                   <p className="plo-muet plo-petit-texte">Un bien en « Gestion terminée » est archivé automatiquement à sa date de fin + ce délai (par défaut 24 mois) :
                     il quitte la Gestion et son dossier Drive passe dans « Inactifs ». Un changement vaut pour les biens PAS ENCORE archivés, jamais pour ceux qui le sont.</p>
                   {lu.archivage?.disponible === false && <p className="plo-alerte" role="status">Mise à jour de la base à appliquer (migration 405) : le délai ne s’enregistre pas encore.</p>}
+                  {/* 🔴 Arno (25/10/2026, 426) — la date de bascule de la règle des annexes : un paramètre, en lecture seule à l'écran. */}
+                  <div className="plo-champ" data-bascule-annexes>Compteur de gestions par lot principal — à partir du
+                    <strong>{lu.basculeAnnexes ? ` ${lu.basculeAnnexes.split('-').reverse().join('/')}` : ' — (migration 426 à appliquer)'}</strong></div>
+                  <p className="plo-muet plo-petit-texte">À partir de cette date, une annexe (parking, cave, box…) reliée à son lot principal ne compte jamais comme une
+                    gestion, même louée séparément (relocation). Avant cette date, tout est compté comme avant. Lecture seule.</p>
                 </section>
               ) : onglet === 'destinataires' ? (
                 <section data-onglet-destinataires>
