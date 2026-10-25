@@ -13,6 +13,7 @@ import { ecrireEtatModale } from './etatModaleParametres';
 import { echelleTotaux, largeurDeuxRangees } from './miseEnPageTotaux';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur, netAgence } from './CumulEtConditions';
+import { AIDE_MARGE_GLI, margeFr, type MargeGli } from '../../../../lib/location/suivi/margeGli';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -40,6 +41,9 @@ interface Lu {
   identite?: boolean;
   /** 422 — « Passer en interne » ? */
   passage?: boolean;
+  /** 427 — la Marge GLI versionnée, et sa table est-elle là ? */
+  margesGli?: MargeGli[];
+  margeGli?: boolean;
 }
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 const euros = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -57,7 +61,8 @@ function useSuiviParametres(): { lu: Lu | null; erreur: string | null; relire: (
       const x = d.data;
       setLu({ disponible: x.disponible === true, apporteurs: Array.isArray(x.apporteurs) ? x.apporteurs : [], regles: Array.isArray(x.regles) ? x.regles : [],
         retrocessions: Array.isArray(x.retrocessions) ? x.retrocessions : [], negociateurs: Array.isArray(x.negociateurs) ? x.negociateurs : [],
-        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true, identite: x.identite === true, passage: x.passage === true });
+        collegues: Array.isArray(x.collegues) ? x.collegues : [], annuaire: x.annuaire === true, nomPrenom: x.nomPrenom === true, interne: x.interne === true, toujours: x.toujours === true, identite: x.identite === true, passage: x.passage === true,
+        margesGli: Array.isArray(x.margesGli) ? x.margesGli : [], margeGli: x.margeGli === true });
     }).catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [n]);
@@ -466,6 +471,7 @@ export function OngletCommissions() {
               </span>
             </div>
           )}
+          <BlocMargeGli lu={lu} relire={relire} />
           <h3 className="plo-h3">Rétrocessions</h3>
           <p className="plo-muet plo-petit-texte">Retranchées de la commission du négociateur, le mois indiqué (ex. « Alex Coms », août 2026).</p>
           <ol className="plo-versions" data-liste-retrocessions>
@@ -499,8 +505,65 @@ export function OngletCommissions() {
   );
 }
 
+/**
+ * 🔴 Arno (25/10/2026, 427) — LA « MARGE GLI » : un pourcentage du loyer charges comprises, versionné « applicable à partir du » (l'historique
+ * conservé, comme les règles et les taux des apporteurs) ; une GLI prend la marge en vigueur à sa date de souscription. Chaque version est
+ * journalisée (compte, session, écran « Paramètres Location »). Ses propres boutons, comme les règles.
+ */
+function BlocMargeGli({ lu, relire }: { lu: Lu; relire: () => void }) {
+  const g = useGeste(relire);
+  const jour = aujourdhuiParis();
+  const marges = lu.margesGli ?? [];
+  const enVigueur = versionADate(marges, jour);
+  const [saisie, setSaisie] = useState<{ depuis: string; marge: string } | null>(null);
+  return (
+    <section className="plo-marge-gli" aria-labelledby="plo-marge-gli" data-marge-gli>
+      <h3 className="plo-h3" id="plo-marge-gli">Marge GLI</h3>
+      <p className="plo-muet plo-petit-texte" data-aide-marge-gli>{AIDE_MARGE_GLI}</p>
+      {lu.margeGli !== true ? (
+        <p className="plo-alerte" role="status" data-marge-gli-sans-migration>Mise à jour de la base à appliquer (migration 427) : la marge GLI ne s’enregistre pas encore.</p>
+      ) : (
+        <>
+          {marges.length === 0 ? <p className="plo-muet" data-marge-gli-aucune>Aucune marge enregistrée : les nouvelles GLI sont comptées sans gain.</p> : (
+            <ol className="plo-versions" data-historique-marges-gli>
+              {[...marges].reverse().map((m) => (
+                <li key={m.depuis} data-marge-gli-version={m.depuis}>
+                  <p className="plo-version-titre"><strong>Applicable à partir du {dateFr(m.depuis)}</strong>
+                    {enVigueur?.depuis === m.depuis && <span className="plo-pastille plo-pastille--vigueur">en vigueur</span>}
+                    {m.depuis > jour && <span className="plo-pastille">à venir</span>}</p>
+                  <p className="plo-version-valeurs">Marge {margeFr(m.marge)}{m.par ? <span className="plo-muet"> · saisie par {m.par}{m.saisiLe ? ` le ${dateFr(m.saisiLe)}` : ''}</span> : null}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+          {saisie === null ? (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn plo-ajout" data-nouvelle-marge-gli
+              onClick={() => { g.effacer(); setSaisie({ depuis: jour, marge: enVigueur === null ? '' : String(enVigueur.marge).replace('.', ',') }); }}>Nouvelle marge</button>
+          ) : (
+            <div className="plo-grille" data-saisie-marge-gli onKeyDown={echap(() => setSaisie(null))}>
+              <label className="plo-champ"><span>Marge GLI (%)</span><input inputMode="decimal" value={saisie.marge} placeholder="ex. 2,5" data-champ-marge-gli
+                onChange={(e) => setSaisie({ ...saisie, marge: e.target.value })} /></label>
+              <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={saisie.depuis} data-champ-marge-gli-depuis
+                onChange={(e) => setSaisie({ ...saisie, depuis: e.target.value })} /></label>
+              <span className="plo-boutons">
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(null)} data-annuler-marge-gli>Annuler</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={g.envoi} data-enregistrer-marge-gli
+                  onClick={() => { void g.faire({ action: 'marge-gli', marge: saisie }, 'Nouvelle marge GLI enregistrée.').then((ok) => { if (ok) setSaisie(null); }); }}>Enregistrer</button>
+              </span>
+            </div>
+          )}
+        </>
+      )}
+      {g.retour}
+    </section>
+  );
+}
+
 export const CSS_ONGLETS_SUIVI = CSS_REGLAGE_APPORTEUR + CSS_PANNEAUX_APPORTEUR + CSS_CUMUL_CONDITIONS + `
 .plo-champ--large{grid-column:1 / -1}
+.plo-marge-gli{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.plo-marge-gli>.plo-h3{margin-bottom:0}
+.plo-marge-gli>p{margin:0}
 .plo-modes{display:flex;flex-wrap:wrap;gap:8px}
 .plo-mode{min-height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .plo-mode[aria-checked="true"],.plo-mode[aria-pressed="true"]{border-color:var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red)}

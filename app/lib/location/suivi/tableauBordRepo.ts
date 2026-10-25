@@ -8,6 +8,7 @@ import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
 import { annexesDesLocations, lireRegleAnnexes } from './annexesGestionRepo';
+import { lireGli, lireMargesGli } from './margeGliRepo';
 import { annuaireDisponible, statutBienManuelDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
@@ -255,6 +256,8 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     lireGestionsPerduesFichier(`${annee}-01-01`, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
   ]);
   const gestionLignes = [...gestionTransitions, ...pertesFichier];
+  // 🔴 Arno (25/10/2026, 427) — les nouvelles GLI de l'année (baux avec gestion) et la marge versionnée : visibles de tous ceux qui voient le Portefeuille.
+  const [gli, margesGli] = await Promise.all([lireGli(`${annee}-01-01`, `${annee}-12-31`), lireMargesGli()]);
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
      (et donc sa commission) et les rétrocessions restent réservés au droit « Voir les commissions ». */
   const regles = voirCommissions ? reglesLues : reglesLues.map((r) => ({ ...r, tauxNegociateur: 0 }));
@@ -289,5 +292,6 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     ...(voirCommissions ? {} : { variablesPropres }),
     ...(suiviPropre === null ? {} : { negociateurPropre: suiviPropre }),
     basculeAnnexes: regleAnnexes.basculeAnnexes, annexes: regleAnnexes.annexes,
+    gli, margesGli,
   };
 }

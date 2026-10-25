@@ -1,4 +1,5 @@
 import type { LigneMois } from './gestionMensuelle';
+import type { LigneGli, MargeGli } from './margeGli';
 import { annexeNonComptee, compteCommeGestion, SANS_REGLE_ANNEXES, type AnnexeLouee, type RegleAnnexes } from './annexesGestion';
 import { auCentime, montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
@@ -875,6 +876,9 @@ export interface DonneesTableau {
   /** 🔴 Arno (25/10/2026, 426) — la date de bascule de la règle des annexes (null : aucune, tout comme avant) et les lots reliés à un lot principal. */
   basculeAnnexes?: string | null;
   annexes?: number[];
+  /** 🔴 Arno (25/10/2026, 427) — les GLI des baux avec gestion de l'année (« Nouvelles GLI » du Portefeuille) et les versions de la marge. */
+  gli?: LigneGli[];
+  margesGli?: MargeGli[];
 }
 
 export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }

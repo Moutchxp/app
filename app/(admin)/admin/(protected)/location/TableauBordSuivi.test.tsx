@@ -1594,11 +1594,64 @@ describe('🔴 Arno (25/10/2026) — Portefeuille : une seule grille de colonnes
     expect(table.querySelectorAll('col')).toHaveLength(4);
     expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
     expect([...table.querySelectorAll('[data-portefeuille-cumul] tr.fdm-pf-entetes th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
-    expect([...table.querySelectorAll('[data-portefeuille-mois] tr[data-portefeuille] th')].map((x) => x.textContent)).toEqual(['Gagnées (entrées)', 'Perdues (sorties)', 'Solde']);
-    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr[data-cumul] th')].map((x) => x.textContent)).toEqual(['Gestions entrées', 'Gestions sorties', 'Solde mensuel']);
+    // 🔴 25/10/2026 (427) — « Nouvelles GLI » sous le Solde, dans la même grille, en haut et en bas.
+    expect([...table.querySelectorAll('[data-portefeuille-mois] tr[data-portefeuille] th')].map((x) => x.textContent)).toEqual(['Gagnées (entrées)', 'Perdues (sorties)', 'Solde', 'Nouvelles GLI']);
+    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr[data-cumul] th')].map((x) => x.textContent)).toEqual(['Gestions entrées', 'Gestions sorties', 'Solde mensuel', 'Nouvelles GLI']);
     // Chaque ligne de chiffres a ses 4 cellules (le Solde du haut aussi : plus de cellule fusionnée).
     for (const tr of table.querySelectorAll('tr[data-portefeuille], tr[data-cumul]')) expect(tr.children).toHaveLength(4);
     expect(table.querySelector('[data-portefeuille="solde"] [colspan]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026, 427) — Portefeuille : « Nouvelles GLI » (loyer CC × marge GLI à leur date)', () => {
+  const gli = (bailId: number, date: string, loyerHc: number | null, provisions: number | null) =>
+    ({ bailId, activiteId: null, lotId: bailId, bien: `${bailId} rue Fictive`, locataire: `Locataire ${bailId}`, date, loyerHc, provisions });
+  beforeEach(() => {
+    donnees = { ...donnees,
+      margesGli: [{ depuis: '2026-01-01', marge: 2.5 }, { depuis: '2026-09-15', marge: 3 }],
+      gli: [gli(1, '2026-03-04', 1000, 100), gli(2, '2026-09-02', 1234.56, 85.44), gli(3, '2026-09-20', 800, 50), gli(4, '2026-09-25', null, 30), gli(5, '2026-10-01', 900, 0)] };
+  });
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const cellules = (sel: string) => [...container.querySelectorAll(`[data-famille="portefeuille"] ${sel} > *`)].map((x) => nbsp(x.textContent));
+
+  it('le mois : sous le Solde, même grille ; nombre, gain / mois = Σ loyer CC × marge à SA date, / an = × 12 ; la mention des GLI sans loyer', async () => {
+    await septembre();
+    // 2 : (1 234,56 + 85,44) × 2,5 % = 33,00 (avant le 15/09) ; 3 : 850 × 3 % = 25,50 ; 4 : sans loyer CC.
+    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelles GLI', '3', '58,50 €', '702,00 €']);
+    expect(container.querySelector('[data-gli-sans-loyer="mois"]')?.textContent).toBe('1 GLI sans loyer charges comprises : non comptées');
+    // Sous le Solde (après lui dans le même groupe de lignes) ; 4 cellules, aux colonnes Biens · / mois · / an.
+    const rangs = [...container.querySelectorAll('[data-portefeuille-mois] tr')].map((t) => t.getAttribute('data-portefeuille'));
+    expect(rangs.indexOf('gli')).toBeGreaterThan(rangs.indexOf('solde'));
+    expect([...container.querySelectorAll('[data-portefeuille="gli"] td')].map((x) => x.getAttribute('data-mot'))).toEqual(['Biens', '/ mois', '/ an']);
+  });
+
+  it('« Depuis le 1er janvier » : chaque GLI UNE fois (mars 27,50 + septembre 58,50 = 86,00), rien d’octobre', async () => {
+    await septembre();
+    expect(cellules('[data-cumul="gli"]')).toEqual(['Nouvelles GLI', '4', '86,00 €', '1 032,00 €']);
+    expect(container.querySelector('[data-gli-sans-loyer="cumul"]')?.textContent).toBe('1 GLI sans loyer charges comprises : non comptées');
+  });
+
+  it('un montant ouvre la liste (bail, locataire, loyer CC, marge, gain / mois) ; un second clic la referme', async () => {
+    await septembre();
+    const bouton = container.querySelector('[data-gli-ouvrir="mois"]') as HTMLButtonElement;
+    expect(bouton.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { bouton.click(); });
+    expect(bouton.getAttribute('aria-expanded')).toBe('true');
+    expect([...container.querySelectorAll('[data-gli-liste] li')].map((li) => nbsp(li.textContent))).toEqual([
+      '2 rue FictiveLocataire 2 · GLI du 02/09/20261 320,00 € CC × 2,5 % = 33,00 € / mois',
+      '3 rue FictiveLocataire 3 · GLI du 20/09/2026850,00 € CC × 3 % = 25,50 € / mois',
+      '4 rue FictiveLocataire 4 · GLI du 25/09/2026sans loyer CC — non comptée']);
+    expect(container.querySelector('[data-gli-bail="2"] a')?.getAttribute('href')).toBe('/admin/location/bien/2');
+    await act(async () => { (container.querySelector('[data-gli-ouvrir-an="cumul"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('[data-gli-liste] li')).toHaveLength(4);
+    await act(async () => { (container.querySelector('[data-gli-ouvrir="cumul"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-gli-liste]')).toBeNull();
+  });
+
+  it('visible sans le droit « Voir les commissions » (comme le Portefeuille)', async () => {
+    donnees = { ...donnees, voirCommissions: false };
+    await septembre();
+    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelles GLI', '3', '58,50 €', '702,00 €']);
   });
 });
 

@@ -12,6 +12,7 @@ import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
 import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
+import { gliDepuisJanvier, gliDuMois, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue, resultatNetAgence, ventilationCommissions, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
@@ -87,6 +88,11 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   // 🔴 Arno (25/10/2026) — le portefeuille de gestion depuis le 1er janvier (même source et même calcul que la ligne du mois).
   const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle, regleA);
   const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
+  // 🔴 Arno (25/10/2026, 427) — les NOUVELLES GLI (baux avec gestion) : nombre, gain / mois (loyer CC × marge à leur date), / an ; le mois et
+  // « Depuis le 1er janvier » (chaque GLI comptée une fois). Les montants ouvrent la liste.
+  const gliM = gliDuMois(d.gli ?? [], d.margesGli ?? [], cle);
+  const gliC = gliDepuisJanvier(d.gli ?? [], d.margesGli ?? [], cle);
+  const [gliOuvert, setGliOuvert] = useState<'mois' | 'cumul' | null>(null);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
@@ -313,6 +319,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 {g.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet">{g.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</td></tr>}
                 {/* 🔴 Arno (25/10/2026, 426) — les annexes louées séparément ce mois (après la bascule seulement). */}
                 {r.annexesLouees > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-annexes-louees>{r.annexesLouees} annexe(s) louée(s) séparément : comptées en relocation, pas en nouvelle gestion.</td></tr>}
+                <LigneGli g={gliM} portee="mois" ouvert={gliOuvert} onOuvrir={setGliOuvert} />
               </tbody>
               {/* 🔴 Arno (25/10/2026) — « DEPUIS LE 1ER JANVIER » : la somme des gains (et pertes) mensuels de chaque mois, comptés UNE fois. */}
               <tbody data-portefeuille-cumul>
@@ -328,8 +335,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                   <td data-mot="Biens">{cumul.entrees.nb - cumul.sorties.nb >= 0 ? '+' : '−'}{Math.abs(cumul.entrees.nb - cumul.sorties.nb)}</td>
                   <td data-mot="/ mois">{signeEur(cumul.solde.mensuel)}</td><td data-mot="/ an">{signeEur(cumul.solde.annuel)}</td></tr>
                 {cumul.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-cumul-sans-loyer>{cumul.sansLoyer} bien(s) sans loyer de départ saisi depuis le 1er janvier : non comptés.</td></tr>}
+                <LigneGli g={gliC} portee="cumul" ouvert={gliOuvert} onOuvrir={setGliOuvert} />
               </tbody>
             </table>
+            {gliOuvert !== null && <ListeGli g={gliOuvert === 'mois' ? gliM : gliC} titre={gliOuvert === 'mois' ? `Nouvelles GLI — ${nom.toLowerCase()}` : `Nouvelles GLI depuis le 1er janvier ${annee}`} />}
             {cumulOuvert !== null && (
               <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
@@ -727,6 +736,44 @@ const cartes = (t: string): string => `
   ${t} tr.fdm-ligne--ouverte,${t} tr.fdm-detail{background:var(--color-svv-field)}
   ${t} tr.fdm-ligne--ouverte>th,${t} tr.fdm-ligne--ouverte>td,${t} tr.fdm-detail>td{background:transparent}`;
 
+/**
+ * 🔴 Arno (25/10/2026, 427) — « NOUVELLES GLI » : la même grille que les gestions (Biens · / mois · / an, mêmes colonnes) ; les montants
+ * ouvrent la liste (bail, locataire, loyer CC, marge, gain / mois). Les GLI sans loyer charges comprises sont comptées dans le nombre,
+ * jamais dans les montants, et dites ; de même une GLI antérieure à toute marge enregistrée.
+ */
+function LigneGli({ g, portee, ouvert, onOuvrir }: { g: GliPeriode; portee: 'mois' | 'cumul'; ouvert: 'mois' | 'cumul' | null; onOuvrir: (v: 'mois' | 'cumul' | null) => void }) {
+  const basculer = (): void => onOuvrir(ouvert === portee ? null : portee);
+  const attr = portee === 'mois' ? { 'data-portefeuille': 'gli' } : { 'data-cumul': 'gli' };
+  return (
+    <>
+      <tr {...attr} className="fdm-pf-gli">
+        <th scope="row">Nouvelles GLI</th><td data-mot="Biens">{g.nb}</td>
+        <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir={portee} onClick={basculer}>{eur(g.mensuel)}</button></td>
+        <td data-mot="/ an"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir-an={portee} onClick={basculer}>{eur(g.annuel)}</button></td>
+      </tr>
+      {g.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-gli-sans-loyer={portee}>{g.sansLoyer} GLI sans loyer charges comprises : non comptées</td></tr>}
+      {g.sansMarge > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-gli-sans-marge={portee}>{g.sansMarge} GLI antérieure(s) à toute marge GLI enregistrée : gain non compté</td></tr>}
+    </>
+  );
+}
+
+function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
+  const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
+  return (
+    <ul className="fdm-cumul-biens fdm-gli-liste" data-gli-liste aria-label={titre}>
+      {g.gli.map((x) => (
+        <li key={x.bailId} data-gli-bail={x.bailId}>
+          <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.bien}</a> : x.bien}
+            <small>{x.locataire} · GLI du {dateFr(x.date)}</small></span>
+          <span>{x.loyerCc === null ? <span className="loc-muet">sans loyer CC — non comptée</span> : <>
+            <span data-mot="Loyer CC">{eur(x.loyerCc)} CC</span>{' × '}<span data-mot="Marge">{x.marge === null ? 'marge —' : margeFr(x.marge)}</span>{' = '}
+            <strong data-mot="Gain / mois">{x.gainMensuel === null ? '—' : `${eur(x.gainMensuel)} / mois`}</strong></>}</span>
+        </li>))}
+      {g.gli.length === 0 && <li className="loc-muet">Aucune GLI.</li>}
+    </ul>
+  );
+}
+
 export const CSS_FEUILLE_MOIS = `
 .fdm{display:flex;flex-direction:column;gap:18px}
 .fdm-table{width:100%;border-collapse:collapse;font-size:.84rem}
@@ -821,6 +868,7 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-portefeuille tr.fdm-pf-solde.tdb-signe--positif th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--positif td{color:var(--color-svv-green-ink)}
 .fdm-portefeuille tr.fdm-pf-solde.tdb-signe--negatif th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--negatif td{color:var(--color-svv-red)}
 .fdm-portefeuille tr.fdm-pf-solde.tdb-signe--nul th,.fdm-portefeuille tr.fdm-pf-solde.tdb-signe--nul td{color:var(--color-svv-muted)}
+.fdm-portefeuille tr.fdm-pf-gli th,.fdm-portefeuille tr.fdm-pf-gli td{border-top:1px solid var(--color-svv-line-strong)}
 .fdm-portefeuille tr.fdm-pf-note td{height:auto;text-align:left;white-space:normal;font-size:.8rem;border-bottom:0}
 .fdm-portefeuille tr.fdm-pf-sous-titre th{height:auto;padding-top:14px;text-align:left;border-bottom:0}
 .fdm-portefeuille tbody[data-portefeuille-cumul] tr.fdm-pf-sous-titre th{border-top:1px solid var(--color-svv-line-strong)}
@@ -864,6 +912,8 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-cumul-biens li > span:first-child{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
 .fdm-cumul-biens li > span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums}
 .fdm-cumul-biens small{color:var(--color-svv-muted)}
+.fdm-gli-liste{margin-top:8px}
+.fdm-gli-liste li > span:last-child{white-space:normal;text-align:right}
 /* 🔴 Arno (25/10/2026) — Apporteurs du mois : badges discrets ; le meilleur légèrement surligné ; Sans apporteur et Total à part. */
 .fdm-sorte{display:inline-block;margin-left:6px;border-radius:999px;padding:0 7px;font-size:.68rem;font-weight:700;line-height:1.6;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-muted);vertical-align:middle}
 .fdm-sorte--interne{border-color:var(--color-svv-blue-soft);color:var(--color-svv-blue)}

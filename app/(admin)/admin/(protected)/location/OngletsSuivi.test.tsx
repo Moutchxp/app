@@ -332,3 +332,47 @@ describe('🔴 407 — l’annuaire des apporteurs', () => {
     expect(posts.at(-1)).toMatchObject({ action: 'creer-apporteur', apporteur: { nom: 'Nouveau', collegueId: 2 } });
   });
 });
+
+describe('🔴 Arno (25/10/2026, 427) — Commissions : la « Marge GLI » versionnée', () => {
+  const marges = [{ id: 1, depuis: '2026-01-01', marge: 2.5, saisiLe: '2026-01-02 10:00:00+01', par: 'Arnaud Jorel' },
+    { id: 2, depuis: '2026-06-15', marge: 3.25, saisiLe: '2026-06-10 09:00:00+02', par: 'Arnaud Jorel' }, { id: 3, depuis: '2099-01-01', marge: 0, saisiLe: null, par: null }];
+
+  it('le texte d’aide ; l’historique (la plus récente en haut), « en vigueur », « à venir » ; 0 % accepté', async () => {
+    suivi = { ...suivi, margeGli: true, margesGli: marges };
+    await ouvrir('commissions');
+    const bloc = container.querySelector('[data-marge-gli]') as HTMLElement;
+    expect(bloc.querySelector('h3')?.textContent).toBe('Marge GLI');
+    expect(bloc.querySelector('[data-aide-marge-gli]')?.textContent).toBe('Marge que l’agence perçoit sur les assurances GLI proposées, appliquée au loyer charges comprises.');
+    expect([...bloc.querySelectorAll('[data-marge-gli-version]')].map((li) => li.getAttribute('data-marge-gli-version'))).toEqual(['2099-01-01', '2026-06-15', '2026-01-01']);
+    expect(bloc.querySelector('[data-marge-gli-version="2026-06-15"]')?.textContent).toBe('Applicable à partir du 15/06/2026en vigueurMarge 3,25 % · saisie par Arnaud Jorel le 10/06/2026');
+    expect(bloc.querySelector('[data-marge-gli-version="2099-01-01"]')?.textContent).toBe('Applicable à partir du 01/01/2099à venirMarge 0 %');
+    // Placée dans l'onglet Commissions, entre les règles du négociateur et les rétrocessions (rien d'autre ne bouge).
+    const ordre = [...container.querySelectorAll('[data-historique-regles], [data-marge-gli], [data-liste-retrocessions]')].map((e) =>
+      e.hasAttribute('data-marge-gli') ? 'gli' : e.hasAttribute('data-historique-regles') ? 'regles' : 'retro');
+    expect(ordre).toEqual(['regles', 'gli', 'retro']);
+  });
+
+  it('« Nouvelle marge » : pré-remplie à la marge en vigueur, envoyée avec sa date (une version de plus, jamais une correction)', async () => {
+    suivi = { ...suivi, margeGli: true, margesGli: marges };
+    await ouvrir('commissions');
+    await clic(container.querySelector('[data-nouvelle-marge-gli]')!);
+    const champ = container.querySelector('[data-champ-marge-gli]') as HTMLInputElement;
+    expect(champ.value).toBe('3,25');
+    await saisir(champ, '2,75');
+    await saisir(container.querySelector('[data-champ-marge-gli-depuis]') as HTMLInputElement, '2026-11-01');
+    await clic(container.querySelector('[data-enregistrer-marge-gli]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'marge-gli', marge: { marge: '2,75', depuis: '2026-11-01' } });
+    expect(container.querySelector('[data-info-suivi]')?.textContent).toBe('Nouvelle marge GLI enregistrée.');
+  });
+
+  it('aucune version : le dit ; sans la migration 427 : le dit, rien à saisir', async () => {
+    suivi = { ...suivi, margeGli: true, margesGli: [] };
+    await ouvrir('commissions');
+    expect(container.querySelector('[data-marge-gli-aucune]')?.textContent).toBe('Aucune marge enregistrée : les nouvelles GLI sont comptées sans gain.');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    suivi = { ...suivi, margeGli: false, margesGli: [] };
+    await ouvrir('commissions');
+    expect(container.querySelector('[data-marge-gli-sans-migration]')?.textContent).toContain('migration 427');
+    expect(container.querySelector('[data-nouvelle-marge-gli]')).toBeNull();
+  });
+});

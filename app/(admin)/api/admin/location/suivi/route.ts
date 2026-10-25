@@ -15,6 +15,7 @@ import { avecTrace } from '../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
 import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
 import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
+import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -34,6 +35,7 @@ import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../
  *   POST action=passer-interne {apporteurId, compteId}  un externe devient interne (ADMINISTRATEUR, 422).
  *   GET ?vue=dossiers-apporteur&id=N : les dossiers d'un apporteur (calcul en direct, cascade).
  *   419 : POST action=remuneration-collegue {apporteurId, remuneration}  la rémunération du collègue de rattachement (ADMINISTRATEUR).
+ *   427 : POST action=marge-gli {marge: {depuis, marge}}  une nouvelle version de la Marge GLI, journalisée (ADMINISTRATEUR).
  * 🔴 Arno (25/10/2026) — le variable des négociateurs (taux, rétrocessions, commission brute, cascade) ne part qu'aux ADMINISTRATEURS ;
  * tout autre compte reçoit sa SEULE cascade de négociateur (`variablesPropres`), calculée côté serveur.
  */
@@ -87,9 +89,10 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
-    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage] = await Promise.all([
+    const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage, margesGli, margeGli] = await Promise.all([
       suiviDisponible(), lireApporteurs(), lireRegles(), voirCommissions ? lireRetrocessions() : Promise.resolve([]), lireNegociateurs(),
       lireComptesInterface(), annuaireDisponible(), personnalisableDisponible(), nomPrenomDisponible(), origineDejaClientDisponible(), interneDisponible(), toujoursDisponible(), ficheIdentiteDisponible(), passageDisponible(),
+      lireMargesGli(), margeGliDisponible(),
     ]);
     // Arno (24/10/2026) — `personnalisable` : la migration 411 est là, l'origine « Personnalisé » peut être proposée.
     // 🔴 Arno (25/10/2026) — le taux du négociateur (de quoi recalculer un variable) : administrateurs seulement.
@@ -105,14 +108,16 @@ export async function GET(request: Request): Promise<Response> {
       // 421 — la fiche d'identité complète d'un externe ?
       identite,
       // 422 — « Passer en interne » enregistrable ?
-      passage } });
+      passage,
+      // 427 — la Marge GLI versionnée (et sa table est-elle là ?).
+      margesGli, margeGli } });
   } catch (e) {
     console.error('[api/admin/location/suivi] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, 503);
   }
 }
 
-const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne', 'rattachement']);
+const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'marge-gli', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne', 'rattachement']);
 
 export async function POST(request: Request): Promise<Response> {
   let corps: Record<string, unknown>;
@@ -135,6 +140,8 @@ export async function POST(request: Request): Promise<Response> {
       case 'bareme-apporteur': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
         () => ajouterBaremeApporteur(corps.apporteurId, corps.bareme, auteur)));
       case 'regle': return json(await ajouterRegle(corps.regle, auteur));
+      case 'marge-gli': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Paramètres Location' },
+        () => ajouterMargeGli(corps.marge, auteur)));
       case 'retrocession': return json(await ajouterRetrocession(corps.retrocession, auteur));
       case 'annuler-retrocession': return json(await annulerRetrocession(corps.id, auteur));
       // 🔴 Arno (25/10/2026) — « Modifier » de l'encart : chaque champ changé au journal, avec compte, session et écran « Suivi du mois ».
