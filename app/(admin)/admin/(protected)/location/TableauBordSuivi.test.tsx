@@ -216,7 +216,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(17);
     const total = (k: string) => nbsp(container.querySelector(`[data-total="${k}"]`)?.textContent);
     expect(total('ca')).toBe('15 471,70 €');
-    expect(total('apporteurs')).toBe('2 002,26 €');
+    // 🔴 25/10/2026 (suite) — les honoraires d'apporteurs VENTILÉS (externes + internes = 2 002,26 €).
+    expect([total('apporteurs-externes'), total('apporteurs-internes')]).toEqual(['2 002,26 €', '0,00 €']);
     // 🔴 Arno (25/10/2026) — le CA HT NET retire aussi les collègues (0 ici) : 15 471,70 − 2 002,26 − 0,00 = 13 469,44 au centime affiché ;
     // l'ancien « CA HT − apporteurs » (part location, 13 469,45) reste : c'est la base de calcul du négociateur.
     expect(total('ca-net')).toBe('13 469,44 €');
@@ -1201,8 +1202,14 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect(css).toContain('.fdm-familles [data-famille="gestion"]{order:4} .fdm-familles [data-famille="resultat-net"]{order:5} .fdm-familles [data-famille="negociateurs"]{order:6}');
     expect(css).toContain('.fdm-colonne{display:contents}');
     expect(css).toContain('.fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}');
+    // 🔴 25/10/2026 (suite) — les deux colonnes finissent à la même hauteur (au bureau seulement) : le dernier bloc de chaque colonne
+    // s'étire (la colonne la plus courte comble l'écart), le contenu reste en haut ; au téléphone, les colonnes n'existent pas (contents).
+    const bureau = css.slice(css.indexOf('@media (min-width:900px){'), css.indexOf('.fdm-famille--large{grid-column:1 / -1}'));
+    expect(bureau).toContain('.fdm-familles > .fdm-colonne{align-self:stretch}');
+    expect(bureau).toContain('.fdm-colonne > .fdm-famille:last-child{flex:1 1 auto;justify-content:flex-start}');
+    expect([...bas().querySelectorAll('.fdm-colonne > .fdm-famille:last-child')].map((f) => f.getAttribute('data-famille'))).toEqual(['statuts', 'gestion']);
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
-      .toEqual(['CA HT global', '− Honoraires d’apporteurs', '− Commissions collègues (apport d’apporteurs)', '= CA HT net']);
+      .toEqual(['CA HT global', '− Commissions apporteurs externes', '− Commissions apporteurs internes', '− Rémunération des collègues sur leurs apporteurs', '= CA HT net']);
     expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
       .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
   });
@@ -1210,7 +1217,7 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
   it('les contrôles au centime : CA net = CA − apporteurs − collègues ; Σ statuts = CA ; avec + sans = CA ; dossiers comptés une fois', async () => {
     await septembre();
     const v = (k: string) => euros(bas().querySelector(`[data-total="${k}"]`)?.textContent);
-    expect(Math.round((v('ca') - v('apporteurs') - v('collegues')) * 100)).toBe(Math.round(v('ca-net') * 100));
+    expect(Math.round((v('ca') - v('apporteurs-externes') - v('apporteurs-internes') - v('collegues')) * 100)).toBe(Math.round(v('ca-net') * 100));
     const ca = (sel: string) => [...bas().querySelectorAll(`${sel} [data-mot="CA HT"]`)].map((x) => euros(x.textContent));
     const statuts = ca('tbody [data-statut-ca]');
     expect(Math.abs(statuts.reduce((s, x) => s + x, 0) - v('ca'))).toBeLessThanOrEqual(0.05);
@@ -1239,7 +1246,8 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
   it('🔴 RIEN NE DISPARAÎT : chaque chiffre de l’ancien bas de feuille est dans une famille', async () => {
     await septembre();
     const ou = (sel: string) => bas().querySelector(sel)?.closest('[data-famille]')?.getAttribute('data-famille');
-    expect([ou('[data-total="ca"]'), ou('[data-total="apporteurs"]'), ou('[data-total="collegues"]'), ou('[data-total="ca-net"]')]).toEqual(['resultat', 'resultat', 'resultat', 'resultat']);
+    expect([ou('[data-total="ca"]'), ou('[data-total="apporteurs-externes"]'), ou('[data-total="apporteurs-internes"]'), ou('[data-total="collegues"]'), ou('[data-total="ca-net"]')])
+      .toEqual(['resultat', 'resultat', 'resultat', 'resultat', 'resultat']);
     expect([ou('[data-total="avec"]'), ou('[data-total="sans"]')]).toEqual(['gestion', 'gestion']);
     expect(ou('[data-total="balance"]')).toBe('portefeuille');
     // 🔴 25/10/2026 — les rétrocessions : seulement si ≠ 0 (aucune en septembre).
@@ -1506,7 +1514,8 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(bloc.classList.contains('fdm-famille--large')).toBe(true);
     expect(bloc.querySelector('h4')?.textContent).toBe('Résultat net de l’agence — Septembre 2026');
     expect([...bloc.querySelectorAll('[data-net-ligne] .fnc-mot')].map((e) => e.textContent))
-      .toEqual(['CA HT global', 'Honoraires d’apporteurs', 'Commissions collègues', 'Variable des négociateurs', 'CA net de toutes variables']);
+      .toEqual(['CA HT global', 'Commissions apporteurs externes (sans accès à l’interface)', 'Commissions apporteurs internes (collègues qui apportent en direct)',
+        'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', 'Variable des négociateurs', 'CA net de toutes variables']);
   });
 
   it('les montants sont ceux des autres blocs ; net = CA − apporteurs − collègues − variables au centime ; sa part du CA', async () => {
@@ -1515,12 +1524,13 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     const v = (sel: string) => cent(bloc.querySelector(sel)?.textContent);
     const ailleurs = (sel: string) => cent(container.querySelector(`[data-famille="resultat"] ${sel}`)?.textContent);
     expect(v('[data-net="ca"]')).toBe(ailleurs('[data-total="ca"]'));
-    expect(v('[data-net="apporteurs"]')).toBe(ailleurs('[data-total="apporteurs"]'));
+    expect(v('[data-net="externes"]')).toBe(ailleurs('[data-total="apporteurs-externes"]'));
+    expect(v('[data-net="internes"]')).toBe(ailleurs('[data-total="apporteurs-internes"]'));
     expect(v('[data-net="collegues"]')).toBe(ailleurs('[data-total="collegues"]'));
     const variables = [...container.querySelectorAll('[data-famille="negociateurs"] [data-total-commission]')].map((e) => cent(e.textContent));
     expect(variables.length).toBeGreaterThan(0);
     expect(v('[data-net-variable]')).toBe(variables.reduce((s, x) => s + x, 0));
-    expect(v('[data-net="net"]')).toBe(v('[data-net="ca"]') - v('[data-net="apporteurs"]') - v('[data-net="collegues"]') - v('[data-net-variable]'));
+    expect(v('[data-net="net"]')).toBe(v('[data-net="ca"]') - v('[data-net="externes"]') - v('[data-net="internes"]') - v('[data-net="collegues"]') - v('[data-net-variable]'));
     const part = (v('[data-net="net"]') / v('[data-net="ca"]')) * 100;
     expect(nbsp(bloc.querySelector('[data-net-part]')?.textContent)).toBe(`soit ${part.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).replace(/ | /g, ' ')} % du CA HT global`);
     // Le « i » du net : l'opération avec les vrais chiffres.

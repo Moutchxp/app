@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Apporteur } from './suivi';
-import { apporteursEtCollegues, caLigne, detailCollegue, type ActiviteCalcul } from './tableauBord';
+import { apporteursEtCollegues, caLigne, detailCollegue, totauxPeriode, ventilationCommissions, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026) — « Apporteurs du mois » : TOUS les apporteurs du mois (internes, externes, collègues « directement »), triés par
@@ -166,5 +166,40 @@ describe('🔴 Arno (25/10/2026, suite) — pas de sous-total « via » quand le
     const d = detailCollegue(apporteursEtCollegues([...mois, ligne(3, 100, { origineContact: 'collegue', collegueId: 2, collegueLibelle: 'Arnaud Jorel', commissionSaisie: 0 })],
       [ext(1, 'Frédéric Rousseau'), ext(3, 'Hélène Beketov')]).collegues[0]);
     expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'apporteur', 'apporteur', 'direct', 'total']);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — les commissions VENTILÉES : externes, internes, rémunération des collègues (aucun calcul ne change)', () => {
+  const eberlin = { ...ap(7, 'Mylène Eberlin', null), collegues: [], remunerations: [] } as unknown as Apporteur;
+  const rousseau = { ...ap(1, 'Frédéric Rousseau', null),
+    remunerations: [{ depuis: '2019-01-01', remunere: true, mode: 'one_shot', taux: 0.05, tauxGestion: 0, dureeAnnees: null }] } as unknown as Apporteur;
+  const interne = ap(2, 'Mylène Interne', 9);
+  const apps = [eberlin, rousseau, interne];
+  const mois = [
+    ligne(1, 2131.8, { apporteurId: 7, apporteurNom: 'Mylène Eberlin', origineContact: 'apporteur' }),
+    ligne(2, 1000.05, { apporteurId: 1, apporteurNom: 'Frédéric Rousseau', origineContact: 'apporteur' }),
+    ligne(3, 700.05, { apporteurId: 2, apporteurNom: 'Mylène Interne', origineContact: 'apporteur' }),
+    ligne(4, 500, { origineContact: 'internet' }),
+  ];
+  const ctx: ContexteCalcul = { regles: [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 0, primeParking: 0 }], apporteurs: apps, retrocessions: [], aujourdhui: '2026-06-30' };
+  const t = totauxPeriode(mois, ctx, { annee: 2026, mois: 6 });
+  const ac = apporteursEtCollegues(mois, apps);
+  const v = ventilationCommissions(ac, t, mois, ctx, '2026-06');
+  const cent = (x: number) => Math.round((x + Number.EPSILON) * 100);
+
+  it('externes + internes = les « Honoraires d’apporteurs » d’avant, au centime ; collègues = l’ancienne « Commissions collègues »', () => {
+    expect(v.externes.centimes + v.internes.centimes).toBe(cent(t.apporteurs));
+    expect(v.collegues.centimes).toBe(cent(t.collegues));
+    expect(v.internes.centimes).toBe(7001);
+  });
+
+  it('Mylène Eberlin (externe, sans accès) est dans la ligne EXTERNES, avec son montant ; l’interne dans INTERNES ; le collègue rémunéré nommé', () => {
+    expect(v.externes.detail).toEqual([{ cle: '7', nom: 'Mylène Eberlin', centimes: 21318 }, { cle: '1', nom: 'Frédéric Rousseau', centimes: 10001 }]);
+    expect(v.internes.detail.map((x) => x.nom)).toEqual(['Mylène Interne']);
+    expect(v.collegues.detail).toEqual([{ cle: 'id:5', nom: 'Jean-Baptiste Pons', centimes: 5000 }]);
+  });
+
+  it('le net ne change pas : CA − externes − internes − collègues = CA − apporteurs − collègues', () => {
+    expect(cent(t.ca) - v.externes.centimes - v.internes.centimes - v.collegues.centimes).toBe(cent(t.ca) - cent(t.apporteurs) - cent(t.collegues));
   });
 });

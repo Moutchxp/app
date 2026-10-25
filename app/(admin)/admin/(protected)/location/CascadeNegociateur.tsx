@@ -120,30 +120,42 @@ export function CascadeResultatNet({ x, dossiers }: { x: ResultatNetAgence; doss
     </div>
   );
   const liste = (lignes: ReactNode[]) => <ul className="fnc-liste">{lignes}</ul>;
-  const sommeVariables = x.variables.reduce((s, v) => s + v.variable, 0);
+  const sommeVariables = x.variables.reduce((s, y) => s + y.variable, 0);
   const plusieurs = x.variables.length > 1;
+  const v = x.ventilation;
+  /** Les bénéficiaires d'une ligne, chacun au centime comme ailleurs ; l'écart d'arrondi éventuel est écrit, jamais caché. */
+  const beneficiaires = (b: { centimes: number; detail: { cle: string; nom: string; centimes: number }[] }, vide: string): ReactNode => {
+    if (b.detail.length === 0) return <p className="fnc-op">{vide}</p>;
+    const ecart = b.centimes - b.detail.reduce((s, y) => s + y.centimes, 0);
+    return liste([...b.detail.map((y) => <li key={y.cle} data-beneficiaire={y.nom}><span>{y.nom}</span><span>{e(y.centimes)}</span></li>),
+      ...(ecart !== 0 ? [<li key="arrondi" data-arrondi><span>Arrondi au centime (somme des montants bruts)</span><span>{ecart > 0 ? '+' : '−'}{e(Math.abs(ecart))}</span></li>] : [])]);
+  };
   return (
     <div className="fnc" data-resultat-net>
       {ligne('ca', '', 'CA HT global', e(x.ca), <>
         <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} du mois = {e(x.ca)}</p>
         {liste(dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.ca)}</span></li>))}</>, { attrs: { 'data-net': 'ca' } })}
-      {ligne('apporteurs', '−', 'Honoraires d’apporteurs', e(x.apporteurs), <>
-        <p className="fnc-op">Le montant du « Résultat du mois » : parts location et gestion « One shot » à la signature
-          {x.apporteursRecurrents !== 0 ? `, et part gestion « Récurrent » due ce mois (${e(x.apporteursRecurrents)})` : ''} = {e(x.apporteurs)}</p></>,
-        { attrs: { 'data-net': 'apporteurs' } })}
-      {ligne('collegues', '−', 'Commissions collègues', e(x.collegues), <>
-        <p className="fnc-op">Le montant du « Résultat du mois » : ce qui est dû aux collègues à la signature
-          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ce mois (${e(x.colleguesRecurrents)})` : ''} = {e(x.collegues)}</p></>,
-        { attrs: { 'data-net': 'collegues' } })}
+      {/* 🔴 Arno (25/10/2026, suite) — les commissions VENTILÉES (externes, internes, collègues) ; chaque « i » liste ses bénéficiaires. */}
+      {ligne('externes', '−', 'Commissions apporteurs externes (sans accès à l’interface)', e(v.externes.centimes), <>
+        <p className="fnc-op">Parts location et gestion « One shot » à la signature, et part gestion « Récurrent » due ce mois, des apporteurs
+          sans accès à l’interface = {e(v.externes.centimes)}</p>
+        {beneficiaires(v.externes, 'Aucune commission d’apporteur externe ce mois-ci.')}</>, { attrs: { 'data-net': 'externes' } })}
+      {ligne('internes', '−', 'Commissions apporteurs internes (collègues qui apportent en direct)', e(v.internes.centimes), <>
+        <p className="fnc-op">Les apporteurs liés à un compte et les collègues qui apportent en direct = {e(v.internes.centimes)}</p>
+        {beneficiaires(v.internes, 'Aucune commission d’apporteur interne ce mois-ci.')}</>, { attrs: { 'data-net': 'internes' } })}
+      {ligne('collegues', '−', 'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', e(v.collegues.centimes), <>
+        <p className="fnc-op">Ce qui est dû aux collègues à la signature
+          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ce mois (${e(x.colleguesRecurrents)})` : ''} = {e(v.collegues.centimes)}</p>
+        {beneficiaires(v.collegues, 'Aucune rémunération de collègue ce mois-ci.')}</>, { attrs: { 'data-net': 'collegues' } })}
       {x.net !== null && (plusieurs
-        ? x.variables.map((v) => ligne(`variable-${v.cle}`, '−', `Variable — ${v.libelle}`, e(v.variable),
-          <p className="fnc-op">Le « Variable HT dû » de la cascade de {v.libelle}, ci-dessous = {e(v.variable)}</p>, { attrs: { 'data-net-variable': v.libelle } }))
+        ? x.variables.map((y) => ligne(`variable-${y.cle}`, '−', `Variable — ${y.libelle}`, e(y.variable),
+          <p className="fnc-op">Le « Variable HT dû » de la cascade de {y.libelle}, ci-dessous = {e(y.variable)}</p>, { attrs: { 'data-net-variable': y.libelle } }))
         : ligne('variables', '−', 'Variable des négociateurs', e(sommeVariables), x.variables.length === 0
           ? <p className="fnc-op">Aucun négociateur ce mois-ci.</p>
           : <p className="fnc-op">Le « Variable HT dû » de la cascade de {x.variables[0].libelle}, ci-dessous = {e(sommeVariables)}</p>,
         { attrs: x.variables.length === 1 ? { 'data-net-variable': x.variables[0].libelle } : {} }))}
       {x.net !== null && ligne('net', '=', 'CA net de toutes variables', e(x.net),
-        <p className="fnc-op">{e(x.ca)} − {e(x.apporteurs)} − {e(x.collegues)} − {plusieurs ? x.variables.map((v) => e(v.variable)).join(' − ') : e(sommeVariables)} = {e(x.net)}</p>,
+        <p className="fnc-op">{e(x.ca)} − {e(v.externes.centimes)} − {e(v.internes.centimes)} − {e(v.collegues.centimes)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : e(sommeVariables)} = {e(x.net)}</p>,
         { fort: true, attrs: { 'data-net': 'net' } })}
       {x.net !== null && x.part !== null && (
         <p className="fnc-info fnc-part" data-net-part>soit {(x.part * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} % du CA HT global</p>)}

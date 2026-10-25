@@ -1257,6 +1257,47 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
   };
 }
 
+/** Un bénéficiaire d'une commission du mois (apporteur ou collègue), au centime affiché. */
+export interface BeneficiaireCommission { cle: string; nom: string; centimes: number }
+/**
+ * 🔴 Arno (25/10/2026) — LA VENTILATION DES COMMISSIONS DU MOIS, en CENTIMES (aucun calcul ne change, seule la répartition) :
+ * · `externes` : les apporteurs SANS accès à l'interface (apporteur de l'annuaire sans compte, nom repris du fichier, commission saisie
+ *   sans apporteur nommé) ; · `internes` : les apporteurs liés à un compte et les collègues qui apportent EN DIRECT ;
+ * externes + internes = les « Honoraires d'apporteurs » affichés (`t.apporteurs`, au centime) ; · `collegues` : la rémunération des
+ * collègues sur leurs apporteurs (rattachement rémunéré, à la signature + leur récurrent dû ce mois) = `t.collegues` au centime.
+ * Chaque bénéficiaire : sa somme brute arrondie au centime ; trié par montant décroissant. PUR.
+ */
+export interface VentilationCommissions {
+  externes: { centimes: number; detail: BeneficiaireCommission[] }; internes: { centimes: number; detail: BeneficiaireCommission[] };
+  collegues: { centimes: number; detail: BeneficiaireCommission[] };
+}
+export function ventilationCommissions(ac: { apporteurs: readonly ApporteurDuMois[]; sans: CumulAffaires }, t: Pick<TotauxPeriode, 'apporteurs' | 'collegues'>,
+  lignesDuMois: readonly ActiviteCalcul[], ctx: ContexteCalcul, mois: string): VentilationCommissions {
+  const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);
+  const tri = (x: BeneficiaireCommission[]): BeneficiaireCommission[] => x.filter((b) => b.centimes !== 0).sort((p, q) => q.centimes - p.centimes || p.nom.localeCompare(q.nom));
+  const internesBrut = ac.apporteurs.filter((x) => x.sorte === 'interne');
+  const externesBrut = ac.apporteurs.filter((x) => x.sorte !== 'interne');
+  const internes = cent(internesBrut.reduce((s2, x) => s2 + x.commission, 0));
+  const detailExt = externesBrut.map((x) => ({ cle: `${x.apporteurId ?? x.nom}`, nom: x.nom, centimes: cent(x.commission) }));
+  if (cent(ac.sans.commission) !== 0) detailExt.push({ cle: 'sans', nom: 'Sans apporteur', centimes: cent(ac.sans.commission) });
+  // Le dû aux collègues de rattachement, collègue par collègue : à la signature (dossiers du mois) + leur récurrent dû ce mois.
+  const parCol = new Map<string, { nom: string; brut: number }>();
+  const ajouterCol = (a: ActiviteCalcul, montant: number): void => {
+    if (montant === 0) return;
+    const r = remunerationCollegueDe(a, ctx.apporteurs);
+    const cle = r?.collegue.cle ?? 'inconnu';
+    const l = parCol.get(cle) ?? { nom: r?.collegue.libelle ?? 'Collègue', brut: 0 };
+    l.brut += montant; parCol.set(cle, l);
+  };
+  for (const a of lignesDuMois) ajouterCol(a, commissionCollegueSignatureDe(a, ctx.apporteurs));
+  for (const a of ctx.recurrents ?? lignesDuMois) ajouterCol(a, recurrentCollegueParMois(a, ctx.apporteurs, jourDe(ctx)).get(mois) ?? 0);
+  return {
+    externes: { centimes: cent(t.apporteurs) - internes, detail: tri(detailExt) },
+    internes: { centimes: internes, detail: tri(internesBrut.map((x) => ({ cle: `${x.apporteurId ?? x.nom}`, nom: x.nom, centimes: cent(x.commission) }))) },
+    collegues: { centimes: cent(t.collegues), detail: tri([...parCol.entries()].map(([cle, l]) => ({ cle, nom: l.nom, centimes: cent(l.brut) }))) },
+  };
+}
+
 /**
  * 🔴 Arno (25/10/2026) — LE RÉSULTAT NET DE L'AGENCE du mois, en CENTIMES : les montants DÉJÀ affichés (Résultat du mois, variable de chaque
  * négociateur), aucun nouveau calcul — le net est leur différence au centime, et sa part du CA global. `variables` vide : pas de droit
@@ -1265,14 +1306,17 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
 export interface ResultatNetAgence {
   ca: number; apporteurs: number; apporteursRecurrents: number; collegues: number; colleguesRecurrents: number;
   variables: { cle: string; libelle: string; variable: number }[]; net: number | null; part: number | null;
+  /** 🔴 Arno (25/10/2026, suite) — les commissions ventilées : externes + internes = `apporteurs` ; `collegues` = rattachement rémunéré. */
+  ventilation: VentilationCommissions;
 }
-export function resultatNetAgence(r: ResumeDuMois, t: Pick<TotauxPeriode, 'apporteursRecurrents' | 'colleguesRecurrents'>, voirCommissions: boolean): ResultatNetAgence {
+export function resultatNetAgence(r: ResumeDuMois, t: Pick<TotauxPeriode, 'apporteursRecurrents' | 'colleguesRecurrents'>, voirCommissions: boolean,
+  ventilation: VentilationCommissions): ResultatNetAgence {
   const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);
   const variables = voirCommissions ? r.negociateurs.map((x) => ({ cle: x.cle, libelle: x.libelle, variable: cent(x.variable) })) : [];
   const ca = cent(r.resultat.ca); const apporteurs = cent(r.resultat.apporteurs); const collegues = cent(r.resultat.collegues);
   const net = voirCommissions ? ca - apporteurs - collegues - variables.reduce((s, x) => s + x.variable, 0) : null;
   return { ca, apporteurs, apporteursRecurrents: cent(t.apporteursRecurrents), collegues, colleguesRecurrents: cent(t.colleguesRecurrents), variables, net,
-    part: net === null || ca === 0 ? null : net / ca };
+    part: net === null || ca === 0 ? null : net / ca, ventilation };
 }
 
 // ── 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE ───────────────────────────────────────────────────────────────────────

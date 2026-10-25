@@ -11,7 +11,7 @@ import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBie
 import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, resultatNetAgence, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, resultatNetAgence, ventilationCommissions, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -84,6 +84,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
   const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
+  const ventilation = ventilationCommissions(ac, t, duMois, ctx, cle);
   // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
   const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
   const basculerCollegue = (c: string): void => setColOuverts((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; });
@@ -248,9 +249,11 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             <h4 id="fdm-f1">Résultat du mois</h4>
             <dl className="fdm-cascade-mois">
               <div className="fdm-fort"><dt>CA HT global</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL CA HT — ${nom}`, t.ids)} data-total="ca">{eur(r.resultat.ca)}</button></dd></div>
-              <div><dt>− Honoraires d’apporteurs</dt><dd data-total="apporteurs">{eur(r.resultat.apporteurs)}</dd></div>
+              {/* 🔴 Arno (25/10/2026, suite) — les honoraires d'apporteurs VENTILÉS : externes + internes = l'ancien total, au centime. */}
+              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{eur(ventilation.externes.centimes / 100)}</dd></div>
+              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{eur(ventilation.internes.centimes / 100)}</dd></div>
               {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
-              <div><dt>− Commissions collègues (apport d’apporteurs)</dt><dd data-total="collegues">{eur(r.resultat.collegues)}</dd></div>
+              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{eur(ventilation.collegues.centimes / 100)}</dd></div>
               <div className="fdm-fort fdm-egal"><dt>= CA HT net</dt><dd data-total="ca-net">{eur(r.resultat.caNet)}</dd></div>
             </dl>
           </section>
@@ -345,7 +348,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           {/* 🔴 Arno (25/10/2026) — le RÉSULTAT NET DE L'AGENCE : après les 4 blocs, avant les négociateurs, sur toute la largeur. */}
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f6" data-famille="resultat-net">
             <h4 id="fdm-f6">Résultat net de l’agence — {nom}</h4>
-            <CascadeResultatNet x={resultatNetAgence(r, t, d.voirCommissions === true)} dossiers={duMois.map((a) => ({ id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca: caLigne(a) }))} />
+            <CascadeResultatNet x={resultatNetAgence(r, t, d.voirCommissions === true, ventilation)} dossiers={duMois.map((a) => ({ id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca: caLigne(a) }))} />
           </section>
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
             <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
@@ -768,6 +771,10 @@ export const CSS_FEUILLE_MOIS = `
 @media (min-width:900px){
   .fdm-familles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
   .fdm-colonne{display:flex;flex-direction:column;gap:14px;min-width:0}
+  /* 🔴 Arno (25/10/2026) — les deux colonnes finissent à la même hauteur : le DERNIER bloc de la colonne la plus courte s'étire (son fond
+     seulement ; le contenu reste en haut). Au téléphone, rien ne s'étire. */
+  .fdm-familles > .fdm-colonne{align-self:stretch}
+  .fdm-colonne > .fdm-famille:last-child{flex:1 1 auto;justify-content:flex-start}
   .fdm-famille--large{grid-column:1 / -1}
 }
 /* Le Portefeuille : une seule grille de colonnes pour les deux parties (largeurs fixes), même hauteur de ligne. */

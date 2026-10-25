@@ -147,9 +147,14 @@ describe('🔴 Suivi du mois : la commission du collègue', () => {
     expect([...container.querySelectorAll('[data-detail-ligne="2"] dt')].some((x) => x.textContent === 'Commission collègue (apport)')).toBe(false);
     const bas = container.querySelector('[data-bloc="bas-de-feuille"]')!;
     expect(n(bas.querySelector('[data-total="collegues"]')?.textContent)).toBe('55,00 €');   // 50 € (signature) + 5 € (octobre)
-    expect(bas.querySelector('[data-total="collegues"]')?.previousElementSibling?.textContent).toBe('− Commissions collègues (apport d’apporteurs)');   // 🔴 25/10/2026 : la cascade du « Résumé du mois »
+    expect(bas.querySelector('[data-total="collegues"]')?.previousElementSibling?.textContent).toBe('− Rémunération des collègues sur leurs apporteurs');   // 🔴 25/10/2026 : la cascade du « Résumé du mois »
     // Les totaux existants : les honoraires d'apporteurs ne comprennent PAS la commission du collègue.
     // Externe : 10 % × 1 000 € (one shot, gestion 0 %) = 100 € ; interne : 5 % × 1 000 € + 10 % × 50 € (récurrent d'octobre) = 55 €.
-    expect(n(bas.querySelector('[data-total="apporteurs"]')?.textContent)).toBe('155,00 €');
+    // 🔴 25/10/2026 (suite) — VENTILÉS : externes 100 € + internes 55 € = les 155 € d'avant.
+    expect(n(bas.querySelector('[data-famille="resultat"] [data-total="apporteurs-externes"]')?.textContent)).toBe('100,00 €');
+    expect(n(bas.querySelector('[data-famille="resultat"] [data-total="apporteurs-internes"]')?.textContent)).toBe('55,00 €');
+    const net = bas.querySelector('[data-famille="resultat-net"]')!;
+    expect([n(net.querySelector('[data-net="externes"]')?.textContent), n(net.querySelector('[data-net="internes"]')?.textContent), n(net.querySelector('[data-net="collegues"]')?.textContent)])
+      .toEqual(['100,00 €', '55,00 €', '55,00 €']);
   });
 });
