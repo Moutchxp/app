@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Apporteur } from './suivi';
-import { apporteursEtCollegues, caLigne, type ActiviteCalcul } from './tableauBord';
+import { apporteursEtCollegues, caLigne, detailCollegue, type ActiviteCalcul } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026) — « Apporteurs du mois » : TOUS les apporteurs du mois (internes, externes, collègues « directement »), triés par
@@ -83,5 +83,67 @@ describe('🔴 Arno (25/10/2026) — les collègues : via leurs apporteurs et en
     expect(r.collegues.map((x) => [x.libelle, x.meilleur])).toEqual([['Arnaud Jorel', true], ['Cédric Jullien', false]]);
     const egal = apporteursEtCollegues([...juin, ligne(203, 4807.07, { origineContact: 'collegue', collegueId: null, collegueLibelle: 'Cédric Jullien', commissionSaisie: 0 })], [rousseau]);
     expect(egal.collegues.filter((x) => x.meilleur).map((x) => x.libelle).sort()).toEqual(['Arnaud Jorel', 'Cédric Jullien']);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — le détail d’un collègue, apporteur par apporteur (replié par défaut, dépliable s’il y a plus d’une ligne)', () => {
+  const ext = (id: number, nom: string, collegueId: number, collegueLibelle: string): Apporteur =>
+    ({ ...ap(id, nom, null), collegues: [{ depuis: '0001-01-01', collegueId, collegueLibelle }] } as Apporteur);
+  const orphelin = { ...ap(4, 'Orphelin', null), collegues: [] } as Apporteur;
+  const apps = [ext(1, 'Frédéric Rousseau', 2, 'Arnaud Jorel'), ext(3, 'Kin Immo', 2, 'Arnaud Jorel'), ext(6, 'Solo', 8, 'Cédric Jullien'), orphelin];
+  const via = (id: number, ca: number, com: number, apporteurId: number, apporteurNom: string) =>
+    ligne(id, ca, { apporteurId, apporteurNom, origineContact: 'apporteur', commissionSaisie: com });
+  const mois = [
+    via(1, 528.9, 52.895, 1, 'Frédéric Rousseau'), via(2, 937.35, 93.735, 1, 'Frédéric Rousseau'),
+    via(3, 2000.01, 200.0049, 3, 'Kin Immo'), via(4, 83.34, 8.334, 3, 'Kin Immo'),
+    ligne(5, 1693.54, { origineContact: 'collegue', collegueId: 2, collegueLibelle: 'Arnaud Jorel', commissionSaisie: 0 }),
+    via(6, 400, 40, 6, 'Solo'), via(7, 300, 30.005, 4, 'Orphelin'), via(8, 100, 10.005, 4, 'Orphelin'),
+  ];
+  const r = apporteursEtCollegues(mois, apps);
+  const de = (libelle: string) => { const x = r.collegues.find((c) => c.libelle === libelle)!; return { x, d: detailCollegue(x) }; };
+
+  it('dès DEUX apporteurs : une sous-ligne par apporteur, triés par CA décroissant ; Σ apporteurs = via ; via + direct = Total — au centime affiché', () => {
+    const { d } = de('Arnaud Jorel');
+    expect(d.lignes.map((l) => [l.sorte, l.mot, l.nb])).toEqual([
+      ['via', 'via ses apporteurs', 4], ['apporteur', 'Kin Immo', 2], ['apporteur', 'Frédéric Rousseau', 2], ['direct', 'en direct', 1], ['total', 'Total', 5]]);
+    const [v, a1, a2, dir, t] = d.lignes;
+    expect(v.caCentimes).toBe(a1.caCentimes + a2.caCentimes);
+    expect(v.commissionCentimes).toBe(a1.commissionCentimes + a2.commissionCentimes);
+    expect(t.caCentimes).toBe(v.caCentimes + dir.caCentimes);
+    expect(t.commissionCentimes).toBe(v.commissionCentimes + dir.commissionCentimes);
+    expect([a1.commissionCentimes, a2.commissionCentimes]).toEqual([20834, 14663]);
+    expect(d.depliable).toBe(true);
+    expect(d.seulApporteur).toBeNull();
+    expect(d.mention).toBe('via ses apporteurs et en direct');
+    // Les dossiers de chaque sous-ligne (montants cliquables).
+    expect(a1.ids).toEqual([3, 4]);
+  });
+
+  it('un seul chemin et un seul apporteur : AUCUN détail (pas de chevron) ; le nom de l’apporteur est connu pour « via ses apporteurs »', () => {
+    const { x, d } = de('Cédric Jullien');
+    expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'total']);
+    expect(d.depliable).toBe(false);
+    expect(d.seulApporteur).toBe('Solo');
+    expect(d.lignes[1].caCentimes).toBe(Math.round(x.ca * 100));
+  });
+
+  it('« À rattacher » suit la même règle (détail par apporteur à rattacher) ; un seul apporteur : pas de chevron', () => {
+    const { d } = de('À rattacher');
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['via', 'via ses apporteurs'], ['total', 'Total']]);
+    expect(d.depliable).toBe(false);
+    expect(d.seulApporteur).toBe('Orphelin');
+    expect(d.lignes[1].commissionCentimes).toBe(4001);
+    const deux = apporteursEtCollegues([...mois, via(9, 50, 5, 5, 'Orphelin 2')], [...apps, { ...ap(5, 'Orphelin 2', null), collegues: [] } as Apporteur]);
+    const dr = detailCollegue(deux.collegues.find((c) => c.cle === 'a-rattacher')!);
+    expect(dr.lignes.map((l) => l.mot)).toEqual(['via ses apporteurs', 'Orphelin', 'Orphelin 2', 'Total']);
+    expect(dr.depliable).toBe(true);
+  });
+
+  it('deux origines avec un seul apporteur : dépliable (via + direct), sans sous-ligne par apporteur', () => {
+    const r2 = apporteursEtCollegues(mois.filter((a) => a.apporteurId !== 3), apps);
+    const d = detailCollegue(r2.collegues.find((c) => c.libelle === 'Arnaud Jorel')!);
+    expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'direct', 'total']);
+    expect(d.depliable).toBe(true);
+    expect(d.seulApporteur).toBe('Frédéric Rousseau');
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { ListeChoix } from './ListeChoix';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { ModaleFicheLocataire } from './ModaleFicheLocataire';
@@ -11,7 +11,7 @@ import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBie
 import { CascadeNegociateurMois, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
-  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, apporteurAffiche, apporteursEtCollegues, detailCollegue, type LigneDetailCollegue, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, sectionNegociateurs, STATUT_ARRIVEE, tauxAffichage, totauxPeriode,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -80,6 +80,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
+  const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
+  // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
+  const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
+  const basculerCollegue = (c: string): void => setColOuverts((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; });
   const [edition, setEdition] = useState<number | string | null>(null);
   // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
   const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null; activiteId?: number | null } | null>(null);
@@ -101,6 +105,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
     return () => window.removeEventListener('keydown', clavier);
   }, [edition]);
   const nom = `${NOMS_MOIS[mois - 1]} ${annee}`;
+  const titrePortefeuille = `Portefeuille de gestion — ${nom.toLowerCase()} (honoraires de gestion HT)`;
   const annuaire = d.annuaire === true;
 
   return (
@@ -230,8 +235,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           Aucun calcul ne change (sauf le CA HT net, qui retire aussi les commissions collègues) ; chaque chiffre d'avant s'y retrouve. */}
       <section className="tdb-section fdm-bas" aria-labelledby="fdm-bas" data-bloc="bas-de-feuille">
         <h3 id="fdm-bas">Résumé du mois — {nom}</h3>
-        {/* 🔴 Arno (25/10/2026) — DEUX COLONNES INDÉPENDANTES (des piles) : chaque bloc démarre juste sous le précédent ; au téléphone, une
-            seule colonne (Résultat, CA par statut, Portefeuille, Honoraires) ; les négociateurs dessous, sur toute la largeur. */}
+        {/* 🔴 Arno (25/10/2026) — DEUX COLONNES INDÉPENDANTES (des piles, répartition « A ») : à gauche Résultat puis CA par statut, à droite
+            Portefeuille puis Honoraires ; chaque bloc démarre juste sous le précédent ; au téléphone, une seule colonne (Résultat, CA par statut,
+            Portefeuille, Honoraires) ; les négociateurs dessous, sur toute la largeur. */}
         <div className="fdm-familles">
           <div className="fdm-colonne" data-colonne="gauche">
           <section className="fdm-famille" aria-labelledby="fdm-f1" data-famille="resultat">
@@ -245,8 +251,30 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
             </dl>
           </section>
 
+          <section className="fdm-famille" aria-labelledby="fdm-f2" data-famille="statuts">
+            <h4 id="fdm-f2">CA par statut du bien</h4>
+            <table className="fdm-mini">
+              <thead><tr><th scope="col">Statut</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <tbody>
+                {r.parStatut.map((x) => (
+                  <tr key={x.nature} data-statut-ca={x.nature}>
+                    <th scope="row"><PastilleNature nature={x.nature} /></th>
+                    <td data-mot="Dossiers">{x.nb}</td>
+                    <td data-mot="CA HT">{x.nb === 0 ? eur(0) : <button type="button" className="tdb-chiffre" onClick={() => onDetail(`CA — ${LIBELLE_NATURE_BIEN[x.nature]} — ${nom}`, x.ids)}>{eur(x.ca)}</button>}</td>
+                    <td data-mot="Part">{x.part === null ? '—' : pctUn(x.part)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr data-statut-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.parStatut.reduce((s, x) => s + x.nb, 0)}</td>
+                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+            </table>
+          </section>
+
+          </div>
+          <div className="fdm-colonne" data-colonne="droite">
           <section className="fdm-famille" aria-labelledby="fdm-f4" data-famille="portefeuille">
-            <h4 id="fdm-f4">Portefeuille de gestion (honoraires de gestion HT)</h4>
+            {/* 🔴 Arno (25/10/2026) — le titre porte le mois, sur UNE ligne (police réduite si besoin, jamais coupé). */}
+            <h4 id="fdm-f4" className="fdm-titre-une-ligne" data-titre-portefeuille style={{ '--lettres': titrePortefeuille.length } as CSSProperties}>{titrePortefeuille}</h4>
             {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
                 au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
             <table className="fdm-mini fdm-portefeuille">
@@ -290,27 +318,6 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
               </ul>
             )}
-          </section>
-
-          </div>
-          <div className="fdm-colonne" data-colonne="droite">
-          <section className="fdm-famille" aria-labelledby="fdm-f2" data-famille="statuts">
-            <h4 id="fdm-f2">CA par statut du bien</h4>
-            <table className="fdm-mini">
-              <thead><tr><th scope="col">Statut</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
-              <tbody>
-                {r.parStatut.map((x) => (
-                  <tr key={x.nature} data-statut-ca={x.nature}>
-                    <th scope="row"><PastilleNature nature={x.nature} /></th>
-                    <td data-mot="Dossiers">{x.nb}</td>
-                    <td data-mot="CA HT">{x.nb === 0 ? eur(0) : <button type="button" className="tdb-chiffre" onClick={() => onDetail(`CA — ${LIBELLE_NATURE_BIEN[x.nature]} — ${nom}`, x.ids)}>{eur(x.ca)}</button>}</td>
-                    <td data-mot="Part">{x.part === null ? '—' : pctUn(x.part)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr data-statut-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.parStatut.reduce((s, x) => s + x.nb, 0)}</td>
-                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
-            </table>
           </section>
 
           <section className="fdm-famille" aria-labelledby="fdm-f3" data-famille="gestion">
@@ -390,58 +397,68 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                 deux existent ; triés par CA total ; le meilleur badgé ; Total = somme des totaux des collègues. */}
             <table className="fdm-table fdm-collegues">
               <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              {/* 🔴 Arno (25/10/2026) — UNE ligne par collègue : ses TOTAUX (gras) ; sous le nom, en petit, le détail des origines présentes. */}
-              <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun collègue ce mois-ci.</td></tr> : ac.collegues.map((x) => {
-                const via = x.via ?? { ...x, nb: 0, ca: 0, commission: 0, ids: [] };
-                const direct = x.direct ?? { ...x, nb: 0, ca: 0, commission: 0, ids: [] };
-                const deux = via.nb > 0 && direct.nb > 0;
+              {/* 🔴 Arno (25/10/2026) — UNE ligne par collègue, REPLIÉE au chargement : ses TOTAUX (gras) et, en petit sous le nom, les origines
+                  présentes. S'il y a plus d'une ligne de détail (deux origines, ou plusieurs apporteurs), un chevron : la ligne se déplie en
+                  sous-lignes empilées et alignées d'une colonne à l'autre (via ses apporteurs, un apporteur par sous-ligne dès deux, en direct,
+                  Total). Chaque montant au centime affiché : Σ apporteurs = via ; via + direct = Total. */}
+              <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun collègue ce mois-ci.</td></tr> : collegues.map(({ x, det }) => {
+                const ouvert = det.depliable && colOuverts.has(x.cle);
                 const lien = (texte: string, titre: string, ids: (number | string)[], repere: string) => (
                   <button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${nom}`, ids)} data-detail-origine={repere}>{texte}</button>);
-                const tVia = `Affaires de ${x.libelle} — via ses apporteurs`;
-                const tDirect = `Affaires de ${x.libelle} — en direct`;
-                const tTout = `Affaires de ${x.libelle}`;
+                const titre = (l: LigneDetailCollegue): string => l.sorte === 'total' ? `Affaires de ${x.libelle}` : l.sorte === 'apporteur' ? `Affaires de ${x.libelle} — via ${l.mot}`
+                  : `Affaires de ${x.libelle} — ${l.mot}`;
+                const repere = (l: LigneDetailCollegue): string => (l.sorte === 'apporteur' ? l.cle : l.sorte);
                 const badge = x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>;
-                /* 🔴 Arno (25/10/2026) — LES DEUX CHEMINS : une ligne de tableau, et dans chaque cellule les valeurs EMPILÉES et ALIGNÉES d'une
-                   colonne à l'autre : (le nom), via ses apporteurs, en direct (petit, gris), Total (gras). */
-                const pile = (v: ReactNode, d: ReactNode, t: ReactNode) => (
-                  <span className="fdm-pile">
-                    <span className="fdm-pile-l fdm-pile-l--nom" aria-hidden="true" />
-                    <span className="fdm-pile-l fdm-pile-l--detail" data-pile="via">{v}</span>
-                    <span className="fdm-pile-l fdm-pile-l--detail" data-pile="direct">{d}</span>
-                    <span className="fdm-pile-l fdm-pile-l--total" data-pile="total">{t}</span>
-                  </span>);
-                if (deux) {
+                const total = det.lignes[det.lignes.length - 1];
+                const classe = `fdm-collegue${ouvert ? ' fdm-collegue--deux' : ''}${det.depliable ? ' fdm-collegue--depliable' : ''}${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`;
+                const chevron = det.depliable && (
+                  <button type="button" className="fdm-chevron fdm-chevron--collegue" aria-expanded={ouvert} data-deplier-collegue={x.cle}
+                    aria-label={`${ouvert ? 'Replier' : 'Déplier'} le détail — ${x.libelle}`} onClick={(e) => { e.stopPropagation(); basculerCollegue(x.cle); }}>
+                    <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>);
+                // Un clic sur la ligne (hors montants cliquables et liens) la déplie, comme le chevron.
+                const surLigne = det.depliable ? (e: { target: EventTarget }) => { if ((e.target as Element).closest('button, a') === null) basculerCollegue(x.cle); } : undefined;
+                if (ouvert) {
+                  const pile = (cellule: (l: LigneDetailCollegue) => ReactNode) => (
+                    <span className="fdm-pile">
+                      <span className="fdm-pile-l fdm-pile-l--nom" aria-hidden="true" />
+                      {det.lignes.map((l) => (
+                        <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
+                          data-pile={l.sorte} data-pile-cle={l.cle} data-pile-mot={l.sorte === 'apporteur' ? `· ${l.mot}` : l.sorte === 'total' ? 'total' : l.mot}>{cellule(l)}</span>))}
+                    </span>);
                   return (
-                    <tr key={x.cle} data-collegue-mois={x.libelle} data-deux-chemins className={`fdm-collegue fdm-collegue--deux${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`}>
+                    <tr key={x.cle} data-collegue-mois={x.libelle} data-deux-chemins data-collegue-deplie className={classe} onClick={surLigne}>
                       <th scope="row">
                         <span className="fdm-pile">
-                          <span className="fdm-pile-l fdm-pile-l--nom">{x.libelle}{badge}</span>
-                          <span className="fdm-pile-l fdm-pile-l--detail" data-pile="via">via ses apporteurs</span>
-                          <span className="fdm-pile-l fdm-pile-l--detail" data-pile="direct">en direct</span>
-                          <span className="fdm-pile-l fdm-pile-l--total" data-pile="total">Total</span>
+                          <span className="fdm-pile-l fdm-pile-l--nom">{chevron}{x.libelle}{badge}</span>
+                          {det.lignes.map((l) => (
+                            <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
+                              data-pile={l.sorte} data-pile-cle={l.cle}>
+                              {l.sorte === 'apporteur' ? `· ${l.mot}` : l.mot}
+                              {l.sorte === 'via' && det.seulApporteur !== null && <small className="fdm-pile-seul" data-seul-apporteur>&nbsp;· {det.seulApporteur}</small>}
+                            </span>))}
                         </span></th>
-                      <td data-mot="Affaires">{pile(lien(String(via.nb), tVia, via.ids, 'via-nb'), lien(String(direct.nb), tDirect, direct.ids, 'direct-nb'), lien(String(x.nb), tTout, x.ids, 'total-nb'))}</td>
-                      <td data-mot="CA apporté">{pile(lien(eur(via.ca), tVia, via.ids, 'via-ca'), lien(eur(direct.ca), tDirect, direct.ids, 'direct-ca'), lien(eur(x.ca), tTout, x.ids, 'total-ca'))}</td>
-                      <td data-mot="Hono. d’apporteur">{pile(eur(via.commission), eur(direct.commission), eur(x.commission))}</td>
+                      <td data-mot="Affaires">{pile((l) => lien(String(l.nb), titre(l), l.ids, `${repere(l)}-nb`))}</td>
+                      <td data-mot="CA apporté">{pile((l) => lien(eur(l.caCentimes / 100), titre(l), l.ids, `${repere(l)}-ca`))}</td>
+                      <td data-mot="Hono. d’apporteur">{pile((l) => eur(l.commissionCentimes / 100))}</td>
                     </tr>
                   );
                 }
                 return (
-                  <tr key={x.cle} data-collegue-mois={x.libelle} className={`fdm-collegue${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`}>
-                    <th scope="row">{x.libelle}{badge}
-                      <small className="fdm-origine-collegue" data-origines-collegue>{direct.nb > 0 ? 'en direct' : 'via ses apporteurs'}</small></th>
-                    <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(x.nb), tTout, x.ids, 'total-nb')}</td>
-                    <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(x.ca), tTout, x.ids, 'total-ca')}</td>
-                    <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(x.commission)}</td>
+                  <tr key={x.cle} data-collegue-mois={x.libelle} className={classe} onClick={surLigne}>
+                    <th scope="row">{chevron}{x.libelle}{badge}
+                      <small className="fdm-origine-collegue" data-origines-collegue>{det.mention}</small></th>
+                    <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(total.nb), titre(total), total.ids, 'total-nb')}</td>
+                    <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(total.caCentimes / 100), titre(total), total.ids, 'total-ca')}</td>
+                    <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(total.commissionCentimes / 100)}</td>
                   </tr>
                 );
               })}</tbody>
               {ac.collegues.length > 0 && (
                 <tfoot><tr data-collegue-mois="total">
                   <th scope="row">Total</th>
-                  <td data-mot="Affaires">{ac.collegues.reduce((t2, x) => t2 + x.nb, 0)}</td>
-                  <td data-mot="CA apporté" data-total-collegues-ca>{eur(ac.collegues.reduce((t2, x) => t2 + x.ca, 0))}</td>
-                  <td data-mot="Hono. d’apporteur">{eur(ac.collegues.reduce((t2, x) => t2 + x.commission, 0))}</td>
+                  <td data-mot="Affaires">{collegues.reduce((t2, c2) => t2 + c2.x.nb, 0)}</td>
+                  <td data-mot="CA apporté" data-total-collegues-ca>{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100)}</td>
+                  <td data-mot="Hono. d’apporteur">{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100)}</td>
                 </tr></tfoot>
               )}
             </table>
@@ -757,6 +774,10 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-portefeuille tr.fdm-pf-entetes th{font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
 .fdm-famille{border:1px solid var(--color-svv-line);border-radius:16px;background:var(--color-svv-field);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:8px}
 .fdm-famille > h4{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+/* 🔴 Arno (25/10/2026) — un titre sur UNE ligne : la police se réduit selon la largeur de l'encadré et le nombre de lettres (0,46 em par
+   lettre, mesuré : 0,44), plancher 13 px, jamais coupée. */
+.fdm-familles [data-famille="portefeuille"]{container-type:inline-size}
+.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible;font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}
 .fdm-cascade-mois{margin:0;display:flex;flex-direction:column}
 .fdm-cascade-mois div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:1px solid var(--color-svv-line);padding:6px 0}
 .fdm-cascade-mois dt{color:var(--color-svv-muted)}
@@ -799,13 +820,17 @@ td .fdm-pile-l{justify-content:flex-end}
 .fdm-pile-l--detail{height:1.3rem;font-size:.76rem;font-weight:400;color:var(--color-svv-muted)}
 .fdm-pile-l--total{height:1.7rem;font-weight:800}
 .fdm-pile-l .tdb-chiffre{min-height:0;padding:0 2px;font:inherit;color:inherit}
+.fdm-pile-l--apporteur{padding-left:12px}
+th .fdm-pile-l--detail[data-pile="via"]{font-weight:600}
+.fdm-pile-seul{font-size:inherit;color:var(--color-svv-muted);font-weight:400;overflow:hidden;text-overflow:ellipsis}
+.fdm-collegues tr.fdm-collegue--depliable{cursor:pointer}
+.fdm-chevron--collegue{min-width:28px;min-height:28px;margin:-6px 2px -6px -6px;vertical-align:middle}
 @media (max-width:640px){
   .fdm-collegues tr.fdm-collegue--deux > td{align-items:flex-start}
   .fdm-collegues td .fdm-pile-l--nom,.fdm-collegues th .fdm-pile-l[data-pile]{display:none}
-  .fdm-collegues td .fdm-pile-l[data-pile]::before{margin-right:6px;color:var(--color-svv-muted);font-weight:400;font-size:.76rem}
-  .fdm-collegues td .fdm-pile-l--detail[data-pile="via"]::before{content:"via ses apporteurs"}
-  .fdm-collegues td .fdm-pile-l--detail[data-pile="direct"]::before{content:"en direct"}
-  .fdm-collegues td .fdm-pile-l--total::before{content:"total"}
+  .fdm-collegues td .fdm-pile-l[data-pile]::before{content:attr(data-pile-mot);margin-right:auto;padding-right:8px;color:var(--color-svv-muted);font-weight:400;font-size:.76rem;overflow:hidden;text-overflow:ellipsis}
+  .fdm-collegues td .fdm-pile-l--apporteur{padding-left:0}
+  .fdm-chevron--collegue{min-width:44px;min-height:44px}
 }
 .fdm-collegues tfoot th,.fdm-collegues tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
 .fdm-nego-nom{margin:6px 0 0;font-weight:800}

@@ -1186,11 +1186,11 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
   it('5 encadrés titrés, dans l’ordre : Résultat, CA par statut, avec / sans gestion, portefeuille, négociateur', async () => {
     await septembre();
     expect(bas().querySelector('h3')?.textContent).toBe('Résumé du mois — Septembre 2026');
-    // 🔴 Arno (25/10/2026, suite) — deux colonnes indépendantes : à gauche Résultat puis Portefeuille, à droite CA par statut puis Honoraires ;
-    // les négociateurs dessous, sur toute la largeur (hors des colonnes).
+    // 🔴 Arno (25/10/2026, répartition « A ») — deux colonnes indépendantes : à gauche Résultat puis CA par statut, à droite Portefeuille
+    // puis Honoraires ; les négociateurs dessous, sur toute la largeur (hors des colonnes).
     const col = (c: string) => [...bas().querySelectorAll(`[data-colonne="${c}"] > [data-famille]`)].map((f) => [f.getAttribute('data-famille'), f.querySelector('h4')?.textContent]);
-    expect(col('gauche')).toEqual([['resultat', 'Résultat du mois'], ['portefeuille', 'Portefeuille de gestion (honoraires de gestion HT)']]);
-    expect(col('droite')).toEqual([['statuts', 'CA par statut du bien'], ['gestion', 'Honoraires avec / sans gestion']]);
+    expect(col('gauche')).toEqual([['resultat', 'Résultat du mois'], ['statuts', 'CA par statut du bien']]);
+    expect(col('droite')).toEqual([['portefeuille', 'Portefeuille de gestion — septembre 2026 (honoraires de gestion HT)'], ['gestion', 'Honoraires avec / sans gestion']]);
     const negos = bas().querySelector('[data-famille="negociateurs"]')!;
     expect(negos.parentElement?.classList.contains('fdm-familles')).toBe(true);
     expect(negos.classList.contains('fdm-famille--large')).toBe(true);
@@ -1352,19 +1352,27 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     const aj = container.querySelector('tr[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
     expect(container.querySelectorAll('tr[data-collegue-mois="Arnaud Jorel"]')).toHaveLength(1);
     expect(container.querySelector('[data-collegue-part]')).toBeNull();
-    // 🔴 25/10/2026 (suite) — DEUX chemins : dans chaque cellule, 3 valeurs empilées (via, direct, total), alignées d'une colonne à l'autre.
+    // 🔴 Arno (25/10/2026, suite) — REPLIÉE au chargement : une ligne (les totaux, la mention en petit) et un chevron (deux origines).
+    expect(aj.hasAttribute('data-deux-chemins')).toBe(false);
+    expect(nbsp(aj.querySelector('[data-origines-collegue]')?.textContent)).toBe('via ses apporteurs et en direct');
+    const totalReplie = euros(aj.querySelector('[data-mot="CA apporté"]')?.textContent);
+    await act(async () => { (aj.querySelector('[data-deplier-collegue]') as HTMLButtonElement).click(); });
+    expect(aj.querySelector('[data-deplier-collegue]')?.getAttribute('aria-expanded')).toBe('true');
+    // DÉPLIÉE — deux chemins : dans chaque cellule, 3 valeurs empilées (via, direct, total), alignées d'une colonne à l'autre.
     expect(aj.hasAttribute('data-deux-chemins')).toBe(true);
     const pile = (mot: string) => [...aj.querySelectorAll(`[data-mot="${mot}"] [data-pile]`)].map((e) => [e.getAttribute('data-pile'), nbsp(e.textContent)]);
     expect(pile('Affaires').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
     expect(pile('CA apporté').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
     expect(pile('Hono. d’apporteur').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
-    expect([...aj.querySelectorAll('th [data-pile]')].map((e) => nbsp(e.textContent))).toEqual(['via ses apporteurs', 'en direct', 'Total']);
+    // Un seul apporteur dans « via » : pas de sous-ligne, son nom en petit après « via ses apporteurs ».
+    expect([...aj.querySelectorAll('th [data-pile]')].map((e) => nbsp(e.textContent))).toEqual(['via ses apporteurs · Apporteur A', 'en direct', 'Total']);
     // Les mêmes emplacements (le nom, puis via, direct, total) dans CHAQUE cellule : les lignes s'alignent.
     for (const cell of aj.querySelectorAll('th, td')) {
       expect([...cell.querySelectorAll('.fdm-pile-l')].map((e) => e.className.replace('fdm-pile-l ', ''))).toEqual(['fdm-pile-l--nom', 'fdm-pile-l--detail', 'fdm-pile-l--detail', 'fdm-pile-l--total']);
     }
     const [v, d, t] = pile('CA apporté').map((x) => euros(x[1]));
     expect(t).toBe(v + d);
+    expect(t).toBe(totalReplie);
     const [nv, nd, nt] = pile('Affaires').map((x) => Number(x[1]));
     expect(nt).toBe(nv + nd);
     // Cliquables : nombre et CA de chaque origine, et le total.
@@ -1373,6 +1381,7 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     // UN seul chemin : inchangé (une ligne de chiffres, la mention en petit).
     const cj = container.querySelector('tr[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
     expect(cj.querySelector('[data-pile]')).toBeNull();
+    expect(cj.querySelector('[data-deplier-collegue]')).toBeNull();
     expect(nbsp(cj.querySelector('[data-origines-collegue]')?.textContent)).toBe('en direct');
     expect(cj.querySelector('[data-mot="Affaires"] button')?.textContent).toBe('1');
     const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
@@ -1383,6 +1392,62 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     const tot = euros(container.querySelector('[data-total-collegues-ca]')?.textContent);
     expect(tot).toBe([...container.querySelectorAll('tr[data-collegue-mois]:not([data-collegue-mois="total"]) [data-mot="CA apporté"]')]
       .reduce((s2, e) => s2 + euros((e.querySelector('[data-pile="total"]') ?? e).textContent), 0));
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — les collègues dépliables, apporteur par apporteur', () => {
+  it('repliée au chargement ; dès deux apporteurs une sous-ligne chacun (CA décroissant) ; un clic sur la ligne déplie, un montant non ; égalités au centime', async () => {
+    const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+    const viaA = sept.filter((a) => a.apporteurNom === 'Apporteur A');
+    expect(viaA.length).toBeGreaterThanOrEqual(2);
+    const col = [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }];
+    donnees = { ...donnees, annuaire: true, activites: donnees.activites.map((a) => (a === viaA[0] ? { ...a, apporteurId: 10, apporteurNom: 'Apporteur B' } : viaA.includes(a) ? { ...a, apporteurId: 9 } : a)),
+      apporteurs: [{ id: 9, nom: 'Apporteur A', type: 'partenaire', archive: false, baremes: [], collegues: col },
+        { id: 10, nom: 'Apporteur B', type: 'partenaire', archive: false, baremes: [], collegues: col }] };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const euros = (t: string | null | undefined) => Math.round(Number(nbsp(t).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const aj = () => container.querySelector('tr[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
+    const totalTableau = euros(container.querySelector('[data-total-collegues-ca]')?.textContent);
+    // Repliée : une ligne, la mention, le chevron ▸ (aria-expanded=false).
+    expect(aj().hasAttribute('data-collegue-deplie')).toBe(false);
+    expect(nbsp(aj().querySelector('[data-origines-collegue]')?.textContent)).toBe('via ses apporteurs');
+    const chevron = aj().querySelector('button[data-deplier-collegue]') as HTMLButtonElement;
+    expect([chevron.getAttribute('aria-expanded'), chevron.textContent]).toEqual(['false', '▸']);
+    // Un montant cliquable ne déplie pas la ligne.
+    await act(async () => { (aj().querySelector('[data-mot="Affaires"] button') as HTMLButtonElement).click(); });
+    expect(aj().hasAttribute('data-collegue-deplie')).toBe(false);
+    // Un clic sur la ligne (le nom) la déplie.
+    await act(async () => { (aj().querySelector('th') as HTMLElement).click(); });
+    expect(aj().hasAttribute('data-collegue-deplie')).toBe(true);
+    expect(aj().querySelector('button[data-deplier-collegue]')?.textContent).toBe('▾');
+    const ca = [...aj().querySelectorAll('[data-mot="CA apporté"] [data-pile]')].map((e) => [e.getAttribute('data-pile'), euros(e.textContent)] as [string, number]);
+    expect(ca.map((x) => x[0])).toEqual(['via', 'apporteur', 'apporteur', 'total']);
+    const mots = [...aj().querySelectorAll('th [data-pile="apporteur"]')].map((e) => nbsp(e.textContent));
+    expect(mots.length).toBe(2);
+    expect(ca[1][1]).toBeGreaterThanOrEqual(ca[2][1]);
+    expect(ca[0][1]).toBe(ca[1][1] + ca[2][1]);
+    expect(ca[3][1]).toBe(ca[0][1]);
+    // Les mêmes emplacements dans CHAQUE cellule : les lignes s'alignent.
+    for (const cell of aj().querySelectorAll('th, td')) expect(cell.querySelectorAll('.fdm-pile-l').length).toBe(5);
+    // Le Total du tableau ne bouge pas au dépliage.
+    expect(euros(container.querySelector('[data-total-collegues-ca]')?.textContent)).toBe(totalTableau);
+    // Le chevron replie (Entrée / Espace : c'est un vrai bouton).
+    expect(chevron.tagName).toBe('BUTTON');
+    await act(async () => { (aj().querySelector('button[data-deplier-collegue]') as HTMLButtonElement).click(); });
+    expect(aj().hasAttribute('data-collegue-deplie')).toBe(false);
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — le titre du Portefeuille porte le mois, sur UNE ligne', () => {
+  it('« Portefeuille de gestion — <mois année> (honoraires de gestion HT) » ; jamais de retour à la ligne ni de troncature, plancher 13 px', async () => {
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="6"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-titre-portefeuille]')?.textContent).toBe('Portefeuille de gestion — juin 2026 (honoraires de gestion HT)');
+    const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
+    expect(css).toContain('.fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible;font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}');
+    expect((container.querySelector('[data-titre-portefeuille]') as HTMLElement).style.getPropertyValue('--lettres')).toBe('62');
+    expect(css).not.toMatch(/fdm-titre-une-ligne\{[^}]*(ellipsis|overflow:hidden)/);
   });
 });
 

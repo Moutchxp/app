@@ -889,7 +889,47 @@ export interface ApporteurDuMois extends CumulAffaires {
  * 🔴 Arno (25/10/2026) — un COLLÈGUE du mois : `via` (les affaires de SES apporteurs externes), `direct` (« Collègue directement », ou un
  * apporteur interne lié à son compte) ; les champs de `CumulAffaires` portent le TOTAL (via + direct). `meilleur` : le plus fort CA total.
  */
-export interface CollegueDuMois extends CumulAffaires { cle: string; libelle: string; via?: CumulAffaires; direct?: CumulAffaires; meilleur?: boolean }
+export interface CollegueDuMois extends CumulAffaires {
+  cle: string; libelle: string; via?: CumulAffaires; direct?: CumulAffaires; meilleur?: boolean;
+  /** 🔴 Arno (25/10/2026) — `via`, apporteur par apporteur (triés par CA décroissant) : leur somme = `via`. */
+  viaApporteurs?: (CumulAffaires & { cle: string; nom: string })[];
+}
+
+/** Une ligne du détail d'un collègue, en CENTIMES (les montants affichés) : les égalités se tiennent au centime. */
+export interface LigneDetailCollegue {
+  cle: string; sorte: 'via' | 'apporteur' | 'direct' | 'total'; mot: string; nb: number; caCentimes: number; commissionCentimes: number; ids: (number | string)[];
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — LE DÉTAIL D'UN COLLÈGUE : « via ses apporteurs » (et, dès DEUX apporteurs, une sous-ligne par apporteur ; avec un
+ * seul, son nom), « en direct », « Total » — seulement les origines présentes. Chaque montant au centime ; via = Σ apporteurs ; total =
+ * via + direct. `depliable` : plus d'une ligne de détail (deux origines, ou plusieurs apporteurs). PUR.
+ */
+export function detailCollegue(x: CollegueDuMois): { lignes: LigneDetailCollegue[]; depliable: boolean; seulApporteur: string | null; mention: string } {
+  const cent = (v: number): number => Math.round((v + Number.EPSILON) * 100);
+  const present = (c: CumulAffaires | undefined): c is CumulAffaires => c !== undefined && (c.nb > 0 || cent(c.commission) !== 0 || cent(c.ca) !== 0);
+  const via = present(x.via) ? x.via : null;
+  const direct = present(x.direct) ? x.direct : null;
+  const apps = via === null ? [] : (x.viaApporteurs ?? []).filter((a) => present(a));
+  const plusieurs = apps.length >= 2;
+  const lignes: LigneDetailCollegue[] = [];
+  let viaCa = 0; let viaCom = 0;
+  if (via !== null) {
+    const sous = apps.map((a): LigneDetailCollegue => ({ cle: `apporteur:${a.cle}`, sorte: 'apporteur', mot: a.nom, nb: a.nb, caCentimes: cent(a.ca), commissionCentimes: cent(a.commission), ids: a.ids }));
+    viaCa = plusieurs ? sous.reduce((t, l) => t + l.caCentimes, 0) : cent(via.ca);
+    viaCom = plusieurs ? sous.reduce((t, l) => t + l.commissionCentimes, 0) : cent(via.commission);
+    lignes.push({ cle: 'via', sorte: 'via', mot: 'via ses apporteurs', nb: via.nb, caCentimes: viaCa, commissionCentimes: viaCom, ids: via.ids });
+    if (plusieurs) lignes.push(...sous);
+  }
+  const dCa = direct === null ? 0 : cent(direct.ca);
+  const dCom = direct === null ? 0 : cent(direct.commission);
+  if (direct !== null) lignes.push({ cle: 'direct', sorte: 'direct', mot: 'en direct', nb: direct.nb, caCentimes: dCa, commissionCentimes: dCom, ids: direct.ids });
+  const seul = via !== null && apps.length === 1 ? apps[0].nom : null;
+  lignes.push({ cle: 'total', sorte: 'total', mot: 'Total', nb: x.nb, caCentimes: via === null && direct === null ? cent(x.ca) : viaCa + dCa,
+    commissionCentimes: via === null && direct === null ? cent(x.commission) : viaCom + dCom, ids: x.ids });
+  const mention = via !== null && direct !== null ? 'via ses apporteurs et en direct' : direct !== null ? 'en direct' : 'via ses apporteurs';
+  return { lignes, depliable: lignes.length - 1 > 1, seulApporteur: seul, mention };
+}
 
 /**
  * Les apporteurs d'un ensemble de lignes (nombre d'affaires, CA apporté, honoraires d'apporteur), et pour chaque COLLÈGUE le
@@ -912,7 +952,7 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
     parCol.set(cle, l);
     return l;
   };
-  type Part = { ligneC: CollegueDuMois; part: 'via' | 'direct' } | null;
+  type Part = { ligneC: CollegueDuMois; part: 'via' | 'direct'; app?: { cle: string; nom: string } } | null;
   const lignesDe = (a: ActiviteCalcul): { ligneA: ApporteurDuMois; c: Part } => {
     const ap = a.apporteurId === null ? undefined : apporteurs.find((x) => x.id === a.apporteurId);
     if (collegueDirect(a) || nonNomme(a)) {
@@ -930,24 +970,32 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
     parApp.set(cleA, ligneA);
     const col = collegueDeLigne({ ...a, origineContact: 'apporteur' }, apporteurs);
     if (col === null) return { ligneA, c: null };
-    if ('aRattacher' in col) return { ligneA, c: { ligneC: collegue('a-rattacher', 'À rattacher'), part: 'via' } };
+    if ('aRattacher' in col) return { ligneA, c: { ligneC: collegue('a-rattacher', 'À rattacher'), part: 'via', app: { cle: cleA, nom: ligneA.nom } } };
     // 🔴 Arno (25/10/2026) — un apporteur INTERNE lié au compte du collègue : son apport EN DIRECT ; un externe : VIA ses apporteurs.
     const direct = ap !== undefined && interneADate(ap, a.dateSignature) && col.cle === `id:${ap.compteId}`;
-    return { ligneA, c: { ligneC: collegue(col.cle, col.libelle), part: direct ? 'direct' : 'via' } };
+    return { ligneA, c: { ligneC: collegue(col.cle, col.libelle), part: direct ? 'direct' : 'via', app: { cle: cleA, nom: ligneA.nom } } };
+  };
+  /** Le cumul de l'apporteur DANS le « via » du collègue. */
+  const viaDe = (c: NonNullable<Part>): CumulAffaires | null => {
+    if (c.part !== 'via' || c.app === undefined) return null;
+    const liste = c.ligneC.viaApporteurs ?? (c.ligneC.viaApporteurs = []);
+    let l = liste.find((x) => x.cle === c.app!.cle);
+    if (l === undefined) { l = { ...cumulVide(), cle: c.app.cle, nom: c.app.nom }; liste.push(l); }
+    return l;
   };
   for (const a of lignes) {
     ajouter(total, a, apporteurs);
     if (a.apporteurId === null && a.apporteurNom === null && !collegueDirect(a) && !nonNomme(a)) { ajouter(sans, a, apporteurs); continue; }
     const { ligneA, c } = lignesDe(a);
     ajouter(ligneA, a, apporteurs);
-    if (c !== null) { ajouter(c.ligneC, a, apporteurs); ajouter(c.ligneC[c.part] as CumulAffaires, a, apporteurs); }
+    if (c !== null) { ajouter(c.ligneC, a, apporteurs); ajouter(c.ligneC[c.part] as CumulAffaires, a, apporteurs); const v = viaDe(c); if (v !== null) ajouter(v, a, apporteurs); }
   }
   for (const a of recurrent?.lignes ?? []) {
     const du = duRecurrent([a], apporteurs, recurrent!.mois, recurrent!.aujourdhui);
     if (du === 0) continue;
     const { ligneA, c } = lignesDe(a);
     ajouterDu(ligneA, du);
-    if (c !== null) { ajouterDu(c.ligneC, du); ajouterDu(c.ligneC[c.part] as CumulAffaires, du); }
+    if (c !== null) { ajouterDu(c.ligneC, du); ajouterDu(c.ligneC[c.part] as CumulAffaires, du); const v = viaDe(c); if (v !== null) ajouterDu(v, du); }
   }
   const tri = <T extends { ca: number; nom?: string; libelle?: string }>(x: T[]): T[] => x.sort((p, q) => q.ca - p.ca || String(p.nom ?? p.libelle).localeCompare(String(q.nom ?? q.libelle)));
   const liste = tri([...parApp.values()]);
@@ -958,6 +1006,7 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
   total.commission = liste.reduce((s2, x) => s2 + x.commission, 0) + sans.commission;
   // Le MEILLEUR collègue : le plus fort CA total (via + direct, au centime) ; « À rattacher » n'en est pas un.
   const collegues = tri([...parCol.values()]);
+  for (const x of collegues) if (x.viaApporteurs !== undefined) tri(x.viaApporteurs);
   const vrais = collegues.filter((x) => x.cle !== 'a-rattacher');
   const hautC = vrais.length === 0 ? 0 : auCentime(vrais[0].ca);
   for (const x of collegues) x.meilleur = x.cle !== 'a-rattacher' && hautC > 0 && auCentime(x.ca) === hautC;
