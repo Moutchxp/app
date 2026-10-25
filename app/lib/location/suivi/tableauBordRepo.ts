@@ -252,7 +252,11 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   // 🔴 Arno (25/10/2026) — les transitions de statut depuis le 1er janvier de N−1 au plus tard : « Mois par mois » (barres « Gestion » et
   // cumul) compare l'année ENTIÈRE à l'année précédente ENTIÈRE ; lues sur 12 mois seulement, janvier → (mois − 12) de N−1 valaient 0 à tort.
   // Les 12 mois de la section D et le stock n'en dépendent pas (une transition plus ancienne que leur fenêtre n'y entre pas).
-  const depuis = douzeMois < `${annee - 1}-01-01` ? douzeMois : `${annee - 1}-01-01`;
+  // 🔴 Arno (25/10/2026, suite) — et depuis le 1er janvier de la PREMIÈRE année d'activité : « Année par année » (Suivi annuel) compte le
+  // solde de gestions de chaque année de l'historique.
+  const anneesHisto = await anneesActives();
+  const premiere = anneesHisto.length > 0 ? `${Math.min(...anneesHisto)}-01-01` : `${annee - 1}-01-01`;
+  const depuis = [douzeMois, `${annee - 1}-01-01`, premiere].sort()[0];
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
     lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
     voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),

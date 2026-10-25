@@ -734,6 +734,15 @@ export function soldeGestionParMois(transitions: readonly Transition[], annee: n
   });
 }
 
+/**
+ * 🔴 Arno (25/10/2026) — « Année par année », mesure « Gestion » : le SOLDE de gestions de chaque année (entrées − sorties, les règles de
+ * `soldeGestionParMois`) ; l'année en cours s'arrête au mois courant (`jour`, AAAA-MM-JJ). PUR.
+ */
+export function soldeGestionParAnnee(transitions: readonly Transition[], annees: readonly number[], jour: string, regle: RegleAnnexes = SANS_REGLE_ANNEXES): number[] {
+  const enCours = Number(jour.slice(0, 4));
+  return annees.map((a) => soldeGestionParMois(transitions, a, regle).slice(0, a === enCours ? Number(jour.slice(5, 7)) : 12).reduce((s, v) => s + v, 0));
+}
+
 /** Le cumul depuis janvier d'une série de 12 mois (aucun arrondi). PUR. */
 export function cumulDepuisJanvier(valeurs: readonly number[]): number[] {
   let s = 0;
