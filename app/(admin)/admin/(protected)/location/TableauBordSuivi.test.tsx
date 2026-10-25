@@ -1324,8 +1324,8 @@ describe('🔴 Arno (25/10/2026) — « Apporteurs du mois » : tous les apporte
   });
 });
 
-describe('🔴 Arno (25/10/2026) — les collègues : via leurs apporteurs et en direct', () => {
-  it('les DEUX origines : « via ses apporteurs », « en direct », puis « Total <collègue> » ; un seul apport : une ligne et sa mention ; Total = somme des collègues', async () => {
+describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le détail via / direct en petit sous le nom', () => {
+  it('une ligne par collègue (ses totaux) ; le détail des seules origines présentes ; totaux = via + direct au centime ; les montants du détail ouvrent leurs dossiers', async () => {
     const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
     const viaA = sept.filter((a) => a.apporteurNom === 'Apporteur A');
     const sansApp = sept.filter((a) => a.apporteurNom === null && a.apporteurId === null);
@@ -1335,19 +1335,25 @@ describe('🔴 Arno (25/10/2026) — les collègues : via leurs apporteurs et en
       apporteurs: [{ id: 9, nom: 'Apporteur A', type: 'partenaire', archive: false, baremes: [], collegues: [{ depuis: '2026-01-01', collegueId: 2, collegueLibelle: 'Arnaud Jorel' }] }] };
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
-    const aj = container.querySelector('[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
-    expect([...aj.querySelectorAll('[data-collegue-part]')].map((l) => l.getAttribute('data-collegue-part'))).toEqual(['via', 'direct', 'total']);
-    const ca = (sel: string) => Math.round(Number(nbsp(aj.querySelector(`[data-collegue-part="${sel}"] [data-mot="CA apporté"]`)?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
-    expect(ca('total')).toBe(ca('via') + ca('direct'));
-    expect(nbsp(aj.querySelector('[data-collegue-part="total"] th')?.textContent)).toBe('Total Arnaud Jorel');
-    const cj = container.querySelector('[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
-    expect([...cj.querySelectorAll('[data-collegue-part]')].map((l) => l.getAttribute('data-collegue-part'))).toEqual(['direct']);
-    expect(cj.querySelector('.fdm-origine-collegue')?.textContent).toBe('en direct');
+    const euros = (t: string | null | undefined) => Math.round(Number(nbsp(t).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const aj = container.querySelector('tr[data-collegue-mois="Arnaud Jorel"]') as HTMLElement;
+    expect(container.querySelectorAll('tr[data-collegue-mois="Arnaud Jorel"]')).toHaveLength(1);
+    expect(container.querySelector('[data-collegue-part]')).toBeNull();
+    // Le détail : via puis direct, chacun avec son nombre et son CA cliquables.
+    const d = aj.querySelector('[data-origines-collegue]')!;
+    expect([...d.querySelectorAll('[data-origine]')].map((e) => e.getAttribute('data-origine'))).toEqual(['via', 'direct']);
+    expect(euros(aj.querySelector('[data-mot="CA apporté"]')?.textContent)).toBe(euros(d.querySelector('[data-detail-origine="via-ca"]')?.textContent) + euros(d.querySelector('[data-detail-origine="direct-ca"]')?.textContent));
+    expect(Number(aj.querySelector('[data-mot="Affaires"]')?.textContent)).toBe(Number(d.querySelector('[data-detail-origine="via-nb"]')?.textContent) + Number(d.querySelector('[data-detail-origine="direct-nb"]')?.textContent));
+    expect(nbsp(d.querySelector('[data-origine="via"]')?.textContent)).toMatch(/^via ses apporteurs \d+ · [\d ]+,\d\d € · hono\. [\d ]+,\d\d €$/);
+    expect(nbsp(d.querySelector('[data-origine="direct"]')?.textContent)).toMatch(/^en direct 1 · [\d ]+,\d\d €$/);
+    expect(d.querySelectorAll('button')).toHaveLength(4);
+    // Une seule origine : la mention seule, sans montant répété.
+    const cj = container.querySelector('tr[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
+    expect(nbsp(cj.querySelector('[data-origines-collegue]')?.textContent)).toBe('en direct');
+    expect(cj.querySelector('[data-origines-collegue] button')).toBeNull();
     expect(aj.querySelector('[data-meilleur-collegue]')?.textContent).toBe('Meilleur collègue');
-    const tot = Math.round(Number(nbsp(container.querySelector('[data-total-collegues-ca]')?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
-    const caDe = (t: Element) => Math.round(Number(nbsp((t.querySelector('[data-collegue-part="total"] [data-mot="CA apporté"]') ?? t.querySelector('[data-mot="CA apporté"]'))?.textContent).replace(/[\s€]/g, '').replace(',', '.')) * 100);
-    const blocs = [...container.querySelectorAll('tbody[data-collegue-mois]')];
-    expect(blocs.length).toBeGreaterThanOrEqual(2);
-    expect(tot).toBe(blocs.reduce((s2, t) => s2 + caDe(t), 0));
+    // Le Total du tableau : la somme des collègues.
+    const tot = euros(container.querySelector('[data-total-collegues-ca]')?.textContent);
+    expect(tot).toBe([...container.querySelectorAll('tr[data-collegue-mois]:not([data-collegue-mois="total"]) [data-mot="CA apporté"]')].reduce((s2, e) => s2 + euros(e.textContent), 0));
   });
 });
