@@ -77,6 +77,15 @@ describe('🔴 bloc 9 : l’origine de la LOCATION seule, conflit refusé', () =
     expect(ecrits.some((e) => e.sql.includes('UPDATE gestion_annuaire_proprietaire'))).toBe(false);
     expect(ecrits.some((e) => e.sql.includes('INSERT INTO gestion_journal'))).toBe(true);
   });
+  it('🔴 le journal porte le RÉSUMÉ des conséquences affiché ; un autre apporteur remet aussi son mode et son taux de gestion', async () => {
+    lignes['FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL FOR UPDATE'] = [ligne];
+    await modifierOrigineActivite(41, { origineContact: 'internet' }, '|||', AUTEUR, 'Dossier — Statut du bien : À qualifier → Nouveau sans gestion');
+    const journal = ecrits.find((e) => e.sql.includes('INSERT INTO gestion_journal'));
+    expect(String(journal?.params[4])).toContain('conséquences affichées : Dossier — Statut du bien : À qualifier → Nouveau sans gestion');
+    const maj = majLocations()[0].sql;
+    expect(maj).toContain('apporteur_mode = CASE WHEN $4::bigint IS NULL OR apporteur_id IS DISTINCT FROM $4::bigint THEN NULL ELSE apporteur_mode END');
+    expect(maj).toContain('apporteur_taux_gestion = CASE WHEN');
+  });
   it('l’origine a changé depuis l’ouverture : conflit, rien n’est écrit', async () => {
     lignes['FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL FOR UPDATE'] = [{ ...ligne, origine_contact: 'internet' }];
     expect(await modifierOrigineActivite(41, { origineContact: 'passage_agence' }, '|||', AUTEUR)).toMatchObject({ etat: 'conflit' });

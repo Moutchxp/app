@@ -43,7 +43,9 @@ function carteCourante(c: CarteLocataireDossier, champs: CarteApres | undefined)
 }
 const formatee = (c: FicheAEditer): FicheAEditer => ({ ...c, ...ficheFormatee({ civilite: c.civilite ?? '', nom: c.nom, prenom: c.prenom ?? '', adresse: c.adresse ?? '', codePostal: c.codePostal ?? '', commune: c.commune ?? '' }) });
 
-export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { activiteId: number; onFermer: () => void; onEnregistre: () => void }) {
+export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRelire }: { activiteId: number; onFermer: () => void; onEnregistre: () => void;
+  /** 🔴 Arno (25/10/2026) — l'origine modifiée dans son flux : la page derrière se relit, la modale reste ouverte. */
+  onRelire?: () => void }) {
   const titreId = useId();
   const fenetre = useRef<HTMLDivElement | null>(null);
   const [lecture, setLecture] = useState<LectureDossier | null>(null);
@@ -95,6 +97,19 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
   const charger = useCallback((): Promise<{ etat?: string; data?: LectureDossier } | null> =>
     fetch(`${API}?dossierLocation=${activiteId}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: LectureDossier }>).catch(() => null), [activiteId]);
   const lire = useCallback(async (garder: boolean): Promise<void> => { appliquer(await charger(), garder); }, [appliquer, charger]);
+  /* 🔴 Arno (25/10/2026) — l'ORIGINE enregistrée dans son propre flux (« Modifier », double validation) : la version et les champs d'origine
+     relus, le reste de la saisie GARDÉ (le bouton du dossier n'écrase jamais l'origine qui vient d'être confirmée). */
+  const origineRelue = useCallback(async (): Promise<void> => {
+    const d = await charger();
+    if (d === null || d.etat !== 'ok' || d.data === undefined) return;
+    const l = d.data;
+    lectureVue.current = l;
+    setLecture(l);
+    setSuivi((s) => (s === null ? s : { ...s, origineContact: l.suivi.origineContact, origineContactPrecision: l.suivi.origineContactPrecision, collegueId: l.suivi.collegueId,
+      apporteurId: l.suivi.apporteurId, apporteurTaux: l.suivi.apporteurTaux, commissionApporteur: l.suivi.commissionApporteur, apporteurMode: l.suivi.apporteurMode,
+      apporteurTauxGestion: l.suivi.apporteurTauxGestion }));
+    onRelire?.();
+  }, [charger, onRelire]);
   useEffect(() => {
     let vivant = true;
     void charger().then((d) => { if (vivant) appliquer(d, false); });
@@ -239,7 +254,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre }: { 
                   // La règle de « Nouveau locataire » : les honoraires locataire du suivi SONT les honoraires agence des sommes dues.
                   setConditions((c) => (c === null ? c : { ...c, sommes: { ...c.sommes, honorairesAgence: t } }));
                 }}
-                manque={null} loyer={conditions?.loyer} sansPreremplissage />
+                manque={null} loyer={conditions?.loyer} sansPreremplissage origineFlux={{ activiteId, onEnregistree: () => { void origineRelue(); } }} />
             </section>
 
             <div className="loc-collant mdl-collant" data-collant>

@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { CSS_MODALE_ISSUE } from './ModaleIssue';
+import { ValidationOrigine, type LigneConsequenceVue } from './ValidationOrigine';
 import { corpsOrigineProprietaire, manqueOrigineProprietaire, ORIGINE_PROPRIETAIRE_VIDE, useOrigineProprietaire, type SaisieOrigineProprietaire } from './ChoixOrigineProprietaire';
 import { CSS_SUIVI_COMMERCIAL } from './SuiviCommercial';
 import type { OrigineProprietaire } from '../../../../lib/location/origineProprietaire';
@@ -30,7 +29,6 @@ export function BlocOrigineProprietaire({ proprietaireId, modifiable = true }: {
   const [saisie, setSaisie] = useState<SaisieOrigineProprietaire>(ORIGINE_PROPRIETAIRE_VIDE);
   const [reporter, setReporter] = useState(false);
   const [recap, setRecap] = useState(false);
-  const [envoi, setEnvoi] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; mot: string } | null>(null);
   useEffect(() => {
     let vivant = true;
@@ -57,38 +55,36 @@ export function BlocOrigineProprietaire({ proprietaireId, modifiable = true }: {
             data-modifier-origine-proprietaire>Modifier</button>
         )}
       </p>
-      {actuelle.modifieeLe !== null && <p className="loc-muet cop-trace">Saisie le {dateFr(actuelle.modifieeLe)}{actuelle.par ? ` par ${actuelle.par}` : ''}.</p>}
+      {actuelle.modifieeLe !== null && <p className="loc-muet cop-trace" data-origine-trace>Validé{actuelle.par ? ` par ${actuelle.par}` : ''} le {dateFr(actuelle.modifieeLe)}.</p>}
       {message !== null && <p className={message.ok ? 'gst-info' : 'gst-erreur'} role={message.ok ? 'status' : 'alert'} data-issue-origine-proprietaire>{message.mot}</p>}
       {edition && (
         <Edition saisie={saisie} onSaisie={setSaisie} aRenseigner={lu.locations.aRenseigner} reporter={reporter} onReporter={setReporter}
           onAnnuler={() => setEdition(false)} onEnregistrer={() => setRecap(true)} />
       )}
-      {recap && createPortal(
-        <div className="mis-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) setRecap(false); }}>
-          <style>{CSS_MODALE_ISSUE}</style>
-          <div className="mis-boite" role="dialog" aria-modal="true" aria-label="Récapitulatif" data-recap-origine-proprietaire>
-            <h2 className="mis-titre">Récapitulatif</h2>
-            <p style={{ margin: 0 }}>Origine du contact : <strong>{actuelle.mot}</strong> → <strong>{motSaisie(saisie)}</strong></p>
-            <p className="loc-muet" style={{ margin: 0 }}>Les locations déjà enregistrées ne changent pas.</p>
-            {reporter && <p style={{ margin: 0 }} data-recap-report>Appliquée aussi à {lu.locations.aRenseigner.length} location(s) encore « à renseigner ».</p>}
-            <div className="mis-actions">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => setRecap(false)} disabled={envoi}>Revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" disabled={envoi} data-confirmer-origine-proprietaire onClick={() => { void (async () => {
-                setEnvoi(true);
-                try {
-                  const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'origine-proprietaire', id: proprietaireId, origine: corpsOrigineProprietaire(saisie), reporter }) });
-                  const d = await r.json() as { etat?: string; motif?: string; data?: { mot: string; reportees: number } };
-                  if (d.etat === 'ok' && d.data !== undefined) {
-                    setMessage({ ok: true, mot: `✓ Origine enregistrée : ${d.data.mot}${d.data.reportees > 0 ? ` — ${d.data.reportees} location(s) « à renseigner » complétée(s)` : ''}.` });
-                    setEdition(false); setN((x) => x + 1);
-                  } else setMessage({ ok: false, mot: d.motif ?? 'L’origine n’a pas été enregistrée.' });
-                } catch { setMessage({ ok: false, mot: 'L’origine n’a pas été enregistrée : le serveur n’a pas répondu.' }); }
-                finally { setEnvoi(false); setRecap(false); }
-              })(); }}>{envoi ? 'Enregistrement…' : 'Confirmer'}</button>
-            </div>
-          </div>
-        </div>, document.querySelector('.svv-adm-root') ?? document.body)}
+      {/* 🔴 Arno (25/10/2026) — la DOUBLE VALIDATION : les conséquences (serveur, sans rien écrire), la case « J'ai bien compris… » (sauf
+          première saisie), « Confirmer la modification ». */}
+      {recap && (
+        <ValidationOrigine premiere={actuelle.origine === null} onRevenir={() => setRecap(false)}
+          charger={async () => {
+            try {
+              const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'origine-proprietaire', id: proprietaireId, origine: corpsOrigineProprietaire(saisie), reporter, simuler: true }) });
+              const d = await r.json() as { etat?: string; motif?: string; data?: { lignes: LigneConsequenceVue[] } };
+              return d.etat === 'ok' && d.data !== undefined ? { lignes: d.data.lignes } : { motif: d.motif ?? 'Les conséquences n’ont pas pu être calculées.' };
+            } catch { return { motif: 'Les conséquences n’ont pas pu être calculées : le serveur n’a pas répondu.' }; }
+          }}
+          onConfirmer={async () => {
+            try {
+              const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'origine-proprietaire', id: proprietaireId, origine: corpsOrigineProprietaire(saisie), reporter }) });
+              const d = await r.json() as { etat?: string; motif?: string; data?: { mot: string; reportees: number } };
+              if (d.etat !== 'ok' || d.data === undefined) return d.motif ?? 'L’origine n’a pas été enregistrée.';
+              setMessage({ ok: true, mot: `✓ Origine ${actuelle.origine === null ? 'enregistrée' : 'modifiée'} : ${d.data.mot}${d.data.reportees > 0 ? ` — ${d.data.reportees} location(s) « à renseigner » complétée(s)` : ''}.` });
+              setRecap(false); setEdition(false); setN((x) => x + 1);
+              return null;
+            } catch { return 'L’origine n’a pas été enregistrée : le serveur n’a pas répondu.'; }
+          }} />
+      )}
     </section>
   );
 }

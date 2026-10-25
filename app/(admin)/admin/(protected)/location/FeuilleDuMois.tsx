@@ -123,7 +123,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   return (
     <div className="fdm" data-feuille-mois={cle}>
       {fiche !== null && fiche.sorte === 'dossier' && (
-        <ModaleDossierLocation activiteId={fiche.id} onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} />
+        <ModaleDossierLocation activiteId={fiche.id} onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree} onRelire={onRelire} />
       )}
       {fiche !== null && fiche.sorte === 'locataire' && (
         // 🔴 Arno (25/10/2026) — les cartes du bloc 1 en modification ; enregistrée, elle RESTE ouverte et la ligne se relit derrière.
@@ -133,7 +133,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         // 🔴 Arno (25/10/2026, 425) — depuis une ligne du Suivi : le bloc 9 « Origine du contact » (la location de la ligne ; la modale reste ouverte).
         <ModaleCaracteristiquesBien lotId={fiche.id} titre="Fiche du bien" retourMot="Suivi du mois" trace={TRACE_SUIVI}
           onFermer={() => setFiche(null)} onEnregistre={ficheEnregistree}
-          blocApres={(numero) => <BlocOrigineLocation activiteId={fiche.activiteId ?? null} numero={numero} origineLigne={fiche.origineLigne ?? ''} onEnregistre={onRelire} />} />
+          blocApres={(numero) => <BlocOrigineLocation activiteId={fiche.activiteId ?? null} numero={numero} origineLigne={fiche.origineLigne ?? ''} onEnregistre={onRelire}
+            {...(fiche.activiteId ? { onAllerAuxCases: () => setFiche({ sorte: 'dossier', id: fiche.activiteId as number, libelle: fiche.libelle }) } : {})} />} />
       )}
       <section className="tdb-section" aria-labelledby="fdm-locations" data-bloc="locations">
         <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>

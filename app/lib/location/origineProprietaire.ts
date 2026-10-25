@@ -102,13 +102,16 @@ export function prerempliOrigine(actuelle: ChampsOrigineLocation, bien: OrigineD
  * La mention sous l'origine d'une location : « reprise du propriétaire <nom> » (égale à celle du propriétaire), « différente de l'origine
  * du propriétaire » (une autre, saisie ou validée à la main), rien sinon ; et « origines différentes entre copropriétaires ». PUR.
  */
-export function mentionsOrigine(champs: ChampsOrigineLocation, bien: OrigineDuBien | null): string[] {
+export function mentionsOrigine(champs: ChampsOrigineLocation, bien: OrigineDuBien | null,
+  /** 🔴 Arno (25/10/2026) — `reprise` : l'origine vient VRAIMENT du propriétaire (préremplie) ; sinon, égale : « identique à … ». */
+  o: { reprise?: boolean } = { reprise: true }): string[] {
   if (bien === null) return [];
   const m: string[] = [];
   const loc = origineDeLocation({ origineContact: champs.origineContact || null, origineContactPrecision: champs.origineContactPrecision,
     apporteurId: champs.apporteurId, collegueId: champs.collegueId });
   if (heritable(bien.origine) && champs.origineContact !== '' && champs.origineContact !== 'relocation' && champs.origineContact !== 'proprietaire_deja_client') {
-    m.push(memeOrigine(loc, bien.origine) ? `reprise du propriétaire ${bien.nom}` : 'différente de l’origine du propriétaire');
+    m.push(!memeOrigine(loc, bien.origine) ? 'différente de l’origine du propriétaire'
+      : o.reprise !== false ? `reprise du propriétaire ${bien.nom}` : `identique à l’origine du propriétaire ${bien.nom}`);
   }
   if (bien.coproprietairesDifferents) m.push('origines différentes entre copropriétaires');
   return m;

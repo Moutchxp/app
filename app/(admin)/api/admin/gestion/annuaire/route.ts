@@ -18,7 +18,7 @@ import {
   modifierPersonne, ordonnerPersonnes, remplacerProprietaireDuLot, separerPersonne,
 } from '../../../../../lib/gestion/annuaireEditionRepo';
 import {
-  locationsDuProprietaire, lireOrigineProprietaire, modifierOrigineProprietaire, origineProprietaireDisponible, proprietairesOrigineACompleter,
+  locationsDuProprietaire, lireOrigineProprietaire, modifierOrigineProprietaire, origineProprietaireDisponible, proprietairesOrigineACompleter, simulerOrigineProprietaire,
 } from '../../../../../lib/location/origineProprietaireRepo';
 import { verifierOrigineProprietaire } from '../../../../../lib/location/origineProprietaire';
 
@@ -189,6 +189,8 @@ export async function POST(request: Request): Promise<Response> {
     // 🔴 Arno (25/10/2026, 425) — l'origine du contact d'un propriétaire, modifiée dans sa fiche ; `reporter` : aux seules locations « à renseigner ».
     if (action === 'origine-proprietaire') {
       if (id === null) return mauvaiseDemande();
+      // 🔴 Arno (25/10/2026) — `simuler` : les conséquences, SANS RIEN ÉCRIRE (double validation de l'écran).
+      if (corps.simuler === true) return Response.json(await simulerOrigineProprietaire(id, corps.origine, corps.reporter === true), { headers: ENTETES });
       const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: 'Fiche du propriétaire' as const };
       const issue = await avecTrace(trace, () => modifierOrigineProprietaire(id, corps.origine, corps.reporter === true, auteur));
       return Response.json(issue, { headers: ENTETES });

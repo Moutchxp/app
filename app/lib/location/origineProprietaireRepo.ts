@@ -117,10 +117,13 @@ export async function modifierOrigineProprietaire(proprietaireId: number, brut: 
   const v = verifierOrigineProprietaire(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const ecran = traceCourante()?.ecran ?? 'Fiche du propriétaire';
+  // 🔴 Arno (25/10/2026) — le résumé des conséquences (le même que l'écran les a montrées), écrit au journal avec la modification.
+  const s = await simulerOrigineProprietaire(proprietaireId, brut, reporter);
+  const resume = s.etat === 'ok' ? ` — conséquences affichées : ${s.data.lignes.map((l) => `${l.libelle} : ${l.avant} → ${l.apres}`).join(' ; ')}` : '';
   return withTransaction(async (qq) => {
     const q = qq as unknown as Q;
     if ((await q('SELECT 1 FROM gestion_annuaire_proprietaire WHERE id = $1', [proprietaireId])).rows.length === 0) return { etat: 'refus', motif: 'Ce propriétaire n’existe plus.' } as const;
-    const { apres } = await ecrireOrigineProprietaireTx(q, proprietaireId, v.valeur, auteur, `${ecran} — origine du contact du propriétaire modifiée`);
+    const { apres } = await ecrireOrigineProprietaireTx(q, proprietaireId, v.valeur, auteur, `${ecran} — origine du contact du propriétaire modifiée${resume}`);
     let reportees = 0;
     if (reporter && heritable(v.valeur)) {
       const cibles = (await q(`${SQL_LOCATIONS.replace('ORDER BY', 'AND a.origine_contact IS NULL AND a.apporteur_id IS NULL ORDER BY')}`, [proprietaireId])).rows;
@@ -137,6 +140,25 @@ export async function modifierOrigineProprietaire(proprietaireId: number, brut: 
     }
     return { etat: 'ok', data: { mot: apres, reportees } } as const;
   });
+}
+
+/**
+ * 🔴 Arno (25/10/2026) — LES CONSÉQUENCES d'une modification de l'origine d'un propriétaire, SANS RIEN ÉCRIRE : l'origine avant / après, et
+ * (case cochée) le nombre de locations « à renseigner » qui la recevraient. Les locations déjà renseignées ne changent jamais.
+ */
+export async function simulerOrigineProprietaire(proprietaireId: number, brut: unknown, reporter: boolean):
+  Promise<{ etat: 'ok'; data: { lignes: { groupe: string; libelle: string; avant: string; apres: string }[]; premiere: boolean } } | { etat: 'refus'; motif: string } | typeof SANS_SCHEMA> {
+  if (!(await origineProprietaireDisponible())) return SANS_SCHEMA;
+  const v = verifierOrigineProprietaire(brut);
+  if (!v.ok) return { etat: 'refus', motif: v.motif };
+  const lu = await lireOrigineProprietaire(proprietaireId);
+  if (lu === null) return { etat: 'refus', motif: 'Ce propriétaire n’existe plus.' };
+  const apres = await motOrigine({ ...v.valeur, collegueLibelle: v.valeur.origine === 'collegue' ? await nomCollegue(query as unknown as Q, v.valeur.collegueId) : null });
+  const { aRenseigner } = await locationsDuProprietaire(proprietaireId);
+  const lignes = [{ groupe: 'Propriétaire', libelle: 'Origine du contact', avant: lu.mot, apres }];
+  if (reporter && heritable(v.valeur)) lignes.push({ groupe: 'Locations', libelle: 'Locations « à renseigner » qui recevront cette origine', avant: '0', apres: String(aRenseigner.length) });
+  lignes.push({ groupe: 'Locations', libelle: 'Locations déjà renseignées', avant: 'inchangées', apres: 'inchangées' });
+  return { etat: 'ok', data: { lignes, premiere: lu.origine === null } };
 }
 
 async function journaliserActivite(q: Q, id: number, action: string, avant: string, apres: string, commentaire: string, auteur: Auteur): Promise<void> {
@@ -182,16 +204,24 @@ export const empreinteOrigine = (r: { origine_contact?: unknown; origine_contact
 export async function lireOrigineActivite(activiteId: number): Promise<{ origineContact: OrigineContact | null; origineContactPrecision: string | null; apporteurId: number | null;
   collegueId: number | null; empreinte: string; avecGestion: boolean; bien: OrigineDuBien | null;
   /** 🔴 426 — la location est celle d'une annexe (après la bascule) : son lot principal. */
-  annexe: AnnexeLouee | null } | null> {
+  annexe: AnnexeLouee | null;
+  /** 🔴 Arno (25/10/2026) — la case « Nouvelle gestion », d'où vient la ligne, et la dernière validation humaine de l'origine (journal). */
+  mandatGestion: boolean; source: string; validation: { par: string; le: string } | null } | null> {
   const precision = (await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision')) ? 'origine_contact_precision' : 'NULL::text AS origine_contact_precision';
-  const r = (await query<Record<string, unknown>>(`SELECT origine_contact, ${precision}, apporteur_id, collegue_id, lot_id, avec_gestion, date_signature::text AS date_signature FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL`, [activiteId])).rows[0];
+  const r = (await query<Record<string, unknown>>(`SELECT origine_contact, ${precision}, apporteur_id, collegue_id, lot_id, avec_gestion, mandat_gestion, source, date_signature::text AS date_signature FROM gestion_location_activite WHERE id = $1 AND annule_le IS NULL`, [activiteId])).rows[0];
   if (r === undefined) return null;
+  // La dernière validation humaine de l'origine : la plus récente ligne du journal qui la porte (saisie, bloc 9, report, Suivi du mois).
+  const v = (await query<{ par: string; le: string }>(
+    `SELECT auteur_libelle AS par, survenu_le::text AS le FROM gestion_journal
+      WHERE entite = 'location_activite' AND entite_id = $1 AND (valeur_apres LIKE 'Origine du contact%' OR commentaire LIKE '%Origine du contact%')
+      ORDER BY survenu_le DESC, id DESC LIMIT 1`, [activiteId]).catch(() => ({ rows: [] }))).rows[0];
   const regle = await lireRegleAnnexes();
   const lot = nombre(r.lot_id);
   const date = String(r.date_signature ?? '').slice(0, 10);
   const annexe = lot !== null && regle.basculeAnnexes !== null && date >= regle.basculeAnnexes && regle.annexes.includes(lot) ? await principalDeLAnnexe(lot, date) : null;
   return { origineContact: (r.origine_contact as OrigineContact | null) ?? null, origineContactPrecision: (r.origine_contact_precision as string | null) ?? null,
-    apporteurId: nombre(r.apporteur_id), collegueId: nombre(r.collegue_id), empreinte: empreinteOrigine(r), avecGestion: r.avec_gestion === true, bien: await origineDuBien(lot), annexe };
+    apporteurId: nombre(r.apporteur_id), collegueId: nombre(r.collegue_id), empreinte: empreinteOrigine(r), avecGestion: r.avec_gestion === true, bien: await origineDuBien(lot), annexe,
+    mandatGestion: r.mandat_gestion === true, source: String(r.source ?? ''), validation: v === undefined ? null : { par: v.par, le: v.le } };
 }
 
 /**
@@ -199,7 +229,9 @@ export async function lireOrigineActivite(activiteId: number): Promise<{ origine
  * LOCATION de la ligne (la même donnée que le bloc 4), indépendamment du bien. Conflit : l'origine a changé depuis l'ouverture → refusé.
  * Le propriétaire n'est jamais touché. Les règles de la ligne restent celles du bloc 4 (« Relocation » seulement avec la case).
  */
-export async function modifierOrigineActivite(activiteId: number, brut: unknown, empreinte: unknown, auteur: Auteur): Promise<IssueOrigine<{ mot: string }>> {
+export async function modifierOrigineActivite(activiteId: number, brut: unknown, empreinte: unknown, auteur: Auteur,
+  /** 🔴 Arno (25/10/2026) — le résumé des conséquences affiché avant la confirmation : écrit au journal avec le changement. */
+  resumeConsequences: string | null = null): Promise<IssueOrigine<{ mot: string }>> {
   if (!(await colonneExisteMemo('gestion_location_activite', 'origine_contact'))) return SANS_SCHEMA;
   if (!Number.isSafeInteger(activiteId) || activiteId <= 0) return { etat: 'refus', motif: 'Ligne inconnue.' };
   const c = verifierCommercial((brut ?? {}) as Record<string, unknown>, true);
@@ -233,10 +265,13 @@ export async function modifierOrigineActivite(activiteId: number, brut: unknown,
     await q(`UPDATE gestion_location_activite SET origine_contact = $2, ${avecPrecision ? 'origine_contact_precision = $3,' : ''} apporteur_id = $4, collegue_id = $5,
                     apporteur_taux = CASE WHEN $4::bigint IS NULL OR apporteur_id IS DISTINCT FROM $4::bigint THEN NULL ELSE apporteur_taux END,
                     apporteur_commission_saisie = CASE WHEN $4::bigint IS NULL OR apporteur_id IS DISTINCT FROM $4::bigint THEN NULL ELSE apporteur_commission_saisie END,
+                    apporteur_mode = CASE WHEN $4::bigint IS NULL OR apporteur_id IS DISTINCT FROM $4::bigint THEN NULL ELSE apporteur_mode END,
+                    apporteur_taux_gestion = CASE WHEN $4::bigint IS NULL OR apporteur_id IS DISTINCT FROM $4::bigint THEN NULL ELSE apporteur_taux_gestion END,
                     collegue_libelle = $6, modifie_le = now(), modifie_par_libelle = $7 WHERE id = $1${avecPrecision ? '' : ' AND ($3::text IS NULL OR TRUE)'}`,
     [activiteId, v.origineContact, v.origineContactPrecision, v.apporteurId, v.collegueId, collegueLibelle, auteur.libelle]);
     if (avant !== apres || empreinte !== empreinteOrigine({ origine_contact: v.origineContact, origine_contact_precision: v.origineContactPrecision, apporteur_id: v.apporteurId, collegue_id: v.collegueId })) {
-      await journaliserActivite(q, activiteId, 'location_suivi_ligne_modifiee', avant, apres, `${ecran} — Origine du contact : ${avant} → ${apres}`, auteur);
+      await journaliserActivite(q, activiteId, 'location_suivi_ligne_modifiee', avant, apres,
+        `${ecran} — Origine du contact : ${avant} → ${apres}${resumeConsequences ? ` — conséquences affichées : ${resumeConsequences}` : ''}`, auteur);
     }
     return { etat: 'ok', data: { mot: apres } } as const;
   });

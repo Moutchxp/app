@@ -9,6 +9,7 @@ import {
   type SaisieActivite, ttcVersHt, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { useChoixOrigine } from './ChoixOrigine';
+import { OrigineActivite } from './OrigineActivite';
 import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../../lib/location/origineProprietaire';
 import { motAnnexeLouee, type AnnexeLouee } from '../../../../lib/location/suivi/annexesGestion';
 import { InfoBulle } from '../InfoBulle';
@@ -155,9 +156,14 @@ interface Props {
    * quelles, et seul ce que l'on modifie change. Absent : la création, inchangée.
    */
   sansPreremplissage?: boolean;
+  /**
+   * 🔴 Arno (25/10/2026) — DOSSIER DE LOCATION : l'origine se lit et se modifie dans son propre flux (« Modifier », double validation,
+   * enregistrement indépendant) — `OrigineActivite`, le même composant que le bloc 9. `onEnregistree` : relire le dossier (version, origine).
+   */
+  origineFlux?: { activiteId: number; onEnregistree: () => void };
 }
 
-export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien, sansPreremplissage = false }: Props) {
+export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien, sansPreremplissage = false, origineFlux }: Props) {
   const lu = parametres.lu;
   const poser = (p: Partial<SaisieSuivi>): void => onChange({ ...s, ...p });
   // Le HT affiché est celui du TTC (une seule vérité) ; pendant la frappe, la case garde ce qui est tapé.
@@ -194,6 +200,8 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       .catch(() => {});
     return () => { vivant = false; };
   }, [cle, lu?.disponible]);
+  /** 🔴 425 — l'origine a-t-elle été REPRISE du propriétaire (préremplie) ? Un choix à la main l'efface. */
+  const [reprisProprietaire, setReprisProprietaire] = useState(false);
   /** L'origine a-t-elle été mise D'ELLE-MÊME par une case (décocher l'efface) ? Un choix dans la liste la rend « à la main ». */
   const [origineAuto, setOrigineAuto] = useState(false);
   // Les cases suivent le bien tant qu'on n'y a pas touché (une fois par bien) — PRÉ-REMPLISSAGE, toujours modifiable.
@@ -217,25 +225,21 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     if (r !== null) setOrigineAuto(r.auto);
     // 🔴 Arno (25/10/2026, 425) — les règles des cases d'abord ; si elles laissent l'origine VIDE, celle du propriétaire (« reprise du propriétaire »).
     const herite = r !== null && r.origine === null ? prerempliOrigine(champsVides(), propose.origineBien ?? null) : null;
+    setReprisProprietaire(herite?.reprise === true);
     onChange({ ...s, avecGestion: p.avecGestion, mandatGestion: p.mandatGestion, categoriePrime: s.categoriePrime ?? propose.categoriePrime,
       ...(lu?.annuaire === true && s.primeMode !== 'personnalise' ? { primeMode: p.primeMode } : {}),
       ...(herite?.reprise ? versSaisieOrigine(herite.champs)
         : r !== null && r.origine !== (s.origineContact ?? null) ? champsOrigine(r.origine) : {}) });
   }, [propose, cle, lotId, gestionPourLot, s, onChange, lu?.annuaire, lu?.dejaClient, origineAuto, sansPreremplissage]);
   const deduit = propose !== null && propose.cle === cle ? propose : null;
-  /* 🔴 Arno (25/10/2026, 425) — UNE LIGNE EXISTANTE (Dossier de location) encore « à renseigner » : l'origine du propriétaire la complète
-     (une fois par bien) ; une origine déjà saisie n'est jamais remplacée. */
-  const heritagePourLot = useRef<number | null>(null);
-  useEffect(() => {
-    if (!sansPreremplissage || lu?.annuaire !== true || deduit === null || lotId === null || heritagePourLot.current === lotId) return;
-    heritagePourLot.current = lotId;
-    if (s.origineContact !== null || s.apporteurId !== null) return;
-    const h = prerempliOrigine(champsVides(), deduit.origineBien ?? null);
-    if (h.reprise) onChange({ ...s, ...versSaisieOrigine(h.champs) });
-  }, [sansPreremplissage, lu?.annuaire, deduit, lotId, s, onChange]);
+  /* 🔴 Arno (25/10/2026) — UNE LIGNE EXISTANTE (Dossier de location) : l'origine se lit, se modifie (« Modifier ») et se complète (reprise du
+     propriétaire) dans son propre flux, avec la double validation (`OrigineActivite`) : rien n'est prérempli ici. */
   const mentions = lu?.annuaire === true ? mentionsOrigine({ origineContact: s.origineContact ?? '', origineContactPrecision: s.origineContactPrecision ?? '',
     apporteurId: s.apporteurId === null || s.apporteurId === undefined ? '' : String(s.apporteurId), collegueId: s.collegueId === null || s.collegueId === undefined ? '' : String(s.collegueId) },
-  deduit?.origineBien ?? null) : [];
+  deduit?.origineBien ?? null, { reprise: reprisProprietaire }) : [];
+  // 🔴 Arno (25/10/2026) — l'origine n'est IMPOSÉE que par la case « Relocation » cochée ET l'origine « Relocation » (une ligne reprise du
+  // fichier peut être « avec gestion » sans être une relocation : rien n'y est imposé).
+  const imposee = s.avecGestion && s.origineContact === 'relocation';
 
   // 🔴 425 — le choix de l'origine (liste, précision, collègue, apporteur, annuaire, création rapide) : le composant extrait du bloc 4.
   const actifsHook = (lu?.apporteurs ?? []).filter((a) => !a.archive);
@@ -251,11 +255,11 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       ...(o === 'relocation' && !s.avecGestion ? { bloque: true, mention: ' — cochez « Relocation »' } : {}) })),
     libelle: 'Origine du contact propriétaire',
     // « Relocation » n'est choisissable qu'avec la case « Relocation » (grisée sinon) ; la case cochée l'IMPOSE (liste figée).
-    desactive: s.avecGestion,
+    desactive: imposee,
     sousOrigine: <>
-      {s.avecGestion && <small className="loc-muet" data-origine-imposee>Imposée par « Relocation » (portefeuille de gestion).</small>}
+      {imposee && <small className="loc-muet" data-origine-imposee>Imposée par « Relocation » (portefeuille de gestion).</small>}
       {deduit?.cas === 'relocation' && <small className="loc-muet">Le bien a déjà été loué dans notre portefeuille de gestion : « Relocation » proposée.</small>}
-      {mentions.map((m) => <small key={m} className="loc-muet" data-mention-origine={m.startsWith('reprise') ? 'reprise' : m.startsWith('différente') ? 'differente' : 'coproprietaires'}>{m}</small>)}
+      {mentions.map((m) => <small key={m} className="loc-muet" data-mention-origine={m.startsWith('reprise') ? 'reprise' : m.startsWith('différente') ? 'differente' : m.startsWith('identique') ? 'identique' : 'coproprietaires'}>{m}</small>)}
     </>,
     sousApporteur: <>
       {lu?.annuaire === true && apporteurHook !== null && (estInterne(apporteurHook)
@@ -267,7 +271,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           : `Conditions : ${LIBELLE_MODE_APPORTEUR[baremeHook.mode ?? 'one_shot']} — location ${pourcent(baremeHook.taux)} · gestion : ${pourcent(baremeHook.tauxGestion ?? 0)}`}</small>
       )}
     </>,
-    onOrigine: (x) => { setOrigineAuto(false); poser(champsOrigine(x === '' ? null : x as OrigineContact)); },
+    onOrigine: (x) => { setOrigineAuto(false); setReprisProprietaire(false); poser(champsOrigine(x === '' ? null : x as OrigineContact)); },
     onPrecision: (t) => poser({ origineContactPrecision: t }),
     onCollegue: (id) => poser({ collegueId: id }),
     onApporteur: (id, depuisAnnuaire) => poser({ apporteurId: id, apporteurTaux: '', commissionApporteur: '', apporteurMode: null, apporteurTauxGestion: '',
@@ -408,7 +412,12 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
-          {choix.champs}
+          {origineFlux !== undefined ? (
+            <div className="loc-suivi-flux-origine" data-flux-origine>
+              <OrigineActivite activiteId={origineFlux.activiteId} ecran="Dossier de location (Suivi du mois)" onEnregistre={origineFlux.onEnregistree}
+                onAllerAuxCases={() => document.querySelector('[data-suivi-ligne="2"]')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })} />
+            </div>
+          ) : choix.champs}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}
               <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
@@ -437,7 +446,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         </div>
       )}
       {avecApporteur && ligneDirecte !== null && <EncartCommission a={ligneDirecte} apporteur={apporteur!} euros={euros} />}
-      {choix.apres}
+      {origineFlux === undefined && choix.apres}
       {/* 🔴 Arno (24/10/2026, accord explicite) — le bloc « Origine client » (Propriétaire / Locataire) est retiré du formulaire :
           l'origine client reste DÉDUITE à l'enregistrement (`deduireOrigines`), affichée et filtrable dans le Suivi et les exports. */}
       {manque}
@@ -494,6 +503,7 @@ export function EncartCommission({ a, apporteur, euros: eurosTexte }: { a: Activ
 }
 
 export const CSS_SUIVI_COMMERCIAL = `
+.loc-suivi-flux-origine{grid-column:1 / -1}
 .loc-suivi-commission{display:flex;flex-direction:column;gap:6px}
 .loc-suivi-commission-texte{margin:0;color:var(--color-svv-ink);font-weight:600;line-height:1.5;overflow-wrap:anywhere}
 .loc-suivi-commission-texte .svv-ib,.loc-suivi-commission-texte > span:last-child{margin-left:6px;vertical-align:middle}

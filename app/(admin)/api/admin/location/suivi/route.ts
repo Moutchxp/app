@@ -13,7 +13,8 @@ import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { autresConditions } from '../../../../../lib/location/suivi/detailDossier';
 import { avecTrace } from '../../../../../lib/gestion/traceJournal';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
-import { lireOrigineActivite, modifierOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
+import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
+import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -142,8 +143,12 @@ export async function POST(request: Request): Promise<Response> {
       // 🔴 Arno (25/10/2026, 424) — « Statut du bien » validé à la main (`statut` : l'un des 5) ou rendu au calcul (`statut` : null).
       // 🔴 425 — le bloc 9 « Origine du contact » de la Fiche du bien (Suivi du mois) : la location seule, conflit refusé.
       case 'origine-activite': {
-        const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Fiche du bien (Suivi du mois)' },
-          () => modifierOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur));
+        // 🔴 Arno (25/10/2026) — `simuler` : les conséquences avant / après, SANS RIEN ÉCRIRE ; sinon l'enregistrement (conséquences au journal).
+        const admin = await estAdministrateurActif(garde.auteurId);
+        if (corps.simuler === true) return json(await simulerOrigineActivite(Number(corps.id), corps.origine, admin));
+        const ecran = corps.ecran === 'Dossier de location (Suivi du mois)' ? 'Dossier de location (Suivi du mois)' as const : 'Fiche du bien (Suivi du mois)' as const;
+        const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran },
+          () => enregistrerOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur, admin));
         return json(r, r.etat === 'conflit' ? 409 : 200);
       }
       case 'statut-bien': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
