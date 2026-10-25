@@ -506,7 +506,14 @@ export interface Totaux {
   apporteursGestion: number;
   /** CA HT − part location des apporteurs (la formule du fichier). */
   caNet: number;
-  /** Σ taux × CA net + primes, AVANT rétrocessions. */
+  /**
+   * 🔴 Arno (25/10/2026, accord écrit) — LA BASE DU NÉGOCIATEUR, dossier par dossier : CA HT − TOUTES les commissions versées sauf les
+   * récurrentes de gestion (part location de l'apporteur, sa part gestion « One shot », ce qui est dû au collègue à la signature :
+   * location + gestion « One shot »). `deductions` : ces commissions ; `baseNegociateur` : Σ (CA − déductions).
+   */
+  deductions: number;
+  baseNegociateur: number;
+  /** Σ taux × base du négociateur + primes, AVANT rétrocessions. */
   commissionAvantRetro: number;
   avecGestion: number;
   sansGestion: number;
@@ -515,7 +522,7 @@ export interface Totaux {
 
 export function totaux(lignes: readonly ActiviteCalcul[], ctx: ContexteCalcul): Totaux {
   const t: Totaux = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, ca: 0, caProprietaire: 0, caLocataire: 0, primes: 0, apporteurs: 0,
-    apporteursLocation: 0, apporteursGestion: 0, caNet: 0, commissionAvantRetro: 0, avecGestion: 0, sansGestion: 0, ids: [] };
+    apporteursLocation: 0, apporteursGestion: 0, caNet: 0, deductions: 0, baseNegociateur: 0, commissionAvantRetro: 0, avecGestion: 0, sansGestion: 0, ids: [] };
   for (const a of lignes) {
     const ca = caLigne(a);
     const app = partLocationDe(a, ctx.apporteurs);
@@ -525,7 +532,11 @@ export function totaux(lignes: readonly ActiviteCalcul[], ctx: ContexteCalcul): 
     if (a.type === 'bail') t.nbBaux += 1; else if (a.type === 'avenant') t.nbAvenants += 1; else t.nbGestionSeule += 1;
     t.ca += ca; t.caProprietaire += a.honoProprietaireHt; t.caLocataire += a.honoLocataireHt;
     t.primes += prime; t.apporteurs += app + gestion; t.apporteursLocation += app; t.apporteursGestion += gestion; t.caNet += ca - app;
-    t.commissionAvantRetro += tauxNegociateurDe(a, ctx.regles) * (ca - app) + prime;
+    // 🔴 Arno (25/10/2026, accord écrit) — avant le taux : CA − part location − gestion « One shot » − collègue à la signature (le récurrent
+    // de gestion, apporteur ou collègue, n'est PAS retiré). Le reste est inchangé : taux à la date de signature, + prime du dossier.
+    const deduit = app + gestion + commissionCollegueSignatureDe(a, ctx.apporteurs);
+    t.deductions += deduit; t.baseNegociateur += ca - deduit;
+    t.commissionAvantRetro += tauxNegociateurDe(a, ctx.regles) * (ca - deduit) + prime;
     if (a.avecGestion) t.avecGestion += ca; else t.sansGestion += ca;
     t.ids.push(a.id);
   }
@@ -544,7 +555,9 @@ export interface Periode { annee: number; mois: number | null }
  * 🔴 419 — `collegues` : les commissions dues aux COLLÈGUES pour l'apport de leurs apporteurs (à la signature + récurrent de la
  * période). Une ligne à part du bas de feuille : elle n'entre dans AUCUN total existant (apporteurs, CA net, commission).
  */
-export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number; apporteursRecurrents: number; collegues: number }
+export interface TotauxPeriode extends Totaux { retrocessions: number; commission: number; apporteursRecurrents: number; collegues: number;
+  /** 🔴 25/10/2026 — dont le récurrent de gestion des collègues dû sur la période (non déduit de la base du négociateur). */
+  colleguesRecurrents: number }
 
 /** Les lignes d'une période : l'année entière (`mois` null) ou un mois. */
 export function lignesDePeriode(activites: readonly ActiviteCalcul[], p: Periode): ActiviteCalcul[] {
@@ -561,9 +574,9 @@ export function totauxPeriode(activites: readonly ActiviteCalcul[], ctx: Context
   const apporteursRecurrents = duRecurrent(recurrents, ctx.apporteurs, mois, jourDe(ctx));
   // 419 — le dû aux collègues : à la signature (lignes de la période) + leur récurrent dû sur les mois de la période (toutes années).
   const lignes = lignesDePeriode(activites, p);
-  const collegues = lignes.reduce((s, a) => s + commissionCollegueSignatureDe(a, ctx.apporteurs), 0)
-    + duCollegueRecurrent((ctx.recurrents ?? activites).filter((a) => !negociateur || cleNegociateur(a) === negociateur), ctx.apporteurs, mois, jourDe(ctx));
-  return { ...t, apporteurs: t.apporteurs + apporteursRecurrents, apporteursRecurrents, retrocessions, commission: t.commissionAvantRetro - retrocessions, collegues };
+  const colleguesRecurrents = duCollegueRecurrent((ctx.recurrents ?? activites).filter((a) => !negociateur || cleNegociateur(a) === negociateur), ctx.apporteurs, mois, jourDe(ctx));
+  const collegues = lignes.reduce((s, a) => s + commissionCollegueSignatureDe(a, ctx.apporteurs), 0) + colleguesRecurrents;
+  return { ...t, apporteurs: t.apporteurs + apporteursRecurrents, apporteursRecurrents, retrocessions, commission: t.commissionAvantRetro - retrocessions, collegues, colleguesRecurrents };
 }
 
 export interface SectionMois { courant: TotauxPeriode; precedent: TotauxPeriode; variationCa: number | null; variationNb: number | null }
@@ -1086,12 +1099,12 @@ export interface ResumeDuMois {
   parStatut: { nature: NatureBien; nb: number; ca: number; part: number | null; ids: (number | string)[] }[];
   gestion: { avec: { nb: number; ca: number; part: number | null }; sans: { nb: number; ca: number; part: number | null } };
   portefeuille: { gagnes: { nb: number; mensuel: number; annuel: number }; perdus: { nb: number; mensuel: number; annuel: number }; solde: { mensuel: number; annuel: number }; sansLoyer: number };
-  negociateurs: { cle: string; libelle: string; variable: number; primes: number; retrocessions: number; base: number }[];
+  negociateurs: CascadeNegociateur[];
   /** Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de TOUS les négociateurs du mois. */
   primes: number; retrocessions: number;
 }
 
-export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCalcul[], g: GestionDuMois, negos: readonly LigneNegociateur[]): ResumeDuMois {
+export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCalcul[], g: GestionDuMois, negos: readonly LigneNegociateur[], ctx?: ContexteCalcul): ResumeDuMois {
   const part = (x: number): number | null => (t.ca === 0 ? null : x / t.ca);
   const parStatut = NATURES_BIEN.map((nature) => {
     const siens = lignesDuMois.filter((a) => natureBienLoue(a).nature === nature);
@@ -1111,8 +1124,58 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
       perdus: { nb: g.perdues.length, mensuel: g.perduMensuel, annuel: g.perduMensuel * 12 },
       solde: { mensuel: g.balanceMensuelle, annuel: g.balanceAnnuelle }, sansLoyer: g.sansLoyer,
     },
-    negociateurs: negos.map((n) => ({ cle: n.cle, libelle: n.libelle, variable: n.totaux.commission, primes: n.totaux.primes, retrocessions: n.totaux.retrocessions, base: n.totaux.caNet })),
+    negociateurs: ctx === undefined ? [] : negos.map((n) => cascadeNegociateur(n, lignesDuMois, ctx)),
     primes: t.primes, retrocessions: t.retrocessions,
+  };
+}
+
+// ── 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE ───────────────────────────────────────────────────────────────────────
+
+/** Un dossier du négociateur : ce qui entre dans son variable (les composants des « i » de la cascade). */
+export interface DossierCascade {
+  id: number | string; libelle: string; ca: number;
+  apporteur: string | null; partLocation: number; gestionOneShot: number; collegue: string | null; collegueSignature: number;
+  deductions: number; base: number; taux: number; resultat: number; prime: number;
+}
+/**
+ * La cascade d'UN négociateur sur le mois (ses seuls dossiers) : CA HT − commissions déduites (hors récurrent de gestion) = CA HT net de
+ * commissions ; × taux (lu dossier par dossier à la date de signature) = résultat commercial ; + primes ; − rétrocessions = variable HT dû.
+ * Les montants AFFICHÉS se tiennent au centime : CA net = CA − déductions (affichés) ; résultat = variable − primes + rétrocessions
+ * (affichés) ; le variable est celui du calcul (`totauxPeriode`), le même partout. `recurrents` : les commissions récurrentes de gestion
+ * dues ce mois (apporteurs et collègues), NON déduites — dites sous la cascade. PUR.
+ */
+export interface CascadeNegociateur {
+  cle: string; libelle: string; dossiers: DossierCascade[];
+  ca: number; deductions: number; net: number; taux: number | null; resultatCalcule: number; resultat: number; primes: number;
+  retrocessions: number; retroDetail: { libelle: string; montant: number }[]; variable: number; recurrents: number;
+}
+export function cascadeNegociateur(n: LigneNegociateur, lignesDuMois: readonly ActiviteCalcul[], ctx: ContexteCalcul): CascadeNegociateur {
+  const siens = lignesDuMois.filter((a) => cleNegociateur(a) === n.cle);
+  const dossiers: DossierCascade[] = siens.map((a) => {
+    const ca = caLigne(a);
+    const partLocation = partLocationDe(a, ctx.apporteurs);
+    const gestionOneShot = partGestionSignatureDe(a, ctx.apporteurs);
+    const collegueSignature = commissionCollegueSignatureDe(a, ctx.apporteurs);
+    const deductions = partLocation + gestionOneShot + collegueSignature;
+    const taux = tauxNegociateurDe(a, ctx.regles);
+    const apporteur = a.apporteurId === null && a.apporteurNom === null ? null : (a.apporteurNom ?? ctx.apporteurs.find((x) => x.id === a.apporteurId)?.nom ?? null);
+    return { id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca, apporteur, partLocation, gestionOneShot,
+      collegue: remunerationCollegueDe(a, ctx.apporteurs)?.collegue.libelle ?? null, collegueSignature, deductions, base: ca - deductions, taux,
+      resultat: taux * (ca - deductions), prime: primeDe(a, ctx.regles) };
+  });
+  const t = n.totaux;
+  const cent = (x: number): number => Math.round(x * 100) / 100;
+  const ca = auCentime(t.ca);
+  const deductions = auCentime(t.deductions);
+  const primes = auCentime(t.primes);
+  const retrocessions = auCentime(t.retrocessions);
+  const variable = auCentime(t.commission);
+  const taux = [...new Set(dossiers.map((d) => d.taux))];
+  return {
+    cle: n.cle, libelle: n.libelle, dossiers, ca, deductions, net: cent(ca - deductions), taux: taux.length === 1 ? taux[0] : null,
+    resultatCalcule: t.commissionAvantRetro - t.primes, resultat: cent(variable - primes + retrocessions), primes, retrocessions,
+    retroDetail: ctx.retrocessions.filter((r) => r.mois.slice(0, 7) === n.mois && cleNegociateur(r) === n.cle).map((r) => ({ libelle: r.libelle, montant: r.montant })),
+    variable, recurrents: t.apporteursRecurrents + t.colleguesRecurrents,
   };
 }
 

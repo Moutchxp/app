@@ -131,15 +131,19 @@ describe('🔴 la rémunération du collègue de rattachement', () => {
     expect(commissionCollegueSignatureDe(ligne({ dateSignature: '2026-08-31' }), [ap])).toBeCloseTo(50, 10);
     expect(commissionCollegueSignatureDe(ligne({ dateSignature: '2026-09-01' }), [ap])).toBeCloseTo(100, 10);
   });
-  it('🔴 les totaux existants NE CHANGENT PAS (apporteurs, CA net, commission) ; la ligne « collègues » est à part', () => {
+  it('🔴 les totaux existants NE CHANGENT PAS (apporteurs, CA net) ; la ligne « collègues » est à part ; le VARIABLE retire la part collègue à la signature (Arno, 25/10/2026)', () => {
     const lignes = [ligne(), ligne({ id: 2, dateSignature: '2026-03-20', apporteurId: null, apporteurNom: null, origineContact: 'internet' })];
     const sans: ContexteCalcul = { regles: [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }], apporteurs: [externe()], retrocessions: [], aujourdhui: '2026-10-24' };
     const avec: ContexteCalcul = { ...sans, apporteurs: [externe({ remunerations: [remu({ mode: 'recurrent', dureeAnnees: 1 })] })] };
     const a = totauxPeriode(lignes, sans, { annee: 2026, mois: 3 });
     const b = totauxPeriode(lignes, avec, { annee: 2026, mois: 3 });
-    for (const k of ['ca', 'apporteurs', 'apporteursLocation', 'apporteursGestion', 'caNet', 'primes', 'commissionAvantRetro', 'commission', 'retrocessions', 'apporteursRecurrents'] as const) {
+    for (const k of ['ca', 'apporteurs', 'apporteursLocation', 'apporteursGestion', 'caNet', 'primes', 'retrocessions', 'apporteursRecurrents'] as const) {
       expect(b[k]).toBe(a[k]);
     }
+    // 🔴 Arno (25/10/2026, accord écrit) — la base du négociateur retire ce qui est dû au collègue À LA SIGNATURE (50 €), pas son récurrent.
+    expect(b.deductions - a.deductions).toBeCloseTo(50, 10);
+    expect(a.commission - b.commission).toBeCloseTo(0.15 * 50, 10);
+    expect(b.colleguesRecurrents).toBeCloseTo(5, 10);
     expect(a.collegues).toBe(0);
     expect(b.collegues).toBeCloseTo(50 + 5, 10);   // la location à la signature + le récurrent dû en mars
     expect(totauxPeriode(lignes, avec, { annee: 2026, mois: 4 }).collegues).toBeCloseTo(5, 10);   // avril : le récurrent seul

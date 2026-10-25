@@ -8,6 +8,7 @@ import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
+import { CascadeNegociateurMois, CSS_CASCADE_NEGOCIATEUR } from './CascadeNegociateur';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import {
   type ActiviteLue, apporteurAffiche, apporteursEtCollegues, LIBELLE_NATURE_BIEN, NATURES_BIEN, resumeDuMois, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
@@ -72,7 +73,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const g = gestionDuMois(d.gestionLignes ?? [], cle);
-  const r = resumeDuMois(t, duMois, g, negos);
+  const r = resumeDuMois(t, duMois, g, negos, ctx);
   const ecarts = (d.ecartsFichier ?? []).filter((e) => e.mois === cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
@@ -292,16 +293,10 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
           <section className="fdm-famille fdm-famille--large" aria-labelledby="fdm-f5" data-famille="negociateurs">
             <h4 id="fdm-f5">{d.voirCommissions && r.negociateurs.length === 1 ? `Négociateur — ${r.negociateurs[0].libelle}` : 'Négociateurs'}</h4>
+            {/* 🔴 Arno (25/10/2026) — le variable en CASCADE (une ligne = une opération), un « i » par ligne de calcul ; droit « Voir les commissions ». */}
             {d.voirCommissions && r.negociateurs.map((x) => (
               <div key={x.cle} className="fdm-nego" data-negociateur-resume={x.libelle}>
-                {r.negociateurs.length > 1 && <p className="fdm-nego-nom">{x.libelle}</p>}
-                <dl className="fdm-cascade-mois">
-                  <div className="fdm-fort"><dt>Variable HT dû</dt><dd data-total-commission={x.libelle}>{eur(x.variable)}</dd></div>
-                  {/* Un seul négociateur : SES primes et rétrocessions SONT celles du mois (mêmes montants) — pas de ligne en double. */}
-                  <div><dt>dont primes de gestion</dt><dd {...(r.negociateurs.length === 1 ? { 'data-total': 'primes' } : {})}>{eur(x.primes)}</dd></div>
-                  <div><dt>Rétrocessions (déduites)</dt><dd {...(r.negociateurs.length === 1 ? { 'data-total': 'retrocessions' } : {})}>{eur(x.retrocessions)}</dd></div>
-                  <div><dt>Base de calcul : CA HT − apporteurs (part location)</dt><dd data-base-negociateur={x.libelle}>{eur(x.base)}</dd></div>
-                </dl>
+                <CascadeNegociateurMois x={x} mois={cle} plusieurs={r.negociateurs.length > 1} />
               </div>
             ))}
             {/* Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de tous les négociateurs du mois. */}
@@ -657,4 +652,4 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-deux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 @media (max-width:900px){ .fdm-deux{grid-template-columns:minmax(0,1fr)} }
 @media (max-width:640px){ ${cartes('.fdm-table')} .fdm-famille{padding:12px} .fdm-mini th,.fdm-mini td{padding:6px 2px} }
-${CSS_STATUT_BIEN}`;
+${CSS_STATUT_BIEN}${CSS_CASCADE_NEGOCIATEUR}`;

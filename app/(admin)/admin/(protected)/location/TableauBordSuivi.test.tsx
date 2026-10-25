@@ -220,7 +220,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     // 🔴 Arno (25/10/2026) — le CA HT NET retire aussi les collègues (0 ici) : 15 471,70 − 2 002,26 − 0,00 = 13 469,44 au centime affiché ;
     // l'ancien « CA HT − apporteurs » (part location, 13 469,45) reste : c'est la base de calcul du négociateur.
     expect(total('ca-net')).toBe('13 469,44 €');
-    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,45 €');
+    // 🔴 25/10/2026 — la base du négociateur = CA HT net de commissions (ici : les seules parts location), au centime des montants affichés.
+    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,44 €');
     expect(total('primes')).toBe('650,00 €');
     expect(total('avec')).toBe('14 313,36 €');
     expect(total('sans')).toBe('1 158,34 €');
@@ -1226,8 +1227,10 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect([ou('[data-total="ca"]'), ou('[data-total="apporteurs"]'), ou('[data-total="collegues"]'), ou('[data-total="ca-net"]')]).toEqual(['resultat', 'resultat', 'resultat', 'resultat']);
     expect([ou('[data-total="avec"]'), ou('[data-total="sans"]')]).toEqual(['gestion', 'gestion']);
     expect(ou('[data-total="balance"]')).toBe('portefeuille');
-    expect([ou('[data-total="primes"]'), ou('[data-total="retrocessions"]'), ou('[data-total-commission="Jean-Baptiste PONS"]'), ou('[data-base-negociateur="Jean-Baptiste PONS"]')])
-      .toEqual(['negociateurs', 'negociateurs', 'negociateurs', 'negociateurs']);
+    // 🔴 25/10/2026 — les rétrocessions : seulement si ≠ 0 (aucune en septembre).
+    expect([ou('[data-total="primes"]'), ou('[data-total-commission="Jean-Baptiste PONS"]'), ou('[data-base-negociateur="Jean-Baptiste PONS"]')])
+      .toEqual(['negociateurs', 'negociateurs', 'negociateurs']);
+    expect(bas().querySelector('[data-total="retrocessions"]')).toBeNull();
     expect(nbsp(bas().querySelector('[data-total="primes"]')?.textContent)).toBe('650,00 €');
     // Le TOTAL CA HT garde son clic (le détail des baux).
     expect(bas().querySelector('button[data-total="ca"]')).not.toBeNull();
@@ -1239,5 +1242,65 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect(bas().querySelector('[data-famille="negociateurs"] h4')?.textContent).toBe('Négociateurs');
     expect(bas().querySelector('[data-total="primes"]')).not.toBeNull();
     expect(bas().querySelector('[data-total-commission], [data-total="retrocessions"], [data-base-negociateur]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variable en cascade, un « i » par ligne', () => {
+  const euros = (t: string | null | undefined): number => Math.round(Number((t ?? '').replace(/[\s  €]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const cascade = () => container.querySelector('[data-cascade-negociateur="Jean-Baptiste PONS"]') as HTMLElement;
+  const montant = (cle: string) => cascade().querySelector(`[data-cascade-ligne="${cle}"] .fnc-montant`)?.textContent;
+  const info = async (cle: string) => { await act(async () => { (cascade().querySelector(`[data-cascade-info="${cle}"]`) as HTMLButtonElement).click(); }); };
+  const detail = () => [...cascade().querySelectorAll('[data-cascade-detail]')].map((e) => [e.getAttribute('data-cascade-detail'), nbsp(e.textContent)]);
+
+  it('une ligne = une opération ; la cascade retombe au centime sur le variable affiché ; pas de rétrocession à 0', async () => {
+    await septembre();
+    expect([...cascade().querySelectorAll('[data-cascade-ligne]')].map((l) => l.getAttribute('data-cascade-ligne'))).toEqual(['ca', 'commissions', 'net', 'taux', 'resultat', 'primes', 'variable']);
+    expect(nbsp(cascade().querySelector('[data-cascade-ligne="taux"] .fnc-mot')?.textContent)).toBe('Taux commercial');
+    expect(nbsp(montant('taux'))).toBe('15 %');
+    expect(nbsp(cascade().querySelector('[data-cascade-ligne="variable"] .fnc-mot')?.textContent)).toBe('Variable HT dû — Septembre 2026');
+    expect(euros(montant('net'))).toBe(euros(montant('ca')) - euros(montant('commissions')));
+    expect(euros(montant('resultat')) + euros(montant('primes'))).toBe(euros(montant('variable')));
+    expect(nbsp(montant('variable'))).toBe('2 670,42 €');
+    expect(cascade().querySelector('[data-cascade-ligne="retrocessions"]')).toBeNull();
+    expect(cascade().querySelector('[data-recurrents-non-deduits]')).toBeNull();
+  });
+
+  it('chaque « i » : l’opération avec les vrais chiffres et ses composants ; un seul ouvert ; second clic / Échap / clic ailleurs le referment', async () => {
+    await septembre();
+    await info('net');
+    expect(detail()).toEqual([['net', `${nbsp(montant('ca'))} − ${nbsp(montant('commissions'))} = ${nbsp(montant('net'))}`]]);
+    await info('commissions');
+    expect(detail().map((d) => d[0])).toEqual(['commissions']);
+    const com = cascade().querySelector('[data-cascade-detail="commissions"]')!;
+    expect(nbsp(com.textContent)).toContain('apporteur Apporteur G · part location 933,00 €');
+    expect(com.querySelectorAll('li').length).toBeGreaterThan(0);
+    await info('commissions');
+    expect(detail()).toEqual([]);
+    await info('primes');
+    expect([...cascade().querySelectorAll('[data-cascade-detail="primes"] li')].map((li) => nbsp(li.lastElementChild?.textContent)).reduce((s, x) => s + euros(x), 0)).toBe(euros(montant('primes')));
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(detail()).toEqual([]);
+    await info('variable');
+    expect(detail()).toEqual([['variable', `${nbsp(montant('resultat'))} + ${nbsp(montant('primes'))} = ${nbsp(montant('variable'))}`]]);
+    await act(async () => { container.querySelector('[data-famille="resultat"]')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(detail()).toEqual([]);
+  });
+
+  it('une rétrocession ≠ 0 : sa ligne paraît, déduite ; la cascade tient toujours au centime', async () => {
+    donnees = { ...donnees, retrocessions: [...donnees.retrocessions, { id: 99, negociateurId: 5, negociateurLibelle: 'Jean-Baptiste PONS', mois: '2026-09-01', montant: 120.5, libelle: 'Avance sur variable' }] };
+    await septembre();
+    expect(nbsp(montant('retrocessions'))).toBe('120,50 €');
+    expect(euros(montant('resultat')) + euros(montant('primes')) - euros(montant('retrocessions'))).toBe(euros(montant('variable')));
+    await info('retrocessions');
+    expect(nbsp(cascade().querySelector('[data-cascade-detail="retrocessions"]')?.textContent)).toContain('Avance sur variable');
+  });
+
+  it('🔒 sans « Voir les commissions » : pas de variable (les primes restent)', async () => {
+    donnees = { ...donnees, voirCommissions: false };
+    await septembre();
+    expect(container.querySelector('[data-cascade-negociateur]')).toBeNull();
+    expect(container.querySelector('[data-total-commission]')).toBeNull();
+    expect(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="primes"]')).not.toBeNull();
   });
 });
