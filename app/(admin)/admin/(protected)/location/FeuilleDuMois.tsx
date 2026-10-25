@@ -10,7 +10,8 @@ import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
-import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_MOIS, MOTS_PERIODE, type MotsPeriode } from './CascadeNegociateur';
+import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_MOIS, MOTS_PERIODE, ResumeResultatNet, type MotsPeriode } from './CascadeNegociateur';
+import { BlocReplie } from './BlocReplie';
 import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../../../lib/location/suivi/resumePeriode';
 import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
@@ -489,11 +490,13 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           {/* 🔴 Arno (25/10/2026) — le RÉSULTAT NET DE L'AGENCE : après les 4 blocs, avant les négociateurs, sur toute la largeur.
               🔴 Arno (26/10/2026, 428) — administrateur, ou tuile Location + « Accès au Résultat net » à Oui ; pour tout autre compte, ABSENT
               (ni version tronquée, ni mention — et le serveur n'en envoie rien). */}
+          {/* 🔴 Arno (26/10/2026) — REPLIÉ par défaut sur une ligne (BlocReplie) : le titre ; à droite « CA net de toutes variables », le
+              montant (vert, gras), « (69,8 %) » et le chevron ; déplié, la cascade inchangée (ses « i » ne replient rien). */}
           {(d.voirCommissions || d.voirResultatNet === true) && (
-            <section className="fdm-famille fdm-famille--large" aria-labelledby={`${idp}-f6`} data-famille="resultat-net">
-              <h4 id={`${idp}-f6`}>Résultat net de l’agence — {libelle}</h4>
+            <BlocReplie id={`${idp}-f6`} section="resultat-net" classe="fdm-famille fdm-famille--large" niveau="h4" defilement={false}
+              donnees={{ 'data-famille': 'resultat-net' }} titre={<>Résultat net de l’agence — {libelle}</>} resume={<ResumeResultatNet x={resume.net} />}>
               <CascadeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} mots={mots} />
-            </section>
+            </BlocReplie>
           )}
           {/* 🔴 Arno (25/10/2026) — LE BLOC « NÉGOCIATEUR — <nom> », un par négociateur, REPLIÉ à chaque chargement (une ligne, un chevron) ;
               déplié : la cascade. VISIBLE seulement de ce négociateur et des administrateurs (le serveur ne renvoie rien d'autre) ; pour tout

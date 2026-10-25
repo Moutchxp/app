@@ -155,6 +155,7 @@ describe('🔴 Suivi du mois : la commission du collègue', () => {
     expect(n(bas.querySelector('[data-famille="resultat"] [data-total="apporteurs-externes"]')?.textContent)).toBe('100,00 €');
     expect(n(bas.querySelector('[data-famille="resultat"] [data-total="apporteurs-internes"]')?.textContent)).toBe('55,00 €');
     const net = bas.querySelector('[data-famille="resultat-net"]')!;
+    await clic(net.querySelector('[data-deplier="resultat-net"]')!);   // 🔴 26/10/2026 : replié par défaut
     expect([n(net.querySelector('[data-net="externes"]')?.textContent), n(net.querySelector('[data-net="internes"]')?.textContent), n(net.querySelector('[data-net="collegues"]')?.textContent)])
       .toEqual(['100,00 €', '55,00 €', '55,00 €']);
   });

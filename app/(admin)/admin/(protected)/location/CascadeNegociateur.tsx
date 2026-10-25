@@ -106,6 +106,24 @@ export function CascadeNegociateurMois({ x, mois, plusieurs, mots = MOTS_MOIS }:
  * = CA net de toutes variables, et sa part du CA global. Les montants sont ceux DÉJÀ affichés (Résultat du mois, cascade du Négociateur) ;
  * le même style et les mêmes « i » que la cascade du Négociateur. Sans le droit « Voir les commissions » : ni variable, ni net.
  */
+/**
+ * 🔴 Arno (26/10/2026) — LA LIGNE REPLIÉE du « Résultat net de l'agence » : « CA net de toutes variables » + le montant (vert, gras) +
+ * « (69,8 %) » — EXACTEMENT les chiffres de la ligne « = CA net de toutes variables » et de « soit … % du CA HT global » de la cascade.
+ */
+export function pctResultatNet(part: number): string {
+  return `${(part * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+}
+export function ResumeResultatNet({ x }: { x: ResultatNetAgence }) {
+  if (x.net === null) return null;
+  return (
+    <span className="fnc-replie" data-net-replie>
+      <span className="fnc-replie-mot">CA net de toutes variables</span>{' '}
+      <strong className="fnc-replie-montant" data-net-replie-montant>{eur(x.net / 100)}</strong>
+      {x.part !== null && <>{' '}<span className="fnc-replie-part" data-net-replie-part>({pctResultatNet(x.part)})</span></>}
+    </span>
+  );
+}
+
 export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: ResultatNetAgence; dossiers: { id: number | string; libelle: string; ca: number }[]; mots?: MotsPeriode }) {
   const { id, ouvert, setOuvert } = useInfoOuvert<string>();
   const e = (centimes: number): string => eur(centimes / 100);
@@ -163,7 +181,7 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
         <p className="fnc-op">{e(x.ca)} − {e(v.externes.centimes)} − {e(v.internes.centimes)} − {e(v.collegues.centimes)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : e(sommeVariables)} = {e(x.net)}</p>,
         { fort: true, attrs: { 'data-net': 'net' } })}
       {x.net !== null && x.part !== null && (
-        <p className="fnc-info fnc-part" data-net-part>soit {(x.part * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} % du CA HT global</p>)}
+        <p className="fnc-info fnc-part" data-net-part>soit {pctResultatNet(x.part)} du CA HT global</p>)}
       {x.net === null && <p className="fnc-info" data-net-sans-droit>Variable et net réservés aux administrateurs</p>}
     </div>
   );
@@ -192,6 +210,12 @@ export const CSS_CASCADE_NEGOCIATEUR = `
 .fnc-liste small{color:var(--color-svv-muted);font-size:.78rem}
 .fnc-info{margin:8px 0 0;font-size:.86rem;color:var(--color-svv-muted)}
 .fnc-part{text-align:right;font-variant-numeric:tabular-nums}
+/* 26/10/2026 — la ligne repliee : le CA net en vert, gras ; le pourcentage entre parentheses. */
+.fnc-replie{display:inline-flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-end;gap:2px 6px;font-variant-numeric:tabular-nums}
+.fnc-replie-mot{color:var(--color-svv-muted);font-weight:600}
+.fnc-replie-montant{color:var(--color-svv-green-ink);font-weight:800;white-space:nowrap}
+.fnc-replie-part{color:var(--color-svv-muted);white-space:nowrap}
+[data-famille="resultat-net"] .tdb-replie-mot{font-size:inherit}
 [data-famille="resultat-net"] .fnc-ligne--fort{background:var(--color-svv-green-soft);border-radius:0 0 10px 10px;padding:0 8px;margin:0 -8px}
 [data-famille="resultat-net"] .fnc-ligne--fort .fnc-mot,[data-famille="resultat-net"] .fnc-ligne--fort .fnc-montant{color:var(--color-svv-green-ink)}
 `;

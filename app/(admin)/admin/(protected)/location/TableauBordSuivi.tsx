@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
+import { BlocReplie, CSS_BLOC_REPLIE } from './BlocReplie';
 import { gestionDepuisLeDebut, resumeDeLaPeriode } from '../../../../lib/location/suivi/resumePeriode';
 import { gliEntre } from '../../../../lib/location/suivi/margeGli';
 import { anneesDeLaPeriode, anneesProposees, choixDeLAdresse, dansPeriode, finAnneeMois, moisDeLaPeriode, parametresDe, periodeDe, periodePrecedente, type ChoixPeriode } from '../../../../lib/location/suivi/periodeSuivi';
@@ -296,7 +297,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 
   return (
     <div className="tdb" data-tableau-de-bord>
-      <style>{CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS}</style>
+      <style>{CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS + CSS_BLOC_REPLIE}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-tdb-sans-migration>Mise à jour de la base à appliquer (migration 406) : le tableau de bord se remplira dès qu’elle le sera.</p>}
 
       {vue === 'mois' && (
@@ -634,7 +635,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       {(d.voirCommissions || propre !== undefined) && (
         /* 🔴 Arno (25/10/2026) — À LA PLACE du cumul mois par mois (déplacé, pas copié ; calculs et confidentialité inchangés), REPLIÉ PAR
            DÉFAUT sur une ligne : titre, nombre de lignes et commission brute totale (le bloc n'existe que pour qui a le droit de la voir). */
-        <BlocReplie id="tdb-f" section="F" titre={<>{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</>}
+        <BlocReplie id="tdb-f" section="F" donnees={{ 'data-section': 'F' }} titre={<>{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</>}
           resume={`${F.length} ligne${F.length > 1 ? 's' : ''} · commission brute ${eur(sommeAffichee(F.map((l) => l.totaux.commission)))}`}>
           <p className="loc-muet tdb-note">Commission brute = taux × (CA HT − commissions des apporteurs) + primes de nouvelle gestion − rétrocessions — la formule du suivi mensuel.</p>
           {F.length === 0 ? <p className="loc-muet">Aucune activité sur la période.</p> : (
@@ -662,7 +663,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 
       {/* 🔴 Arno (25/10/2026, accord 1a) — plus de boutons de portée : Apporteurs, indicateurs et négociateurs suivent la période Début / Fin. */}
       {/* 🔴 Arno (25/10/2026) — REPLIÉ PAR DÉFAUT sur une ligne : titre, nombre d'apporteurs et CA apporté total ; le tableau, inchangé, se déplie. */}
-      <BlocReplie id="tdb-c" section="C" titre={<>Les apporteurs — {libellePeriode}</>}
+      <BlocReplie id="tdb-c" section="C" donnees={{ 'data-section': 'C' }} titre={<>Les apporteurs — {libellePeriode}</>}
         resume={`${C.length} apporteur${C.length > 1 ? 's' : ''} · CA apporté ${eur(sommeAffichee(C.map((l) => l.ca)))}`}>
         {C.length === 0 ? <p className="loc-muet">Aucun bail apporté sur la période.</p> : (
           <table className="tdb-table tdb-table--large">
@@ -715,26 +716,6 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 /** La somme des montants AFFICHÉS (chacun au centime) : le total d'une ligne repliée égale la somme de son tableau, au centime. PUR. */
 export const sommeAffichee = (xs: readonly number[]): number => xs.reduce((t, x) => t + Math.round((x + Number.EPSILON) * 100), 0) / 100;
 
-/**
- * 🔴 Arno (25/10/2026) — UN BLOC REPLIÉ PAR DÉFAUT (négociateurs, apporteurs du Suivi annuel) : une ligne — titre, résumé, chevron — qui se
- * déplie au clic (sur la ligne ou le chevron), à Entrée ou Espace (un vrai bouton) ; replié à chaque chargement. Déplié : le contenu
- * d'avant, inchangé, avec la mécanique de « Année par année » (défilement interne au-delà d'une hauteur, en-tête de tableau figé).
- */
-function BlocReplie({ id, section, titre, resume, children }: { id: string; section: string; titre: ReactNode; resume: string; children: ReactNode }) {
-  const [ouvert, setOuvert] = useState(false);
-  return (
-    <section className={`tdb-section tdb-replie${ouvert ? ' tdb-replie--ouvert' : ''}`} aria-labelledby={id} data-section={section} data-replie={ouvert ? 'ouvert' : 'replie'}>
-      <h3 id={id} className="tdb-replie-titre">
-        <button type="button" className="tdb-replie-ligne" aria-expanded={ouvert} aria-controls={`${id}-contenu`} onClick={() => setOuvert((o) => !o)} data-deplier={section}>
-          <span className="tdb-replie-mot">{titre}</span>
-          <span className="tdb-replie-resume" data-resume-replie={section}>{resume}</span>
-          <span className="tdb-h-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
-        </button>
-      </h3>
-      {ouvert && <div className="tdb-h-cadre tdb-h-cadre--ouvert tdb-replie-cadre" id={`${id}-contenu`} data-contenu-replie={section}>{children}</div>}
-    </section>
-  );
-}
 
 /** La liste des baux (ou des biens) derrière un chiffre. */
 function ListeDetail({ detail, parId, ctx, voirCommissions, onFermer }: {
@@ -1312,15 +1293,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-periode strong{color:var(--color-svv-ink)}
 .tdb-pilule{appearance:none;min-height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .tdb-pilule[aria-pressed=true]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
-/* 🔴 25/10/2026 — le bloc replié : toute la ligne est le bouton (cible tactile, clavier) ; déplié, défilement interne et en-tête figé. */
-.tdb-replie .tdb-replie-titre{margin:0}
-.tdb-replie--ouvert .tdb-replie-titre{margin:0 0 10px}
-.tdb-replie-ligne{appearance:none;display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;width:100%;min-height:44px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;border-radius:10px}
-.tdb-replie-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.tdb-replie-mot{font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
-.tdb-replie-resume{margin-left:auto;font-size:.92rem;font-weight:600;color:var(--color-svv-muted)}
-@media (hover:hover){ .tdb-replie-ligne:hover .tdb-replie-resume{color:var(--color-svv-ink)} }
-.tdb-replie-cadre{max-height:min(70vh,640px)}
+/* 🔴 25/10/2026 — le bloc replié (BlocReplie) : son CSS vit avec lui (CSS_BLOC_REPLIE). */
 .tdb-indicateurs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .tdb-indicateurs li{display:flex;flex-direction:column;gap:4px;align-items:flex-start;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-field)}
 .tdb-indicateurs .tdb-chiffre,.tdb-indic{font-size:1.4rem;font-weight:800;padding:2px 0}

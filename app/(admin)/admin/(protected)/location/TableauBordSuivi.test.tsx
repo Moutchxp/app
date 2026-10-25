@@ -51,6 +51,10 @@ const gestion = () => {
     sens: t.querySelector('[data-gestion-solde]')?.getAttribute('data-gestion-solde') };
 };
 const monter = async (vue: 'mois' | 'annee' = 'annee') => { await act(async () => { root.render(createElement(TableauBordSuivi, { vue })); }); await calmer(); };
+/** 🔴 26/10/2026 — « Résultat net de l'agence » est REPLIÉ par défaut : le déplier (chaque bloc encore replié) avant de lire sa cascade. */
+const deplierNet = async () => {
+  for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-deplier="resultat-net"][aria-expanded="false"]')]) await act(async () => { b.click(); });
+};
 /** 🔴 Arno (24/10/2026) — les listes de Location sont des ListeChoix vertes : ouvrir le champ, cliquer l'option. `v` '' : le choix vide. */
 const choisirListe = async (el: Element, v: string) => {
   await act(async () => { (el as HTMLElement).click(); });
@@ -1953,7 +1957,8 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect([...familles.children].map((e) => e.getAttribute('data-colonne') ?? e.getAttribute('data-famille'))).toEqual(['gauche', 'droite', 'resultat-net', 'negociateurs']);
     const bloc = familles.querySelector('[data-famille="resultat-net"]') as HTMLElement;
     expect(bloc.classList.contains('fdm-famille--large')).toBe(true);
-    expect(bloc.querySelector('h4')?.textContent).toBe('Résultat net de l’agence — Septembre 2026');
+    expect(bloc.querySelector('h4 .tdb-replie-mot')?.textContent).toBe('Résultat net de l’agence — Septembre 2026');
+    await deplierNet();
     expect([...bloc.querySelectorAll('[data-net-ligne] .fnc-mot')].map((e) => e.textContent))
       .toEqual(['CA HT global', 'Commissions apporteurs externes (sans accès à l’interface)', 'Commissions apporteurs internes (collègues qui apportent en direct)',
         'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', 'Variable des négociateurs', 'CA net de toutes variables']);
@@ -1961,6 +1966,7 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
 
   it('les montants sont ceux des autres blocs ; net = CA − apporteurs − collègues − variables au centime ; sa part du CA', async () => {
     await septembre();
+    await deplierNet();
     const bloc = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
     const v = (sel: string) => cent(bloc.querySelector(sel)?.textContent);
     const ailleurs = (sel: string) => cent(container.querySelector(`[data-famille="resultat"] ${sel}`)?.textContent);
@@ -1992,6 +1998,7 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     await septembre();
     const lire = () => {
       const b = container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+      if (b.querySelector('[data-deplier="resultat-net"]')?.getAttribute('aria-expanded') === 'false') act(() => { (b.querySelector('[data-deplier="resultat-net"]') as HTMLButtonElement).click(); });
       return [...b.querySelectorAll('[data-net-ligne]')].map((l) => `${l.getAttribute('data-net-ligne')}=${nbsp(l.querySelector('.fnc-montant')?.textContent)}`);
     };
     const admin = lire();
@@ -2038,7 +2045,7 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
     // « Depuis le début » = depuis le Début choisi.
     expect(resume().querySelector('[data-sous-titre-portefeuille]')?.textContent).toBe('Depuis le début (2025)');
     expect(resume().querySelector('[data-sous-titre-portefeuille]')?.className).toBe('fdm-titre-bloc fdm-titre-taille');
-    expect(resume().querySelector('[data-famille="resultat-net"] h4')?.textContent).toBe('Résultat net de l’agence — Origine → aujourd’hui (2025 → 22/10/2026)');
+    expect(resume().querySelector('[data-famille="resultat-net"] h4 .tdb-replie-mot')?.textContent).toBe('Résultat net de l’agence — Origine → aujourd’hui (2025 → 22/10/2026)');
     expect(resume().querySelector('[data-filtres-actifs]')).toBeNull();
     // Le CA HT global = la tuile « CA HT » de la période (97 612,61 € = 94 612,61 + 3 000).
     expect(montant('[data-total="ca"]')).toBe('97 612,61 €');
@@ -2072,7 +2079,7 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
 
   it('🔴 Location + « Oui » (428) : le « Résumé de la période » porte le bloc entier, au centime de l’administrateur', async () => {
     await monter('annee');
-    const net = () => nbsp(resume().querySelector('[data-famille="resultat-net"] [data-net-ligne="net"] .fnc-montant')?.textContent);
+    const net = () => nbsp(resume().querySelector('[data-famille="resultat-net"] [data-net-replie-montant]')?.textContent);
     const admin = net();
     expect(admin).toMatch(/€$/);
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -2117,6 +2124,7 @@ describe('🔴 Arno (25/10/2026) — le bloc Négociateur : replié, et visible 
     donnees = { ...donnees, activites: donnees.activites.map((a) => (a === sept[0] ? { ...a, negociateurId: 9, negociateurLibelle: 'Cédric Jullien' } : a)) };
     await septembre();
     expect([...bas().querySelectorAll('[data-negociateur-bloc]')].map((e) => e.getAttribute('data-negociateur-bloc')).sort()).toEqual(['Cédric Jullien', 'Jean-Baptiste PONS']);
+    await deplierNet();
     expect(bas().querySelectorAll('[data-famille="resultat-net"] [data-net-variable]')).toHaveLength(2);
     expect(bas().querySelector('[data-famille="resultat-net"] [data-net="net"]')).not.toBeNull();
   });
@@ -2251,5 +2259,52 @@ describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : de
     expect(container.querySelector('[data-section="F"]')).toBeNull();
     expect(container.textContent).not.toContain('commission brute');
     expect(container.querySelector('[data-section="C"]')?.getAttribute('data-replie')).toBe('replie');
+  });
+});
+
+describe('🔴 Arno (26/10/2026) — « Résultat net de l’agence » REPLIÉ par défaut sur une ligne (Suivi du mois et Résumé de la période)', () => {
+  const septembre = async () => { await monter('mois'); await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); }); };
+  const bloc = () => container.querySelector('[data-famille="resultat-net"]') as HTMLElement;
+  const bouton = () => bloc().querySelector('[data-deplier="resultat-net"]') as HTMLButtonElement;
+  const cent = (t: string | null | undefined): number => Math.round(Number(nbsp(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+
+  for (const [ecran, ouvrir] of [['Suivi du mois', septembre], ['Résumé de la période', () => monter('annee')]] as const) {
+    it(`${ecran} : replié (une ligne : titre ; « CA net de toutes variables », montant vert gras, « (x,x %) », ▸) ; la cascade n’est pas là`, async () => {
+      await ouvrir();
+      expect(bloc().getAttribute('data-replie')).toBe('replie');
+      expect([bouton().tagName, bouton().getAttribute('aria-expanded'), bouton().closest('h4') !== null]).toEqual(['BUTTON', 'false', true]);   // un vrai bouton : Entrée / Espace
+      expect(bloc().querySelector('[data-resultat-net]')).toBeNull();
+      expect(nbsp(bloc().querySelector('[data-net-replie]')?.textContent)).toMatch(/^CA net de toutes variables [−-]?[\d ]+,\d\d € \(\d+,\d %\)$/);
+      expect(bloc().querySelector('[data-net-replie-montant]')?.tagName).toBe('STRONG');
+      expect(bouton().querySelector('.tdb-h-chevron')?.textContent).toBe('▸');
+    });
+
+    it(`${ecran} : déplié au clic, la cascade inchangée ; montant replié = ligne « CA net » au centime, % = « soit … % » ; un « i » ne replie rien ; second clic replie`, async () => {
+      await ouvrir();
+      const replie = cent(bloc().querySelector('[data-net-replie-montant]')?.textContent);
+      const pct = nbsp(bloc().querySelector('[data-net-replie-part]')?.textContent);
+      await act(async () => { bouton().click(); });
+      expect([bloc().getAttribute('data-replie'), bouton().getAttribute('aria-expanded'), bouton().querySelector('.tdb-h-chevron')?.textContent]).toEqual(['ouvert', 'true', '▾']);
+      expect(cent(bloc().querySelector('[data-net-ligne="net"] .fnc-montant')?.textContent)).toBe(replie);
+      expect(nbsp(bloc().querySelector('[data-net-part]')?.textContent)).toBe(`soit ${pct.slice(1, -1)} du CA HT global`);
+      // Un « i » de la cascade : il ouvre son détail, le bloc reste déplié.
+      await act(async () => { (bloc().querySelector('[data-cascade-info="ca"]') as HTMLButtonElement).click(); });
+      expect(bloc().querySelector('[data-cascade-detail="ca"]')).not.toBeNull();
+      expect(bloc().getAttribute('data-replie')).toBe('ouvert');
+      await act(async () => { bouton().click(); });
+      expect(bloc().getAttribute('data-replie')).toBe('replie');
+      expect(bloc().querySelector('[data-resultat-net]')).toBeNull();
+    });
+  }
+
+  it('replié à CHAQUE chargement ; même composant que les autres blocs repliés (BlocReplie)', async () => {
+    await septembre();
+    await act(async () => { bouton().click(); });
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await septembre();
+    expect(bloc().getAttribute('data-replie')).toBe('replie');
+    const src = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx'), 'utf8');
+    expect(src).toContain("<BlocReplie id={`${idp}-f6`} section=\"resultat-net\"");
+    expect(readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8')).toContain("import { BlocReplie, CSS_BLOC_REPLIE } from './BlocReplie';");
   });
 });
