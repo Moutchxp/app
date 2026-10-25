@@ -1090,8 +1090,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     const libelle = () => cumul().querySelector('[data-cumul-libelle]')?.textContent;
     it('🔴 la bascule À GAUCHE des trois mesures, sans filet ; son libellé dit le graphique : « Mensuel » (barres) ↔ « Cumul » (courbe) ; l’adresse le porte', async () => {
       await monter('mois');
-      const ligne = container.querySelector('.tdb-mesures-ligne')!;
-      expect([...ligne.children].map((e) => (e.hasAttribute('data-mesures') ? 'mesures' : e.hasAttribute('data-cumul-bouton') ? 'bascule' : '?'))).toEqual(['bascule', 'mesures']);
+      // 🔴 25/10/2026 (suite) — la bascule dans la COLONNE DU GRAPHIQUE (après le titre), les mesures dans celle de l'ENCART.
+      const entete = container.querySelector('[data-histo-entete]')!;
+      expect([...entete.children].map((e) => (e.hasAttribute('data-entete-graphe') ? 'graphe' : e.hasAttribute('data-entete-detail') ? 'encart' : '?'))).toEqual(['graphe', 'encart']);
+      expect([...entete.querySelector('[data-entete-graphe]')!.children].map((e) => e.tagName === 'H3' ? 'titre' : e.hasAttribute('data-cumul-bouton') ? 'bascule' : '?')).toEqual(['titre', 'bascule']);
+      expect(entete.querySelector('[data-entete-detail] [data-mesures]')).not.toBeNull();
+      expect(entete.querySelector('[data-entete-detail] [data-cumul-bouton]')).toBeNull();
       expect(container.querySelector('.tdb-mesures-filet')).toBeNull();
       // Un vrai bouton, distinct des onglets ; l'icône ⇄ ; l'infobulle dit l'action.
       expect([cumul().tagName, cumul().type, cumul().className]).toEqual(['BUTTON', 'button', 'tdb-bascule-cumul']);
@@ -1108,6 +1112,24 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await clic(cumul());
       expect([libelle(), url('cumul')]).toEqual(['Mensuel', null]);
       expect(container.querySelector('[data-barre-mois="9"]')).not.toBeNull();
+    });
+
+    it('🔴 la place : l’en-tête suit la grille du graphique et de son encart (mêmes colonnes, même écart) ; le bord droit de la bascule sur celui de la zone tracée ; aucun chevauchement', async () => {
+      await monter('mois');
+      const css = readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8');
+      const regle = (sel: string) => css.match(new RegExp(`\\n${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\{([^}]*)\\}`))?.[1] ?? '';
+      // Même gabarit de colonnes que la rangée graphique | encart.
+      expect(regle('.tdb-histo-rangee')).toContain('grid-template-columns:minmax(0,1fr) 270px');
+      expect(regle('.tdb-histo-entete')).toContain('grid-template-columns:minmax(0,1fr) 270px;column-gap:20px');
+      expect(regle('.tdb-histo-rangee')).toContain('gap:4px 20px');
+      // La colonne du graphique s'arrête à la zone tracée : la marge droite du dessin (12 sur 640).
+      expect(regle('.tdb-histo-entete-graphe')).toContain('padding-right:calc(100% * 12 / 640)');
+      // Le titre se replie (min-width:0), jamais la bascule (flex:0 0 auto).
+      expect(regle('.tdb-histo-entete-graphe h3')).toContain('flex:1 1 auto;min-width:0');
+      expect(regle('.tdb-histo-entete-graphe .tdb-bascule-cumul')).toBe('flex:0 0 auto;margin-bottom:1px');
+      // Encart sous le graphique : bouton puis mesures sur une ligne, à droite.
+      expect(css).toContain('@media (max-width:760px){\n  .tdb-histo-entete{display:flex;flex-wrap:wrap;justify-content:flex-end');
+      expect(css).toContain('@media (max-width:760px){ .tdb-histo-rangee{grid-template-columns:minmax(0,1fr)');
     });
 
     it('au CLAVIER : Entrée et Espace basculent ; les autres touches non', async () => {
