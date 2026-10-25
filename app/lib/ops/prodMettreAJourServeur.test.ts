@@ -79,7 +79,9 @@ exit 99
   return { code: r.status, sortie: r.stdout + r.stderr };
 }
 
-describe('serveur.sh — chaque fin écrit une ligne finale explicite', () => {
+// Délai de 30 s pour ce fichier seul (défaut vitest : 5 s) : chaque test lance de VRAIS scripts bash (1,7 s pour le plus long, seul) et
+// dépassait 5 s sous la charge de la suite complète. Ce qui est vérifié ne change pas (cf. docs/FLAKES_CONNUS.md).
+describe('serveur.sh — chaque fin écrit une ligne finale explicite', { timeout: 30_000 }, () => {
   it('commit DÉJÀ en service : ligne finale de SUCCÈS, code 0 ; le Mac affiche « Terminé : déjà en service — rien à faire »', () => {
     const s = serveur(['--essai', SHA, `--journal=${journal}`], { enService: SHA });
     expect(s.code).toBe(0);

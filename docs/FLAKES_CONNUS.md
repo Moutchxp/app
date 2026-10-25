@@ -148,3 +148,34 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
   consigner l'occurrence ici (date, suite, **motif reçu en entier** — sans filtrer la sortie).
 - **Ne pas** passer ces tests en `.skip` ni assouplir l'attente : la prochaine occurrence doit servir à capturer le motif
   reçu, seule donnée qui manque pour établir la cause.
+
+---
+
+## `prodMettreAJourServeur.test.ts` — « Test timed out in 5000ms » en suite complète (stabilisé le 25/10/2026)
+
+- **Fichier / tests** : `app/lib/ops/prodMettreAJourServeur.test.ts`, bloc « serveur.sh — chaque fin écrit une ligne finale
+  explicite ». Tests observés en échec : « arrêt INATTENDU en pleine route… » et « commit DÉJÀ en service… ».
+- **Symptôme** : `Error: Test timed out in 5000ms.` (délai par défaut de vitest), **seulement en suite complète** (`npm test`,
+  ~1 455 fichiers en parallèle), lots du 25/10/2026 ; **vert en isolé et à la suite complète suivante**.
+
+### ✅ PROUVÉ
+
+- Chaque test lance de **vrais processus** `/bin/bash` (`deploy/maj/serveur.sh`, puis `scripts/prod-mettre-a-jour.sh` qui relit
+  le journal) avec de fausses commandes `flock` / `id` / `systemctl` ; le scénario « arrêt inattendu » contient un `sleep 1` et
+  remonte les processus parents par `ps`.
+- Durées **seul** (25/10/2026, `--reporter=verbose`) : 693 ms, 837 ms, 236 ms, 356 ms, **1 719 ms** (arrêt inattendu), 2 ms —
+  fichier entier 3,85 s. La marge sous le délai de 5 s est donc faible, et la création de processus est ce qui ralentit le plus
+  quand ~1 455 fichiers se disputent le CPU.
+- L'échec est un **dépassement de délai du test**, pas une assertion fausse : aucune attente sur le code ou le journal n'a échoué.
+
+### Correctif
+
+- Délai porté à **30 s pour ce fichier seul** (`describe(…, { timeout: 30_000 }, …)`) ; le délai global de vitest n'a pas changé,
+  et les assertions non plus. Les `spawnSync` gardent leur propre garde de 20 s par script.
+
+### Conduite à tenir si rouge
+
+- Si le message est encore un **dépassement de délai** (à plus de 30 s) : mesurer la durée du test dans la suite qui a échoué
+  avant d'allonger encore. Un script qui ne rend plus la main est un vrai défaut, et un délai plus long ne le corrige pas.
+- Si une **assertion** échoue (ligne finale, code de sortie, conclusion du Mac) : ce n'est pas ce flake. C'est un défaut de
+  `serveur.sh` ou de `prod-mettre-a-jour.sh`, à instruire comme tel.
