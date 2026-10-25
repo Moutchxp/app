@@ -144,6 +144,11 @@ export function resumeDeLAnnee(d: DonneesTableau, lignes: readonly ActiviteLue[]
   return resumeDesMois(moisDeLAnnee(annee, moisFin).map((m) => resumeDuMoisComplet(d, lignes, ctx, m, negociateur)));
 }
 
+/** 🔴 Arno (25/10/2026) — le résumé d'une PÉRIODE « Début / Fin » (Suivi annuel) : la somme de ses mois. */
+export function resumeDeLaPeriode(d: DonneesTableau, lignes: readonly ActiviteLue[], ctx: ContexteCalcul, mois: readonly string[], negociateur: string | null): ResumeCalcule {
+  return resumeDesMois(mois.map((m) => resumeDuMoisComplet(d, lignes, ctx, m, negociateur)));
+}
+
 /**
  * « Depuis le début (<première année>) » : les entrées et sorties de gestion de janvier de la première année d'activité à la fin de la
  * période, la même grille et le même calcul que « Depuis le 1er janvier » (gains mensuels additionnés une fois).

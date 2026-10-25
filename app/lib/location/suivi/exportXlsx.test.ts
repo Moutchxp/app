@@ -31,6 +31,12 @@ describe('🔴 export .xlsx du suivi', () => {
     const wb = await relire(true);
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre']);
   });
+  it('🔴 Arno (25/10/2026, 4a) — une PÉRIODE sur deux années : un onglet par mois de la période, nommé avec son année', async () => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await classeurSuivi({ annee: 2026, moisMax: 0, activites, ctx, voirCommissions: true, filtres: '', mois: ['2025-12', '2026-01', '2026-02'] }) as never);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Décembre 2025', 'Janvier 2026', 'Février 2026']);
+    expect(wb.getWorksheet('Janvier 2026')!.getCell('A1').value).toBe('Suivi location — Janvier 2026');
+  });
   it('août : les lignes, TOTAL CA HT, CA − apporteurs, la commission (formule et résultat), la ventilation', async () => {
     const ws = (await relire(true)).getWorksheet('Août')!;
     expect(ws.getRow(2).getCell(1).value).toBe('PROPRIÉTAIRES');

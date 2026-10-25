@@ -11,10 +11,10 @@ const c = (x: number): number => Math.round((x + Number.EPSILON) * 100) / 100;
 
 type Cle = 'ca' | 'commissions' | 'net' | 'resultat' | 'primes' | 'retrocessions' | 'variable';
 
-/** 🔴 Arno (25/10/2026) — les mots de la période des cascades : le mois (Suivi du mois) ou l'année (Résumé de l'année du Suivi annuel). */
+/** 🔴 Arno (25/10/2026) — les mots de la période des cascades : le mois (Suivi du mois) ou la période « Début / Fin » (Suivi annuel). */
 export interface MotsPeriode { du: string; ceMoisCi: string; ceMois: string; dueCeMois: string; libelle?: string }
 export const MOTS_MOIS: MotsPeriode = { du: 'du mois', ceMoisCi: 'ce mois-ci', ceMois: 'ce mois', dueCeMois: 'due ce mois' };
-export const MOTS_ANNEE: MotsPeriode = { du: 'de l’année', ceMoisCi: 'cette année', ceMois: 'sur l’année', dueCeMois: 'due sur l’année' };
+export const MOTS_PERIODE: MotsPeriode = { du: 'de la période', ceMoisCi: 'sur la période', ceMois: 'sur la période', dueCeMois: 'due sur la période' };
 
 /**
  * ══ 🔴 Arno (25/10/2026) — LE VARIABLE DU NÉGOCIATEUR, EN CASCADE (une ligne = une opération), TOUT EN HT ═══════════════════════════════════

@@ -4,14 +4,16 @@ import { regleAnnexesDe, stockGestion } from '../../../../lib/location/suivi/ann
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
-  cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParAnnee, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
-  sectionNegociateurs, totauxPeriode, type TotauxPeriode, tuilesAnnee, variation,
+  cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
+  sectionNegociateurs, totauxPeriode, type TotauxPeriode, variation,
   type AnneeHistorique, type AnneeGestionRecurrente, gestionRecurrenteParAnnee,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
-import { gestionDepuisLeDebut, resumeDeLAnnee } from '../../../../lib/location/suivi/resumePeriode';
+import { gestionDepuisLeDebut, resumeDeLaPeriode } from '../../../../lib/location/suivi/resumePeriode';
 import { gliEntre } from '../../../../lib/location/suivi/margeGli';
+import { anneesDeLaPeriode, anneesProposees, choixDeLAdresse, dansPeriode, finAnneeMois, moisDeLaPeriode, parametresDe, periodeDe, periodePrecedente, type ChoixPeriode } from '../../../../lib/location/suivi/periodeSuivi';
+import { comparaisonsAnnees, historiquePeriode, tuilesPeriode } from '../../../../lib/location/suivi/suiviPeriode';
 import { ListeChoix } from './ListeChoix';
 
 /** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
@@ -128,8 +130,13 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   // Arno (23/10/2026) — l'année et le mois se gardent dans l'adresse (?annee=2025&mois=9) : un rechargement ou un lien garde la
   // sélection. Par défaut : l'année et le mois EN COURS (jamais une valeur écrite en dur). Rien ne s'affiche avant la lecture des
   // données, quelle que soit l'année : pas d'écart entre le rendu du serveur et celui du navigateur.
-  const [annee, setAnnee] = useState(() => anneeMoisDeLAdresse(jour).annee);
-  const [mois, setMois] = useState(() => anneeMoisDeLAdresse(jour).mois);
+  // 🔴 Arno (25/10/2026) — Suivi annuel : la PÉRIODE « Début / Fin » (?debut=origine|AAAA&fin=aujourdhui|AAAA ; défaut : Origine → aujourd'hui ;
+  // une ancienne adresse ?annee=AAAA&mois=M devient AAAA → AAAA arrêtée à la fin du mois M). L'année et le mois de la page sont ceux de la FIN.
+  const [periodeLue] = useState(() => choixDeLAdresse(typeof window === 'undefined' ? '' : window.location.search, 0, jour));
+  const [choix, setChoix] = useState<ChoixPeriode>(periodeLue.choix);
+  const [annee, setAnnee] = useState(() => (vue === 'annee' ? finAnneeMois(periodeLue.choix, jour).annee : anneeMoisDeLAdresse(jour).annee));
+  const [mois, setMois] = useState(() => (vue === 'annee' ? finAnneeMois(periodeLue.choix, jour).mois : anneeMoisDeLAdresse(jour).mois));
+  const choisirPeriode = (c: ChoixPeriode): void => { const f = finAnneeMois(c, jour); setChoix(c); setAnnee(f.annee); setMois(f.mois); };
   const [mesure, setMesure] = useState<MesureMois>(() => mesureDeLAdresse());
   const [cumulMois, setCumulMois] = useState<boolean>(() => cumulDeLAdresse());
   // 🔴 Arno (24/10/2026) — le mois de comparaison de la carte « Le mois » (?comparer=AAAA-MM ; absent : même mois N−1), et la carte
@@ -146,18 +153,27 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
     const mesureVoulue = mesure !== 'ca' ? mesure : null;
     const cumulVoulu = cumulMois ? '1' : null;
     const comparerVoulu = vue === 'mois' ? comparer : null;
-    if (u.searchParams.get('annee') === String(annee) && u.searchParams.get('mois') === String(mois) && u.searchParams.get('vue') === mesureVoulue
-      && u.searchParams.get('mesure') === null && u.searchParams.get('cumul') === cumulVoulu && u.searchParams.get('comparer') === comparerVoulu) return;
-    u.searchParams.set('annee', String(annee));
-    u.searchParams.set('mois', String(mois));
+    const avant = u.searchParams.toString();
+    if (vue === 'annee') {
+      // Le Suivi annuel porte sa période (Début / Fin) ; le défaut (Origine → aujourd'hui) n'écrit rien.
+      u.searchParams.delete('annee'); u.searchParams.delete('mois');
+      const pa = parametresDe(choix);
+      if (pa.debut === null) u.searchParams.delete('debut'); else u.searchParams.set('debut', pa.debut);
+      if (pa.fin === null) u.searchParams.delete('fin'); else u.searchParams.set('fin', pa.fin);
+    } else {
+      u.searchParams.set('annee', String(annee));
+      u.searchParams.set('mois', String(mois));
+    }
     // Arno (23/10/2026) — la mesure de « Mois par mois » (Suivi du mois) : ?vue=baux | gestion (25/10/2026 : « vue », plus « mesure ») ;
     // CA (le défaut) n'écrit rien ; le mode cumul : &cumul=1.
     u.searchParams.delete('mesure');
     if (mesureVoulue === null) u.searchParams.delete('vue'); else u.searchParams.set('vue', mesureVoulue);
     if (cumulVoulu === null) u.searchParams.delete('cumul'); else u.searchParams.set('cumul', cumulVoulu);
     if (comparerVoulu === null) u.searchParams.delete('comparer'); else u.searchParams.set('comparer', comparerVoulu);
-    window.history.replaceState(window.history.state, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
-  }, [annee, mois, mesure, cumulMois, vue, comparer]);
+    if (u.searchParams.toString() === avant) return;
+    const q = u.searchParams.toString();
+    window.history.replaceState(window.history.state, '', `${u.pathname}${q === '' ? '' : `?${q}`}${u.hash}`);
+  }, [annee, mois, mesure, cumulMois, vue, comparer, choix]);
   const cmp = moisCompare(annee, mois, comparer);
   // Une comparaison hors des deux années lues (l'année et N−1) : ses lignes se lisent à part, par la même route (lecture seule).
   const horsFenetre = vue === 'mois' && cmp.annee !== annee && cmp.annee !== annee - 1;
@@ -171,20 +187,20 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       }).catch(() => { if (vivant) setLuCmp({ annee: cmp.annee, erreur: true }); });
     return () => { vivant = false; };
   }, [horsFenetre, cmp.annee, n]);
-  const [portee, setPortee] = useState<'mois' | 'annee'>('mois');
   const [filtre, setFiltre] = useState<Filtre>({});
   const [lu, setLu] = useState<{ annee: number; d: DonneesTableau } | { annee: number; erreur: string } | null>(null);
   const [detail, setDetail] = useState<Detail>(null);
   useEffect(() => {
     let vivant = true;
-    fetch(`${API}?vue=tableau&annee=${annee}`, { cache: 'no-store' }).then((r) => (r.status === 403 ? { etat: 'refus' } : r.json()))
+    // 🔴 Arno (25/10/2026) — le Suivi annuel lit toutes les années (`toutes=1`) : sa période se choisit sans relire le serveur.
+    fetch(`${API}?vue=tableau&annee=${annee}${vue === 'annee' ? '&toutes=1' : ''}`, { cache: 'no-store' }).then((r) => (r.status === 403 ? { etat: 'refus' } : r.json()))
       .then((x: { etat?: string; data?: DonneesTableau; message?: string }) => {
         if (!vivant) return;
         if (x.etat === 'ok' && x.data && Array.isArray(x.data.activites)) setLu({ annee, d: x.data });
         else setLu({ annee, erreur: x.etat === 'refus' ? 'Accès refusé : droit « Location » requis.' : x.message ?? 'Lecture impossible.' });
       }).catch(() => { if (vivant) setLu({ annee, erreur: 'Lecture impossible : le serveur n’a pas répondu.' }); });
     return () => { vivant = false; };
-  }, [annee, n]);
+  }, [annee, n, vue]);
   useEffect(() => {
     if (detail === null) return;
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') setDetail(null); };
@@ -228,16 +244,19 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 
   const anneeEnCoursH = Number(jour.slice(0, 4));
   const periodeMois: Periode = { annee, mois };
-  const periode: Periode = portee === 'mois' ? periodeMois : { annee, mois: null };
-  const libellePeriode = portee === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : `l’année ${annee}`;
+  // 🔴 Arno (25/10/2026) — la PÉRIODE « Début / Fin » du Suivi annuel : toutes ses sections la suivent (accord 1a : plus de boutons de portée).
+  const origine = Math.min(...d.annees);
+  const P = periodeDe(choix, origine, jour);
+  const precedenteP = periodePrecedente(P, origine);
+  const moisP = moisDeLaPeriode(P);
+  const periode: Periode = { annee, mois: null, debut: P.debutDate, fin: P.finDate };
+  const libellePeriode = P.libelle;
   const A = sectionMois(lignes, ctx, periodeMois, filtre.negociateur);
   const B = sectionCumul(lignes, ctx, annee);
   const cumul = B[mois - 1];
   const varCumul = cumul.caCumuleN1 === 0 ? null : (cumul.caCumule - cumul.caCumuleN1) / cumul.caCumuleN1;
   const idsCumul = B.slice(0, mois).flatMap((p) => p.ids);
-  const moisEcoules = Array.from({ length: portee === 'mois' ? 1 : (annee === Number(jour.slice(0, 4)) ? Number(jour.slice(5, 7)) : 12) },
-    (_, i) => `${annee}-${String(portee === 'mois' ? mois : i + 1).padStart(2, '0')}`);
-  const C = sectionApporteurs(lignes, ctx, periode, moisEcoules);
+  const C = sectionApporteurs(lignes, ctx, periode, moisP);
   const moisFinGestion = `${annee}-${String(mois).padStart(2, '0')}`;
   // 🔴 Arno (25/10/2026, 426) — la règle des annexes : à partir de la bascule, une annexe ne compte ni en entrée, ni en sortie, ni dans le stock.
   const regleA = regleAnnexesDe(d);
@@ -245,25 +264,31 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const D = sectionGestion(d.gestion.transitions, stockA, annee === Number(jour.slice(0, 4)) && mois > Number(jour.slice(5, 7)) ? jour.slice(0, 7) : moisFinGestion, regleA);
   const Dm = D.at(-1)!;
   const lignesPeriode = lignesDePeriode(lignes, periode);
-  const preavis = portee === 'mois' ? d.preavis[moisFinGestion] ?? 0 : Object.entries(d.preavis).filter(([k]) => k.startsWith(`${annee}-`)).reduce((s, [, v]) => s + v, 0);
+  const preavis = moisP.reduce((s, m) => s + (d.preavis[m] ?? 0), 0);
   const E = sectionIndicateurs(lignesPeriode, preavis);
   // 🔴 Arno (25/10/2026) — un administrateur calcule tous les négociateurs ; un négociateur non administrateur reçoit SES lignes (serveur).
   const propre = d.voirCommissions ? undefined : d.negociateurPropre;
-  const F = d.voirCommissions ? sectionNegociateurs(lignes, ctx, periode)
-    : (propre?.lignes ?? []).filter((l) => periode.mois === null || l.mois === `${periode.annee}-${String(periode.mois).padStart(2, '0')}`);
+  // Sur plusieurs années : les lignes de chaque année de la période, ses seuls mois.
+  const F = (d.voirCommissions ? anneesDeLaPeriode(P).flatMap((y) => sectionNegociateurs(lignesPeriode, ctx, { annee: y, mois: null })) : (propre?.lignes ?? []))
+    .filter((l) => moisP.includes(l.mois));
   const sansN1 = !d.activites.some((a) => a.dateSignature.startsWith(`${annee - 1}-`));
-  // Arno (23/10/2026) — Suivi annuel : les tuiles montrent l'ANNÉE (en cours : du 1er janvier à la fin du mois choisi), face à N−1 sur la même période.
-  const T = tuilesAnnee(lignes, ctx, annee, jour, mois, d.gestionLignes ?? [], regleA);
-  const periodeT = T.complete ? String(annee) : `${COURT[0]} → ${COURT[T.moisFin - 1]}`;
-  const periodeN1 = T.complete ? String(annee - 1) : `${COURT[0]} → ${COURT[T.moisFin - 1]} ${annee - 1}`;
-  const reprises = d.activites.filter((a) => a.source === 'import' && a.dateSignature.startsWith(`${annee}-`));
+  // 🔴 Arno (25/10/2026) — « Année par année » : les années de la PÉRIODE (toutes affaires, sans filtre), chacune sur sa portion ; l'encart
+  // compare une année à la MÊME PORTION de l'année d'avant (une dernière année partielle face à la même période de l'année précédente).
+  const histoP = vue === 'annee' ? historiquePeriode(d.activites, { ...ctx, recurrents: d.recurrents ?? [] }, P, d.voirCommissions) : [];
+  const compsP = vue === 'annee' ? comparaisonsAnnees(d.activites, ctx, d.gestion.transitions, P, regleA, origine) : [];
+  const ouvrirAnnee = (a: number): void => choisirPeriode({ debut: a, fin: a });
+  // 🔴 Arno (25/10/2026) — Suivi annuel : les tuiles montrent la PÉRIODE, face à la période précédente (2a) ; « — » sans elle.
+  const T = tuilesPeriode(lignes, ctx, P, precedenteP, d.gestionLignes ?? [], regleA, d.gestion.transitions, stockA);
+  // Les mentions de reprise : sur la période (Suivi annuel), sur l'année (Suivi du mois).
+  const reprises = d.activites.filter((a) => a.source === 'import' && (vue === 'annee' ? dansPeriode(a.dateSignature, P) : a.dateSignature.startsWith(`${annee}-`)));
   const nonRattachees = reprises.filter((a) => a.rattachement !== 'rattache').length;
   const ouvrir = (titre: string, ids: (number | string)[]) => () => setDetail({ titre, ids });
   const chiffre = (valeur: string, titre: string, ids: (number | string)[], attr?: string) => (
     <button type="button" className="tdb-chiffre" onClick={ouvrir(titre, ids)} disabled={ids.length === 0} data-chiffre={attr}
       title={ids.length === 0 ? 'Aucun bail' : `Voir les ${ids.length} ligne(s)`}>{valeur}</button>
   );
-  const exportHref = `${API}/export?annee=${annee}${filtreVersParams(filtre) ? `&${filtreVersParams(filtre)}` : ''}`;
+  // 4a — l'export de la période : un onglet par mois de la période.
+  const exportHref = `${API}/export?debut=${P.debutDate}&fin=${P.finDate}${filtreVersParams(filtre) ? `&${filtreVersParams(filtre)}` : ''}`;
   const poser = (p: Partial<Filtre>): void => setFiltre((f) => ({ ...f, ...p }));
 
   return (
@@ -290,13 +315,27 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       )}
       <form className="tdb-filtres" aria-label="Filtres du tableau de bord" onSubmit={(e) => e.preventDefault()} data-filtres>
         {/* 🔴 Arno (24/10/2026) — plus de <select> natif en Location : les listes vertes, menu juste sous le champ (mêmes options). */}
-        <label className="tdb-champ">Année
-          <ListeChoix options={d.annees.map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
-            onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
-        {vue === 'annee' && (
-          <label className="tdb-champ">Mois
-            <ListeChoix options={NOMS_MOIS.map((m, i) => ({ id: i + 1, libelle: m }))} valeur={String(mois)} vide={null} libelle="Mois"
-              onChange={(v) => setMois(Number(v))} donnees={{ 'data-filtre': 'mois' }} /></label>
+        {vue === 'annee' ? (() => {
+          /* 🔴 Arno (25/10/2026) — « Début » / « Fin » remplacent « Année » et « Mois » (voulu par Arno) : Début ≤ Fin, les listes ne proposent
+             que des années compatibles ; une fin « fin de mois » (ancienne adresse) reste choisie tant qu'on ne la change pas. */
+          const annees = anneesProposees(origine, jour);
+          const finAnnee = P.anneeFin;
+          const finMois = typeof choix.fin === 'string' && choix.fin !== 'aujourdhui' ? choix.fin : null;
+          return <>
+            <label className="tdb-champ">Début
+              <ListeChoix options={[{ id: 'origine', libelle: `Origine (${origine})` }, ...annees.filter((a) => a <= finAnnee).map((a) => ({ id: a, libelle: String(a) }))]}
+                valeur={String(choix.debut)} vide={null} libelle="Début" donnees={{ 'data-filtre': 'debut' }}
+                onChange={(v) => choisirPeriode({ ...choix, debut: v === 'origine' ? 'origine' : Number(v) })} /></label>
+            <label className="tdb-champ">Fin
+              <ListeChoix options={[{ id: 'aujourdhui', libelle: 'Aujourd’hui' }, ...(finMois === null ? [] : [{ id: finMois, libelle: `Fin ${COURT[Number(finMois.slice(5, 7)) - 1]} ${finMois.slice(0, 4)}` }]),
+                ...annees.filter((a) => a >= P.anneeDebut).map((a) => ({ id: a, libelle: String(a) }))]}
+                valeur={String(choix.fin)} vide={null} libelle="Fin" donnees={{ 'data-filtre': 'fin' }}
+                onChange={(v) => choisirPeriode({ ...choix, fin: v === 'aujourdhui' ? 'aujourdhui' : /^\d{4}$/.test(v) ? Number(v) : v })} /></label>
+          </>;
+        })() : (
+          <label className="tdb-champ">Année
+            <ListeChoix options={d.annees.map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+              onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
         )}
         <label className="tdb-champ">Négociateur
           <ListeChoix options={d.negociateurs.map((n) => ({ id: n.cle, libelle: n.libelle }))} valeur={filtre.negociateur ?? ''} vide="Tous" libelle="Négociateur"
@@ -312,27 +351,31 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <ListeChoix options={[{ id: 'nouveau', libelle: 'Nouveaux clients' }, { id: 'deja', libelle: 'Déjà clients' }]} valeur={filtre.origine ?? ''} vide="Nouveaux et déjà clients" libelle="Client"
             onChange={(v) => poser({ origine: v === 'nouveau' || v === 'deja' ? v : null })} donnees={{ 'data-filtre': 'origine' }} /></label>
       </form>
+      {vue === 'annee' && periodeLue.message !== null && choix === periodeLue.choix && <p className="loc-alerte loc-alerte--orange" role="status" data-periode-incoherente>{periodeLue.message}</p>}
+      {vue === 'annee' && <p className="tdb-periode" data-periode-libelle>Période : <strong>{P.libelle}</strong></p>}
 
       {vue === 'annee' ? (
-        <ul className="tdb-tuiles" aria-label={`L’essentiel de ${annee}`} data-tuiles-annee>
-          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-annee">
-            <span className="tdb-tuile-mot">CA HT {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+        <ul className="tdb-tuiles" aria-label={`L’essentiel — ${P.libelle}`} data-tuiles-annee>
+          {/* 🔴 Arno (25/10/2026) — la PÉRIODE choisie, face à la période précédente de même durée (2a) ; « — » s'il n'y en a pas. */}
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA HT — ${P.libelle}`, T.courant.ids)} data-tuile="ca-annee">
+            <span className="tdb-tuile-mot">CA HT <small>({P.libelle})</small></span>
             <strong className="tdb-tuile-valeur">{eur(T.courant.ca)}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {eur(T.precedent.ca)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCa), T.variationCa)}</span></>}</span></button></li>
-          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Baux signés en ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="baux-annee">
-            <span className="tdb-tuile-mot">Baux signés en {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+            <span className="tdb-tuile-n1" data-tuile-precedente>{T.precedent === null ? 'Période précédente : —' : <>{T.libellePrecedent} : {eur(T.precedent.ca)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCa ?? 0), T.variationCa)}</span></>}</span></button></li>
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Baux signés — ${P.libelle}`, T.courant.ids)} data-tuile="baux-annee">
+            <span className="tdb-tuile-mot">Baux signés <small>({P.libelle})</small></span>
             <strong className="tdb-tuile-valeur">{T.courant.nbBaux}{T.courant.nbAvenants + T.courant.nbGestionSeule > 0 && <small> + {T.courant.nbAvenants + T.courant.nbGestionSeule} autre(s)</small>}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {T.precedent.nbBaux} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartNb(T.ecartNb), T.variationNb)}</span></>}</span></button></li>
-          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net d’apporteurs ${annee}${T.complete ? '' : ` (${periodeT})`}`, T.courant.ids)} data-tuile="ca-net-annee">
-            <span className="tdb-tuile-mot">CA net d’apporteurs {annee}{T.complete ? '' : <small> ({periodeT})</small>}</span>
+            <span className="tdb-tuile-n1">{T.precedent === null ? 'Période précédente : —' : <>{T.libellePrecedent} : {T.precedent.nbBaux} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartNb(T.ecartNb ?? 0), T.variationNb)}</span></>}</span></button></li>
+          <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net d’apporteurs — ${P.libelle}`, T.courant.ids)} data-tuile="ca-net-annee">
+            <span className="tdb-tuile-mot">CA net d’apporteurs <small>({P.libelle})</small></span>
             <strong className="tdb-tuile-valeur">{eur(T.courant.caNet)}</strong>
-            <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : <>{periodeN1} : {eur(T.precedent.caNet)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCaNet), T.variationCaNet)}</span></>}</span></button></li>
+            <span className="tdb-tuile-n1">{T.precedent === null ? 'Période précédente : —' : <>{T.libellePrecedent} : {eur(T.precedent.caNet)} · <span className="tdb-ecart-insecable">{ecartEtPct(ecartEur(T.ecartCaNet ?? 0), T.variationCaNet)}</span></>}</span></button></li>
+          {/* « Biens en gestion » : le stock à la FIN de la période, et le solde (entrées − sorties) sur la période. */}
           <li><button type="button" className="tdb-tuile" data-tuile="gestion"
-            onClick={() => setDetail({ titre: `Gestion — ${annee}${T.complete ? '' : ` (${periodeT})`}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
-            <span className="tdb-tuile-mot">Biens en gestion</span>
-            <strong className="tdb-tuile-valeur" data-biens-en-gestion>{d.gestion.disponible ? stockA : '—'}</strong>
+            onClick={() => setDetail({ titre: `Gestion — ${P.libelle}`, lots: [{ titre: 'Entrés en gestion', ids: T.gestion.lotsEntres }, { titre: 'Sortis de la gestion', ids: T.gestion.lotsSortis }] })}>
+            <span className="tdb-tuile-mot">Biens en gestion <small>(au {P.finDate.split('-').reverse().join('/')})</small></span>
+            <strong className="tdb-tuile-valeur" data-biens-en-gestion>{d.gestion.disponible ? T.gestion.stockFin : '—'}</strong>
             {d.gestion.disponible ? <>
-              <MouvementsGestion periode={`${annee}${T.complete ? '' : ` (${periodeT})`}`} nouveaux={T.gestion.nouvelles} sortis={T.gestion.perdues} />
+              <MouvementsGestion periode={P.libelle} nouveaux={T.gestion.nouvelles} sortis={T.gestion.perdues} />
               <span className="tdb-tuile-n1 tdb-gestion-recurrent">récurrent {ecartEur(T.gestion.gagneMensuel)} / −{eur(T.gestion.perduMensuel)} par mois{T.gestion.sansLoyer > 0 ? ` (${T.gestion.sansLoyer} sans loyer saisi, non comptés)` : ''}</span>
             </> : <span className="tdb-tuile-n1">statut du bien : migration 403</span>}</button></li>
         </ul>
@@ -362,7 +405,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       {(sansN1 || reprises.length > 0) && (
         <p className="loc-muet tdb-note" data-tdb-note>
           {sansN1 && <>Aucune donnée pour {annee - 1} : les comparaisons N−1 apparaîtront une fois le suivi {annee - 1} importé. </>}
-          {reprises.length > 0 && <>{reprises.length} ligne(s) de {annee} reprises du suivi mensuel (date de signature supposée au 1<sup>er</sup> du mois){nonRattachees > 0 ? `, dont ${nonRattachees} non rattachée(s) à un bail de l’outil` : ''}.</>}
+          {reprises.length > 0 && <>{reprises.length} ligne(s) {vue === 'annee' ? 'de la période' : `de ${annee}`} reprises du suivi mensuel (date de signature supposée au 1<sup>er</sup> du mois){nonRattachees > 0 ? `, dont ${nonRattachees} non rattachée(s) à un bail de l’outil` : ''}.</>}
         </p>
       )}
 
@@ -515,21 +558,21 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       )}
 
       {vue === 'annee' && <>
-      {(d.historique ?? []).length > 1 && (
+      {histoP.length > 0 && (
         <section className="tdb-section" aria-labelledby="tdb-h" data-section="H">
           {(() => {
             /* 🔴 Arno (25/10/2026) — la logique de « Mois par mois », l'année pour unité : CA HT · baux signés · SOLDE de gestions (entrées −
                sorties, la source de la tuile « Biens en gestion ») ; « Annuel » (barres) ou « Cumul » (depuis la première année). */
-            const premiere = d.historique?.[0]?.annee ?? annee;
+            const premiere = P.anneeDebut;
             const mot = mesure === 'ca' ? 'CA HT' : mesure === 'baux' ? 'baux signés' : 'solde de gestions';
             return <EnteteGraphe id="tdb-h" mesure={mesure} onMesure={setMesure} cumul={cumulMois} onBasculer={() => setCumulMois((c) => !c)} motPeriode="Annuel"
               titre={<>Année par année <small className="loc-muet">({mot}{cumulMois ? `, cumulé depuis ${premiere}` : ''} ; une année s’ouvre d’un clic)</small></>} />;
           })()}
           {mesure === 'gestion' && !d.gestion.disponible && <p className="loc-muet tdb-note">Statut du bien : migration 403 non appliquée — pas encore de solde de gestions à compter.</p>}
-          <CourbeAnnees lignes={d.historique ?? []} annee={annee} onAnnee={setAnnee} mesure={mesure} cumul={cumulMois} jour={jour}
-            soldes={d.gestion.disponible ? soldeGestionParAnnee(d.gestion.transitions, (d.historique ?? []).map((h) => h.annee), jour, regleA) : null} />
+          <CourbeAnnees lignes={histoP} annee={annee} onAnnee={ouvrirAnnee} mesure={mesure} cumul={cumulMois} fin={P.finDate}
+            soldes={d.gestion.disponible ? compsP.map((c) => c.courant.solde) : null} precedents={compsP.map((c) => c.precedent)} />
           {(() => {
-            const toutes = d.historique ?? [];
+            const toutes = histoP;
             const enCours = toutes.some((h) => h.annee === anneeEnCoursH) ? anneeEnCoursH : toutes[toutes.length - 1].annee;
             const basculer = (): void => setHistoOuvert((o) => !o);
             return <>
@@ -550,7 +593,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     tabIndex={courante ? 0 : undefined} aria-label={courante ? `${h.annee} — ${histoOuvert ? 'replier les années' : `${toutes.length} années, déplier`}` : undefined}
                     onClick={courante ? (e) => { if ((e.target as Element).closest('.tdb-chiffre') === null) basculer(); } : undefined}
                     onKeyDown={courante ? (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); basculer(); } } : undefined}>
-                    <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
+                    <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => ouvrirAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
                     <td data-mot="Baux">{h.nbBaux}</td><td data-mot="CA HT">{eur(h.ca)}</td><td data-mot="Apporteurs">{eur(h.apporteurs)}</td><td data-mot="CA net">{eur(h.caNet)}</td>
                     {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : eur(h.commission)}</td>}
                     {propre !== undefined && (() => { const x = propre.historique.find((y) => y.annee === h.annee);
@@ -573,16 +616,14 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         </section>
       )}
       {(() => {
-        /* 🔴 Arno (25/10/2026) — « RÉSUMÉ DE L'ANNÉE » : tout le Résumé du mois (le même composant), calculé sur l'année — la période des
-           tuiles (année en cours : janvier → mois choisi ; année passée : complète) et leurs filtres (les affaires filtrées ; la gestion, non). */
-        const premiere = d.historique?.[0]?.annee ?? annee;
-        const finA = `${annee}-${String(T.moisFin).padStart(2, '0')}`;
-        const libelleA = T.complete ? String(annee) : `${annee} (${periodeT})`;
+        /* 🔴 Arno (25/10/2026) — « RÉSUMÉ DE LA PÉRIODE » : tout le Résumé du mois (le même composant), sur toute la période « Début / Fin »
+           (la somme de ses mois), avec les filtres des tuiles (les affaires filtrées ; la gestion, non) ; « Depuis le début » = depuis le Début. */
+        const finP = P.finDate.slice(0, 7);
         const filtres = mentionFiltres(filtre, d);
         return (
-          <ResumePeriode d={d} resume={resumeDeLAnnee(d, lignes, ctx, annee, T.moisFin, filtre.negociateur ?? null)} unite="annee" libelle={libelleA} idp="fra"
-            moisCascade={finA} cumul={gestionDepuisLeDebut(d.gestionLignes ?? [], premiere, annee, T.moisFin, regleA)} cumulTitre={`Depuis le début (${premiere})`}
-            gliCumul={gliEntre(d.gli ?? [], d.margesGli ?? [], `${premiere}-01`, finA)} onDetail={(titre, ids) => setDetail({ titre, ids })}
+          <ResumePeriode d={d} resume={resumeDeLaPeriode(d, lignes, ctx, moisP, filtre.negociateur ?? null)} unite="periode" libelle={P.libelle} idp="fra"
+            moisCascade={finP} cumul={gestionDepuisLeDebut(d.gestionLignes ?? [], P.anneeDebut, P.anneeFin, Number(finP.slice(5, 7)), regleA)} cumulTitre={`Depuis le début (${P.anneeDebut})`}
+            gliCumul={gliEntre(d.gli ?? [], d.margesGli ?? [], `${P.anneeDebut}-01`, finP)} onDetail={(titre, ids) => setDetail({ titre, ids })}
             mention={filtres === null ? null : <p className="loc-muet tdb-note" data-filtres-actifs>Filtres actifs (comme les tuiles) : {filtres}.</p>} />
         );
       })()}
@@ -607,14 +648,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         </table>
       </section>
 
-      <div className="tdb-portee" role="group" aria-label="Période des sections suivantes">
-        <span className="loc-muet">Apporteurs, indicateurs{d.voirCommissions ? ', négociateurs' : ''} :</span>
-        {(['mois', 'annee'] as const).map((p) => (
-          <button key={p} type="button" className="tdb-pilule" aria-pressed={portee === p} onClick={() => setPortee(p)} data-portee={p}>
-            {p === 'mois' ? `${NOMS_MOIS[mois - 1]} ${annee}` : `Année ${annee}`}</button>
-        ))}
-      </div>
-
+      {/* 🔴 Arno (25/10/2026, accord 1a) — plus de boutons de portée : Apporteurs, indicateurs et négociateurs suivent la période Début / Fin. */}
       <section className="tdb-section" aria-labelledby="tdb-c" data-section="C">
         <h3 id="tdb-c">Les apporteurs — {libellePeriode}</h3>
         {C.length === 0 ? <p className="loc-muet">Aucun bail apporté sur la période.</p> : (
@@ -647,7 +681,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             <CourbeGestion points={D} onMois={(p) => setDetail({ titre: `Gestion — ${NOMS_MOIS[Number(p.mois.slice(5)) - 1].toLowerCase()} ${p.mois.slice(0, 4)}`, lots: [{ titre: 'Entrés en gestion', ids: p.lotsEntres }, { titre: 'Sortis de la gestion', ids: p.lotsSortis }] })} />
           </>
         )}
-        <GestionRecurrenteAnnees annees={gestionRecurrenteParAnnee(d.recurrents ?? [], d.apporteurs, d.aujourdhui ?? aujourdhuiParis())} />
+        <GestionRecurrenteAnnees annees={gestionRecurrenteParAnnee(d.recurrents ?? [], d.apporteurs, d.aujourdhui ?? aujourdhuiParis()).filter((x) => x.annee >= P.anneeDebut && x.annee <= P.anneeFin)} />
       </section>
 
       <section className="tdb-section" aria-labelledby="tdb-e" data-section="E">
@@ -657,7 +691,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
             {chiffre(E.vacanceMoyenneJours === null ? '—' : `${Math.round(E.vacanceMoyenneJours)} j`, 'Baux dont la vacance est connue', E.vacanceIds, 'vacance')}
             <small className="loc-muet">{E.vacanceIds.length} bail(aux) dont la sortie précédente est connue</small></li>
           <li><span className="tdb-tuile-mot">Préavis reçus</span><strong className="tdb-indic">{E.preavis}</strong>
-            <small className="loc-muet">{portee === 'mois' ? 'dans le mois' : 'dans l’année'}</small></li>
+            <small className="loc-muet">sur la période</small></li>
           <li><span className="tdb-tuile-mot">Part GLI / Visale</span>
             {chiffre(pct(E.partGaranties), 'Baux avec GLI ou Visale', E.garantiesIds, 'garanties')}
             <small className="loc-muet">parmi {E.assuranceConnue} bail(aux) renseigné(s)</small></li>
@@ -678,8 +712,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                 {F.map((l) => (
                   <tr key={`${l.cle}-${l.mois}`} data-negociateur-ligne={`${l.libelle}|${l.mois}`}>
                     <th scope="row">{l.libelle}</th>
-                    <td data-mot="Mois">{NOMS_MOIS[Number(l.mois.slice(5)) - 1]}</td>
-                    <td data-mot="Baux">{chiffre(String(l.totaux.nb), `${l.libelle} — ${NOMS_MOIS[Number(l.mois.slice(5)) - 1]} ${annee}`, l.totaux.ids)}</td>
+                    <td data-mot="Mois">{NOMS_MOIS[Number(l.mois.slice(5, 7)) - 1]}{P.anneeDebut !== P.anneeFin ? ` ${l.mois.slice(0, 4)}` : ''}</td>
+                    <td data-mot="Baux">{chiffre(String(l.totaux.nb), `${l.libelle} — ${NOMS_MOIS[Number(l.mois.slice(5, 7)) - 1]} ${l.mois.slice(0, 4)}`, l.totaux.ids)}</td>
                     <td data-mot="CA HT">{eur(l.totaux.ca)}</td>
                     <td data-mot="Apporteurs">{eur(l.totaux.apporteurs)}</td>
                     <td data-mot="CA − apporteurs">{eur(l.totaux.caNet)}</td>
@@ -696,7 +730,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
 
       <section className="tdb-section tdb-export" aria-labelledby="tdb-g" data-section="G">
         <h3 id="tdb-g">Export</h3>
-        <p className="loc-muet">Le suivi {annee}, un onglet par mois, avec les filtres ci-dessus : la mise en page du suivi mensuel (totaux et ventilation en formules).</p>
+        <p className="loc-muet">Le suivi de la période {P.libelle}, un onglet par mois, avec les filtres ci-dessus : la mise en page du suivi mensuel (totaux et ventilation en formules).</p>
         <a className="svv-btn svv-btn-outline gst-btn tdb-bouton-export" href={exportHref} download data-export>Exporter en .xlsx</a>
       </section>
       </>}
@@ -1185,12 +1219,16 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
  * suit l'année survolée ou choisie : la valeur de l'année et de la précédente, l'écart ; en cumul, les cumuls à fin d'année. L'année en cours
  * est arrêtée au mois courant (« janv. → <mois> »). Sans `mesure` : le CA en barres, comme avant.
  */
-export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, jour }: {
+export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, fin, precedents }: {
   lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void;
-  mesure?: MesureMois; cumul?: boolean; soldes?: readonly number[] | null; jour?: string;
+  mesure?: MesureMois; cumul?: boolean; soldes?: readonly number[] | null;
+  /** 🔴 Arno (25/10/2026) — la FIN de la période (AAAA-MM-JJ) : sa dernière année, si elle s'arrête avant le 31 décembre, est dite « (janv. → <mois>) ». */
+  fin?: string;
+  /** L'année précédente de chaque année, sur la MÊME PORTION (la comparaison de l'encart) ; null : aucune donnée. Absent : l'année d'avant entière. */
+  precedents?: readonly ({ annee: number; ca: number; nbBaux: number; solde: number } | null)[];
 }) {
-  const enCours = jour === undefined ? null : Number(jour.slice(0, 4));
-  const periode = (a: number): string => (jour !== undefined && a === enCours ? ` (janv. → ${COURT[Number(jour.slice(5, 7)) - 1]})` : '');
+  const anneeFin = fin === undefined ? null : Number(fin.slice(0, 4));
+  const periode = (a: number): string => (fin !== undefined && a === anneeFin && fin.slice(5) !== '12-31' ? ` (janv. → ${COURT[Number(fin.slice(5, 7)) - 1]})` : '');
   const sansGestion = mesure === 'gestion' && soldes === null;
   const valeurs = lignes.map((l, i) => (mesure === 'ca' ? l.ca : mesure === 'baux' ? l.nbBaux : soldes?.[i] ?? 0));
   const compte = mesure === 'baux' ? 'Baux signés' : 'Solde de gestions';
@@ -1217,13 +1255,17 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
     aria={`${mesure === 'ca' ? 'CA HT' : compte} par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
     barres={lignes.map((l, i) => {
       const titre = `Année ${l.annee}${periode(l.annee)}`;
+      // 🔴 Arno (25/10/2026) — l'année précédente sur la MÊME PORTION (quand elle est fournie) ; sinon l'année d'avant entière, comme avant.
+      const pr = precedents === undefined ? undefined : precedents[i];
       if (mesure === 'ca') {
         const p = suite(i) ? lignes[i - 1] : null;
-        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux },
-          precedent: p === null ? null : { libelle: String(p.annee), ca: p.ca, nb: p.nbBaux } } };
+        const precedent = pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: pr.ca, nb: pr.nbBaux })
+          : p === null ? null : { libelle: String(p.annee), ca: p.ca, nb: p.nbBaux };
+        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux }, precedent } };
       }
-      return { cle: l.annee, libelle: String(l.annee), valeur: sansGestion ? null : valeurs[i], info: { titre, compte, courant: { libelle: String(l.annee), ca: sansGestion ? null : valeurs[i], nb: null },
-        precedent: !suite(i) || sansGestion ? null : { libelle: String(lignes[i - 1].annee), ca: valeurs[i - 1], nb: null } } };
+      const precedent = sansGestion ? null : pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: mesure === 'baux' ? pr.nbBaux : pr.solde, nb: null })
+        : !suite(i) ? null : { libelle: String(lignes[i - 1].annee), ca: valeurs[i - 1], nb: null };
+      return { cle: l.annee, libelle: String(l.annee), valeur: sansGestion ? null : valeurs[i], info: { titre, compte, courant: { libelle: String(l.annee), ca: sansGestion ? null : valeurs[i], nb: null }, precedent } };
     })} />;
 }
 
@@ -1338,6 +1380,8 @@ export const CSS_TABLEAU_BORD = `
 .tdb-chiffre:focus-visible{outline:2px solid var(--color-svv-red)}
 .tdb-chiffre:disabled{cursor:default;text-decoration:none;color:inherit}
 .tdb-portee{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tdb-periode{margin:-6px 0 0;color:var(--color-svv-muted);font-size:.9rem}
+.tdb-periode strong{color:var(--color-svv-ink)}
 .tdb-pilule{appearance:none;min-height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .tdb-pilule[aria-pressed=true]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
 .tdb-ligne-chiffres{display:flex;flex-wrap:wrap;gap:8px 22px;margin:0 0 8px}

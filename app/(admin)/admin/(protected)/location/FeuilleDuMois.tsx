@@ -10,7 +10,7 @@ import { ModaleDossierLocation } from './ModaleDossierLocation';
 import { TRACE_SUIVI } from './TraceFiche';
 import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
-import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_ANNEE, MOTS_MOIS, type MotsPeriode } from './CascadeNegociateur';
+import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_MOIS, MOTS_PERIODE, type MotsPeriode } from './CascadeNegociateur';
 import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../../../lib/location/suivi/resumePeriode';
 import { estInterne } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
@@ -353,24 +353,27 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 }
 
 /**
- * 🔴 Arno (25/10/2026) — LE « RÉSUMÉ » D'UNE PÉRIODE, rangé par familles : le Résumé du mois (Suivi du mois) et le Résumé de l'année (Suivi
- * annuel) sont CE composant, avec leurs chiffres (`ResumeCalcule` : un mois, ou la somme des mois de l'année) et les mots de leur période.
+ * 🔴 Arno (25/10/2026) — LE « RÉSUMÉ » D'UNE PÉRIODE, rangé par familles : le Résumé du mois (Suivi du mois) et le Résumé de la période (Suivi
+ * annuel, « Début / Fin ») sont CE composant, avec leurs chiffres (`ResumeCalcule` : un mois, ou la somme des mois de l'année) et les mots de leur période.
  * « Depuis le 1er janvier » (mois) ou « Depuis le début (<première année>) » (année) : la même grille, le même style de titre.
  */
 export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cumul, cumulTitre, gliCumul, onDetail, mention }: {
-  d: DonneesTableau; resume: ResumeCalcule; unite: 'mois' | 'annee'; libelle: string; idp: string; moisCascade: string;
+  d: DonneesTableau; resume: ResumeCalcule; unite: 'mois' | 'periode'; libelle: string; idp: string; moisCascade: string;
   cumul: GestionDepuisJanvier; cumulTitre: string; gliCumul: GliPeriode; onDetail: (titre: string, ids: (number | string)[]) => void; mention?: ReactNode;
 }) {
   const { r, ventilation } = resume;
-  const mots = unite === 'mois' ? MOTS_MOIS : { ...MOTS_ANNEE, libelle };
+  const mots = unite === 'mois' ? MOTS_MOIS : { ...MOTS_PERIODE, libelle };
   const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
   const [gliOuvert, setGliOuvert] = useState<'mois' | 'cumul' | null>(null);
   const titreMois = `Portefeuille de gestion — ${unite === 'mois' ? libelle.toLowerCase() : libelle}`;
   const titrePortefeuille = `${titreMois} ${TITRE_SUITE}`;
-  const tailleTitrePortefeuille = { '--lettres': titrePortefeuille.length, '--lettres-ligne': Math.max(titreMois.length, TITRE_SUITE.length) } as CSSProperties;
+  // 🔴 Arno (25/10/2026) — une PÉRIODE a un libellé long : « (honoraires de gestion HT) » passe à la ligne (comme au téléphone) et la taille se
+  // règle sur la plus longue des deux lignes ; le mois garde son titre sur une ligne.
+  const tailleTitrePortefeuille = { '--lettres': unite === 'mois' ? titrePortefeuille.length : Math.max(titreMois.length, TITRE_SUITE.length),
+    '--lettres-ligne': Math.max(titreMois.length, TITRE_SUITE.length) } as CSSProperties;
   return (
-      <section className="tdb-section fdm-bas" aria-labelledby={`${idp}-bas`} data-bloc={unite === 'mois' ? 'bas-de-feuille' : 'resume-annee'}>
-        <h3 id={`${idp}-bas`}>{unite === 'mois' ? 'Résumé du mois' : 'Résumé de l’année'} — {libelle}</h3>
+      <section className="tdb-section fdm-bas" aria-labelledby={`${idp}-bas`} data-bloc={unite === 'mois' ? 'bas-de-feuille' : 'resume-periode'}>
+        <h3 id={`${idp}-bas`}>{unite === 'mois' ? 'Résumé du mois' : 'Résumé de la période'} — {libelle}</h3>
         {mention}
         {/* 🔴 Arno (25/10/2026) — DEUX COLONNES INDÉPENDANTES (des piles, répartition « A ») : à gauche Résultat puis CA par statut, à droite
             Portefeuille puis Honoraires ; chaque bloc démarre juste sous le précédent ; au téléphone, une seule colonne (Résultat, CA par statut,
@@ -378,7 +381,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
         <div className="fdm-familles">
           <div className="fdm-colonne" data-colonne="gauche">
           <section className="fdm-famille" aria-labelledby={`${idp}-f1`} data-famille="resultat">
-            <h4 id={`${idp}-f1`}>{unite === 'mois' ? 'Résultat du mois' : 'Résultat de l’année'}</h4>
+            <h4 id={`${idp}-f1`}>{unite === 'mois' ? 'Résultat du mois' : 'Résultat de la période'}</h4>
             <dl className="fdm-cascade-mois">
               <div className="fdm-fort"><dt>CA HT global</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL CA HT — ${libelle}`, resume.ids)} data-total="ca">{eur(r.resultat.ca)}</button></dd></div>
               {/* 🔴 Arno (25/10/2026, suite) — les honoraires d'apporteurs VENTILÉS : externes + internes = l'ancien total, au centime. */}
@@ -414,7 +417,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           {/* 🔴 Arno (25/10/2026) — la taille du titre (portée par le bloc) vaut aussi pour le sous-titre « Depuis le 1er janvier ». */}
           <section className="fdm-famille" aria-labelledby={`${idp}-f4`} data-famille="portefeuille" style={tailleTitrePortefeuille}>
             {/* 🔴 Arno (25/10/2026) — le titre porte le mois, sur UNE ligne (police réduite si besoin, jamais coupé). */}
-            <h4 id={`${idp}-f4`} className="fdm-titre-une-ligne" data-titre-portefeuille style={tailleTitrePortefeuille}>
+            <h4 id={`${idp}-f4`} className={unite === 'mois' ? 'fdm-titre-une-ligne' : 'fdm-titre-une-ligne fdm-titre-deux-lignes'} data-titre-portefeuille style={tailleTitrePortefeuille}>
               <span>{titreMois}</span> <span className="fdm-titre-suite">{TITRE_SUITE}</span></h4>
             {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
                 au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
@@ -891,6 +894,7 @@ export const CSS_FEUILLE_MOIS = `
 .fdm-familles [data-famille="portefeuille"]{container-type:inline-size}
 .fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres) * .46)), .95rem)}
 .fdm-famille > h4.fdm-titre-une-ligne{white-space:nowrap;overflow:visible}
+.fdm-titre-deux-lignes .fdm-titre-suite{display:block}
 @media (max-width:430px){
   .fdm-famille > h4.fdm-titre-une-ligne,.fdm-titre-bloc.fdm-titre-taille{font-size:clamp(13px, calc(100cqi / (var(--lettres-ligne) * .46)), .95rem)}
   .fdm-titre-une-ligne .fdm-titre-suite{display:block}

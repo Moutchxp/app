@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition } from './tableauBord';
+import { aUnDuMensuel, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition, type CascadeNegociateur } from './tableauBord';
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
@@ -244,7 +244,12 @@ export async function preavisParMois(annees: readonly number[]): Promise<Record<
  * taux du négociateur, ni rétrocession, ni commission d'historique ne partent — le variable n'est pas calculable. `negociateurPropre` :
  * le compte non administrateur, qui reçoit SA seule cascade de négociateur, mois par mois, calculée ici (`variablesPropres`).
  */
-export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string, negociateurPropre: number | null = null): Promise<DonneesTableau> {
+/**
+ * `toutes` (🔴 Arno, 25/10/2026 — Suivi annuel « Début / Fin ») : les affaires, préavis, écarts expliqués et, pour un négociateur non
+ * administrateur, SES cascades et SES lignes de TOUTES les années d'activité ; la page choisit sa période. Sans : l'année et N−1, comme avant.
+ */
+export async function donneesTableau(annee: number, voirCommissions: boolean, aujourdhui: string, negociateurPropre: number | null = null,
+  o: { toutes?: boolean } = {}): Promise<DonneesTableau> {
   const disponible = await suiviDisponible();
   const moisFin = annee === Number(aujourdhui.slice(0, 4)) ? aujourdhui.slice(0, 7) : `${annee}-12`;
   const [a, m] = moisFin.split('-').map(Number);
@@ -258,13 +263,15 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const premiere = anneesHisto.length > 0 ? `${Math.min(...anneesHisto)}-01-01` : `${annee - 1}-01-01`;
   const depuis = [douzeMois, `${annee - 1}-01-01`, premiere].sort()[0];
   const debutHisto = premiere < `${annee}-01-01` ? premiere : `${annee}-01-01`;
+  const toutesAnnees = [...new Set([...anneesHisto, annee - 1, annee])].sort((x, y) => x - y);
+  const anneesLues = o.toutes === true ? toutesAnnees : [annee - 1, annee];
   const [activites, annees, reglesLues, apporteurs, retrocessions, gestion, preavis, gestionTransitions, collegues, annuaire, pertesFichier, ecartsFichier] = await Promise.all([
-    lireActivites([annee - 1, annee]), anneesActives(), lireRegles(), lireApporteurs(),
-    voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois([annee - 1, annee]),
+    lireActivites(anneesLues), anneesActives(), lireRegles(), lireApporteurs(),
+    voirCommissions || negociateurPropre !== null ? lireRetrocessions() : Promise.resolve([]), lireGestion(depuis), preavisParMois(anneesLues),
     // 🔴 Arno (25/10/2026) — les gestions gagnées / perdues depuis la PREMIÈRE année d'activité (« Depuis le début » du Résumé de l'année) ;
     // chaque calcul les filtre par mois ou par année : la feuille du mois et les tuiles ne changent pas.
     lireLignesGestion(debutHisto, `${annee}-12-31`), lireComptesInterface(), annuaireDisponible(),
-    lireGestionsPerduesFichier(debutHisto, `${annee}-12-31`), lireEcartsFichier(`${annee}-01-01`, `${annee}-12-31`),
+    lireGestionsPerduesFichier(debutHisto, `${annee}-12-31`), lireEcartsFichier(o.toutes === true ? debutHisto : `${annee}-01-01`, `${annee}-12-31`),
   ]);
   const gestionLignes = [...gestionTransitions, ...pertesFichier];
   // 🔴 Arno (25/10/2026, 427) — les nouvelles GLI de l'année (baux avec gestion) et la marge versionnée : visibles de tous ceux qui voient le Portefeuille.
@@ -284,11 +291,17 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const retroVisibles = voirCommissions ? retrocessions : [];
   const historique = historiqueAnnees(toutes, { regles, apporteurs, retrocessions: retroVisibles, recurrents, aujourdhui }, voirCommissions);
   // 🔴 Arno (25/10/2026) — la cascade du SEUL négociateur connecté (non administrateur), calculée avec le vrai taux et SES rétrocessions.
+  const ctxPropre = { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui };
+  const anneesPropres = o.toutes === true ? toutesAnnees : [annee];
   const variablesPropres = !voirCommissions && negociateurPropre !== null
-    ? variablesDuNegociateur(activites, { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui }, annee, negociateurPropre) : {};
-  // 🔴 Arno (25/10/2026, suite) — SA commission dans le Suivi annuel, l'historique et l'export (rien d'un autre).
-  const suiviPropre = !voirCommissions && negociateurPropre !== null
-    ? suiviDuNegociateur(activites, toutes, { regles: reglesLues, apporteurs, retrocessions, recurrents, aujourdhui }, annee, negociateurPropre) : null;
+    ? Object.assign({}, ...anneesPropres.map((y) => variablesDuNegociateur(activites, ctxPropre, y, negociateurPropre))) as Record<string, CascadeNegociateur> : {};
+  // 🔴 Arno (25/10/2026, suite) — SA commission dans le Suivi annuel, l'historique et l'export (rien d'un autre) ; `toutes` : ses lignes de chaque année.
+  const suiviPropre = (() => {
+    if (voirCommissions || negociateurPropre === null) return null;
+    const parAn = anneesPropres.map((y) => suiviDuNegociateur(activites.filter((x) => x.dateSignature.startsWith(`${y}-`)), toutes, ctxPropre, y, negociateurPropre));
+    const un = parAn.find((x) => x !== null) ?? null;
+    return un === null ? null : { ...un, lignes: parAn.flatMap((x) => x?.lignes ?? []) };
+  })();
   const negociateurs = new Map<string, string>();
   for (const x of activites) negociateurs.set(x.negociateurId !== null ? `id:${x.negociateurId}` : `nom:${x.negociateurLibelle.trim().toLowerCase()}`, x.negociateurLibelle || '—');
   return {

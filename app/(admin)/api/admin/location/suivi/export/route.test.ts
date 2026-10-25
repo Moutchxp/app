@@ -50,4 +50,19 @@ describe('GET /api/admin/location/suivi/export', () => {
     expect(donneesTableau.mock.calls[0][3]).toBeNull();
     expect(classeurSuivi.mock.calls[0][0].commissionPropre).toBeUndefined();
   });
+  it('🔴 Arno (25/10/2026, 4a) — la PÉRIODE du Suivi annuel : toutes les années lues, ses seules affaires, un onglet par mois de la période', async () => {
+    const r = await GET(new Request('http://x/export?debut=2025-01-01&fin=2026-03-31&gestion=avec'));
+    expect(r.headers.get('Content-Disposition')).toBe('attachment; filename="suivi-location-2025-01-01_2026-03-31.xlsx"');
+    expect(donneesTableau.mock.calls[0][0]).toBe(2026);
+    expect(donneesTableau.mock.calls[0][4]).toEqual({ toutes: true });
+    const o = classeurSuivi.mock.calls[0][0];
+    expect(o.activites.map((a: { id: number }) => a.id)).toEqual([1, 2]);
+    expect(o.mois).toHaveLength(15);
+    expect([o.mois[0], o.mois.at(-1)]).toEqual(['2025-01', '2026-03']);
+  });
+  it('une période illisible ou inversée : l’année (comme avant)', async () => {
+    await GET(new Request('http://x/export?debut=2026-01-01&fin=2025-01-01&annee=2026'));
+    expect(donneesTableau.mock.calls[0][4]).toEqual({ toutes: false });
+    expect(classeurSuivi.mock.calls[0][0].mois).toBeUndefined();
+  });
 });

@@ -20,21 +20,27 @@ const LIBELLE_TYPE: Record<ActiviteCalcul['type'], string> = { bail: 'Bail', ave
 
 export async function classeurSuivi(o: {
   annee: number; moisMax: number; activites: readonly ActiviteCalcul[]; ctx: ContexteCalcul; voirCommissions: boolean; filtres: string;
+  /** 🔴 Arno (25/10/2026) — les mois « AAAA-MM » d'une période (Suivi annuel « Début / Fin ») : un onglet par mois ; absent : janvier → `moisMax` de `annee`. */
+  mois?: readonly string[];
   /** 🔴 Arno (25/10/2026) — un négociateur non administrateur : SA commission brute de chaque mois (calculée côté serveur), rien d'autre. */
   commissionPropre?: { libelle: string; parMois: Record<string, { commission: number; retrocessions: number }> };
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Sans Vis-à-Vis® — Outils de suivi';
-  for (let m = 1; m <= o.moisMax; m += 1) {
-    const ws = wb.addWorksheet(NOMS_MOIS[m - 1]);
-    const prefixe = `${o.annee}-${String(m).padStart(2, '0')}`;
+  const liste = o.mois ?? Array.from({ length: o.moisMax }, (_, i) => `${o.annee}-${String(i + 1).padStart(2, '0')}`);
+  const plusieursAnnees = new Set(liste.map((x) => x.slice(0, 4))).size > 1;
+  for (const prefixe of liste) {
+    const annee = Number(prefixe.slice(0, 4));
+    const m = Number(prefixe.slice(5, 7));
+    // Plusieurs années : l'onglet porte aussi l'année (deux « Janvier » ne peuvent coexister).
+    const ws = wb.addWorksheet(plusieursAnnees ? `${NOMS_MOIS[m - 1]} ${annee}` : NOMS_MOIS[m - 1]);
     const lignes = o.activites.filter((a) => a.dateSignature.startsWith(prefixe));
     ws.columns = [
       { key: 'A', width: 30 }, { key: 'B', width: 16 }, { key: 'C', width: 30 }, { key: 'D', width: 16 }, { key: 'E', width: 16 },
       { key: 'F', width: 12 }, { key: 'G', width: 24 }, { key: 'H', width: 16 }, { key: 'I', width: 12 }, { key: 'J', width: 22 }, { key: 'K', width: 14 }, { key: 'L', width: 14 },
       { key: 'M', width: 32 }, { key: 'N', width: 20 },
     ];
-    ws.getCell('A1').value = `Suivi location — ${NOMS_MOIS[m - 1]} ${o.annee}${o.filtres ? ` (${o.filtres})` : ''}`;
+    ws.getCell('A1').value = `Suivi location — ${NOMS_MOIS[m - 1]} ${annee}${o.filtres ? ` (${o.filtres})` : ''}`;
     ws.getCell('A1').font = { bold: true, size: 13 };
     const entetes = ['PROPRIÉTAIRES', 'HONO. PROPRIÉTAIRE HT', 'LOCATAIRES', 'HONO. LOCATAIRE HT', 'TOTAL CA HT', o.voirCommissions ? 'GESTION (prime)' : '',
       'APPORTEURS D’AFFAIRES', 'COMS APPORTEURS', 'AVEC GESTION', 'NÉGOCIATEUR', 'SIGNATURE', 'NATURE',
@@ -68,7 +74,7 @@ export async function classeurSuivi(o: {
       for (const c of [2, 4, 5, 6, 8, 14]) row.getCell(c).numFmt = EUROS;
     });
     const fin = Math.max(debut, debut + lignes.length - 1);
-    const t = totauxPeriode(lignes, o.ctx, { annee: o.annee, mois: m });
+    const t = totauxPeriode(lignes, o.ctx, { annee: annee, mois: m });
     const rT = debut + lignes.length + 1;
     const somme = (col: string, result: number) => ({ formula: lignes.length === 0 ? '0' : `SUM(${col}${debut}:${col}${fin})`, result });
     ws.getCell(`A${rT}`).value = 'TOTAL CA HT';

@@ -109,12 +109,16 @@ describe('/api/admin/location/suivi', () => {
   it('🔴 le tableau de bord : l’année demandée ; administrateur relu pour la requête ; sinon SA seule cascade (son id de compte)', async () => {
     donneesTableau.mockReset().mockResolvedValue({ activites: [] });
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2025'));
-    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5);
+    expect(donneesTableau).toHaveBeenCalledWith(2025, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: false });
+    // 🔴 25/10/2026 — le Suivi annuel (« Début / Fin ») lit toutes les années ; la cascade reste celle du compte.
+    await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=2026&toutes=1'));
+    expect(donneesTableau).toHaveBeenLastCalledWith(2026, false, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 5, { toutes: true });
+    donneesTableau.mockClear();
     repo.estAdministrateurActif.mockResolvedValue(true);
     await GET(new Request('http://x/api/admin/location/suivi?vue=tableau&annee=n%27importe'));
-    expect(donneesTableau.mock.calls[1][0]).toBe(new Date().getFullYear());
-    expect(donneesTableau.mock.calls[1][1]).toBe(true);
-    expect(donneesTableau.mock.calls[1][3]).toBeNull();
+    expect(donneesTableau.mock.calls[0][0]).toBe(new Date().getFullYear());
+    expect(donneesTableau.mock.calls[0][1]).toBe(true);
+    expect(donneesTableau.mock.calls[0][3]).toBeNull();
   });
   it('une action inconnue ou un corps illisible : 400', async () => {
     expect((await poster({ action: 'supprimer' })).status).toBe(400);

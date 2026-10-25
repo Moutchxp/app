@@ -21,7 +21,7 @@ import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
  *   GET  ?vue=parametres                         apporteurs (taux datés), règles de commission, rétrocessions, négociateurs ;
  *   GET  ?vue=proposition&lotId&locataires&date  ce que « Nouveau locataire » propose (gestion du bien, origine client déduite) ;
- *   GET  ?vue=tableau&annee=AAAA                  le tableau de bord (lignes de l'année et de N−1, gestion récurrente, préavis) ;
+ *   GET  ?vue=tableau&annee=AAAA[&toutes=1]       le tableau de bord (lignes de l'année et de N−1 — toutes les années avec `toutes=1`) ;
  *   POST action=enregistrer-activite {bailId, activite}   le suivi commercial d'un bail (module Location) ;
  *   POST action=creer-apporteur {apporteur}               « + Nouvel apporteur » (module Location) ;
  *   POST action=bareme-apporteur | regle | retrocession | annuler-retrocession   (ADMINISTRATEUR : la roue Paramètres).
@@ -86,7 +86,8 @@ export async function GET(request: Request): Promise<Response> {
       const jour = aujourdhuiParis();
       const a = Number(url.searchParams.get('annee'));
       const annee = Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : Number(jour.slice(0, 4));
-      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId) });
+      // 🔴 Arno (25/10/2026) — le Suivi annuel (« Début / Fin ») lit toutes les années (`toutes=1`) ; la confidentialité ne change pas.
+      return json({ etat: 'ok', data: await donneesTableau(annee, voirCommissions, jour, voirCommissions ? null : garde.auteurId, { toutes: url.searchParams.get('toutes') === '1' }) });
     }
     // 🔴 Arno (24/10/2026, après 56700ffb) — DEUX règles : « Négociateur » = accès Location ou administrateur ; « Collègue » = tous.
     const [disponible, apporteurs, regles, retrocessions, negociateurs, collegues, annuaire, personnalisable, nomPrenom, dejaClient, interne, toujours, identite, passage, margesGli, margeGli] = await Promise.all([

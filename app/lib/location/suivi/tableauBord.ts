@@ -561,7 +561,9 @@ const moisDe = (annee: number, m: number): string => `${annee}-${String(m).padSt
 
 // ── A — le mois, comparé au même mois de l'année précédente ─────────────────────────────────────────────────────────
 
-export interface Periode { annee: number; mois: number | null }
+export interface Periode { annee: number; mois: number | null;
+  /** 🔴 Arno (25/10/2026) — une PÉRIODE quelconque du Suivi annuel (« Début / Fin », AAAA-MM-JJ inclus) : les lignes de cet intervalle. */
+  debut?: string; fin?: string }
 /**
  * `apporteursRecurrents` : la part gestion « Récurrent » due sur la période (déjà comprise dans `apporteurs`).
  * 🔴 419 — `collegues` : les commissions dues aux COLLÈGUES pour l'apport de leurs apporteurs (à la signature + récurrent de la
@@ -573,6 +575,7 @@ export interface TotauxPeriode extends Totaux { retrocessions: number; commissio
 
 /** Les lignes d'une période : l'année entière (`mois` null) ou un mois. */
 export function lignesDePeriode(activites: readonly ActiviteCalcul[], p: Periode): ActiviteCalcul[] {
+  if (p.debut !== undefined && p.fin !== undefined) { const { debut, fin } = p; return activites.filter((a) => a.dateSignature.slice(0, 10) >= debut && a.dateSignature.slice(0, 10) <= fin); }
   const prefixe = p.mois === null ? `${p.annee}-` : `${moisDe(p.annee, p.mois)}`;
   return activites.filter((a) => a.dateSignature.startsWith(prefixe));
 }
