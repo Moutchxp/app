@@ -101,7 +101,7 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
         const c = container.querySelector(sel) as HTMLInputElement | null;
         if (c !== null && c.value === '' && !c.disabled) await saisir(c, '0');
       }
-      const charges = pilule('Paiement des charges', 'Payées par l’agence');
+      const charges = pilule('Paiement des charges', 'Agence');
       if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
     }
   };

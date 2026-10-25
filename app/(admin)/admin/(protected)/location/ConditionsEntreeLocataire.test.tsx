@@ -112,7 +112,7 @@ const remplirMontants = async () => {
   if (champ('[data-loyer="provisions"] input')?.value === '' && !champ('[data-loyer="provisions"] input')?.disabled) await saisir(champ('[data-loyer="provisions"] input')!, '0');
   if (champ('[data-somme="depotGarantie"] input')?.value === '') await saisir(champ('[data-somme="depotGarantie"] input')!, '0');
   if (champ('[data-somme="honorairesAgence"] input')?.value === '') await saisir(champ('[data-somme="honorairesAgence"] input')!, '0');
-  const charges = pilule('Paiement des charges', 'Payées par l’agence');
+  const charges = pilule('Paiement des charges', 'Agence');
   if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
 };
 
@@ -876,7 +876,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     expect([...paire.querySelectorAll(':scope > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'))).toEqual(['reglement', 'charges']);
     expect(paire.querySelector('[data-cond="charges"] h4')?.innerHTML).toBe('Paiement des charges <span class="loc-oblig">*</span>');
     const boutons = [...container.querySelectorAll('[aria-label="Paiement des charges"] button')];
-    expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Payées par l’agence', 'false'], ['Payées par le propriétaire', 'false']]);
+    expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
     expect(container.querySelector('[data-charges-aide]')?.textContent).toContain('Fiche du bien aujourd’hui : payées par le propriétaire');
     await clic(boutons[1]);
     await clic(boutons[0]);

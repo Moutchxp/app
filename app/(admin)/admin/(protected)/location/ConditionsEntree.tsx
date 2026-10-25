@@ -16,9 +16,12 @@ import {
 import type { SaisieIndice } from '../../../../lib/location/indicesLoyers';
 import { PAYEES_PAR, type ChargesCopro } from '../../../../lib/location/bienComplet';
 
-/** « Payées par l'agence » / « Payées par le propriétaire » : deux boutons exclusifs, comme Chèque / Virement ; aucun choix par défaut. */
+/**
+ * 🔴 Arno (25/10/2026) — « Agence » / « Propriétaire » : deux boutons exclusifs, côte à côte sur UNE ligne, comme Chèque / Virement / Autre ;
+ * aucun choix par défaut. Les valeurs en base ne changent pas (agence / proprietaire) ; le mail garde « payées par l'agence / … ».
+ */
 const CHARGES_AFFICHEES = ['agence', 'proprietaire'] as const satisfies readonly ChargesCopro[];
-const LIBELLE_PAYEES: Record<ChargesCopro, string> = { agence: 'Payées par l’agence', proprietaire: 'Payées par le propriétaire' };
+const LIBELLE_PAYEES: Record<ChargesCopro, string> = { agence: 'Agence', proprietaire: 'Propriétaire' };
 import { BlocIndiceLoyers, CSS_INDICES } from './IndicesLoyers';
 
 /** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
