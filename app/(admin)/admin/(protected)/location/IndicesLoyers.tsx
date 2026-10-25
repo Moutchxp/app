@@ -9,6 +9,7 @@ import {
 import { ListeChoix } from './ListeChoix';
 import { PAGE_PARAMETRES } from './parametresAdresse';
 import { libelleLoyerRevise, LOYER_REVISE_VIDE, type LoyerReviseLu, type SaisieLoyerRevise } from '../../../../lib/location/loyerRevise';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴 Arno (25/10/2026, migration 423) — L'INDICE DES LOYERS ═══════════════════════════════════════════════════════════════════
@@ -103,9 +104,9 @@ function SaisieNouvelIndice({ type, onEnregistre, onAnnuler, poster, typeChoisi 
         <div className="loc-champ"><span className="loc-cond-mot">Trimestre</span>
           <ListeChoix options={OPTIONS_TRIMESTRE} valeur={trimestre} vide="T…" libelle="Trimestre de l’indice" onChange={setTrimestre} donnees={{ 'data-nouvel-indice-trimestre': '' }} /></div>
         <label className="loc-champ" htmlFor={`${id}-annee`}><span className="loc-cond-mot">Année</span>
-          <input id={`${id}-annee`} inputMode="numeric" maxLength={4} value={annee} onChange={(e) => setAnnee(e.target.value.replace(/\D/g, ''))} data-nouvel-indice-annee /></label>
+          <ChampNombre decimales={0} id={`${id}-annee`} maxLength={4} value={annee} onChange={(e) => setAnnee(e.target.value.replace(/\D/g, ''))} data-nouvel-indice-annee /></label>
         <label className="loc-champ" htmlFor={`${id}-valeur`}><span className="loc-cond-mot">Valeur</span>
-          <input id={`${id}-valeur`} inputMode="decimal" placeholder="ex. 146,68" value={valeur} onChange={(e) => setValeur(e.target.value)} data-nouvel-indice-valeur /></label>
+          <ChampNombre decimales={3} id={`${id}-valeur`} placeholder="ex. 146,68" value={valeur} onChange={(e) => setValeur(e.target.value)} data-nouvel-indice-valeur /></label>
       </div>
       <p className="loc-muet ilo-aide">Trois décimales au plus. Un indice déjà saisi (même type, même trimestre) n’est jamais remplacé ici.</p>
       {refus !== null && (
@@ -254,7 +255,7 @@ export function OngletIndices() {
                       {corrige?.cle === cle ? (
                         <div className="ilo-ligne">
                           <label className="plo-champ"><span>Valeur corrigée</span>
-                            <input inputMode="decimal" value={corrige.valeur} onChange={(e) => setCorrige({ cle, valeur: e.target.value })} data-valeur-corrigee /></label>
+                            <ChampNombre decimales={3} value={corrige.valeur} onChange={(e) => setCorrige({ cle, valeur: e.target.value })} data-valeur-corrigee /></label>
                           <span className="ilo-boutons">
                             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setCorrige(null)} disabled={envoi}>Annuler</button>
                             <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void corriger(i, corrige.valeur); }} disabled={envoi} data-enregistrer-correction>
@@ -370,9 +371,9 @@ export function LoyersRevises({ bailId }: { bailId: number }) {
                 <label className="loc-champ" htmlFor={`${id}-effet`}><span className="loc-cond-mot">Date d’effet</span>
                   <input id={`${id}-effet`} type="date" value={saisie.effetLe} onChange={(e) => setSaisie({ ...saisie, effetLe: e.target.value })} data-revise-effet /></label>
                 <label className="loc-champ" htmlFor={`${id}-hc`}><span className="loc-cond-mot">Loyer HC</span>
-                  <input id={`${id}-hc`} inputMode="decimal" placeholder="ex. 1 210,40" value={saisie.loyerHc} onChange={(e) => setSaisie({ ...saisie, loyerHc: e.target.value })} data-revise-hc /></label>
+                  <ChampNombre id={`${id}-hc`} placeholder="ex. 1 210,40" value={saisie.loyerHc} onChange={(e) => setSaisie({ ...saisie, loyerHc: e.target.value })} data-revise-hc /></label>
                 <label className="loc-champ" htmlFor={`${id}-prov`}><span className="loc-cond-mot">Provisions</span>
-                  <input id={`${id}-prov`} inputMode="decimal" placeholder="ex. 90" value={saisie.provisions} onChange={(e) => setSaisie({ ...saisie, provisions: e.target.value })} data-revise-provisions /></label>
+                  <ChampNombre id={`${id}-prov`} placeholder="ex. 90" value={saisie.provisions} onChange={(e) => setSaisie({ ...saisie, provisions: e.target.value })} data-revise-provisions /></label>
               </div>
               <div className="ilo-boutons">
                 <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setMotif(null); }} disabled={envoi}>Annuler</button>

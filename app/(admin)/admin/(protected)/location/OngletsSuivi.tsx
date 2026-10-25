@@ -14,6 +14,7 @@ import { echelleTotaux, largeurDeuxRangees } from './miseEnPageTotaux';
 import { CSS_PANNEAUX_APPORTEUR, LIBELLE_PANNEAU, type Panneau, PANNEAUX, PanneauFiche, PanneauRattachement, PanneauTaux } from './PanneauxApporteur';
 import { BlocConditions, type Chiffres, CSS_CUMUL_CONDITIONS, CumulApporteur, netAgence } from './CumulEtConditions';
 import { AIDE_MARGE_GLI, margeFr, type MargeGli } from '../../../../lib/location/suivi/margeGli';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ LOCATION — ROUE « PARAMÈTRES » : APPORTEURS ET COMMISSIONS (Arno, 22/10/2026, migration 406) ═══════════════════════════
@@ -388,8 +389,8 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
               </>
             )}
             <ChoixMode valeur={nouveau.mode} onChange={(m) => setNouveau({ ...nouveau, mode: m })} />
-            <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
-            <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={nouveau.tauxGestion} placeholder="ex. 20" onChange={(e) => setNouveau({ ...nouveau, tauxGestion: e.target.value })} data-taux-gestion-apporteur /></label>
+            <label className="plo-champ"><span>Taux sur la location (%)</span><ChampNombre value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} data-taux-apporteur /></label>
+            <label className="plo-champ"><span>Taux sur la gestion (%)</span><ChampNombre value={nouveau.tauxGestion} placeholder="ex. 20" onChange={(e) => setNouveau({ ...nouveau, tauxGestion: e.target.value })} data-taux-gestion-apporteur /></label>
             {nouveau.mode === 'recurrent' && <ChampDuree indeterminee={nouveau.indeterminee} duree={nouveau.duree} repere="nouveau" onChange={(x) => setNouveau({ ...nouveau, ...x })} />}
             <label className="plo-champ"><span>Taux applicable à partir du</span><input type="date" value={nouveau.depuis} onChange={(e) => setNouveau({ ...nouveau, depuis: e.target.value })} /></label>
             {annuaire && (
@@ -459,10 +460,10 @@ export function OngletCommissions() {
               Nouvelle règle</button>
           ) : (
             <div className="plo-grille" data-saisie-regle onKeyDown={echap(() => setRegle(null))}>
-              <label className="plo-champ"><span>Taux du négociateur (%)</span><input inputMode="decimal" value={regle.tauxNegociateur} onChange={(e) => setRegle({ ...regle, tauxNegociateur: e.target.value })} /></label>
-              <label className="plo-champ"><span>Prime nouvelle gestion — logement (€)</span><input inputMode="decimal" value={regle.primeLogement} onChange={(e) => setRegle({ ...regle, primeLogement: e.target.value })} /></label>
-              <label className="plo-champ"><span>Prime nouvelle gestion — local (€)</span><input inputMode="decimal" value={regle.primeLocal} data-prime-local onChange={(e) => setRegle({ ...regle, primeLocal: e.target.value })} /></label>
-              <label className="plo-champ"><span>Prime nouvelle gestion — parking (€)</span><input inputMode="decimal" value={regle.primeParking} onChange={(e) => setRegle({ ...regle, primeParking: e.target.value })} /></label>
+              <label className="plo-champ"><span>Taux du négociateur (%)</span><ChampNombre value={regle.tauxNegociateur} onChange={(e) => setRegle({ ...regle, tauxNegociateur: e.target.value })} /></label>
+              <label className="plo-champ"><span>Prime nouvelle gestion — logement (€)</span><ChampNombre value={regle.primeLogement} onChange={(e) => setRegle({ ...regle, primeLogement: e.target.value })} /></label>
+              <label className="plo-champ"><span>Prime nouvelle gestion — local (€)</span><ChampNombre value={regle.primeLocal} data-prime-local onChange={(e) => setRegle({ ...regle, primeLocal: e.target.value })} /></label>
+              <label className="plo-champ"><span>Prime nouvelle gestion — parking (€)</span><ChampNombre value={regle.primeParking} onChange={(e) => setRegle({ ...regle, primeParking: e.target.value })} /></label>
               <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={regle.depuis} onChange={(e) => setRegle({ ...regle, depuis: e.target.value })} /></label>
               <span className="plo-boutons">
                 <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRegle(null)} data-annuler-regle>Annuler</button>
@@ -489,7 +490,7 @@ export function OngletCommissions() {
               <ListeChoix options={lu.negociateurs} valeur={retro.negociateurId} libelle="Négociateur"
                 onChange={(v) => setRetro({ ...retro, negociateurId: v })} donnees={{ 'data-retro-negociateur': '' }} /></label>
             <label className="plo-champ"><span>Mois</span><input type="month" value={retro.mois} onChange={(e) => setRetro({ ...retro, mois: e.target.value })} /></label>
-            <label className="plo-champ"><span>Montant (€)</span><input inputMode="decimal" value={retro.montant} onChange={(e) => setRetro({ ...retro, montant: e.target.value })} /></label>
+            <label className="plo-champ"><span>Montant (€)</span><ChampNombre value={retro.montant} onChange={(e) => setRetro({ ...retro, montant: e.target.value })} /></label>
             <label className="plo-champ"><span>Libellé</span><input value={retro.libelle} placeholder="ex. Alex Coms" onChange={(e) => setRetro({ ...retro, libelle: e.target.value })} /></label>
           </div>
           <button type="button" className="svv-btn svv-btn-primary gst-btn plo-ajout" disabled={g.envoi} data-ajouter-retrocession
@@ -541,7 +542,7 @@ function BlocMargeGli({ lu, relire }: { lu: Lu; relire: () => void }) {
               onClick={() => { g.effacer(); setSaisie({ depuis: jour, marge: enVigueur === null ? '' : String(enVigueur.marge).replace('.', ',') }); }}>Nouvelle marge</button>
           ) : (
             <div className="plo-grille" data-saisie-marge-gli onKeyDown={echap(() => setSaisie(null))}>
-              <label className="plo-champ"><span>Marge GLI (%)</span><input inputMode="decimal" value={saisie.marge} placeholder="ex. 2,5" data-champ-marge-gli
+              <label className="plo-champ"><span>Marge GLI (%)</span><ChampNombre value={saisie.marge} placeholder="ex. 2,5" data-champ-marge-gli
                 onChange={(e) => setSaisie({ ...saisie, marge: e.target.value })} /></label>
               <label className="plo-champ"><span>Applicable à partir du</span><input type="date" value={saisie.depuis} data-champ-marge-gli-depuis
                 onChange={(e) => setSaisie({ ...saisie, depuis: e.target.value })} /></label>

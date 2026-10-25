@@ -47,6 +47,7 @@ import { useDrapeauGeste, useGlisserCarte } from './useGlisserCarte';
 /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — la tolérance de trajet des bulles : le minuteur ici, la règle dans
    `app/lib/gestion/survolBulle.ts`. */
 import { useBulleSurvol } from './useBulleSurvol';
+import { ChampNombre } from '../location/ChampNombre';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -1671,8 +1672,8 @@ function ChampMontant({
   return (
     <p className="fav-montant-champ">
       <label className="fav-label" htmlFor="fav-montant">Montant du devis</label>
-      <input
-        id="fav-montant" className="fav-champ" inputMode="decimal" value={saisie}
+      <ChampNombre
+        id="fav-montant" className="fav-champ" value={saisie}
         placeholder="non renseigné" onChange={(ev) => setSaisie(ev.target.value)}
       />
       <span className="fav-unite">€</span>
@@ -2227,7 +2228,7 @@ function AjouterEtape({
       {(type === 'devis_recu' || type === 'devis_refuse' || type === 'devis_accepte') && (
         <div className="fav-ajout-ligne">
           <label className="fav-label" htmlFor="fav-montant-ajout">Montant</label>
-          <input id="fav-montant-ajout" className="fav-champ" inputMode="decimal" value={montant}
+          <ChampNombre id="fav-montant-ajout" className="fav-champ" value={montant}
             placeholder="non renseigné" onChange={(e) => setMontant(e.target.value)} />
           <span className="fav-unite">€</span>
         </div>

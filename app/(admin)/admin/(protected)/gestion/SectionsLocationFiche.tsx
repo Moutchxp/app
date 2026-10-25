@@ -37,6 +37,7 @@ import type {
   FicheBienLocation, FicheLocataireLocation, FicheProprietaireLocation,
 } from '../../../../lib/location/locationRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
+import { ChampNombre } from '../location/ChampNombre';
 
 /**
  * ══ 🔴🔴 FICHE COMMUNE — LES SECTIONS « LOCATION » (règle d'Arno du 17/10/2026 : « une seule fiche ») ═══════════════════
@@ -614,7 +615,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
   const [v, setV] = useState(initial);
   const [motif, setMotif] = useState<string | null>(null);
   const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label className="loc-champ">{mot}<input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /></label>
+    <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /> : <input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} />}</label>
   );
   const enregistrer = async (): Promise<void> => {
     const verdict = verifierChampsBien(v);
@@ -766,7 +767,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     : [...lignesPrincipal, ...lignesBrutes.filter(([mot]) => !(parking && horsParking.has(mot))
       && !(famille === 'local' && (mot === 'Type de logement' || mot === 'Meublé'))), ...lignesAcces];
   const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label className="loc-champ">{mot}<input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /></label>
+    <label className="loc-champ">{mot}{props.inputMode === 'decimal' || k === 'nombrePieces' ? <ChampNombre decimales={k === 'nombrePieces' ? 0 : 2} value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /> : <input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} />}</label>
   );
   const choix = (k: keyof typeof initial, mot: string, options: readonly (readonly [string, string])[]) => (
     <label className="loc-champ">{mot}

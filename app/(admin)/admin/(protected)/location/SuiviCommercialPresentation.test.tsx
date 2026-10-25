@@ -403,8 +403,10 @@ describe('🔴 Arno (24/10/2026, après 56700ffb) — total des honoraires HT ; 
     expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('416,67');
     await saisirTexte('[data-hono-locataire-ht]', '226,95');
     expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('643,62');
+    // 🔴 Arno (25/10/2026) — des lettres sont ignorées à la frappe : le champ se vide, le total ne garde que le propriétaire.
     await saisirTexte('[data-hono-locataire-ht]', 'abc');
-    expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('montant illisible');
+    expect(q<HTMLInputElement>('[data-hono-locataire-ht]')!.value).toBe('');
+    expect(q<HTMLInputElement>('[data-hono-total-ht]')!.value).toBe('416,67');
     expect(q('[data-suivi-ligne="3"]')!.className).toBe('loc-grille loc-suivi-ligne loc-suivi-ligne--trois');
     const css = readFileSync('app/(admin)/admin/(protected)/location/SuiviCommercial.tsx', 'utf8');
     expect(css).toContain('.loc-suivi-ligne--trois,.loc-ample .loc-grille.loc-suivi-ligne--trois{grid-template-columns:repeat(3,minmax(0,1fr))}');

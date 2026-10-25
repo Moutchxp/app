@@ -6,6 +6,7 @@ import {
   formaterEuros, formaterTaux, honorairesMensuels, LIBELLE_BASE, LIBELLE_SOURCE_TAUX, MOT_LOYER_A_SAISIR,
   nombrePourSaisie, verifierConditions, type BaseHonoraires, type LocationAffichee,
 } from '../../../../lib/gestion/honorairesGestion';
+import { ChampNombre } from '../location/ChampNombre';
 
 /**
  * ══ 🔴🔴 LOT L1 — LA LOCATION SUR LA CARTE DU LOCATAIRE : LOYER DE DÉPART, TAUX, HONORAIRES DE GESTION ═════════════
@@ -113,17 +114,17 @@ function FormulaireLocation({ location, onEnregistrer, onAnnuler }: {
     <form className="loc-form" onSubmit={(e) => { e.preventDefault(); soumettre(); }}>
       <label className="loc-champ">
         <span>Loyer de départ HC (€)</span>
-        <input className="cp-saisie" inputMode="decimal" value={loyer} onChange={(e) => setLoyer(e.target.value)}
+        <ChampNombre className="cp-saisie" value={loyer} onChange={(e) => setLoyer(e.target.value)}
           placeholder="ex. 1 180" autoFocus />
       </label>
       <label className="loc-champ">
         <span>Provisions (€)</span>
-        <input className="cp-saisie" inputMode="decimal" value={provisions}
+        <ChampNombre className="cp-saisie" value={provisions}
           onChange={(e) => setProvisions(e.target.value)} placeholder="ex. 90" />
       </label>
       <label className="loc-champ">
         <span>Taux de gestion (% HT)</span>
-        <input className="cp-saisie" inputMode="decimal" value={taux} onChange={(e) => setTaux(e.target.value)} />
+        <ChampNombre className="cp-saisie" value={taux} onChange={(e) => setTaux(e.target.value)} />
       </label>
       <label className="loc-champ">
         <span>Base</span>

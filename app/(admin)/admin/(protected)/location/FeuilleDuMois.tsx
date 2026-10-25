@@ -23,6 +23,7 @@ import {
   aRattacher, auCentime, LIBELLE_CATEGORIE_PRIME, LIBELLE_ORIGINE, LIBELLE_ORIGINE_CONTACT, LIBELLE_TYPE_ACTIVITE, libelleOrigineContact, type ModePrime, originesProposees, type OrigineContact,
   PRECISION_ORIGINE_MAX, versionADate, libelleDuree,
 } from '../../../../lib/location/suivi/suivi';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴 LOCATION — « SUIVI DU MOIS » : LA FEUILLE D'UN MOIS (Arno, 23/10/2026) ═════════════════════════════════════════════════
@@ -708,9 +709,9 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
               })} />
             {apporteurChoisi !== undefined && aRattacher(apporteurChoisi) && <span className="fdm-badge-orange" data-edition-apporteur-a-rattacher>à rattacher</span>}</label>
           <label className="tdb-champ fdm-champ-court"><span className="fdm-libelle">Taux (%)</span>
-            <span className="fdm-saisie"><input inputMode="decimal" value={v.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-edition-taux /><span className="fdm-unite" aria-hidden="true">%</span></span></label>
+            <span className="fdm-saisie"><ChampNombre value={v.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-edition-taux /><span className="fdm-unite" aria-hidden="true">%</span></span></label>
           <label className="tdb-champ"><span className="fdm-libelle">Hono. d’apporteur (€)</span>
-            <span className="fdm-saisie"><input inputMode="decimal" value={v.commissionApporteur} placeholder="ex. 64,39 (vide = au taux)" onChange={(e) => poser({ commissionApporteur: e.target.value })} data-edition-commission /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
+            <span className="fdm-saisie"><ChampNombre value={v.commissionApporteur} placeholder="ex. 64,39 (vide = au taux)" onChange={(e) => poser({ commissionApporteur: e.target.value })} data-edition-commission /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
         </>
       )}
       <label className="tdb-champ"><span className="fdm-libelle">Prime de gestion</span>
@@ -718,7 +719,7 @@ function EditionLigne({ a, d, ctx, onFermer, onFini }: { a: ActiviteLue; d: Donn
           options={[{ id: 'regle', libelle: `${versionADate(ctx.regles, a.dateSignature)?.primeLogement ?? 150} €` }, { id: 'personnalise', libelle: 'Personnalisé' }, { id: 'aucune', libelle: 'Aucune' }]} /></label>
       {v.primeMode === 'personnalise' && (
         <label className="tdb-champ"><span className="fdm-libelle">Montant (€) *</span>
-          <span className="fdm-saisie"><input inputMode="decimal" value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
+          <span className="fdm-saisie"><ChampNombre value={v.primeMontant} onChange={(e) => poser({ primeMontant: e.target.value })} data-edition-prime-montant /><span className="fdm-unite" aria-hidden="true">€</span></span></label>
       )}
       <div className="fdm-edition-gestes">
         {/* Une cale de la hauteur d'un libellé : les boutons s'alignent sur les cases, pas sur les libellés. */}

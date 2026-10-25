@@ -8,6 +8,7 @@ import {
   aRattacher, aujourdhuiParis, badgeApporteur, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, PRECISION_ORIGINE_MAX, trierApporteurs,
   TYPES_APPORTEUR, type Apporteur, type TypeApporteur,
 } from '../../../../lib/location/suivi/suivi';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴 Arno (25/10/2026, 425) — LE CHOIX DE L'ORIGINE DU CONTACT, extrait du bloc 4 (BlocSuiviCommercial) ══════════════════════════════
@@ -124,7 +125,7 @@ export function useChoixOrigine(c: ConfigOrigine): { champs: ReactNode; apres: R
             <label className="loc-champ">Type
               <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={nouveau.type} vide={null} libelle="Type d’apporteur"
                 onChange={(x) => setNouveau({ ...nouveau, type: x as TypeApporteur })} donnees={{ 'data-nouvel-apporteur-type': '' }} /></label>
-            <label className="loc-champ">Taux de commission (%)<input inputMode="decimal" value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} />
+            <label className="loc-champ">Taux de commission (%)<ChampNombre value={nouveau.taux} placeholder="ex. 10" onChange={(e) => setNouveau({ ...nouveau, taux: e.target.value })} />
               <small className="loc-muet" data-nouvel-apporteur-gestion>One shot · gestion : 0 % (modifiable ensuite dans l’annuaire, panneau « Taux »)</small></label>
             {annuaire && (
               <>

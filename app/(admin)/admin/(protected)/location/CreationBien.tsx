@@ -38,6 +38,7 @@ import { changementsFiche, refusFiche, titreAnnexeSaisie, type ChangementFiche, 
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
 import { LIBELLE_DESTINATION } from '../../../../lib/gestion/statutBien';
 import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -343,7 +344,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const recherche = useLecture<ResultatPortefeuille[]>(terme.length >= 2 ? `proprietairesRecherche=${encodeURIComponent(terme)}` : null);
 
   const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}, aide?: string) => (
-    <label className="loc-champ">{mot}<input value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} />
+    <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} /> : <input value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} />}
       {aide !== undefined && <small className="loc-aide">{aide}</small>}</label>
   );
   const choix = (k: Champ, mot: string, options: readonly string[]) => (

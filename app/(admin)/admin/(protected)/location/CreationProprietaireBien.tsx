@@ -11,6 +11,7 @@ import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
 import { CATEGORIES_ANNEXE, LIBELLE_CATEGORIE, verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { Doublon } from '../../../../lib/location/locationRepo';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « NOUVEAU PROPRIÉTAIRE + BIEN + ANNEXES » (/admin/location/nouveau) ═══════════════════════
@@ -55,10 +56,10 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
   }, [p.telephone, p.email, existant]);
 
   const champP = (k: keyof typeof p, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label className="loc-champ">{mot}<input value={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.value })} {...props} /></label>
+    <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.value })} {...props} /> : <input value={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.value })} {...props} />}</label>
   );
   const champL = (k: keyof typeof VIDE_LOGEMENT, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label className="loc-champ">{mot}<input value={logement[k]} onChange={(e) => setLogement({ ...logement, [k]: e.target.value })} {...props} /></label>
+    <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={logement[k]} onChange={(e) => setLogement({ ...logement, [k]: e.target.value })} {...props} /> : <input value={logement[k]} onChange={(e) => setLogement({ ...logement, [k]: e.target.value })} {...props} />}</label>
   );
   const ajouterAnnexe = (categorie: Categorie): void =>
     setAnnexes((a) => [...a, { cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '' }]);

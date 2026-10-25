@@ -7,6 +7,7 @@ import {
   PHRASE_THEORIQUE, tvaEnVigueur, type BaseHonoraires, type LocationPourHonoraires, type ResultatHonoraires,
 } from '../../../../../lib/gestion/honorairesGestion';
 import { baremeEnVigueur, tarifAffiche, lireDecimal, ZERO, type Bareme } from '../../../../../lib/location/honorairesProprietaire';
+import { ChampNombre } from '../ChampNombre';
 
 /**
  * ══ 🔴🔴 LOT L1 — L'ÉCRAN « HONORAIRES DE GESTION » (administrateurs) ═════════════════════════════════════════════
@@ -262,7 +263,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
       <summary>Réglages des honoraires de gestion</summary>
       <form className="hon-reglages-ligne" onSubmit={(e) => { e.preventDefault(); void envoyer({ action: 'reglages', tauxDefautHt: taux, baseDefaut: base }); }}>
         <label>Taux par défaut (% HT)
-          <input className="hon-champ" inputMode="decimal" value={taux} onChange={(e) => setTaux(e.target.value)} /></label>
+          <ChampNombre className="hon-champ" value={taux} onChange={(e) => setTaux(e.target.value)} /></label>
         <label>Base par défaut
           <span className="hon-liste" data-hon-base>
             <ListeChoix options={[{ id: 'cc', libelle: LIBELLE_BASE.cc }, { id: 'hc', libelle: LIBELLE_BASE.hc }]} valeur={base} vide={null} libelle="Base par défaut"
@@ -274,7 +275,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
         Historique : {(reglages.tva ?? []).map((t) => `${formaterTaux(t.valeur)} depuis le ${t.depuis.split('-').reverse().join('/')}`).join(' · ') || 'aucun'}.</p>
       <form className="hon-reglages-ligne" onSubmit={(e) => { e.preventDefault(); void envoyer({ action: 'tva', valeur: tva, depuis }); }}>
         <label>Nouvelle TVA (%)
-          <input className="hon-champ" inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="ex. 20" /></label>
+          <ChampNombre className="hon-champ" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="ex. 20" /></label>
         <label>À compter du
           <input className="hon-champ" type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} /></label>
         <button type="submit" className="svv-btn svv-btn-outline gst-btn">Ajouter</button>
@@ -307,7 +308,7 @@ function BaremesLocation({ baremes, disponible, onEnregistre }: { baremes: Barem
     }
   };
   const champ = (k: keyof typeof f, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label>{mot}<input className="hon-champ" value={f[k]} onChange={(e) => { const v = e.target.value; setF((x) => ({ ...x, [k]: v })); }} {...props} /></label>
+    <label>{mot}{props.inputMode === 'decimal' ? <ChampNombre className="hon-champ" value={f[k]} onChange={(e) => { const v = e.target.value; setF((x) => ({ ...x, [k]: v })); }} {...props} /> : <input className="hon-champ" value={f[k]} onChange={(e) => { const v = e.target.value; setF((x) => ({ ...x, [k]: v })); }} {...props} />}</label>
   );
   return (
     <details className="hon-reglages" data-baremes-location>

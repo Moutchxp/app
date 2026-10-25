@@ -7,6 +7,7 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { type ActiviteCalcul, type EffetReglage, effetReglage } from '../../../../lib/location/suivi/tableauBord';
 import { API_SUIVI } from './suiviApi';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LE RÉGLAGE D'UN APPORTEUR : « NOUVEAU TAUX », RÉMUNÉRATION DU COLLÈGUE, EFFET EN DIRECT ═════════════════
@@ -45,7 +46,7 @@ export function ChampDuree({ indeterminee, duree, onChange, repere }: { indeterm
     <div className="plo-champ" data-duree-recurrent={repere}><span>Durée du récurrent</span>
       <label className="plo-case"><input type="checkbox" checked={indeterminee} onChange={(e) => onChange({ indeterminee: e.target.checked, duree })} data-duree-indeterminee />Indéterminée</label>
       <span className="plo-duree">
-        <input inputMode="numeric" aria-label="Durée en années" value={indeterminee ? '' : duree} disabled={indeterminee} placeholder="ex. 3"
+        <ChampNombre decimales={0} aria-label="Durée en années" value={indeterminee ? '' : duree} disabled={indeterminee} placeholder="ex. 3"
           onChange={(e) => onChange({ indeterminee, duree: e.target.value })} data-duree-annees /> <span className="plo-muet">an(s)</span></span>
     </div>
   );
@@ -156,8 +157,8 @@ function ChampsRemuneration({ s, onChange, toujoursPossible }: { s: SaisieRemu; 
       {s.remunere && (
         <>
           <ChoixMode valeur={s.mode} onChange={(m) => onChange({ ...s, mode: m })} />
-          <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={s.taux} placeholder="ex. 5" onChange={(e) => onChange({ ...s, taux: e.target.value })} data-remuneration-taux /></label>
-          <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={s.tauxGestion} placeholder="ex. 10" onChange={(e) => onChange({ ...s, tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
+          <label className="plo-champ"><span>Taux sur la location (%)</span><ChampNombre value={s.taux} placeholder="ex. 5" onChange={(e) => onChange({ ...s, taux: e.target.value })} data-remuneration-taux /></label>
+          <label className="plo-champ"><span>Taux sur la gestion (%)</span><ChampNombre value={s.tauxGestion} placeholder="ex. 10" onChange={(e) => onChange({ ...s, tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
           {s.mode === 'recurrent' && <ChampDuree indeterminee={s.indeterminee} duree={s.duree} repere="remuneration" onChange={(x) => onChange({ ...s, ...x })} />}
         </>
       )}
@@ -245,8 +246,8 @@ export function FormulaireNouveauTaux({ a, apporteurs, collegue, jour, envoi, fa
   return (
     <div className="plo-grille" data-nouvelle-version={a.id} onKeyDown={echap(onFermer)}>
       <ChoixMode valeur={regle.mode} onChange={(m) => setRegle({ ...regle, mode: m })} />
-      <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={regle.taux} onChange={(e) => setRegle({ ...regle, taux: e.target.value })} data-version-taux /></label>
-      <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={regle.tauxGestion} placeholder="ex. 20" onChange={(e) => setRegle({ ...regle, tauxGestion: e.target.value })} data-version-taux-gestion /></label>
+      <label className="plo-champ"><span>Taux sur la location (%)</span><ChampNombre value={regle.taux} onChange={(e) => setRegle({ ...regle, taux: e.target.value })} data-version-taux /></label>
+      <label className="plo-champ"><span>Taux sur la gestion (%)</span><ChampNombre value={regle.tauxGestion} placeholder="ex. 20" onChange={(e) => setRegle({ ...regle, tauxGestion: e.target.value })} data-version-taux-gestion /></label>
       {regle.mode === 'recurrent' && <ChampDuree indeterminee={regle.indeterminee} duree={regle.duree} repere="version" onChange={(x) => setRegle({ ...regle, ...x })} />}
       <ChampApplication depuis={regle.depuis} toujours={regle.toujours} repere="version" possible={toujoursPossible} onChange={(x) => setRegle({ ...regle, ...x })} />
       <EncartEffet effet={effetRegle} quoi="apporteur" nom={a.nom} attente={attente} />

@@ -788,11 +788,11 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(champs()).toMatchObject({ primeMode: 'aucune', conserverMontants: true });
     });
 
-    it('le montant modifié part arrondi au centime', async () => {
+    it('le montant modifié part au centime (🔴 25/10/2026 : la 3ᵉ décimale est ignorée dès la frappe)', async () => {
       await ouvrirLigne();
       await taper('[data-edition-commission]', '70,125');
       await enregistrer();
-      expect(champs()).toMatchObject({ commissionApporteur: '70,13', conserverMontants: false });
+      expect(champs()).toMatchObject({ commissionApporteur: '70,12', conserverMontants: false });
     });
 
     it('le taux modifié : les montants ne sont plus conservés, le montant part au centime', async () => {

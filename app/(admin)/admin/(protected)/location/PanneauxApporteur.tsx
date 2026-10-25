@@ -13,6 +13,7 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
+import { ChampNombre } from './ChampNombre';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LES PANNEAUX D'UNE CARTE D'APPORTEUR : « FICHE », « RATTACHEMENT », « TAUX » ══════════════════════════
@@ -334,8 +335,8 @@ export function PanneauRattachement({ a, apporteurs, collegues, jour, faire, env
         {f.reponse === 'oui' && (
           <>
             <ChoixMode valeur={f.mode} onChange={(m) => poser({ mode: m })} />
-            <label className="plo-champ"><span>Taux sur la location (%)</span><input inputMode="decimal" value={f.taux} placeholder="ex. 5" onChange={(e) => poser({ taux: e.target.value })} data-remuneration-taux /></label>
-            <label className="plo-champ"><span>Taux sur la gestion (%)</span><input inputMode="decimal" value={f.tauxGestion} placeholder="ex. 10" onChange={(e) => poser({ tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
+            <label className="plo-champ"><span>Taux sur la location (%)</span><ChampNombre value={f.taux} placeholder="ex. 5" onChange={(e) => poser({ taux: e.target.value })} data-remuneration-taux /></label>
+            <label className="plo-champ"><span>Taux sur la gestion (%)</span><ChampNombre value={f.tauxGestion} placeholder="ex. 10" onChange={(e) => poser({ tauxGestion: e.target.value })} data-remuneration-taux-gestion /></label>
             {f.mode === 'recurrent' && <ChampDuree indeterminee={f.indeterminee} duree={f.duree} repere="remuneration" onChange={(x) => poser(x)} />}
           </>
         )}

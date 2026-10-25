@@ -24,6 +24,7 @@ import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
 const CHARGES_AFFICHEES = ORDRE_BOUTONS_CHARGES;
 const LIBELLE_PAYEES: Record<ChargesCopro, string> = { agence: 'Agence', proprietaire: 'Propriétaire' };
 import { BlocIndiceLoyers, CSS_INDICES } from './IndicesLoyers';
+import { ChampNombre } from './ChampNombre';
 
 /** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
 export const POLICE_MIN_INTITULE_PX = 13;
@@ -60,7 +61,7 @@ function Intitule({ htmlFor, children }: { htmlFor: string; children: string }) 
 export function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <span className="loc-case-euros">
-      <input inputMode="decimal" {...props} />
+      <ChampNombre {...props} />
       <span className="loc-suffixe-euros" aria-hidden="true">€</span>
     </span>
   );

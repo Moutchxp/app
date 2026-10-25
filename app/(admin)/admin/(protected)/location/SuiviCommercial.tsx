@@ -52,6 +52,7 @@ function champsOrigine(v: OrigineContact | null): Partial<SaisieSuivi> {
  */
 export { API_SUIVI, posterSuivi } from './suiviApi';
 import { API_SUIVI, posterSuivi } from './suiviApi';
+import { ChampNombre } from './ChampNombre';
 
 export interface ParametresSuivi {
   disponible: boolean;
@@ -419,7 +420,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           ) : choix.champs}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux appliqué à ce bail (%)')}
-              <input inputMode="decimal" value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
+              <ChampNombre value={s.apporteurTaux} onChange={(e) => poser({ apporteurTaux: e.target.value })} data-apporteur-taux
                 placeholder={baremeDuJour === null ? 'aucun taux à cette date' : pourcent(baremeDuJour.taux).replace(' %', '')} />
               <small className="loc-muet">{baremeDuJour === null ? 'Aucun taux daté à la signature : saisissez-le.' : `Vide = le taux de l’apporteur à la signature (${pourcent(baremeDuJour.taux)}).`}</small></label>
           )}
@@ -432,7 +433,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           )}
           {avecApporteur && apporteur !== null && (
             <label className="loc-champ">{libelle('Taux sur la gestion (%)')}
-              <input inputMode="decimal" value={s.apporteurTauxGestion ?? ''} onChange={(e) => poser({ apporteurTauxGestion: e.target.value })} data-apporteur-taux-gestion
+              <ChampNombre value={s.apporteurTauxGestion ?? ''} onChange={(e) => poser({ apporteurTauxGestion: e.target.value })} data-apporteur-taux-gestion
                 placeholder={pourcent(baremeDuJour?.tauxGestion ?? 0).replace(' %', '')} />
               <small className="loc-muet">Vide = le taux de l’apporteur à la signature ({pourcent(baremeDuJour?.tauxGestion ?? 0)}).</small></label>
           )}

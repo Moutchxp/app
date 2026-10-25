@@ -337,10 +337,12 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await saisir(somme('honorairesAgence'), '0,1');
     // Arno (24/10/2026) : « Honoraires agence (€ HT) » — 0,10 € HT = 0,12 € TTC, compté en TTC dans les sommes dues
     expect(total()).toBe('1 625,71 €');
+    // 🔴 Arno (25/10/2026) — champs numériques stricts : la 3ᵉ décimale et les lettres sont IGNORÉES à la frappe (jamais « illisible »).
     await saisir(somme('honorairesAgence'), '12,345');
-    expect(total()).toBe('montant illisible');
-    await toutRepondre();
-    expect(barre()).toContain('Honoraires agence : un montant en euros, au centime');
+    expect(somme('honorairesAgence').value).toBe('12,34');
+    expect(total()).toBe('1 640,40 €');   // 12,34 € HT = 14,81 € TTC
+    await saisir(somme('depotGarantie'), '1 18a0.5');
+    expect(somme('depotGarantie').value).toBe('1 180,5');
   });
 
   it('ENVOYÉ avec le bail : les conditions (jour 10, montants tels quels) et l’entretien du bien', async () => {
@@ -632,9 +634,10 @@ describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de m
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 180,10');
     await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '0,2');
     expect(total()).toBe('1 180,30 €');
+    // 🔴 Arno (25/10/2026) — la 3ᵉ décimale est ignorée à la frappe : jamais de montant illisible.
     await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '9,999');
-    expect(total()).toBe('montant illisible');
-    expect(barre()).toContain('Provision pour charges : un montant en euros, au centime');
+    expect((container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement).value).toBe('9,99');
+    expect(total()).toBe('1 190,09 €');
   });
 
   it('PRÉ-REMPLI avec le loyer de départ déjà connu du bien (et dit d’où il vient) ; modifiable ; envoyé avec le bail', async () => {

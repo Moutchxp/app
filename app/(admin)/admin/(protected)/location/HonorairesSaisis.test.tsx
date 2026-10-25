@@ -172,13 +172,16 @@ describe('🔴 « Montant des honoraires propriétaire (€ HT) » — Nouveau l
     expect(mention()).toBe('saisi à la main · au barème : 779,19 € HT (écart : +279,19 €) · recalculer');   // jamais écrasé : l'écart est dit
   });
 
-  it('un montant illisible bloque « Enregistrer » et le dit ; rien n’est créé', async () => {
+  it('🔴 champ numérique strict (Arno, 25/10/2026) : lettres et 3ᵉ décimale ignorées à la frappe — jamais de montant illisible', async () => {
     await preparer();
     await toutRepondre();
     await saisir(champ(), '12,345');
-    expect(barre()).toContain('Honoraires propriétaire : un montant en euros, au centime au plus (ex. 935,03)');
-    await soumettre();
-    expect(posts.filter((p) => p.action === 'creer-locataires')).toEqual([]);
+    expect(champ().value).toBe('12,34');
+    await saisir(champ(), 'abc');
+    expect(champ().value).toBe('');
+    await saisir(champ(), '1 000.5');
+    expect(champ().value).toBe('1 000,5');
+    expect(barre()).not.toContain('un montant en euros');
   });
 });
 
