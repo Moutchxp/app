@@ -510,7 +510,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
         expect(c('Total CA HT').classList.contains('fdm-montant')).toBe(true);
         if (a.honoLocataireHt === 0) expect(nbsp(c('Hono. locataire HT').textContent)).toBe('0,00 €');
         const prime = a.primeSaisie ?? 0;
-        expect(nbsp(c('Gestion').textContent)).toBe(prime === 0 ? '' : `${prime.toLocaleString('fr-FR', { minimumFractionDigits: 2 }).replace(/[  ]/g, ' ')} €`);
+        // 🔴 26/10/2026 — une prime « Personnalisé » porte sa bulle « prime saisie à la main » : le montant est lu sans elle (il ne change pas).
+        expect(nbsp((c('Gestion').querySelector('.fdm-prime-main-montant') ?? c('Gestion')).textContent)).toBe(prime === 0 ? '' : `${prime.toLocaleString('fr-FR', { minimumFractionDigits: 2 }).replace(/[  ]/g, ' ')} €`);
         if ((a.commissionSaisie ?? 0) === 0 && a.apporteurTaux === null) expect(c('Coms apporteurs d’affaires').textContent).toBe('');
       }
     });

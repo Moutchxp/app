@@ -17,7 +17,7 @@ import { estInterne, texteRechercheApporteur } from '../../../../lib/location/su
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
   type ActiviteLue, type GestionDepuisJanvier, totalDesIntermediaires, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
-  gestionDuMois, honorairesGestionMensuels, type LigneGestion, type MouvementGestion, NOMS_MOIS, primeDe, STATUT_ARRIVEE, tauxAffichage,
+  gestionDuMois, honorairesGestionMensuels, loyerChargesComprises, type LigneGestion, type MouvementGestion, NOMS_MOIS, primeDe, primeSaisieALaMain, STATUT_ARRIVEE, tauxAffichage,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
@@ -185,7 +185,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                       <td data-mot="Locataires" className="fdm-nom">{a.libelleLocataire || '—'}</td>
                       <td data-mot="Hono. locataire HT" className="fdm-montant">{eur(a.honoLocataireHt)}</td>
                       <td data-mot="Total CA HT" className="fdm-montant tdb-fort">{eur(caLigne(a))}</td>
-                      <td data-mot="Gestion" className={`fdm-montant${prime === 0 ? ' fdm-vide' : ''}`}>{prime === 0 ? '' : eur(prime)}</td>
+                      <td data-mot="Gestion" className={`fdm-montant${prime === 0 ? ' fdm-vide' : ''}`}>
+                        {prime === 0 ? '' : primeSaisieALaMain(a) ? <PrimeSaisieMain montant={eur(prime)} repere={id} /> : eur(prime)}</td>
                       <td data-mot="Apporteurs d’affaires" className={`fdm-nom${app.source === null ? ' fdm-vide' : ''}`} data-apporteur-source={app.source ?? undefined}>{app.texte}</td>
                       <td data-mot="Coms apporteurs d’affaires" className={`fdm-montant${auCentime(coms) === 0 ? ' fdm-vide' : ''}`}>{auCentime(coms) === 0 ? '' : eur(coms)}</td>
                       <td className="fdm-chevron-case">
@@ -652,6 +653,24 @@ function BlocNegociateur({ x, mois, mots }: { x: CascadeNegociateur; mois: strin
 }
 
 /**
+ * 🔴 Arno (26/10/2026) — UNE PRIME SAISIE À LA MAIN (colonne GESTION) : le montant souligné d'un trait rouge (jeton d'alerte), et — une
+ * information ne tient jamais à la seule couleur — la bulle « prime saisie à la main » au survol, au toucher (sans déplier la ligne) et au
+ * focus clavier ; Échap ou la perte du focus la referment. Le montant ne change pas.
+ */
+export function PrimeSaisieMain({ montant, repere }: { montant: string; repere: string }) {
+  const [ouvert, setOuvert] = useState(false);
+  const id = `fdm-prime-main-${repere}`;
+  return (
+    <span className="fdm-prime-main" tabIndex={0} aria-describedby={id} data-prime-manuelle={repere} data-ouvert={ouvert ? 'oui' : undefined}
+      onClick={(e) => { e.stopPropagation(); setOuvert(true); }} onFocus={() => setOuvert(true)} onBlur={() => setOuvert(false)}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOuvert(false); } }}>
+      <span className="fdm-prime-main-montant">{montant}</span>
+      <span role="tooltip" id={id} className="fdm-prime-main-bulle">prime saisie à la main</span>
+    </span>
+  );
+}
+
+/**
  * 🔴 Arno (26/10/2026) — UNE LIGNE PAR BIEN : le lot principal, « + N annexe(s) » et leur détail en bulle. Loyer, taux, date et statut :
  * ceux du lot principal (sinon de la seule ligne du groupe) ; honoraires / mois et / an : la SOMME des lignes du groupe — le total de la
  * colonne ne change pas. Une annexe détachée (bien autonome) n'est pas dans les liens : sa ligne reste à elle, sans mention d'annexe.
@@ -663,7 +682,7 @@ function TableGestion({ lignes, perdus, regle, liens }: { lignes: readonly Ligne
     <table className="fdm-table">
       <thead><tr>
         <th scope="col">Bien</th><th scope="col">Propriétaire</th>
-        {perdus ? <><th scope="col">Sortie le</th><th scope="col">Statut d’arrivée</th></> : <><th scope="col">Loyer</th><th scope="col">Taux</th></>}
+        {perdus ? <><th scope="col">Sortie le</th><th scope="col">Statut d’arrivée</th></> : <><th scope="col">Loyer (cc)</th><th scope="col">Taux</th></>}
         <th scope="col">{perdus ? 'Perdu / mois' : 'Honoraires / mois'}</th><th scope="col">{perdus ? 'Perdu / an' : 'Honoraires / an'}</th>
       </tr></thead>
       <tbody>{groupes.map((gr) => {
@@ -683,7 +702,7 @@ function TableGestion({ lignes, perdus, regle, liens }: { lignes: readonly Ligne
             <td data-mot="Propriétaire">{l.proprietaire || '—'}</td>
             {perdus ? <><td data-mot="Sortie le">{l.origine === 'fichier' ? `${dateFr(l.effetLe).slice(3)} (mois)` : dateFr(l.effetLe)}</td>
               <td data-mot="Statut d’arrivée">{STATUT_ARRIVEE[l.apres] ?? l.apres}</td></>
-              : <><td data-mot="Loyer">{l.loyerHc === null ? <span className="loc-muet">à saisir</span> : `${eur(l.loyerHc)} HC${l.base === 'cc' && l.provisions ? ` + ${eur(l.provisions)}` : ''}`}</td>
+              : <><td data-mot="Loyer (cc)">{(() => { const cc = loyerChargesComprises(l); return cc === null ? <span className="loc-muet">à saisir</span> : eur(cc); })()}</td>
                 <td data-mot="Taux">{l.tauxHt === null ? '—' : `${String(l.tauxHt).replace('.', ',')} %`}</td></>}
             <td data-mot={perdus ? 'Perdu / mois' : 'Honoraires / mois'} title={l.origine === 'fichier' && m !== null ? `Déduit : loyers ${eur(l.loyerHc ?? 0)} cc (fichier) × ${String(l.tauxHt).replace('.', ',')} % HT — ${l.tauxSource === 'conditions' ? 'taux des conditions du bail' : l.tauxSource === 'wippimmo' ? 'taux WIPPIMMO du bien' : 'taux par défaut de l’agence'}` : undefined}>
               {m === null ? '—' : eur(m)}{l.origine === 'fichier' && m !== null && <span className="fdm-deduit" aria-label="valeur déduite"> *</span>}</td>
@@ -937,6 +956,11 @@ export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
 .fdm-ecart-montants{display:none}
 @media (hover:none){ .fdm-ecart-montants{display:inline} }
 .fdm-deduit{color:var(--color-svv-amber);font-weight:800}
+.fdm-prime-main{position:relative;display:inline-flex;align-items:center;min-height:44px;cursor:help;outline:none}
+.fdm-prime-main-montant{text-decoration:underline;text-decoration-color:var(--color-svv-red);text-decoration-thickness:2px;text-underline-offset:3px}
+.fdm-prime-main:focus-visible .fdm-prime-main-montant{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.fdm-prime-main-bulle{position:absolute;right:0;bottom:calc(100% - 4px);z-index:30;width:max-content;max-width:min(240px,calc(100vw - 40px));padding:6px 9px;border-radius:8px;background:var(--color-svv-tip-bg);color:var(--color-svv-blanc);font-size:.72rem;font-weight:500;line-height:1.35;white-space:normal;text-align:left;visibility:hidden;opacity:0;pointer-events:none}
+.fdm-prime-main:hover .fdm-prime-main-bulle,.fdm-prime-main[data-ouvert] .fdm-prime-main-bulle{visibility:visible;opacity:1}
 .fdm-orange-ligne th{color:var(--color-svv-amber)}
 .fdm-table .fdm-nom,.fdm-table thead th.fdm-nom{text-align:left}
 .fdm-table .fdm-montant{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}

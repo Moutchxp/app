@@ -77,6 +77,12 @@ export interface ActiviteCalcul {
   tauxGestionBien?: number | null;
   finGestion?: string | null;
   /**
+   * 🔴 Arno (26/10/2026, règle A) — LA FICHE DU BIEN FAIT FOI : la date d'entrée en gestion du bien de la ligne (la dernière entrée au plus
+   * tard à la fin du mois de signature, datée comme dans « Nouvelles gestions du mois »), lue par le serveur. null / absente : la ligne n'a
+   * pas de bien rattaché, ou son bien n'est pas entré en gestion — le statut calculé reste celui d'avant.
+   */
+  entreeGestionBien?: string | null;
+  /**
    * 🔴 Arno (25/10/2026) — LE CALCUL MENSUEL DU BIEN APPORTÉ (`gestionMensuelle.ts`) : loyer CC du mois (indexé, ou réel), vacance, sortie de
    * gestion, prorata au jour ; posé par le serveur pour un dossier SAISI DANS L'OUTIL dont l'apporteur ou le collègue est « Récurrent »
    * sur la gestion. Ses commissions remplacent alors la règle d'avant (constante). Absent : la règle d'avant ; les dossiers repris du
@@ -129,6 +135,13 @@ export function primeDe(a: ActiviteCalcul, regles: readonly RegleCommission[]): 
   if (r === null) return 0;
   return montantPrime(r, a.categoriePrime ?? (a.parking ? 'parking' : 'logement'));
 }
+
+/**
+ * 🔴 Arno (26/10/2026) — UNE PRIME SAISIE À LA MAIN : le choix « Personnalisé » (le montant tapé, ou celui que la reprise du fichier a lu
+ * différent de la règle). Une prime « 150 € » (la règle, même recopiée du fichier) ou « Aucune » ne l'est pas. Aucun montant ne change :
+ * la colonne GESTION la souligne seulement. PUR.
+ */
+export const primeSaisieALaMain = (a: Pick<ActiviteCalcul, 'primeMode'>): boolean => a.primeMode === 'personnalise';
 
 /**
  * 🔴 Arno (24/10/2026, 420) — un dossier signé AVANT l'enregistrement d'une règle « depuis toujours » qui le couvre : la règle remplace
@@ -441,8 +454,8 @@ export const LIBELLE_NATURE_BIEN: Record<NatureBien, string> = {
  * les règles du calcul ci-dessous, dans le même ordre.
  */
 export const DESCRIPTION_NATURE_BIEN: Record<NatureBien, string> = {
-  nouveau_gestion: 'Nouvelle gestion : un nouveau client — ou un propriétaire déjà client qui nous confie ce bien — et le bien est en gestion (ou un nouveau mandat de gestion est signé).',
-  relocation: 'Relocation gestion : l’origine du contact est « Relocation (portefeuille de gestion) » — le bien était déjà en gestion chez nous et on l’a reloué.',
+  nouveau_gestion: 'Nouvelle gestion : un nouveau client — ou un propriétaire déjà client qui nous confie ce bien — et le bien est en gestion (ou un nouveau mandat de gestion est signé). Quand la ligne a un bien rattaché, il doit être entré en gestion le mois de la signature ou le mois précédent (fiche du bien).',
+  relocation: 'Relocation gestion : l’origine du contact est « Relocation (portefeuille de gestion) » — le bien était déjà en gestion chez nous et on l’a reloué. Aussi : le bien rattaché à la ligne était entré en gestion avant le mois précédant la signature (fiche du bien).',
   nouveau_sans_gestion: 'Nouveau sans gestion : un nouveau client, et le bien n’est pas en gestion.',
   client_hors_gestion: 'Relocation sans gestion : le propriétaire était déjà client (origine « Propriétaire déjà client ») et ce bien n’est pas en gestion.',
   a_qualifier: 'À qualifier : l’origine du contact n’est pas renseignée. Rien n’est deviné : choisissez le statut, ou renseignez l’origine.',
@@ -452,7 +465,15 @@ export const DESCRIPTION_NATURE_BIEN: Record<NatureBien, string> = {
  * 🔴 Arno (25/10/2026, migration 424) — LE STATUT VALIDÉ À LA MAIN l'emporte sur le calcul PARTOUT (pastille de ligne, légende, compteurs,
  * panneau) ; « Revenir au statut calculé » l'efface. Il ne réécrit ni l'origine du contact ni la gestion (aucun effet de bord). PUR.
  */
-export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'natureManuelle' | 'annexe'>): { nature: NatureBien; raison: string; manuelle?: { par: string; le: string } } {
+type ChampsNature = Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'annexe'> & Partial<Pick<ActiviteCalcul, 'dateSignature' | 'entreeGestionBien'>>;
+
+/** « AAAA-MM » → le mois précédent (« 2026-01 » → « 2025-12 »). PUR. */
+const moisPrecedent = (m: string): string => {
+  const [y, mm] = m.split('-').map(Number);
+  return mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`;
+};
+
+export function natureBienLoue(a: ChampsNature & Pick<ActiviteCalcul, 'natureManuelle'>): { nature: NatureBien; raison: string; manuelle?: { par: string; le: string } } {
   const m = a.natureManuelle;
   if (m !== null && m !== undefined && (NATURES_BIEN as readonly string[]).includes(m.nature)) {
     return { nature: m.nature, raison: `validé par ${m.par} le ${m.le.slice(0, 10).split('-').reverse().join('/')}`, manuelle: { par: m.par, le: m.le } };
@@ -461,7 +482,7 @@ export function natureBienLoue(a: Pick<ActiviteCalcul, 'origineContact' | 'avecG
 }
 
 /** Le statut CALCULÉ (les règles ci-dessus) : celui que la modale propose. PUR. */
-export function natureBienCalculee(a: Pick<ActiviteCalcul, 'origineContact' | 'avecGestion' | 'mandatGestion' | 'annexe'>): { nature: NatureBien; raison: string } {
+export function natureBienCalculee(a: ChampsNature): { nature: NatureBien; raison: string } {
   // 🔴 Arno (25/10/2026, 426) — une annexe louée (après la bascule) : une relocation, selon la gestion de son lot principal à la signature.
   if (a.annexe) {
     return a.annexe.principalEnGestion ? { nature: 'relocation', raison: `annexe de ${a.annexe.libelle}, lot principal en gestion à la signature` }
@@ -472,7 +493,13 @@ export function natureBienCalculee(a: Pick<ActiviteCalcul, 'origineContact' | 'a
   if (a.origineContact === 'proprietaire_deja_client' && !enGestion) return { nature: 'client_hors_gestion', raison: 'propriétaire déjà client, bien sans gestion' };
   if (a.origineContact === null || a.origineContact === undefined) return { nature: 'a_qualifier', raison: 'origine du contact à renseigner' };
   if (enGestion) {
-    const qui = a.origineContact === 'proprietaire_deja_client' ? 'propriétaire déjà client, nouveau bien confié en gestion' : 'nouveau client';
+    // 🔴 Arno (26/10/2026, règle A) — LA FICHE DU BIEN FAIT FOI : un bien rattaché entré en gestion AVANT le mois précédant la signature
+    // (tolérance d'un mois : les lignes reprises du fichier sont datées du 1er) est une relocation. Sans bien, ou sans entrée : comme avant.
+    const entree = a.entreeGestionBien ?? null;
+    if (entree !== null && a.dateSignature !== undefined && entree.slice(0, 7) < moisPrecedent(a.dateSignature.slice(0, 7))) {
+      return { nature: 'relocation', raison: `bien en gestion depuis le ${entree.slice(0, 10).split('-').reverse().join('/')} (fiche du bien)` };
+    }
+    const qui =a.origineContact === 'proprietaire_deja_client' ? 'propriétaire déjà client, nouveau bien confié en gestion' : 'nouveau client';
     return { nature: 'nouveau_gestion', raison: `${qui}, ${a.mandatGestion ? 'nouveau mandat de gestion signé (prime)' : 'bien en gestion'}` };
   }
   return { nature: 'nouveau_sans_gestion', raison: 'nouveau client, bien sans gestion' };
@@ -1262,6 +1289,14 @@ export interface EcartFichier { mois: string; champ: 'ca' | 'apporteurs' | 'prim
 export function honorairesGestionMensuels(l: Pick<LigneGestion, 'loyerHc' | 'provisions' | 'base' | 'tauxHt'>): number | null {
   if (l.loyerHc === null || l.tauxHt === null) return null;
   return (l.loyerHc + (l.base === 'cc' ? (l.provisions ?? 0) : 0)) * l.tauxHt / 100;
+}
+
+/**
+ * 🔴 Arno (26/10/2026) — la colonne « Loyer (cc) » des nouvelles gestions : loyer + charges, une seule valeur ; null sans loyer connu (« à
+ * saisir »). Affichage seul : les honoraires gardent leur calcul (`honorairesGestionMensuels`). AUCUN ARRONDI. PUR.
+ */
+export function loyerChargesComprises(l: Pick<LigneGestion, 'loyerHc' | 'provisions'>): number | null {
+  return l.loyerHc === null ? null : l.loyerHc + (l.provisions ?? 0);
 }
 
 export interface GestionDuMois {

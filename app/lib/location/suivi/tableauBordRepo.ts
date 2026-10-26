@@ -87,6 +87,18 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   // le lot de la ligne et ceux des occupations du bail. Une ligne sans bail ni lot rattaché n'en a pas (« non rattaché »).
   const nomLocataire = `coalesce(nullif(btrim(concat_ws(' ', lo.prenom, lo.nom)), ''), lo.nom)`;
   const libelleLot = `coalesce(nullif(concat_ws(' — ', nullif(btrim(lt.nature), ''), nullif(btrim(concat_ws(' ', lt.adresse, lt.commune)), '')), ''), 'Bien n° ' || lt.id)`;
+  // 🔴 Arno (26/10/2026, règle A) — LA FICHE DU BIEN FAIT FOI : la date d'entrée en gestion du bien de la ligne (le lot de la ligne et ceux
+  // des occupations du bail ; les lots principaux d'abord, les annexes seulement à défaut), datée comme « Nouvelles gestions du mois »
+  // (`sqlEffet`), la dernière au plus tard à la fin du mois de signature. Sans bien ni entrée : NULL (le statut calculé reste celui d'avant).
+  const entreeGestionBien = await (async (): Promise<string> => {
+    if (!avecStatut) return 'NULL::date';
+    const effet = await sqlEffet('t');
+    const lotsLigne = `(SELECT a.lot_id${avecBailOcc ? ' UNION SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id' : ''})`;
+    const entree = (filtre: string): string => `(SELECT max(e.d) FROM (SELECT ${effet} AS d FROM gestion_bien_statut_transition t
+        WHERE t.lot_id IN ${lotsLigne} AND t.apres = 'en_gestion' AND t.avant IS DISTINCT FROM 'en_gestion'${filtre}) e
+       WHERE e.d <= (date_trunc('month', a.date_signature) + interval '1 month' - interval '1 day')::date)`;
+    return `coalesce(${entree(' AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe ax WHERE ax.annexe_id = t.lot_id)')}, ${entree('')})`;
+  })();
   const { rows } = await query<Record<string, unknown>>(
     `SELECT a.id, a.type, a.date_signature, a.date_signature_supposee, a.libelle_proprietaire, a.libelle_locataire,
             a.hono_proprietaire_ht, a.hono_locataire_ht, a.prime_gestion_saisie, a.mandat_gestion, a.categorie_prime,
@@ -109,6 +121,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             ${avec413 ? 'a.apporteur_mode, a.apporteur_taux_gestion, a.taux_gestion_bien_ht' : 'NULL::text AS apporteur_mode, NULL::numeric AS apporteur_taux_gestion, NULL::numeric AS taux_gestion_bien_ht'},
             ${avecStatut ? `(SELECT min(t.effet_le) FROM gestion_bien_statut_transition t
                               WHERE t.lot_id = a.lot_id AND t.avant = 'en_gestion' AND t.apres <> 'en_gestion' AND t.effet_le >= a.date_signature)` : 'NULL::date'} AS fin_gestion,
+            ${entreeGestionBien} AS entree_gestion_bien,
             ${avecAssurance ? `(SELECT ce.assurance_loyers FROM gestion_location_conditions_entree ce WHERE ce.bail_id = a.bail_id ORDER BY ce.id DESC LIMIT 1)` : 'NULL::text'} AS assurance,
             coalesce(${avecBailOcc ? `(SELECT json_agg(json_build_object('id', lo.id, 'libelle', ${nomLocataire}) ORDER BY lo.id)
                 FROM gestion_annuaire_locataire lo WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)), ` : ''}
@@ -148,6 +161,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     apporteurMode: r.apporteur_mode === 'recurrent' || r.apporteur_mode === 'one_shot' ? r.apporteur_mode as ModeApporteur : null,
     apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
     finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
+    entreeGestionBien: r.entree_gestion_bien === null || r.entree_gestion_bien === undefined ? null : iso(r.entree_gestion_bien),
     locataires: fiches(r.locataires), lots: fiches(r.lots),
     conversion: r.converti_le === null || r.converti_le === undefined ? null : {
       le: r.converti_le instanceof Date ? r.converti_le.toISOString() : String(r.converti_le), par: String(r.converti_par_libelle ?? ''),
