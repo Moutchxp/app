@@ -27,6 +27,7 @@ import { ecrireEtatUrl, ETAT_DEFAUT, lireEtatUrl } from '../../../../lib/gestion
  */
 
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
+const ZONES = readFileSync('app/lib/gestion/zonesPoints.ts', 'utf8');
 /* 🔴 LE DÉFILEMENT A DÉMÉNAGÉ DANS UN CROCHET PARTAGÉ (lot FRISES-REPARATION, B.3) : les épreuves qui le
    concernent lisent désormais CE fichier, puisqu'il est le seul chemin des DEUX frises. */
 const SOURCE_CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useDefilementFrise.ts', 'utf8');
@@ -345,8 +346,10 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * calculée à partir d'une date, ce qui les ferait se superposer dès que deux messages tombent le même jour.
    */
   it('🔴🔴 des messages rapprochés ne se superposent pas', () => {
-    expect(FRISE).toMatch(/\.fav-points\{[^}]*display:flex/);
-    expect(FRISE).toMatch(/\.fav-points\{[^}]*gap:4px/);
+    // 🔴 Arno (26/10/2026) — la rangée et ses zones viennent du module PUR (`zonesPoints.ts`, géométrie éprouvée à part).
+    expect(FRISE).toContain('${CSS_ZONES_POINTS}');
+    expect(ZONES).toMatch(/\.fav-points\{[^}]*display:flex/);
+    expect(ZONES).toMatch(/\.fav-points\{[^}]*gap:\$\{ECART_POINTS_PX\}px/);
   });
 
   /** 🔴 LA FRISE EST UNE SÉQUENCE : une liste ORDONNÉE, et c'est ce qu'un lecteur d'écran doit entendre. */

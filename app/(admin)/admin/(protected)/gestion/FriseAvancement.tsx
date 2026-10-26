@@ -33,7 +33,11 @@ import { ecouterTaches } from './tachesClient';
 /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — la frise se relit après un rattachement (signal dédié, ou tout classement de mail). */
 import { ecouterFrise, friseConcernee } from '../../../../lib/gestion/signalFrise';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
-import { motSuivieAilleurs } from '../../../../lib/gestion/frise';
+import { lignesExpediteur, motSuivieAilleurs } from '../../../../lib/gestion/frise';
+/* 🔴 Arno (26/10/2026, R3) — « Transformer en étape » : la liste du « + », le geste de correction existant. */
+import { cartesPourTransformer, familleDe as familleCorrection, gesteTransformerEnEtape, peutRemettreEnPoint } from '../../../../lib/gestion/correctionEtape';
+/* 🔴 Arno (26/10/2026) — les zones actives des points : centrées, sans chevauchement (module PUR, éprouvé). */
+import { CSS_ZONES_POINTS } from '../../../../lib/gestion/zonesPoints';
 /* 🔴 LOT FRISE-CORRECTION-MANUELLE — le panneau de correction, la liste des retirés, délier / relier. */
 import {
   CSS_PANNEAU_CORRECTION, ListeRetires, OutilsInterventions, PanneauCorrection, type GesteCorrection,
@@ -962,6 +966,10 @@ export function FriseAvancement({
             onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
             onRetirer={retirerCarte}
             onFermer={() => setFixe(null)}
+            /* 🔴 Arno (26/10/2026, R3) — « Transformer en étape » : la liste du « + », le geste de correction de la 429. */
+            transformation={lectureSeule ? null : {
+              types: cartesPourTransformer(vue.d.ouvert !== false), disponible: vue.d.correction === true,
+              onCorriger: (g) => corrigerCarte(detailFixe, g) }}
             mot={motDuDetail} />
           {/* 🔴 LOT FRISE-CORRECTION-MANUELLE — au toucher d'un point, ou par ✎ / « … » d'une carte, le panneau de correction
               s'ouvre SOUS le détail, qui reste entier (aucun geste existant n'est retiré). Une clé par élément : passer
@@ -1641,9 +1649,16 @@ function LigneCreation({ creation, deplacee = false }: {
  * fini par diverger sur la phrase « mail supprimé — étape conservée ».
  */
 function BulleDetail({
-  e, mot, occupe, question = null, onOuvrirFil, onMontant, onRetirer, onModifier, onFermer,
+  e, mot, occupe, question = null, onOuvrirFil, onMontant, onRetirer, onModifier, onFermer, transformation = null,
 }: {
   e: EtapeAAfficher; mot: string; occupe: boolean;
+  /**
+   * ══ 🔴🔴 Arno (26/10/2026, R3) — « TRANSFORMER EN ÉTAPE » DANS LA BULLE DÉPLIÉE ══════════════════════════════════════════════════
+   * La liste des cartes du « + » (`cartesPourTransformer`), le geste de correction de la 429 (la correction humaine fait foi, la relève
+   * ne l'écrase jamais, journalisée), « Remettre en point d'information » sur une carte qui était un point. `disponible` faux (429
+   * absente) : bouton visible, inactif, avec la mention. `null` : bulle de survol ou frise en lecture seule (rien d'ajouté).
+   */
+  transformation?: { types: readonly TypeEtape[]; disponible: boolean; onCorriger: (g: GesteCorrection) => void } | null;
   /**
    * 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — LA QUESTION À POSER AVANT DE RETIRER CETTE CARTE, ou `null` quand il
    * n'y a rien à demander. Elle vient du module PUR (`questionAvantRetrait`), calculée sur la suite des bornes
@@ -1675,13 +1690,21 @@ function BulleDetail({
    */
   const [demandePour, setDemandePour] = useState<number | null>(null);
   const demande = demandePour === e.id;
+  /* 🔴 R3 — la liste des cartes s'ouvre pour CE point seulement (changer de point la referme, sans effet). */
+  const [listePour, setListePour] = useState<number | null>(null);
+  /* 🔴 R2 — l'expéditeur réel du mail d'origine et l'auteur réel du message ; `null` : élément sans mail (bulle d'avant). */
+  const expediteur = lignesExpediteur(e);
+  const estPoint = familleCorrection(e.type) === 'point';
   return (
     <div className="fav-bulle" role="status">
       <p className="fav-bulle-tete">
         {/* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — même règle que le carré : pas de date saisie, pas de date écrite. */}
         {mot}{dateAffichee(e) !== null && <> · {dateAffichee(e)}</>} · {motSource(e)}
-        {e.auteur !== null && <> · {e.auteur}</>}
+        {/* 🔴 R2 — issu d'un mail : l'auteur passe sur la ligne « À l'origine », sous « Envoyé par » (jamais pris pour l'expéditeur). */}
+        {e.auteur !== null && expediteur === null && <> · {e.auteur}</>}
       </p>
+      {expediteur !== null && <p className="fav-bulle-pose" data-envoye-par>Envoyé par : {expediteur.envoyePar}</p>}
+      {expediteur !== null && expediteur.aLOrigine !== null && <p className="fav-bulle-pose" data-a-l-origine>À l’origine : {expediteur.aLOrigine}</p>}
       {/**
         * 🔴 QUAND LA CARTE A ÉTÉ POSÉE, ET PAR QUI (Arno, point 3 : « ajoutée le 06/10 à 22:31 par Arnaud »).
         *
@@ -1719,11 +1742,41 @@ function BulleDetail({
             Retirer
           </button>
         )}
+        {/* 🔴 R3 — « Transformer en étape » (un point) ; « Remettre en point d'information » (une carte qui était un point). */}
+        {transformation !== null && estPoint && (
+          <button type="button" className="fav-lien" disabled={occupe || !transformation.disponible || transformation.types.length === 0}
+            aria-expanded={listePour === e.id} onClick={() => setListePour(listePour === e.id ? null : e.id)} data-transformer-en-etape={e.id}
+            title={!transformation.disponible ? 'Disponible après la mise à jour de la base (migration 429).'
+              : transformation.types.length === 0 ? 'Événement clos : rouvrez-le pour poser une carte.' : undefined}>
+            Transformer en étape
+          </button>
+        )}
+        {transformation !== null && peutRemettreEnPoint({ ...e, source: e.source }) && (
+          <button type="button" className="fav-lien" disabled={occupe || !transformation.disponible}
+            onClick={() => transformation.onCorriger({ geste: 'automatique' })} data-remettre-en-point={e.id}>
+            Remettre en point d’information
+          </button>
+        )}
         {/* 🔴 « FERMER » REPLIE LA ZONE (Arno, point 2), au même titre qu'Échap et qu'un clic à côté. */}
         {onFermer !== undefined && (
           <button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>
         )}
       </p>
+      {transformation !== null && !transformation.disponible && (estPoint || peutRemettreEnPoint({ ...e, source: e.source })) && (
+        <p className="fav-perdu" data-transformation-indisponible>Transformer : disponible après la mise à jour de la base (migration 429).</p>
+      )}
+      {transformation !== null && estPoint && listePour === e.id && transformation.disponible && (
+        <div className="fav-transformer" role="group" aria-label="Transformer en étape : choisir la carte" data-liste-transformer={e.id}>
+          <p className="fav-bulle-pose">Choisir la carte — elle prend la date du point et garde le lien vers le mail d’origine :</p>
+          <p className="fav-bulle-gestes">
+            {transformation.types.map((t) => (
+              <button key={t} type="button" className="fav-lien" disabled={occupe} data-transformer-vers={t}
+                onClick={() => { setListePour(null); transformation.onCorriger(gesteTransformerEnEtape(e, t)); }}>{motEtape(t)}</button>
+            ))}
+            <button type="button" className="fav-lien" onClick={() => setListePour(null)}>Annuler</button>
+          </p>
+        </div>
+      )}
       {/**
         * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — « SUPPRIMER CETTE CLÔTURE ROUVRIRA L'ÉVÉNEMENT. » ═════════════
         *
@@ -2891,15 +2944,14 @@ const CSS_FRISE_AVANCEMENT = `
 /* ══ LES POINTS — sur le trait, entre les carres ══ */
 /* ⚠️ -5,5 px : la moitie d'un point de 11 px, meme raison que pour le « + » juste au-dessus (point 4). */
 .fav-el--points{align-self:flex-start;padding-top:calc(var(--fav-mi-carre) - 5.5px)}
-.fav-points{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:0 3px}
+/* 🔴 Arno (26/10/2026) — LES POINTS ET LEURS ZONES : la geometrie vit dans zonesPoints.ts (une seule ecriture, prouvee par son test). */
+${CSS_ZONES_POINTS}
 .fav-point-boite{position:relative;display:inline-flex}
 .fav-point{width:11px;height:11px;min-width:11px;min-height:11px;padding:0;cursor:pointer;
   border-radius:50%;border:1px solid var(--color-svv-muted);background:var(--color-svv-bg);position:relative}
-/* LOT MONGA-LIEN-PAR-LE-GESTE — LA CIBLE TACTILE : 44 x 44 px centres sur le point (CLAUDE.md section 15), le
-   dessin reste celui de 11 px. Une zone transparente, sans fond ni bord : elle ne se voit pas, elle se touche.
-   Entre deux points voisins, les zones se recouvrent ; le dernier point peint l'emporte, comme au doigt. */
-.fav-point::before{content:'';position:absolute;left:50%;top:50%;width:44px;height:44px;
-  transform:translate(-50%,-50%);border-radius:50%;background:transparent}
+/* LA CIBLE TACTILE (CLAUDE.md section 15) : une zone transparente centree sur le point, haute de 44 px, large d'AU PLUS un pas
+   (zonesPoints.ts). AVANT : 44 x 44 px pour des points espaces de 15 px — la zone du point SUIVANT recouvrait le point survole
+   (constat d'Arno du 26/10/2026 : « il faut survoler a cote »). Deux zones voisines se touchent desormais, sans se recouvrir. */
 .fav-point:hover,.fav-point:focus-visible{background:var(--color-svv-red);border-color:var(--color-svv-red)}
 .fav-point--rappel_devis{border-style:dashed}
 .fav-point--facture{border-width:2px}

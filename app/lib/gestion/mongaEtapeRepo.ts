@@ -56,6 +56,12 @@ export interface EtapeEcran {
    */
   aEuUnMail: boolean;
   filId: number | null;
+  /**
+   * 🔴 Arno (26/10/2026) — L'EXPÉDITEUR RÉEL DU MAIL D'ORIGINE (nom affiché, adresse), lu sur le message : la bulle dit « Envoyé par : … ».
+   * `null` = mail supprimé, ou étape sans mail. Jamais le collaborateur qui a rattaché le mail.
+   */
+  expediteurNom?: string | null;
+  expediteurAdresse?: string | null;
   pieceNom: string | null;
   creeParLibelle: string | null;
   /**
@@ -247,12 +253,14 @@ export async function friseDeLEvenement(
     montant_cents: string | null; texte: string | null; auteur: string | null;
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
     message_id: string | null; message_cle: string | null; fil_id: string | null;
+    expediteur_nom: string | null; expediteur_adresse: string | null;
     piece_nom: string | null; cree_par_libelle: string | null;
     cree_le: string | null; titre: string | null; rang_pose: string | null; pose_choisie: boolean;
   }>(
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.jour_connu, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
             e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle,
+            m.de_nom AS expediteur_nom, m.de_adresse AS expediteur_adresse,
             -- LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 1 : l'heure de creation s'affiche a la SECONDE, et
             -- Arno nomme le fuseau : Europe/Paris. Elle valait e.cree_le::text, qui rend l'horodatage dans le
             -- fuseau de la SESSION -- Europe/Paris sur ce poste (verifie : SHOW TimeZone), mais UTC sur un
@@ -324,6 +332,7 @@ export async function friseDeLEvenement(
     messageId: r.message_id === null ? null : Number(r.message_id),
     aEuUnMail: r.message_cle !== null,
     filId: r.fil_id === null ? null : Number(r.fil_id),
+    expediteurNom: r.expediteur_nom, expediteurAdresse: r.expediteur_adresse,
     pieceNom: r.piece_nom,
     creeParLibelle: r.cree_par_libelle,
     creeLe: r.cree_le,

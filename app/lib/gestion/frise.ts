@@ -74,6 +74,9 @@ export interface EtapeAAfficher {
   /** `false` = cette étape n'a JAMAIS eu de mail (ouverture déduite) — ce n'est pas un mail supprimé. */
   aEuUnMail: boolean;
   filId: number | null;
+  /** 🔴 Arno (26/10/2026) — l'expéditeur réel du mail d'origine (absents : route d'avant, ou étape sans mail). */
+  expediteurNom?: string | null;
+  expediteurAdresse?: string | null;
   creeParLibelle: string | null;
   rangDevis: number | null;
   /**
@@ -1230,4 +1233,27 @@ export function refusDEnregistrement(v: {
  */
 export function jourAEnregistrer(jour: string, jourDefaut: string): string {
   return jour === '' ? jourDefaut : jour;
+}
+
+
+/**
+ * ══ 🔴🔴 Arno (26/10/2026) — « ENVOYÉ PAR » ET « À L'ORIGINE », DANS LA BULLE D'UN POINT OU D'UNE CARTE ISSUS D'UN MAIL. PUR. ══════════════
+ * La bulle disait « Commentaire Monga · 23/10/2026 · Monga · Jean-Baptiste PONS », sans dire qui avait ENVOYÉ le mail.
+ *   · « Envoyé par : <nom affiché> <adresse> » = l'expéditeur réel du mail d'origine (ex. Monga Support <…>) ; s'il manque (mail
+ *     supprimé, adresse illisible) : « expéditeur inconnu » — jamais deviné, jamais le collaborateur qui a rattaché le mail ;
+ *   · « À l'origine : <personne> » = l'auteur réel du message quand le mail le dit (l'auteur du commentaire Monga, le locataire cité…),
+ *     et seulement s'il diffère de l'expéditeur.
+ * `null` : l'élément n'a jamais eu de mail (posé à la main, ouverture déduite) — rien à dire, la bulle est celle d'avant.
+ */
+export const MOT_EXPEDITEUR_INCONNU = 'expéditeur inconnu';
+export function lignesExpediteur(e: Pick<EtapeAAfficher, 'messageId' | 'aEuUnMail' | 'auteur' | 'expediteurNom' | 'expediteurAdresse'>):
+  { envoyePar: string; aLOrigine: string | null } | null {
+  if (e.messageId === null && !e.aEuUnMail) return null;
+  const nom = (e.expediteurNom ?? '').trim();
+  const adresse = (e.expediteurAdresse ?? '').trim();
+  const envoyePar = nom !== '' && adresse !== '' && nom.toLowerCase() !== adresse.toLowerCase() ? `${nom} <${adresse}>`
+    : nom !== '' ? nom : adresse !== '' ? adresse : MOT_EXPEDITEUR_INCONNU;
+  const auteur = (e.auteur ?? '').trim();
+  const aLOrigine = auteur !== '' && auteur.toLowerCase() !== nom.toLowerCase() && auteur.toLowerCase() !== adresse.toLowerCase() ? auteur : null;
+  return { envoyePar, aLOrigine };
 }

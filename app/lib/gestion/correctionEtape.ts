@@ -16,7 +16,7 @@
  * TRANSFORME rien EN borne : une Clôture se pose depuis le « + », avec sa modale.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { REPERES, estRepere, motEtape, type TypeEtape } from './mongaEtape';
+import { REPERES, cartesDuReservoir, estRepere, motEtape, type TypeEtape } from './mongaEtape';
 import { MENTION_DATE_RDV, TYPES_BORNE, estCarteRendezVous } from './frise';
 
 /** Les natures d'une CARTE d'étape qu'une correction peut choisir (les bornes exceptées). */
@@ -161,4 +161,27 @@ export function phraseDelier(reference: string, evenementReference: string | nul
   const ou = evenementReference === null ? 'cet événement' : evenementReference;
   return `Délier ${reference} de ${ou} : ses étapes quittent cette frise, et les mails Monga classés automatiquement quittent `
     + `l’événement. Les mails restent dans l’historique du bien. Vous pourrez la relier à nouveau depuis cette frise.`;
+}
+
+
+/**
+ * ══ 🔴🔴 Arno (26/10/2026, R3) — « TRANSFORMER EN ÉTAPE » DEPUIS LA BULLE D'UN POINT : LA LISTE DU « + », ET ELLE SEULE. PUR. ═══════════
+ * La MÊME source que la grille « Ajouter une carte » du « + » (`cartesDuReservoir`, qui suit l'état ouvert / clos de l'événement) — jamais
+ * une liste recopiée —, privée de ce qu'une correction ne peut pas poser : une borne (Clôture, Réouverture : elles se posent depuis le
+ * « + », avec leur modale) et un repère (Facture : c'est un point, pas une carte). Événement clos : liste vide (le « + » n'y offre
+ * que « Réouverture »).
+ */
+export function cartesPourTransformer(evenementOuvert: boolean): TypeEtape[] {
+  return cartesDuReservoir(evenementOuvert).filter((t) => !estBorne(t) && familleDe(t) === 'carte');
+}
+
+/** Le geste « Transformer en étape » : la carte choisie, à la DATE DU POINT (sans date s'il n'en avait pas), titre inchangé. PUR. */
+export function gesteTransformerEnEtape(e: { survenuLe: string; jourConnu?: boolean; titre: string | null }, type: TypeEtape):
+  { geste: 'corriger'; type: TypeEtape; titre: string | null; jour: string | null } {
+  return { geste: 'corriger', type, titre: e.titre !== null && e.titre.trim() !== '' ? e.titre.trim() : null, jour: e.jourConnu === false ? null : e.survenuLe.slice(0, 10) };
+}
+
+/** « Remettre en point d'information » : une carte qui ÉTAIT un point pour l'automatisation (Monga, corrigée depuis). PUR. */
+export function peutRemettreEnPoint(e: TraceCorrection & { type: TypeEtape }): boolean {
+  return familleDe(e.type) === 'carte' && peutRevenirAutomatique(e) && familleDe(e.autoType as TypeEtape) === 'point';
 }
