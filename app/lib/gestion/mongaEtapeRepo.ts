@@ -18,7 +18,7 @@ import {
 } from './mongaEtape';
 import { sqlJamaisDansLeFutur } from './ouvertureEvenement';
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
-import { evenementQualifieDisponible } from './schema';
+import { correctionEtapeDisponible, evenementQualifieDisponible } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
 import {
   sensDeLaBorne, sqlBornesDeLEvenement, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne,
@@ -68,6 +68,13 @@ export interface EtapeEcran {
   titre: string | null;
   /** Le rang du devis dans sa référence (« Devis 2 »), calculé par le module pur. */
   rangDevis: number | null;
+  /** 🔴 LOT FRISE-CORRECTION-MANUELLE (migration 429) — la valeur d'origine et la dernière correction. Absents sans la 429. */
+  autoType?: TypeEtape | null;
+  autoStatut?: 'vif' | 'retire' | null;
+  corrigeLe?: string | null;
+  corrigeParLibelle?: string | null;
+  retireLe?: string | null;
+  retireParLibelle?: string | null;
 }
 
 /**
@@ -93,6 +100,18 @@ export async function enregistrerEtapesDuMail(m: {
   if (m.reference === null) return 0;
   const lues = etapesDuMailMonga(m.objet, m.texte);
   if (lues.length === 0) return 0;
+  /**
+   * 🔴🔴 LOT FRISE-CORRECTION-MANUELLE — LA CORRECTION HUMAINE FAIT FOI (Arno). Un humain a transformé l'étape « commentaire »
+   * de ce mail en carte : relire le mail ne doit pas recréer le commentaire à côté. L'index unique (mail, type) ne le voit plus
+   * — le type a changé —, d'où cette garde sur le TYPE D'ORIGINE (`auto_type`, migration 429). Sans la 429, aucune étape n'a pu
+   * être corrigée, et la requête est celle d'avant.
+   */
+  const correction = await correctionEtapeDisponible();
+  const pasDejaCorrigee = correction
+    ? `WHERE NOT EXISTS (SELECT 1 FROM gestion_monga_etape x
+                          WHERE x.source = 'monga' AND x.auto_type = $2
+                            AND (x.message_id = $10 OR (x.message_cle IS NOT NULL AND x.message_cle = $11)))`
+    : '';
   let ecrites = 0;
   for (const e of lues) {
     /**
@@ -108,8 +127,10 @@ export async function enregistrerEtapesDuMail(m: {
       `INSERT INTO gestion_monga_etape
          (reference, type, survenu_le, heure_connue, heure_fin, numero, rang, texte, auteur,
           source, message_id, message_cle, certitude)
-       VALUES ($1,$2,CASE WHEN $2 = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,
-               $4,$5,$6,$7,$8,$9,'monga',$10,$11,$12)
+       SELECT $1::text, $2::text,
+              CASE WHEN $2::text = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,
+              $4::boolean, $5::text, $6::text, $7::integer, $8::text, $9::text, 'monga', $10::bigint, $11::text, $12::text
+       ${pasDejaCorrigee}
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [m.reference, e.type, survenu, e.heure !== null, e.heure?.a ?? null,
@@ -136,9 +157,12 @@ export async function poserOuvertureDeRepli(reference: string): Promise<boolean>
        FROM gestion_monga_etape WHERE reference = $1 AND statut = 'vif'`, [reference]);
   const premier = rows[0]?.premier ?? null;
   if (premier === null) return false;
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — « VIVE OU NON » : une ouverture qu'un humain a retirée de la frise (ou écartée) ne doit
+     pas renaître au mail suivant. Avant ce lot, une étape Monga ne pouvait pas être retirée à la main ; seule l'écarter le
+     pouvait, et c'était déjà une décision humaine que le repli suivant défaisait en silence. */
   const deja = await query(
     `SELECT 1 FROM gestion_monga_etape
-      WHERE reference = $1 AND type = 'ouverture' AND statut = 'vif' LIMIT 1`, [reference]);
+      WHERE reference = $1 AND type = 'ouverture' LIMIT 1`, [reference]);
   if ((deja.rowCount ?? 0) > 0) return false;
   const e = ouvertureDeRepli(premier);
   const r = await query(
@@ -179,6 +203,20 @@ export async function referencesSuiviesAilleurs(evenementId: number): Promise<{ 
 }
 
 /**
+ * 🔴 LOT FRISE-CORRECTION-MANUELLE — LES INTERVENTIONS DÉLIÉES DE CET ÉVÉNEMENT, et que plus rien ne suit : la frise propose de
+ * les « Relier à nouveau » (Arno : délier est réversible). Une référence reliée ailleurs depuis n'y figure pas. LECTURE SEULE.
+ */
+export async function referencesDeliees(evenementId: number): Promise<string[]> {
+  const { rows } = await query<{ reference: string }>(
+    `SELECT DISTINCT l.reference
+       FROM gestion_monga_lien l
+      WHERE l.evenement_id = $1 AND l.retire_le IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM gestion_monga_lien v WHERE v.reference = l.reference AND v.retire_le IS NULL)
+      ORDER BY 1`, [evenementId]);
+  return rows.map((r) => r.reference);
+}
+
+/**
  * ══ 🔴🔴 LA FRISE D'UN ÉVÉNEMENT ═════════════════════════════════════════════════════════════════════════════════
  *
  * 🔴 DEUX SOURCES EN UNE SEULE LECTURE, et c'est le cœur de la règle d'Arno : les étapes rattachées aux
@@ -190,8 +228,20 @@ export async function referencesSuiviesAilleurs(evenementId: number): Promise<{ 
  * `null` — c'est ce qui permet d'afficher « mail supprimé — étape conservée ». Un `INNER JOIN` l'aurait fait
  * disparaître, c'est-à-dire exactement ce que ce lot répare.
  */
-export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran[]> {
+export async function friseDeLEvenement(
+  evenementId: number,
+  /** 🔴 LOT FRISE-CORRECTION-MANUELLE — `retire` : les éléments retirés de la frise, listés repliés sous elle (réversibles). */
+  statut: 'vif' | 'retire' = 'vif',
+): Promise<EtapeEcran[]> {
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — les colonnes de la 429 ne sont nommées que si elle est là (sonde HORS transaction). */
+  const correction = await correctionEtapeDisponible();
+  const colonnesCorrection = correction
+    ? `, e.auto_type, e.auto_statut, e.corrige_par_libelle,
+            to_char(e.corrige_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS corrige_le`
+    : '';
   const { rows } = await query<{
+    auto_type?: TypeEtape | null; auto_statut?: 'vif' | 'retire' | null; corrige_le?: string | null;
+    corrige_par_libelle?: string | null; retire_le: string | null; retire_par_libelle: string | null;
     id: string; reference: string | null; type: TypeEtape; survenu_le: string;
     heure_connue: boolean; jour_connu: boolean; heure_fin: string | null; numero: string | null; rang: number | null;
     montant_cents: string | null; texte: string | null; auteur: string | null;
@@ -213,10 +263,12 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
             e.titre, e.rang_pose::text,
             -- LOT FRISE-PLUS-INTERCALAIRE (migration 322) : cette carte a-t-elle ete posee a un endroit CHOISI ?
             -- Sa place ne decoule alors pas de son horodatage, et la regle vert/orange la laisse tranquille.
-            e.pose_choisie
+            e.pose_choisie,
+            to_char(e.retire_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS retire_le, e.retire_par_libelle
+            ${colonnesCorrection}
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
-      WHERE e.statut = 'vif'
+      WHERE e.statut = '${statut === 'retire' ? 'retire' : 'vif'}'
         AND (e.evenement_id = $1
              OR e.reference IN (SELECT reference FROM gestion_monga_lien
                                  WHERE evenement_id = $1 AND retire_le IS NULL))
@@ -281,6 +333,12 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     rangPose: r.rang_pose === null ? null : Number(r.rang_pose),
     poseChoisie: r.pose_choisie === true,
     rangDevis: rangs.get(Number(r.id)) ?? null,
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — absents sans la 429 : « jamais corrigée ». */
+    ...(correction ? {
+      autoType: r.auto_type ?? null, autoStatut: r.auto_statut ?? null,
+      corrigeLe: r.corrige_le ?? null, corrigeParLibelle: r.corrige_par_libelle ?? null,
+    } : {}),
+    retireLe: r.retire_le, retireParLibelle: r.retire_par_libelle,
   }));
 }
 
@@ -409,7 +467,7 @@ export type IssueBorne =
   | { ok: true; id: number; ouvertAvant: boolean; ouvertApres: boolean }
   | { ok: false; motif: 'inconnu' | 'deja_clos' };
 
-async function ouvertDansLaTransaction(q: RequeteTx, evenementId: number): Promise<boolean> {
+export async function ouvertDansLaTransaction(q: RequeteTx, evenementId: number): Promise<boolean> {
   const { rows } = await q<{ ouvert: boolean }>(
     `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
   return rows[0]?.ouvert === true;
@@ -505,13 +563,13 @@ const SQL_EVENEMENTS_DE_LA_CARTE = `SELECT svv_c.evenement_id FROM gestion_monga
            JOIN gestion_monga_lien svv_l ON svv_l.reference = svv_c.reference AND svv_l.retire_le IS NULL
           WHERE svv_c.id = $1`;
 
-async function evenementsDeLaCarte(q: RequeteTx, id: number): Promise<number[]> {
+export async function evenementsDeLaCarte(q: RequeteTx, id: number): Promise<number[]> {
   const { rows } = await q<{ evenement_id: string }>(
     `SELECT evenement_id::text FROM (${SQL_EVENEMENTS_DE_LA_CARTE}) x ORDER BY 1`, [id]);
   return rows.map((r) => Number(r.evenement_id));
 }
 
-async function verrouillerEvenements(q: RequeteTx, ids: readonly number[]): Promise<void> {
+export async function verrouillerEvenements(q: RequeteTx, ids: readonly number[]): Promise<void> {
   if (ids.length > 0) await q(`SELECT id FROM gestion_evenement WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE`, [ids]);
 }
 

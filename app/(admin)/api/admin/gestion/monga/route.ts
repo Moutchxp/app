@@ -98,6 +98,8 @@ export async function POST(request: Request): Promise<Response> {
   const corps = (await request.json().catch(() => null)) as {
     reference?: unknown; evenementId?: unknown; messageId?: unknown; lotCle?: unknown;
     delier?: unknown; motif?: unknown; categorie?: unknown; urgence?: unknown; ouvertLe?: unknown;
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — « frise » : délier sans toucher aux biens, relier sans renommer, et journaliser. */
+    depuis?: unknown;
   } | null;
   if (corps === null) return Response.json({ erreur: 'Requête illisible.' }, { status: 400, headers: ENTETES });
 
@@ -110,8 +112,11 @@ export async function POST(request: Request): Promise<Response> {
     ? corps.motif.trim().slice(0, 300) : undefined;
 
   try {
+    const depuisLaFrise = corps.depuis === 'frise';
     if (corps.delier === true) {
-      const issue = await delierLaReference({ reference, auteur, motif });
+      const issue = await delierLaReference({
+        reference, auteur, motif: motif ?? (depuisLaFrise ? 'délié depuis la frise de l’événement' : undefined), depuisLaFrise,
+      });
       return issue.ok
         ? Response.json({ etat: 'ok', ...issue }, { headers: ENTETES })
         : Response.json({ erreur: issue.motif ?? 'Annulation impossible.' },
@@ -126,6 +131,7 @@ export async function POST(request: Request): Promise<Response> {
       const issue = await relierLaReference({
         reference, evenementId: String(evenementId), auteur,
         messageId: entier(corps.messageId) === null ? null : String(entier(corps.messageId)),
+        depuisLaFrise,
       });
       return issue.ok
         ? Response.json({ etat: 'ok', ...issue }, { headers: ENTETES })

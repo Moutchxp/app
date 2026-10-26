@@ -75,7 +75,9 @@ describe('🔴 le verrou : aucune ouverture n’est datée dans le futur (écran
     const ins = emis.find((e) => e.sql.includes('INSERT INTO gestion_monga_etape'))!;
     expect(norm(ins.sql)).toContain("VALUES ($1,'ouverture',LEAST($2::timestamptz, now())");
     const src = norm(readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8'));
-    expect(src).toContain("VALUES ($1,$2,CASE WHEN $2 = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,");
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — l'insertion de la relève est devenue un INSERT … SELECT (garde de la correction
+       humaine) ; le verrou de date reste le même. */
+    expect(src).toContain("CASE WHEN $2::text = 'ouverture' THEN ${sqlJamaisDansLeFutur('$3::timestamptz')} ELSE $3::timestamptz END,");
   });
   it('le script de reprise Monga, et une carte qui devient une Ouverture, portent le même verrou', () => {
     const script = norm(readFileSync('app/scripts/monga-etapes-reprise.ts', 'utf8'));

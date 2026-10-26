@@ -140,7 +140,8 @@ describe('🔴🔴 ③ une carte non datée n’affiche AUCUNE date', () => {
     expect(FAV).not.toMatch(/\{motDateEtape\(|\$\{motDateEtape\(/);
     expect(FAV).toContain('{dateAffichee(e) !== null && (');
     expect(FAV).toContain('{mot}{dateAffichee(e) !== null && <> · {dateAffichee(e)}</>} · {motSource(e)}');
-    expect(FAV).toContain('title={dateAffichee(m) === null ? motEtape(m.type) : ');
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — le point se nomme par son titre corrigé, sinon par le mot du type (`nomDuPoint`). */
+    expect(FAV).toContain('title={dateAffichee(m) === null ? nomDuPoint : ');
   });
 
   /** ⚠️ « La ligne verte “créée le …” reste inchangée » : elle ne dépend pas de la date de la carte. */

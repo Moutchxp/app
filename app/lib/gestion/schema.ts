@@ -1320,3 +1320,12 @@ export function envoiClassementDisponible(): Promise<boolean> {
 export function rattacheDepuisDisponible(): Promise<boolean> {
   return memoiser('evenement.rattache_depuis', () => colonneExiste('gestion_evenement', 'rattache_depuis'));
 }
+
+/**
+ * 🔴 LOT FRISE-CORRECTION-MANUELLE (26/10/2026) — la migration 429 (colonnes `auto_*` et `corrige_*` de `gestion_monga_etape`) est-elle
+ * appliquée ? Sans elle, le panneau de correction s'affiche en lecture (« disponible après la mise à jour »), aucune colonne de
+ * correction n'est nommée, et la relève insère ses étapes comme avant. Sondée HORS transaction, comme toutes les sondes du module.
+ */
+export function correctionEtapeDisponible(): Promise<boolean> {
+  return memoiser('etape.corrige_le', () => colonneExiste('gestion_monga_etape', 'corrige_le'));
+}

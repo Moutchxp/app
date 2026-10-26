@@ -249,8 +249,12 @@ describe('②-bis 🔴 numéroter un type répété', () => {
   });
 
   /** ⚠️ LE TITRE NE DÉBORDE PAS SUR LES AUTRES TYPES : ailleurs, le mot vient du TYPE, écrit une seule fois. */
-  it('⚠️ un titre posé sur un autre type est ignoré', () => {
-    expect(motDeLaCarte(etape({ type: 'cloture', titre: 'Visite' }), undefined, 0)).toBe('Clôture');
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE (Arno, 26/10/2026 : « modifier le TITRE » de chaque carte) — un titre corrigé à la main
+     l'emporte désormais sur le mot du type, sur TOUTE carte. Avant ce lot il était ignoré hors carte libre ; aucune carte
+     n'en portait (mesuré : 0 en base), les routes d'ajout et du crayon l'effacent toujours hors carte libre. */
+  it('🔴 un titre corrigé à la main l’emporte sur le mot du type, sur toute carte ; vide, le mot du type revient', () => {
+    expect(motDeLaCarte(etape({ type: 'cloture', titre: 'Visite' }), undefined, 0)).toBe('Visite');
+    expect(motDeLaCarte(etape({ type: 'cloture', titre: '  ' }), undefined, 0)).toBe('Clôture');
   });
 
   /**

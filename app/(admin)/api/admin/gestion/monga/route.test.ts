@@ -103,6 +103,17 @@ describe('② l’aiguillage du POST', () => {
     expect(relierLaReference).not.toHaveBeenCalled();
   });
 
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — « Délier » et « Relier à nouveau » depuis la frise : le drapeau voyage jusqu'au dépôt
+     (biens intacts, aucun renommage, journal) ; sans lui, l'encart garde son comportement complet. */
+  it('« depuis: frise » : délier et relier reçoivent `depuisLaFrise`, l’encart non', async () => {
+    await POST(poste({ reference: 'MNG-23987', delier: true, depuis: 'frise' }));
+    expect(delierLaReference).toHaveBeenLastCalledWith(expect.objectContaining({ depuisLaFrise: true }));
+    await POST(poste({ reference: 'MNG-23987', evenementId: 4242, depuis: 'frise' }));
+    expect(relierLaReference).toHaveBeenLastCalledWith(expect.objectContaining({ depuisLaFrise: true, evenementId: '4242' }));
+    await POST(poste({ reference: 'MNG-23987', delier: true }));
+    expect(delierLaReference).toHaveBeenLastCalledWith(expect.objectContaining({ depuisLaFrise: false }));
+  });
+
   it('un `evenementId` relie à un événement existant', async () => {
     const res = await POST(poste({ reference: 'MNG-23987', evenementId: 4242 }));
     expect(await res.json()).toMatchObject({ etat: 'ok', classes: 4 });

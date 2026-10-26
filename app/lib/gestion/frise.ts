@@ -117,6 +117,20 @@ export interface EtapeAAfficher {
    * ⚠️ `false` SANS LA MIGRATION 322, et la frise est alors exactement celle d'avant ce lot.
    */
   poseChoisie: boolean;
+  /**
+   * ══ 🔴🔴 LOT FRISE-CORRECTION-MANUELLE (migration 429) — CE QUE L'AUTOMATISATION AVAIT DÉCIDÉ, ET QUI L'A CORRIGÉ ═══════
+   *
+   * FACULTATIFS, ET L'ABSENCE VAUT « JAMAIS CORRIGÉE » : sans la 429, la route ne les rend pas. `autoType` n'est renseigné
+   * qu'après la première correction d'une étape venue de Monga ; `corrigeLe` est en heure de Paris (`AAAA-MM-JJ HH:MI:SS`).
+   */
+  autoType?: TypeEtape | null;
+  autoStatut?: 'vif' | 'retire' | null;
+  corrigeLe?: string | null;
+  corrigeParLibelle?: string | null;
+  /** 🔴 LOT FRISE-CORRECTION-MANUELLE — `retire` pour les éléments listés, repliés, sous la frise. Absent = vif. */
+  statut?: 'vif' | 'retire';
+  retireLe?: string | null;
+  retireParLibelle?: string | null;
 }
 
 /**
@@ -204,6 +218,9 @@ export function motDeLaCarte(
   e: EtapeAAfficher, numero: number | undefined, nbDevisDeSaReference: number,
 ): string {
   if (e.type === 'autre' && e.titre !== null && e.titre.trim() !== '') return e.titre.trim();
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — un TITRE CORRIGÉ à la main l'emporte aussi sur le mot du type (Arno : « modifier le
+     TITRE »). Aucune carte d'avant ce lot n'en porte : les routes d'ajout et du crayon l'effacent hors carte libre. */
+  if (e.titre !== null && e.titre !== undefined && e.titre.trim() !== '') return e.titre.trim();
   /**
    * ⚠️ PAS DE « Devis 1 » QUAND IL N'Y EN A QU'UN — règle de MONGA-2, et DÉFAUT VU À L'ÉCRAN sur lot-237 le
    * 06/10/2026 : en généralisant la numérotation, j'avais laissé tomber cette garde, et un devis unique

@@ -34,6 +34,11 @@ import { ecouterTaches } from './tachesClient';
 import { ecouterFrise, friseConcernee } from '../../../../lib/gestion/signalFrise';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import { motSuivieAilleurs } from '../../../../lib/gestion/frise';
+/* 🔴 LOT FRISE-CORRECTION-MANUELLE — le panneau de correction, la liste des retirés, délier / relier. */
+import {
+  CSS_PANNEAU_CORRECTION, ListeRetires, OutilsInterventions, PanneauCorrection, type GesteCorrection,
+} from './PanneauCorrectionEtape';
+import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 import {
   cartesDuReservoir, confirmationCarte,
   estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
@@ -125,6 +130,11 @@ interface Reponse {
   ouvertLe?: string;
   /** 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — les interventions de cet événement suivies dans un autre ; absent = aucune. */
   suiviesAilleurs?: { reference: string; evenementReference: string }[];
+  /** 🔴 LOT FRISE-CORRECTION-MANUELLE — les éléments retirés, les interventions déliées, la 429, la référence GES. */
+  retirees?: EtapeAAfficher[];
+  deliees?: string[];
+  correction?: boolean;
+  evenementReference?: string;
   erreur?: string;
 }
 
@@ -507,7 +517,9 @@ export function FriseAvancement({
    */
   const agirRef = useRef<((u: string, m: 'PATCH' | 'DELETE', c?: unknown) => Promise<void>) | null>(null);
 
-  const agir = async (url: string, methode: 'PATCH' | 'DELETE', corps?: unknown): Promise<void> => {
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — `signaler` : la frise se relit par `signalFrise` (elle-même ET toute autre frise du même
+     événement affichée ailleurs), au lieu de se relire seule. `POST` pour délier / relier une intervention Monga. */
+  const agir = async (url: string, methode: 'PATCH' | 'DELETE' | 'POST', corps?: unknown, signaler = false): Promise<void> => {
     if (occupe) return;
     setOccupe(true);
     try {
@@ -526,7 +538,9 @@ export function FriseAvancement({
       if (d.etat === 'ok' && (d.etatEvenement === 'traite' || d.etatEvenement === 'en_cours')) {
         onEtatEvenement?.();
       }
-      if (d.etat === 'ok') await charger();
+      if (d.etat === 'ok') {
+        if (signaler) signalerFrise(evenementId); else await charger();
+      }
     } catch {
       onGeste?.('Geste impossible : le serveur n’a pas répondu.');
     } finally {
@@ -542,7 +556,10 @@ export function FriseAvancement({
    * Clôture venue de Monga, et RETIRER une Réouverture (ou l'Ouverture) dont le retrait remet l'événement à « Clôture ». Ils
    * attendent ici la réponse ; seul « Clôturer » envoie le geste.
    */
-  const [clotureEnAttente, setClotureEnAttente] = useState<{ sorte: 'confirmer' | 'retirer'; id: number } | null>(null);
+  const [clotureEnAttente, setClotureEnAttente] = useState<{
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — retirer par le panneau, ou remettre une Clôture : même modale (règle du 23/10). */
+    sorte: 'confirmer' | 'retirer' | 'retirer-correction' | 'remettre'; id: number;
+  } | null>(null);
   const lues = vue.v === 'ok' ? vue.d : null;
   const bornesAffichees = (lues?.etapes ?? []).map((x) => ({ id: x.id, type: x.type, certitude: x.certitude, survenuLe: x.survenuLe }));
   const retirerCarte = (id: number): void => {
@@ -559,7 +576,31 @@ export function FriseAvancement({
     setClotureEnAttente(null);
     if (c === null) return;
     if (c.sorte === 'retirer') void agir(`/api/admin/gestion/etapes/${c.id}`, 'DELETE');
+    else if (c.sorte === 'retirer-correction') void agir(urlCorrection(c.id), 'PATCH', { geste: 'retirer' }, true);
+    else if (c.sorte === 'remettre') void agir(urlCorrection(c.id), 'PATCH', { geste: 'remettre' }, true);
     else void agir(`/api/admin/gestion/etapes/${c.id}`, 'PATCH', { geste: 'confirmer' });
+  };
+  /**
+   * ══ 🔴🔴 LOT FRISE-CORRECTION-MANUELLE — LES GESTES DU PANNEAU, DE LA LISTE DES RETIRÉS ET DES INTERVENTIONS ══════════
+   * Tous passent par `agir(…, true)` : la frise se relit par `signalFrise`. Un retrait qui CLÔTURERAIT (retirer une
+   * Réouverture), ou remettre une Clôture, passe d'abord par la même modale que tout passage à la clôture (Arno, 23/10/2026).
+   */
+  const urlCorrection = (id: number): string => `/api/admin/gestion/etapes/${id}/correction`;
+  const corrigerCarte = (e: EtapeAAfficher, g: GesteCorrection): void => {
+    if (g.geste === 'retirer' && retraitCloturerait(bornesAffichees, lues?.ouvertLe ?? null, e.id)) {
+      setClotureEnAttente({ sorte: 'retirer-correction', id: e.id }); return;
+    }
+    void agir(urlCorrection(e.id), 'PATCH', g, true);
+  };
+  const remettreCarte = (e: EtapeAAfficher): void => {
+    if (e.type === 'cloture') { setClotureEnAttente({ sorte: 'remettre', id: e.id }); return; }
+    void agir(urlCorrection(e.id), 'PATCH', { geste: 'remettre' }, true);
+  };
+  const delierIntervention = (reference: string): void => {
+    void agir('/api/admin/gestion/monga', 'POST', { reference, delier: true, depuis: 'frise' }, true);
+  };
+  const relierIntervention = (reference: string): void => {
+    void agir('/api/admin/gestion/monga', 'POST', { reference, evenementId, depuis: 'frise' }, true);
   };
   const questionCloture = confirmationCarte('cloture');
 
@@ -626,7 +667,9 @@ export function FriseAvancement({
   const detailApercu = detailFixe !== null ? null : etapeDe(apercu);
   const detailAffiche = detailFixe ?? detailApercu;
   const motDuDetail = detailAffiche === null ? ''
-    : (majeures.find((c) => c.etape?.id === detailAffiche.id)?.mot ?? motEtape(detailAffiche.type));
+    : (majeures.find((c) => c.etape?.id === detailAffiche.id)?.mot
+      /* 🔴 LOT FRISE-CORRECTION-MANUELLE — un point au titre corrigé se nomme par ce titre. */
+      ?? ((detailAffiche.titre ?? '').trim() !== '' ? (detailAffiche.titre as string).trim() : motEtape(detailAffiche.type)));
 
   return (
     <FriseLectureSeule.Provider value={lectureSeule}>
@@ -920,6 +963,17 @@ export function FriseAvancement({
             onRetirer={retirerCarte}
             onFermer={() => setFixe(null)}
             mot={motDuDetail} />
+          {/* 🔴 LOT FRISE-CORRECTION-MANUELLE — au toucher d'un point, ou par ✎ / « … » d'une carte, le panneau de correction
+              s'ouvre SOUS le détail, qui reste entier (aucun geste existant n'est retiré). Une clé par élément : passer
+              d'un élément à l'autre repart de ses valeurs. */}
+          {!lectureSeule && (
+            <>
+              <style>{CSS_PANNEAU_CORRECTION}</style>
+              <PanneauCorrection key={`corr-${detailFixe.id}`} e={detailFixe} disponible={vue.d.correction === true}
+                occupe={occupe} question={questionAvantRetrait(detailFixe.type, vue.d.ouvert !== false)}
+                onGeste={(g) => corrigerCarte(detailFixe, g)} onOuvrirFil={onOuvrirFil} />
+            </>
+          )}
         </div>
       )}
 
@@ -945,6 +999,20 @@ export function FriseAvancement({
             <span key={s.reference}>{motSuivieAilleurs(s.reference, s.evenementReference)}</span>
           ))}
         </p>
+      )}
+
+      {/* 🔴 LOT FRISE-CORRECTION-MANUELLE — les éléments retirés (repliés, réversibles) et les interventions Monga (délier /
+          relier à nouveau). Absents en lecture seule. */}
+      {!lectureSeule && ((vue.d.retirees ?? []).length > 0 || referencesDeLaFrise(etapes).length > 0 || (vue.d.deliees ?? []).length > 0) && (
+        <style>{CSS_PANNEAU_CORRECTION}</style>
+      )}
+      {!lectureSeule && (
+        <ListeRetires retires={vue.d.retirees ?? []} disponible={vue.d.correction === true} occupe={occupe} onRemettre={remettreCarte} />
+      )}
+      {!lectureSeule && (
+        <OutilsInterventions references={referencesDeLaFrise(etapes)} deliees={vue.d.deliees ?? []}
+          evenementReference={vue.d.evenementReference ?? null} occupe={occupe}
+          onDelier={delierIntervention} onRelier={relierIntervention} />
       )}
     </section>
     </FriseLectureSeule.Provider>
@@ -1103,6 +1171,8 @@ function Point({
    * survol et le focus la montrent, le clic la fixe. Une info-bulle accessible au seul survol est invisible au
    * tactile et au clavier (CLAUDE.md §15).
    */
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — un titre corrigé à la main nomme le point. */
+  const nomDuPoint = (m.titre ?? '').trim() !== '' ? (m.titre as string).trim() : motEtape(m.type);
   return (
     <button
       type="button" className={`fav-point fav-point--${m.type}${actif ? ' fav-point--actif' : ''}`}
@@ -1115,10 +1185,10 @@ function Point({
       onMouseEnter={() => onSurvol(`p${m.id}`)} onMouseLeave={() => onSurvol(null)}
       onFocus={() => onSurvol(`p${m.id}`)} onBlur={() => onSurvol(null)}
       /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — un point sans date saisie se nomme, il ne se date pas. */
-      title={dateAffichee(m) === null ? motEtape(m.type) : `${motEtape(m.type)} · ${dateAffichee(m)}`}
+      title={dateAffichee(m) === null ? nomDuPoint : `${nomDuPoint} · ${dateAffichee(m)}`}
     >
       <span className="fav-sr">
-        {dateAffichee(m) === null ? motEtape(m.type) : `${motEtape(m.type)} du ${dateAffichee(m)}`}
+        {dateAffichee(m) === null ? nomDuPoint : `${nomDuPoint} du ${dateAffichee(m)}`}
       </span>
     </button>
   );
@@ -1453,6 +1523,12 @@ function Carre({
                  clic referme. Un bouton qui fait deux choses doit le dire avant, pas après. */
               title={enEdition === e.id ? 'Refermer le formulaire' : 'Modifier cette carte'}
               onClick={() => onModifier(e)}>✎</button>
+          ) : !lectureCarre && e.source !== 'manuelle' ? (
+            /* 🔴 LOT FRISE-CORRECTION-MANUELLE — la place vide du crayon des cartes Monga porte désormais « Corriger » : il
+               ouvre le détail ET le panneau de correction sous la frise. Le clic sur la carte, lui, ouvre toujours son mail. */
+            <button type="button" className="fav-picto-b" disabled={occupe}
+              aria-label={`Corriger la carte ${c.mot}`} title="Corriger cette carte"
+              onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>✎</button>
           ) : <span className="fav-picto-b fav-picto-b--vide" aria-hidden="true" />}
 
           {/**

@@ -49,6 +49,11 @@ import {
 /* 🔴🔴 LOT MONGA-2, POINT 2 — l'étape d'un mail Monga est enregistrée à l'arrivée, et lui survit. */
 import { enregistrerEtapesDuMail, poserOuvertureDeRepli } from './mongaEtapeRepo';
 import { cibleLot } from './rattachement';
+/* 🔴 LOT FRISE-CORRECTION-MANUELLE — les actions du journal pour un lien posé / retiré depuis la frise. */
+import { ACTION_JOURNAL_LIEN } from './mongaLienGeste';
+
+/** L'action inscrite au journal de l'événement quand une intervention Monga en est déliée depuis la frise. */
+export const ACTION_JOURNAL_LIEN_RETIRE = 'lien_monga_retire';
 import { changerStatut, rattacher } from './rattachementRepo';
 import { evenementQualifieDisponible, mongaDisponible } from './schema';
 
@@ -506,6 +511,11 @@ export async function relierLaReference(o: {
   reference: string; evenementId: string; auteur: Auteur;
   /** Le mail depuis lequel le clic est parti. Facultatif : sans lui, tous les mails suivent la règle automatique. */
   messageId?: string | null;
+  /**
+   * 🔴 LOT FRISE-CORRECTION-MANUELLE — « Relier à nouveau », depuis la frise : AUCUN renommage (rien n'y a été annoncé, à la
+   * différence de l'encart qui écrit « Le nom deviendra … » avant le clic), et le geste est écrit au journal de l'événement.
+   */
+  depuisLaFrise?: boolean;
 }): Promise<IssueLienMonga> {
   if (!await mongaDisponible()) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 311).' };
@@ -522,7 +532,7 @@ export async function relierLaReference(o: {
 
   const lu = await lectureDeLaReference(o.reference);
   const libelleMonga = lu?.libelle ?? null;
-  const renommeVers = libelleMonga === null ? null : renommageAFaire(evt[0].objet, libelleMonga);
+  const renommeVers = libelleMonga === null || o.depuisLaFrise === true ? null : renommageAFaire(evt[0].objet, libelleMonga);
 
   // ① LE LIEN. ⚠️ L'index unique partiel refuse une seconde référence vivante : on le DIT, on ne l'écrase pas.
   try {
@@ -545,6 +555,14 @@ export async function relierLaReference(o: {
   if (renommeVers !== null) {
     const maj = await modifierEvenement(Number(o.evenementId), { objet: renommeVers }, o.auteur);
     if (maj.ok) renomme = renommeVers;
+  }
+
+  if (o.depuisLaFrise === true) {
+    await query(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('evenement', $1, $2, NULL, $3, $4, $5, $6)`,
+      [o.evenementId, ACTION_JOURNAL_LIEN, o.reference,
+        `intervention ${o.reference} reliée à nouveau depuis la frise`, o.auteur.id, libelleAuteur]);
   }
 
   // ③ TOUS LES MAILS DE LA RÉFÉRENCE SUIVENT — y compris ceux reçus avant le lien.
@@ -653,6 +671,18 @@ function jourDuJour(): string {
  */
 export async function delierLaReference(o: {
   reference: string; auteur: Auteur; motif?: string;
+  /**
+   * ══ 🔴🔴 LOT FRISE-CORRECTION-MANUELLE — « DÉLIER MNG-… DE CET ÉVÉNEMENT », DEPUIS LA FRISE ════════════════════════════
+   *
+   * Arno : « les étapes de la référence quittent la frise, les mails restent dans l'historique du bien ». Ce n'est PAS
+   * l'« Annuler » des douze secondes, qui défait tout le clic (biens et personnes compris) : ici on ne retire QUE le lien et
+   * les affectations que le classement Monga avait posées sur l'événement. ①, ③ et ⑤ sont sautés :
+   *   · ① le nom n'est pas remis — rien n'a été annoncé, on ne renomme pas en silence ;
+   *   · ③ les biens et les personnes du mail restent : l'historique du bien est INALTÉRABLE (invariant d'Arno, 11/10/2026) ;
+   *   · ⑤ les lignes d'examen ne reviennent pas dans « À rattacher » : le mail reste rattaché à son bien.
+   * Et le geste est écrit au journal de l'événement. Réversible : « Relier à nouveau » (`relierLaReference`, sans renommer).
+   */
+  depuisLaFrise?: boolean;
 }): Promise<IssueAnnulationMonga> {
   const vide: IssueAnnulationMonga = {
     ok: false, liensRetires: 0, liensRendus: 0, mailsRemis: 0, examensRepris: 0, nomRemis: null,
@@ -671,7 +701,7 @@ export async function delierLaReference(o: {
 
   // ① LE NOM D'AVANT, par la même porte que l'aller — donc journalisé, comme le renommage l'a été.
   let nomRemis: string | null = null;
-  if (lien[0].nom_avant !== null) {
+  if (lien[0].nom_avant !== null && o.depuisLaFrise !== true) {
     const maj = await modifierEvenement(Number(evenementId), { objet: lien[0].nom_avant }, o.auteur);
     if (maj.ok) nomRemis = lien[0].nom_avant;
   }
@@ -708,7 +738,9 @@ export async function delierLaReference(o: {
    * cesse d'être vivant (elle retire les interventions sans bien) : en traitant les personnes d'abord, c'est
    * NOTRE geste, signé et journalisé, qui les défait — et non un effet de bord qu'on n'aurait pas raconté.
    */
-  const { rows: liens } = await query<{ id: string; sorte: string; nee: boolean }>(
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — depuis la frise, les biens et les personnes RESTENT (historique inaltérable). */
+  const { rows: liens } = o.depuisLaFrise === true ? { rows: [] as { id: string; sorte: string; nee: boolean }[] }
+    : await query<{ id: string; sorte: string; nee: boolean }>(
     `SELECT id::text, cible_sorte AS sorte, (coalesce(motif, '') = $1) AS nee
        FROM gestion_rattachement
       WHERE statut = 'confirme' AND origine = 'automatique'
@@ -741,6 +773,21 @@ export async function delierLaReference(o: {
 
   const { rows: reste } = await query<{ n: number }>(
     `SELECT count(*)::int AS n FROM gestion_affectation WHERE evenement_id = $1 AND actif`, [evenementId]);
+
+  /* 🔴 LOT FRISE-CORRECTION-MANUELLE — DEPUIS LA FRISE : journalisé sur l'événement, et ⑤ sauté (le mail reste à son bien). */
+  if (o.depuisLaFrise === true) {
+    await query(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('evenement', $1, $2, $3, NULL, $4, $5, $6)`,
+      [evenementId, ACTION_JOURNAL_LIEN_RETIRE, o.reference,
+        `intervention ${o.reference} déliée de l’événement depuis la frise (${mailsRemis} mail(s) Monga quittent l’événement, `
+        + 'ils restent dans l’historique du bien) — réversible : « Relier à nouveau »',
+        o.auteur.id, (o.auteur.libelle ?? '').trim()]);
+    return {
+      ok: true, liensRetires: 0, liensRendus: 0, mailsRemis, examensRepris: 0, nomRemis: null,
+      evenementVide: (reste[0]?.n ?? 0) === 0,
+    };
+  }
   /**
    * ⑤ ET LA LIGNE D'EXAMEN EST **RECALCULÉE**, par le moteur lui-même.
    *

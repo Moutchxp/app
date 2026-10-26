@@ -2,9 +2,12 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import {
-  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, referencesSuiviesAilleurs,
-  reordonnerCartes,
+  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, referencesDeliees,
+  referencesSuiviesAilleurs, reordonnerCartes,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
+/* 🔴 LOT FRISE-CORRECTION-MANUELLE — la 429 est-elle là ? La réponse voyage avec la frise (règle du dépôt : une sonde de schéma
+   voyage AVEC les données qu'elle conditionne). */
+import { correctionEtapeDisponible } from '../../../../../../../lib/gestion/schema';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
    imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
 import { dateAuCentre, estCarteRendezVous, MENTION_DATE_RDV } from '../../../../../../../lib/gestion/frise';
@@ -77,8 +80,8 @@ export async function GET(
      * propose QUE “Réouverture” »). La demander à la colonne, c'était offrir « Réouverture » sur un dossier dont
      * la carte Clôture n'existe plus — le cas exact d'Arno sur GES-2026-000001.
      */
-    const { rows } = await query<{ ouvert: boolean; ouvert_le: string }>(
-      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text
+    const { rows } = await query<{ ouvert: boolean; ouvert_le: string; reference: string }>(
+      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text, e.reference
          FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
     if (rows.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
     const ouvertParLaFrise = rows[0].ouvert;
@@ -99,11 +102,22 @@ export async function GET(
        elles, la frise est celle d'avant). */
     const suiviesAilleurs = await referencesSuiviesAilleurs(evenementId)
       .catch((e) => { console.error('[gestion/frise] références suivies ailleurs illisibles', e); return []; });
+    /* 🔴 LOT FRISE-CORRECTION-MANUELLE — les éléments retirés (listés, repliés, sous la frise) et les interventions déliées
+       (« Relier à nouveau »). Même repli : une lecture qui échoue laisse la frise d'avant. */
+    const retirees = await friseDeLEvenement(evenementId, 'retire')
+      .catch((e) => { console.error('[gestion/frise] éléments retirés illisibles', e); return []; });
+    const deliees = await referencesDeliees(evenementId)
+      .catch((e) => { console.error('[gestion/frise] interventions déliées illisibles', e); return [] as string[]; });
+    const correction = await correctionEtapeDisponible();
     return Response.json({
       etat: 'ok',
       etapes,
       taches,
       suiviesAilleurs,
+      retirees,
+      deliees,
+      correction,
+      evenementReference: rows[0].reference,
       /**
        * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A ÉTÉ RETIRÉ D'ICI ════════════════════════════════
        *
