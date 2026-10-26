@@ -955,6 +955,18 @@ export function historiqueAnnees(activites: readonly ActiviteCalcul[], ctx: Cont
  */
 export interface CumulAffaires { nb: number; avenants: number; ca: number; commission: number; location: number; gestion: number; recurrente: number; ids: (number | string)[] }
 const cumulVide = (): CumulAffaires => ({ nb: 0, avenants: 0, ca: 0, commission: 0, location: 0, gestion: 0, recurrente: 0, ids: [] });
+/**
+ * 🔴 Arno (26/10/2026) — LE TOTAL DU TABLEAU « APPORTEURS DU MOIS » : les seules affaires passées par un intermédiaire (apporteur externe ou
+ * interne, collègue « directement », commission non nommée) — le total de toutes les affaires, moins celles sans apporteur. Elles restent
+ * comptées partout ailleurs. Les montants sont recomposés au centime (aucune poussière de virgule flottante). PUR.
+ */
+export function totalDesIntermediaires(ac: { total: CumulAffaires; sans: CumulAffaires }): CumulAffaires {
+  const c = (x: number): number => Math.round(x * 100) / 100;
+  const sans = new Set(ac.sans.ids.map(String));
+  return { nb: ac.total.nb - ac.sans.nb, avenants: ac.total.avenants - ac.sans.avenants, ca: c(ac.total.ca - ac.sans.ca), commission: c(ac.total.commission - ac.sans.commission),
+    location: c(ac.total.location - ac.sans.location), gestion: c(ac.total.gestion - ac.sans.gestion), recurrente: c(ac.total.recurrente - ac.sans.recurrente),
+    ids: ac.total.ids.filter((id) => !sans.has(String(id))) };
+}
 const ajouter = (c: CumulAffaires, a: ActiviteCalcul, apporteurs: readonly Apporteur[]): void => {
   const location = partLocationDe(a, apporteurs);
   const gestion = partGestionSignatureDe(a, apporteurs);

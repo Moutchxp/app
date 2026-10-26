@@ -1716,19 +1716,36 @@ describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variab
 });
 
 describe('🔴 Arno (25/10/2026) — « Apporteurs du mois » : tous les apporteurs, le meilleur mis en avant', () => {
-  it('septembre : le meilleur surligné et badgé ; « Sans apporteur » puis Total = CA HT global du mois (au centime) ; les lignes s’ouvrent sur leurs dossiers', async () => {
+  it('septembre : le meilleur surligné et badgé ; plus de ligne « Sans apporteur » ; Total = les seules affaires d’apporteurs (au centime)', async () => {
     await monter('mois');
     await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
     const bloc = container.querySelector('[data-bloc="apporteurs-mois"]') as HTMLElement;
     const lignes = [...bloc.querySelectorAll('.fdm-apporteurs [data-apporteur-mois]')].map((l) => l.getAttribute('data-apporteur-mois'));
-    expect(lignes.slice(-2)).toEqual(['sans', 'total']);
+    // 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est retirée.
+    expect(lignes).not.toContain('sans');
+    expect(lignes.at(-1)).toBe('total');
+    expect(bloc.textContent).not.toContain('Sans apporteur');
     const meilleurs = [...bloc.querySelectorAll('tr.fdm-meilleur')];
     expect(meilleurs.length).toBeGreaterThanOrEqual(1);
     expect(meilleurs[0].querySelector('[data-meilleur-apporteur]')?.textContent).toBe('Meilleur apporteur');
     expect(meilleurs[0]).toBe(bloc.querySelector('.fdm-apporteurs tbody tr'));
-    const total = nbsp(bloc.querySelector('[data-total-apporteurs-ca]')?.textContent);
-    expect(total).toBe(nbsp(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="ca"]')?.textContent));
-    expect(nbsp(bloc.querySelector('[data-apporteur-mois="total"] [data-mot="Affaires"]')?.textContent)).toBe('17');
+    // Le Total = la somme des lignes d'apporteurs (au centime), et non plus le CA HT global du mois (qui, lui, ne change pas).
+    const euros = (t: string | null | undefined) => Math.round(Number(nbsp(t).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const lignesApp = [...bloc.querySelectorAll('.fdm-apporteurs tbody tr[data-apporteur-mois]')];
+    const somme = lignesApp.reduce((t, l) => t + euros(l.querySelector('[data-mot="CA apporté"]')?.textContent), 0);
+    expect(euros(bloc.querySelector('[data-total-apporteurs-ca]')?.textContent)).toBe(somme);
+    const nbApp = lignesApp.reduce((t, l) => t + Number(l.querySelector('[data-mot="Affaires"]')?.textContent), 0);
+    expect(Number(bloc.querySelector('[data-apporteur-mois="total"] [data-mot="Affaires"]')?.textContent)).toBe(nbApp);
+    expect(nbApp).toBeLessThan(17);
+    expect(nbsp(container.querySelector('[data-bloc="bas-de-feuille"] [data-total="ca"]')?.textContent)).toBe('15 471,70 €');
+  });
+  it('un mois sans aucun apporteur : « Aucun apporteur ce mois-ci », Total à zéro', async () => {
+    donnees = { ...donnees, activites: donnees.activites.map((a) => ({ ...a, apporteurId: null, apporteurNom: null, origineContact: null, collegueId: null, collegueLibelle: null, commissionSaisie: 0 })) };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="9"]') as HTMLButtonElement).click(); });
+    const bloc = container.querySelector('[data-bloc="apporteurs-mois"]') as HTMLElement;
+    expect(bloc.querySelector('[data-aucun-apporteur]')?.textContent).toBe('Aucun apporteur ce mois-ci.');
+    expect(bloc.querySelector('[data-apporteur-mois="total"] [data-mot="Affaires"]')?.textContent).toBe('0');
   });
 });
 
@@ -2421,7 +2438,7 @@ describe('🔴 une seule ligne par bien (lot principal + annexes)', () => {
   });
 });
 
-describe('🔴 431 — décision B : un bien rentré vide sans locataire est « en attente », visible et non compté', () => {
+describe('🔴 431 — décision B : un bien rentré vide sans locataire n’est pas compté (le bloc « En attente » est retiré, accord d’Arno)', () => {
   const ligne = (lotId: number, libelle: string, effetLe: string, loyerHc: number | null) => ({
     lotId, libelle, proprietaire: 'TEST Test', effetLe, avant: null, apres: 'en_gestion', loyerHc, provisions: 0, base: 'hc' as const, tauxHt: loyerHc === null ? null : 5 });
   const ouvrir = async (mois: string) => {
@@ -2431,18 +2448,13 @@ describe('🔴 431 — décision B : un bien rentré vide sans locataire est « 
     await act(async () => { (container.querySelector(`[data-onglet-mois="${mois}"]`) as HTMLButtonElement).click(); });
     await calmer();
   };
-  it('octobre : « En attente de locataire (2) », REPLIÉ ; les deux biens hors des Nouvelles gestions et du titre', async () => {
+  it('octobre : le bloc « En attente de locataire » est retiré (accord d’Arno) ; les deux biens restent hors des Nouvelles gestions et du titre', async () => {
     await ouvrir('10');
-    const bloc = container.querySelector('[data-bloc="en-attente-locataire"]') as HTMLElement;
-    expect(bloc.getAttribute('data-replie')).toBe('replie');
-    expect(nbsp(bloc.querySelector('.tdb-replie-mot')?.textContent)).toBe('En attente de locataire (2)');
+    expect(container.querySelector('[data-bloc="en-attente-locataire"]')).toBeNull();
+    expect(nbsp(container.textContent)).not.toContain('En attente de locataire');
+    // La règle ne change pas : ils ne sont pas comptés.
     expect(container.querySelector('#fdm-gestions [data-compte-biens]')?.textContent).toBe('(1)');
     expect([...container.querySelectorAll('[data-bloc="nouvelles-gestions"] [data-ligne-gestion]')].map((r) => r.getAttribute('data-ligne-gestion'))).toEqual(['436']);
-    await act(async () => { (bloc.querySelector('[data-deplier="en-attente-locataire"]') as HTMLButtonElement).click(); });
-    const biens = [...container.querySelectorAll('[data-attente-bien]')] as HTMLElement[];
-    expect(biens.map((b) => b.getAttribute('data-attente-bien'))).toEqual(['440', '442']);
-    expect(biens[0].querySelector('a')?.getAttribute('href')).toBe('/admin/location/bien/440');
-    expect(nbsp(biens[0].textContent)).toContain('entré en gestion le 26/10/2026, aucun locataire encore : non compté');
   });
   it('un autre mois (septembre) : aucun bloc — un bien en attente ne se montre qu’au mois de son entrée en gestion', async () => {
     await ouvrir('9');

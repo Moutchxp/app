@@ -16,7 +16,7 @@ import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../
 import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
-  type ActiviteLue, type GestionDepuisJanvier, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteLue, type GestionDepuisJanvier, totalDesIntermediaires, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, type LigneGestion, type MouvementGestion, NOMS_MOIS, primeDe, STATUT_ARRIVEE, tauxAffichage,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -93,6 +93,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const gliC = gliDepuisJanvier(d.gli ?? [], d.margesGli ?? [], cle);
   // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
   const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
+  /* 🔴 Arno (26/10/2026) — le Total du tableau « Apporteurs du mois » : les seules affaires passées par un intermédiaire. */
+  const interm = totalDesIntermediaires(ac);
   const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
   // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
   const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
@@ -247,29 +249,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet" data-compte-biens>({regrouperParBien(g.nouvelles, d.liensAnnexes).length})</small></h3>
         <TableGestion lignes={g.nouvelles} perdus={false} regle={regleA} liens={d.liensAnnexes} />
       </section>
-      {/* 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés VIDES entrés en gestion ce mois-ci sans locataire encore : non comptés (ils
-          entreront dans le suivi au mois d'entrée de leur 1er locataire), mais toujours VISIBLES — rien ne disparaît de l'écran. */}
-      {(() => {
-        const attente = regrouperParBien((d.gestionEnAttente ?? []).filter((l) => l.effetLe.slice(0, 7) === cle), d.liensAnnexes);
-        if (attente.length === 0) return null;
-        return (
-          <BlocReplie id="fdm-attente" section="en-attente-locataire" titre={`En attente de locataire (${attente.length})`}
-            resume="entrés en gestion ce mois-ci, rentrés vides : comptés au mois d’entrée de leur premier locataire" donnees={{ 'data-bloc': 'en-attente-locataire' }}>
-            <ul className="fdm-attente" data-liste-attente>
-              {attente.map((gr) => {
-                const l = gr.principal ?? gr.lignes[0];
-                return (
-                  <li key={gr.cle} data-attente-bien={gr.lotId ?? ''}>
-                    {gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : gr.libelle}
-                    {gr.annexes.length > 0 && <BulleAnnexes annexes={gr.annexes} place="dessous" repere={gr.cle} />}
-                    <span className="loc-muet"> — {l.proprietaire || 'propriétaire non renseigné'} — entré en gestion le {l.effetLe.split('-').reverse().join('/')}, aucun locataire encore : non compté</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </BlocReplie>
-        );
-      })()}
+      {/* 🔴 Arno (26/10/2026, accord explicite) — le bloc « En attente de locataire (N) » est RETIRÉ de la page (« il ne sert à rien »). Seul
+          l'affichage disparaît : la règle reste (un bien rentré vide n'est compté qu'à l'entrée de son premier locataire). */}
       {/* 🔴 Arno (26/10/2026) — les biens SORTIS SANS AVOIR ÉTÉ COMPTÉS (en attente de locataire, jamais entrés dans le portefeuille) : ni « −N »,
           ni « Mandats de gestion perdus » ; montrés ici, repliés — rien ne disparaît de l'écran. */}
       {(() => {
@@ -306,7 +287,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
       <section className="tdb-section" aria-labelledby="fdm-apporteurs" data-bloc="apporteurs-mois">
         <h3 id="fdm-apporteurs">Apporteurs du mois</h3>
         {/* 🔴 Arno (25/10/2026) — TOUS les apporteurs du mois (internes, externes, collègues « directement », commission non nommée), triés
-            par CA apporté ; le meilleur mis en avant (ex aequo compris) ; puis « Sans apporteur » et le Total (= CA HT global du mois). */}
+            par CA apporté ; le meilleur mis en avant (ex aequo compris) ; puis le Total des seules affaires passées par un intermédiaire
+            (Arno, 26/10/2026 : la ligne « Sans apporteur » est retirée). */}
         {duMois.length === 0 ? <p className="loc-muet">Aucune affaire ce mois-ci.</p> : (
           <div className="fdm-deux">
             <table className="fdm-table fdm-apporteurs">
@@ -320,18 +302,13 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                   <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
                   <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
                 </tr>))}
-                {ac.sans.nb > 0 && (
-                  <tr data-apporteur-mois="sans" className="fdm-sans-apporteur">
-                    <th scope="row">Sans apporteur <small className="loc-muet">(Internet, passage agence, à renseigner…)</small></th>
-                    <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires sans apporteur — ${nom}`, ac.sans.ids)}>{ac.sans.nb}</button></td>
-                    <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires sans apporteur — ${nom}`, ac.sans.ids)}>{eur(ac.sans.ca)}</button></td>
-                    <td data-mot="Hono. d’apporteur">{eur(ac.sans.commission)}</td>
-                  </tr>
-                )}</tbody>
+                {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
+                    par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
+                {ac.apporteurs.length === 0 && <tr data-aucun-apporteur><td colSpan={4} className="loc-muet">Aucun apporteur ce mois-ci.</td></tr>}</tbody>
               <tfoot><tr data-apporteur-mois="total">
                 <th scope="row">Total</th>
-                <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires du mois — ${nom}`, ac.total.ids)}>{ac.total.nb}</button></td>
-                <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(ac.total.ca)}</td><td data-mot="Hono. d’apporteur">{eur(ac.total.commission)}</td>
+                <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${nom}`, interm.ids)}>{interm.nb}</button></td>
+                <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(interm.ca)}</td><td data-mot="Hono. d’apporteur">{eur(interm.commission)}</td>
               </tr></tfoot>
             </table>
             {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
@@ -1088,12 +1065,11 @@ export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
 .fdm-cumul-biens small{color:var(--color-svv-muted)}
 .fdm-gli-liste{margin-top:8px}
 .fdm-gli-liste li > span:last-child{white-space:normal;text-align:right}
-/* 🔴 Arno (25/10/2026) — Apporteurs du mois : badges discrets ; le meilleur légèrement surligné ; Sans apporteur et Total à part. */
+/* 🔴 Arno (25/10/2026) — Apporteurs du mois : badges discrets ; le meilleur légèrement surligné ; le Total à part. */
 .fdm-sorte{display:inline-block;margin-left:6px;border-radius:999px;padding:0 7px;font-size:.68rem;font-weight:700;line-height:1.6;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-muted);vertical-align:middle}
 .fdm-sorte--interne{border-color:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .fdm-badge-meilleur{display:inline-block;margin-left:6px;border-radius:999px;padding:0 8px;font-size:.7rem;font-weight:800;line-height:1.6;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);vertical-align:middle;white-space:nowrap}
 .fdm-apporteurs tr.fdm-meilleur > th,.fdm-apporteurs tr.fdm-meilleur > td{background:color-mix(in srgb, var(--color-svv-green-soft) 55%, transparent)}
-.fdm-apporteurs tr.fdm-sans-apporteur > th{font-weight:600;color:var(--color-svv-muted)}
 .fdm-apporteurs tfoot th,.fdm-apporteurs tfoot td{font-weight:800;border-top:2px solid var(--color-svv-line-strong);border-bottom:0}
 .fdm-collegues tr.fdm-meilleur > th,.fdm-collegues tr.fdm-meilleur > td{background:color-mix(in srgb, var(--color-svv-green-soft) 55%, transparent)}
 .fdm-collegues tr.fdm-collegue > td.fdm-fort-cellule{font-weight:800}
