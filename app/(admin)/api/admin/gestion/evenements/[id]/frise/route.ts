@@ -2,7 +2,8 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import {
-  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, reordonnerCartes,
+  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, referencesSuiviesAilleurs,
+  reordonnerCartes,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
    imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
@@ -94,10 +95,15 @@ export async function GET(
 
     /* Une lecture qui échoue ne prive pas la frise de ses étapes : sans tâches, la frise est celle d'avant. */
     const taches = await tachesDeLEvenement(evenementId).catch((e) => { console.error('[gestion/frise] tâches illisibles', e); return []; });
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — les interventions de cet événement suivies dans un autre (même repli : sans
+       elles, la frise est celle d'avant). */
+    const suiviesAilleurs = await referencesSuiviesAilleurs(evenementId)
+      .catch((e) => { console.error('[gestion/frise] références suivies ailleurs illisibles', e); return []; });
     return Response.json({
       etat: 'ok',
       etapes,
       taches,
+      suiviesAilleurs,
       /**
        * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A ÉTÉ RETIRÉ D'ICI ════════════════════════════════
        *

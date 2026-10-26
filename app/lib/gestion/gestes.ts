@@ -19,7 +19,14 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit de la frise, et la cloture ne s'ecrit plus a la main. */
 import { MOTIF_CLOTURE_PAR_LA_FRISE, etatDeTravail, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
-import { deplacementsDeMailsDisponibles, evenementQualifieDisponible, rattacheDepuisDisponible } from './schema';
+import {
+  deplacementsDeMailsDisponibles, evenementQualifieDisponible, mongaDisponible, rattacheDepuisDisponible,
+} from './schema';
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le lien référence Monga → événement, posé DANS la transaction du geste humain. */
+import {
+  MOTIF_LIEN_OUVERTURE, MOTIF_LIEN_RATTACHEMENT, PLAN_VIDE, poserLiensMonga, preparerLiensMonga,
+  referencesMongaDuFil, referencesMongaDuMail, type LienParGeste,
+} from './mongaLienGeste';
 import { ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
 import {
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
@@ -46,8 +53,24 @@ async function seulementLEchange(): Promise<string> {
 export interface Auteur { id: number | null; libelle: string }
 
 export type Issue =
-  | { ok: true; evenementId?: number; reference?: string }
+  /** `monga` : les références Monga que le geste a reliées (ou trouvées déjà suivies) — lot MONGA-LIEN-PAR-LE-GESTE. */
+  | { ok: true; evenementId?: number; reference?: string; monga?: LienParGeste[] }
   | { ok: false; motif: string };
+
+/**
+ * ══ 🔴🔴 LOT MONGA-LIEN-PAR-LE-GESTE — RELIER LA RÉFÉRENCE MONGA, SEULEMENT SUR DEMANDE ═══════════════════════════
+ *
+ * `relierMonga: true` n'est passé QUE par les deux routes des gestes humains (`fils/:id/affectation`,
+ * `messages/:id/affectation`). Le classement Monga de la relève appelle `deplacerMessage` SANS cette option : la
+ * relève ne relie donc jamais rien — règle d'Arno, et la base la garde aussi (`gestion_monga_lien_humain_chk`).
+ * Absente, chaque geste fait exactement ce qu'il faisait avant ce lot.
+ */
+export interface OptionsGeste { relierMonga?: boolean }
+
+/** La 311 est-elle là, et le lien est-il demandé ? Sondé HORS transaction, comme toutes les sondes de ce fichier. */
+async function lienMongaDemande(o: OptionsGeste | undefined): Promise<boolean> {
+  return o?.relierMonga === true && await mongaDisponible();
+}
 
 /** Longueurs maximales — bornes de SÛRETÉ, jamais des règles métier : on refuse un payload absurde, pas une saisie. */
 const MAX_COURT = 300;
@@ -268,6 +291,7 @@ async function creerEvenementDansTransaction(
 
 export async function affecter(
   filId: number, cible: { evenementId?: number; nouveau?: NouvelEvenement }, auteur: Auteur, motif?: string | null,
+  options?: OptionsGeste,
 ): Promise<Issue> {
   // LOT 4c — le titre d'une carte NEUVE naît nettoyé de sa cascade de « Re: / TR: / Fwd: », quelle que soit la voie
   //   d'entrée (panneau, ou appel direct de la route). Les cartes DÉJÀ enregistrées gardent le leur : on ne réécrit
@@ -280,6 +304,7 @@ export async function affecter(
   // LOT CONTACTS-ET-EVENEMENT — la 268 est-elle là ? Sondée HORS transaction, pour la même raison.
   const qualifie = await evenementQualifieDisponible();
   const rattacheDispo = await rattacheDepuisDisponible();   // sondé HORS transaction, comme les autres
+  const relierMonga = await lienMongaDemande(options);     // idem
   return withTransaction(async (q) => {
     const { rows: fil } = await q<{ id: number; etat: string }>(
       `SELECT id::int AS id, etat FROM gestion_fil WHERE id = $1`, [filId]);
@@ -315,6 +340,12 @@ export async function affecter(
       return { ok: false, motif: 'Cet échange est déjà rattaché à cet événement.' };
     }
 
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — LIRE (verrouillé) les liens des références Monga de l'échange, AVANT toute
+       écriture du geste. Ce temps ne refuse jamais : il ne fait que décider ce qui sera posé plus bas. */
+    const planMonga = relierMonga
+      ? await preparerLiensMonga(q, await referencesMongaDuFil(q, filId, evenementId), evenementId, auteur)
+      : PLAN_VIDE;
+
     // RÉAFFECTATION : on désactive l'ancienne AVANT d'insérer la nouvelle — l'index unique partiel l'exige, et c'est
     //   aussi l'ordre honnête : un échange n'est jamais « dans deux cartes à la fois », même une fraction de seconde.
     const { rows: ancienne } = active[0]
@@ -336,7 +367,12 @@ export async function affecter(
     await q(`UPDATE gestion_fil SET etat = 'affecte', maj_le = now() WHERE id = $1`, [filId]);
     await journaliser(q, 'affectation', nouvelle[0].id, 'affectation', auteur,
       `échange ${filId} rattaché à l’événement ${reference}`, fil[0].etat, 'affecte');
-    return { ok: true, evenementId, reference };
+    if (!relierMonga) return { ok: true, evenementId, reference };
+    const monga = await poserLiensMonga(q, planMonga, {
+      evenementId, evenementReference: reference ?? '', auteur,
+      motif: cible.evenementId === undefined ? MOTIF_LIEN_OUVERTURE : MOTIF_LIEN_RATTACHEMENT,
+    });
+    return { ok: true, evenementId, reference, monga };
   });
 }
 
@@ -423,8 +459,11 @@ export async function deplacerMessage(
    * dans le journal, qu'un humain avait fait ce que personne n'a fait. Facultatif, défaut inchangé.
    */
   motif?: string,
+  options?: OptionsGeste,
 ): Promise<Issue> {
-  return withTransaction(async (q) => lierLeMail(q, messageId, evenementId, auteur, motif));
+  const relierMonga = await lienMongaDemande(options); // sondé HORS transaction
+  return withTransaction(async (q) => lierLeMail(q, messageId, evenementId, auteur, motif,
+    relierMonga ? MOTIF_LIEN_RATTACHEMENT : null));
 }
 
 /**
@@ -444,17 +483,19 @@ export async function deplacerMessageVersNouveau(
    * ce mail-là restait seul dans la carte après l'annulation.
    */
   motif?: string,
+  options?: OptionsGeste,
 ): Promise<Issue> {
   if (texte(nouveau.objet) === null) {
     return { ok: false, motif: 'Donnez un objet au nouvel événement.' };
   }
   const qualifie = await evenementQualifieDisponible(); // sondé HORS transaction, comme partout dans ce fichier
   const rattacheDispo = await rattacheDepuisDisponible();
+  const relierMonga = await lienMongaDemande(options);
   return withTransaction(async (q) => {
     /* 🔴 Arno (23/10/2026) — « ce mail seul » : CE mail est le mail d'origine, et sa date le début de rattachement. */
     const cree = await creerEvenementDansTransaction(q, nouveau, auteur, qualifie,
       { messageId, filId: null, disponible: rattacheDispo });
-    return lierLeMail(q, messageId, cree.id, auteur, motif);
+    return lierLeMail(q, messageId, cree.id, auteur, motif, relierMonga ? MOTIF_LIEN_OUVERTURE : null);
   });
 }
 
@@ -462,6 +503,8 @@ export async function deplacerMessageVersNouveau(
 async function lierLeMail(
   q: RequeteTx, messageId: number, evenementId: number, auteur: Auteur,
   motif = 'mail déplacé à la main depuis son échange',
+  /** 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le motif du lien Monga à poser, ou `null` : aucun lien (relève, classement). */
+  motifLienMonga: string | null = null,
 ): Promise<Issue> {
   {
     // LIRE AVANT D'ÉCRIRE (withTransaction commite au retour, cf. db/client.ts:52-54) — et verrouiller, pour que deux
@@ -481,6 +524,11 @@ async function lierLeMail(
       return { ok: false, motif: 'Ce mail est déjà rattaché à cet événement.' };
     }
 
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — LIRE (verrouillé) le lien de la référence Monga de ce mail, avant d'écrire. */
+    const planMonga = motifLienMonga !== null
+      ? await preparerLiensMonga(q, await referencesMongaDuMail(q, messageId), evenementId, auteur)
+      : PLAN_VIDE;
+
     if (active[0]) {
       await q(
         `UPDATE gestion_affectation SET actif = false, detache_le = now(), detache_par = $2, detache_par_libelle = $3,
@@ -496,7 +544,11 @@ async function lierLeMail(
       [msg[0].fil_id, evenementId, messageId, motif, auteur.id, auteur.libelle]);
     await journaliser(q, 'affectation', nouvelle[0].id, 'affectation', auteur,
       `mail ${messageId} (« ${texte(msg[0].objet) ?? 'sans objet'} ») rattaché à l’événement ${ev[0].reference}, sans son échange`);
-    return { ok: true, evenementId, reference: ev[0].reference };
+    if (motifLienMonga === null) return { ok: true, evenementId, reference: ev[0].reference };
+    const monga = await poserLiensMonga(q, planMonga, {
+      evenementId, evenementReference: ev[0].reference, auteur, motif: motifLienMonga,
+    });
+    return { ok: true, evenementId, reference: ev[0].reference, monga };
   }
 }
 

@@ -149,6 +149,36 @@ export async function poserOuvertureDeRepli(reference: string): Promise<boolean>
 }
 
 /**
+ * ══ 🔴🔴 LOT MONGA-LIEN-PAR-LE-GESTE — LES INTERVENTIONS DE CET ÉVÉNEMENT SUIVIES DANS UN AUTRE ═════════════════════
+ *
+ * Règle d'Arno : un mail Monga rattaché à un événement alors que sa référence est déjà reliée à un AUTRE événement
+ * garde ce lien (on ne le déplace pas) ; la frise de l'événement cible le dit : « MNG-… est suivie dans GES-… ».
+ *
+ * 🔴 LES MAILS DE L'ÉVÉNEMENT SONT CEUX DE `gestion_affectation` — la même lecture que `biensDeLEvenement` : une
+ * affectation de mail prime sur celle de son échange. LECTURE SEULE.
+ */
+export async function referencesSuiviesAilleurs(evenementId: number): Promise<{ reference: string; evenementReference: string }[]> {
+  const { rows } = await query<{ reference: string; evenement_reference: string }>(
+    `WITH mails AS (
+        SELECT m.id
+          FROM gestion_affectation a
+          JOIN gestion_message m
+            ON (a.message_id IS NOT NULL AND m.id = a.message_id)
+            OR (a.message_id IS NULL AND m.fil_id = a.fil_id
+                AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
+                                 WHERE a2.message_id = m.id AND a2.actif))
+         WHERE a.evenement_id = $1 AND a.actif
+     )
+     SELECT DISTINCT mm.reference, e.reference AS evenement_reference
+       FROM mails
+       JOIN gestion_monga_mail mm ON mm.message_id = mails.id
+       JOIN gestion_monga_lien l ON l.reference = mm.reference AND l.retire_le IS NULL AND l.evenement_id <> $1
+       JOIN gestion_evenement e ON e.id = l.evenement_id
+      ORDER BY 1`, [evenementId]);
+  return rows.map((r) => ({ reference: r.reference, evenementReference: r.evenement_reference }));
+}
+
+/**
  * ══ 🔴🔴 LA FRISE D'UN ÉVÉNEMENT ═════════════════════════════════════════════════════════════════════════════════
  *
  * 🔴 DEUX SOURCES EN UNE SEULE LECTURE, et c'est le cœur de la règle d'Arno : les étapes rattachées aux

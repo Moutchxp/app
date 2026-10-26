@@ -9,6 +9,11 @@ vi.mock('../../../../../../../lib/gestion/gestes', () => ({
   preremplir: (...a: unknown[]) => gestes.preremplir(...a),
 }));
 vi.mock('../../../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 1, libelle: 'arno' }) }));
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le classement des anciens mails de la référence, après le geste. */
+const classerApres = vi.fn<(...a: unknown[]) => Promise<number>>(async () => 0);
+vi.mock('../../../../../../../lib/gestion/mongaClassement', () => ({
+  classerApresLiensParGeste: (...a: unknown[]) => classerApres(...a),
+}));
 
 import { DELETE, GET, POST } from './route';
 
@@ -28,6 +33,7 @@ beforeEach(() => {
   gestes.affecter.mockResolvedValue({ ok: true, evenementId: 9, reference: 'GES-2026-000009' });
   gestes.detacher.mockResolvedValue({ ok: true, evenementId: 9 });
   gestes.preremplir.mockResolvedValue(null);
+  classerApres.mockReset(); classerApres.mockResolvedValue(0);
 });
 
 describe('la garde d’écriture, sur les TROIS verbes', () => {
@@ -53,7 +59,29 @@ describe('rattacher', () => {
     const res = await POST(req({ evenementId: 9 }), ctx('5'));
     expect(gestes.affecter.mock.calls[0][0]).toBe(5);
     expect(gestes.affecter.mock.calls[0][1]).toEqual({ evenementId: 9, nouveau: undefined });
-    expect(await res.json()).toEqual({ ok: true, evenementId: 9, reference: 'GES-2026-000009' });
+    expect(await res.json()).toEqual({ ok: true, evenementId: 9, reference: 'GES-2026-000009', monga: [], classesMonga: 0 });
+  });
+
+  /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — ce geste est HUMAIN : il demande au geste de relier la référence Monga. */
+  it('demande le lien Monga (geste humain), puis classe les anciens mails des seules références CRÉÉES', async () => {
+    gestes.affecter.mockResolvedValue({
+      ok: true, evenementId: 9, reference: 'GES-2026-000009',
+      monga: [
+        { reference: 'MNG-25126', issue: 'cree', evenementReference: null },
+        { reference: 'MNG-30001', issue: 'ailleurs', evenementReference: 'GES-2026-000004' },
+      ],
+    });
+    classerApres.mockResolvedValue(4);
+    const res = await POST(req({ evenementId: 9 }), ctx('5'));
+    expect(gestes.affecter.mock.calls[0][4]).toEqual({ relierMonga: true });
+    expect(classerApres).toHaveBeenCalledWith(['MNG-25126'], null);
+    expect(await res.json()).toMatchObject({ classesMonga: 4, monga: [{ reference: 'MNG-25126', issue: 'cree' }, { issue: 'ailleurs' }] });
+  });
+
+  it('refus métier → aucun classement Monga tenté', async () => {
+    gestes.affecter.mockResolvedValue({ ok: false, motif: 'Cet échange est déjà rattaché à cet événement.' });
+    await POST(req({ evenementId: 9 }), ctx('5'));
+    expect(classerApres).not.toHaveBeenCalled();
   });
 
   it('à un NOUVEL événement → transmet les champs saisis', async () => {

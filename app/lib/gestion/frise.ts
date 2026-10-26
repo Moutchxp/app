@@ -389,6 +389,16 @@ export function referencesDeLaFrise(etapes: readonly EtapeAAfficher[]): string[]
   return [...new Set(etapes.map((e) => e.reference).filter((r): r is string => r !== null))].sort();
 }
 
+/**
+ * ══ 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — « MNG-25126 EST SUIVIE DANS GES-2026-000012 » (Arno). PUR. ══════════════════
+ *
+ * Un mail Monga rattaché à cet événement alors que sa référence est reliée à un autre : le lien n'est pas déplacé,
+ * et la frise le DIT, plutôt que de laisser croire que l'intervention n'a aucune étape.
+ */
+export function motSuivieAilleurs(reference: string, evenementReference: string): string {
+  return `${reference} est suivie dans ${evenementReference}`;
+}
+
 /** Le montant, en euros, tel qu'il s'écrit. `null` = non renseigné — et c'est le cas ordinaire (voir l'audit). */
 export function motMontant(cents: number | null): string | null {
   if (cents === null) return null;

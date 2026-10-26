@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { ChoisirEvenement } from './ChoisirEvenement';
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — un mail déplacé a pu relier sa référence Monga : la frise se relit. */
+import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 
 /**
  * LOT 5b — LES BRIQUES PARTAGÉES DES GESTES SUR UN MAIL, extraites de `CarteVive` sans être modifiées.
@@ -67,6 +69,7 @@ export async function agirSurLeMail(messageId: number, cible: number | null, onG
       });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reference?: string; erreur?: string };
     if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Geste impossible sur ce mail.'); return; }
+    signalerFrise(cible);
     onGeste(cible === null
       ? 'Mail remis dans son échange.'
       : `Mail déplacé vers ${data.reference ?? 'l’événement choisi'} — il reste dans son échange d’origine, qui l’annonce.`,

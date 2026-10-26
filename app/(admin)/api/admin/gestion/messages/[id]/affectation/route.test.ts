@@ -10,6 +10,11 @@ vi.mock('../../../../../../../lib/gestion/gestes', () => ({
 vi.mock('../../../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 1, libelle: 'arno' }) }));
 const migration234 = vi.fn(async () => true);
 vi.mock('../../../../../../../lib/gestion/schema', () => ({ deplacementsDeMailsDisponibles: () => migration234() }));
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le classement des anciens mails de la référence, après le geste. */
+const classerApres = vi.fn<(...a: unknown[]) => Promise<number>>(async () => 0);
+vi.mock('../../../../../../../lib/gestion/mongaClassement', () => ({
+  classerApresLiensParGeste: (...a: unknown[]) => classerApres(...a),
+}));
 
 import { DELETE, POST } from './route';
 
@@ -24,6 +29,7 @@ beforeEach(() => {
   migration234.mockResolvedValue(true);
   gestes.deplacerMessage.mockReset(); gestes.deplacerMessage.mockResolvedValue({ ok: true, evenementId: 9, reference: 'GES-2026-000009' });
   gestes.remettreMessage.mockReset(); gestes.remettreMessage.mockResolvedValue({ ok: true, evenementId: 9 });
+  classerApres.mockReset(); classerApres.mockResolvedValue(0);
 });
 
 describe('la garde, sur les deux verbes', () => {
@@ -47,8 +53,29 @@ describe('la garde, sur les deux verbes', () => {
 describe('déplacer', () => {
   it('transmet le message, la destination et l’auteur, et rend la référence', async () => {
     const res = await POST(req({ evenementId: 9 }), ctx('3'));
-    expect(gestes.deplacerMessage.mock.calls[0]).toEqual([3, 9, { id: 1, libelle: 'arno' }]);
-    expect(await res.json()).toEqual({ ok: true, reference: 'GES-2026-000009', evenementId: 9 });
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — 5ᵉ argument : ce geste humain demande le lien Monga. */
+    expect(gestes.deplacerMessage.mock.calls[0]).toEqual([3, 9, { id: 1, libelle: 'arno' }, undefined, { relierMonga: true }]);
+    expect(await res.json()).toEqual({ ok: true, reference: 'GES-2026-000009', evenementId: 9, monga: [], classesMonga: 0 });
+  });
+
+  it('LOT MONGA-LIEN-PAR-LE-GESTE — une référence reliée par le geste : ses anciens mails sont classés, ce mail en ancre', async () => {
+    gestes.deplacerMessage.mockResolvedValue({
+      ok: true, evenementId: 9, reference: 'GES-2026-000009',
+      monga: [{ reference: 'MNG-25126', issue: 'cree', evenementReference: null }],
+    });
+    classerApres.mockResolvedValue(5);
+    const res = await POST(req({ evenementId: 9 }), ctx('3'));
+    expect(classerApres).toHaveBeenCalledWith(['MNG-25126'], 3);
+    expect(await res.json()).toMatchObject({ classesMonga: 5 });
+  });
+
+  it('LOT MONGA-LIEN-PAR-LE-GESTE — déjà reliée (même événement ou un autre) : aucun classement relancé', async () => {
+    gestes.deplacerMessage.mockResolvedValue({
+      ok: true, evenementId: 9, reference: 'GES-2026-000009',
+      monga: [{ reference: 'MNG-25126', issue: 'deja', evenementReference: null }],
+    });
+    await POST(req({ evenementId: 9 }), ctx('3'));
+    expect(classerApres).toHaveBeenCalledWith([], 3);
   });
 
   it('sans destination → 400, sans toucher la base', async () => {

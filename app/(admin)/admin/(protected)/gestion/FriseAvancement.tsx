@@ -30,6 +30,10 @@ import type { TacheFrise } from '../../../../lib/gestion/tacheFrise';
 import { CSS_POINT_TACHE_FRISE, PointsTachesFrise } from './PointTacheFrise';
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches } from './tachesClient';
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — la frise se relit après un rattachement (signal dédié, ou tout classement de mail). */
+import { ecouterFrise, friseConcernee } from '../../../../lib/gestion/signalFrise';
+import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
+import { motSuivieAilleurs } from '../../../../lib/gestion/frise';
 import {
   cartesDuReservoir, confirmationCarte,
   estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
@@ -119,6 +123,8 @@ interface Reponse {
   passagesEnFiableProposes?: { type: TypeEtape; confirmees: number }[];
   /** 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'ÉVÉNEMENT : la première carte de la frise. */
   ouvertLe?: string;
+  /** 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — les interventions de cet événement suivies dans un autre ; absent = aucune. */
+  suiviesAilleurs?: { reference: string; evenementReference: string }[];
   erreur?: string;
 }
 
@@ -370,6 +376,14 @@ export function FriseAvancement({
   /* 🔴 LOT GESTION-TACHES-EVENEMENTS — la tâche ouverte depuis son point ; tout geste sur une tâche relit la frise. */
   const [tacheOuverte, setTacheOuverte] = useState<number | null>(null);
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
+  /**
+   * 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — « la frise de l'événement concerné se recharge à l'écran sans avoir à recharger
+   * la page » (Arno). Deux signaux : celui des gestes de rattachement (qui nomme l'événement quand il le connaît), et
+   * celui de tout classement de mail, déjà émis par les fenêtres d'un mail — un mail qui change de carte peut changer
+   * la frise de celle-ci (sa référence Monga vient d'être reliée).
+   */
+  useEffect(() => ecouterFrise((id) => { if (friseConcernee(id, evenementId)) void charger(); }), [charger, evenementId]);
+  useEffect(() => ecouterClassement(() => { void charger(); }), [charger]);
 
   /**
    * 🔴 « ÉCHAP OU “FERMER” REFERME LE RÉSERVOIR » (Arno, point 2). Les deux, et c'est le minimum : la souris a
@@ -919,6 +933,16 @@ export function FriseAvancement({
               « {motEtape(p.type)} » a été confirmée {p.confirmees} fois sans être écartée —
               à passer en automatique fiable ? (décision d’Arno, rien n’est appliqué)
             </span>
+          ))}
+        </p>
+      )}
+
+      {/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — une intervention de cet événement est suivie dans un autre : le lien n'a pas
+          été déplacé (règle d'Arno), la frise le dit plutôt que de taire ses étapes. */}
+      {(vue.d.suiviesAilleurs ?? []).length > 0 && (
+        <p className="fav-ailleurs" role="note">
+          {(vue.d.suiviesAilleurs ?? []).map((s) => (
+            <span key={s.reference}>{motSuivieAilleurs(s.reference, s.evenementReference)}</span>
           ))}
         </p>
       )}
@@ -2794,7 +2818,12 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-points{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:0 3px}
 .fav-point-boite{position:relative;display:inline-flex}
 .fav-point{width:11px;height:11px;min-width:11px;min-height:11px;padding:0;cursor:pointer;
-  border-radius:50%;border:1px solid var(--color-svv-muted);background:var(--color-svv-bg)}
+  border-radius:50%;border:1px solid var(--color-svv-muted);background:var(--color-svv-bg);position:relative}
+/* LOT MONGA-LIEN-PAR-LE-GESTE — LA CIBLE TACTILE : 44 x 44 px centres sur le point (CLAUDE.md section 15), le
+   dessin reste celui de 11 px. Une zone transparente, sans fond ni bord : elle ne se voit pas, elle se touche.
+   Entre deux points voisins, les zones se recouvrent ; le dernier point peint l'emporte, comme au doigt. */
+.fav-point::before{content:'';position:absolute;left:50%;top:50%;width:44px;height:44px;
+  transform:translate(-50%,-50%);border-radius:50%;background:transparent}
 .fav-point:hover,.fav-point:focus-visible{background:var(--color-svv-red);border-color:var(--color-svv-red)}
 .fav-point--rappel_devis{border-style:dashed}
 .fav-point--facture{border-width:2px}
@@ -2866,6 +2895,10 @@ const CSS_FRISE_AVANCEMENT = `
    sienne juste en dessous (.fav-fiable) : rien d'autre ne perd son style. */
 .fav-fiable{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
   background:var(--color-svv-field);border-radius:6px}
+/* LOT MONGA-LIEN-PAR-LE-GESTE — « MNG-... est suivie dans GES-... » : meme habit discret que la ligne du dessus,
+   une intervention par ligne. */
+.fav-ailleurs{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
+  background:var(--color-svv-field);border-radius:6px;display:flex;flex-direction:column;gap:2px}
 /* ══ 🔴 LOT CLOTURE-REOUVERTURE — LA QUESTION POSEE AVANT DE CLORE OU DE ROUVRIR ══════════════════════════════
    Elle dit la consequence sur le BIEN, et elle se lit avant de cliquer : d'ou le liseré rouge et le texte en
    encre pleine. L'attribut role=alert la porte aussi au lecteur d'ecran, au moment ou elle apparait. */

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — relier ou annuler change la frise de l'événement : elle se relit. */
+import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 /**
  * 🔴 DEPUIS LE MODULE **PUR**, JAMAIS DEPUIS LE DÉPÔT. Ce composant vit dans le navigateur : importer
  * `mongaRepo` le ferait remonter jusqu'à `pg`, donc jusqu'à `dns`, et webpack refuserait de construire TOUTE
@@ -149,6 +151,7 @@ export function EncartMonga({ messageId, onGeste, onRelie }: {
       const dit = `${mot}${compte > 1 ? ` · ${compte} mails classés` : compte === 1 ? ' · 1 mail classé' : ''}`
         + `${(d.renomme ?? null) !== null ? ` · nom harmonisé : « ${d.renomme ?? ''} »` : ''}`;
       setFait({ reference, mot: dit });
+      signalerFrise(null);
       onGeste?.(dit);
       onRelie?.();
       await charger();
@@ -187,6 +190,7 @@ export function EncartMonga({ messageId, onGeste, onRelie }: {
         nomRemis?: string | null; evenementVide?: boolean;
       };
       if (d.etat !== 'ok') { setErreur(d.erreur ?? 'L’annulation n’a pas abouti.'); return; }
+      signalerFrise(null);
       onGeste?.(`Lien ${f.reference} annulé`
         + `${(d.mailsRemis ?? 0) > 0 ? ` · ${d.mailsRemis ?? 0} mail(s) remis` : ''}`
         + `${(d.nomRemis ?? null) !== null ? ` · nom remis : « ${d.nomRemis ?? ''} »` : ''}`

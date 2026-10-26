@@ -102,6 +102,7 @@ import {
 } from '../../../../lib/gestion/evenementRattache';
 import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
+import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 import {
   corpsCreation, partiesDesBiensFiche, PHRASE_BLOC_LECTURE, type PartieCarteNeuve,
 } from '../../../../lib/gestion/evenementDuMail';
@@ -1348,8 +1349,10 @@ function RattachementsDuFilMail({
       const res = await fetch(`/api/admin/gestion/messages/${mailId}/affectation`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
       });
-      const d = (await res.json()) as { erreur?: string };
+      const d = (await res.json()) as { erreur?: string; evenementId?: number };
       if (!res.ok) { setErreur(d.erreur ?? 'Les biens sont enregistrés, mais l’événement n’a pas abouti.'); return; }
+      /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le geste a pu relier la référence Monga du mail : la frise se relit. */
+      signalerFrise(typeof d.evenementId === 'number' ? d.evenementId : null);
       setEvtVoulu(null);
       setPanneauEvt('aucun');
       setRafraichirEvt((n) => n + 1);

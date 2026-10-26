@@ -2,6 +2,8 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { affecter, detacher, preremplir, type NouvelEvenement } from '../../../../../../../lib/gestion/gestes';
+import { classerApresLiensParGeste } from '../../../../../../../lib/gestion/mongaClassement';
+import { referencesCreees } from '../../../../../../../lib/gestion/mongaLienGeste';
 
 /**
  * /api/admin/gestion/fils/[id]/affectation (lot 4b) — RATTACHER un échange à un événement, ou l'en DÉTACHER.
@@ -59,9 +61,15 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   const nouveau = corps.nouveau && typeof corps.nouveau === 'object' ? (corps.nouveau as NouvelEvenement) : undefined;
 
   try {
-    const issue = await affecter(id, { evenementId, nouveau }, await auteurDeLaRequete(request), corps.motif as string | undefined);
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — CE GESTE EST HUMAIN : il relie aussi la référence Monga de l'échange (si elle
+       n'a aucun lien), dans la même transaction ; puis les autres mails de la référence suivent. */
+    const issue = await affecter(id, { evenementId, nouveau }, await auteurDeLaRequete(request),
+      corps.motif as string | undefined, { relierMonga: true });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
-    return Response.json({ ok: true, evenementId: issue.evenementId, reference: issue.reference });
+    const classesMonga = await classerApresLiensParGeste(referencesCreees(issue.monga), null);
+    return Response.json({
+      ok: true, evenementId: issue.evenementId, reference: issue.reference, monga: issue.monga ?? [], classesMonga,
+    });
   } catch (e) {
     console.error('[gestion/affectation] rattachement impossible', e);
     return Response.json({ erreur: 'Rattachement impossible : erreur interne du serveur.' }, { status: 503 });

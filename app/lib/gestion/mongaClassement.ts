@@ -335,6 +335,33 @@ export async function classerLesMailsDeLaReference(o: {
 }
 
 /**
+ * ══ 🔴🔴 LOT MONGA-LIEN-PAR-LE-GESTE — APRÈS LE LIEN POSÉ PAR UN GESTE, TOUS LES MAILS DE LA RÉFÉRENCE SUIVENT ═════
+ *
+ * Le lien est posé DANS la transaction du rattachement (`gestes.ts`, `mongaLienGeste.ts`) ; le classement des autres
+ * mails de la référence se fait ENSUITE, une fois le lien validé — exactement le ③ de `relierLaReference`, par la
+ * même porte (`classerLesMailsDeLaReference`), donc avec la même signature que « Délier » sait défaire.
+ *
+ * ⚠️ ELLE NE JETTE JAMAIS : le geste est fait et validé quand on arrive ici. Un mail qui ne se classe pas maintenant
+ * se classera à la relève suivante (le lien existe), et le refus n'a pas à faire échouer le geste d'Arno.
+ */
+export async function classerApresLiensParGeste(
+  references: readonly string[], ancre: number | null,
+): Promise<number> {
+  let classes = 0;
+  for (const reference of references) {
+    try {
+      const bilan = await classerLesMailsDeLaReference({
+        reference, ancre: ancre === null ? null : String(ancre),
+      });
+      classes += bilan.classes;
+    } catch (e) {
+      console.error('[gestion/monga] classement après lien impossible', reference, e);
+    }
+  }
+  return classes;
+}
+
+/**
  * ══ 🔴🔴 LA PASSE MONGA DE LA RELÈVE — LIRE, PUIS CLASSER CE QUI EST DÉJÀ RELIÉ ══════════════════════════════════
  *
  * Deux temps, et l'ordre compte :

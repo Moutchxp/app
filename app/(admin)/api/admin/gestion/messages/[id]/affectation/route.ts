@@ -8,6 +8,8 @@ import {
   deplacementsDeMailsDisponibles, evenementQualifieDisponible,
 } from '../../../../../../../lib/gestion/schema';
 import { evenementsLusDuMail } from '../../../../../../../lib/gestion/historiqueRepo';
+import { classerApresLiensParGeste } from '../../../../../../../lib/gestion/mongaClassement';
+import { referencesCreees } from '../../../../../../../lib/gestion/mongaLienGeste';
 
 /**
  * /api/admin/gestion/messages/[id]/affectation (lot 4d-B2) — DÉPLACER UN SEUL MAIL vers une autre carte que son
@@ -95,11 +97,16 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   try {
     if (!(await deplacementsDeMailsDisponibles())) return Response.json({ erreur: PAS_ENCORE }, { status: 503 });
     const auteur = await auteurDeLaRequete(request);
+    /* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — CE GESTE EST HUMAIN : il relie aussi la référence Monga de ce mail (si elle n'a
+       aucun lien), dans la même transaction ; puis les autres mails de la référence suivent. */
     const issue = versExistant
-      ? await deplacerMessage(id, evenementId as number, auteur)
-      : await deplacerMessageVersNouveau(id, nouveau as NouvelEvenement, auteur);
+      ? await deplacerMessage(id, evenementId as number, auteur, undefined, { relierMonga: true })
+      : await deplacerMessageVersNouveau(id, nouveau as NouvelEvenement, auteur, undefined, { relierMonga: true });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
-    return Response.json({ ok: true, reference: issue.reference, evenementId: issue.evenementId });
+    const classesMonga = await classerApresLiensParGeste(referencesCreees(issue.monga), id);
+    return Response.json({
+      ok: true, reference: issue.reference, evenementId: issue.evenementId, monga: issue.monga ?? [], classesMonga,
+    });
   } catch (e) {
     console.error('[gestion/message] déplacement impossible', e);
     return Response.json({ erreur: 'Déplacement impossible : erreur interne du serveur.' }, { status: 503 });

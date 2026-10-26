@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ChoisirEvenement } from './ChoisirEvenement';
+/* 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — le rattachement a pu relier une référence Monga : la frise de l'événement se relit. */
+import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 
 /**
  * LOT 4b — LE PANNEAU « AFFECTER À UN ÉVÉNEMENT », ouvert sous la ligne de l'échange.
@@ -71,8 +73,9 @@ export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler, v
       const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
       });
-      const data = (await res.json()) as { ok?: boolean; reference?: string; erreur?: string };
+      const data = (await res.json()) as { ok?: boolean; reference?: string; erreur?: string; evenementId?: number };
       if (!res.ok || !data.ok) { setErreur(data.erreur ?? 'Rattachement impossible.'); return; }
+      signalerFrise(typeof data.evenementId === 'number' ? data.evenementId : null);
       onFait(`Échange rattaché à l’événement ${data.reference ?? ''}.`);
     } catch {
       setErreur('Rattachement impossible : le serveur n’a pas répondu.');
