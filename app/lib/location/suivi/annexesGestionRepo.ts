@@ -2,6 +2,7 @@ import 'server-only';
 import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import type { AnnexeLouee } from './annexesGestion';
+import type { LienAnnexeAffiche } from './biensRegroupes';
 
 /**
  * ══ 🔴 Arno (25/10/2026, migration 426) — LA RÈGLE DES ANNEXES, LUE EN BASE ═══════════════════════════════════════════════════════════
@@ -60,4 +61,28 @@ export async function annexesDesLocations(activites: readonly { id: number | str
     if (p !== null) sortie.set(String(a.id), p);
   }
   return sortie;
+}
+
+/**
+ * 🔴 Arno (26/10/2026) — Outils de suivi, une ligne par bien : les annexes RATTACHÉES (non détachées) et leur lot principal, avec ce que
+ * la bulle « + N annexe(s) » en dit (type, n° de porte ou de place, lot, niveau, adresse). Indépendant de la date de bascule : c'est de
+ * l'affichage. Sans la 372 : aucun lien (une ligne par lot, comme avant). LECTURE SEULE.
+ */
+export async function lireLiensAnnexesAffiches(): Promise<LienAnnexeAffiche[]> {
+  if (!(await colonneExisteMemo('gestion_lot_annexe', 'annexe_id'))) return [];
+  const avecLot = await colonneExisteMemo('gestion_annuaire_lot', 'porte');
+  const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
+  const { rows } = await query<{ id: string; parent: string; categorie: string | null; etage: string | null; nature: string | null; type_bien: string | null;
+    porte: string | null; num_lot_copro: string | null; adresse: string | null; commune: string | null; padresse: string | null; pcommune: string | null }>(
+    `SELECT l.id::text AS id, a.parent_id::text AS parent, ${avecLot ? 'l.categorie, l.etage, l.porte, l.num_lot_copro' : 'NULL::text AS categorie, NULL::text AS etage, NULL::text AS porte, NULL::text AS num_lot_copro'},
+            l.nature, l.type_bien, l.adresse, l.commune, p.adresse AS padresse, p.commune AS pcommune
+       FROM gestion_lot_annexe a JOIN gestion_annuaire_lot l ON l.id = a.annexe_id JOIN gestion_annuaire_lot p ON p.id = a.parent_id
+      ${avecDetache ? 'WHERE l.annexe_detachee_le IS NULL' : ''}`);
+  const net = (x: string | null): string | null => (x !== null && x.trim() !== '' ? x.trim() : null);
+  return rows.map((r) => ({
+    id: Number(r.id), parentId: Number(r.parent), categorie: r.categorie, etage: r.etage, nature: r.nature, typeBien: r.type_bien, porte: r.porte,
+    numLotCopro: r.num_lot_copro, adresse: r.adresse, commune: r.commune, parentAdresse: r.padresse, parentCommune: r.pcommune,
+    // Le libellé du lot principal, écrit comme celui des lignes de gestion (adresse, commune).
+    parentLibelle: [net(r.padresse), net(r.pcommune)].filter((x) => x !== null).join(', ') || `Bien n° ${r.parent}`,
+  }));
 }

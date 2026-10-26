@@ -17,7 +17,7 @@ import { estInterne, texteRechercheApporteur } from '../../../../lib/location/su
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
   type ActiviteLue, type GestionDepuisJanvier, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
-  gestionDuMois, honorairesGestionMensuels, type LigneGestion, NOMS_MOIS, primeDe, STATUT_ARRIVEE, tauxAffichage,
+  gestionDuMois, honorairesGestionMensuels, type LigneGestion, type MouvementGestion, NOMS_MOIS, primeDe, STATUT_ARRIVEE, tauxAffichage,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
 import {
@@ -25,6 +25,8 @@ import {
   PRECISION_ORIGINE_MAX, versionADate, libelleDuree,
 } from '../../../../lib/location/suivi/suivi';
 import { ChampNombre } from './ChampNombre';
+import { BulleAnnexes, CSS_BULLE_ANNEXES } from './BulleAnnexes';
+import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
 
 /**
  * ══ 🔴 LOCATION — « SUIVI DU MOIS » : LA FEUILLE D'UN MOIS (Arno, 23/10/2026) ═════════════════════════════════════════════════
@@ -234,12 +236,13 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
       </section>
 
       <section className="tdb-section" aria-labelledby="fdm-gestions" data-bloc="nouvelles-gestions">
-        <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet">({g.nbNouvelles}{g.nouvelles.length > g.nbNouvelles ? ` · ${g.nouvelles.length - g.nbNouvelles} annexe(s) non comptée(s)` : ''})</small></h3>
-        <TableGestion lignes={g.nouvelles} perdus={false} regle={regleA} />
+        {/* 🔴 Arno (26/10/2026) — une ligne par BIEN (lot principal + annexes) ; le titre compte les biens affichés. */}
+        <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet" data-compte-biens>({regrouperParBien(g.nouvelles, d.liensAnnexes).length})</small></h3>
+        <TableGestion lignes={g.nouvelles} perdus={false} regle={regleA} liens={d.liensAnnexes} />
       </section>
       <section className="tdb-section" aria-labelledby="fdm-perdus" data-bloc="mandats-perdus">
-        <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet">({g.nbPerdues}{g.perdues.length > g.nbPerdues ? ` · ${g.perdues.length - g.nbPerdues} annexe(s) non comptée(s)` : ''})</small></h3>
-        <TableGestion lignes={g.perdues} perdus regle={regleA} />
+        <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet" data-compte-biens>({regrouperParBien(g.perdues, d.liensAnnexes).length})</small></h3>
+        <TableGestion lignes={g.perdues} perdus regle={regleA} liens={d.liensAnnexes} />
       </section>
 
       {/* 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : le bas de feuille rangé par FAMILLES (le composant `ResumePeriode`, partagé avec le
@@ -359,6 +362,12 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
  * annuel, « Début / Fin ») sont CE composant, avec leurs chiffres (`ResumeCalcule` : un mois, ou la somme des mois de l'année) et les mots de leur période.
  * « Depuis le 1er janvier » (mois) ou « Depuis le début (<première année>) » (année) : la même grille, le même style de titre.
  */
+/** 🔴 Arno (26/10/2026) — la liste « Depuis le 1er janvier / le début » : une ligne par bien, MOIS PAR MOIS (l'ordre des mois gardé). PUR. */
+function biensParMois(biens: readonly MouvementGestion[], liens: readonly LienAnnexeAffiche[] | undefined) {
+  const mois = [...new Set(biens.map((b) => b.mois))];
+  return mois.flatMap((m) => regrouperParBien(biens.filter((b) => b.mois === m), liens).map((g) => ({ ...g, cle: `${m}-${g.cle}` })));
+}
+
 export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cumul, cumulTitre, gliCumul, onDetail, mention }: {
   d: DonneesTableau; resume: ResumeCalcule; unite: 'mois' | 'periode'; libelle: string; idp: string; moisCascade: string;
   cumul: GestionDepuisJanvier; cumulTitre: string; gliCumul: GliPeriode; onDetail: (titre: string, ids: (number | string)[]) => void; mention?: ReactNode;
@@ -461,11 +470,20 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
             {gliOuvert !== null && <ListeGli g={gliOuvert === 'mois' ? resume.gli : gliCumul} titre={gliOuvert === 'mois' ? `Nouvelles GLI — ${unite === 'mois' ? libelle.toLowerCase() : libelle}` : `Nouvelles GLI ${cumulTitre.charAt(0).toLowerCase() + cumulTitre.slice(1)}`} />}
             {cumulOuvert !== null && (
               <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
-                {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).map((x, i) => (
-                  <li key={`${x.lotId ?? 'f'}-${x.mois}-${i}`}>
-                    <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.libelle}</a> : x.libelle}<small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}{x.annexeNonComptee ? ' · annexe — non comptée' : ''}</small></span>
-                    <span>{x.mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(x.mensuel)} / mois`}</span>
-                  </li>))}
+                {/* 🔴 Arno (26/10/2026) — une ligne par BIEN et par mois : le lot principal, « + N annexe(s) » en bulle ; / mois = la somme. */}
+                {biensParMois(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens, d.liensAnnexes).map((gr) => {
+                  const x = gr.principal ?? gr.lignes[0];
+                  const mensuel = sommeDuGroupe(gr, (y) => y.mensuel);
+                  return (
+                  <li key={gr.cle} data-cumul-bien={gr.lotId ?? 'fichier'}>
+                    <span><span>{gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : gr.libelle}
+                      <BulleAnnexes annexes={gr.annexes} repere={gr.lotId ?? undefined}
+                        note={gr.principalAbsent ? 'Le lot principal n’a pas bougé ce mois-là : seule son annexe figure ici.' : null}
+                        extra={(a) => <span className="anx-bulle-extra">{a.ligne.annexeNonComptee ? ' — annexe non comptée' : ''}{gr.principal !== null && a.ligne.mensuel !== null ? ` — ${eur(a.ligne.mensuel)} / mois (inclus)` : ''}</span>} /></span>
+                      <small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
+                    <span>{mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(mensuel)} / mois`}</span>
+                  </li>);
+                })}
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
               </ul>
             )}
@@ -547,8 +565,14 @@ function BlocNegociateur({ x, mois, mots }: { x: CascadeNegociateur; mois: strin
   );
 }
 
-function TableGestion({ lignes, perdus, regle }: { lignes: readonly LigneGestion[]; perdus: boolean; regle: RegleAnnexes }) {
+/**
+ * 🔴 Arno (26/10/2026) — UNE LIGNE PAR BIEN : le lot principal, « + N annexe(s) » et leur détail en bulle. Loyer, taux, date et statut :
+ * ceux du lot principal (sinon de la seule ligne du groupe) ; honoraires / mois et / an : la SOMME des lignes du groupe — le total de la
+ * colonne ne change pas. Une annexe détachée (bien autonome) n'est pas dans les liens : sa ligne reste à elle, sans mention d'annexe.
+ */
+function TableGestion({ lignes, perdus, regle, liens }: { lignes: readonly LigneGestion[]; perdus: boolean; regle: RegleAnnexes; liens?: readonly LienAnnexeAffiche[] }) {
   if (lignes.length === 0) return <p className="loc-muet">{perdus ? 'Aucun mandat perdu ce mois-ci.' : 'Aucune nouvelle gestion ce mois-ci.'}</p>;
+  const groupes = regrouperParBien(lignes, liens);
   return (
     <table className="fdm-table">
       <thead><tr>
@@ -556,14 +580,20 @@ function TableGestion({ lignes, perdus, regle }: { lignes: readonly LigneGestion
         {perdus ? <><th scope="col">Sortie le</th><th scope="col">Statut d’arrivée</th></> : <><th scope="col">Loyer</th><th scope="col">Taux</th></>}
         <th scope="col">{perdus ? 'Perdu / mois' : 'Honoraires / mois'}</th><th scope="col">{perdus ? 'Perdu / an' : 'Honoraires / an'}</th>
       </tr></thead>
-      <tbody>{lignes.map((l, i) => {
-        const m = honorairesGestionMensuels(l);
+      <tbody>{groupes.map((gr) => {
+        const l = gr.principal ?? gr.lignes[0];
+        const m = sommeDuGroupe(gr, honorairesGestionMensuels);
         return (
-          <tr key={`${l.lotId ?? 'fichier'}-${l.effetLe}-${i}`} data-ligne-gestion={l.lotId ?? 'fichier'}>
-            <th scope="row">{l.lotId !== null ? <a href={`/admin/location/bien/${l.lotId}`}>{l.libelle}</a> : <span>{l.libelle}</span>}
+          <tr key={gr.cle} data-ligne-gestion={gr.lotId ?? 'fichier'}>
+            <th scope="row">{gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : <span>{gr.libelle}</span>}
+              <BulleAnnexes annexes={gr.annexes} repere={gr.lotId ?? undefined}
+                note={gr.principalAbsent ? (perdus ? 'Le lot principal n’est pas sorti de la gestion ce mois-ci : seule son annexe figure ici.' : 'Le lot principal n’est pas entré en gestion ce mois-ci : seule son annexe figure ici.') : null}
+                extra={(x) => {
+                  const mx = gr.principal === null ? null : honorairesGestionMensuels(x.ligne);
+                  return <span className="anx-bulle-extra">{annexeNonComptee(x.lotId, x.ligne.effetLe, regle) ? ' — annexe non comptée' : ''}{mx !== null ? ` — ${eur(mx)} / mois (inclus)` : ''}</span>;
+                }} />
               {l.origine === 'fichier' && <span className="loc-pastille" title={[l.commentaire, l.lotId === null ? 'Bien non rattaché' : null].filter(Boolean).join(' · ') || undefined}
-                data-perte-fichier>suivi mensuel{l.lotId === null ? ' · non rattaché' : ''}</span>}
-              {annexeNonComptee(l.lotId, l.effetLe, regle) && <span className="loc-pastille" data-annexe-non-comptee>annexe — non comptée</span>}</th>
+                data-perte-fichier>suivi mensuel{l.lotId === null ? ' · non rattaché' : ''}</span>}</th>
             <td data-mot="Propriétaire">{l.proprietaire || '—'}</td>
             {perdus ? <><td data-mot="Sortie le">{l.origine === 'fichier' ? `${dateFr(l.effetLe).slice(3)} (mois)` : dateFr(l.effetLe)}</td>
               <td data-mot="Statut d’arrivée">{STATUT_ARRIVEE[l.apres] ?? l.apres}</td></>
@@ -796,7 +826,7 @@ function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
   );
 }
 
-export const CSS_FEUILLE_MOIS = `
+export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
 .fdm{display:flex;flex-direction:column;gap:18px}
 .fdm-table{width:100%;border-collapse:collapse;font-size:.84rem}
 .fdm-table th,.fdm-table td{padding:6px 6px;border-bottom:1px solid var(--color-svv-line);text-align:right;vertical-align:middle}

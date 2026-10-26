@@ -7,7 +7,7 @@ import { aUnDuMensuel, champsResultatNet, historiqueAnnees, NATURES_BIEN, suiviD
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
-import { annexesDesLocations, lireRegleAnnexes } from './annexesGestionRepo';
+import { annexesDesLocations, lireLiensAnnexesAffiches, lireRegleAnnexes } from './annexesGestionRepo';
 import { lireGli, lireMargesGli } from './margeGliRepo';
 import { annuaireDisponible, statutBienManuelDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
@@ -319,6 +319,8 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     ...champsResultatNet(voirCommissions, o.resultatNet === true, reglesLues, retrocessions),
     ...(suiviPropre === null ? {} : { negociateurPropre: suiviPropre }),
     basculeAnnexes: regleAnnexes.basculeAnnexes, annexes: regleAnnexes.annexes,
+    // 🔴 Arno (26/10/2026) — une ligne par bien dans les Outils de suivi : le lien de chaque annexe rattachée (affichage seul).
+    liensAnnexes: await lireLiensAnnexesAffiches(),
     gli, margesGli,
   };
 }

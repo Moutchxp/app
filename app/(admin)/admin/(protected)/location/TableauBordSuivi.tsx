@@ -10,6 +10,8 @@ import {
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
+import { BulleAnnexes } from './BulleAnnexes';
+import { regrouperParBien, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
 import { BlocReplie, CSS_BLOC_REPLIE } from './BlocReplie';
 import { gestionDepuisLeDebut, resumeDeLaPeriode } from '../../../../lib/location/suivi/resumePeriode';
 import { gliEntre } from '../../../../lib/location/suivi/margeGli';
@@ -708,7 +710,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
       </section>
       </>}
 
-      {detail !== null && <ListeDetail detail={detail} parId={parId} ctx={ctx} voirCommissions={d.voirCommissions} onFermer={() => setDetail(null)} />}
+      {detail !== null && <ListeDetail detail={detail} parId={parId} ctx={ctx} voirCommissions={d.voirCommissions} liens={d.liensAnnexes} onFermer={() => setDetail(null)} />}
     </div>
   );
 }
@@ -718,8 +720,8 @@ export const sommeAffichee = (xs: readonly number[]): number => xs.reduce((t, x)
 
 
 /** La liste des baux (ou des biens) derrière un chiffre. */
-function ListeDetail({ detail, parId, ctx, voirCommissions, onFermer }: {
-  detail: NonNullable<Detail>; parId: Map<string, ActiviteLue>; ctx: ContexteCalcul; voirCommissions: boolean; onFermer: () => void;
+function ListeDetail({ detail, parId, ctx, voirCommissions, liens, onFermer }: {
+  detail: NonNullable<Detail>; parId: Map<string, ActiviteLue>; ctx: ContexteCalcul; voirCommissions: boolean; liens?: readonly LienAnnexeAffiche[]; onFermer: () => void;
 }) {
   const lignes = (detail.ids ?? []).map((i) => parId.get(String(i))).filter((x): x is ActiviteLue => x !== undefined);
   const total = lignes.reduce((s, a) => s + caLigne(a), 0);
@@ -731,14 +733,23 @@ function ListeDetail({ detail, parId, ctx, voirCommissions, onFermer }: {
           <button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer} autoFocus>×</button>
         </header>
         <div className="tdb-fenetre-corps">
-          {detail.lots !== undefined ? detail.lots.map((g) => (
+          {/* 🔴 Arno (26/10/2026) — une ligne par BIEN : le lot principal, « + N annexe(s) » en bulle ; le titre compte les biens affichés. */}
+          {detail.lots !== undefined ? detail.lots.map((g) => {
+            const biens = regrouperParBien(g.ids.map((id) => ({ lotId: id, libelle: `Bien n° ${id}` })), liens);
+            return (
             <div key={g.titre}>
-              <h4>{g.titre} ({g.ids.length})</h4>
+              <h4>{g.titre} ({biens.length})</h4>
               {g.ids.length === 0 ? <p className="loc-muet">Aucun.</p> : (
-                <ul className="tdb-lots">{g.ids.map((id) => <li key={id}><a href={`/admin/location/bien/${id}`}>Bien n° {id}</a></li>)}</ul>
+                <ul className="tdb-lots">{biens.map((b) => (
+                  <li key={b.cle} data-lot-bien={b.lotId ?? undefined}><a href={`/admin/location/bien/${b.lotId}`}>Bien n° {b.lotId}</a>
+                    <BulleAnnexes annexes={b.annexes} place="dessous" repere={b.lotId ?? undefined}
+                      note={b.principalAbsent ? 'Le lot principal n’est pas dans cette liste : seule son annexe y figure.' : null}
+                      extra={(a) => <span className="anx-bulle-extra"> — bien n° {a.lotId}</span>} /></li>
+                ))}</ul>
               )}
             </div>
-          )) : (
+            );
+          }) : (
             <>
               <p className="loc-muet">{lignes.length} ligne(s) · CA HT {eur(total)}</p>
               <ul className="tdb-baux">

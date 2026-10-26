@@ -2308,3 +2308,111 @@ describe('🔴 Arno (26/10/2026) — « Résultat net de l’agence » REPLIÉ p
     expect(readFileSync(path.join(process.cwd(), 'app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx'), 'utf8')).toContain("import { BlocReplie, CSS_BLOC_REPLIE } from './BlocReplie';");
   });
 });
+
+/**
+ * 🔴 Arno (26/10/2026) — OUTILS DE SUIVI : UNE SEULE LIGNE PAR BIEN (lot principal + annexes rattachées). Le regroupement suit le LIEN
+ * (une annexe à une autre adresse est regroupée), une annexe détachée garde sa ligne sans mention, les titres comptent les biens affichés,
+ * et aucun montant ne change (la balance et le portefeuille sont les mêmes avec ou sans les liens).
+ */
+describe('🔴 une seule ligne par bien (lot principal + annexes)', () => {
+  const lien = (id: number, parentId: number, parentAdresse: string, x: { categorie: string; porte: string; adresse: string }) => ({
+    id, parentId, parentLibelle: `${parentAdresse}, Puteaux`, parentAdresse, parentCommune: 'Puteaux', etage: null, nature: null, typeBien: null, numLotCopro: null,
+    commune: 'Puteaux', ...x });
+  const ligne = (lotId: number, libelle: string, effetLe: string, sortie: boolean, loyerHc: number | null) => ({
+    lotId, libelle, proprietaire: 'COHEN Samuel', effetLe, avant: sortie ? 'en_gestion' : 'location_seule', apres: sortie ? 'ancienne_gestion' : 'en_gestion',
+    loyerHc, provisions: 0, base: 'hc' as const, tauxHt: loyerHc === null ? null : 5 });
+  const LIGNES = [
+    ligne(30, '1 Rue Louis Pouey, Puteaux', '2026-10-05', false, 1000), ligne(31, '1 Rue Louis Pouey, Puteaux', '2026-10-05', false, null),
+    ligne(40, '12 Rue de l’Église, Puteaux', '2026-10-08', false, 1200), ligne(41, '3 Rue Autre, Puteaux', '2026-10-08', false, 100),
+    ligne(50, '8 Rue Denfert, Puteaux', '2026-10-09', false, 300),
+    ligne(60, '9 Rue Perdue, Puteaux', '2026-10-15', true, 800), ligne(61, '9 Rue Perdue, Puteaux', '2026-10-15', true, null),
+  ];
+  const LIENS = [
+    lien(31, 30, '1 Rue Louis Pouey', { categorie: 'cave', porte: '56', adresse: '1 Rue Louis Pouey' }),
+    lien(41, 40, '12 Rue de l’Église', { categorie: 'parking', porte: '12', adresse: '3 Rue Autre' }),
+    lien(61, 60, '9 Rue Perdue', { categorie: 'cave', porte: '2', adresse: '9 Rue Perdue' }),
+  ];
+  const ouvrirOctobre = async (avecLiens: boolean, bascule: string | null = '2026-01-01') => {
+    donnees = { ...donnees, gestionLignes: LIGNES, basculeAnnexes: bascule, annexes: [31, 41, 50, 61], ...(avecLiens ? { liensAnnexes: LIENS } : {}) };
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="10"]') as HTMLButtonElement).click(); });
+    await calmer();
+  };
+  const rangees = (bloc: string) => [...container.querySelectorAll(`[data-bloc="${bloc}"] [data-ligne-gestion]`)] as HTMLElement[];
+  const rangee = (bloc: string, id: number) => container.querySelector(`[data-bloc="${bloc}"] [data-ligne-gestion="${id}"]`) as HTMLElement;
+
+  it('le lot principal et ses annexes sur UNE ligne, « + 1 annexe » après l’adresse ; une annexe à une AUTRE adresse est regroupée', async () => {
+    await ouvrirOctobre(true);
+    expect(rangees('nouvelles-gestions').map((r) => r.getAttribute('data-ligne-gestion'))).toEqual(['30', '40', '50']);
+    const th = rangee('nouvelles-gestions', 30).querySelector('th')!;
+    expect(th.querySelector('a')?.getAttribute('href')).toBe('/admin/location/bien/30');
+    expect([nbsp(th.querySelector('a')?.textContent), th.querySelector('[data-annexes-declencheur]')?.textContent]).toEqual(['1 Rue Louis Pouey, Puteaux', '+ 1 annexe']);
+    // L'annexe à « 3 Rue Autre » rejoint son lot principal : la bulle dit son type, sa place et SON adresse ; son montant est inclus dans la somme.
+    const bulle40 = rangee('nouvelles-gestions', 40).querySelector('[data-annexes-bulle]')!;
+    expect(nbsp(bulle40.textContent)).toContain('Parking · Place 12 · 3 Rue Autre, Puteaux');
+    expect(nbsp(bulle40.textContent)).toContain('annexe non comptée');
+    expect(nbsp(rangee('nouvelles-gestions', 40).textContent)).toContain('65,00 €780,00 €');
+    // Même adresse que le lot principal : l'adresse n'est pas répétée.
+    expect(nbsp(rangee('nouvelles-gestions', 30).querySelector('[data-annexes-bulle]')?.textContent)).toBe('Cave · N° 56 — annexe non comptée');
+    expect(rangees('mandats-perdus').map((r) => r.getAttribute('data-ligne-gestion'))).toEqual(['60']);
+  });
+
+  it('une annexe DÉTACHÉE (bien autonome, pas dans les liens) garde sa ligne, sans aucune mention d’annexe', async () => {
+    await ouvrirOctobre(true);
+    const r = rangee('nouvelles-gestions', 50);
+    expect(r.querySelector('[data-annexes-declencheur]')).toBeNull();
+    expect(r.querySelector('[data-annexe-non-comptee]')).toBeNull();
+    expect(nbsp(r.textContent)).not.toContain('annexe');
+  });
+
+  it('les titres comptent les BIENS affichés', async () => {
+    await ouvrirOctobre(true);
+    expect(container.querySelector('#fdm-gestions [data-compte-biens]')?.textContent).toBe('(3)');
+    expect(container.querySelector('#fdm-perdus [data-compte-biens]')?.textContent).toBe('(1)');
+  });
+
+  it('la bulle s’ouvre au toucher et au clavier, se referme avec Échap ; zone de 44 px', async () => {
+    await ouvrirOctobre(true);
+    const declencheur = rangee('nouvelles-gestions', 30).querySelector('[data-annexes-declencheur]') as HTMLButtonElement;
+    const bulle = rangee('nouvelles-gestions', 30).querySelector('[data-annexes-bulle]')!;
+    expect(bulle.hasAttribute('data-ouvert')).toBe(false);
+    await act(async () => { declencheur.click(); });
+    expect(bulle.hasAttribute('data-ouvert')).toBe(true);
+    await act(async () => { declencheur.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(bulle.hasAttribute('data-ouvert')).toBe(false);
+    await act(async () => { declencheur.blur(); declencheur.focus(); });
+    expect(bulle.hasAttribute('data-ouvert')).toBe(true);
+    const { CSS_BULLE_ANNEXES } = await import('./BulleAnnexes');
+    expect(CSS_BULLE_ANNEXES.replace(/\s+/g, ' ')).toContain('min-height:44px');
+  });
+
+  it('la fenêtre « Gestion » de la tuile : « Bien n° 30 + 1 annexe », le titre compte les biens, l’annexe reste nommée dans la bulle', async () => {
+    donnees = { ...donnees, gestion: { disponible: true, stock: 120, transitions: [
+      { lotId: 30, avant: 'location_seule', apres: 'en_gestion', effetLe: '2026-10-05' }, { lotId: 31, avant: 'location_seule', apres: 'en_gestion', effetLe: '2026-10-05' },
+    ] } };
+    // Sans bascule (avant la règle 426), l'annexe est un lot entré comme un autre : la liste l'aurait montré sur sa propre ligne.
+    await ouvrirOctobre(true, null);
+    await act(async () => { tuile('gestion').click(); });
+    const fenetre = container.querySelector('[data-detail]')!;
+    expect(nbsp(fenetre.querySelector('h4')?.textContent)).toBe('Entrés en gestion (1)');
+    const li = fenetre.querySelector('[data-lot-bien="30"]')!;
+    expect([li.querySelector('a')?.textContent, li.querySelector('[data-annexes-declencheur]')?.textContent]).toEqual(['Bien n° 30', '+ 1 annexe']);
+    expect(nbsp(li.querySelector('[data-annexes-bulle]')?.textContent)).toContain('bien n° 31');
+  });
+
+  it('AUCUN montant ne change : honoraires, balance et portefeuille identiques avec ou sans le regroupement', async () => {
+    const lire = () => ({
+      balance: nbsp(container.querySelector('[data-total="balance"]')?.textContent), balanceAn: nbsp(container.querySelector('[data-total="balance-an"]')?.textContent),
+      portefeuille: nbsp(container.querySelector('[data-famille="portefeuille"]')?.textContent?.replace(/\+ \d annexes?/g, '')),
+      honoraires: rangees('nouvelles-gestions').reduce((s, r) => s + Number(nbsp(r.querySelector('td[data-mot="Honoraires / mois"]')?.textContent).replace(/[^\d,]/g, '').replace(',', '.') || 0), 0),
+    });
+    await ouvrirOctobre(false);
+    const sans = lire();
+    expect(rangees('nouvelles-gestions')).toHaveLength(5);   // sans les liens : une ligne par lot, comme avant
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrirOctobre(true);
+    const avec = lire();
+    expect(avec).toEqual(sans);
+    expect(sans.balance).toBe('+90,00 €');   // (50 + 65 + 15) gagnés − 40 perdus
+  });
+});

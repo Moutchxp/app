@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 /**
@@ -13,13 +14,14 @@ import { useEffect, useId, useRef, useState } from 'react';
  * Le contenu de la liste est celui d'avant ; seul son affichage change. Liste vide : rien n'est rendu (l'écran garde son
  * message habituel).
  */
-export function LigneManques({ manques, attributs }: {
-  manques: readonly string[];
-  /** Attributs du paragraphe (repères d'épreuve, rôle), pour garder ceux de la ligne d'avant. */
-  attributs?: Record<string, string | undefined>;
-}) {
+/**
+ * Les gestes d'une bulle (Arno, 26/10/2026), partagés par « Reste à renseigner » et les « + N annexe(s) » des Outils de suivi : ouverte
+ * au survol de la SOURIS, au toucher (clic : épinglée), au focus CLAVIER ; refermée par Échap ou un toucher ailleurs. Jamais par le seul
+ * survol : un écran tactile n'en a pas.
+ */
+export function useBulle() {
   const id = useId();
-  const zone = useRef<HTMLDivElement>(null);
+  const zone = useRef<HTMLElement | null>(null);
   const appui = useRef(false);
   const [survol, setSurvol] = useState(false);
   const [focusClavier, setFocusClavier] = useState(false);
@@ -36,26 +38,44 @@ export function LigneManques({ manques, attributs }: {
     return () => document.removeEventListener('pointerdown', ailleurs);
   }, [epingle]);
 
+  const fermer = () => { setSurvol(false); setFocusClavier(false); setEpingle(false); };
+  return {
+    id, ouvert,
+    zone: {
+      ref: (el: HTMLElement | null) => { zone.current = el; },
+      onPointerEnter: (e: React.PointerEvent) => { if (e.pointerType === 'mouse') setSurvol(true); },
+      onPointerLeave: (e: React.PointerEvent) => { if (e.pointerType === 'mouse') setSurvol(false); },
+      onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Escape' && ouvert) { e.stopPropagation(); fermer(); } },
+    },
+    declencheur: {
+      type: 'button' as const, 'aria-expanded': ouvert, 'aria-controls': id,
+      onClick: () => setEpingle((x) => !x),
+      // Un focus sans appui du doigt ou de la souris juste avant est un focus CLAVIER (Tab) : il ouvre la bulle.
+      onPointerDown: () => { appui.current = true; },
+      onFocus: () => { setFocusClavier(!appui.current); appui.current = false; },
+      onBlur: () => { setFocusClavier(false); appui.current = false; },
+    },
+    bulle: { id, role: 'tooltip' as const, 'data-ouvert': ouvert ? '' : undefined },
+  };
+}
+
+export function LigneManques({ manques, attributs }: {
+  manques: readonly string[];
+  /** Attributs du paragraphe (repères d'épreuve, rôle), pour garder ceux de la ligne d'avant. */
+  attributs?: Record<string, string | undefined>;
+}) {
+  const b = useBulle();
   if (manques.length === 0) return null;
   const ligne = `Reste à renseigner (${manques.length}) : ${manques.join(' · ')}.`;
-  const fermer = () => { setSurvol(false); setFocusClavier(false); setEpingle(false); };
 
   return (
-    <div className="loc-manques-zone" ref={zone} data-manques-zone
-      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setSurvol(true); }}
-      onPointerLeave={(e) => { if (e.pointerType === 'mouse') setSurvol(false); }}
-      onKeyDown={(e) => { if (e.key === 'Escape' && ouvert) { e.stopPropagation(); fermer(); } }}>
+    <div className="loc-manques-zone" {...b.zone} data-manques-zone>
       <p className="loc-manques loc-manques--ligne" role="status" {...attributs}>
-        <button type="button" className="loc-manques-declencheur" aria-expanded={ouvert} aria-controls={id} data-manques-declencheur
-          onClick={() => setEpingle((x) => !x)}
-          // Un focus sans appui du doigt ou de la souris juste avant est un focus CLAVIER (Tab) : il ouvre la bulle.
-          onPointerDown={() => { appui.current = true; }}
-          onFocus={() => { setFocusClavier(!appui.current); appui.current = false; }}
-          onBlur={() => { setFocusClavier(false); appui.current = false; }}>
+        <button className="loc-manques-declencheur" {...b.declencheur} data-manques-declencheur>
           {ligne}
         </button>
       </p>
-      <div id={id} className="loc-manques-bulle" role="tooltip" data-manques-bulle data-ouvert={ouvert ? '' : undefined}>
+      <div className="loc-manques-bulle" {...b.bulle} data-manques-bulle>
         <p className="loc-manques-bulle-titre">Reste à renseigner ({manques.length}) :</p>
         <ul>{manques.map((m, i) => <li key={i}>{m}</li>)}</ul>
       </div>
