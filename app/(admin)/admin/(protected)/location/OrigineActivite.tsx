@@ -29,9 +29,12 @@ const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().jo
 /** Imposée : la case « Relocation » cochée ET l'origine « Relocation ». PUR. */
 export const origineImposee = (l: Pick<LectureOrigineActivite, 'avecGestion' | 'origineContact'>): boolean => l.avecGestion && l.origineContact === 'relocation';
 
+/** Les écrans qui modifient l'origine d'une location (inscrits au journal). 🔴 26/10/2026 : la fiche locataire, depuis le Suivi et depuis la Location. */
+export type EcranOrigine = 'Fiche du bien (Suivi du mois)' | 'Dossier de location (Suivi du mois)' | 'Fiche locataire (Suivi du mois)' | 'Fiche locataire (Location)';
+
 export function OrigineActivite({ activiteId, ecran, onEnregistre, onAllerAuxCases }: {
   activiteId: number;
-  ecran: 'Fiche du bien (Suivi du mois)' | 'Dossier de location (Suivi du mois)';
+  ecran: EcranOrigine;
   onEnregistre: () => void;
   /** Aller aux cases « Relocation » / « Nouvelle gestion » (absent : le message le dit sans lien). */
   onAllerAuxCases?: () => void;

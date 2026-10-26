@@ -165,9 +165,9 @@ describe('🔴 Arno (25/10/2026) — les cartes (bloc 1) ET les conditions d’e
   it('ÉCRITURE DANS LE BAIL, sans doublon : le bloc 3 par le chemin du Dossier (bloc 3 seul), PUIS les cartes ; rien n’est créé', async () => {
     const r = await enregistrerFicheLocataire(230, 70, await cartes(), { activiteId: 100, saisie: SAISIE3 }, AUTEUR);
     expect(r.etat).toBe('ok');
-    expect(dossier.preparerDossier).toHaveBeenCalledWith(100, SAISIE3, { seulBloc3: true });
+    expect(dossier.preparerDossier).toHaveBeenCalledWith(100, SAISIE3, { ficheLocataire: true });
     expect(dossier.modifierDossierLocation).toHaveBeenCalledTimes(1);
-    expect(dossier.modifierDossierLocation).toHaveBeenCalledWith(100, SAISIE3, AUTEUR, { seulBloc3: true });
+    expect(dossier.modifierDossierLocation).toHaveBeenCalledWith(100, SAISIE3, AUTEUR, { ficheLocataire: true });
     expect(dossier.ordre).toEqual(['bloc3', 'cartes']);
     expect(r.etat === 'ok' && r.data.dossier.map((c) => c.champ)).toEqual(['Mode de règlement']);
     for (const g of [gestes.creerPersonne, gestes.ajouterOccupantDans, gestes.creerContactsDuBien]) expect(g).not.toHaveBeenCalled();

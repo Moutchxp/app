@@ -27,6 +27,8 @@ import { lireDossierLocation, modifierDossierLocation } from '../../../../../../
 import { ECRAN_DOSSIER } from '../../../../../../lib/location/dossierLocation';
 import { enregistrerFicheLocataire, lireFicheLocataireCartes } from '../../../../../../lib/location/ficheLocataireCartesRepo';
 import { ECRAN_FICHE_LOCATAIRE } from '../../../../../../lib/location/ficheLocataireCartes';
+import { enregistrerSuiviLocataire, lireSuiviLocataire } from '../../../../../../lib/location/suiviLocataireRepo';
+import { ECRAN_FICHE_LOCATAIRE_LOCATION } from '../../../../../../lib/location/suiviLocataire';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -86,6 +88,12 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : les cartes du bloc 1, en modification (le bail de la ligne).
     const flc = identifiant(url.searchParams.get('ficheLocataireCartes'));
     if (flc !== null) return Response.json(await lireFicheLocataireCartes(flc, identifiant(url.searchParams.get('bail'))), { headers: ENTETES });
+    // 🔴 Arno (26/10/2026) — le bloc 4 « Suivi commercial » de la fiche locataire : la ligne du bail (ou son absence), les autres baux.
+    const sl = identifiant(url.searchParams.get('suiviLocataire'));
+    if (sl !== null) {
+      return Response.json(await lireSuiviLocataire(sl, { bailId: identifiant(url.searchParams.get('bail')), activiteId: identifiant(url.searchParams.get('activite')),
+        nonRattache: url.searchParams.get('nonRattache') === '1' }), { headers: ENTETES });
+    }
     const fe = identifiant(url.searchParams.get('ficheEntiere'));
     if (fe !== null) return Response.json(await lireFicheEntiere(fe), { headers: ENTETES });
     const vb = identifiant(url.searchParams.get('versionBien'));
@@ -193,6 +201,14 @@ export async function POST(request: Request): Promise<Response> {
         const activiteId = d !== null && typeof d.activiteId === 'number' && Number.isSafeInteger(d.activiteId) && d.activiteId > 0 ? d.activiteId : null;
         const dossier = activiteId !== null && d !== null && d.saisie !== null && typeof d.saisie === 'object' ? { activiteId, saisie: d.saisie as Record<string, unknown> } : null;
         const issue = await avecTrace(trace, () => enregistrerFicheLocataire(id, bail, corps.saisie, dossier, auteur));
+        return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
+      }
+      // 🔴 Arno (26/10/2026) — le bloc 4 de la fiche locataire (Location) : la MÊME ligne de suivi mise à jour, ou créée rattachée au bail.
+      case 'enregistrer-suivi-locataire': {
+        if (id === null || corps.suivi === null || typeof corps.suivi !== 'object') return incomplet();
+        const ecran = corps.ecran === ECRAN_FICHE_LOCATAIRE ? ECRAN_FICHE_LOCATAIRE : ECRAN_FICHE_LOCATAIRE_LOCATION;
+        const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran };
+        const issue = await avecTrace(trace, () => enregistrerSuiviLocataire(id, corps, auteur));
         return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
       }
       case 'modifier-fiche-bien': {

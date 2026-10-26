@@ -159,7 +159,9 @@ export async function POST(request: Request): Promise<Response> {
         // 🔴 Arno (25/10/2026) — `simuler` : les conséquences avant / après, SANS RIEN ÉCRIRE ; sinon l'enregistrement (conséquences au journal).
         const admin = await estAdministrateurActif(garde.auteurId);
         if (corps.simuler === true) return json(await simulerOrigineActivite(Number(corps.id), corps.origine, admin));
-        const ecran = corps.ecran === 'Dossier de location (Suivi du mois)' ? 'Dossier de location (Suivi du mois)' as const : 'Fiche du bien (Suivi du mois)' as const;
+        // 🔴 26/10/2026 — et la fiche locataire (depuis le Suivi du mois, depuis la Location) ; tout autre texte : « Fiche du bien », comme avant.
+        const ecran = (['Dossier de location (Suivi du mois)', 'Fiche locataire (Suivi du mois)', 'Fiche locataire (Location)'] as const)
+          .find((e) => e === corps.ecran) ?? 'Fiche du bien (Suivi du mois)' as const;
         const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran },
           () => enregistrerOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur, admin));
         return json(r, r.etat === 'conflit' ? 409 : 200);

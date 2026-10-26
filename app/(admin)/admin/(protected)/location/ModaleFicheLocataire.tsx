@@ -10,6 +10,10 @@ import { CSS_CONDITIONS } from './ConditionsEntree';
 import { CSS_ENTRETIEN } from './EntretienBien';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { ContenuConditionsBail, CSS_CONDITIONS_BAIL, useConditionsBail } from './BlocConditionsBail';
+import { ContenuSuiviLocataire, CSS_SUIVI_LOCATAIRE, RecapSuivi, useSuiviLocataire } from './SuiviCommercialLocataire';
+import { CSS_SUIVI_COMMERCIAL } from './SuiviCommercial';
+import { CSS_BLOC_REPLIE } from './BlocReplie';
+import { LigneManques } from './LigneManques';
 import { refusDossier, TITRE_BLOC } from '../../../../lib/location/dossierLocation';
 import {
   avertissementCartes, champsModifies, changementsFiche, ECRAN_FICHE_LOCATAIRE, refusFiche, type CarteFicheLue, type ChangementFiche,
@@ -29,6 +33,9 @@ import {
  * modification — le MÊME contenu que le Dossier (`ContenuConditionsBail`) — et « Caractéristiques du bien loué ». UN SEUL « Enregistrer
  * les modifications » pour les deux blocs : récapitulatif groupé par bloc, un seul enregistrement (tout est vérifié avant d'écrire).
  * Une ligne sans bail : « Dossier non rattaché — à rattacher d'abord » (rien n'est créé). Aucun envoi à ADHOC & MONGA.
+ * 🔴 Arno (26/10/2026) — ET LE BLOC 4 « SUIVI COMMERCIAL » de « Nouveau locataire » (`ContenuSuiviLocataire`), sur la ligne de suivi de
+ * la ligne : pré-rempli si le bloc a été validé, vide sinon ; ses changements rejoignent le MÊME récapitulatif et le MÊME enregistrement
+ * (le chemin du Dossier de location : la même ligne, la même version que le bloc 3). Ce qui manque : « Reste à renseigner » (barre du bas).
  */
 const API = '/api/admin/gestion/annuaire/location';
 
@@ -74,6 +81,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
   const [envoi, setEnvoi] = useState(false);
   const [ok, setOk] = useState<string | null>(null);
   const bloc3 = useConditionsBail(activiteId);
+  // Une ligne du Suivi sans bail (activiteId null) : « non rattachée », comme le bloc 3 — rien n'est pris à sa place.
+  const bloc4 = useSuiviLocataire(locataireId, { bailId, activiteId, nonRattache: activiteId === null });
   const [caracteristiques, setCaracteristiques] = useState(false);
   useEffect(() => {
     let vivant = true;
@@ -90,14 +99,16 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
   const initiales = useMemo(() => (lu === null ? [] : lu.cartes.map((c) => ({ id: c.id, sorte: c.sorte, champs: champsDeCarte(c) }))), [lu]);
   const saisie = lu === null ? null : etat === null ? { version: lu.version, modifiees: [], nouvelles: [] } : saisieDesCartes(lu, etat);
   const changementsCartes: ChangementFiche[] = lu === null || saisie === null ? [] : changementsFiche(lu, saisie);
-  // Le nombre de modifications des DEUX blocs (cartes et conditions d'entrée) : un seul enregistrement.
-  const changements = [...changementsCartes, ...bloc3.changements];
+  // Le nombre de modifications des TROIS blocs (cartes, conditions d'entrée, suivi commercial) : un seul enregistrement.
+  const changements = [...changementsCartes, ...bloc3.changements, ...bloc4.changements];
   const nbChangements = changements.length;
+  // 🔴 26/10/2026 — un bloc 4 touché mais incomplet compte aussi : « Enregistrer » dit ce qui manque, rien ne se perd en silence.
+  const aEnregistrer = nbChangements > 0 || bloc4.touche;
   const ouvertes = etat?.ouvertes ?? 0;
   const fermer = useCallback((): void => {
-    if (nbChangements > 0 && !envoi) { setIssue({ sorte: 'abandon' }); return; }
+    if (aEnregistrer && !envoi) { setIssue({ sorte: 'abandon' }); return; }
     onFermer();
-  }, [nbChangements, envoi, onFermer]);
+  }, [aEnregistrer, envoi, onFermer]);
   useEffect(() => {
     // Échap referme — jamais quand une fenêtre est ouverte par-dessus, ni pendant la saisie d'une carte.
     const clavier = (e: KeyboardEvent): void => {
@@ -115,19 +126,40 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
   }, []);
 
   const enregistrer = (): void => {
-    if (lu === null || saisie === null || changements.length === 0) return;
+    if (lu === null || saisie === null || !aEnregistrer) return;
     if (ouvertes > 0) { setIssue({ sorte: 'erreur', motif: 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant d’enregistrer les modifications.' }); return; }
     // « Utiliser cette fiche » (une fiche déjà connue) : elle ne rejoint pas le bail d'ici — on le dit, rien n'est ignoré en silence.
     if ((etat?.existants.length ?? 0) > 0) { setIssue({ sorte: 'erreur', motif: 'Une fiche déjà connue a été retenue (« Utiliser cette fiche ») : elle ne peut pas rejoindre le bail depuis cette fenêtre. Retirez-la, ou faites-la entrer par « Nouveau locataire ».' }); return; }
     const refus = refusFiche(lu, saisie);
     if (refus !== null) { setIssue({ sorte: 'erreur', motif: refus }); return; }
-    // Le bloc 3 : les mêmes contrôles que le Dossier de location (dossier complet : 0 valide, vide refusé) ; le bloc 4 n'est pas ici.
+    // Le bloc 3 : les mêmes contrôles que le Dossier de location (dossier complet : 0 valide, vide refusé).
     if (bloc3.changements.length > 0 && bloc3.etat.sorte === 'ok' && bloc3.saisie !== null) {
       const r3 = refusDossier(bloc3.etat.l, bloc3.saisie, { suivi: false, charges: bloc3.etat.conditions?.chargesCopro !== undefined });
       if (r3 !== null) { setIssue({ sorte: 'erreur', motif: r3 }); return; }
     }
+    // Le bloc 4 : les contrôles de « Nouveau locataire » (« Reste à renseigner ») ; la même ligne que le bloc 3 (une seule version).
+    if (bloc4.touche) {
+      if (bloc4.manques.length > 0) { setIssue({ sorte: 'erreur', motif: `Suivi commercial — reste à renseigner : ${bloc4.manques.map((m) => m.replace(/^Suivi commercial : /, '')).join(' · ')}.` }); return; }
+      if (bloc4.envoi !== null && bloc4.envoi.activiteId === null) { setIssue({ sorte: 'erreur', motif: 'Ce bail n’a pas encore de ligne de suivi : enregistrez son suivi commercial depuis la fiche du locataire (Location).' }); return; }
+      if (bloc3.envoi !== null && bloc4.envoi !== null && bloc3.envoi.saisie.version !== bloc4.envoi.version) {
+        setIssue({ sorte: 'conflit', motif: 'Cette fiche a été modifiée depuis son ouverture : rechargez-la avant d’enregistrer. Rien n’a été enregistré.' }); return;
+      }
+    }
+    if (changements.length === 0) { setIssue({ sorte: 'erreur', motif: 'Aucune modification à enregistrer : le suivi commercial a les mêmes valeurs que la ligne de suivi.' }); return; }
     setOk(null);
     setIssue({ sorte: 'recap' });
+  };
+  /* Les blocs 3 et 4 partent ENSEMBLE par le chemin du Dossier de location (une seule version) : le bloc 3 s'il a changé, le bloc 4 s'il a
+     été touché (sinon ni l'un ni l'autre n'est lu ni exigé). */
+  const avec3 = bloc3.changements.length > 0 && bloc3.envoi !== null;
+  const avec4 = bloc4.changements.length > 0 && bloc4.envoi !== null && bloc4.envoi.activiteId !== null;
+  const dossier = !avec3 && !avec4 ? null : {
+    activiteId: avec4 && bloc4.envoi !== null && bloc4.envoi.activiteId !== null ? bloc4.envoi.activiteId : bloc3.envoi?.activiteId,
+    saisie: {
+      version: avec3 && bloc3.envoi !== null ? bloc3.envoi.saisie.version : bloc4.envoi?.version,
+      ...(avec3 && bloc3.envoi !== null ? { conditions: bloc3.envoi.saisie.conditions, entretien: bloc3.envoi.saisie.entretien } : {}),
+      ...(avec4 && bloc4.envoi !== null ? { suivi: bloc4.envoi.suivi } : {}),
+    },
   };
   const confirmer = async (): Promise<void> => {
     if (lu === null || saisie === null || envoi) return;
@@ -135,10 +167,10 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-svav-confirmation': 'propre' },
         body: JSON.stringify({ action: 'modifier-fiche-locataire', id: locataireId, bailId: lu.bailId, saisie, ecran: ECRAN_FICHE_LOCATAIRE,
-          ...(bloc3.changements.length > 0 && bloc3.envoi !== null ? { dossier: bloc3.envoi } : {}) }) });
+          ...(dossier !== null ? { dossier } : {}) }) });
       const d = await r.json().catch(() => ({})) as { etat?: string; motif?: string };
       if (d.etat === 'ok') {
-        setIssue(null); setOk('✓ Modifications enregistrées'); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); onEnregistre();
+        setIssue(null); setOk('✓ Modifications enregistrées'); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); void bloc4.lire(); onEnregistre();
         return;
       }
       if (d.etat === 'conflit') { setIssue({ sorte: 'conflit', motif: d.motif ?? 'Cette fiche a été modifiée depuis son ouverture : rechargez-la. Rien n’a été enregistré.' }); return; }
@@ -153,7 +185,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
   for (const c of changementsCartes) parCarte.set(c.carte, [...(parCarte.get(c.carte) ?? []), c]);
   return (
     <div className="mcb-voile">
-      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_TRACE_FICHE + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CONDITIONS + CSS_CONDITIONS_BAIL + CSS_ENTRETIEN + CSS_MODALE_LOCATAIRE}</style>
+      <style>{CSS_MODALE_CARACTERISTIQUES + CSS_TRACE_FICHE + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CONDITIONS + CSS_CONDITIONS_BAIL + CSS_ENTRETIEN
+        + CSS_SUIVI_COMMERCIAL + CSS_BLOC_REPLIE + CSS_SUIVI_LOCATAIRE + CSS_MODALE_LOCATAIRE}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-fiche-locataire={locataireId}>
         <div className="mfl-tete">
           <h2 id={titre} className="mfl-titre">{lu?.titre ?? `Fiche locataire — ${libelle}`}</h2>
@@ -195,13 +228,28 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
                   </>
                 )}
               </section>
+              {/* 🔴 Arno (26/10/2026) — le bloc 4 de « Nouveau locataire », sur la ligne de suivi du bail (pré-rempli si validé, vide sinon). */}
+              <section className="loc-section" aria-labelledby="mfl-4" data-bloc-suivi-locataire data-suivi-commercial>
+                <h3 id="mfl-4"><span className="loc-num">4</span>{TITRE_BLOC[4]}</h3>
+                <ContenuSuiviLocataire s={bloc4} ecran={ECRAN_FICHE_LOCATAIRE}
+                  loyer={bloc3.etat.sorte === 'ok' ? bloc3.etat.conditions?.loyer : undefined}
+                  onTtcLocataire={(t) => {
+                    // La règle de « Nouveau locataire » : les honoraires locataire du suivi SONT les honoraires agence des sommes dues.
+                    if (bloc3.etat.sorte === 'ok' && bloc3.etat.conditions !== null) {
+                      const c = bloc3.etat.conditions;
+                      bloc3.poserConditions({ ...c, sommes: { ...c.sommes, honorairesAgence: t }, agenceManuel: t !== '' });
+                    }
+                  }} />
+              </section>
             </>
           )}
         </section>
         <div className="mfl-pied">
           {ok !== null && <p className="mfl-ok" role="status" data-fiche-enregistree>{ok}</p>}
+          {/* 🔴 26/10/2026 — « Reste à renseigner » du suivi commercial : une ligne, la liste dans une bulle (`LigneManques`). */}
+          <LigneManques manques={bloc4.manques} attributs={{ 'data-manques-suivi': '' }} />
           <p className="loc-muet" data-etat-fiche style={{ margin: 0 }}>{changements.length === 0 ? 'Aucune modification.' : `${changements.length} modification${changements.length > 1 ? 's' : ''} à enregistrer.`}</p>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={changements.length === 0 || envoi} onClick={enregistrer} data-enregistrer-fiche>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!aEnregistrer || envoi} onClick={enregistrer} data-enregistrer-fiche>
             Enregistrer les modifications</button>
         </div>
       </div>
@@ -226,6 +274,7 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
                       <ul>{bloc3.changements.map((c) => <li key={c.champ}>{c.champ} : <span className="mfl-avant">{c.avant}</span> → <strong>{c.apres}</strong></li>)}</ul>
                     </div>
                   )}
+                  {bloc4.changements.length > 0 && <RecapSuivi changements={bloc4.changements} creation={false} />}
                 </div>
                 <div className="mfl-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setIssue(null)} disabled={envoi} data-revenir>Revenir</button>
@@ -247,7 +296,7 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
                 <h3>{issue.sorte === 'conflit' ? 'Fiche modifiée entre-temps' : 'Rien n’a été enregistré'}</h3>
                 <p data-motif-fiche>{issue.motif}</p>
                 <div className="mfl-boutons">
-                  {issue.sorte === 'conflit' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setIssue(null); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); }} data-recharger>Recharger</button>}
+                  {issue.sorte === 'conflit' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setIssue(null); setN((x) => x + 1); trace.relire(); void bloc3.lire(false); void bloc4.lire(); }} data-recharger>Recharger</button>}
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setIssue(null)}>Fermer</button>
                 </div>
               </>

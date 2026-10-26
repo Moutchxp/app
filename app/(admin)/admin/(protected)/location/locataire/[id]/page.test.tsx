@@ -35,6 +35,8 @@ describe('la fiche locataire de la Location', () => {
     expect(html).toContain('data-stub="bloc-sortie"');
     expect(html).toContain('data-stub="fiche-commune"');
     expect(html).not.toContain('data-stub="ecran-sortie"');
+    // 🔴 Arno (26/10/2026) — et le bloc 4 « Suivi commercial » (ajout seul).
+    expect(html).toContain('data-bloc-suivi-locataire');
     expect(ficheCommune).toHaveBeenCalledTimes(1);
     const props = ficheCommune.mock.calls[0][0] as Record<string, unknown>;
     expect(props.fiche).toEqual({ sorte: 'locataire', id: 101 });
@@ -49,6 +51,7 @@ describe('la fiche locataire de la Location', () => {
     expect(html).toContain('data-occupation="11"');
     expect(html).not.toContain('data-stub="fiche-commune"');
     expect(html).not.toContain('data-stub="bloc-sortie"');
+    expect(html).not.toContain('data-bloc-suivi-locataire');
     expect(ficheCommune).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { LienRetour } from '../../../_composants/EnTetePage';
 import { BlocSortieLogement, EcranSortieLocataire } from '../../SortieLocataires';
 import { BlocEnvoiFicheLocataire } from '../../EnvoiAdhocMonga';
 import { BauxEnPlace } from '../../BauxEnPlace';
+import { BlocSuiviCommercialLocataire } from '../../SuiviCommercialLocataire';
 
 /**
  * TUILE LOCATION — la fiche locataire, ouverte depuis la Location : c'est LA fiche de la Gestion (même composant, même
@@ -13,6 +14,7 @@ import { BauxEnPlace } from '../../BauxEnPlace';
  * ALIGNÉ sur « Supprimer un des biens » (`EcranSortieLocataire`) — et lui seul : le bloc « Fiche commune avec la Gestion… »
  * et la fiche complète n'y sont pas (accord d'Arno pour cet écran). Sans `?sortie=`, la page est celle de toujours.
  * Arno (21/10/2026) : sous le bloc de sortie, le bouton « Envoi ADHOC & MONGA » de chaque bail en cours (ajout seul).
+ * 🔴 Arno (26/10/2026) : le bloc 4 « Suivi commercial » de « Nouveau locataire », sur la ligne de suivi du bail en cours (ajout seul).
  */
 export default async function Page({ params, searchParams }: {
   params: Promise<{ id: string }>; searchParams: Promise<{ sortie?: string }>;
@@ -33,6 +35,8 @@ export default async function Page({ params, searchParams }: {
               <BlocEnvoiFicheLocataire locataireId={id} />
               {/* Arno (26/10/2026, 430) — la mention « locataire en place à la prise en gestion » de ses baux (rien sinon). */}
               <BauxEnPlace locataireId={id} />
+              {/* Arno (26/10/2026) — le « Suivi commercial » du bail (pré-rempli si validé, vide sinon), son propre enregistrement. */}
+              <BlocSuiviCommercialLocataire locataireId={id} />
               {!gestion ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_FICHE_COMMUNE}</div>
                 : <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} />}
             </>

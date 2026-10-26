@@ -132,11 +132,12 @@ export async function verifierFicheLocataireCartes(locataireId: number, bailIdDe
 export async function enregistrerFicheLocataire(locataireId: number, bailIdDemande: number | null, brut: unknown,
   dossier: { activiteId: number; saisie: Record<string, unknown> } | null, auteur: Auteur):
   Promise<Issue<{ changements: ChangementFiche[]; dossier: ChangementDossier[]; note?: string }>> {
+  // Les blocs 3 et 4 (conditions d'entrée ; suivi commercial, s'il est envoyé) : le chemin du Dossier de location, une seule version.
   let bloc3: ChangementDossier[] = [];
   if (dossier !== null) {
-    const p = await preparerDossier(dossier.activiteId, dossier.saisie, { seulBloc3: true });
+    const p = await preparerDossier(dossier.activiteId, dossier.saisie, { ficheLocataire: true });
     if (p.etat === 'conflit' || p.etat === 'refus') return p;
-    if (p.etat === 'non_rattache') return { etat: 'refus', motif: 'Dossier non rattaché — à rattacher d’abord : les conditions d’entrée ne peuvent pas être enregistrées ici.' };
+    if (p.etat === 'non_rattache') return { etat: 'refus', motif: 'Dossier non rattaché — à rattacher d’abord : les conditions d’entrée et le suivi commercial ne peuvent pas être enregistrés ici.' };
     if (p.etat === 'inconnu' || p.etat === 'sans_schema') return p;
     if (p.etat === 'pret') bloc3 = p.changements;
   }
@@ -144,7 +145,7 @@ export async function enregistrerFicheLocataire(locataireId: number, bailIdDeman
   if (v.etat !== 'ok') return v;
   let note: string | undefined;
   if (dossier !== null && bloc3.length > 0) {
-    const r = await modifierDossierLocation(dossier.activiteId, dossier.saisie, auteur, { seulBloc3: true });
+    const r = await modifierDossierLocation(dossier.activiteId, dossier.saisie, auteur, { ficheLocataire: true });
     if (r.etat === 'non_rattache') return { etat: 'refus', motif: 'Dossier non rattaché — à rattacher d’abord.' };
     if (r.etat !== 'ok') return r;
     bloc3 = r.data.changements;
@@ -152,7 +153,7 @@ export async function enregistrerFicheLocataire(locataireId: number, bailIdDeman
   }
   const c = await enregistrerFicheLocataireCartes(locataireId, bailIdDemande, brut, auteur);
   if (c.etat !== 'ok') {
-    return c.etat === 'refus' && bloc3.length > 0 ? { etat: 'refus', motif: `${c.motif} Les conditions d’entrée, elles, ont été enregistrées.` } : c;
+    return c.etat === 'refus' && bloc3.length > 0 ? { etat: 'refus', motif: `${c.motif} Les conditions d’entrée et le suivi commercial, eux, ont été enregistrés.` } : c;
   }
   return { etat: 'ok', data: { changements: c.data.changements, dossier: bloc3, ...(note === undefined ? {} : { note }) } };
 }

@@ -165,7 +165,7 @@ export function lireSaisieDossier(brut: Record<string, unknown>, lu: LectureDoss
 
 // ── LES NOMS (journal et récapitulatif) ────────────────────────────────────────────────────────────────────────────
 
-async function nomsDuDossier(): Promise<NomsDossier> {
+export async function nomsDuDossier(): Promise<NomsDossier> {
   const comptes = new Map((await query<{ id: string; libelle: string }>(
     `SELECT id::text, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS libelle FROM admin_utilisateur`)).rows.map((r) => [n(r.id), r.libelle]));
   const apporteurs = new Map((await query<{ id: string; nom: string }>('SELECT id::text, nom FROM gestion_location_apporteur')).rows.map((r) => [n(r.id), r.nom]));
@@ -175,7 +175,7 @@ async function nomsDuDossier(): Promise<NomsDossier> {
 
 // ── LE JOURNAL (une ligne par champ) ───────────────────────────────────────────────────────────────────────────────
 
-async function journaliserChamps(o: { entite: 'location_activite' | 'location_bail'; id: number; lotId: number; action: string; changements: readonly ChangementDossier[]; auteur: Auteur }): Promise<void> {
+export async function journaliserChamps(o: { entite: 'location_activite' | 'location_bail'; id: number; lotId: number; action: string; changements: readonly ChangementDossier[]; auteur: Auteur }): Promise<void> {
   // Sans la 418, le journal n'accepte pas ces entités : la ligne va au bien (`annuaire_lot`), et dit de quoi il s'agit.
   const avec418 = ((await query<{ def: string | null }>(
     `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'gestion_journal_entite_chk' AND conrelid = 'gestion_journal'::regclass`)).rows[0]?.def ?? '')
@@ -213,15 +213,18 @@ export type IssueModificationDossier =
  * LIRE → REFUSER, sans rien écrire : la lecture, le conflit (version), les refus, les changements. Sert aussi à la « Fiche locataire »
  * du Suivi du mois, qui vérifie TOUT (cartes et bloc 3) avant d'écrire quoi que ce soit.
  */
-export async function preparerDossier(activiteId: number, brutRecu: Record<string, unknown>, o: { seulBloc3?: boolean } = {}):
+export async function preparerDossier(activiteId: number, brutRecu: Record<string, unknown>, o: { ficheLocataire?: boolean } = {}):
   Promise<{ etat: 'pret'; lu: LectureDossier; s: SaisieDossier; changements: ChangementDossier[] } | Exclude<IssueModificationDossier, { etat: 'ok' }> | { etat: 'ok'; data: { changements: ChangementDossier[] } }> {
   const l = await lireDossierLocation(activiteId);
   if (l.etat !== 'ok') return l;
   const lu = l.data;
-  const brut = o.seulBloc3 === true ? { version: brutRecu.version, conditions: brutRecu.conditions, entretien: brutRecu.entretien } : brutRecu;
+  // 🔴 Arno (26/10/2026) — « Fiche locataire » : jamais les cartes (elles ont leur geste) ; le bloc 4 seulement s'il est ENVOYÉ (on y a touché).
+  const avecSuivi = o.ficheLocataire === true && brutRecu.suivi !== null && typeof brutRecu.suivi === 'object';
+  const brut = o.ficheLocataire === true
+    ? { version: brutRecu.version, conditions: brutRecu.conditions, entretien: brutRecu.entretien, ...(avecSuivi ? { suivi: brutRecu.suivi } : {}) } : brutRecu;
   const s = lireSaisieDossier(brut, lu);
   if (s.version !== lu.version) return { etat: 'conflit', motif: motifConflitFiche(await derniereModification(lu)) };
-  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined, ...(o.seulBloc3 === true ? { suivi: false } : {}) });
+  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined, ...(o.ficheLocataire === true && !avecSuivi ? { suivi: false } : {}) });
   if (refus !== null) return { etat: 'refus', motif: refus };
   const changements = changementsDossier(lu, s, await nomsDuDossier());
   return { etat: 'pret', lu, s, changements };
@@ -229,10 +232,11 @@ export async function preparerDossier(activiteId: number, brutRecu: Record<strin
 
 export async function modifierDossierLocation(activiteId: number, brutRecu: Record<string, unknown>, auteur: Auteur,
   /**
-   * 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : le SEUL bloc 3 (conditions d'entrée, paiement des charges, entretien du
-   * bien) par ce même chemin ; les cartes (bloc 1) ont leur propre geste, le bloc 4 n'est ni lu dans la saisie ni exigé.
+   * 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : le bloc 3 (conditions d'entrée, paiement des charges, entretien du
+   * bien) par ce même chemin ; les cartes (bloc 1) ont leur propre geste. 🔴 26/10/2026 : et le bloc 4 (« Suivi commercial ») quand la
+   * saisie le porte — la MÊME ligne mise à jour, exigé comme au Dossier ; absent, il n'est ni lu ni exigé.
    */
-  o: { seulBloc3?: boolean } = {}): Promise<IssueModificationDossier> {
+  o: { ficheLocataire?: boolean } = {}): Promise<IssueModificationDossier> {
   const p = await preparerDossier(activiteId, brutRecu, o);
   if (p.etat !== 'pret') return p;
   const { lu, s, changements } = p;

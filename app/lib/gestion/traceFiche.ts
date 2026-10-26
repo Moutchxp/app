@@ -6,7 +6,7 @@
  * PUR : aucune base, aucun réseau.
  */
 export const ECRANS_TRACES = ['Suivi du mois', 'Dossier de location (Suivi du mois)', 'Annuaire des apporteurs', 'Fiche locataire (Suivi du mois)', 'Nouveau locataire',
-  'Fiche du bien (Suivi du mois)', 'Fiche du propriétaire', 'Paramètres Location'] as const;
+  'Fiche du bien (Suivi du mois)', 'Fiche du propriétaire', 'Paramètres Location', 'Fiche locataire (Location)'] as const;
 export type EcranTrace = typeof ECRANS_TRACES[number];
 export type SujetTrace = 'locataire' | 'proprietaire' | 'lot' | 'bail' | 'activite' | 'apporteur' | 'parametre';
 

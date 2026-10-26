@@ -9,7 +9,7 @@ import {
   type SaisieActivite, ttcVersHt, verifierActivite, versionADate,
 } from '../../../../lib/location/suivi/suivi';
 import { useChoixOrigine } from './ChoixOrigine';
-import { OrigineActivite } from './OrigineActivite';
+import { OrigineActivite, type EcranOrigine } from './OrigineActivite';
 import { mentionsOrigine, prerempliOrigine, type OrigineDuBien } from '../../../../lib/location/origineProprietaire';
 import { motAnnexeLouee, type AnnexeLouee } from '../../../../lib/location/suivi/annexesGestion';
 import { InfoBulle } from '../InfoBulle';
@@ -161,7 +161,9 @@ interface Props {
    * 🔴 Arno (25/10/2026) — DOSSIER DE LOCATION : l'origine se lit et se modifie dans son propre flux (« Modifier », double validation,
    * enregistrement indépendant) — `OrigineActivite`, le même composant que le bloc 9. `onEnregistree` : relire le dossier (version, origine).
    */
-  origineFlux?: { activiteId: number; onEnregistree: () => void };
+  origineFlux?: { activiteId: number; onEnregistree: () => void;
+    /** 🔴 26/10/2026 — l'écran inscrit au journal (absent : « Dossier de location (Suivi du mois) », comme avant). */
+    ecran?: EcranOrigine };
   /**
    * 🔴 Arno (26/10/2026, 430) — LOCATAIRE EN PLACE À LA PRISE EN GESTION : le suivi est celui du MANDAT DE GESTION (« Mandat de gestion
    * seul », daté du mandat), sans honoraire de location (ni « Baux signés », ni CA, ni commission d'apporteur sur la location) — la
@@ -442,7 +444,7 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>
           {origineFlux !== undefined ? (
             <div className="loc-suivi-flux-origine" data-flux-origine>
-              <OrigineActivite activiteId={origineFlux.activiteId} ecran="Dossier de location (Suivi du mois)" onEnregistre={origineFlux.onEnregistree}
+              <OrigineActivite activiteId={origineFlux.activiteId} ecran={origineFlux.ecran ?? 'Dossier de location (Suivi du mois)'} onEnregistre={origineFlux.onEnregistree}
                 onAllerAuxCases={() => document.querySelector('[data-suivi-ligne="2"]')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })} />
             </div>
           ) : choix.champs}

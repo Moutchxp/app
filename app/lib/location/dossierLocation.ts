@@ -122,33 +122,52 @@ export function changementsDossier(lu: LectureDossier, s: SaisieDossier, noms: N
     if (ta !== tb) sortie.push({ bloc: 3, champ: 'Entretiens', avant: vide(ta), apres: vide(tb) });
   }
   // ④ Le suivi commercial : les deux côtés vérifiés de la même façon, puis comparés champ par champ.
-  const va = verifierActivite(lu.suivi, { origineObligatoire: false });
-  const vb = verifierActivite(s.suivi, { origineObligatoire: false });
-  if (va.ok && vb.ok) {
-    const a = va.valeurs;
-    const b = vb.valeurs;
-    const champ = (mot: string, x: string, y: string): void => { if (x !== y) sortie.push({ bloc: 4, champ: mot, avant: vide(x), apres: vide(y) }); };
-    const nom = (f: (id: number) => string, id: number | null): string => (id === null ? '' : f(id));
-    champ('Date de signature du bail', dateFr(a.dateSignature), dateFr(b.dateSignature));
-    champ('Nature', LIBELLE_TYPE_ACTIVITE[a.type], LIBELLE_TYPE_ACTIVITE[b.type]);
-    champ('Négociateur', nom(noms.negociateur, a.negociateurId), nom(noms.negociateur, b.negociateurId));
-    champ('Relocation (portefeuille de gestion)', ouiNon(a.avecGestion), ouiNon(b.avecGestion));
-    champ('Nouveau mandat de gestion signé (prime)', ouiNon(a.mandatGestion), ouiNon(b.mandatGestion));
-    champ('Prime de gestion', a.primeMode === null ? '' : MOT_PRIME[a.primeMode], b.primeMode === null ? '' : MOT_PRIME[b.primeMode]);
-    champ('Prime de gestion — montant', euros(a.primeMontant), euros(b.primeMontant));
-    champ('Type de bien', lu.suivi.categoriePrime === null ? '' : LIBELLE_CATEGORIE_PRIME[lu.suivi.categoriePrime], s.suivi.categoriePrime === null ? '' : LIBELLE_CATEGORIE_PRIME[s.suivi.categoriePrime]);
-    champ('Honoraires propriétaire HT', euros(a.honoProprietaireHt), euros(b.honoProprietaireHt));
-    champ('Honoraires locataire HT', euros(a.honoLocataireHt), euros(b.honoLocataireHt));
-    champ('Origine du contact', a.origineContact === null ? '' : LIBELLE_ORIGINE_CONTACT[a.origineContact], b.origineContact === null ? '' : LIBELLE_ORIGINE_CONTACT[b.origineContact]);
-    champ('Origine personnalisée', a.origineContactPrecision ?? '', b.origineContactPrecision ?? '');
-    champ('Collègue', nom(noms.collegue, a.collegueId), nom(noms.collegue, b.collegueId));
-    champ('Apporteur', nom(noms.apporteur, a.apporteurId), nom(noms.apporteur, b.apporteurId));
-    champ('Taux de l’apporteur', pct(a.apporteurTaux), pct(b.apporteurTaux));
-    champ('Honoraires d’apporteur', euros(a.commissionApporteur), euros(b.commissionApporteur));
-    champ('Commission d’apporteur', a.apporteurMode === null ? '' : LIBELLE_MODE_APPORTEUR[a.apporteurMode], b.apporteurMode === null ? '' : LIBELLE_MODE_APPORTEUR[b.apporteurMode]);
-    champ('Taux de l’apporteur sur la gestion', pct(a.apporteurTauxGestion), pct(b.apporteurTauxGestion));
-  }
+  sortie.push(...changementsSuivi(lu.suivi, s.suivi, noms));
   return sortie;
+}
+
+/**
+ * Les champs du bloc 4, lus comme au récapitulatif (une entrée par champ, dans l'ordre de l'écran), après la MÊME vérification que
+ * l'enregistrement ; `null` : une saisie illisible (date absente, montant illisible…). PUR.
+ */
+export function champsSuivi(s: SuiviDossier, noms: NomsDossier): [string, string][] | null {
+  const v = verifierActivite(s, { origineObligatoire: false });
+  if (!v.ok) return null;
+  const a = v.valeurs;
+  const nom = (f: (id: number) => string, id: number | null): string => (id === null ? '' : f(id));
+  return [
+    ['Date de signature du bail', dateFr(a.dateSignature)],
+    ['Nature', LIBELLE_TYPE_ACTIVITE[a.type]],
+    ['Négociateur', nom(noms.negociateur, a.negociateurId)],
+    ['Relocation (portefeuille de gestion)', ouiNon(a.avecGestion)],
+    ['Nouveau mandat de gestion signé (prime)', ouiNon(a.mandatGestion)],
+    ['Prime de gestion', a.primeMode === null ? '' : MOT_PRIME[a.primeMode]],
+    ['Prime de gestion — montant', euros(a.primeMontant)],
+    ['Type de bien', s.categoriePrime === null ? '' : LIBELLE_CATEGORIE_PRIME[s.categoriePrime]],
+    ['Honoraires propriétaire HT', euros(a.honoProprietaireHt)],
+    ['Honoraires locataire HT', euros(a.honoLocataireHt)],
+    ['Origine du contact', a.origineContact === null ? '' : LIBELLE_ORIGINE_CONTACT[a.origineContact]],
+    ['Origine personnalisée', a.origineContactPrecision ?? ''],
+    ['Collègue', nom(noms.collegue, a.collegueId)],
+    ['Apporteur', nom(noms.apporteur, a.apporteurId)],
+    ['Taux de l’apporteur', pct(a.apporteurTaux)],
+    ['Honoraires d’apporteur', euros(a.commissionApporteur)],
+    ['Commission d’apporteur', a.apporteurMode === null ? '' : LIBELLE_MODE_APPORTEUR[a.apporteurMode]],
+    ['Taux de l’apporteur sur la gestion', pct(a.apporteurTauxGestion)],
+  ];
+}
+
+/**
+ * Les SEULS champs modifiés du bloc 4 (« Champ : ancienne → nouvelle »), le même calcul pour le Dossier de location et la « Fiche
+ * locataire ». `avant` null : aucune ligne de suivi n'existe encore (création) — chaque champ renseigné part de « (vide) ». Une saisie
+ * illisible d'un côté : aucun changement (l'enregistrement la refuse de toute façon). PUR.
+ */
+export function changementsSuivi(avant: SuiviDossier | null, apres: SuiviDossier, noms: NomsDossier): ChangementDossier[] {
+  const a = avant === null ? [] : champsSuivi(avant, noms);
+  const b = champsSuivi(apres, noms);
+  if (a === null || b === null) return [];
+  const lus = new Map(a);
+  return b.flatMap(([mot, y]) => { const x = lus.get(mot) ?? ''; return x !== y ? [{ bloc: 4 as const, champ: mot, avant: vide(x), apres: vide(y) }] : []; });
 }
 
 /** Le motif d'une saisie que le serveur refuserait (vérifiée AVANT tout envoi, et au serveur avant toute écriture). PUR. */

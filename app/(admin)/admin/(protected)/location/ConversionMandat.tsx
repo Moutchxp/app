@@ -5,6 +5,11 @@ import { posterSuivi } from './suiviApi';
 
 const fr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 
+/** « Converti en « Mandat de gestion seul » le … par … — à l'origine « Bail » du … » : la mention d'une ligne convertie (Suivi du mois, fiche locataire). PUR. */
+export function phraseConversion(conv: { le: string; par: string; typeOrigine: string; dateOrigine: string }): string {
+  return `Converti en « Mandat de gestion seul » le ${fr(conv.le)}${conv.par ? ` par ${conv.par}` : ''} — à l’origine « ${conv.typeOrigine === 'bail' ? 'Bail' : conv.typeOrigine} » du ${fr(conv.dateOrigine)}.`;
+}
+
 /**
  * ══ 🔴🔴 Arno (26/10/2026, décision C, migration 431) — « CONVERTIR EN « MANDAT DE GESTION SEUL » » (Suivi du mois) ═══════════════════════
  * Dans le panneau déplié d'une ligne « Bail » : pour le bail d'un locataire EN PLACE saisi comme un bail signé par l'agence. La ligne prend
@@ -46,8 +51,7 @@ export function ConversionMandat({ a, onFini }: {
   if (conv !== null) {
     return (
       <div className="fdm-conversion" data-conversion={id}>
-        <p className="loc-muet" data-conversion-origine>Converti en « Mandat de gestion seul » le {fr(conv.le)}{conv.par ? ` par ${conv.par}` : ''} — à l’origine
-          « {conv.typeOrigine === 'bail' ? 'Bail' : conv.typeOrigine} » du {fr(conv.dateOrigine)}.</p>
+        <p className="loc-muet" data-conversion-origine>{phraseConversion(conv)}</p>
         {!ouvert ? (
           <button type="button" className="tdb-pilule fdm-raccourci" onClick={() => { setMessage(null); setOuvert(true); }} data-annuler-conversion={id}>Annuler la conversion</button>
         ) : (
