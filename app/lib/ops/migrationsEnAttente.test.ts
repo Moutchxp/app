@@ -119,6 +119,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 429 : la correction manuelle de la frise d'un événement (valeur d'origine auto_*, corrige_*) (Gestion, 26/10/2026).
   // 430 : le bien « rentré occupé » (réponse sur le bien, bail du locataire en place) (Location, 26/10/2026).
   // 431 : bascules du 01/10/2026 (annexes, entrée au 1er locataire) et conversion d'une ligne en « Mandat de gestion seul » (Location, 26/10/2026).
+  // 432 : les rattachements manuels d'un libellé de négociateur à un compte collaborateur (Location, 26/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -137,7 +138,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '411_location_origine_personnalisee.sql', '412_location_prime_local.sql', '413_location_commission_apporteur_gestion.sql', '414_location_apporteur_nom_prenom.sql', '415_location_origine_proprietaire_deja_client.sql', '416_admin_reinitialisation_mot_de_passe.sql',
     '417_gestion_journal_trace.sql', '418_gestion_journal_location.sql', '419_location_apporteur_interne_remuneration.sql', '420_location_apporteur_depuis_toujours_versions.sql', '421_location_apporteur_fiche_identite.sql', '422_location_apporteur_interne_depuis.sql', '423_location_indices_loyers.sql', '424_location_statut_bien_manuel.sql',
     '425_location_origine_proprietaire.sql', '426_location_bascule_annexes.sql', '427_location_marge_gli.sql', '428_admin_droit_resultat_net.sql',
-    '429_gestion_etape_correction.sql', '430_location_rentre_occupe.sql', '431_location_bascules_octobre_conversion.sql'];
+    '429_gestion_etape_correction.sql', '430_location_rentre_occupe.sql', '431_location_bascules_octobre_conversion.sql', '432_location_negociateur_alias.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -150,7 +151,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 431 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 432 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -160,14 +161,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (432)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (433)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(431\)/);
-    const renumerotee = planifier([...existants, { fichier: '432_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(432\)/);
+    const renumerotee = planifier([...existants, { fichier: '433_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['432_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['433_permis_emprise_numero_reveil.sql']);
   });
 });
 

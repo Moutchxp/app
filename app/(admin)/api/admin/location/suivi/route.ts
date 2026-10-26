@@ -17,6 +17,7 @@ import { peutVoirResultatNet } from '../../../../../lib/admin/resultatNet';
 import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
 import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
 import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
+import { detacherNegociateur, rattacherNegociateur } from '../../../../../lib/location/suivi/negociateurIdentiteRepo';
 import { annulerConversion, conversionDisponible, convertirEnMandatSeul, dateMandatProposee } from '../../../../../lib/location/suivi/conversionMandatRepo';
 
 /**
@@ -122,7 +123,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-const ACTIONS_ADMIN = new Set(['bareme-apporteur', 'regle', 'marge-gli', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne', 'rattachement']);
+const ACTIONS_ADMIN = new Set(['rattacher-negociateur', 'detacher-negociateur', 'bareme-apporteur', 'regle', 'marge-gli', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne', 'rattachement']);
 
 export async function POST(request: Request): Promise<Response> {
   let corps: Record<string, unknown>;
@@ -165,6 +166,9 @@ export async function POST(request: Request): Promise<Response> {
       }
       // 🔴 Arno (26/10/2026, décision C, 431) — « Convertir en « Mandat de gestion seul » » (locataire en place) et son annulation ; la date du
       // mandat proposée (celle du mandat de gestion du propriétaire) et la disponibilité, en lecture.
+      // 🔴 Arno (26/10/2026) — « Négociateurs à rapprocher » : rattacher un libellé à un compte, ou le détacher (administrateurs ; réversible, journalisé).
+      case 'rattacher-negociateur': return json(await rattacherNegociateur(corps.libelle, corps.compteId, auteur));
+      case 'detacher-negociateur': return json(await detacherNegociateur(corps.libelle, auteur));
       case 'proposer-conversion': {
         const id = Number(corps.id);
         if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);

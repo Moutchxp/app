@@ -27,6 +27,8 @@ import {
 import { ChampNombre } from './ChampNombre';
 import { BulleAnnexes, CSS_BULLE_ANNEXES } from './BulleAnnexes';
 import { ConversionMandat } from './ConversionMandat';
+import { posterSuivi } from './suiviApi';
+import { useParametresSuivi } from './SuiviCommercial';
 import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
 
 /**
@@ -219,9 +221,11 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                               origineLigne: libelleOrigineContact(a.origineContact ?? null, a.origineContactPrecision ?? null) })}
                               data-fiche-bien={b.id} title={b.libelle}>{(a.lots ?? []).length > 1 ? `Fiche du bien — ${b.libelle}` : 'Fiche du bien'}</button>
                           )) : <span className="fdm-non-rattache" data-bien-non-rattache>Fiche du bien : non rattaché</span>}
+                          {/* 🔴 Arno (26/10/2026, décision C, 431) — une ligne « Bail » d'un locataire en place se convertit en « Mandat de gestion seul »
+                              (réversible) ; sur la MÊME ligne que ses voisins (Arno, 26/10/2026) : son bloc se fond dans la rangée, sa confirmation
+                              passe dessous. */}
+                          <ConversionMandat a={a} onFini={onRelire} />
                         </div>
-                        {/* 🔴 Arno (26/10/2026, décision C, 431) — une ligne « Bail » d'un locataire en place se convertit en « Mandat de gestion seul » (réversible). */}
-                        <ConversionMandat a={a} onFini={onRelire} />
                         {edition === a.id && (
                           <div className="fdm-edition">
                             <EditionLigne a={a} d={d} ctx={ctx} onFermer={() => setEdition(null)} onFini={() => { setEdition(null); onRelire(); }} />
@@ -266,6 +270,29 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           </BlocReplie>
         );
       })()}
+      {/* 🔴 Arno (26/10/2026) — les biens SORTIS SANS AVOIR ÉTÉ COMPTÉS (en attente de locataire, jamais entrés dans le portefeuille) : ni « −N »,
+          ni « Mandats de gestion perdus » ; montrés ici, repliés — rien ne disparaît de l'écran. */}
+      {(() => {
+        const sortis = regrouperParBien((d.gestionSortiesNonComptees ?? []).filter((l) => l.effetLe.slice(0, 7) === cle), d.liensAnnexes);
+        if (sortis.length === 0) return null;
+        return (
+          <BlocReplie id="fdm-sortis-non-comptes" section="sortis-non-comptes" titre={`Sortis sans avoir été comptés (${sortis.length})`}
+            resume="en attente de locataire, jamais entrés dans le portefeuille : ni perte de mandat, ni « −1 »" donnees={{ 'data-bloc': 'sortis-non-comptes' }}>
+            <ul className="fdm-attente" data-liste-sortis-non-comptes>
+              {sortis.map((gr) => {
+                const l = gr.principal ?? gr.lignes[0];
+                return (
+                  <li key={gr.cle} data-sorti-non-compte={gr.lotId ?? ''}>
+                    {gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : gr.libelle}
+                    {gr.annexes.length > 0 && <BulleAnnexes annexes={gr.annexes} place="dessous" repere={gr.cle} />}
+                    <span className="loc-muet"> — {l.proprietaire || 'propriétaire non renseigné'} — sorti le {l.effetLe.split('-').reverse().join('/')}, sans avoir été compté</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </BlocReplie>
+        );
+      })()}
       <section className="tdb-section" aria-labelledby="fdm-perdus" data-bloc="mandats-perdus">
         <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet" data-compte-biens>({regrouperParBien(g.perdues, d.liensAnnexes).length})</small></h3>
         <TableGestion lignes={g.perdues} perdus regle={regleA} liens={d.liensAnnexes} />
@@ -273,7 +300,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
 
       {/* 🔴 Arno (25/10/2026) — « RÉSUMÉ DU MOIS » : le bas de feuille rangé par FAMILLES (le composant `ResumePeriode`, partagé avec le
           « Résumé de l'année » du Suivi annuel). */}
-      <ResumePeriode d={d} resume={resumeDuMoisComplet(d, lignes, ctx, cle, negociateur)} unite="mois" libelle={nom} idp="fdm" moisCascade={cle}
+      <ResumePeriode d={d} resume={resumeDuMoisComplet(d, lignes, ctx, cle, negociateur)} unite="mois" libelle={nom} idp="fdm" moisCascade={cle} onRelire={onRelire}
         cumul={cumul} cumulTitre={`Depuis le 1er janvier ${annee}`} gliCumul={gliC} onDetail={onDetail} />
 
       <section className="tdb-section" aria-labelledby="fdm-apporteurs" data-bloc="apporteurs-mois">
@@ -394,9 +421,11 @@ function biensParMois(biens: readonly MouvementGestion[], liens: readonly LienAn
   return mois.flatMap((m) => regrouperParBien(biens.filter((b) => b.mois === m), liens).map((g) => ({ ...g, cle: `${m}-${g.cle}` })));
 }
 
-export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cumul, cumulTitre, gliCumul, onDetail, mention }: {
+export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cumul, cumulTitre, gliCumul, onDetail, mention, onRelire }: {
   d: DonneesTableau; resume: ResumeCalcule; unite: 'mois' | 'periode'; libelle: string; idp: string; moisCascade: string;
   cumul: GestionDepuisJanvier; cumulTitre: string; gliCumul: GliPeriode; onDetail: (titre: string, ids: (number | string)[]) => void; mention?: ReactNode;
+  /** 🔴 Arno (26/10/2026) — relire la page après un rattachement de négociateur (absent : le bloc « à rapprocher » n'est pas montré). */
+  onRelire?: () => void;
 }) {
   const { r, ventilation } = resume;
   const mots = unite === 'mois' ? MOTS_MOIS : { ...MOTS_PERIODE, libelle };
@@ -538,13 +567,18 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               montant (vert, gras), « (69,8 %) » et le chevron ; déplié, la cascade inchangée (ses « i » ne replient rien). */}
           {(d.voirCommissions || d.voirResultatNet === true) && (
             <BlocReplie id={`${idp}-f6`} section="resultat-net" classe="fdm-famille fdm-famille--large" niveau="h4" defilement={false}
-              donnees={{ 'data-famille': 'resultat-net' }} titre={<>Résultat net de l’agence — {libelle}</>} resume={<ResumeResultatNet x={resume.net} />}>
+              donnees={{ 'data-famille': 'resultat-net' }} titre={<>Résultat net de l’agence — {libelle}</>} resume={<ResumeResultatNet x={resume.net} />}
+              /* 🔴 Arno (26/10/2026) — le triangle à GAUCHE du titre, exactement comme les lignes « Négociateur » en dessous. */
+              chevronAGauche>
               <CascadeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} mots={mots} />
             </BlocReplie>
           )}
           {/* 🔴 Arno (25/10/2026) — LE BLOC « NÉGOCIATEUR — <nom> », un par négociateur, REPLIÉ à chaque chargement (une ligne, un chevron) ;
               déplié : la cascade. VISIBLE seulement de ce négociateur et des administrateurs (le serveur ne renvoie rien d'autre) ; pour tout
               autre compte, ABSENT de la page. */}
+          {/* 🔴 Arno (26/10/2026) — « NÉGOCIATEURS À RAPPROCHER » (administrateurs) : un libellé sans compte qu'aucune correspondance sûre ne
+              rattache ; « Rattacher » le joint à un compte (réversible, journalisé). Rien sans libellé à rapprocher ni rattachement manuel. */}
+          {d.negociateursARapprocher !== undefined && onRelire !== undefined && <NegociateursARapprocher n={d.negociateursARapprocher} onRelire={onRelire} />}
           {resume.negociateurs.length > 0 && (
             <div className="fdm-negos fdm-famille--large" data-famille="negociateurs">
               {resume.negociateurs.map((x) => <BlocNegociateur key={x.cle} x={x} mois={moisCascade} mots={mots} />)}
@@ -567,6 +601,55 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
         ))}
       </section>
   );
+}
+
+/**
+ * 🔴 Arno (26/10/2026) — « NÉGOCIATEURS À RAPPROCHER » : chaque libellé texte sans compte (lignes de suivi, rétrocessions), son nombre de
+ * lignes, et le choix du compte (les candidats d'abord) ; « Rattacher » réunit ses montants dans l'espace de la personne. Les rattachements
+ * posés à la main se « Détachent ». Sans la migration 432 : la liste se lit, les gestes disent « disponible après la mise à jour ».
+ */
+function NegociateursARapprocher({ n, onRelire }: { n: NonNullable<DonneesTableau['negociateursARapprocher']>; onRelire: () => void }) {
+  const [choix, setChoix] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState<string | null>(null);
+  const comptes = useComptesNegociateurs();
+  if (n.aRapprocher.length === 0 && n.rattaches.length === 0) return null;
+  const poster = async (corps: Record<string, unknown>): Promise<void> => {
+    const r = await posterSuivi(corps);
+    if (r.motif !== null) { setMessage(r.motif); return; }
+    setMessage(null); onRelire();
+  };
+  return (
+    <BlocReplie id="fdm-negos-a-rapprocher" section="negociateurs-a-rapprocher" classe="fdm-famille fdm-famille--large" niveau="h4" defilement={false}
+      titre={`Négociateurs à rapprocher (${n.aRapprocher.length})`} resume="un libellé sans compte collaborateur : rattachez-le à la personne" donnees={{ 'data-bloc': 'negociateurs-a-rapprocher' }}>
+      {!n.disponible && <p className="loc-muet">Rattacher à la main : disponible après la mise à jour de la base (migration 432).</p>}
+      <ul className="fdm-attente" data-liste-negociateurs-a-rapprocher>
+        {n.aRapprocher.map((x) => (
+          <li key={x.libelle} data-negociateur-a-rapprocher={x.libelle}>
+            <strong>{x.libelle}</strong> <span className="loc-muet">— {x.nb} ligne{x.nb > 1 ? 's' : ''}{x.candidats.length > 1 ? ' — plusieurs comptes possibles' : ''}</span>{' '}
+            <span className="fdm-compte-choix"><ListeChoix options={[...x.candidats, ...comptes.filter((c) => !x.candidats.some((k) => k.id === c.id))].map((c) => ({ id: String(c.id), libelle: c.nom }))}
+              valeur={choix[x.libelle] ?? ''} vide="— choisir le compte —" libelle={`Compte de ${x.libelle}`} desactive={!n.disponible}
+              onChange={(v) => setChoix((c) => ({ ...c, [x.libelle]: v }))} donnees={{ 'data-compte-pour': x.libelle }} /></span>{' '}
+            <button type="button" className="tdb-pilule fdm-raccourci" disabled={!n.disponible || (choix[x.libelle] ?? '') === ''}
+              onClick={() => { void poster({ action: 'rattacher-negociateur', libelle: x.libelle, compteId: Number(choix[x.libelle]) }); }} data-rattacher-negociateur={x.libelle}>Rattacher</button>
+          </li>
+        ))}
+        {n.rattaches.map((x) => (
+          <li key={`r-${x.libelle}`} data-negociateur-rattache={x.libelle}>
+            « {x.libelle} » → <strong>{x.compte}</strong> <span className="loc-muet">(rattaché à la main)</span>{' '}
+            <button type="button" className="tdb-pilule fdm-raccourci" disabled={!n.disponible}
+              onClick={() => { void poster({ action: 'detacher-negociateur', libelle: x.libelle }); }} data-detacher-negociateur={x.libelle}>Détacher</button>
+          </li>
+        ))}
+      </ul>
+      {message !== null && <p className="cp-refus" role="alert">{message}</p>}
+    </BlocReplie>
+  );
+}
+
+/** Les comptes collaborateurs proposés au rattachement (les négociateurs des paramètres du suivi). */
+function useComptesNegociateurs(): { id: number; nom: string }[] {
+  const p = useParametresSuivi();
+  return (p.lu?.negociateurs ?? []).map((x) => ({ id: Number(x.id), nom: String(x.libelle) }));
 }
 
 /** 🔴 Arno (25/10/2026) — le bloc d'UN négociateur : replié sur une ligne (nom + chevron, aucun montant) ; déplié, la cascade. */
@@ -854,6 +937,13 @@ function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
 
 export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
 .fdm{display:flex;flex-direction:column;gap:18px}
+/* 🔴 Arno (26/10/2026) — LES BLOCS SE DISTINGUENT : la feuille posée sur un fond légèrement teinté, chaque bloc sur sa surface, avec une bordure
+   plus marquée, une ombre légère, plus d'air entre les blocs et des titres plus affirmés. Jetons du thème seulement : clair ET sombre. */
+.fdm{background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:20px;padding:16px;gap:22px}
+.fdm > .tdb-section,.fdm > .tdb-replie{background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:16px;
+  box-shadow:0 1px 2px color-mix(in srgb,var(--color-svv-ink) 8%,transparent),0 6px 18px -12px color-mix(in srgb,var(--color-svv-ink) 30%,transparent)}
+.fdm > .tdb-section > h3,.fdm > .tdb-section h3:first-of-type{font-size:1.12rem;font-weight:800;color:var(--color-svv-ink);padding-bottom:8px;border-bottom:1px solid var(--color-svv-line);margin:0 0 12px}
+@media (max-width:640px){ .fdm{padding:10px;border-radius:14px;gap:16px} }
 .fdm-table{width:100%;border-collapse:collapse;font-size:.84rem}
 .fdm-table th,.fdm-table td{padding:6px 6px;border-bottom:1px solid var(--color-svv-line);text-align:right;vertical-align:middle}
 .fdm-table th[scope=row],.fdm-table thead th:first-child,.fdm-table thead th:nth-child(2){text-align:left}
@@ -901,6 +991,8 @@ export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
 .fdm-dossier-motif{font-weight:600}
 .fdm-non-rattache{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:var(--color-svv-muted);font-size:.82rem;font-style:italic}
 .fdm-detail-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:flex-start;padding-top:6px;position:sticky;left:0}
+.fdm-detail-gestes .fdm-conversion{display:contents}
+.fdm-detail-gestes .fdm-conversion > p,.fdm-detail-gestes .fdm-conversion-confirmer{flex-basis:100%;margin:4px 0 0}
 .fdm-edition{margin-top:8px;border-top:1px dashed var(--color-svv-line-strong)}
 .fdm-detail .fdm-detail-grille{max-width:calc(100cqi - 20px)}
 .fdm-detail .fdm-edition-corps{width:calc(100cqi - 20px)}

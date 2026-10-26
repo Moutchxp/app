@@ -31,6 +31,8 @@ import { origineDuBien } from '../origineProprietaireRepo';
 import { lireRegleAnnexes, principalDeLAnnexe } from './annexesGestionRepo';
 import type { AnnexeLouee } from './annexesGestion';
 import type { OrigineDuBien } from '../origineProprietaire';
+import { unifierNegociateurs } from './negociateurIdentite';
+import { lireAliasNegociateurs, lireComptesNegociateurs } from './negociateurIdentiteRepo';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : ACCÈS À LA BASE (Arno, 22/10/2026, migration 406) ════════════════════════════════════
@@ -738,7 +740,9 @@ export async function lireRetrocessions(): Promise<Retrocession[]> {
   if (!(await suiviDisponible())) return [];
   const { rows } = await query<{ id: string; negociateur_id: string | null; negociateur_libelle: string; mois: string; montant: string; libelle: string }>(
     'SELECT id, negociateur_id, negociateur_libelle, mois::text AS mois, montant, libelle FROM gestion_location_retrocession WHERE annule_le IS NULL ORDER BY mois, id');
-  return rows.map((r) => ({ id: num(r.id), negociateurId: numOuNull(r.negociateur_id), negociateurLibelle: r.negociateur_libelle, mois: iso(r.mois), montant: num(r.montant), libelle: r.libelle }));
+  const lues = rows.map((r) => ({ id: num(r.id), negociateurId: numOuNull(r.negociateur_id), negociateurLibelle: r.negociateur_libelle, mois: iso(r.mois), montant: num(r.montant), libelle: r.libelle }));
+  // 🔴 Arno (26/10/2026) — une rétrocession saisie au libellé rejoint l'espace du compte, comme les lignes de suivi (une personne = un espace).
+  return unifierNegociateurs(lues, await lireComptesNegociateurs(), await lireAliasNegociateurs()).lignes;
 }
 
 export async function ajouterRetrocession(brut: unknown, auteur: Auteur): Promise<Reponse> {

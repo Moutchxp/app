@@ -886,6 +886,10 @@ export interface DonneesTableau {
   gestionLignes?: LigneGestion[];
   /** 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés VIDES entrés en gestion sans locataire encore (date d'origine) : non comptés. */
   gestionEnAttente?: LigneGestion[];
+  /** 🔴 Arno (26/10/2026) — les biens sortis de la gestion sans y avoir jamais été comptés (en attente de locataire) : ni « −N », ni perte. */
+  gestionSortiesNonComptees?: LigneGestion[];
+  /** 🔴 Arno (26/10/2026) — les libellés de négociateur à rattacher à un compte, et les rattachements manuels (administrateurs). */
+  negociateursARapprocher?: { aRapprocher: { libelle: string; nb: number; candidats: { id: number; nom: string }[] }[]; rattaches: { libelle: string; compte: string }[]; disponible: boolean };
   collegues?: { id: number; libelle: string }[];
   annuaire?: boolean;
   /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */

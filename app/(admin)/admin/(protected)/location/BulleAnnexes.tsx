@@ -8,7 +8,7 @@ import { useBulle } from './LigneManques';
  * ══ 🔴 Arno (26/10/2026) — « + N annexe(s) » APRÈS L'ADRESSE DU LOT PRINCIPAL, LE DÉTAIL DANS UNE BULLE ═══════════════════════════════
  * Outils de suivi, une ligne par bien : la bulle dit chaque annexe (type, n° de porte ou de place, lot, niveau, adresse si elle diffère),
  * et ce que la ligne d'annexe portait (« non comptée », un montant à elle) — rien de l'ancienne ligne ne se perd. Mêmes gestes que
- * « Reste à renseigner » (`useBulle`) : survol de la souris, toucher, focus clavier ; Échap ou un toucher ailleurs la referme. 44 px.
+ * « Reste à renseigner » (`useBulle`) : survol de la souris, toucher, focus clavier ; Échap ou un toucher ailleurs la referme. Zone ≥ 24 px.
  * `place` : « dessous » dans une fenêtre qui défile (une bulle au-dessus y serait coupée par le haut).
  */
 export function BulleAnnexes<T>({ annexes, note, extra, place = 'dessus', repere }: {
@@ -39,8 +39,12 @@ export function BulleAnnexes<T>({ annexes, note, extra, place = 'dessus', repere
 
 /** La feuille de la bulle (jetons --color-svv-* seulement : clair, sombre et système ; jamais plus large que l'écran). */
 export const CSS_BULLE_ANNEXES = `
-.anx-bulle-zone{position:relative;display:inline-block;vertical-align:middle;margin-left:6px}
-.anx-bulle-declencheur{min-height:44px;min-width:44px;padding:0 10px;border:1px solid var(--color-svv-line-strong);border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:.8rem;font-weight:700;white-space:nowrap;cursor:help}
+/* 🔴 Arno (26/10/2026) — « + 1 annexe » DISCRET : texte plus petit, couleur secondaire, souligné pointillé, aligné sur la ligne de base de
+   l'adresse — plus de gros bouton arrondi. La zone active reste de 24 px de haut au moins ; la bulle et ses gestes ne changent pas. */
+.anx-bulle-zone{position:relative;display:inline-block;vertical-align:baseline;margin-left:6px}
+.anx-bulle-declencheur{display:inline-flex;align-items:baseline;min-height:24px;padding:3px 2px;border:0;border-radius:4px;background:none;color:var(--color-svv-muted);font:inherit;font-size:.78rem;font-weight:600;line-height:18px;white-space:nowrap;cursor:help;text-decoration:underline dotted;text-underline-offset:3px;vertical-align:baseline}
+@media (hover:hover){ .anx-bulle-declencheur:hover{color:var(--color-svv-ink)} }
+.anx-bulle-declencheur[aria-expanded="true"]{color:var(--color-svv-ink)}
 .anx-bulle-declencheur:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
 .anx-bulle{display:none;position:absolute;left:0;z-index:20;width:max-content;max-width:min(26rem,calc(100vw - 48px));padding:10px 14px;border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface-raised);color:var(--color-svv-ink);font-size:.85rem;font-weight:400;line-height:1.45;text-align:left;white-space:normal;overflow-wrap:anywhere;box-shadow:0 10px 28px color-mix(in srgb,var(--color-svv-ink) 22%,transparent)}
 .anx-bulle-zone--dessus .anx-bulle{bottom:calc(100% + 8px)}

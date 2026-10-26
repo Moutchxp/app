@@ -2371,7 +2371,7 @@ describe('🔴 une seule ligne par bien (lot principal + annexes)', () => {
     expect(container.querySelector('#fdm-perdus [data-compte-biens]')?.textContent).toBe('(1)');
   });
 
-  it('la bulle s’ouvre au toucher et au clavier, se referme avec Échap ; zone de 44 px', async () => {
+  it('la bulle s’ouvre au toucher et au clavier, se referme avec Échap ; pastille discrète, zone d’au moins 24 px', async () => {
     await ouvrirOctobre(true);
     const declencheur = rangee('nouvelles-gestions', 30).querySelector('[data-annexes-declencheur]') as HTMLButtonElement;
     const bulle = rangee('nouvelles-gestions', 30).querySelector('[data-annexes-bulle]')!;
@@ -2383,7 +2383,11 @@ describe('🔴 une seule ligne par bien (lot principal + annexes)', () => {
     await act(async () => { declencheur.blur(); declencheur.focus(); });
     expect(bulle.hasAttribute('data-ouvert')).toBe(true);
     const { CSS_BULLE_ANNEXES } = await import('./BulleAnnexes');
-    expect(CSS_BULLE_ANNEXES.replace(/\s+/g, ' ')).toContain('min-height:44px');
+    const cssA = CSS_BULLE_ANNEXES.replace(/\s+/g, ' ');
+    // 🔴 Arno (26/10/2026) — discrète : couleur secondaire, sans bord ni fond, alignée sur la ligne de base ; zone active ≥ 24 px.
+    expect(cssA).toContain('min-height:24px');
+    expect(cssA).toMatch(/\.anx-bulle-declencheur\{[^}]*border:0[^}]*background:none[^}]*color:var\(--color-svv-muted\)/);
+    expect(cssA).toContain('vertical-align:baseline');
   });
 
   it('la fenêtre « Gestion » de la tuile : « Bien n° 30 + 1 annexe », le titre compte les biens, l’annexe reste nommée dans la bulle', async () => {
@@ -2443,5 +2447,59 @@ describe('🔴 431 — décision B : un bien rentré vide sans locataire est « 
   it('un autre mois (septembre) : aucun bloc — un bien en attente ne se montre qu’au mois de son entrée en gestion', async () => {
     await ouvrir('9');
     expect(container.querySelector('[data-bloc="en-attente-locataire"]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (26/10/2026) — corrections de la page « Suivi du mois »', () => {
+  const ligneG = (lotId: number, libelle: string, effetLe: string, sortie: boolean) => ({ lotId, libelle, proprietaire: 'TEST Test', effetLe,
+    avant: sortie ? 'en_gestion' : null, apres: sortie ? 'ancienne_gestion' : 'en_gestion', loyerHc: null, provisions: null, base: null, tauxHt: null });
+  const octobre = async () => {
+    await monter('mois');
+    await act(async () => { (container.querySelector('[data-onglet-mois="10"]') as HTMLButtonElement).click(); });
+    await calmer();
+  };
+  it('un bien sorti sans avoir été compté : bloc replié à part, absent des « Mandats de gestion perdus »', async () => {
+    donnees = { ...donnees, gestionLignes: [], gestionSortiesNonComptees: [ligneG(440, '12 Rue de l’Église, PARIS', '2026-10-26', true), ligneG(442, '8 Rue Denfert-Rochereau, ASNIÈRES', '2026-10-26', true)] };
+    await octobre();
+    const bloc = container.querySelector('[data-bloc="sortis-non-comptes"]') as HTMLElement;
+    expect(nbsp(bloc.querySelector('.tdb-replie-mot')?.textContent)).toBe('Sortis sans avoir été comptés (2)');
+    expect(container.querySelector('#fdm-perdus [data-compte-biens]')?.textContent).toBe('(0)');
+    await act(async () => { (bloc.querySelector('[data-deplier="sortis-non-comptes"]') as HTMLButtonElement).click(); });
+    expect([...container.querySelectorAll('[data-sorti-non-compte]')].map((x) => x.getAttribute('data-sorti-non-compte'))).toEqual(['440', '442']);
+  });
+  it('« Résultat net de l’agence » : le triangle À GAUCHE du titre, comme les lignes « Négociateur »', async () => {
+    await octobre();
+    const ligne = container.querySelector('[data-famille="resultat-net"] .tdb-replie-ligne') as HTMLElement;
+    expect(ligne.firstElementChild?.className).toBe('tdb-h-chevron tdb-h-chevron--gauche');
+    expect(ligne.querySelectorAll('.tdb-h-chevron')).toHaveLength(1);
+    // Ailleurs (blocs repliés sans l'option), le triangle reste à droite, comme avant.
+    expect(readFileSync('app/(admin)/admin/(protected)/location/BlocReplie.tsx', 'utf8')).toContain("{!chevronAGauche && <span className=\"tdb-h-chevron\" aria-hidden=\"true\">");
+  });
+  it('« Négociateurs à rapprocher » (administrateur) : le libellé, son nombre de lignes, « Rattacher » au compte choisi', async () => {
+    const posts: Record<string, unknown>[] = [];
+    donnees = { ...donnees, negociateursARapprocher: { aRapprocher: [{ libelle: 'JB', nb: 3, candidats: [{ id: 5, nom: 'Jean-Baptiste PONS' }] }], rattaches: [{ libelle: 'J-B Pons', compte: 'Jean-Baptiste PONS' }], disponible: true } };
+    global.fetch = vi.fn(async (_u: string, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: {} }) } as unknown as Response; }
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await octobre();
+    const bloc = container.querySelector('[data-bloc="negociateurs-a-rapprocher"]') as HTMLElement;
+    expect(nbsp(bloc.querySelector('.tdb-replie-mot')?.textContent)).toBe('Négociateurs à rapprocher (1)');
+    await act(async () => { (bloc.querySelector('[data-deplier="negociateurs-a-rapprocher"]') as HTMLButtonElement).click(); });
+    expect(nbsp(container.querySelector('[data-negociateur-a-rapprocher="JB"]')?.textContent)).toContain('JB — 3 lignes');
+    await choisirListe(container.querySelector('[data-compte-pour="JB"]')!, '5');
+    await act(async () => { (container.querySelector('[data-rattacher-negociateur="JB"]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts.at(-1)).toEqual({ action: 'rattacher-negociateur', libelle: 'JB', compteId: 5 });
+    await act(async () => { (container.querySelector('[data-detacher-negociateur="J-B Pons"]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts.at(-1)).toEqual({ action: 'detacher-negociateur', libelle: 'J-B Pons' });
+  });
+  it('« Convertir en « Mandat de gestion seul » » est DANS la rangée de « Dossier de location », « Modifier », les fiches', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx', 'utf8');
+    const rangee = src.slice(src.indexOf('<div className="fdm-detail-gestes">'), src.indexOf('{edition === a.id && ('));
+    expect(rangee).toContain('<ConversionMandat a={a} onFini={onRelire} />');
+    expect(rangee.indexOf('<ConversionMandat')).toBeGreaterThan(rangee.indexOf('data-fiche-bien'));
+    expect(src).toContain('.fdm-detail-gestes .fdm-conversion{display:contents}');
   });
 });

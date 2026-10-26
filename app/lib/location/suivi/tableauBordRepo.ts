@@ -9,6 +9,8 @@ import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContac
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
 import { annexesDesLocations, lireLiensAnnexesAffiches, lireRegleAnnexes } from './annexesGestionRepo';
 import { lireGli, lireMargesGli } from './margeGliRepo';
+import { nomDuCompteNegociateur, unifierNegociateurs, type LibelleARapprocher } from './negociateurIdentite';
+import { aliasNegociateurDisponible, lireAliasNegociateurs, lireComptesNegociateurs } from './negociateurIdentiteRepo';
 import { annuaireDisponible, statutBienManuelDisponible, commissionGestionDisponible, origineDejaClientDisponible, lireApporteurs, lireComptesInterface, lireRegles, lireRetrocessions, suiviDisponible } from './suiviRepo';
 
 /**
@@ -156,7 +158,25 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   if (lues.some((x) => x.source !== 'import' && x.lotId !== null && x.apporteurId !== null)) {
     await enrichirGestionMensuelle(lues, await lireApporteurs(), aujourdhuiParis());
   }
-  return lues;
+  // 🔴 Arno (26/10/2026) — UNE PERSONNE = UN SEUL ESPACE NÉGOCIATEUR : chaque libellé rattaché sans ambiguïté (ou à la main) prend le compte.
+  return unifierNegociateurs(lues, await lireComptesNegociateurs(), await lireAliasNegociateurs()).lignes;
+}
+
+/**
+ * 🔴 Arno (26/10/2026) — « NÉGOCIATEURS À RAPPROCHER » : les libellés texte (lignes de suivi et rétrocessions sans compte) qu'aucune
+ * correspondance sûre ne rattache, avec leurs comptes candidats ; et les rattachements manuels vivants (pour « Détacher »). LECTURE SEULE.
+ */
+export async function lireNegociateursARapprocher(): Promise<{ aRapprocher: LibelleARapprocher[]; rattaches: { libelle: string; compte: string }[]; disponible: boolean }> {
+  if (!(await suiviDisponible())) return { aRapprocher: [], rattaches: [], disponible: false };
+  const { rows } = await query<{ libelle: string }>(
+    `SELECT negociateur_libelle AS libelle FROM gestion_location_activite WHERE annule_le IS NULL AND negociateur_id IS NULL AND btrim(negociateur_libelle) <> ''
+     UNION ALL
+     SELECT negociateur_libelle FROM gestion_location_retrocession WHERE annule_le IS NULL AND negociateur_id IS NULL AND btrim(negociateur_libelle) <> ''`);
+  const comptes = await lireComptesNegociateurs();
+  const alias = await lireAliasNegociateurs();
+  const { aRapprocher } = unifierNegociateurs(rows.map((r) => ({ negociateurId: null, negociateurLibelle: r.libelle })), comptes, alias);
+  const rattaches = alias.map((a) => ({ libelle: a.libelle, compte: nomDuCompteNegociateur(comptes.find((c) => c.id === a.compteId) ?? { id: 0, identifiant: '—', prenom: null, nom: null }) }));
+  return { aRapprocher, rattaches, disponible: await aliasNegociateurDisponible() };
 }
 
 /** Les années où il y a de l'activité (pour le filtre « Année »). */
@@ -198,21 +218,33 @@ export async function lireBasculeEntreeLocataire(): Promise<string | null> {
  * Sans la 431 (aucune bascule) : ① ou la date d'origine, comme avant. L'historique (`gestion_bien_statut_transition`) n'est jamais réécrit.
  */
 async function sqlEffet(alias: string): Promise<string> {
-  const corrige = await sqlEffetCorrige(alias);
   const bascule = await lireBasculeEntreeLocataire();
-  if (bascule === null) return corrige;
-  const occupe = (await colonneExisteMemo('gestion_annuaire_lot', 'entre_occupe'))
-    ? `coalesce((SELECT lo.entre_occupe FROM gestion_annuaire_lot lo WHERE lo.id = ${alias}.lot_id), false)` : 'false';
+  if (bascule === null) return sqlEffetCorrige(alias);
+  const avecOccupe = await colonneExisteMemo('gestion_annuaire_lot', 'entre_occupe');
+  const occupe = (a: string): string => (avecOccupe
+    ? `coalesce((SELECT lo.entre_occupe FROM gestion_annuaire_lot lo WHERE lo.id = ${a}.lot_id), false)` : 'false');
   const avecCorrection = await colonneExisteMemo('gestion_bien_statut_effet_corrige', 'effet_le');
   const d = `DATE '${bascule}'`;
-  return `(CASE
-    WHEN ${avecCorrection ? `EXISTS (SELECT 1 FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${alias}.id AND c.retire_le IS NULL)` : 'false'} THEN ${corrige}
-    WHEN ${alias}.apres = 'en_gestion' AND ${alias}.avant IS DISTINCT FROM 'en_gestion' AND ${alias}.effet_le >= ${d} AND NOT ${occupe}
+  const corrige = (a: string): string => (avecCorrection
+    ? `coalesce((SELECT c.effet_le FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${a}.id AND c.retire_le IS NULL), ${a}.effet_le)` : `${a}.effet_le`);
+  /** La date d'une ENTRÉE (①②③④ ci-dessus) ; NULL : en attente de locataire. */
+  const entree = (a: string): string => `(CASE
+    WHEN ${avecCorrection ? `EXISTS (SELECT 1 FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${a}.id AND c.retire_le IS NULL)` : 'false'} THEN ${corrige(a)}
+    WHEN ${a}.apres = 'en_gestion' AND ${a}.avant IS DISTINCT FROM 'en_gestion' AND ${a}.effet_le >= ${d} AND NOT ${occupe(a)}
       THEN (SELECT CASE WHEN z.m IS NULL THEN NULL ELSE greatest(${d}, z.m) END FROM (SELECT min(o.entree) AS m FROM gestion_annuaire_occupation o
-             WHERE o.lot_id = ${alias}.lot_id AND o.entree IS NOT NULL AND (o.sortie IS NULL OR o.sortie >= ${alias}.effet_le)) z)
-    ELSE ${alias}.effet_le END)`;
+             WHERE o.lot_id = ${a}.lot_id AND o.entree IS NOT NULL AND (o.sortie IS NULL OR o.sortie >= ${a}.effet_le)) z)
+    ELSE ${a}.effet_le END)`;
+  /* 🔴 Arno (26/10/2026) — ⑤ UNE SORTIE D'UN BIEN JAMAIS COMPTÉ : sa dernière entrée était « en attente de locataire » (ou comptée APRÈS la
+     sortie) — il n'a jamais été dans le portefeuille, il ne peut pas en sortir : NULL (ni « −1 », ni perte de mandat ; montré à part). */
+  return `(CASE
+    WHEN ${alias}.avant = 'en_gestion' AND ${alias}.apres IS DISTINCT FROM 'en_gestion' AND ${alias}.effet_le >= ${d}
+     AND EXISTS (SELECT 1 FROM (SELECT ${entree('p')} AS e FROM gestion_bien_statut_transition p
+                                 WHERE p.lot_id = ${alias}.lot_id AND p.apres = 'en_gestion' AND p.avant IS DISTINCT FROM 'en_gestion'
+                                   AND (p.survenu_le < ${alias}.survenu_le OR (p.survenu_le = ${alias}.survenu_le AND p.id < ${alias}.id))
+                                 ORDER BY p.survenu_le DESC, p.id DESC LIMIT 1) z WHERE z.e IS NULL OR z.e > ${alias}.effet_le)
+      THEN NULL
+    ELSE ${entree(alias)} END)`;
 }
-
 /** Les transitions de statut du bien depuis `depuis` (AAAA-MM-JJ), et le nombre de biens en gestion aujourd'hui. */
 export async function lireGestion(depuis: string): Promise<{ transitions: Transition[]; stock: number; disponible: boolean }> {
   const avecStatut = await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien');
@@ -273,6 +305,28 @@ export async function lireGestionsEnAttente(debut: string, fin: string): Promise
        JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id
       WHERE t.effet_le BETWEEN $1 AND $2 AND t.apres = 'en_gestion' AND t.avant IS DISTINCT FROM 'en_gestion' AND ${effet} IS NULL
+        -- 🔴 Arno (26/10/2026) — sorti depuis : il quitte simplement la liste « En attente de locataire » (montré dans « Sortis sans avoir été comptés »).
+        AND NOT EXISTS (SELECT 1 FROM gestion_bien_statut_transition s WHERE s.lot_id = t.lot_id AND s.avant = 'en_gestion'
+                         AND s.apres IS DISTINCT FROM 'en_gestion' AND (s.survenu_le > t.survenu_le OR (s.survenu_le = t.survenu_le AND s.id > t.id)))
+      ORDER BY t.effet_le, t.id`, [debut, fin]);
+  return rows.map(ligneGestionLue);
+}
+
+/**
+ * 🔴 Arno (26/10/2026) — LES BIENS « SORTIS SANS AVOIR ÉTÉ COMPTÉS » : une sortie de gestion (date d'origine dans la période) d'un bien qui
+ * n'a jamais été compté dans le portefeuille (en attente de locataire). Ni « −N », ni « Mandats de gestion perdus » ; montrés à part. Sans la
+ * 431 : aucun. LECTURE SEULE.
+ */
+export async function lireSortiesNonComptees(debut: string, fin: string): Promise<LigneGestion[]> {
+  if (!(await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien')) || (await lireBasculeEntreeLocataire()) === null) return [];
+  const effet = await sqlEffet('t');
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT t.lot_id, t.avant, t.apres, t.effet_le, concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS libelle,
+            coalesce(p.nom_complet, '') AS proprietaire, NULL::numeric AS loyer_hc, NULL::numeric AS provisions, NULL::text AS base, NULL::numeric AS taux_gestion_ht
+       FROM gestion_bien_statut_transition t
+       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id
+      WHERE t.effet_le BETWEEN $1 AND $2 AND t.avant = 'en_gestion' AND t.apres IS DISTINCT FROM 'en_gestion' AND ${effet} IS NULL
       ORDER BY t.effet_le, t.id`, [debut, fin]);
   return rows.map(ligneGestionLue);
 }
@@ -360,6 +414,8 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   const gestionLignes = [...gestionTransitions, ...pertesFichier];
   // 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés vides sans locataire encore : montrés, jamais comptés.
   const gestionEnAttente = await lireGestionsEnAttente(debutHisto, `${annee}-12-31`);
+  // 🔴 Arno (26/10/2026) — les biens sortis SANS AVOIR ÉTÉ COMPTÉS (en attente de locataire) : ni perte de portefeuille, ni solde ; montrés à part.
+  const gestionSortiesNonComptees = await lireSortiesNonComptees(debutHisto, `${annee}-12-31`);
   // 🔴 Arno (25/10/2026, 427) — les nouvelles GLI de l'année (baux avec gestion) et la marge versionnée : visibles de tous ceux qui voient le Portefeuille.
   const [gli, margesGli] = await Promise.all([lireGli(debutHisto, `${annee}-12-31`), lireMargesGli()]);
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
@@ -393,7 +449,9 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions: retroVisibles, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
-    gestion, preavis, voirCommissions, gestionLignes, gestionEnAttente, collegues, annuaire, historique, recurrents,
+    gestion, preavis, voirCommissions, gestionLignes, gestionEnAttente, gestionSortiesNonComptees, collegues, annuaire, historique, recurrents,
+    // 🔴 Arno (26/10/2026) — « Négociateurs à rapprocher » : administrateurs seulement (ceux qui voient tous les négociateurs).
+    ...(voirCommissions ? { negociateursARapprocher: await lireNegociateursARapprocher() } : {}),
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     dejaClient: await origineDejaClientDisponible(),
     statutBienManuel: await statutBienManuelDisponible(),

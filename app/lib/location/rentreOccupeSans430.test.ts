@@ -76,7 +76,10 @@ describe('🔴 431 — décision B : un bien rentré vide entre dans le suivi au
     expect(appels.find((s) => s.includes("statut_bien = 'en_gestion'"))).toContain('WHERE d.effet IS NULL');
     appels.length = 0;
     await lireGestionsEnAttente('2026-10-01', '2026-10-31');
-    expect(appels.find((s) => s.includes('IS NULL ORDER BY t.effet_le'))).toContain('WHERE t.effet_le BETWEEN $1 AND $2');
+    const attente = appels.find((s) => s.includes("t.apres = 'en_gestion' AND t.avant IS DISTINCT FROM 'en_gestion' AND (CASE")) ?? '';
+    expect(attente).toContain('WHERE t.effet_le BETWEEN $1 AND $2');
+    // 🔴 Arno (26/10/2026) — sorti depuis : il quitte la liste d'attente.
+    expect(attente).toContain("AND NOT EXISTS (SELECT 1 FROM gestion_bien_statut_transition s WHERE s.lot_id = t.lot_id AND s.avant = 'en_gestion'");
   });
 });
 
