@@ -609,6 +609,14 @@ export async function poserCategorieAlaMain(o: {
    * partout ailleurs. La base tient la même équivalence (migration 318) : le code la DIT, la base la GARANTIT.
    */
   locataireId?: number | null;
+  /**
+   * ══ 🔴🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R1, Arno 26/10/2026) — UN DÉPLACEMENT NE LAISSE AUCUN RESTE ══════════
+   * « Un contact déplacé dans le bloc Parties d'un bien prend le statut de la DERNIÈRE famille où il est posé, et seulement
+   * celui-là. » Vrai (glisser, « Déplacer vers… » : aucune fiche envoyée) ⇒ TOUTES les lignes vivantes de cette adresse
+   * sur CE bien cèdent la place, y compris celles d'un ancien locataire nommé (avant : seules celles de la même personne).
+   * Faux (défaut : le « + » qui crée un contact) ⇒ exactement d'avant. Les autres biens ne sont jamais touchés.
+   */
+  deplacement?: boolean;
 }): Promise<IssuePartieCategorie> {
   if (!(await partieCategorieDisponible())) return { ok: false, motif: SANS_304 };
   if (!auteurHumainPartieCategorie(o.auteur)) {
@@ -683,6 +691,8 @@ export async function poserCategorieAlaMain(o: {
   if (ancien && !avecAncien) return { ok: false, motif: SANS_318 };
   const motif = texteCourt(o.motif);
 
+  /* 🔴 R1 — un déplacement fait SUR UN BIEN retire les lignes de l'adresse sur ce bien, toutes personnes confondues. */
+  const parPersonne = avecAncien && !(o.deplacement === true && !global);
   const retires: number[] = [];
   const id = await withTransaction(async (q) => {
     /* ① LA LIGNE VIVANTE EN PLACE EST RETIRÉE — datée, signée, jamais supprimée.
@@ -693,9 +703,9 @@ export async function poserCategorieAlaMain(o: {
           SET retire_le = now(), retire_par = $3, retire_par_libelle = $4,
               retire_motif = coalesce($5, 'remplacée par un rangement manuel')
         WHERE retire_le IS NULL AND adresse = $1 AND coalesce(lot_cle, '') = coalesce($2, '')
-          ${avecAncien ? 'AND coalesce(locataire_id, 0) = coalesce($6::bigint, 0)' : ''}
+          ${parPersonne ? 'AND coalesce(locataire_id, 0) = coalesce($6::bigint, 0)' : ''}
         RETURNING id::text`,
-      avecAncien
+      parPersonne
         ? [adresse, lot, o.auteur.id, o.auteur.libelle, motif, locataireId]
         : [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
     for (const r of anciens) retires.push(Number(r.id));

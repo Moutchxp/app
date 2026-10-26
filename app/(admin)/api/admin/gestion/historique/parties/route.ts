@@ -315,10 +315,20 @@ async function faireSuivreLaCarte(o: {
      le même avocat peut être le contact de deux personnes du même bien, et chacune garde la sienne. C'est la
      règle que la migration 318 pose en index, lue ici par la même clé. */
   const memeRattachement = (c: { locataireId: number | null }): boolean => (c.locataireId ?? 0) === (o.locataireId ?? 0);
+  /**
+   * ══ 🔴🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R1, Arno 26/10/2026) — UN DÉPLACEMENT NE LAISSE AUCUNE CARTE DERRIÈRE ══
+   * Un glisser ou un « Déplacer vers… » (aucune fiche envoyée) range le contact dans UNE famille de ce bien, et seulement
+   * celle-là : toute carte de cette adresse sur CE bien qui n'est pas celle d'arrivée (même côté, même personne) est
+   * retirée — datée, signée, rouvrable par « Annuler » —, y compris celle d'un ancien locataire nommé. Avant, seules les
+   * cartes du MÊME rattachement étaient regardées : vers « Tiers indépendant », la carte d'un ancien locataire survivait.
+   * Le « + » (une fiche est envoyée) garde la règle d'avant : un même contact peut l'être de deux personnes du bien.
+   */
+  const deplacement = o.fiche === undefined;
+  const arrivee = (c: { cote: string; locataireId: number | null }): boolean => c.cote === cote && memeRattachement(c);
   const cartes = (await lireCartesDuBien(o.lotCle))
-    .filter((c) => c.adresse.trim().toLowerCase() === cle && memeRattachement(c));
-  const aDeplacer = cartes.filter((c) => c.cote !== cote);
-  const dejaBonCote = cote === null ? undefined : cartes.find((c) => c.cote === cote);
+    .filter((c) => c.adresse.trim().toLowerCase() === cle && (deplacement || memeRattachement(c)));
+  const aDeplacer = cartes.filter((c) => !arrivee(c));
+  const dejaBonCote = cote === null ? undefined : cartes.find(arrivee);
 
   for (const c of aDeplacer) {
     const r = await retirerCarte({
@@ -516,7 +526,10 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     /* 🔴 LE RANGEMENT D'ABORD : c'est lui qui fait changer la partie de groupe, et c'est ce qu'Arno a demandé. */
-    const range = await poserCategorieAlaMain({ adresse, lotCle, categorie, auteur, locataireId });
+    /* 🔴 R1 — sans fiche, c'est un DÉPLACEMENT : la dernière famille, et elle seule (voir `poserCategorieAlaMain`). */
+    const range = await poserCategorieAlaMain({
+      adresse, lotCle, categorie, auteur, locataireId, ...(ficheDuCorps(c) === undefined ? { deplacement: true } : {}),
+    });
     if (!range.ok) {
       return Response.json({ etat: 'refus', motif: range.motif }, { status: 409, headers: ENTETES });
     }

@@ -744,3 +744,46 @@ describe('🔴🔴 un déplacement ne crée jamais de carte', () => {
     expect(d.geste.cartesRetirees).toEqual([]);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R1, Arno 26/10/2026) — UN DÉPLACEMENT NE LAISSE AUCUN RESTE ══════════════
+ * « Un contact déplacé dans le bloc Parties d'un bien prend le statut de la DERNIÈRE famille où il est posé, et seulement
+ * celui-là. » Le SQL réel est éprouvé sur la base jetable (`deplacementSansReste.itest.ts`) ; ici, ce que la route décide.
+ */
+describe('🔴🔴 R1 — la dernière famille, et seulement celle-là', () => {
+  const carteDe = (o: { id: number; cote: string; locataireId: number | null }) => ({
+    lotCle: '155', adresse: 'assureur@fictif.test', nom: null, telephone: null, origine: 'manuel',
+    verifieLe: null, verifiePar: null, creeLe: '2026-10-04', creePar: 'x', ...o,
+  });
+  it('un glisser (aucune fiche) est un DÉPLACEMENT pour le dépôt ; le « + » (une fiche) ne l’est pas', async () => {
+    await POST(poste({ ...BASE, categorie: 'independant' }));
+    expect(poserCategorieMock.mock.calls[0][0]).toMatchObject({ categorie: 'independant', deplacement: true });
+    poserCategorieMock.mockClear();
+    await POST(poste({ ...BASE, nom: 'ROSKY', civilite: 'Mme' }));
+    expect(poserCategorieMock.mock.calls[0][0]).not.toHaveProperty('deplacement');
+  });
+  it('→ Tiers indépendant : la carte d’un ANCIEN LOCATAIRE nommé est retirée aussi (elle survivait)', async () => {
+    cartesMock.mockResolvedValue([carteDe({ id: 81, cote: 'locataire', locataireId: null }),
+      carteDe({ id: 82, cote: 'ancien_locataire', locataireId: 5 })]);
+    retirerCarteMock.mockImplementation(async (o: { id: number }) => ({ ok: true, id: o.id, nb: 1 }));
+    const d = await (await POST(poste({ ...BASE, categorie: 'independant' }))).json();
+    expect(retirerCarteMock.mock.calls.map((c) => (c[0] as { id: number }).id)).toEqual([81, 82]);
+    expect(poserCarteMock).not.toHaveBeenCalled();
+    expect(d.geste.cartesRetirees).toEqual([81, 82]);               // « Annuler » les rouvre, toutes les deux
+  });
+  it('Ancien locataire → Locataire : la carte suit (retirée là, posée ici) ; la carte d’arrivée existante n’est pas touchée', async () => {
+    cartesMock.mockResolvedValue([carteDe({ id: 82, cote: 'ancien_locataire', locataireId: 5 })]);
+    await POST(poste(BASE));
+    expect(retirerCarteMock.mock.calls.map((c) => (c[0] as { id: number }).id)).toEqual([82]);
+    expect(poserCarteMock.mock.calls[0][0]).toMatchObject({ cote: 'locataire', locataireId: null });
+    retirerCarteMock.mockClear(); poserCarteMock.mockClear();
+    cartesMock.mockResolvedValue([carteDe({ id: 81, cote: 'locataire', locataireId: null })]);
+    await POST(poste(BASE));
+    expect(retirerCarteMock).not.toHaveBeenCalled();
+  });
+  it('le « + » vers un ancien locataire garde la règle d’avant : la carte d’une AUTRE personne du bien reste', async () => {
+    cartesMock.mockResolvedValue([carteDe({ id: 83, cote: 'ancien_locataire', locataireId: 6 })]);
+    await POST(poste({ ...BASE, categorie: 'ancien_locataire', locataireId: 5, nom: 'ROSKY', civilite: 'Mme' }));
+    expect(retirerCarteMock).not.toHaveBeenCalled();
+  });
+});

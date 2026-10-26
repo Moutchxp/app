@@ -14,6 +14,9 @@ const cartes = vi.fn();
 vi.mock('./partieCategorieRepo', () => ({ biensEtCotesDesContacts: (...a: unknown[]) => cartes(...a) }));
 const query = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => query(...a) }));
+/* 🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE — la table des partenaires internes (ADHOC), lue par sa porte existante. */
+const partenaires = vi.fn();
+vi.mock('./partenaires', () => ({ lirePartenairesInternes: () => partenaires() }));
 const { biensDesClients } = await import('./biensDesClientsRepo');
 
 const ligne = (cle: string, raisons: Array<{ sorte: string; detail: string }>, locataires: string[] = []) => ({
@@ -41,6 +44,7 @@ const CLES = [{ copro: '60', cle: '15 rue carle hebert' }, { copro: '7', cle: '2
   { copro: '157', cle: '74 rue de normandie' }];
 
 beforeEach(() => {
+  partenaires.mockReset().mockResolvedValue([{ adresse: 'compta@adhoc.test', libelle: 'Comptabilité (ADHOC Gestion)' }]);
   chercherBiens.mockReset().mockImplementation(async (a: string) => ({ disponible: true, tronque: false, lignes: a === 'p@x.fr'
     ? [ligne('1', [{ sorte: 'email_proprietaire', detail: 'DUPONT Jean' }]), ligne('2', [{ sorte: 'email_proprietaire', detail: 'DUPONT Jean' }]),
       ligne('9', [{ sorte: 'proprietaire', detail: 'P X' }])]                                   // un NOM qui ressemble : ignoré
@@ -48,7 +52,11 @@ beforeEach(() => {
       ? [ligne('3', [{ sorte: 'email_locataire', detail: 'ROI Léa' }], ['l@x.fr']), ligne('4', [{ sorte: 'email_locataire', detail: 'ROI Léa' }])]
       : [] }));
   cartes.mockReset().mockImplementation(async (a: string[]) => new Map(a.includes('assistante@x.fr')
-    ? [['assistante@x.fr', [{ lotCle: '219', cote: 'proprietaire' }, { lotCle: '999', cote: 'locataire' }]]] : []));
+    ? [['assistante@x.fr', [{ lotCle: '219', cote: 'proprietaire' }, { lotCle: '999', cote: 'locataire' }]]]
+    /* Le cas d'Arno (26/10/2026) : des cartes de contact existent pour le partenaire interne — reste de la reprise du 04/10. */
+    : a.some((x) => x === 'compta@adhoc.test' || x === 'gestion.criterimmo@gmail.com')
+      ? a.filter((x) => x === 'compta@adhoc.test' || x === 'gestion.criterimmo@gmail.com').map((x) => [x, [{ lotCle: '219', cote: 'locataire' }]])
+      : []));
   query.mockReset().mockImplementation(async (sql: string, p: unknown[]) => {
     if (sql.includes('FROM gestion_annuaire_lot')) return { rows: LOTS };
     if (sql.includes('gestion_syndic_coordonnee')) {
@@ -104,5 +112,30 @@ describe('biensDesClients', () => {
   it('LECTURE SEULE : aucune requête d’écriture', async () => {
     await biensDesClients(['arnaud.jorel@gmail.com', 'gardien@x.fr', 'assistante@x.fr']);
     for (const [sql] of query.mock.calls) expect(String(sql)).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/i);
+  });
+});
+
+describe('🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE — le partenaire interne n’amène jamais de bien (R2)', () => {
+  it('une carte de contact existe pour lui : il rend quand même [] — ni bien d’office, ni proposition, ni pré-coche', async () => {
+    const r = await biensDesClients(['Compta@Adhoc.test', 'gestion.criterimmo@gmail.com']);
+    expect(r).toEqual({ 'compta@adhoc.test': [], 'gestion.criterimmo@gmail.com': [] });
+    /* Il n'est cherché NULLE PART : ni par l'annuaire, ni par les cartes, ni par l'immeuble. */
+    expect(chercherBiens).not.toHaveBeenCalled();
+    expect(cartes).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('transparent : avec un locataire extérieur, ce sont les biens du locataire qui comptent, et eux seuls', async () => {
+    const r = await biensDesClients(['compta@adhoc.test', 'l@x.fr', 'assistante@x.fr']);
+    expect(r['compta@adhoc.test']).toEqual([]);
+    expect(r['l@x.fr'].map((b) => b.cle)).toEqual(['3', '4']);
+    expect(r['assistante@x.fr'].map((b) => b.cle)).toEqual(['219']);
+    expect(cartes).toHaveBeenCalledWith(['assistante@x.fr']);
+  });
+
+  it('table des partenaires absente ou vide : notre adresse nommée (gestion.criterimmo@gmail.com) reste écartée', async () => {
+    partenaires.mockResolvedValue([]);
+    expect((await biensDesClients(['gestion.criterimmo@gmail.com']))['gestion.criterimmo@gmail.com']).toEqual([]);
+    expect(cartes).not.toHaveBeenCalled();
   });
 });

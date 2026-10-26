@@ -2,6 +2,8 @@ import { query } from '../db/client';
 import { categorieDuBien } from './categorieBien';
 import type { BienClient, BiensDesClients } from './contexteClients';
 import { adresseComplete } from './ficheBien';
+import { ADRESSES_INTERNES } from './adresseInterne';
+import { lirePartenairesInternes } from './partenaires';
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
 import { chercherBiens } from './rechercheBienRepo';
 import { cleImmeuble } from './syndics';
@@ -30,10 +32,22 @@ import { cleImmeuble } from './syndics';
  *   ses adresses secondaires en cours (la règle de `suggestionsBienRepo`, dans l'autre sens).
  * Aucune écriture, aucune ligne de journal.
  */
+/**
+ * ══ 🔴🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (Arno, 26/10/2026) — LA COMPTA EXTERNALISÉE N'AMÈNE AUCUN BIEN ══════════
+ * CONSTAT : un Nouveau message à « Service Gestion » (gestion.criterimmo@gmail.com, ADHOC) arrivait « Rattaché · 1 logement »
+ * (M. JOYCE, 54 avenue Puvis de Chavannes, lot 281). CAUSE : une carte de contact posée le 04/10/2026 par la reprise
+ * automatique des catégories (côté locataire de ce bien) ; depuis le 11/10, un e-mail rattaché à UN bien l'amène d'office.
+ * RÈGLE (R2) : une adresse de partenaire interne (`gestion_partenaire_interne`, et nos adresses nommées) ne provoque
+ * JAMAIS à elle seule un rattachement, un pré-cochage ni une proposition : elle rend `[]`, comme une adresse sans bien.
+ * Les AUTRES destinataires, eux, guident les biens comme avant (le partenaire est transparent). Les cartes et catégories
+ * en base ne sont pas touchées : seule la lecture les ignore pour cette adresse.
+ */
 export async function biensDesClients(adresses: readonly string[]): Promise<BiensDesClients> {
   const voulues = [...new Set(adresses.map((a) => a.trim().toLowerCase()).filter((a) => a.includes('@')))].slice(0, 20);
   const out: BiensDesClients = {};
+  const partenaires = new Set<string>([...ADRESSES_INTERNES, ...(voulues.length === 0 ? [] : (await lirePartenairesInternes()).map((p) => p.adresse))]);
   for (const a of voulues) {
+    if (partenaires.has(a)) { out[a] = []; continue; }
     const r = await chercherBiens(a, { limite: 50 });
     const biens: BienClient[] = [];
     for (const l of r.lignes) {
@@ -51,7 +65,7 @@ export async function biensDesClients(adresses: readonly string[]): Promise<Bien
     out[a] = biens;
   }
 
-  const sansBien = (): string[] => voulues.filter((a) => (out[a] ?? []).length === 0);
+  const sansBien = (): string[] => voulues.filter((a) => !partenaires.has(a) && (out[a] ?? []).length === 0);
   if (sansBien().length === 0) return out;
   const lots = await lotsPresents();
 

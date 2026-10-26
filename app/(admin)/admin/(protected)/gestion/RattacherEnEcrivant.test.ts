@@ -949,6 +949,31 @@ describe('🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — un bien rattaché SA
   });
 });
 
+describe('🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R3) — le bien de la fiche dit d’où il vient', () => {
+  const monterDepuisLaFiche = async (destinataires: string[]) => {
+    cibles = [{ sorte: 'lot', cle: '281', id: 64, libelle: '54 avenue Puvis de Chavannes — lot 281' }];
+    await act(async () => {
+      root.render(createElement(RattacherEnEcrivant, {
+        destinataires, objet: '', corps: '', pieces: [], cibles,
+        clesClients: new Set<string>(), clesDeBase: new Set(['281']), clesDeFiche: new Set(['281']),
+        onChange: (c) => { cibles = c; }, onFerme: () => { ferme += 1; },
+      }));
+    });
+    await calmer();
+  };
+  const motifs = () => [...container.querySelectorAll('.rec-bien .rec-motif')].map((m) => m.textContent);
+  it('écrit depuis la fiche : « rattaché car écrit depuis la fiche du bien », jamais « déjà rattaché »', async () => {
+    await monterDepuisLaFiche(['gestion.criterimmo@gmail.com']);
+    expect(motifs()).toEqual(['rattaché car écrit depuis la fiche du bien']);
+  });
+  it('changer de destinataire ne change pas la mention : le bien ne vient pas de l’adresse', async () => {
+    await monterDepuisLaFiche(['artisan@ailleurs.fr']);
+    expect(motifs()).toEqual(['rattaché car écrit depuis la fiche du bien']);
+    /* Et le bien reste coché (c'est voulu) : la fiche est le contexte du mail. */
+    expect(container.querySelector<HTMLInputElement>('.rec-bien input[type="checkbox"]')?.checked).toBe(true);
+  });
+});
+
 describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — « Valider — N bien(s) » rattache EXACTEMENT les N biens cochés', () => {
   const trouve = (cle: string, rue: string) => ({
     cle, lotId: Number(cle), libelle: `${rue}, 92000 VILLE — lot ${cle}`, adresse: `${rue}, 92000 VILLE`, adresseVoie: rue,

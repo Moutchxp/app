@@ -2679,6 +2679,12 @@ export function Redaction({
             }))}
           clesDeBase={new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
             .filter((c) => c.sorte === 'lot' && c.origine === undefined).map((c) => c.cle ?? ''))}
+          /* 🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R3) — le bien de la fiche d'où l'on écrit le dit (« rattaché car écrit
+             depuis la fiche du bien »), au lieu de « déjà rattaché » qui le faisait passer pour un bien venu de l'adresse. */
+          clesDeFiche={contexteFiche && lotOuvert !== null
+            ? new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
+              .filter((c) => c.sorte === 'lot' && c.origine === undefined && c.id === lotOuvert).map((c) => c.cle ?? ''))
+            : null}
           onChange={(cibles) => {
             // 🔴 COCHER UN BIEN LÈVE « INTERNE » : les deux réponses s'excluent (voir l'encadré de la modale).
             //   Les deux champs partent DANS LE MÊME appel : deux `modifier` successifs perdraient le premier,

@@ -15,6 +15,8 @@ import { CSS_ZONE_DEFILANTE } from './ZoneDefilante';
    « Modifier le rattachement » rend exactement le même. Cette fenêtre garde sa logique (brouillon, pré-coche). */
 import { CSS_LISTE_BIENS, ListeBiensACocher, useRechercheBiens } from './ListeBiensACocher';
 import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
+// 🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE — la raison écrite à côté d'un bien coché (module PUR, une seule écriture).
+import { motifBienCoche } from '../../../../lib/gestion/motifBienRattache';
 
 /**
  * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — « RATTACHER CE MAIL À… », PENDANT QU'ON L'ÉCRIT ═══════════════════════════
@@ -74,7 +76,8 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 }
 
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
+  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, clesDeFiche = null,
+  biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
   onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null, onBasculerMasquees, titrePropositions,
 }: {
@@ -113,6 +116,11 @@ export function RattacherEnEcrivant({
   clesClients?: ReadonlySet<string> | null;
   /** Les biens de BASE (fiche ouverte, réponse héritée) : ils ne dépendent pas des adresses, jamais « manuels ». */
   clesDeBase?: ReadonlySet<string> | null;
+  /**
+   * 🔴 LOT PARTENAIRE-INTERNE-JAMAIS-UNE-CLE (R3) — parmi les biens de base, celui de la FICHE d'où l'on écrit : il est dit
+   * « rattaché car écrit depuis la fiche du bien », quel que soit le destinataire. `null` (défaut) ⇒ les mentions d'avant.
+   */
+  clesDeFiche?: ReadonlySet<string> | null;
   /**
    * ══ 🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — TOUS LES BIENS DES ADRESSES PRÉSENTES ═══════════════════════════
    * Les adresses de À, Cc et Cci liées à des biens (clients, contacts du syndic, e-mail général, carnet de l'immeuble,
@@ -791,13 +799,7 @@ export function RattacherEnEcrivant({
                 cle: c,
                 // 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties dès que la fiche est lue.
                 parties: fiches[c]?.parties ?? null,
-                motif: origine === 'attente'
-                  ? (motif ?? '')
-                  : clesClients !== null && !clesClients.has(c) && !(clesDeBase?.has(c) ?? false)
-                    ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
-                    : origine === 'recherche'
-                      ? 'ajouté à la main depuis la recherche'
-                      : 'déjà rattaché — décochez pour le retirer',
+                motif: motifBienCoche({ cle: c, origine, motifAttente: motif, clesClients, clesDeBase, clesDeFiche }),
               };
             })}
             titre={titre} selection={selection} onBasculer={basculer}
