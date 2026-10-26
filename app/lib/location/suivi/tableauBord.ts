@@ -864,6 +864,8 @@ export interface ActiviteLue extends ActiviteCalcul {
   lots?: { id: number; libelle: string }[];
   /** 🔴 Arno (24/10/2026, Q1) — une ligne REPRISE rattachée à un bail affiche les noms de l'annuaire ; le texte du fichier reste ici. */
   libelleOrigine?: { proprietaire: string; locataire: string };
+  /** 🔴 Arno (26/10/2026, 431) — ligne « Bail » convertie en « Mandat de gestion seul » : quand, par qui, et sa nature et sa date d'origine. */
+  conversion?: { le: string; par: string; typeOrigine: string; dateOrigine: string } | null;
 }
 
 /** Ce que `/api/admin/location/suivi?vue=tableau` rend (l'année demandée et la précédente). */
@@ -882,6 +884,8 @@ export interface DonneesTableau {
   voirCommissions: boolean;
   /** 407 — les entrées en gestion et les mandats perdus de l'année (feuille du mois) ; les collègues (comptes Location) ; la 407 est-elle là ? */
   gestionLignes?: LigneGestion[];
+  /** 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés VIDES entrés en gestion sans locataire encore (date d'origine) : non comptés. */
+  gestionEnAttente?: LigneGestion[];
   collegues?: { id: number; libelle: string }[];
   annuaire?: boolean;
   /** 411 — l'origine « Personnalisé » peut-elle être choisie ? */

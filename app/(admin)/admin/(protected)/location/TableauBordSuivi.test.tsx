@@ -2416,3 +2416,32 @@ describe('🔴 une seule ligne par bien (lot principal + annexes)', () => {
     expect(sans.balance).toBe('+90,00 €');   // (50 + 65 + 15) gagnés − 40 perdus
   });
 });
+
+describe('🔴 431 — décision B : un bien rentré vide sans locataire est « en attente », visible et non compté', () => {
+  const ligne = (lotId: number, libelle: string, effetLe: string, loyerHc: number | null) => ({
+    lotId, libelle, proprietaire: 'TEST Test', effetLe, avant: null, apres: 'en_gestion', loyerHc, provisions: 0, base: 'hc' as const, tauxHt: loyerHc === null ? null : 5 });
+  const ouvrir = async (mois: string) => {
+    donnees = { ...donnees, gestionLignes: [ligne(436, '25 Rue Henri Barbusse, GENNEVILLIERS', '2026-10-20', 579.63)],
+      gestionEnAttente: [ligne(440, '12 Rue de l’Église, PARIS', '2026-10-26', null), ligne(442, '8 Rue Denfert - Rochereau, ASNIÈRES-SUR-SEINE', '2026-10-26', null)] };
+    await monter('mois');
+    await act(async () => { (container.querySelector(`[data-onglet-mois="${mois}"]`) as HTMLButtonElement).click(); });
+    await calmer();
+  };
+  it('octobre : « En attente de locataire (2) », REPLIÉ ; les deux biens hors des Nouvelles gestions et du titre', async () => {
+    await ouvrir('10');
+    const bloc = container.querySelector('[data-bloc="en-attente-locataire"]') as HTMLElement;
+    expect(bloc.getAttribute('data-replie')).toBe('replie');
+    expect(nbsp(bloc.querySelector('.tdb-replie-mot')?.textContent)).toBe('En attente de locataire (2)');
+    expect(container.querySelector('#fdm-gestions [data-compte-biens]')?.textContent).toBe('(1)');
+    expect([...container.querySelectorAll('[data-bloc="nouvelles-gestions"] [data-ligne-gestion]')].map((r) => r.getAttribute('data-ligne-gestion'))).toEqual(['436']);
+    await act(async () => { (bloc.querySelector('[data-deplier="en-attente-locataire"]') as HTMLButtonElement).click(); });
+    const biens = [...container.querySelectorAll('[data-attente-bien]')] as HTMLElement[];
+    expect(biens.map((b) => b.getAttribute('data-attente-bien'))).toEqual(['440', '442']);
+    expect(biens[0].querySelector('a')?.getAttribute('href')).toBe('/admin/location/bien/440');
+    expect(nbsp(biens[0].textContent)).toContain('entré en gestion le 26/10/2026, aucun locataire encore : non compté');
+  });
+  it('un autre mois (septembre) : aucun bloc — un bien en attente ne se montre qu’au mois de son entrée en gestion', async () => {
+    await ouvrir('9');
+    expect(container.querySelector('[data-bloc="en-attente-locataire"]')).toBeNull();
+  });
+});

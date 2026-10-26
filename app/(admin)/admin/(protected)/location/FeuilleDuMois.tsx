@@ -26,6 +26,7 @@ import {
 } from '../../../../lib/location/suivi/suivi';
 import { ChampNombre } from './ChampNombre';
 import { BulleAnnexes, CSS_BULLE_ANNEXES } from './BulleAnnexes';
+import { ConversionMandat } from './ConversionMandat';
 import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
 
 /**
@@ -219,6 +220,8 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                               data-fiche-bien={b.id} title={b.libelle}>{(a.lots ?? []).length > 1 ? `Fiche du bien — ${b.libelle}` : 'Fiche du bien'}</button>
                           )) : <span className="fdm-non-rattache" data-bien-non-rattache>Fiche du bien : non rattaché</span>}
                         </div>
+                        {/* 🔴 Arno (26/10/2026, décision C, 431) — une ligne « Bail » d'un locataire en place se convertit en « Mandat de gestion seul » (réversible). */}
+                        <ConversionMandat a={a} onFini={onRelire} />
                         {edition === a.id && (
                           <div className="fdm-edition">
                             <EditionLigne a={a} d={d} ctx={ctx} onFermer={() => setEdition(null)} onFini={() => { setEdition(null); onRelire(); }} />
@@ -240,6 +243,29 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
         <h3 id="fdm-gestions">Nouvelles gestions du mois <small className="loc-muet" data-compte-biens>({regrouperParBien(g.nouvelles, d.liensAnnexes).length})</small></h3>
         <TableGestion lignes={g.nouvelles} perdus={false} regle={regleA} liens={d.liensAnnexes} />
       </section>
+      {/* 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés VIDES entrés en gestion ce mois-ci sans locataire encore : non comptés (ils
+          entreront dans le suivi au mois d'entrée de leur 1er locataire), mais toujours VISIBLES — rien ne disparaît de l'écran. */}
+      {(() => {
+        const attente = regrouperParBien((d.gestionEnAttente ?? []).filter((l) => l.effetLe.slice(0, 7) === cle), d.liensAnnexes);
+        if (attente.length === 0) return null;
+        return (
+          <BlocReplie id="fdm-attente" section="en-attente-locataire" titre={`En attente de locataire (${attente.length})`}
+            resume="entrés en gestion ce mois-ci, rentrés vides : comptés au mois d’entrée de leur premier locataire" donnees={{ 'data-bloc': 'en-attente-locataire' }}>
+            <ul className="fdm-attente" data-liste-attente>
+              {attente.map((gr) => {
+                const l = gr.principal ?? gr.lignes[0];
+                return (
+                  <li key={gr.cle} data-attente-bien={gr.lotId ?? ''}>
+                    {gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : gr.libelle}
+                    {gr.annexes.length > 0 && <BulleAnnexes annexes={gr.annexes} place="dessous" repere={gr.cle} />}
+                    <span className="loc-muet"> — {l.proprietaire || 'propriétaire non renseigné'} — entré en gestion le {l.effetLe.split('-').reverse().join('/')}, aucun locataire encore : non compté</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </BlocReplie>
+        );
+      })()}
       <section className="tdb-section" aria-labelledby="fdm-perdus" data-bloc="mandats-perdus">
         <h3 id="fdm-perdus">Mandats de gestion perdus <small className="loc-muet" data-compte-biens>({regrouperParBien(g.perdues, d.liensAnnexes).length})</small></h3>
         <TableGestion lignes={g.perdues} perdus regle={regleA} liens={d.liensAnnexes} />

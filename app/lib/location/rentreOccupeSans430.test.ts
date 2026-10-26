@@ -10,9 +10,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const plat = (t: string): string => t.replace(/\s+/g, ' ');
 let colonnes = new Set<string>();
 const appels: string[] = [];
+/** 🔴 431 — la bascule « entrée au 1er locataire » lue en base (absente : la règle ne joue pas). */
+let basculeEntree: string | null = null;
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (t: string, c: string) => colonnes.has(`${t}.${c}`) }));
 vi.mock('../db/client', () => ({
-  query: vi.fn(async (sql: string) => { appels.push(plat(sql)); return { rows: [] }; }),
+  query: vi.fn(async (sql: string) => {
+    appels.push(plat(sql));
+    if (sql.includes("cle = 'bascule_entree_locataire'")) return { rows: basculeEntree === null ? [] : [{ v: basculeEntree }] };
+    return { rows: [] };
+  }),
   withTransaction: vi.fn(async () => { throw new Error('aucune transaction attendue'); }),
   closePool: vi.fn(async () => undefined),
 }));
@@ -21,27 +27,56 @@ vi.mock('node:fs', async (orig) => ({ ...(await orig<typeof import('node:fs')>()
 
 const AVEC_403 = ['gestion_annuaire_lot.statut_bien', 'gestion_annuaire_lot.statut_bien_depuis'];
 const AVEC_430 = ['gestion_annuaire_lot.entre_occupe', 'gestion_bail.en_place_prise_gestion', 'gestion_bien_statut_effet_corrige.effet_le'];
-beforeEach(() => { appels.length = 0; });
+beforeEach(() => { appels.length = 0; basculeEntree = null; });
 
 describe('le suivi : la date d’effet corrigée seulement si la 430 est là', () => {
-  it('SANS la 430 : la date d’origine des transitions, la table de corrections n’est jamais nommée', async () => {
-    colonnes = new Set(AVEC_403);
+  const lire = async () => {
     const { lireLignesGestion, lireGestion } = await import('./suivi/tableauBordRepo');
     await lireLignesGestion('2026-10-01', '2026-10-31');
     await lireGestion('2025-11-01');
-    expect(appels.filter((s) => s.includes('gestion_bien_statut_transition')).length).toBe(2);
+    return { lignes: appels.find((s) => s.includes('LATERAL')) ?? '', transitions: appels.find((s) => s.includes('x.effet_le >= $1')) ?? '' };
+  };
+  it('SANS la 430 : la date d’origine des transitions, la table de corrections n’est jamais nommée', async () => {
+    colonnes = new Set(AVEC_403);
+    const { lignes, transitions } = await lire();
     for (const s of appels) expect(s).not.toContain('gestion_bien_statut_effet_corrige');
-    expect(appels.find((s) => s.includes('LATERAL'))).toContain('WHERE t.effet_le BETWEEN $1 AND $2');
+    expect(lignes).toContain('WHERE t.effet_le BETWEEN $1 AND $2');
+    expect(transitions).toContain('t.effet_le AS effet_le');
   });
   it('AVEC la 430 : la correction vivante prime (coalesce), pour le mois, le compteur et le loyer du bail', async () => {
     colonnes = new Set([...AVEC_403, ...AVEC_430]);
-    const { lireLignesGestion, lireGestion } = await import('./suivi/tableauBordRepo');
+    const { lignes, transitions } = await lire();
+    const corrige = 'coalesce((SELECT c.effet_le FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = t.id AND c.retire_le IS NULL), t.effet_le)';
+    expect(lignes).toContain(corrige);
+    expect(transitions).toContain(corrige);
+  });
+});
+
+describe('🔴 431 — décision B : un bien rentré vide entre dans le suivi au 1er locataire (SQL par fragments)', () => {
+  it('SANS la bascule (431 absente) : la règle n’apparaît nulle part, aucune liste d’attente', async () => {
+    colonnes = new Set([...AVEC_403, ...AVEC_430, 'gestion_location_parametre_date.valeur']);
+    const { lireLignesGestion, lireGestionsEnAttente } = await import('./suivi/tableauBordRepo');
     await lireLignesGestion('2026-10-01', '2026-10-31');
-    await lireGestion('2025-11-01');
+    expect(await lireGestionsEnAttente('2026-10-01', '2026-10-31')).toEqual([]);
+    for (const s of appels) expect(s).not.toContain('gestion_annuaire_occupation o WHERE o.lot_id = t.lot_id');
+  });
+  it('AVEC la bascule au 01/10/2026 : correction, puis occupé (430), puis 1er locataire jamais avant la bascule, sinon NULL (en attente)', async () => {
+    colonnes = new Set([...AVEC_403, ...AVEC_430, 'gestion_location_parametre_date.valeur']);
+    basculeEntree = '2026-10-01';
+    const { lireLignesGestion, lireGestion, lireGestionsEnAttente } = await import('./suivi/tableauBordRepo');
+    await lireLignesGestion('2026-10-01', '2026-10-31');
     const lignes = appels.find((s) => s.includes('LATERAL')) ?? '';
-    expect(lignes).toContain('coalesce((SELECT c.effet_le FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = t.id AND c.retire_le IS NULL), t.effet_le)');
-    expect(lignes).toContain('BETWEEN $1 AND $2');
-    expect(appels.find((s) => s.includes('ORDER BY 4, t.id') && !s.includes('LATERAL'))).toContain('gestion_bien_statut_effet_corrige');
+    expect(lignes).toContain("t.effet_le >= DATE '2026-10-01' AND NOT coalesce((SELECT lo.entre_occupe FROM gestion_annuaire_lot lo WHERE lo.id = t.lot_id), false)");
+    expect(lignes).toContain("CASE WHEN z.m IS NULL THEN NULL ELSE greatest(DATE '2026-10-01', z.m) END");
+    expect(lignes).toContain('(o.sortie IS NULL OR o.sortie >= t.effet_le)');
+    expect(lignes).toContain('ELSE t.effet_le END');
+    // Le stock ne compte pas les biens en attente (sinon les mois passés grossiraient d'eux).
+    appels.length = 0;
+    await lireGestion('2025-11-01');
+    expect(appels.find((s) => s.includes("statut_bien = 'en_gestion'"))).toContain('WHERE d.effet IS NULL');
+    appels.length = 0;
+    await lireGestionsEnAttente('2026-10-01', '2026-10-31');
+    expect(appels.find((s) => s.includes('IS NULL ORDER BY t.effet_le'))).toContain('WHERE t.effet_le BETWEEN $1 AND $2');
   });
 });
 

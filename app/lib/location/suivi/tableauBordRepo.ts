@@ -78,6 +78,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   const avecStatut = await colonneExisteMemo('gestion_bien_statut_transition', 'effet_le');
   const avecBailOcc = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
   const avec424 = await statutBienManuelDisponible();
+  const avec431 = await colonneExisteMemo('gestion_location_activite', 'converti_le');
   const compte = (col: string): string => `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = a.${col})`;
   // 🔴 Arno (24/10/2026) — les LOCATAIRES et les BIENS de la ligne, lus dans l'annuaire (la source) : les raccourcis « Fiche
   // locataire » / « Fiche du bien » du panneau déplié. Locataires : les occupants du bail, sinon le locataire de la ligne ; biens :
@@ -96,6 +97,8 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
             ${avec411 ? 'a.origine_contact_precision' : 'NULL::text AS origine_contact_precision'},
             ${avec424 ? `a.statut_bien_manuel, a.statut_bien_valide_le, ${compte('statut_bien_valide_par')} AS statut_bien_valide_compte, a.statut_bien_valide_par_libelle`
               : 'NULL::text AS statut_bien_manuel, NULL::timestamptz AS statut_bien_valide_le, NULL::text AS statut_bien_valide_compte, NULL::text AS statut_bien_valide_par_libelle'},
+            ${avec431 ? 'a.converti_le, a.converti_par_libelle, a.type_origine, a.date_signature_origine'
+              : 'NULL::timestamptz AS converti_le, NULL::text AS converti_par_libelle, NULL::text AS type_origine, NULL::date AS date_signature_origine'},
             ${compte('negociateur_id')} AS negociateur_compte,
             ${avec407 ? compte('collegue_id') : 'NULL::text'} AS collegue_compte,
             -- 🔴 Arno (25/10/2026) — les FICHES des lots de la ligne (le « Type de bien » : une seule source, la fiche du bien).
@@ -144,6 +147,9 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
     finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
     locataires: fiches(r.locataires), lots: fiches(r.lots),
+    conversion: r.converti_le === null || r.converti_le === undefined ? null : {
+      le: r.converti_le instanceof Date ? r.converti_le.toISOString() : String(r.converti_le), par: String(r.converti_par_libelle ?? ''),
+      typeOrigine: String(r.type_origine ?? 'bail'), dateOrigine: iso(r.date_signature_origine) },
   }));
   // 🔴 Arno (25/10/2026) — la commission RÉCURRENTE sur la gestion, mois par mois (loyer révisé, vacance, sortie de gestion) : calculée à
   // chaque lecture, sur les seuls dossiers saisis dans l'outil (les montants repris du fichier restent tels quels).
@@ -166,10 +172,45 @@ export async function anneesActives(): Promise<number[]> {
  * du mandat d'un bien existant reconnu « rentré occupé » est posée à part (`gestion_bien_statut_effet_corrige`) et lue à la place de la
  * date d'origine. Sans la migration 430 : la date d'origine, exactement comme avant.
  */
-async function sqlEffet(alias: string): Promise<string> {
+async function sqlEffetCorrige(alias: string): Promise<string> {
   return (await colonneExisteMemo('gestion_bien_statut_effet_corrige', 'effet_le'))
     ? `coalesce((SELECT c.effet_le FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${alias}.id AND c.retire_le IS NULL), ${alias}.effet_le)`
     : `${alias}.effet_le`;
+}
+
+/** 🔴 431 — la date à partir de laquelle un bien rentré VIDE entre dans le suivi à l'entrée de son 1er locataire (paramètre ; `null` : jamais). */
+export async function lireBasculeEntreeLocataire(): Promise<string | null> {
+  if (!(await colonneExisteMemo('gestion_location_parametre_date', 'valeur'))) return null;
+  const r = (await query<{ v: string }>(
+    `SELECT valeur::text AS v FROM gestion_location_parametre_date WHERE cle = 'bascule_entree_locataire' ORDER BY pose_le DESC, id DESC LIMIT 1`)).rows[0];
+  return r !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(r.v) ? r.v : null;
+}
+
+/**
+ * ══ 🔴🔴 Arno (26/10/2026, décision B, migration 431) — LA DATE D'ENTRÉE D'UNE GESTION DANS LE SUIVI ══════════════════════════════════════
+ * Dans cet ordre :
+ *   ① une date d'effet CORRIGÉE (430 : bien existant reconnu « rentré occupé ») ;
+ *   ② un bien rentré OCCUPÉ (430) : la date d'effet d'origine — la date du mandat, posée à la création ;
+ *   ③ une ENTRÉE en gestion datée de la bascule (paramètre `bascule_entree_locataire`) ou après, d'un bien rentré VIDE (ou non renseigné) :
+ *      la date d'entrée de son PREMIER LOCATAIRE (occupation du lot encore en cours à l'entrée en gestion), jamais avant la bascule ;
+ *      sans locataire : NULL — le bien n'est pas compté, il est « en attente de locataire » (montré à part, jamais effacé) ;
+ *   ④ sinon : la date d'origine (tout ce qui précède la bascule, et toutes les sorties), exactement comme avant.
+ * Sans la 431 (aucune bascule) : ① ou la date d'origine, comme avant. L'historique (`gestion_bien_statut_transition`) n'est jamais réécrit.
+ */
+async function sqlEffet(alias: string): Promise<string> {
+  const corrige = await sqlEffetCorrige(alias);
+  const bascule = await lireBasculeEntreeLocataire();
+  if (bascule === null) return corrige;
+  const occupe = (await colonneExisteMemo('gestion_annuaire_lot', 'entre_occupe'))
+    ? `coalesce((SELECT lo.entre_occupe FROM gestion_annuaire_lot lo WHERE lo.id = ${alias}.lot_id), false)` : 'false';
+  const avecCorrection = await colonneExisteMemo('gestion_bien_statut_effet_corrige', 'effet_le');
+  const d = `DATE '${bascule}'`;
+  return `(CASE
+    WHEN ${avecCorrection ? `EXISTS (SELECT 1 FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${alias}.id AND c.retire_le IS NULL)` : 'false'} THEN ${corrige}
+    WHEN ${alias}.apres = 'en_gestion' AND ${alias}.avant IS DISTINCT FROM 'en_gestion' AND ${alias}.effet_le >= ${d} AND NOT ${occupe}
+      THEN (SELECT CASE WHEN z.m IS NULL THEN NULL ELSE greatest(${d}, z.m) END FROM (SELECT min(o.entree) AS m FROM gestion_annuaire_occupation o
+             WHERE o.lot_id = ${alias}.lot_id AND o.entree IS NOT NULL AND (o.sortie IS NULL OR o.sortie >= ${alias}.effet_le)) z)
+    ELSE ${alias}.effet_le END)`;
 }
 
 /** Les transitions de statut du bien depuis `depuis` (AAAA-MM-JJ), et le nombre de biens en gestion aujourd'hui. */
@@ -177,10 +218,16 @@ export async function lireGestion(depuis: string): Promise<{ transitions: Transi
   const avecStatut = await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien');
   if (!avecStatut) return { transitions: [], stock: 0, disponible: false };
   const effet = await sqlEffet('t');
+  // 🔴 431 — un bien « en attente de locataire » n'est pas compté : ni entrée, ni stock (sinon les mois passés grossiraient de lui).
   const [t, s] = await Promise.all([
     query<{ lot_id: string; avant: string | null; apres: string; effet_le: Date }>(
-      `SELECT t.lot_id, t.avant, t.apres, ${effet} AS effet_le FROM gestion_bien_statut_transition t WHERE ${effet} >= $1 ORDER BY 4, t.id`, [depuis]),
-    query<{ nb: string }>("SELECT count(*) AS nb FROM gestion_annuaire_lot WHERE statut_bien = 'en_gestion'"),
+      `SELECT x.lot_id, x.avant, x.apres, x.effet_le FROM (SELECT t.id, t.lot_id, t.avant, t.apres, ${effet} AS effet_le FROM gestion_bien_statut_transition t) x
+        WHERE x.effet_le >= $1 ORDER BY x.effet_le, x.id`, [depuis]),
+    query<{ nb: string }>(
+      `SELECT count(*) AS nb FROM gestion_annuaire_lot l WHERE l.statut_bien = 'en_gestion'
+          AND NOT EXISTS (SELECT 1 FROM (SELECT t.id, t.lot_id, t.avant, t.apres, t.effet_le, ${effet} AS effet FROM gestion_bien_statut_transition t
+                                           WHERE t.lot_id = l.id AND t.apres = 'en_gestion' AND t.avant IS DISTINCT FROM 'en_gestion'
+                                           ORDER BY t.survenu_le DESC, t.id DESC LIMIT 1) d WHERE d.effet IS NULL)`),
   ]);
   return {
     transitions: t.rows.map((r) => ({ lotId: n(r.lot_id), avant: r.avant, apres: r.apres, effetLe: iso(r.effet_le) })),
@@ -208,11 +255,35 @@ export async function lireLignesGestion(debut: string, fin: string): Promise<Lig
           ORDER BY b.entree DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
       WHERE ${effet} BETWEEN $1 AND $2 AND (t.apres = 'en_gestion' OR t.avant = 'en_gestion')
       ORDER BY 4, t.id`, [debut, fin]);
-  return rows.map((r) => ({
+  return rows.map(ligneGestionLue);
+}
+
+/**
+ * 🔴 Arno (26/10/2026, décision B, 431) — LES BIENS « EN ATTENTE DE LOCATAIRE » : entrés en gestion (date d'origine dans la période) depuis
+ * la bascule, rentrés vides, sans locataire encore — ni comptés, ni effacés : montrés dans le bloc replié de la page du mois. Sans la 431 :
+ * aucun. LECTURE SEULE.
+ */
+export async function lireGestionsEnAttente(debut: string, fin: string): Promise<LigneGestion[]> {
+  if (!(await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien')) || (await lireBasculeEntreeLocataire()) === null) return [];
+  const effet = await sqlEffet('t');
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT t.lot_id, t.avant, t.apres, t.effet_le, concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS libelle,
+            coalesce(p.nom_complet, '') AS proprietaire, NULL::numeric AS loyer_hc, NULL::numeric AS provisions, NULL::text AS base, NULL::numeric AS taux_gestion_ht
+       FROM gestion_bien_statut_transition t
+       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id
+      WHERE t.effet_le BETWEEN $1 AND $2 AND t.apres = 'en_gestion' AND t.avant IS DISTINCT FROM 'en_gestion' AND ${effet} IS NULL
+      ORDER BY t.effet_le, t.id`, [debut, fin]);
+  return rows.map(ligneGestionLue);
+}
+
+/** Une ligne de gestion lue (entrée, sortie, ou en attente). */
+function ligneGestionLue(r: Record<string, unknown>): LigneGestion {
+  return {
     lotId: n(r.lot_id), libelle: String(r.libelle || `Bien n° ${r.lot_id}`), proprietaire: String(r.proprietaire), effetLe: iso(r.effet_le),
     avant: (r.avant as string | null) ?? null, apres: String(r.apres), loyerHc: nOuNull(r.loyer_hc), provisions: nOuNull(r.provisions),
     base: (r.base as 'cc' | 'hc' | null) ?? null, tauxHt: nOuNull(r.taux_gestion_ht),
-  }));
+  };
 }
 
 /**
@@ -287,6 +358,8 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
     lireGestionsPerduesFichier(debutHisto, `${annee}-12-31`), lireEcartsFichier(o.toutes === true ? debutHisto : `${annee}-01-01`, `${annee}-12-31`),
   ]);
   const gestionLignes = [...gestionTransitions, ...pertesFichier];
+  // 🔴 Arno (26/10/2026, décision B, 431) — les biens rentrés vides sans locataire encore : montrés, jamais comptés.
+  const gestionEnAttente = await lireGestionsEnAttente(debutHisto, `${annee}-12-31`);
   // 🔴 Arno (25/10/2026, 427) — les nouvelles GLI de l'année (baux avec gestion) et la marge versionnée : visibles de tous ceux qui voient le Portefeuille.
   const [gli, margesGli] = await Promise.all([lireGli(debutHisto, `${annee}-12-31`), lireMargesGli()]);
   /* 🔒 Arno (23/10/2026) — les PRIMES de gestion se voient dans la feuille du mois (colonne « Gestion ») ; le TAUX du négociateur
@@ -320,7 +393,7 @@ export async function donneesTableau(annee: number, voirCommissions: boolean, au
   return {
     disponible, annee, annees: [...new Set([...annees, annee, Number(aujourdhui.slice(0, 4))])].sort(), aujourdhui, activites: visibles,
     regles, apporteurs, retrocessions: retroVisibles, negociateurs: [...negociateurs.entries()].map(([cle, libelle]) => ({ cle, libelle })).sort((x, y) => x.libelle.localeCompare(y.libelle)),
-    gestion, preavis, voirCommissions, gestionLignes, collegues, annuaire, historique, recurrents,
+    gestion, preavis, voirCommissions, gestionLignes, gestionEnAttente, collegues, annuaire, historique, recurrents,
     personnalisable: await colonneExisteMemo('gestion_location_activite', 'origine_contact_precision'),
     dejaClient: await origineDejaClientDisponible(),
     statutBienManuel: await statutBienManuelDisponible(),

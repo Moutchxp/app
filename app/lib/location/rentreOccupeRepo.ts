@@ -3,6 +3,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import type { Auteur } from '../gestion/gestes';
 import type { Issue } from './locationRepo';
 import { dateFr, MENTION_EN_PLACE, type RentreOccupeDuBien } from './rentreOccupe';
+import { conversionDisponible, convertirDans } from './suivi/conversionMandatRepo';
 export type { RentreOccupeDuBien } from './rentreOccupe';
 
 /**
@@ -129,13 +130,27 @@ export async function etatDuCas(lotId: number): Promise<EtatCas | null> {
  * jamais réécrite ; le bail du locataire en place marqué (s'il est donné). Les lignes de suivi commercial ne sont PAS touchées : elles
  * sont listées, à corriger par Arno dans « Suivi du mois ». Une seule transaction ; rien n'est supprimé ; tout est journalisé.
  */
-export async function appliquerCas(o: { lotId: number; dateMandat: string; bailId: number | null }, auteur: Auteur): Promise<Issue<{ lignes: string[] }>> {
+export async function appliquerCas(o: { lotId: number; dateMandat: string; bailId: number | null; ligneSuivi?: number | null }, auteur: Auteur): Promise<Issue<{ lignes: string[] }>> {
   if (!(await rentreOccupeDisponible()) || !(await colonneExisteMemo('gestion_bien_statut_effet_corrige', 'effet_le'))) return { etat: 'sans_schema' };
   const avant = await etatDuCas(o.lotId);
   if (avant === null) return { etat: 'inconnu' };
   if (avant.statut !== 'en_gestion') return { etat: 'refus', motif: `Le bien ${o.lotId} n’est pas « en gestion » (statut : ${avant.statut ?? '—'}).` };
   if (avant.entree === null) return { etat: 'refus', motif: `Le bien ${o.lotId} n’a aucune entrée en gestion journalisée.` };
   if (o.bailId !== null && !avant.baux.some((b) => b.bailId === o.bailId)) return { etat: 'refus', motif: `Le bail ${o.bailId} n’est pas un bail du bien ${o.lotId}.` };
+  /* 🔴 Arno (26/10/2026, décision D, 431) — la ligne de suivi du bail en place, CONVERTIE dans la même transaction. Vérifiée avant d'écrire :
+     elle doit être une ligne d'un bail de ce bien ; déjà convertie : rien à refaire. */
+  const ligne = o.ligneSuivi ?? null;
+  let convertir = false;
+  if (ligne !== null) {
+    if (!(await conversionDisponible())) return { etat: 'refus', motif: 'Convertir une ligne de suivi : disponible après la mise à jour (migration 431).' };
+    const l = (await query<{ bail_id: string | null; type: string; converti: boolean; annule: boolean }>(
+      'SELECT bail_id::text, type, converti_le IS NOT NULL AS converti, annule_le IS NOT NULL AS annule FROM gestion_location_activite WHERE id = $1', [ligne])).rows[0];
+    if (l === undefined) return { etat: 'refus', motif: `La ligne de suivi n° ${ligne} n’existe pas.` };
+    if (l.bail_id === null || !avant.baux.some((b) => b.bailId === Number(l.bail_id))) return { etat: 'refus', motif: `La ligne de suivi n° ${ligne} n’est pas celle d’un bail du bien ${o.lotId}.` };
+    if (l.annule) return { etat: 'refus', motif: `La ligne de suivi n° ${ligne} est annulée.` };
+    if (!l.converti && l.type !== 'bail') return { etat: 'refus', motif: `La ligne de suivi n° ${ligne} n’est pas un « Bail » (« ${l.type} »).` };
+    convertir = !l.converti;
+  }
   const entree = avant.entree;
   const origine = entree.corrigeeLe ?? entree.effetLe;
   const motif = `bien rentré occupé : entrée dans le suivi à la date du mandat de gestion (${dateFr(o.dateMandat)}) — script location:rentre-occupe`;
@@ -160,6 +175,12 @@ export async function appliquerCas(o: { lotId: number; dateMandat: string; bailI
     if (o.bailId !== null && !avant.baux.find((b) => b.bailId === o.bailId)?.enPlace) {
       await q('UPDATE gestion_bail SET en_place_prise_gestion = true WHERE id = $1', [o.bailId]);
       lignes.push(`bail ${o.bailId} : ${MENTION_EN_PLACE}`);
+    }
+    if (convertir && ligne !== null) {
+      const c = await convertirDans(q, ligne, o.dateMandat, auteur);
+      // Un refus ici (la ligne a changé entre la lecture et l'écriture) défait TOUTE la transaction : rien n'est écrit à moitié.
+      if ('refus' in c) throw new Error(`conversion refusée : ${c.refus}`);
+      lignes.push(c.fait);
     }
     if (lignes.length > 0) {
       await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)

@@ -7,12 +7,13 @@
  *     commencé au moins N jours avant — `--ecart=90` par défaut), pour qu'Arno décide au cas par cas. Aucun n'est modifié.
  * `--appliquer` (avec `--bien=<id> --date-mandat=AAAA-MM-JJ`, et `--bail=<id>` pour le bail du locataire en place) : le bien marqué
  * « rentré occupé », la date du mandat posée comme date d'effet corrigée de son entrée en gestion (la transition d'origine est gardée),
- * le bail marqué « locataire en place à la prise en gestion ». UNE transaction, journalisée ; rien n'est supprimé. Les lignes de suivi
- * commercial ne sont jamais touchées (listées : à corriger dans « Suivi du mois »).
+ * le bail marqué « locataire en place à la prise en gestion », et — 🔴 Arno (26/10/2026, décision D, 431) — avec `--ligne-suivi=<id>`, la
+ * ligne de suivi « Bail » de ce bail CONVERTIE en « Mandat de gestion seul » (date du mandat, hors « Baux signés » et CA ; réversible dans
+ * « Suivi du mois »). UNE transaction, journalisée ; rien n'est supprimé. Sans --ligne-suivi, les lignes de suivi ne sont pas touchées.
  * Rapport : `.captures/rentre-occupe/rapport-<date>.txt` (ou `--rapport=`).
  *
  * Lancer : npm run location:rentre-occupe -- --bien=123                                   → DRY-RUN
- *          npm run location:rentre-occupe -- --bien=123 --date-mandat=2026-10-15 --bail=456 --appliquer
+ *          npm run location:rentre-occupe -- --bien=123 --date-mandat=2026-10-15 --bail=456 --ligne-suivi=789 --appliquer
  */
 import '../lib/chargerEnv';
 import { writeFileSync } from 'node:fs';
@@ -45,6 +46,7 @@ export async function main(argvBrut: readonly string[] = process.argv.slice(2)):
   const appliquer = argv.includes('--appliquer');
   const bien = entier(optionLigne(argv, 'bien'));
   const bail = entier(optionLigne(argv, 'bail'));
+  const ligneSuivi = entier(optionLigne(argv, 'ligne-suivi'));
   const dateMandat = optionLigne(argv, 'date-mandat');
   const ecart = entier(optionLigne(argv, 'ecart')) ?? ECART_CANDIDAT_JOURS;
   const lignes: string[] = [`[location:rentre-occupe] ${appliquer ? 'APPLIQUER' : 'DRY-RUN (aucune écriture)'} — ${new Date().toISOString()}`];
@@ -62,7 +64,7 @@ export async function main(argvBrut: readonly string[] = process.argv.slice(2)):
           const d = verifierRentreOccupe({ entreOccupe: true, dateMandat }, true, new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }));
           if (!d.ok) dire(`Refusé : ${d.motif} (--date-mandat=AAAA-MM-JJ, à confirmer par Arno).`);
           else {
-            const r = await appliquerCas({ lotId: bien, dateMandat: d.dateEffet ?? '', bailId: bail }, AUTEUR);
+            const r = await appliquerCas({ lotId: bien, dateMandat: d.dateEffet ?? '', bailId: bail, ligneSuivi }, AUTEUR);
             if (r.etat !== 'ok') dire(`Refusé : ${r.etat === 'refus' ? r.motif : r.etat}. Rien n’a été écrit.`);
             else {
               dire(r.data.lignes.length === 0 ? 'Rien à faire : déjà dans cet état.' : `Écrit (une transaction, journalisée) :\n  ${r.data.lignes.join('\n  ')}`);
@@ -73,7 +75,9 @@ export async function main(argvBrut: readonly string[] = process.argv.slice(2)):
         } else {
           dire(`── CE QUE --appliquer FERAIT${dateMandat ? ` (date du mandat ${dateFr(dateMandat)})` : ' (donnez --date-mandat=AAAA-MM-JJ, à confirmer par Arno)'} :`);
           dire(`  bien ${bien} marqué « rentré occupé » ; entrée en gestion ${avant.entree === null ? '—' : dateFr(avant.entree.corrigeeLe ?? avant.entree.effetLe)} → date du mandat (correction, l’origine est gardée) ;`);
-          dire(`  ${bail === null ? 'aucun bail marqué (donnez --bail=<id> pour le bail du locataire en place)' : `bail ${bail} marqué « ${MENTION_EN_PLACE} »`} ; lignes de suivi : non touchées.`);
+          dire(`  ${bail === null ? 'aucun bail marqué (donnez --bail=<id> pour le bail du locataire en place)' : `bail ${bail} marqué « ${MENTION_EN_PLACE} »`} ;`);
+          dire(`  ${ligneSuivi === null ? 'lignes de suivi : non touchées (donnez --ligne-suivi=<id> pour convertir la ligne « Bail » du locataire en place)'
+            : `ligne de suivi ${ligneSuivi} : « Bail » → « Mandat de gestion seul » daté du mandat (hors « Baux signés » et CA ; nature et date d’origine gardées)`}.`);
         }
       }
     }

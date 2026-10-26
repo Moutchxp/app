@@ -17,6 +17,7 @@ import { peutVoirResultatNet } from '../../../../../lib/admin/resultatNet';
 import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../../lib/location/origineProprietaireRepo';
 import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
 import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
+import { annulerConversion, conversionDisponible, convertirEnMandatSeul, dateMandatProposee } from '../../../../../lib/location/suivi/conversionMandatRepo';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -161,6 +162,23 @@ export async function POST(request: Request): Promise<Response> {
         const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran },
           () => enregistrerOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur, admin));
         return json(r, r.etat === 'conflit' ? 409 : 200);
+      }
+      // 🔴 Arno (26/10/2026, décision C, 431) — « Convertir en « Mandat de gestion seul » » (locataire en place) et son annulation ; la date du
+      // mandat proposée (celle du mandat de gestion du propriétaire) et la disponibilité, en lecture.
+      case 'proposer-conversion': {
+        const id = Number(corps.id);
+        if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
+        return json({ etat: 'ok', data: { disponible: await conversionDisponible(), dateProposee: await dateMandatProposee(id) } });
+      }
+      case 'convertir-mandat-seul': {
+        const id = Number(corps.id);
+        if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
+        return json(await convertirEnMandatSeul(id, typeof corps.dateMandat === 'string' ? corps.dateMandat : '', auteur));
+      }
+      case 'annuler-conversion': {
+        const id = Number(corps.id);
+        if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
+        return json(await annulerConversion(id, auteur));
       }
       case 'statut-bien': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' },
         () => validerStatutBien(corps.id, corps.statut ?? null, auteur)));
