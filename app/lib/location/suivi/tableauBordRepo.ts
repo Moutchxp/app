@@ -161,13 +161,25 @@ export async function anneesActives(): Promise<number[]> {
   return rows.map((r) => n(r.annee));
 }
 
+/**
+ * 🔴 Arno (26/10/2026, 430) — LA DATE D'EFFET D'UNE TRANSITION, CORRECTION COMPRISE : le journal des transitions est en ajout seul ; la date
+ * du mandat d'un bien existant reconnu « rentré occupé » est posée à part (`gestion_bien_statut_effet_corrige`) et lue à la place de la
+ * date d'origine. Sans la migration 430 : la date d'origine, exactement comme avant.
+ */
+async function sqlEffet(alias: string): Promise<string> {
+  return (await colonneExisteMemo('gestion_bien_statut_effet_corrige', 'effet_le'))
+    ? `coalesce((SELECT c.effet_le FROM gestion_bien_statut_effet_corrige c WHERE c.transition_id = ${alias}.id AND c.retire_le IS NULL), ${alias}.effet_le)`
+    : `${alias}.effet_le`;
+}
+
 /** Les transitions de statut du bien depuis `depuis` (AAAA-MM-JJ), et le nombre de biens en gestion aujourd'hui. */
 export async function lireGestion(depuis: string): Promise<{ transitions: Transition[]; stock: number; disponible: boolean }> {
   const avecStatut = await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien');
   if (!avecStatut) return { transitions: [], stock: 0, disponible: false };
+  const effet = await sqlEffet('t');
   const [t, s] = await Promise.all([
     query<{ lot_id: string; avant: string | null; apres: string; effet_le: Date }>(
-      'SELECT lot_id, avant, apres, effet_le FROM gestion_bien_statut_transition WHERE effet_le >= $1 ORDER BY effet_le, id', [depuis]),
+      `SELECT t.lot_id, t.avant, t.apres, ${effet} AS effet_le FROM gestion_bien_statut_transition t WHERE ${effet} >= $1 ORDER BY 4, t.id`, [depuis]),
     query<{ nb: string }>("SELECT count(*) AS nb FROM gestion_annuaire_lot WHERE statut_bien = 'en_gestion'"),
   ]);
   return {
@@ -183,18 +195,19 @@ export async function lireGestion(depuis: string): Promise<{ transitions: Transi
  */
 export async function lireLignesGestion(debut: string, fin: string): Promise<LigneGestion[]> {
   if (!(await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien'))) return [];
+  const effet = await sqlEffet('t');
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT t.lot_id, t.avant, t.apres, t.effet_le, concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS libelle,
+    `SELECT t.lot_id, t.avant, t.apres, ${effet} AS effet_le, concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(btrim(l.commune), '')) AS libelle,
             coalesce(p.nom_complet, '') AS proprietaire, c.loyer_hc, c.provisions, c.base, c.taux_gestion_ht
        FROM gestion_bien_statut_transition t
        JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        LEFT JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id
        LEFT JOIN LATERAL (
          SELECT x.loyer_hc, x.provisions, x.base, x.taux_gestion_ht FROM gestion_bail b JOIN gestion_location_conditions x ON x.bail_id = b.id
-          WHERE b.lot_id = t.lot_id AND (b.entree IS NULL OR b.entree <= t.effet_le + 62)
+          WHERE b.lot_id = t.lot_id AND (b.entree IS NULL OR b.entree <= ${effet} + 62)
           ORDER BY b.entree DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
-      WHERE t.effet_le BETWEEN $1 AND $2 AND (t.apres = 'en_gestion' OR t.avant = 'en_gestion')
-      ORDER BY t.effet_le, t.id`, [debut, fin]);
+      WHERE ${effet} BETWEEN $1 AND $2 AND (t.apres = 'en_gestion' OR t.avant = 'en_gestion')
+      ORDER BY 4, t.id`, [debut, fin]);
   return rows.map((r) => ({
     lotId: n(r.lot_id), libelle: String(r.libelle || `Bien n° ${r.lot_id}`), proprietaire: String(r.proprietaire), effetLe: iso(r.effet_le),
     avant: (r.avant as string | null) ?? null, apres: String(r.apres), loyerHc: nOuNull(r.loyer_hc), provisions: nOuNull(r.provisions),

@@ -22,6 +22,8 @@ import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
 import { ModaleIssue } from './ModaleIssue';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
+// 🔴 Arno (26/10/2026, 430) — le locataire EN PLACE à la prise en gestion (bien « rentré occupé »).
+import { activiteEnPlace, dateFr, MENTION_EN_PLACE, type RentreOccupeDuBien } from '../../../../lib/location/rentreOccupe';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
@@ -97,11 +99,28 @@ export function LotsLoues({ lotId, coches, onCoches, onLots }: { lotId: number; 
  * PRÉVOIR est la donnée DU BIEN (même composant, même donnée que « Nouveau bien ») : pré-rempli depuis le bien, posé sur
  * lui ; un parking ou une cave n'en a pas. Sans la migration 391, le bloc le dit et le locataire se crée comme avant.
  */
-export function CreationLocataire() {
+/**
+ * 🔴 Arno (26/10/2026, 430) — `bienInitial` + `enPlace` : ouvert dans la foulée de « Nouveau bien » (« loué au moment de la prise en
+ * gestion ? » Oui). Le MÊME formulaire, rien de retiré : le bien est choisi d'office, la date d'entrée est la date RÉELLE du bail du
+ * locataire en place (ex. 2014), et le suivi commercial est celui du MANDAT DE GESTION (« Mandat de gestion seul », daté du mandat,
+ * sans honoraire de location : ni « Baux signés », ni CA). Le bail créé est marqué « locataire en place à la prise en gestion ».
+ * Absents : l'écran de toujours.
+ */
+export function CreationLocataire({ bienInitial = null, enPlace = false }: { bienInitial?: number | null; enPlace?: boolean }) {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
   const [filtreBien, setFiltreBien] = useState('');
   const [terme, setTerme] = useState('');
   const [bien, setBien] = useState<{ id: number; titre: string; enGestion?: boolean } | null>(null);
+  const occupeLu = useLecture<RentreOccupeDuBien | null>(enPlace && bienInitial !== null ? `rentreOccupe=${bienInitial}` : null);
+  const occupe = occupeLu.etat.etat === 'ok' && occupeLu.etat.data !== null && occupeLu.etat.data.entreOccupe === true ? occupeLu.etat.data : null;
+  // Le bien choisi d'office, UNE fois, dès la réponse lue (mise à jour pendant le rendu, gardée : pas d'effet en cascade).
+  const [bienPose, setBienPose] = useState(false);
+  if (!bienPose && occupe !== null) {
+    setBienPose(true);
+    setBien({ id: occupe.lotId, titre: occupe.titre, enGestion: true });
+  }
+  /** Le mode « locataire en place » ne vaut que pour LE bien rentré occupé ; changer de bien revient à l'écran de toujours. */
+  const modeEnPlace = occupe !== null && bien?.id === occupe.lotId ? occupe : null;
   /* Arno (21/10/2026, 403) — l'envoi à ADHOC & MONGA ne concerne que les biens EN GESTION : un bien en location seule (ou en
      ancienne gestion) choisi ne montre ni « Enregistrer et envoyer », ni l'envoi après l'enregistrement. */
   const envoiPermis = bien === null || bien.enGestion !== false;
@@ -195,7 +214,8 @@ export function CreationLocataire() {
   const manquesBloc = manquesConditions(versEnvoiConditions(saisieConditions), { complet: true });
   /* Arno (21/10/2026, 402) — LE MONTANT DES HONORAIRES PROPRIÉTAIRE : toujours saisissable ; pré-rempli par le calcul tant qu'il
      n'a pas été modifié à la main ; modifié → envoyé tel quel (« saisi à la main »), jamais recalculé ensuite. */
-  const [honoSaisie, setHonoSaisie] = useState<{ valeur: string; manuel: boolean }>({ valeur: '', manuel: false });
+  // 🔴 430 — locataire en place : aucun honoraire de location n'est dû à l'agence — 0 pré-rempli (modifiable, comme toujours).
+  const [honoSaisie, setHonoSaisie] = useState<{ valeur: string; manuel: boolean }>(enPlace ? { valeur: '0', manuel: true } : { valeur: '', manuel: false });
   const montantHono = honoSaisie.manuel ? montantHonorairesSaisi(honoSaisie.valeur) : null;
   const manqueHono: Record<string, string> = !avecConditions ? {}
     // 🔴 Arno (25/10/2026) — le montant est OBLIGATOIRE : calculé au barème (pré-rempli), sinon à saisir ; 0 accepté.
@@ -383,9 +403,15 @@ export function CreationLocataire() {
     // Arno (21/10/2026) : l'écran RESTE (plus de départ silencieux vers la fiche) et le succès s'ouvre en modale — sauf
     // « Enregistrer et envoyer », qui ouvre directement la fenêtre d'envoi du bail créé (choix du 21/10/2026).
     // Bloc 4 — le suivi commercial du bail créé : un échec est DIT (le locataire, lui, est enregistré).
+    // 🔴 430 — le bail du locataire en place est MARQUÉ (avant son suivi : le serveur en déduit le « Mandat de gestion seul »).
+    if (modeEnPlace !== null && bailId !== null) {
+      const m = await envoyer({ action: 'marquer-bail-en-place', bailId });
+      if (m.motif !== null) annonces.push(`Le locataire est enregistré, mais son bail n’est pas encore marqué « ${MENTION_EN_PLACE} » : ${m.motif}`);
+    }
     if (avecSuivi && bailId !== null) {
+      const base = { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions };
       const rs = await posterSuivi({ action: 'enregistrer-activite', bailId,
-        activite: { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions } }, { propre: true });
+        activite: modeEnPlace !== null ? activiteEnPlace(base, modeEnPlace.dateMandat) : base }, { propre: true });
       if (rs.motif !== null) annonces.push(`Le locataire est enregistré, mais pas son suivi commercial : ${rs.motif}`);
       // 🔴 Arno (25/10/2026) — le « Type de bien » n'a pas été reporté sur la fiche du bien (lots de familles différentes) : dit.
       const note = (rs.data as { note?: unknown } | undefined)?.note;
@@ -413,6 +439,17 @@ export function CreationLocataire() {
       <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); envoyerApres.current = false; setIntentionEnvoi(false); void enregistrer(); }} data-formulaire-page />
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN + CSS_SUIVI_COMMERCIAL + CSS_BOUTON_BIEN}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
+      {modeEnPlace !== null && (
+        <p className="loc-alerte loc-alerte--orange" role="status" data-locataire-en-place>
+          <strong>Locataire en place à la prise en gestion</strong> — {modeEnPlace.titre}. Saisissez le locataire déjà dans les lieux, avec la date
+          <strong> réelle</strong> de son bail (ex. 2014). Ce bail n’est pas un bail signé par l’agence : il n’entre pas dans « Baux signés » et ne
+          génère aucun honoraire de location. Le suivi commercial (bloc 4) est celui du mandat de gestion
+          {modeEnPlace.dateMandat !== null ? ` du ${dateFr(modeEnPlace.dateMandat)}` : ''}.</p>
+      )}
+      {enPlace && bienInitial !== null && occupeLu.etat.etat === 'ok' && occupe === null && (
+        <p className="loc-alerte loc-alerte--orange" role="status" data-locataire-en-place-indisponible>
+          Ce bien n’est pas marqué « loué au moment de la prise en gestion » : le formulaire est celui d’une location ordinaire.</p>
+      )}
 
       <section className="loc-section" aria-labelledby="loc-l1">
         <h3 id="loc-l1"><span className="loc-num">1</span>Le ou les locataires</h3>
@@ -504,7 +541,8 @@ export function CreationLocataire() {
           ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
           onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
           onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t }, agenceManuel: t !== '' }))}
-          manque={manqueDe('suivi')} loyer={conditions.loyer} typeBien={typeBien} />
+          manque={manqueDe('suivi')} loyer={conditions.loyer} typeBien={typeBien}
+          {...(modeEnPlace !== null ? { enPlace: { dateMandat: modeEnPlace.dateMandat } } : {})} />
       </section>
 
       {recap !== null && (

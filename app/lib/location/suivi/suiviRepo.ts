@@ -1,6 +1,8 @@
 import 'server-only';
 import { query, withTransaction } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
+// 🔴 Arno (26/10/2026, 430) — le bail d'un locataire en place à la prise en gestion (jamais un bail signé par l'agence).
+import { bailEnPlace } from '../rentreOccupeRepo';
 import { familleDuLot, sqlLotParking } from '../bienComplet';
 import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
@@ -1002,7 +1004,18 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
       if (lots.rows[0]?.tous === false) return { etat: 'refus', motif: MOT_PARKING_SEUL } as const;
     }
     const prime: CategoriePrime = await categorieEnregistrable(categoriePrime ?? categoriePrimeDeFamille(familleDuLot({ categorie: b.categorie, nature: b.nature, typeBien: b.type_bien })));
-    const a: ActiviteVerifiee = v.valeurs;
+    /* 🔴 Arno (26/10/2026, 430) — LE BAIL D'UN LOCATAIRE EN PLACE À LA PRISE EN GESTION n'est jamais un bail signé par l'agence : son suivi
+       est un « Mandat de gestion seul » (hors « Baux signés »), sans honoraire de location (hors CA, aucune commission d'apporteur sur la
+       location). Imposé ICI, d'après la marque du bail — l'écran ne peut pas le contourner ; un « Mandat de gestion seul » envoyé tel
+       quel suit la même règle. Une seule ligne de ce type par bail (lu avant d'écrire). */
+    const enPlace = await bailEnPlace(id);
+    const brute: ActiviteVerifiee = v.valeurs;
+    const seule = enPlace || brute.type === 'gestion_seule';
+    const a: ActiviteVerifiee = seule ? { ...brute, type: 'gestion_seule', honoProprietaireHt: 0, honoLocataireHt: 0 } : brute;
+    if (seule) {
+      const deja = await q('SELECT 1 FROM gestion_location_activite WHERE bail_id = $1 AND type = $2 AND annule_le IS NULL', [id, 'gestion_seule']);
+      if (deja.rows.length > 0) return { etat: 'refus', motif: 'Le suivi de ce mandat de gestion est déjà enregistré : modifiez-le depuis « Suivi du mois ».' } as const;
+    }
     // 🔴 Arno (24/10/2026) — UNE seule prime de nouvelle gestion par bien : le serveur refuse la seconde (lu AVANT d'écrire).
     const veutUnePrime = a.primeMode === 'aucune' ? false : a.primeMode === 'personnalise' ? (a.primeMontant ?? 0) > 0
       : a.primeMode === 'regle' ? true : a.mandatGestion;
@@ -1028,7 +1041,7 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
          loyer_hc = EXCLUDED.loyer_hc, charges = EXCLUDED.charges,
          modifie_le = now(), modifie_par_libelle = $22
        RETURNING id`,
-      [a.type === 'avenant' ? 'avenant' : 'bail', a.dateSignature, id, lotId, proprietaireId, locs.rows[0] ? num(locs.rows[0].id) : null,
+      [a.type === 'avenant' ? 'avenant' : a.type === 'gestion_seule' ? 'gestion_seule' : 'bail', a.dateSignature, id, lotId, proprietaireId, locs.rows[0] ? num(locs.rows[0].id) : null,
         b.proprio ?? '', locs.rows.map((r) => r.libelle).join(', '), a.honoProprietaireHt, a.honoLocataireHt,
         a.negociateurId, negociateur ?? '', a.apporteurId, a.apporteurTaux, a.mandatGestion, prime, a.avecGestion,
         origines.proprietaire, a.origineProprietaire, origines.locataire, a.origineLocataire, auteur.libelle,

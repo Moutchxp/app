@@ -30,6 +30,9 @@ import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 import { CSS_FETE } from './FeteOui';
 import { QuestionEnGestion } from './QuestionEnGestion';
 import { LignesMandat } from './LignesMandat';
+// 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et l'enchaînement vers le locataire en place.
+import { CSS_RENTRE_OCCUPE, QuestionRentreOccupe } from './QuestionRentreOccupe';
+import { lienLocataireEnPlace, manquesRentreOccupe } from '../../../../lib/location/rentreOccupe';
 import type { Mandat, SorteMandat } from '../../../../lib/location/mandatBien';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import { BlocStatutModification } from './StatutModification';
@@ -251,7 +254,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   /* Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : l'issue de « Enregistrer le bien » s'ouvre en MODALE (succès : résumé et
      gestes suivants ; échec : quoi, pourquoi, quoi faire). `enCours` interdit le double clic (avant même le rendu suivant) ;
      `enregistre` : le bien est créé — le bouton ne le recrée jamais. */
-  const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null }
+  const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[]; suite?: string } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null }
     | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number }
     // « Modifier » la fiche (Arno, 23/10/2026) : contre-validation, succès, version dépassée, abandon de la saisie.
     | { sorte: 'contre'; changements: ChangementFiche[]; notes: string[]; confirmeOccupation: boolean } | { sorte: 'succes-modif'; changements: ChangementFiche[]; notes: string[] }
@@ -285,6 +288,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
    */
   const [enGestionSaisi, setEnGestion] = useState<boolean | null>(null);
   const enGestion: boolean | null | undefined = continuite !== undefined ? continuite.enGestion ?? undefined : enGestionSaisi;
+  /* 🔴 Arno (26/10/2026, 430) — « LOUÉ AU MOMENT DE LA PRISE EN GESTION ? » : obligatoire pour un bien en gestion (création seulement).
+     La date du mandat est le champ EXISTANT « Mandat de gestion — date de signature » (hors continuité, où ce champ n'existe pas). */
+  const [entreOccupe, setEntreOccupe] = useState<boolean | null>(null);
+  const [dateMandatContinuite, setDateMandatContinuite] = useState('');
+  const schemaOccupe = useLecture<boolean>(modification === undefined ? 'rentreOccupeDisponible' : null);
+  const occupeDisponible = schemaOccupe.etat.etat === 'ok' && schemaOccupe.etat.data === true;
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
   const initiaux = useLecture<PersonneProprietaire[]>(proprietairesInitiaux.length > 0 ? `cartesProprietaires=${proprietairesInitiaux.join(',')}` : null);
@@ -514,12 +523,24 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   // En continuité, les propriétaires sont ceux qu'on vient de saisir (au moins un, vérifié par l'écran du dessus).
   // En modification : le bien a ses propriétaires, et son statut ne se « choisit » pas (il change par une transition) ; une annexe
   // n'a pas de famille à choisir. « Reste à renseigner » y est une INFORMATION, jamais un blocage.
-  const manque = ficheAnnexe ? {} : manquesDuBien({
+  const questionOccupe = modification === undefined && enGestion !== false && (continuite !== undefined || enGestionSaisi === true);
+  const dateMandatVue = continuite !== undefined ? dateMandatContinuite : (mandats.gestion.signeLe ?? '');
+  const poserDateMandat = (d: string): void => {
+    if (continuite !== undefined) { setDateMandatContinuite(d); return; }
+    mandatTouche.current.gestion = true;
+    setMandats((x) => ({ ...x, gestion: { ...x.gestion, signeLe: d === '' ? null : d } }));
+  };
+  const choisirOccupe = (oui: boolean): void => {
+    setEntreOccupe(oui);
+    // Pré-remplie au jour de la saisie (une date de mandat déjà connue est gardée) ; modifiable.
+    if (oui && dateMandatVue === '') poserDateMandat(aujourdhui);
+  };
+  const manque = ficheAnnexe ? {} : { ...manquesDuBien({
     proprietaireIds: continuite !== undefined || modification !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
     dpeClasse: b.dpeClasse, dpeDate: b.dpeDate, entretienAPrevoir: entretien.aPrevoir, entretiens: versEnvoiEntretien(entretien).entretiens, aujourdhui,
     annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })) : [],
     ...(enGestion !== undefined && modification === undefined ? { enGestion } : {}),
-  });
+  }), ...(questionOccupe ? manquesRentreOccupe({ enGestion: enGestion ?? true, disponible: occupeDisponible, entreOccupe, dateMandat: dateMandatVue }) : {}) };
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   // La liste de « Reste à renseigner » (barre du bas) : la ligne, son compteur et la bulle la lisent toutes trois.
   const manquesLigne = Object.values(manque).map((m) => m.replace(/\.$/, ''));
@@ -566,6 +587,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     }
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id), enGestion,
+      // 🔴 Arno (26/10/2026, 430) — la réponse, et la date du mandat (Oui) : la date d'entrée de la gestion dans le suivi.
+      ...(questionOccupe && occupeDisponible && entreOccupe !== null ? { entreOccupe, ...(entreOccupe ? { dateMandat: dateMandatVue } : {}) } : {}),
       ...(options.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
       // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
       ...(continuite === undefined && enGestionSaisi !== null ? (() => {
@@ -613,7 +636,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     const drive = r.drive !== undefined && !r.drive.ok
       ? `Dossier Drive à créer : ${r.drive.motif ?? 'le Drive n’a pas répondu'}. Ouvrez la fiche du bien et cliquez « Créer le dossier ».` : null;
     // Arno (21/10/2026) : le succès s'ouvre en modale (résumé, « Voir la fiche du bien », « Créer un autre bien », « Fermer »).
-    setIssue({ sorte: 'succes', cible, notes: [echec, drive].filter((x): x is string => x !== null) });
+    const notes = [echec, drive].filter((x): x is string => x !== null);
+    /* 🔴 Arno (26/10/2026, 430) — RENTRÉ OCCUPÉ : dans la foulée, le formulaire complet « Nouveau locataire » pour le locataire en place. Une
+       note à lire (mail, Drive) : la modale d'abord, avec « Saisir le locataire en place » en premier geste. */
+    const suite = questionOccupe && entreOccupe === true && id !== undefined ? lienLocataireEnPlace(id) : undefined;
+    if (suite !== undefined && notes.length === 0) { window.location.assign(suite); return; }
+    setIssue({ sorte: 'succes', cible, notes, ...(suite !== undefined ? { suite } : {}) });
   };
   // « Rattacher et enregistrer » : dès que la sélection est posée (panneau refermé, cartes ajoutées), l'enregistrement repart.
   useEffect(() => {
@@ -629,14 +657,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
   // Arno (23/10/2026) : en modification, le bloc 1 « Propriétaire(s) » n'apparaît pas, et les suivants GARDENT leur numéro (2, 3, 4…).
   const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
-    ...(continuite !== undefined ? [] : ['gestion'])];
+    ...(continuite !== undefined ? (enGestion !== false ? ['occupe'] : []) : ['gestion'])];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
     // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE + CSS_RENTRE_OCCUPE}</style>
       {modification !== undefined ? (
         <>
           {/* Arno (23/10/2026) : la page « Ajouter un nouveau bien », à l'identique, sans le bloc « Propriétaire(s) » (le bien y est
@@ -1032,7 +1060,17 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           libelles={{ oui: 'En gestion', non: 'Location seule' }}
           onChoix={setEnGestion}>{manqueDe('enGestion')}
           <LignesMandat enGestion={enGestionSaisi} mandats={mandats} notes={notesMandat}
-            onChange={(sorte, m) => { mandatTouche.current[sorte] = true; setMandats((x) => ({ ...x, [sorte]: m })); }} /></QuestionEnGestion>
+            onChange={(sorte, m) => { mandatTouche.current[sorte] = true; setMandats((x) => ({ ...x, [sorte]: m })); }} />
+          {questionOccupe && <QuestionRentreOccupe valeur={entreOccupe} onChoix={choisirOccupe} dateMandat={dateMandatVue} onDateMandat={poserDateMandat}
+            disponible={occupeDisponible} aujourdhui={aujourdhui} memeQueMandat manque={<>{manqueDe('entreOccupe')}{manqueDe('dateMandat')}</>} />}</QuestionEnGestion>
+      )}
+      {/* 🔴 Arno (26/10/2026, 430) — depuis « Nouveau propriétaire » (le statut vient de l'écran du dessus) : la question a sa propre section. */}
+      {continuite !== undefined && questionOccupe && (
+        <section className="loc-section" aria-labelledby="loc-b9">
+          <h3 id="loc-b9"><span className="loc-num">{n('occupe')}</span>Prise en gestion</h3>
+          <QuestionRentreOccupe valeur={entreOccupe} onChoix={choisirOccupe} dateMandat={dateMandatVue} onDateMandat={poserDateMandat}
+            disponible={occupeDisponible} aujourdhui={aujourdhui} manque={<>{manqueDe('entreOccupe')}{manqueDe('dateMandat')}</>} />
+        </section>
       )}
 
       {modification === undefined && mailEchec !== null && (
@@ -1102,7 +1140,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           lignes={[[nomsProprietaires.includes(',') ? 'Propriétaires' : 'Propriétaire', nomsProprietaires || '—'], ['Adresse', adresseComplete || '—'],
             ...(famille !== null ? [['Bien', LIBELLE_FAMILLE[famille]] as [string, string]] : [])]}
           actions={[
-            { libelle: 'Voir la fiche du bien', href: issue.cible, principal: true, repere: 'voir-fiche-bien' },
+            ...(issue.suite !== undefined ? [{ libelle: 'Saisir le locataire en place', href: issue.suite, principal: true, repere: 'saisir-locataire-en-place' }] : []),
+            { libelle: 'Voir la fiche du bien', href: issue.cible, principal: issue.suite === undefined, repere: 'voir-fiche-bien' },
             { libelle: 'Créer un autre bien', href: '/admin/location/nouveau-bien', repere: 'creer-autre' },
             { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
           ]} />

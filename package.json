@@ -106,6 +106,7 @@
     "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts",
     "gestion:rattachements:reprise": "tsx app/scripts/rattacher-contacts-baux.ts",
     "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
+    "location:rentre-occupe": "tsx app/scripts/rentre-occupe.ts",
     "gestion:drive:ranger-statuts": "tsx app/scripts/ranger-dossiers-statut.ts",
     "gestion:drive:racine-location-seule": "tsx app/scripts/racine-location-seule.ts",
     "gestion:archiver-fins": "tsx app/scripts/archiver-fins-gestion.ts",

@@ -41,6 +41,8 @@ import { conditionsEntreeDisponible, schemaConditionsEntree } from '../../../../
 import { loyerConnuDuBien } from '../../../../lib/location/loyerEntreeRepo';
 import { calculHonorairesDuBien } from '../../../../lib/location/honorairesProprietaireRepo';
 import { ligneJournalEchec } from '../../../../lib/location/issueEnregistrement';
+// 🔴 Arno (26/10/2026, 430) — le bien « rentré occupé » et le bail du locataire en place.
+import { bauxEnPlace, marquerBailEnPlace, rentreOccupeDisponible, rentreOccupeDuBien } from '../../../../lib/location/rentreOccupeRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -121,6 +123,16 @@ export async function GET(request: Request): Promise<Response> {
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
     // Arno (20/10/2026) — partie par partie, ce que la base permet d'enregistrer (bandeau « migration NNN » de l'écran).
     if (p('schemaConditionsEntree') !== null) return Response.json({ etat: 'ok', data: await schemaConditionsEntree() }, { headers: ENTETES });
+    // 🔴 Arno (26/10/2026, 430) — la question « loué à la prise en gestion ? » est-elle enregistrable ; la réponse d'un bien ; les baux
+    // des locataires en place d'un locataire ou d'un bien (mention de la fiche) — LECTURE SEULE.
+    if (p('rentreOccupeDisponible') !== null) return Response.json({ etat: 'ok', data: await rentreOccupeDisponible() }, { headers: ENTETES });
+    const idOccupe = identifiant(p('rentreOccupe'));
+    if (idOccupe !== null) return Response.json({ etat: 'ok', data: await rentreOccupeDuBien(idOccupe) }, { headers: ENTETES });
+    const enPlaceLoc = identifiant(p('bauxEnPlaceLocataire'));
+    const enPlaceLot = identifiant(p('bauxEnPlaceBien'));
+    if (enPlaceLoc !== null || enPlaceLot !== null) {
+      return Response.json({ etat: 'ok', data: await bauxEnPlace(enPlaceLoc !== null ? { locataireId: enPlaceLoc } : { lotId: enPlaceLot ?? 0 }) }, { headers: ENTETES });
+    }
     // Le loyer de départ déjà connu pour ce bien (migration 370), pour pré-remplir le « Loyer mensuel » — LECTURE SEULE.
     const idLoyer = identifiant(p('loyerDuBien'));
     if (idLoyer !== null) return Response.json({ etat: 'ok', data: await loyerConnuDuBien(idLoyer) }, { headers: ENTETES });
@@ -391,6 +403,8 @@ export async function POST(request: Request): Promise<Response> {
           ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
           // Arno (21/10/2026) — « Créer quand même » après l'avertissement « Ce bien semble déjà exister ».
           ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
+          // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et la date du mandat (Oui).
+          ...(corps.entreOccupe !== undefined ? { entreOccupe: corps.entreOccupe, dateMandat: corps.dateMandat } : {}),
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
         // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
@@ -422,6 +436,12 @@ export async function POST(request: Request): Promise<Response> {
           ...(corps.entretien !== null && typeof corps.entretien === 'object'
             ? { entretien: { aPrevoir: (corps.entretien as Record<string, unknown>).aPrevoir, entretiens: (corps.entretien as Record<string, unknown>).entretiens } } : {}),
         }, auteur));
+      case 'marquer-bail-en-place': {
+        // 🔴 Arno (26/10/2026, 430) — le bail créé est celui du LOCATAIRE EN PLACE à la prise en gestion (jamais un bail signé par l'agence).
+        const bail = identifiant(corps.bailId);
+        if (bail === null) return incomplet();
+        return repondre(await marquerBailEnPlace(bail, auteur));
+      }
       case 'apercu-lots': {
         // Arno (19/10/2026) — LE RÉCAPITULATIF avant validation : ce que le bail fera des lots (LECTURE SEULE, rien n'est écrit).
         const lot = identifiant(corps.lotId);

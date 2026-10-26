@@ -162,15 +162,30 @@ interface Props {
    * enregistrement indépendant) — `OrigineActivite`, le même composant que le bloc 9. `onEnregistree` : relire le dossier (version, origine).
    */
   origineFlux?: { activiteId: number; onEnregistree: () => void };
+  /**
+   * 🔴 Arno (26/10/2026, 430) — LOCATAIRE EN PLACE À LA PRISE EN GESTION : le suivi est celui du MANDAT DE GESTION (« Mandat de gestion
+   * seul », daté du mandat), sans honoraire de location (ni « Baux signés », ni CA, ni commission d'apporteur sur la location) — la
+   * date, la nature et les honoraires sont montrés, figés ; négociateur, apporteur et cases de gestion restent à saisir. Absent : inchangé.
+   */
+  enPlace?: { dateMandat: string | null };
 }
 
-export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien, sansPreremplissage = false, origineFlux }: Props) {
+export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, locataireIds, ttcProprietaire, ttcLocataire, onTtcProprietaire, onTtcLocataire, manque, loyer, typeBien, sansPreremplissage = false, origineFlux, enPlace }: Props) {
   const lu = parametres.lu;
   const poser = (p: Partial<SaisieSuivi>): void => onChange({ ...s, ...p });
   // Le HT affiché est celui du TTC (une seule vérité) ; pendant la frappe, la case garde ce qui est tapé.
   const [frappe, setFrappe] = useState<{ proprietaire: string | null; locataire: string | null }>({ proprietaire: null, locataire: null });
-  const htProprietaire = frappe.proprietaire ?? htDepuisTtc(ttcProprietaire);
-  const htLocataire = frappe.locataire ?? htDepuisTtc(ttcLocataire);
+  // 🔴 430 — locataire en place : aucun honoraire de location (0, figé).
+  const htProprietaire = enPlace !== undefined ? '0' : frappe.proprietaire ?? htDepuisTtc(ttcProprietaire);
+  const htLocataire = enPlace !== undefined ? '0' : frappe.locataire ?? htDepuisTtc(ttcLocataire);
+  // 🔴 430 — la nature et la date du mandat de gestion, posées (une mise à jour seulement si elles diffèrent).
+  const dateEnPlace = enPlace?.dateMandat ?? null;
+  useEffect(() => {
+    if (enPlace === undefined) return;
+    if (s.type !== 'gestion_seule' || (dateEnPlace !== null && s.dateSignature !== dateEnPlace)) {
+      onChange({ ...s, type: 'gestion_seule', ...(dateEnPlace !== null ? { dateSignature: dateEnPlace } : {}) });
+    }
+  }, [enPlace, dateEnPlace, s, onChange]);
   useEffect(() => {
     if (s.honoProprietaireHt !== htProprietaire || s.honoLocataireHt !== htLocataire) onChange({ ...s, honoProprietaireHt: htProprietaire, honoLocataireHt: htLocataire });
   }, [s, htProprietaire, htLocataire, onChange]);
@@ -351,11 +366,23 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
     <div className="loc-suivi" data-suivi-commercial>
       {/* ── Ligne 1 : date de signature · nature · négociateur ── */}
       <div className="loc-grille loc-suivi-ligne" data-suivi-ligne="1">
-        <label className="loc-champ">{libelle('Date de signature du bail', true)}
-          <input type="date" value={s.dateSignature} required onChange={(e) => poser({ dateSignature: e.target.value })} data-date-signature /></label>
-        <label className="loc-champ">{libelle('Nature')}
-          <ListeChoix options={NATURES} valeur={s.type} vide={null} libelle="Nature"
-            onChange={(v) => poser({ type: v === 'avenant' ? 'avenant' : 'bail' })} donnees={{ 'data-type-activite': '' }} /></label>
+        {enPlace !== undefined ? (
+          <>
+            {/* 🔴 430 — le suivi du MANDAT DE GESTION d'un locataire en place : sa date (celle du mandat) et sa nature, figées. */}
+            <label className="loc-champ">{libelle('Date du mandat de gestion', true)}
+              <input type="date" value={s.dateSignature} readOnly={dateEnPlace !== null} required onChange={(e) => poser({ dateSignature: e.target.value })} data-date-signature data-date-mandat-en-place /></label>
+            <div className="loc-champ">{libelle('Nature')}
+              <span className="loc-suivi-lecture" data-type-activite="gestion_seule">Mandat de gestion seul — locataire en place (pas un bail signé par l’agence)</span></div>
+          </>
+        ) : (
+          <>
+            <label className="loc-champ">{libelle('Date de signature du bail', true)}
+              <input type="date" value={s.dateSignature} required onChange={(e) => poser({ dateSignature: e.target.value })} data-date-signature /></label>
+            <label className="loc-champ">{libelle('Nature')}
+              <ListeChoix options={NATURES} valeur={s.type} vide={null} libelle="Nature"
+                onChange={(v) => poser({ type: v === 'avenant' ? 'avenant' : 'bail' })} donnees={{ 'data-type-activite': '' }} /></label>
+          </>
+        )}
         <label className="loc-champ">{libelle('Négociateur')}
           <ListeChoix options={lu.negociateurs} valeur={s.negociateurId === null || s.negociateurId === undefined ? '' : String(s.negociateurId)} vide="— aucun —" libelle="Négociateur"
             onChange={(v) => poser({ negociateurId: v === '' ? null : Number(v) })} donnees={{ 'data-negociateur': '' }} /></label>
@@ -397,18 +424,19 @@ export function BlocSuiviCommercial({ valeur: s, onChange, parametres, lotId, lo
           Arno (24/10/2026, accord explicite) : les trois aides sous ces champs sont retirées ; les champs restent liés (HT ↔ TTC). */}
       <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--trois" data-suivi-ligne="3">
         <label className="loc-champ">{libelle('Honoraires propriétaire HT')}
-          <CaseEuros value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht
+          <CaseEuros value={htProprietaire} placeholder="ex. 416,67" data-hono-proprietaire-ht disabled={enPlace !== undefined}
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, proprietaire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcProprietaire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, proprietaire: null }))} />
         </label>
         <label className="loc-champ">{libelle('Honoraires locataire HT')}
-          <CaseEuros value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht
+          <CaseEuros value={htLocataire} placeholder="ex. 226,95" data-hono-locataire-ht disabled={enPlace !== undefined}
             onChange={(e) => { const v = e.target.value; setFrappe((f) => ({ ...f, locataire: v })); const t = ttcDepuisHt(v); if (t !== null) onTtcLocataire(t); }}
             onBlur={() => setFrappe((f) => ({ ...f, locataire: null }))} />
         </label>
         <label className="loc-champ">{libelle('Total des honoraires (HT)')}
           <CaseEuros value={totalHonorairesHt} readOnly tabIndex={-1} aria-readonly="true" className="loc-suivi-lecture" data-hono-total-ht /></label>
       </div>
+      {enPlace !== undefined && <p className="loc-muet" data-hono-en-place>Locataire en place à la prise en gestion : aucun honoraire de location (hors « Baux signés » et hors CA).</p>}
       {/* ── Ligne 4 : origine du contact propriétaire, puis l'apporteur d'affaires quand il s'affiche ── */}
       {(annuaire || avecApporteur) && (
         <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux" data-suivi-ligne="4" data-origine-contact-bloc={annuaire ? '' : undefined}>

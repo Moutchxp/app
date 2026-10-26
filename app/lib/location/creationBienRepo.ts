@@ -27,6 +27,8 @@ import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens, entretienDisponible, lireEntretiens } from './entretienAnnexeRepo';
 import { verifierMandat, sorteDuBien } from './mandatBien';
 import { enregistrerMandatDans } from './mandatBienRepo';
+// 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » (module PUR).
+import { dateFr, verifierRentreOccupe } from './rentreOccupe';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 
 /**
@@ -221,6 +223,7 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  */
 type SaisieBienComplete = SaisieBien & {
   contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null; contactsExistants?: number[]; mandat?: unknown; confirmeDoublon?: boolean;
+  entreOccupe?: unknown; dateMandat?: unknown;
 };
 type IssueBien = Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
   mandatRefus?: string | null }>;
@@ -248,6 +251,9 @@ async function creerBienInterne(s: SaisieBien & {
   mandat?: unknown;
   /** Arno (21/10/2026) — « Créer quand même » : l'avertissement « Ce bien semble déjà exister » a été vu et passé. */
   confirmeDoublon?: boolean;
+  /** 🔴 Arno (26/10/2026, 430) — loué au moment de la prise en gestion (Oui / Non) et, si Oui, la date du mandat de gestion. */
+  entreOccupe?: unknown;
+  dateMandat?: unknown;
 }, auteur: Auteur):
   Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
     mandatRefus?: string | null }> | IssueDoublon> {
@@ -271,7 +277,20 @@ async function creerBienInterne(s: SaisieBien & {
   // Arno (21/10/2026, 397) — le MANDAT (facultatif), vérifié avant toute écriture ; sa sorte doit être celle du choix final.
   const vm = verifierMandat(s.mandat);
   if (!vm.ok) return { etat: 'refus', motif: vm.motif };
-  const mandat = vm.mandat !== null && vm.mandat.sorte === sorteDuBien(typeof s.enGestion === 'boolean' ? s.enGestion : true) ? vm.mandat : null;
+  const mandatChoisi = vm.mandat !== null && vm.mandat.sorte === sorteDuBien(typeof s.enGestion === 'boolean' ? s.enGestion : true) ? vm.mandat : null;
+  /* 🔴 Arno (26/10/2026, 430) — RENTRÉ OCCUPÉ : vérifié avant toute écriture. Oui ⇒ la gestion entre dans le suivi à la DATE DU MANDAT
+     (date d'effet de la transition de création, `statut_bien_depuis`) ; cette date est aussi celle du mandat de gestion des propriétaires
+     (le champ existant, migration 397) quand elle n'y est pas déjà saisie. Non ⇒ rien ne change (la date de création de la fiche). */
+  const ro = verifierRentreOccupe({ entreOccupe: s.entreOccupe, dateMandat: s.dateMandat }, v.enGestion, new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }));
+  if (!ro.ok) return { etat: 'refus', motif: ro.motif };
+  const avec430 = await colonneExisteMemo('gestion_annuaire_lot', 'entre_occupe');
+  const avec403 = await colonneExisteMemo('gestion_annuaire_lot', 'statut_bien_depuis');
+  // Une réponse envoyée n'est jamais perdue en silence : sans la colonne, rien n'est créé.
+  if (ro.entreOccupe !== null && (!avec430 || (ro.dateEffet !== null && !avec403))) return { etat: 'sans_schema' };
+  const mandat = ro.dateEffet === null ? mandatChoisi
+    : { sorte: 'gestion' as const, numero: mandatChoisi?.numero ?? null, signeLe: mandatChoisi?.signeLe ?? ro.dateEffet };
+  const occupe: Record<string, unknown> = ro.entreOccupe === null ? {}
+    : { entre_occupe: ro.entreOccupe, ...(ro.dateEffet !== null ? { statut_bien_depuis: ro.dateEffet } : {}) };
   let mandatRefus: string | null = null;
   // La DERNIÈRE AG (Arno, 18/10/2026) : vérifiée avant toute écriture, posée sur l'IMMEUBLE du bien (son adresse) une fois créé.
   const ag = verifierDateAg((s.logement ?? {}).derniereAg);
@@ -334,6 +353,7 @@ async function creerBienInterne(s: SaisieBien & {
         ...(avec400 ? { charges_copro: l.chargesCopro ?? null } : {}),
         ...(avec401 ? { id_fiscal: l.idFiscal ?? null } : {}),
         ...statut,
+        ...occupe,
       }, auteur);
       if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
         // Arno (21/10/2026, 399) : le code du BÂTIMENT du bien (le code général sans bâtiment). Écrit seulement s'il diffère de ce
@@ -355,8 +375,9 @@ async function creerBienInterne(s: SaisieBien & {
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
           ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
-          // Une annexe suit le statut de son logement / local : elle est louée et gérée avec lui.
+          // Une annexe suit le statut de son logement / local : elle est louée et gérée avec lui (et entre dans le suivi à la même date).
           ...statut,
+          ...(ro.dateEffet !== null ? { statut_bien_depuis: ro.dateEffet } : {}),
           ...(avec379 ? { annotation: a.annotation ?? null, ...(a.detachee === true ? { annexe_detachee_le: new Date().toISOString(), annexe_detachee_par_libelle: auteur.libelle } : {}) } : {}),
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
@@ -364,7 +385,9 @@ async function creerBienInterne(s: SaisieBien & {
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
         `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`
-        + `${avec390 ? `, bien en gestion : ${v.enGestion ? 'oui' : 'non'}` : ''}`, auteur);
+        + `${avec390 ? `, bien en gestion : ${v.enGestion ? 'oui' : 'non'}` : ''}`
+        + `${ro.entreOccupe === null ? '' : ro.entreOccupe ? `, loué à la prise en gestion : oui (rentré occupé — entrée dans le suivi le ${dateFr(ro.dateEffet ?? '')}, date du mandat de gestion)`
+          : ', loué à la prise en gestion : non (rentré vide)'}`, auteur);
       return { logementId, annexes };
     });
   } catch (e) {

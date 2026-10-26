@@ -3,6 +3,7 @@ import { FicheCommuneLocation } from '../../../gestion/FicheCommune';
 import { LienRetour } from '../../../_composants/EnTetePage';
 import { BlocSortieLogement, EcranSortieLocataire } from '../../SortieLocataires';
 import { BlocEnvoiFicheLocataire } from '../../EnvoiAdhocMonga';
+import { BauxEnPlace } from '../../BauxEnPlace';
 
 /**
  * TUILE LOCATION — la fiche locataire, ouverte depuis la Location : c'est LA fiche de la Gestion (même composant, même
@@ -30,6 +31,8 @@ export default async function Page({ params, searchParams }: {
               <BlocSortieLogement locataireId={id} occupationDemandee={sortie} gestion={gestion} />
               {/* Arno (21/10/2026) — « Envoi ADHOC & MONGA » pour chaque bail en cours (rien sans bail en cours). */}
               <BlocEnvoiFicheLocataire locataireId={id} />
+              {/* Arno (26/10/2026, 430) — la mention « locataire en place à la prise en gestion » de ses baux (rien sinon). */}
+              <BauxEnPlace locataireId={id} />
               {!gestion ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_FICHE_COMMUNE}</div>
                 : <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} />}
             </>
