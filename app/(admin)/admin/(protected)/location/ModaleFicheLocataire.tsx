@@ -9,14 +9,14 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
 import { CSS_CONDITIONS } from './ConditionsEntree';
 import { CSS_ENTRETIEN } from './EntretienBien';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
-import { ContenuConditionsBail, CSS_CONDITIONS_BAIL, useConditionsBail } from './BlocConditionsBail';
+import { ContenuBienLoue, ContenuConditionsBail, CSS_CONDITIONS_BAIL, useConditionsBail } from './BlocConditionsBail';
 import { ContenuSuiviLocataire, CSS_SUIVI_LOCATAIRE, RecapSuivi, useSuiviLocataire } from './SuiviCommercialLocataire';
 import { CSS_SUIVI_COMMERCIAL } from './SuiviCommercial';
 import { CSS_BLOC_REPLIE } from './BlocReplie';
 import { LigneManques } from './LigneManques';
 import { refusDossier, TITRE_BLOC } from '../../../../lib/location/dossierLocation';
 import {
-  avertissementCartes, champsModifies, changementsFiche, ECRAN_FICHE_LOCATAIRE, refusFiche, type CarteFicheLue, type ChangementFiche,
+  avertissementCartes, champsModifies, titreProprietaires, changementsFiche, ECRAN_FICHE_LOCATAIRE, refusFiche, type CarteFicheLue, type ChangementFiche,
   type LectureFicheLocataire, type SaisieFicheLocataire,
 } from '../../../../lib/location/ficheLocataireCartes';
 
@@ -189,7 +189,15 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
         + CSS_SUIVI_COMMERCIAL + CSS_BLOC_REPLIE + CSS_SUIVI_LOCATAIRE + CSS_MODALE_LOCATAIRE}</style>
       <div className="mcb-fenetre" ref={fenetre} role="dialog" aria-modal="true" aria-labelledby={titre} data-modale-fiche-locataire={locataireId}>
         <div className="mfl-tete">
-          <h2 id={titre} className="mfl-titre">{lu?.titre ?? `Fiche locataire — ${libelle}`}</h2>
+          {/* 🔴 Arno (27/10/2026) — en gros, le ou les propriétaires du bien ; le nom du locataire juste en dessous. */}
+          <div className="mfl-titres">
+            {titreProprietaires(lu?.proprietaires) !== null ? (
+              <>
+                <h2 id={titre} className="mfl-titre mfl-titre--proprietaire" data-titre-proprietaires>{titreProprietaires(lu?.proprietaires)}</h2>
+                <p className="mfl-sous-titre" data-titre-locataire>{lu?.titre ?? `Fiche locataire — ${libelle}`}</p>
+              </>
+            ) : <h2 id={titre} className="mfl-titre" data-titre-locataire>{lu?.titre ?? `Fiche locataire — ${libelle}`}</h2>}
+          </div>
           <button type="button" className="svv-btn svv-btn-outline gst-btn mfl-fermer" onClick={fermer} data-fermer-fiche-locataire>Fermer</button>
         </div>
         <section className="gst-page loc-page loc-ample">
@@ -209,6 +217,19 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
                 <p className="loc-section-phrase">Les cartes du bail : « Modifier » une carte, « + Ajouter… » un colocataire ou un contact du locataire, puis
                   « Enregistrer les modifications ». Rien n’est fusionné, rien n’est supprimé.</p>
                 <SaisieCartes key={n} cote="locataire" onChange={surCartes} initiales={initiales} confirmerRetrait />
+              </section>
+              {/* 🔴 Arno (27/10/2026) — le bloc 2 de « Nouveau locataire », celui du Dossier de location de la ligne (le même contenu). */}
+              <section className="loc-section" aria-labelledby="mfl-2" data-bloc-bien-locataire>
+                <h3 id="mfl-2"><span className="loc-num">2</span>Le bien loué</h3>
+                {bloc3.etat.sorte === 'non_rattache' ? (
+                  <p className="loc-alerte loc-alerte--orange" role="status" data-bloc2-non-rattache>Dossier non rattaché — à rattacher d’abord.</p>
+                ) : bloc3.etat.sorte === 'erreur' ? (
+                  <p className="gst-erreur" role="alert">{bloc3.etat.motif}</p>
+                ) : bloc3.etat.sorte !== 'ok' ? (
+                  <p className="gst-info" role="status">Lecture du bien loué…</p>
+                ) : (
+                  <ContenuBienLoue l={bloc3.etat.l} onCaracteristiques={() => setCaracteristiques(true)} repere="fiche-locataire-bien" />
+                )}
               </section>
               {/* 🔴 Arno (25/10/2026) — le bloc 3 de « Nouveau locataire », celui du Dossier de location de la ligne. */}
               <section className="loc-section" aria-labelledby="mfl-3" data-bloc-conditions-locataire>
@@ -316,6 +337,9 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
 const CSS_MODALE_LOCATAIRE = `
 .mfl-tete{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;padding:0 4px}
 .mfl-titre{margin:0;font-size:1.15rem;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.mfl-titres{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mfl-titre--proprietaire{font-size:1.45rem}
+.mfl-sous-titre{margin:0;font-size:1rem;font-weight:700;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .mfl-fermer{width:auto;min-height:44px;margin:0;flex:0 0 auto}
 .mfl-pied{position:sticky;bottom:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 16px;padding:12px 4px 4px;background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line)}
 .mfl-pied .gst-btn{width:auto;min-height:44px}

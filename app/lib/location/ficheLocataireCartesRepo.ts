@@ -8,6 +8,7 @@ import { creerContactsDuBien } from './contactsLocationRepo';
 import { ecrireRattachementsDans } from './rattachementsRepo';
 import { estGarant } from './cartesLocation';
 import { empreinte } from './ficheBienEntiere';
+import { proprietairesDuBien } from './resumeBienRepo';
 import { modifierDossierLocation, preparerDossier } from './dossierLocationRepo';
 import type { ChangementDossier } from './dossierLocation';
 import {
@@ -69,7 +70,9 @@ export async function lireFicheLocataireCartes(locataireId: number, bailIdDemand
   }));
   const cartes = [...clients, ...contacts];
   const titre = `Fiche locataire — ${clients.map(nomCarte).join(', ')}`;
-  return { etat: 'ok', data: { locataireId, bailId: bail?.id ?? null, titre, cartes, version: empreinte({ locataireId, bail: bail?.id ?? null, cartes }) } };
+  // 🔴 Arno (27/10/2026) — les propriétaires du bien du bail (titre de la fenêtre) : la lecture commune (`proprietairesDuBien`), rien de neuf.
+  const proprietaires = bail === null ? [] : (await proprietairesDuBien(bail.lotId)).map((p) => p.nom);
+  return { etat: 'ok', data: { locataireId, bailId: bail?.id ?? null, titre, proprietaires, cartes, version: empreinte({ locataireId, bail: bail?.id ?? null, cartes }) } };
 }
 
 /** La saisie reçue, lue prudemment (seuls les champs connus ; une carte inconnue est ignorée). */

@@ -9,7 +9,7 @@ import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, ttcDepuisHt, useParametresSu
 import { CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { ModaleIssue } from './ModaleIssue';
 import { CSS_MODALE_CARACTERISTIQUES, ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
-import { conditionsApresRelecture, ContenuConditionsBail, CSS_CONDITIONS_BAIL } from './BlocConditionsBail';
+import { conditionsApresRelecture, ContenuBienLoue, ContenuConditionsBail, CSS_CONDITIONS_BAIL } from './BlocConditionsBail';
 import { versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { ficheFormatee } from '../../../../lib/gestion/saisieFiche';
 import { changementsCarte, saisieDesChangements, type CarteApres } from '../../../../lib/gestion/traceFiche';
@@ -232,10 +232,8 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
 
             <section className="loc-section" aria-labelledby="mdl-2" data-bloc-dossier="2">
               <h3 id="mdl-2"><span className="loc-num">2</span>Le bien loué</h3>
-              <p className="mdl-bien"><strong>{l.bien.titre}</strong></p>
-              <ul className="mdl-lots" data-lots-dossier>{l.lots.map((x) => <li key={x.id}>{x.libelle}</li>)}</ul>
-              <p className="loc-muet" data-entree-dossier>Date d’entrée : {l.entree === null ? '—' : l.entree.split('-').reverse().join('/')} · un bail ne change ni de bien ni de date ici.</p>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" onClick={() => setCaracteristiques(true)} data-caracteristiques-bien="dossier">Caractéristiques du bien loué</button>
+              {/* 🔴 Arno (27/10/2026) — le contenu du bloc 2, partagé avec la « Fiche locataire » du Suivi du mois (aucune copie). */}
+              <ContenuBienLoue l={l} onCaracteristiques={() => setCaracteristiques(true)} repere="dossier" />
             </section>
 
             <section className="loc-section" aria-labelledby="mdl-3" data-bloc-dossier="3">

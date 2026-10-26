@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ModaleFicheLocataire } from './ModaleFicheLocataire';
+import { ModaleDossierLocation } from './ModaleDossierLocation';
 import type { LectureFicheLocataire } from '../../../../lib/location/ficheLocataireCartes';
 import type { LectureDossier } from '../../../../lib/location/dossierLocation';
 
@@ -224,5 +225,64 @@ describe('🔴 Arno (25/10/2026) — la « Fiche locataire » porte aussi le blo
     await monterAvecBail(null);
     expect(bloc3().querySelector('[data-bloc3-non-rattache]')?.textContent).toBe('Dossier non rattaché — à rattacher d’abord.');
     expect(bloc3().querySelector('[data-conditions-entree]')).toBeNull();
+  });
+});
+
+/**
+ * 🔴 Arno (27/10/2026) — LA FENÊTRE COMPLÈTE : les MÊMES blocs, dans le MÊME ordre, que « Nouveau locataire » / le Dossier de location
+ * (1 locataires, 2 le bien loué, 3 conditions, 4 suivi) — le bloc 2 est le composant du Dossier (`ContenuBienLoue`) ; en titre principal, le
+ * ou les propriétaires du bien (« copropriétaires » : « Propriétaires : X, Y »), le locataire juste en dessous.
+ */
+describe('🔴 la fiche locataire complète (27/10/2026)', () => {
+  const PARAMETRES = { disponible: true, apporteurs: [], negociateurs: [{ id: 3, libelle: 'Jean-Baptiste Pons' }], moi: 3, collegues: [],
+    regles: [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }], annuaire: true, dejaClient: true };
+  const avec = (proprietaires: string[] | undefined) => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (!init?.method && url.includes('ficheLocataireCartes=230')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...LU, ...(proprietaires ? { proprietaires } : {}) } }) } as unknown as Response;
+      if (!init?.method && url.startsWith('/api/admin/location/suivi') && !url.includes('vue=')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: PARAMETRES }) } as unknown as Response;
+      return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(u, init);
+    }) as unknown as typeof fetch;
+  };
+  const monterLigne = async () => {
+    await act(async () => { root.render(createElement(ModaleFicheLocataire, { locataireId: 230, bailId: 70, activiteId: 100, libelle: 'MARTIN Léa', onFermer, onEnregistre })); });
+    await calmer();
+  };
+  const blocs = () => [...document.querySelectorAll('[role="dialog"] .loc-section > h3')].map((h) => (h.textContent ?? '').replace(/\s+/g, ' ').trim());
+
+  it('les MÊMES blocs que le Dossier de location, dans le même ordre ; le bloc 2 : le même contenu (bien, lots, date d’entrée, caractéristiques)', async () => {
+    avec(undefined);
+    await act(async () => { root.render(createElement(ModaleDossierLocation, { activiteId: 100, onFermer: () => {}, onEnregistre: () => {} })); });
+    await calmer();
+    const duDossier = blocs();
+    const bien2Dossier = (document.querySelector('[data-bloc-dossier="2"]')?.textContent ?? '').replace(/\s+/g, ' ');
+    await act(async () => { root.render(createElement('div')); });
+    await monterLigne();
+    expect(duDossier).toEqual(['1Le ou les locataires', '2Le bien loué', '3Conditions d’entrée et sommes dues', '4Suivi commercial']);
+    expect(blocs()).toEqual(duDossier);
+    const bien2 = document.querySelector('[data-bloc-bien-locataire]') as HTMLElement;
+    expect((bien2.textContent ?? '').replace(/\s+/g, ' ')).toBe(bien2Dossier);
+    expect(bien2.querySelector('[data-entree-dossier]')?.textContent).toContain('12/09/2026');
+    // « Caractéristiques du bien loué » reste aussi au bloc 3 (rien n'est retiré).
+    expect(document.querySelectorAll('[data-caracteristiques-bien]')).toHaveLength(2);
+  });
+
+  it('TITRE : « Propriétaire : NOM Prénom » en gros, le locataire juste en dessous ; plusieurs copropriétaires : « Propriétaires : X, Y » ; sans propriétaire : le titre d’avant', async () => {
+    avec(['DEMANGE Hélène']);
+    await monterLigne();
+    expect(document.querySelector('h2[data-titre-proprietaires]')?.textContent).toBe('Propriétaire : DEMANGE Hélène');
+    expect(document.querySelector('[data-titre-locataire]')?.textContent).toBe('Fiche locataire — Mme MARTIN Léa');
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby')).toBe(document.querySelector('h2')?.id);
+    await act(async () => { root.render(createElement('div')); });
+    avec(['MENIA Karim', 'SEVERIN Julie']);
+    await monterLigne();
+    expect(document.querySelector('h2')?.textContent).toBe('Propriétaires : MENIA Karim, SEVERIN Julie');
+    expect(document.body.textContent).not.toMatch(/indivision/i);
+    await act(async () => { root.render(createElement('div')); });
+    avec([]);
+    await monterLigne();
+    expect(document.querySelector('h2')?.textContent).toBe('Fiche locataire — Mme MARTIN Léa');
+    expect(document.querySelector('[data-titre-proprietaires]')).toBeNull();
   });
 });

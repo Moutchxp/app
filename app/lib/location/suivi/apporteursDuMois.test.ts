@@ -119,30 +119,31 @@ describe('🔴 Arno (25/10/2026) — le détail d’un collègue, apporteur par 
     expect(a1.ids).toEqual([3, 4]);
   });
 
-  it('un seul chemin et un seul apporteur : AUCUN détail (pas de chevron) ; le nom de l’apporteur est connu pour « via ses apporteurs »', () => {
+  it('🔴 27/10/2026 — un seul chemin et un seul apporteur : DÉPLIABLE, la sous-ligne dit QUEL apporteur (affaires, CA, honoraires) ; montants inchangés', () => {
     const { x, d } = de('Cédric Jullien');
-    expect(d.lignes.map((l) => l.sorte)).toEqual(['total']);
-    expect(d.depliable).toBe(false);
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['apporteur', 'Solo'], ['total', 'Total']]);
+    expect(d.depliable).toBe(true);
     expect(d.seulApporteur).toBe('Solo');
-    expect(d.lignes[0].caCentimes).toBe(Math.round(x.ca * 100));
+    expect(d.lignes[1].caCentimes).toBe(Math.round(x.ca * 100));
+    expect([d.lignes[0].nb, d.lignes[0].caCentimes, d.lignes[0].commissionCentimes]).toEqual([d.lignes[1].nb, d.lignes[1].caCentimes, d.lignes[1].commissionCentimes]);
   });
 
-  it('« À rattacher » suit la même règle (détail par apporteur à rattacher) ; un seul apporteur : pas de chevron', () => {
+  it('« À rattacher » suit la même règle (détail par apporteur à rattacher) ; 🔴 27/10/2026 : un seul apporteur, dépliable aussi', () => {
     const { d } = de('À rattacher');
-    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['total', 'Total']]);
-    expect(d.depliable).toBe(false);
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['apporteur', 'Orphelin'], ['total', 'Total']]);
+    expect(d.depliable).toBe(true);
     expect(d.seulApporteur).toBe('Orphelin');
-    expect(d.lignes[0].commissionCentimes).toBe(4001);
+    expect(d.lignes[1].commissionCentimes).toBe(4001);
     const deux = apporteursEtCollegues([...mois, via(9, 50, 5, 5, 'Orphelin 2')], [...apps, { ...ap(5, 'Orphelin 2', null), collegues: [] } as Apporteur]);
     const dr = detailCollegue(deux.collegues.find((c) => c.cle === 'a-rattacher')!);
     expect(dr.lignes.map((l) => l.mot)).toEqual(['Orphelin', 'Orphelin 2', 'Total']);
     expect(dr.depliable).toBe(true);
   });
 
-  it('deux origines avec un seul apporteur : dépliable (via + direct), sans sous-ligne par apporteur', () => {
+  it('deux origines avec un seul apporteur : dépliable (via + direct) ; 🔴 27/10/2026 : avec la sous-ligne de cet apporteur', () => {
     const r2 = apporteursEtCollegues(mois.filter((a) => a.apporteurId !== 3), apps);
     const d = detailCollegue(r2.collegues.find((c) => c.libelle === 'Arnaud Jorel')!);
-    expect(d.lignes.map((l) => l.sorte)).toEqual(['via', 'direct', 'total']);
+    expect(d.lignes.map((l) => [l.sorte, l.mot])).toEqual([['via', 'via ses apporteurs'], ['apporteur', 'Frédéric Rousseau'], ['direct', 'en direct'], ['total', 'Total']]);
     expect(d.depliable).toBe(true);
     expect(d.seulApporteur).toBe('Frédéric Rousseau');
   });

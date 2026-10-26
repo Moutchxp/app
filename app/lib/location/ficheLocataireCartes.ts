@@ -19,6 +19,8 @@ export interface CarteFicheLue {
 }
 export interface LectureFicheLocataire {
   locataireId: number; bailId: number | null; titre: string;
+  /** 🔴 Arno (27/10/2026) — les propriétaires du bien du bail (le titulaire, puis les copropriétaires actifs : `proprietairesDuBien`). */
+  proprietaires?: string[];
   /** L'empreinte de ce qui est lu : différente à l'enregistrement = modifié par ailleurs (conflit, rien n'est écrasé). */
   version: string;
   cartes: CarteFicheLue[];
@@ -38,6 +40,15 @@ export const nomCarte = (c: { civilite?: string | null; nom?: string | null; pre
 const coordonneesDe = (c: CarteFicheLue): { sorte: 'telephone' | 'email'; valeur: string }[] => c.contacts.map((k) => ({ sorte: k.sorte, valeur: k.affichage }));
 
 /** L'avertissement de l'ancienne vue, gardé en tête : aucune carte de locataire complète → une ligne par carte et ce qui lui manque. PUR. */
+/**
+ * 🔴 Arno (27/10/2026) — le TITRE PRINCIPAL de la fiche locataire du Suivi du mois : « Propriétaire : NOM Prénom », ou « Propriétaires : X, Y »
+ * quand le bien a plusieurs copropriétaires (jamais « indivision ») ; null sans propriétaire connu (le titre du locataire reste seul). PUR.
+ */
+export function titreProprietaires(noms: readonly string[] | null | undefined): string | null {
+  const l = (noms ?? []).map((x) => x.trim()).filter((x) => x !== '');
+  return l.length === 0 ? null : `${l.length === 1 ? 'Propriétaire' : 'Propriétaires'} : ${l.join(', ')}`;
+}
+
 export function avertissementCartes(cartes: readonly CarteFicheLue[]): { titre: string; lignes: string[] } | null {
   const clients = cartes.filter((c) => c.sorte === 'client');
   if (clients.length === 0 || clients.some((c) => carteEstComplete({ nom: c.nom, coordonnees: coordonneesDe(c) }))) return null;

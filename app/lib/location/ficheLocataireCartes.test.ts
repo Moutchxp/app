@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { avertissementCartes, changementsFiche, refusFiche, type CarteFicheLue, type LectureFicheLocataire } from './ficheLocataireCartes';
+import { avertissementCartes, changementsFiche, refusFiche, titreProprietaires, type CarteFicheLue, type LectureFicheLocataire } from './ficheLocataireCartes';
 
 /**
  * 🔴 Arno (25/10/2026) — « FICHE LOCATAIRE » DU SUIVI DU MOIS, EN CARTES : la règle pure (avertissement, récapitulatif, contrôles) et
@@ -12,6 +12,15 @@ const LEA: CarteFicheLue = { id: 230, sorte: 'client', civilite: 'Mme', prenom: 
 const PAUL: CarteFicheLue = { id: 5, sorte: 'contact', civilite: 'M.', prenom: 'Paul', nom: 'DURAND', qualite: 'Garant', adresse: null, codePostal: null, commune: 'LYON', note: null,
   contacts: [{ id: 1, sorte: 'email', affichage: 'paul@exemple.test', libelle: 'E-mail' }] };
 const LU: LectureFicheLocataire = { locataireId: 230, bailId: 70, titre: 'Fiche locataire — Mme MARTIN Léa', version: 'v1', cartes: [LEA, PAUL] };
+
+describe('🔴 27/10/2026 — le titre principal : le ou les propriétaires', () => {
+  it('un seul : « Propriétaire : NOM Prénom » ; plusieurs copropriétaires : « Propriétaires : X, Y » ; aucun : null (jamais « indivision »)', () => {
+    expect(titreProprietaires(['DEMANGE Hélène'])).toBe('Propriétaire : DEMANGE Hélène');
+    expect(titreProprietaires(['MENIA Karim', 'SEVERIN Julie'])).toBe('Propriétaires : MENIA Karim, SEVERIN Julie');
+    expect(titreProprietaires([' ', ''])).toBeNull();
+    expect(titreProprietaires(undefined)).toBeNull();
+  });
+});
 
 describe('🔴 la règle pure', () => {
   it('l’avertissement de l’ancienne vue : aucune carte de locataire complète → la carte et ce qui lui manque', () => {
@@ -59,6 +68,8 @@ const repondre = async (sql: string, params: unknown[] = []) => {
   if (s.includes('FROM gestion_annuaire_locataire WHERE id = ANY')) return { rows: [{ id: '230', civilite: 'Mme', prenom: 'Léa', nom: 'MARTIN', qualite: null, adresse: '7 rue des Essais', code_postal: '92400', commune: 'COURBEVOIE', note: null }] };
   if (s.includes('FROM gestion_annuaire_contact')) return { rows: [{ sujet_id: '230', id: '1', sorte: 'telephone', valeur: '06 00 00 00 01', libelle: 'Mobile' }] };
   if (s.includes('SELECT DISTINCT lot_id::text AS l')) return { rows: [{ l: '51' }, { l: '52' }] };
+  // 🔴 27/10/2026 — les propriétaires du bien du bail (la lecture commune `proprietairesDuBien`) : le titulaire, puis un copropriétaire.
+  if (s.includes('FROM gestion_annuaire_lot lo JOIN gestion_annuaire_proprietaire p')) return { rows: [{ id: '8', nom: 'MARTIN Paul', titulaire: true, mg: null, mt: null }, { id: '9', nom: 'DURAND Anne', titulaire: false, mg: null, mt: null }] };
   return { rows: [], rowCount: 1 };
 };
 vi.mock('../db/client', () => ({
@@ -102,7 +113,9 @@ describe('🔴 la lecture et l’écriture', () => {
     if (r.etat !== 'ok') return;
     expect(r.data.cartes.map((c) => [c.sorte, c.id, c.nom, c.contacts.map((k) => k.affichage)])).toEqual([
       ['client', 230, 'MARTIN', ['06 00 00 00 01']], ['contact', 5, 'DURAND', ['paul@exemple.test']]]);
-    expect(r.data).toMatchObject({ bailId: 70, titre: 'Fiche locataire — Mme MARTIN Léa' });
+    expect(r.data).toMatchObject({ bailId: 70, titre: 'Fiche locataire — Mme MARTIN Léa', proprietaires: ['MARTIN Paul', 'DURAND Anne'] });
+    // Le bien du bail (lot 51) : la lecture commune des propriétaires, rien de propre à cette fenêtre.
+    expect(appels.find((a) => a.sql.includes('FROM gestion_annuaire_lot lo JOIN gestion_annuaire_proprietaire p'))?.params).toEqual([51]);
     expect(r.data.version).toMatch(/\S/);
   });
 

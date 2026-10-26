@@ -1028,8 +1028,8 @@ export interface LigneDetailCollegue {
 }
 
 /**
- * 🔴 Arno (25/10/2026) — LE DÉTAIL D'UN COLLÈGUE : « via ses apporteurs » (et, dès DEUX apporteurs, une sous-ligne par apporteur ; avec un
- * seul, son nom), « en direct », « Total » — seulement les origines présentes ; le sous-total « via » n'est écrit que s'il y a aussi
+ * 🔴 Arno (25/10/2026) — LE DÉTAIL D'UN COLLÈGUE : « via ses apporteurs » (et une sous-ligne par apporteur — 🔴 27/10/2026 : même pour un
+ * seul, qui garde aussi son nom à côté de « via »), « en direct », « Total » — seulement les origines présentes ; le sous-total « via » n'est écrit que s'il y a aussi
  * « en direct ». Chaque montant au centime ; via = Σ apporteurs ; total = via + direct. `depliable` : plus d'une ligne de détail (deux
  * origines, ou plusieurs apporteurs). PUR.
  */
@@ -1048,7 +1048,8 @@ export function detailCollegue(x: CollegueDuMois): { lignes: LigneDetailCollegue
     viaCom = plusieurs ? sous.reduce((t, l) => t + l.commissionCentimes, 0) : cent(via.commission);
     // 🔴 Arno (25/10/2026, suite) — le sous-total « via » seulement s'il y a AUSSI « en direct » (seul, il répéterait le Total).
     if (direct !== null) lignes.push({ cle: 'via', sorte: 'via', mot: 'via ses apporteurs', nb: via.nb, caCentimes: viaCa, commissionCentimes: viaCom, ids: via.ids });
-    if (plusieurs) lignes.push(...sous);
+    // 🔴 Arno (27/10/2026) — la sous-ligne de l'apporteur MÊME QUAND IL EST SEUL : la ligne se déplie pour dire QUEL apporteur la compose.
+    if (apps.length >= 1) lignes.push(...sous);
   }
   const dCa = direct === null ? 0 : cent(direct.ca);
   const dCom = direct === null ? 0 : cent(direct.commission);
@@ -1057,7 +1058,8 @@ export function detailCollegue(x: CollegueDuMois): { lignes: LigneDetailCollegue
   lignes.push({ cle: 'total', sorte: 'total', mot: 'Total', nb: x.nb, caCentimes: via === null && direct === null ? cent(x.ca) : viaCa + dCa,
     commissionCentimes: via === null && direct === null ? cent(x.commission) : viaCom + dCom, ids: x.ids });
   const mention = via !== null && direct !== null ? 'via ses apporteurs et en direct' : direct !== null ? 'en direct' : 'via ses apporteurs';
-  return { lignes, depliable: lignes.length - 1 > 1, seulApporteur: seul, mention };
+  // 🔴 Arno (27/10/2026) — toute ligne « via ses apporteurs » se déplie (même avec un seul apporteur) ; les montants ne changent pas.
+  return { lignes, depliable: lignes.length - 1 > 1 || apps.length >= 1, seulApporteur: seul, mention };
 }
 
 /**

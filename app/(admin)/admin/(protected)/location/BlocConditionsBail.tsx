@@ -13,6 +13,22 @@ import { changementsDossier, type ChangementDossier, type LectureDossier, type N
 const API = '/api/admin/gestion/annuaire/location';
 
 /**
+ * 🔴 Arno (27/10/2026) — LE BLOC 2 « LE BIEN LOUÉ » D'UN BAIL : le MÊME contenu dans le Dossier de location et dans la « Fiche locataire »
+ * du Suivi du mois (aucune copie) — le bien, ses lots, la date d'entrée (un bail ne change ni de bien ni de date ici) et « Caractéristiques
+ * du bien loué ». Lecture seule, comme au Dossier.
+ */
+export function ContenuBienLoue({ l, onCaracteristiques, repere }: { l: LectureDossier; onCaracteristiques: () => void; repere: string }) {
+  return (
+    <>
+      <p className="mdl-bien"><strong>{l.bien.titre}</strong></p>
+      <ul className="mdl-lots" data-lots-dossier>{l.lots.map((x) => <li key={x.id}>{x.libelle}</li>)}</ul>
+      <p className="loc-muet" data-entree-dossier>Date d’entrée : {l.entree === null ? '—' : l.entree.split('-').reverse().join('/')} · un bail ne change ni de bien ni de date ici.</p>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" onClick={onCaracteristiques} data-caracteristiques-bien={repere}>Caractéristiques du bien loué</button>
+    </>
+  );
+}
+
+/**
  * ══ 🔴 Arno (25/10/2026) — LE BLOC 3 « CONDITIONS D'ENTRÉE ET SOMMES DUES » D'UN BAIL, EN MODIFICATION ═══════════════════════════════════
  * Le MÊME contenu dans le Dossier de location et dans la « Fiche locataire » du Suivi du mois (aucune copie) : les conditions de
  * « Nouveau locataire » (`BlocConditionsEntree`, dossier complet), l'entretien du bien, le paiement des charges présélectionné depuis le
@@ -111,4 +127,6 @@ export const CSS_CONDITIONS_BAIL = `
 .mdl-honoraires div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--color-svv-line);padding:4px 0}
 .mdl-honoraires dt{color:var(--color-svv-muted)}
 .mdl-honoraires dd{margin:0;text-align:right}
+.mdl-lots{margin:0;padding-left:18px}
+.mdl-bien{margin:0 0 6px}
 `;

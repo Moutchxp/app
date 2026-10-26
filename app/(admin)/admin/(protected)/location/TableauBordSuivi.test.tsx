@@ -848,7 +848,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     // 🔴 25/10/2026 — les badges : Externe (sans compte) et « Meilleur apporteur » (le plus fort CA du mois).
     expect(nbsp(container.querySelector('[data-apporteur-mois="Apporteur A"]')?.textContent)).toBe(`Apporteur AExterneMeilleur apporteur${ids.length}3 941,03 €394,10 €`);
     // 🔴 25/10/2026 — un seul apport (via ses apporteurs) : une ligne, la mention en petit ; le badge du meilleur collègue.
-    expect(nbsp(container.querySelector('[data-collegue-mois="Arnaud Jorel"]')?.textContent)).toBe(`Arnaud JorelMeilleur collèguevia ses apporteurs${ids.length}3 941,03 €394,10 €`);
+    // 🔴 27/10/2026 — un seul apporteur : la ligne se déplie aussi (le triangle « ▸ » à gauche du nom) ; les montants ne changent pas.
+    expect(nbsp(container.querySelector('[data-collegue-mois="Arnaud Jorel"]')?.textContent)).toBe(`▸Arnaud JorelMeilleur collèguevia ses apporteurs${ids.length}3 941,03 €394,10 €`);
     expect(container.querySelector('[data-collegue-mois="Jean-Baptiste PONS"]')).toBeNull();
   });
 
@@ -1774,23 +1775,26 @@ describe('🔴 Arno (25/10/2026) — les collègues : UNE ligne chacun, le déta
     // DÉPLIÉE — deux chemins : dans chaque cellule, 3 valeurs empilées (via, direct, total), alignées d'une colonne à l'autre.
     expect(aj.hasAttribute('data-deux-chemins')).toBe(true);
     const pile = (mot: string) => [...aj.querySelectorAll(`[data-mot="${mot}"] [data-pile]`)].map((e) => [e.getAttribute('data-pile'), nbsp(e.textContent)]);
-    expect(pile('Affaires').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
-    expect(pile('CA apporté').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
-    expect(pile('Hono. d’apporteur').map((x) => x[0])).toEqual(['via', 'direct', 'total']);
-    // Un seul apporteur dans « via » : pas de sous-ligne, son nom en petit après « via ses apporteurs ».
-    expect([...aj.querySelectorAll('th [data-pile]')].map((e) => nbsp(e.textContent))).toEqual(['via ses apporteurs · Apporteur A', 'en direct', 'Total']);
-    // Les mêmes emplacements (le nom, puis via, direct, total) dans CHAQUE cellule : les lignes s'alignent.
+    // 🔴 27/10/2026 — un seul apporteur dans « via » : SA sous-ligne aussi (quel apporteur), entre « via » et « en direct ».
+    expect(pile('Affaires').map((x) => x[0])).toEqual(['via', 'apporteur', 'direct', 'total']);
+    expect(pile('CA apporté').map((x) => x[0])).toEqual(['via', 'apporteur', 'direct', 'total']);
+    expect(pile('Hono. d’apporteur').map((x) => x[0])).toEqual(['via', 'apporteur', 'direct', 'total']);
+    // Son nom reste en petit après « via ses apporteurs » (rien n'est retiré), et sa sous-ligne le répète.
+    expect([...aj.querySelectorAll('th [data-pile]')].map((e) => nbsp(e.textContent))).toEqual(['via ses apporteurs · Apporteur A', '· Apporteur A', 'en direct', 'Total']);
+    // Les mêmes emplacements (le nom, puis via, apporteur, direct, total) dans CHAQUE cellule : les lignes s'alignent.
     for (const cell of aj.querySelectorAll('th, td')) {
-      expect([...cell.querySelectorAll('.fdm-pile-l')].map((e) => e.className.replace('fdm-pile-l ', ''))).toEqual(['fdm-pile-l--nom', 'fdm-pile-l--detail', 'fdm-pile-l--detail', 'fdm-pile-l--total']);
+      expect([...cell.querySelectorAll('.fdm-pile-l')].map((e) => e.className.replace('fdm-pile-l ', ''))).toEqual(['fdm-pile-l--nom', 'fdm-pile-l--detail', 'fdm-pile-l--detail fdm-pile-l--apporteur', 'fdm-pile-l--detail', 'fdm-pile-l--total']);
     }
-    const [v, d, t] = pile('CA apporté').map((x) => euros(x[1]));
+    const [v, a, d, t] = pile('CA apporté').map((x) => euros(x[1]));
+    expect(a).toBe(v);
     expect(t).toBe(v + d);
     expect(t).toBe(totalReplie);
-    const [nv, nd, nt] = pile('Affaires').map((x) => Number(x[1]));
+    const [nv, na, nd, nt] = pile('Affaires').map((x) => Number(x[1]));
+    expect(na).toBe(nv);
     expect(nt).toBe(nv + nd);
-    // Cliquables : nombre et CA de chaque origine, et le total.
-    expect([...aj.querySelectorAll('button[data-detail-origine]')].map((b) => b.getAttribute('data-detail-origine')))
-      .toEqual(['via-nb', 'direct-nb', 'total-nb', 'via-ca', 'direct-ca', 'total-ca']);
+    // Cliquables : nombre et CA de chaque origine, de l'apporteur, et le total.
+    expect([...aj.querySelectorAll('button[data-detail-origine]')].map((b) => (b.getAttribute('data-detail-origine') ?? '').replace(/^apporteur:.*-(nb|ca)$/, 'apporteur-$1')))
+      .toEqual(['via-nb', 'apporteur-nb', 'direct-nb', 'total-nb', 'via-ca', 'apporteur-ca', 'direct-ca', 'total-ca']);
     // UN seul chemin : inchangé (une ligne de chiffres, la mention en petit).
     const cj = container.querySelector('tr[data-collegue-mois="Cédric Jullien"]') as HTMLElement;
     expect(cj.querySelector('[data-pile]')).toBeNull();
