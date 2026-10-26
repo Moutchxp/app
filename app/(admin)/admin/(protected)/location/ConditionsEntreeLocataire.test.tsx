@@ -147,7 +147,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
 
   it('OBLIGATOIRES : dans « Reste à renseigner » ; « Enregistrer » n’envoie rien, les messages sont sous les champs', async () => {
     await preparer();
-    expect(barre()).toContain('Reste à renseigner : Dépôt de garantie');
+    expect(barre()).toContain('Reste à renseigner (11) : Dépôt de garantie');
     expect(barre()).toContain('Entretien à prévoir : répondez Oui ou Non');
     await soumettre();
     expect(posts).toEqual([]);
@@ -179,7 +179,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await clic(container.querySelector('.loc-choix button')!);
     await calmer();
     // 🔴 Arno (20/10/2026) : la DATE D'ENTRÉE est obligatoire aussi (le dossier Drive du bail la porte).
-    expect(barre()).toBe('Reste à renseigner : la date d’entrée dans les lieux.');
+    expect(barre()).toBe('Reste à renseigner (1) : la date d’entrée dans les lieux.');
     expect(bouton().disabled).toBe(true);
     const date = container.querySelector('input[data-date-entree]') as HTMLInputElement;
     expect(date.required).toBe(true);
@@ -271,10 +271,10 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await toutRepondre();
     await clic(pilule('Assurance loyers impayés', 'Autre'));
     expect(container.querySelector('[data-cond-precision="assurance"] span')?.textContent).toBe('Autre assurance : laquelle ? *');
-    expect(barre()).toBe('Reste à renseigner : Autre assurance : précisez laquelle.');
+    expect(barre()).toBe('Reste à renseigner (1) : Autre assurance : précisez laquelle.');
     await saisir(container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement, 'caution bancaire');
     await clic(pilule('Mode de règlement', 'Autre'));
-    expect(barre()).toBe('Reste à renseigner : Autre mode de règlement : précisez lequel.');
+    expect(barre()).toBe('Reste à renseigner (1) : Autre mode de règlement : précisez lequel.');
     await saisir(container.querySelector('[data-cond-precision="reglement"] input') as HTMLInputElement, 'espèces');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     await clic(pilule('Assurance loyers impayés', 'Aucune'));
@@ -291,7 +291,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     // Les mêmes boutons que GLI / Visale / Autre.
     expect(container.querySelector('[aria-label="GLI : laquelle ?"]')?.className).toBe(container.querySelector('[aria-label="Assurance loyers impayés"]')?.className);
     expect(container.querySelector('[data-cond-precision="assurance"]')).toBeNull();
-    expect(barre()).toBe('Reste à renseigner : GLI : Garantme ou Personnaliser.');
+    expect(barre()).toBe('Reste à renseigner (1) : GLI : Garantme ou Personnaliser.');
     await soumettre();
     expect(posts.filter((p) => p.action === 'creer-locataires')).toEqual([]);
     expect(container.querySelector('[data-cond="garanties"] .loc-manque')?.textContent).toBe('GLI : Garantme ou Personnaliser ?');
@@ -300,7 +300,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     const champ = () => container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement | null;
     expect(container.querySelector('[data-cond-precision="assurance"] span')?.textContent).toBe('GLI personnalisée : laquelle ? *');
     expect(champ()?.placeholder).toBe('ex. nom de l’assureur ou du contrat');
-    expect(barre()).toBe('Reste à renseigner : GLI personnalisée : précisez l’assureur ou le contrat.');
+    expect(barre()).toBe('Reste à renseigner (1) : GLI personnalisée : précisez l’assureur ou le contrat.');
     await saisir(champ()!, 'Assureur fictif');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     // Garantme : rien d'autre à saisir.
@@ -380,7 +380,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(container.querySelector('[data-conditions-sans-migration]')?.textContent).toContain('Mise à jour de la base à appliquer (migration 391 et 392)');
     // L'entretien du bien (379) et le loyer (370) restent enregistrés : ils ne dépendent pas de ces migrations.
     // 🔴 Arno (25/10/2026) : le loyer mensuel (370) est obligatoire, ses deux montants (0 accepté).
-    expect(barre()).toBe('Reste à renseigner : Loyer mensuel : le loyer principal (0 si aucun) · Loyer mensuel : la provision pour charges (0 si aucune) · Entretien à prévoir : répondez Oui ou Non.');
+    expect(barre()).toBe('Reste à renseigner (3) : Loyer mensuel : le loyer principal (0 si aucun) · Loyer mensuel : la provision pour charges (0 si aucune) · Entretien à prévoir : répondez Oui ou Non.');
     await clic(container.querySelector('[data-entretien-reponse="non"]')!);
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '980');
     await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '0');
@@ -975,7 +975,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     await preparer();
     await toutRepondre();
     expect(container.querySelector('[data-cond="honoraires-proprietaire"] h4')?.innerHTML).toBe('Honoraires propriétaire <span class="loc-oblig">*</span>');
-    expect(barre()).toBe('Reste à renseigner : Honoraires propriétaire : le montant (€ HT), 0 si aucun.');
+    expect(barre()).toBe('Reste à renseigner (1) : Honoraires propriétaire : le montant (€ HT), 0 si aucun.');
     await saisir(container.querySelector('[data-hono-montant] input') as HTMLInputElement, '0');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
   });

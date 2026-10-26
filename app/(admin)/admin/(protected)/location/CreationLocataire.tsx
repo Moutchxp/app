@@ -3,6 +3,7 @@
 import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, useLecture } from './commun';
+import { LigneManques } from './LigneManques';
 import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -310,6 +311,9 @@ export function CreationLocataire() {
 
   const nbLocataires = etat.clients.length + etat.existants.length;
   const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
+  // La liste de la barre du bas, dans l'ordre des messages d'avant (le bien loué à choisir garde sa phrase propre).
+  const manquesLigne: string[] = nbLocataires === 0 ? ['au moins un locataire (client)'] : bien === null ? []
+    : !dateEntreeSaisie ? ['la date d’entrée dans les lieux'] : Object.values(manque).map((m) => m.replace(/\s*[.?]$/, ''));
   const enregistrer = async (): Promise<void> => {
     if (enCours.current || fait !== null) return;
     if (nbLocataires === 0) {
@@ -548,12 +552,13 @@ export function CreationLocataire() {
           actions={[{ libelle: issue.cause === 'champs' ? 'Compléter' : 'Fermer', onClick: () => setIssue(null), principal: true, repere: 'fermer-issue' }]} />
       ))}
       <div className="loc-collant" data-collant>
+        {/* Arno (26/10/2026) — « Reste à renseigner » tient sur UNE ligne (compteur, « … »), la liste complète dans une bulle (`LigneManques`). */}
+        {manquesLigne.length > 0 ? <LigneManques manques={manquesLigne} /> : (
         <p className="loc-manques" role="status">
-          {nbLocataires === 0 ? 'Reste à renseigner : au moins un locataire (client).' : bien === null ? 'Reste à choisir : le bien loué.'
-            : !dateEntreeSaisie ? 'Reste à renseigner : la date d’entrée dans les lieux.'
-            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\s*[.?]$/, '')).join(' · ')}.`
+          {bien === null ? 'Reste à choisir : le bien loué.'
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
+        )}
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires" data-annuler-locataire
           onClick={(e) => { if (recap !== null && fait === null) { e.preventDefault(); setIssue({ sorte: 'quitter' }); } }}>Annuler</a>
         {/* Arno (21/10/2026) — à côté d'« Enregistrer », mêmes conditions d'activation : enregistre de la même façon, puis ouvre la

@@ -120,7 +120,7 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
   it('OBLIGATOIRE : dans « Reste à renseigner », rien n’est envoyé, le message est sous le bloc et la page y défile', async () => {
     await rendreBien();
     await parkingComplet();
-    expect(barre()).toBe('Reste à renseigner : Statut du bien : choisissez « En gestion » ou « Location seule ».');
+    expect(barre()).toBe('Reste à renseigner (1) : Statut du bien : choisissez « En gestion » ou « Location seule ».');
     await soumettre();
     expect(posts).toEqual([]);
     expect(bloc()?.querySelector('.loc-manque')?.textContent).toBe('Statut du bien : choisissez « En gestion » ou « Location seule ».');

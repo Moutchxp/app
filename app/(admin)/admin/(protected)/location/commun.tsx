@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { causeDeLaReponse, MOTIF_DROIT, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import type { GestesCartes } from '../gestion/CartesPersonnes';
+import { CSS_LIGNE_MANQUES } from './LigneManques';
 
 /**
  * ══ TUILE LOCATION — CE QUE TOUS SES ÉCRANS PARTAGENT ═══════════════════════════════════════════════════════════════
@@ -423,7 +424,7 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
   .loc-collant .loc-manques{flex-basis:100%;font-size:.9rem}
   .loc-collant .svv-btn-primary{flex:1 1 auto;padding:0 18px}
 }
-`;
+${CSS_LIGNE_MANQUES}`;
 
 /** La carte d'une annexe (formulaire du bien ET fiche commune) : 3 boutons, repli en une ligne, étiquette « Détachée », confirmation. */
 export const CSS_ANNEXE_CARTE = `

@@ -165,7 +165,7 @@ describe('🔴 UN seul « Modifier » mène à la page « Ajouter un nouveau bie
     await ouvrir();
     expect(q('[data-importe]')?.textContent).toBe('Affiché d’après l’import WIPPIMMO tant que ces champs sont vides : Type : Logement · Appartement · Meublé : oui · Pièces : 3.');
     // « Reste à renseigner » le dit — sans bloquer : une fiche existante ne l'est jamais par les obligatoires de la création.
-    expect(q('[data-etat-modification]')?.textContent).toBe('Reste à renseigner : Le type de logement est obligatoire.');
+    expect(q('[data-etat-modification]')?.textContent).toBe('Reste à renseigner (1) : Le type de logement est obligatoire.');
   });
 });
 

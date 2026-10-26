@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModaleIssue } from './ModaleIssue';
 import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
+import { LigneManques } from './LigneManques';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -520,6 +521,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     ...(enGestion !== undefined && modification === undefined ? { enGestion } : {}),
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
+  // La liste de « Reste à renseigner » (barre du bas) : la ligne, son compteur et la bulle la lisent toutes trois.
+  const manquesLigne = Object.values(manque).map((m) => m.replace(/\.$/, ''));
 
   const enregistrer = async (options: { confirmeDoublon?: boolean } = {}): Promise<void> => {
     if (modification !== undefined) { await validerModification(); return; }
@@ -1042,10 +1045,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       <div className="loc-collant" data-collant>
         {/* La barre de « Nouveau bien » : « Reste à renseigner » (information — une fiche existante n'est jamais bloquée par les
             obligatoires de la création, règle de `bienComplet.ts`), « Annuler », le bouton rouge. */}
+        {!conflit && enregistre === null && manquesLigne.length > 0 ? <LigneManques manques={manquesLigne} attributs={{ 'data-etat-modification': '' }} /> : (
         <p className={`loc-manques${conflit ? ' loc-manques--refus' : ''}`} role="status" data-etat-modification>
-          {conflit ? 'Ce bien a été modifié par ailleurs — recharger ?' : enregistre !== null ? '✓ Modifications enregistrées.'
-            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.'}
+          {conflit ? 'Ce bien a été modifié par ailleurs — recharger ?' : enregistre !== null ? '✓ Modifications enregistrées.' : 'Tout l’obligatoire est renseigné.'}
         </p>
+        )}
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annulerModification} data-annuler-modification>Annuler</button>
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" aria-busy={envoi} data-valider-modification
           disabled={envoi || enregistre !== null || (modification.desactiverSansChangement === true && changementsModif.length === 0)}>
@@ -1053,9 +1057,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       </div>
       ) : (
       <div className="loc-collant" data-collant>
+        {/* Arno (26/10/2026) — « Reste à renseigner » sur UNE ligne, la liste dans une bulle ; un refus garde sa ligne rouge entière. */}
+        {motif === null && manquesLigne.length > 0 ? <LigneManques manques={manquesLigne} /> : (
         <p className={`loc-manques${motif !== null ? ' loc-manques--refus' : ''}`} role="status">
-          {motif ?? (Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.')}
+          {motif ?? 'Tout l’obligatoire est renseigné.'}
         </p>
+        )}
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/proprietaires">Annuler</a>
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || enregistre !== null} aria-busy={envoi}>
           {envoi ? 'Enregistrement…' : enregistre !== null ? '✓ Bien enregistré' : 'Enregistrer le bien'}</button>
