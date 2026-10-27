@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { droitTransactionDisponible, repartitionDisponible } from '../admin/schemaDroits';
+import { droitTransactionDisponible, prixVenteDisponible, repartitionDisponible } from '../admin/schemaDroits';
 import { estSociete, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
   type Societe, type SortePartie, type Vente } from './modele';
 import type { ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -33,7 +33,7 @@ function venteDe(r: Record<string, unknown>, lignes: LigneVente[], lotD?: { part
     repartition: r.repartition === true ? { parties: lotD.parties, retroApporteurTtc: n(r.retro_apporteur_ttc ?? 0) } : null,
     dossier: dossierDe(r, lotD.personnes),
   } : {};
-  return { ...avecLotD, id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
+  return { ...avecLotD, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
     annee: n(r.annee), mois: moisDe(r.mois_acte), dateCompromis: jour(r.date_compromis), apporteur: t(r.apporteur), note: t(r.note),
     origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes,
     double: r.double_cle === null || r.double_cle === undefined ? null : { cle: String(r.double_cle), attribution: r.attribution as Attribution } };
@@ -57,6 +57,7 @@ const NOM_COMPTE = (col: string): string =>
  */
 export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
   const lotD = await repartitionDisponible();
+  const avecPrix = await prixVenteDisponible();
   const filtre = lotD
     ? `($1::text IS NULL OR (NOT v.repartition AND v.societe = $1)
          OR (v.repartition AND EXISTS (SELECT 1 FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL AND p.societe = $1)))`
@@ -65,7 +66,7 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
     `SELECT v.id, v.societe, v.libelle, v.honoraires_ttc, v.statut, v.annee, to_char(v.mois_acte, 'YYYY-MM-DD') AS mois_acte,
             to_char(v.date_compromis, 'YYYY-MM-DD') AS date_compromis, v.apporteur, v.note, v.origine, v.source_fichier, v.source_onglet, v.source_ligne,
-            v.double_cle, v.attribution${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
+            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
             to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
        FROM transaction_vente v WHERE v.retire_le IS NULL AND ${filtre} ORDER BY v.annee, v.mois_acte NULLS LAST, v.id`, [societe]);
@@ -166,7 +167,9 @@ const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'ne
 const DATES = ['mois_acte', 'date_compromis', 'date_acte_prevue', 'date_acte'];
 async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   const c = COLONNES[entite].colonnes;
-  return entite === 'vente' && (await repartitionDisponible()) ? [...c, ...COLONNES_VENTE_434] : c;
+  if (entite !== 'vente') return c;
+  // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
+  return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : [])];
 }
 
 /** La valeur d'une colonne comme le journal la garde (numeric en nombre, date en « AAAA-MM-JJ », instant en ISO). */
@@ -205,6 +208,7 @@ const AVEC_MODIFIE: Record<Entite, boolean> = { vente: true, vente_ligne: false,
 
 export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  const avecPrix = await prixVenteDisponible();
   return withTransaction(async (q) => {
     const { rows } = await q<{ id: string }>(
       `INSERT INTO transaction_vente (societe, libelle, honoraires_ttc, statut, annee, mois_acte, date_compromis, apporteur, note, origine, cree_par, cree_par_libelle)
@@ -212,6 +216,8 @@ export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issu
       [s.societe, s.libelle, s.honorairesTtc, s.statut, s.annee, s.statut === 'compromis' ? null : premierDuMois(s.annee, s.mois), s.dateCompromis, s.apporteur, s.note,
         auteur.id, auteur.libelle]);
     const id = n(rows[0].id);
+    // LOT E — le prix de vente (435), posé à part : sans la colonne, rien n'est tenté.
+    if (avecPrix && s.prixVente != null) await q('UPDATE transaction_vente SET prix_vente = $2 WHERE id = $1', [id, s.prixVente]);
     for (const p of s.parts) {
       await q(`INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, nature, compte, origine, cree_par_libelle)
                VALUES ($1, $2, $3, $4, $5, $6, 'saisie', $7)`,
@@ -233,6 +239,7 @@ function colonnesDeChamps(ch: ChampsVente, actuel: Record<string, unknown>): Rec
   if (ch.dateCompromis !== undefined) c.date_compromis = ch.dateCompromis;
   if (ch.apporteur !== undefined) c.apporteur = ch.apporteur;
   if (ch.note !== undefined) c.note = ch.note;
+  if (ch.prixVente !== undefined) c.prix_vente = ch.prixVente;
   const annee = ch.annee ?? Number(actuel.annee);
   const statut = ch.statut ?? String(actuel.statut);
   const moisActuel = typeof actuel.mois_acte === 'string' ? Number(actuel.mois_acte.slice(5, 7)) : null;
@@ -503,6 +510,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     libelle, honoraires_ttc: s.honorairesTtc, statut: s.statut, annee, mois_acte: s.statut === 'vendue' ? `${s.dateActe!.slice(0, 7)}-01` : null,
     date_compromis: s.dateCompromis, apporteur: apporteurNom, note: s.note, adresse_bien: s.adresseBien, date_acte_prevue: s.dateActePrevue, date_acte: s.dateActe,
     negociateur_entree_id: s.entreeId, negociateur_sortie_id: s.sortieId, apporteur_id: s.apporteurId, retro_apporteur_ttc: s.retroApporteurTtc, repartition: repartie,
+    ...((await prixVenteDisponible()) ? { prix_vente: s.prixVente } : {}),
   };
   return withTransaction(async (q) => {
     let venteId: number;

@@ -69,14 +69,18 @@ export function verifierRepartition(parties: readonly Partie[], honorairesTtc: n
       if (p.societe === null) return `${p.negociateur ?? 'Ce négociateur'} n’a pas de société (CRITERIMMO ou MACJ) : renseignez-la dans Comptes avant d’enregistrer.`;
     }
   }
-  const net = commissionNetteHt(honorairesTtc, retroApporteurTtc);
-  const t = totalRepartition(parties, net);
-  const juste = parties.every((p) => p.pourcentage !== null) ? Math.abs(t.pourcentage - 100) < 1e-9 : centimes(t.montantHt) === centimes(net);
-  if (!juste) {
-    return `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(net)} HT de commission nette) : elle doit faire exactement 100 %. `
-      + 'Rien n’a été enregistré ; corrigez les parts ou « Revenir au 50/50 ».';
-  }
-  return null;
+  const m = motifSomme(parties, commissionNetteHt(honorairesTtc, retroApporteurTtc));
+  return m === null ? null : `${m} Rien n’a été enregistré ; corrigez les parts ou « Revenir au 50/50 ».`;
+}
+
+/**
+ * LOT E — la SEULE vérification de la somme (100 % exactement quand toutes les parts sont en %, au centime de la commission nette dès
+ * qu'une part est en €) : null si juste, sinon la phrase. L'écran s'en sert pour désactiver « Enregistrer », le serveur pour refuser. PUR.
+ */
+export function motifSomme(parties: readonly Partie[], netHt: number): string | null {
+  const t = totalRepartition(parties, netHt);
+  const juste = parties.every((p) => p.pourcentage !== null) ? Math.abs(t.pourcentage - 100) < 1e-9 : centimes(t.montantHt) === centimes(netHt);
+  return juste ? null : `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(netHt)} HT de commission nette) : elle doit faire exactement 100 %.`;
 }
 
 /** Ce que chaque société reçoit, et la part extérieure (HT). PUR. */

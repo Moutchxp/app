@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { ListeChoix } from '../location/ListeChoix';
 import { LIBELLE_ROLE, LIBELLE_SOCIETE, LIBELLE_STATUT, NOMS_MOIS, STATUTS, ht, type RoleLigne, type Societe, type StatutVente, type Vente } from '../../../../lib/transaction/modele';
 import { API_TRANSACTION, eur, posterTransaction } from './commun';
-import { BlocRepartition, type EtatRepartition } from './Repartition';
+import { BlocRepartition, etatSomme, type EtatRepartition } from './Repartition';
 import { corpsDossier, etatRepartitionDe, type References } from './FormulaireDossier';
 
 /**
@@ -29,10 +29,15 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
   const [dateCompromis, setDateCompromis] = useState(vente?.dateCompromis ?? '');
   const [apporteur, setApporteur] = useState(vente?.apporteur ?? '');
   const [note, setNote] = useState(vente?.note ?? '');
+  // LOT E (435) — le prix de vente, facultatif (grisé sans la migration).
+  const [prixVente, setPrixVente] = useState(vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ','));
+  const prixDisponible = references?.prixVente === true;
   const [parts, setParts] = useState<Part[]>([vide()]);
   const [repartition, setRepartition] = useState<EtatRepartition>(() => etatRepartitionDe(null, references?.negociateurs ?? []));
   /** LOT D — une vente neuve avec un négociateur d'entrée ou de sortie suit la répartition (enregistrée avec son dossier). */
   const repartie = vente === null && references?.lotD === true && (repartition.entreeId !== null || repartition.sortieId !== null);
+  const somme = etatSomme(repartition, Number(honoraires.replace(/\s/g, '').replace(',', '.')));
+  const sommeFausse = repartie && somme.motif !== null;
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const honorairesNombre = Number(honoraires.replace(/\s/g, '').replace(',', '.'));
@@ -45,13 +50,14 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
 
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
-    const champs = { libelle, honorairesTtc: honoraires, statut, annee: an, mois: m === '' ? null : m, dateCompromis: dateCompromis || null, apporteur, note };
+    const champs = { libelle, honorairesTtc: honoraires, statut, annee: an, mois: m === '' ? null : m, dateCompromis: dateCompromis || null, apporteur, note,
+      ...(prixDisponible ? { prixVente } : {}) };
     const dateActe = statut === 'vendue' && m !== '' ? `${an}-${String(m).padStart(2, '0')}-01` : '';
     const r = repartie
       ? (statut === 'annulee' ? 'Une vente répartie est un compromis ou une vente (pas « annulée »).'
         : statut === 'vendue' && dateActe === '' ? 'Une vente répartie porte le mois de l’acte.'
         : await posterTransaction({ action: 'dossier-enregistrer', id: null, dossier: { ...corpsDossier(societe, statut, { libelle, commission: honoraires, dateCompromis,
-          dateActePrevue: '', dateActe, adresseBien: '', note }, [], repartition, parts), apporteurNom: apporteur } }))
+          dateActePrevue: '', dateActe, adresseBien: '', note, prixVente }, [], repartition, parts), apporteurNom: apporteur } }))
       : vente === null
       ? await posterTransaction({ action: 'vente-saisir', vente: { societe, ...champs, parts } })
       : await posterTransaction({ action: 'vente-modifier', id: vente.id, champs });
@@ -81,6 +87,9 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
             <label>Honoraires TTC
               <input value={honoraires} onChange={(e) => setHonoraires(e.target.value)} inputMode="decimal" required data-champ="honoraires" />
               <span className="loc-muet">{Number.isFinite(honorairesNombre) && honoraires !== '' ? `soit ${eur(ht(honorairesNombre))} HT` : 'HT = TTC ÷ 1,2'}</span></label>
+            <label>Prix de vente (€)
+              <input value={prixVente} onChange={(e) => setPrixVente(e.target.value)} inputMode="decimal" disabled={!prixDisponible} data-champ="prix-vente" />
+              {!prixDisponible && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}</label>
             <label>Statut
               <ListeChoix options={STATUTS.map((s) => ({ id: s, libelle: LIBELLE_STATUT[s] }))} valeur={statut} vide={null} libelle="Statut"
                 onChange={(v) => setStatut(v as StatutVente)} donnees={{ 'data-champ': 'statut' }} /></label>
@@ -96,7 +105,8 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
             <label className="trx-plein">Note
               <textarea value={note} onChange={(e) => setNote(e.target.value)} data-champ="note" /></label>
             {vente === null && references?.lotD === true && (
-              <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={honorairesNombre} />
+              <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={honorairesNombre}
+                societeVente={societe} />
             )}
             {vente === null ? (
               <fieldset className="trx-plein trx-parts" data-parts>
@@ -129,8 +139,9 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
             )}
             {motif !== null && <p className="trx-erreur trx-plein" role="alert">{motif}</p>}
             <div className="trx-plein trx-actions">
-              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-enregistrer-vente>{vente === null ? 'Enregistrer la vente' : 'Enregistrer les modifications'}</button>
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || sommeFausse} data-enregistrer-vente>{vente === null ? 'Enregistrer la vente' : 'Enregistrer les modifications'}</button>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
+              {sommeFausse && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
               {vente !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void retirer()} disabled={envoi} data-retirer-vente>Retirer la vente (réversible)</button>}
             </div>
           </form>

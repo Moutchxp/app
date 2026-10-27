@@ -16,6 +16,8 @@ export interface VenteSaisie {
   dateCompromis: string | null;
   apporteur: string | null;
   note: string | null;
+  /** LOT E (435) — le prix de vente (€), facultatif. */
+  prixVente?: number | null;
   parts: PartSaisie[];
 }
 /** Les champs modifiables d'une vente (une modification n'en porte que certains). */
@@ -62,6 +64,11 @@ function lireChamps(c: Record<string, unknown>, tous: boolean): Lu<ChampsVente> 
   if (tous || 'dateCompromis' in c) { const d = dateIso(c.dateCompromis); if (d === undefined) return refus('Date du compromis invalide (AAAA-MM-JJ).'); v.dateCompromis = d; }
   if (tous || 'apporteur' in c) v.apporteur = texte(c.apporteur);
   if (tous || 'note' in c) v.note = texte(c.note);
+  if ('prixVente' in c) {
+    const p = montant(c.prixVente);
+    if (p === undefined || (p !== null && p < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
+    v.prixVente = p;
+  }
   return { ok: true, valeur: v };
 }
 
@@ -91,7 +98,7 @@ export function lireVente(brut: unknown): Lu<VenteSaisie> {
   const parts = lp.valeur;
   const v = ch.valeur as Required<ChampsVente>;
   return { ok: true, valeur: { societe: c.societe, libelle: v.libelle, honorairesTtc: v.honorairesTtc, statut: v.statut, annee: v.annee, mois: v.mois,
-    dateCompromis: v.dateCompromis, apporteur: v.apporteur, note: v.note, parts } };
+    dateCompromis: v.dateCompromis, apporteur: v.apporteur, note: v.note, ...(ch.valeur.prixVente !== undefined ? { prixVente: ch.valeur.prixVente } : {}), parts } };
 }
 
 /** Une modification : au moins un champ, chacun relu comme à la saisie. */
@@ -154,6 +161,8 @@ export interface DossierSaisie {
   retroApporteurTtc: number;
   personnes: PersonneSaisie[];
   parties: PartieSaisie[];
+  /** LOT E (435) — le prix de vente (€), facultatif. */
+  prixVente: number | null;
   /** « Nouvelle vente » : les négociateurs et leurs parts / payes saisis comme avant (posés à la création seulement). */
   lignes: PartSaisie[];
 }
@@ -205,7 +214,9 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
   }
   const lignes = lireParts(c.lignes);
   if (!lignes.ok) return lignes;
-  return { ok: true, valeur: { lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
+  const prix = montant(c.prixVente);
+  if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
+  return { ok: true, valeur: { prixVente: prix, lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
     dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
     entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, personnes, parties } };
 }

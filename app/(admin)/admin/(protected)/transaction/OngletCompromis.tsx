@@ -5,6 +5,8 @@ import { caHt, exterieurHt, ht, LIBELLE_SOCIETE, SOCIETES, type Societe, type Ve
 import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
 import { eur, posterTransaction, useTransaction } from './commun';
 import { FormulaireDossier, type References } from './FormulaireDossier';
+import { BlocReplie } from '../location/BlocReplie';
+import { A_RENSEIGNER, carteCompromis, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 
 /**
@@ -17,7 +19,8 @@ import { Journal } from './FormulaireVente';
  */
 
 interface DonneesCompromis extends References { disponible: boolean; aujourdhui: string; compromis: Vente[] }
-const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : '—');
+const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
+const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
 export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
@@ -30,7 +33,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
   const vue: Societe | null = societe === 'tous' ? null : societe;
-  const liste = [...d.compromis].sort((a, b) => (a.dossier?.dateActePrevue ?? `${a.annee}-12-31`).localeCompare(b.dossier?.dateActePrevue ?? `${b.annee}-12-31`) || a.id - b.id);
+  // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
+  const liste = trierCompromis(d.compromis);
   const totalHt = liste.reduce((t, v) => t + ht(v.honorairesTtc), 0);
   const parSociete = Object.fromEntries(SOCIETES.map((s) => [s, liste.reduce((t, v) => t + caHt(v, s), 0)])) as Record<Societe, number>;
   const exterieur = liste.reduce((t, v) => t + exterieurHt(v), 0);
@@ -77,21 +81,43 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           {liste.map((v) => {
             const r = v.repartition ?? null;
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
+            const c = carteCompromis(v, d.aujourdhui);
+            // 🔴 LOT E — LA CARTE COMPACTE : vendeurs, acquéreurs, puis adresse · prix · commission (verte, « € HT ») · date butoir ;
+            // tout le détail d'avant se déplie (triangle à gauche) — rien n'est retiré.
+            const titre = (
+              <span className="trx-carte-lignes">
+                <span className={`trx-carte-vendeurs${c.manque.vendeurs ? ' trx-a-renseigner' : ''}`} data-carte-ligne="vendeurs">{c.vendeurs}</span>
+                <span className={c.manque.acquereurs ? 'trx-a-renseigner' : undefined} data-carte-ligne="acquereurs">{c.acquereurs}</span>
+                <span className="trx-carte-infos" data-carte-ligne="infos">
+                  <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
+                  <span aria-hidden="true">{' · '}</span>
+                  <span data-carte="prix">{c.prix === null ? <span className="trx-a-renseigner">prix {A_RENSEIGNER}</span> : `prix ${eur(c.prix)}`}</span>
+                  <span aria-hidden="true">{' · '}</span>
+                  <span className="trx-commission" data-carte="commission">{eur(c.commissionHt)} HT <small>({eur(c.commissionTtc)} TTC)</small></span>
+                  <span aria-hidden="true">{' · '}</span>
+                  <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                    {c.butoir === null ? `date butoir ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+                </span>
+              </span>
+            );
             return (
-              <li key={v.id} data-compromis={v.id}>
+              <li key={v.id} data-compromis={v.id} data-depassee={c.depassee ? '' : undefined}>
+                <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume="" chevronAGauche defilement={false} classe="trx-carte"
+                  donnees={{ 'data-carte-compromis': String(v.id) }}>
                 <p><strong>{v.libelle}</strong>
                   <span className="trx-pastilles">
                     {societe === 'tous' && r === null && <span className="loc-pastille">{LIBELLE_SOCIETE[v.societe]}</span>}
                     {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
                   </span></p>
                 <dl className="trx-resultat">
-                  <dt>Adresse du bien</dt><dd>{v.dossier?.adresseBien ?? '—'}</dd>
+                  <dt>Adresse du bien</dt><dd>{ouManque(v.dossier?.adresseBien)}</dd>
+                  <dt>Prix de vente</dt><dd>{v.prixVente == null ? A_RENSEIGNER : eur(v.prixVente)}</dd>
                   <dt>Compromis</dt><dd>{date(v.dateCompromis)}</dd>
                   <dt>Acte prévu</dt><dd data-acte-prevu>{v.dossier?.dateActePrevue ? date(v.dossier.dateActePrevue) : `${v.annee} (année du prévisionnel)`}</dd>
                   <dt>Commission</dt><dd>{eur(ht(v.honorairesTtc))} HT · {eur(v.honorairesTtc)} TTC</dd>
-                  <dt>Négociateur d’entrée</dt><dd>{v.dossier?.entree?.nom ?? '—'}</dd>
-                  <dt>Négociateur de sortie</dt><dd>{v.dossier?.sortie?.nom ?? '—'}</dd>
-                  <dt>Apporteur</dt><dd>{v.apporteur ?? '—'}{r !== null && r.retroApporteurTtc > 0 ? ` · rétrocession ${eur(r.retroApporteurTtc)} TTC` : ''}</dd>
+                  <dt>Négociateur d’entrée</dt><dd>{ouManque(v.dossier?.entree?.nom)}</dd>
+                  <dt>Négociateur de sortie</dt><dd>{ouManque(v.dossier?.sortie?.nom)}</dd>
+                  <dt>Apporteur</dt><dd>{ouManque(v.apporteur)}{r !== null && r.retroApporteurTtc > 0 ? ` · rétrocession ${eur(r.retroApporteurTtc)} TTC` : ''}</dd>
                 </dl>
                 {(v.dossier?.personnes ?? []).length > 0 && (
                   <ul className="trx-journal" data-personnes-compromis>
@@ -124,6 +150,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                   </form>
                 )}
                 {historique === v.id && <Journal entite="vente" id={v.id} onFait={relire} />}
+                </BlocReplie>
               </li>
             );
           })}

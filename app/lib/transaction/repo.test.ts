@@ -7,7 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const disponible = vi.fn<() => Promise<boolean>>();
 const lotD = vi.fn<() => Promise<boolean>>(async () => false);
-vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD() }));
+const lotE = vi.fn<() => Promise<boolean>>(async () => false);
+vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -19,7 +20,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -121,7 +122,7 @@ describe('🔴 LOT D (434) — compromis, répartition, « Acte signé »', () =
     dateActePrevue: '2027-01-15', dateActe: null, adresseBien: '1 rue A, Puteaux', note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0,
     personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: '06 12 34 56 78', email: null, adresse: null }, { id: null, role: 'acquereur' as const, nom: 'MARTIN', telephone: null, email: null, adresse: null }],
     parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
-    lignes: [], ...o });
+    lignes: [], prixVente: null, ...o });
   const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY') ? { rows: [{ id: '5', nom: 'Jean-Baptiste PONS' }, { id: '7', nom: 'Mylène EBERLIN' }] } : undefined);
   // JB : CRITERIMMO depuis toujours ; Mylène : CRITERIMMO jusqu'au 31/10/2026, MACJ à compter du 01/11/2026.
   const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' },
@@ -197,5 +198,21 @@ describe('🔴 LOT D (434) — compromis, répartition, « Acte signé »', () =
     expect(majs.map((x) => [x.sql.includes('retire_le = now()'), x.params[0]])).toEqual([[true, [3, 4, 5]], [false, [1, 2]]]);
     const j = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!;
     expect([j.params[2], j.params[6]]).toEqual(['repartition', 12]);
+  });
+});
+
+describe('🔴 LOT E (435) — le prix de vente', () => {
+  it('sans la 435 : la lecture ne nomme pas la colonne', async () => {
+    await repo.lireVentes(null);
+    expect(appels.map((x) => x.sql).join(' ')).not.toContain('prix_vente');
+  });
+  it('avec la 435 : lu, et modifié comme un champ de la vente (journalisé)', async () => {
+    lotE.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE')
+      ? { rows: [{ libelle: 'A', honoraires_ttc: '12000', statut: 'compromis', annee: 2026, mois_acte: null, date_compromis: null, apporteur: null, note: null, retire_le: null, attribution: null, prix_vente: null }] } : undefined));
+    reponses.push((s) => (s.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined));
+    expect(await repo.modifierVente(5, { prixVente: 450000 }, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!.params).toEqual([5, 450000]);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[4]).toBe(JSON.stringify({ prix_vente: 450000 }));
   });
 });

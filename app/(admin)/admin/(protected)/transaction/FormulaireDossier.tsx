@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, nombre, partiesPour, versEcran, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { BlocRepartition, etatSomme, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { Journal } from './FormulaireVente';
 
@@ -15,7 +15,9 @@ import { Journal } from './FormulaireVente';
  */
 
 export interface PersonneRef { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null }
-export interface References { lotD: boolean; negociateurs: NegociateurRef[]; apporteurs: ApporteurRef[]; personnes: PersonneRef[] }
+export interface References { lotD: boolean; negociateurs: NegociateurRef[]; apporteurs: ApporteurRef[]; personnes: PersonneRef[];
+  /** LOT E — la migration 435 (prix de vente) est-elle appliquée ? Absent : réponse d'avant ce lot (champ grisé). */
+  prixVente?: boolean }
 interface PersonneEcran { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string; email: string; adresse: string }
 const personneVide = (role: PersonneEcran['role']): PersonneEcran => ({ id: null, role, nom: '', telephone: '', email: '', adresse: '' });
 const decrire = (p: PersonneRef): string => [p.nom, p.telephone, p.email].filter((x) => x !== null && x !== '').join(' — ');
@@ -26,15 +28,15 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
   const sortieId = v?.dossier?.sortie?.id ?? null;
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
     retroTexte: v?.repartition && v.repartition.retroApporteurTtc !== 0 ? String(v.repartition.retroApporteurTtc).replace('.', ',') : '',
-    parties: v?.repartition ? v.repartition.parties.map(versEcran) : partiesPour(negos, entreeId, sortieId) };
+    parties: v?.repartition ? lignesDe(v.repartition.parties, negos) : partiesPour(negos, entreeId, sortieId) };
 }
 
 /** Le corps envoyé à `dossier-enregistrer` (la saisie telle quelle : le serveur relit et vérifie tout). */
 export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', champs: { libelle: string; commission: string; dateCompromis: string; dateActePrevue: string;
-  dateActe: string; adresseBien: string; note: string }, personnes: readonly PersonneEcran[], r: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
-  return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
+  dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], r: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
+  return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
-    retroApporteurTtc: r.retroTexte, personnes: personnes.map((p) => ({ ...p })), parties: r.parties.map(versModele), ...(lignes ? { lignes } : {}) };
+    retroApporteurTtc: r.retroTexte, personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}) };
 }
 
 export function FormulaireDossier({ societe, vente, references, onFermer, onFait }: {
@@ -44,7 +46,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const d = vente?.dossier ?? null;
   const [champs, setChamps] = useState({ libelle: vente?.libelle ?? '', commission: vente === null ? '' : String(vente.honorairesTtc).replace('.', ','),
     dateCompromis: vente?.dateCompromis ?? '', dateActePrevue: d?.dateActePrevue ?? '', dateActe: d?.dateActe ?? (vente?.statut === 'vendue' && vente.mois !== null
-      ? `${vente.annee}-${String(vente.mois).padStart(2, '0')}-01` : ''), adresseBien: d?.adresseBien ?? '', note: vente?.note ?? '' });
+      ? `${vente.annee}-${String(vente.mois).padStart(2, '0')}-01` : ''), adresseBien: d?.adresseBien ?? '', note: vente?.note ?? '',
+    prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ',') });
   const [personnes, setPersonnes] = useState<PersonneEcran[]>(() => {
     const lues = (d?.personnes ?? []).map((p) => ({ id: p.id, role: p.role, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' }));
     return [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
@@ -53,6 +56,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const commission = nombre(champs.commission) ?? Number.NaN;
+  // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
+  const somme = etatSomme(repartition, commission);
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
     window.addEventListener('keydown', clavier);
@@ -105,16 +110,21 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             <label>Date du compromis<input type="date" value={champs.dateCompromis} onChange={champ('dateCompromis')} data-champ="date-compromis" /></label>
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}
+            <label>Prix de vente (€)
+              <input value={champs.prixVente} onChange={champ('prixVente')} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
+              {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}</label>
             <label>Commission TTC
               <input value={champs.commission} onChange={champ('commission')} inputMode="decimal" required data-champ="commission" />
               <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))} HT` : 'HT = TTC ÷ 1,2'}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
-            <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={commission} />
+            <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={commission}
+              societeVente={vente?.societe ?? societe} />
             <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
             <div className="trx-plein trx-actions">
-              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD} data-enregistrer-dossier>Enregistrer</button>
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null} data-enregistrer-dossier>Enregistrer</button>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
+              {somme.motif !== null && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
             </div>
           </form>
           {vente !== null && <Journal entite="vente" id={vente.id} onFait={onFait} />}

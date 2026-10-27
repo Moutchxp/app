@@ -1,0 +1,56 @@
+import { ht, type Vente } from './modele';
+
+/**
+ * ══ 🔴 TUILE « TRANSACTION », LOT E (Arno, 27/10/2026) — LA CARTE COMPACTE D'UN COMPROMIS (PUR) ═════════════════════════════════
+ * Un petit bloc lisible d'un coup d'œil, dans cet ordre : ligne 1 les VENDEURS, ligne 2 les ACQUÉREURS, puis sur une ligne l'adresse du
+ * bien · le prix de vente · la commission HT (et TTC) · la date butoir (date prévue de l'acte ; « dépassée » si elle est passée).
+ * Ce qui manque s'écrit « … à renseigner », jamais un tiret seul. Un compromis importé sans noms montre son libellé d'origine en ligne 1 et
+ * « acquéreurs à renseigner » en ligne 2. Tri : la date butoir la plus proche d'abord, les compromis sans date à la fin.
+ */
+
+export const A_RENSEIGNER = 'à renseigner';
+
+export interface CarteCompromis {
+  vendeurs: string;
+  acquereurs: string;
+  adresse: string;
+  prix: number | null;
+  commissionHt: number;
+  commissionTtc: number;
+  /** La date butoir « AAAA-MM-JJ » (date prévue de l'acte) ; null : à renseigner. */
+  butoir: string | null;
+  depassee: boolean;
+  /** Vrai : la ligne se lit « … à renseigner ». */
+  manque: { vendeurs: boolean; acquereurs: boolean; adresse: boolean };
+}
+
+export function carteCompromis(v: Pick<Vente, 'libelle' | 'honorairesTtc' | 'prixVente' | 'dossier'>, aujourdhui: string): CarteCompromis {
+  const personnes = v.dossier?.personnes ?? [];
+  const noms = (role: 'vendeur' | 'acquereur'): string => personnes.filter((p) => p.role === role).map((p) => p.nom.trim()).filter((x) => x !== '').join(', ');
+  const sansNoms = personnes.length === 0;
+  const vendeurs = sansNoms ? v.libelle : noms('vendeur');
+  const acquereurs = noms('acquereur');
+  const adresse = (v.dossier?.adresseBien ?? '').trim();
+  const butoir = v.dossier?.dateActePrevue ?? null;
+  return {
+    vendeurs: vendeurs === '' ? `vendeurs ${A_RENSEIGNER}` : vendeurs,
+    acquereurs: acquereurs === '' ? `acquéreurs ${A_RENSEIGNER}` : acquereurs,
+    adresse: adresse === '' ? `adresse ${A_RENSEIGNER}` : adresse,
+    prix: v.prixVente ?? null,
+    commissionHt: ht(v.honorairesTtc),
+    commissionTtc: v.honorairesTtc,
+    butoir,
+    depassee: butoir !== null && butoir < aujourdhui,
+    manque: { vendeurs: vendeurs === '', acquereurs: acquereurs === '', adresse: adresse === '' },
+  };
+}
+
+/** Le tri des compromis : date butoir la plus proche d'abord ; sans date à la fin (puis dans l'ordre de saisie). PUR. */
+export function trierCompromis<V extends Pick<Vente, 'id' | 'dossier'>>(liste: readonly V[]): V[] {
+  return [...liste].sort((a, b) => {
+    const da = a.dossier?.dateActePrevue ?? null;
+    const db = b.dossier?.dateActePrevue ?? null;
+    if (da !== db) { if (da === null) return 1; if (db === null) return -1; return da.localeCompare(db); }
+    return a.id - b.id;
+  });
+}

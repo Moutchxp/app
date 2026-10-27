@@ -84,6 +84,21 @@ export const CSS_TRANSACTION = `
 .trx-resultat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;max-width:520px}
 .trx-resultat dt{color:var(--color-svv-muted)}
 .trx-resultat dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.trx-alerte{color:var(--color-svv-red);font-weight:700;font-size:.85rem}
+.trx-parties .trx-partie{display:flex;flex-direction:column;gap:6px}
+.trx-partie-tete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.trx-partie--total{background:var(--color-svv-field)}
+.trx-croix{appearance:none;margin-left:auto;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;cursor:pointer}
+.trx-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-explication{color:var(--color-svv-red);font-weight:700;font-size:.85rem;align-self:center}
+.trx-carte .tdb-replie-ligne{align-items:flex-start}
+.trx-carte-lignes{display:flex;flex-direction:column;gap:2px;min-width:0;font-weight:400;font-size:.92rem;color:var(--color-svv-ink)}
+.trx-carte-vendeurs{font-weight:800}
+.trx-carte-infos{display:flex;flex-wrap:wrap;gap:2px 8px;color:var(--color-svv-muted)}
+.trx-commission{color:var(--color-svv-green-ink);font-weight:800}
+.trx-commission small{font-weight:600;color:var(--color-svv-muted)}
+.trx-depassee{color:var(--color-svv-red);font-weight:800}
+.trx-a-renseigner{font-style:italic}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}

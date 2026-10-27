@@ -71,6 +71,11 @@ export function repartitionDisponible(): Promise<boolean> {
   return memoiser('transaction_partie.vente_id', async () => (await colonneExiste('transaction_partie', 'vente_id')) && colonneExiste('transaction_societe_compte', 'societe'));
 }
 
+/** TRANSACTION, LOT E — la migration 435 (le prix de vente) est-elle appliquée ? Sans elle : le champ est grisé, rien ne lit ni n'écrit la colonne. */
+export function prixVenteDisponible(): Promise<boolean> {
+  return memoiser('transaction_vente.prix_vente', () => colonneExiste('transaction_vente', 'prix_vente'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 
