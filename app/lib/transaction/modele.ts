@@ -68,6 +68,8 @@ export interface Vente {
    * garde sa règle (toute la commission à la société de la vente).
    */
   repartition?: Repartition | null;
+  /** LOT G (migration 436) — l'annulation d'un compromis (statut « annulee ») : sa date, son motif, sa note ; absent ou null : non annulé. */
+  annulation?: { date: string | null; motif: string; note: string | null } | null;
   /** LOT E (migration 435) — le prix de vente du bien (€), facultatif ; absent ou null : à renseigner. */
   prixVente?: number | null;
   /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */

@@ -76,6 +76,11 @@ export function prixVenteDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.prix_vente', () => colonneExiste('transaction_vente', 'prix_vente'));
 }
 
+/** TRANSACTION, LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? Sans elle : bouton visible mais inactif. */
+export function annulationDisponible(): Promise<boolean> {
+  return memoiser('transaction_vente.annulation_motif', () => colonneExiste('transaction_vente', 'annulation_motif'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

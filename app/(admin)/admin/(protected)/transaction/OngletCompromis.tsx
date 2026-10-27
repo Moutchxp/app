@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { caHt, exterieurHt, ht, LIBELLE_SOCIETE, SOCIETES, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
 import { eur, posterTransaction, useTransaction } from './commun';
-import { FormulaireDossier, type References } from './FormulaireDossier';
+import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
+import { changerNegociateur, etatSomme, type EtatRepartition } from './Repartition';
+import { ListeChoix } from '../location/ListeChoix';
+import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
@@ -20,14 +24,18 @@ import { Journal } from './FormulaireVente';
  * Acquéreurs (chacun avec « + Ajouter … »), les informations communes en grille, la répartition, puis Modifier · Acte signé · Historique.
  */
 
-interface DonneesCompromis extends References { disponible: boolean; aujourdhui: string; compromis: Vente[] }
+interface DonneesCompromis extends References { disponible: boolean; aujourdhui: string; compromis: Vente[];
+  /** LOT G — les compromis annulés par « Annulation » (absent : réponse d'avant ce lot). */
+  annules?: Vente[] }
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
 export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
   // LOT F — « + Ajouter un vendeur / un acquéreur » ouvre le formulaire du compromis sur une ligne neuve de ce côté (personne existante ou neuve).
-  const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null } | 'nouveau' | null>(null);
+  const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string } | 'nouveau' | null>(null);
+  // LOT G — la modale « Annulation » ouverte sur un compromis.
+  const [annulation, setAnnulation] = useState<Vente | null>(null);
   const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
   const [fait, setFait] = useState<{ id: number; libelle: string } | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
@@ -55,7 +63,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   };
   const societeSaisie: Societe = vue ?? 'criterimmo';
   return (
-    <section className="tdb-section" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
+    <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
         <h3 id="trx-compromis-titre">Compromis en cours <span className="loc-pastille">{liste.length}</span></h3>
         {vue !== null && <div className="trx-actions"><button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
@@ -125,6 +133,10 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                   )}
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: role })} disabled={!d.disponible}
                     data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
+                  {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
+                      « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
+                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
+                    onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
                 </section>
               );
             };
@@ -179,6 +191,10 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                       <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>
                       <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setActe({ id: v.id, date: d.aujourdhui })} disabled={!d.disponible} data-acte-signe={v.id}>Acte signé</button>
                       <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setHistorique(historique === v.id ? null : v.id)}>{historique === v.id ? 'Masquer l’historique' : 'Historique'}</button>
+                      {/* LOT G — « Annulation », à droite, contour et texte rouges : le mot accompagne la couleur. */}
+                      <button type="button" className="trx-btn-annulation" onClick={() => setAnnulation(v)} disabled={!d.disponible || d.annulation !== true}
+                        title={d.annulation === true ? undefined : 'Disponible après la mise à jour de la base (migration 436)'} data-annulation-compromis={v.id}>Annulation</button>
+                      {d.annulation !== true && <span className="loc-muet trx-annulation-note" data-annulation-indisponible>Annulation : disponible après la mise à jour (migration 436).</span>}
                     </div>
                     {acte?.id === v.id && (
                       <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void signer(); }} data-form-acte={v.id}>
@@ -195,9 +211,163 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           })}
         </ul>
       )}
+      <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
+      {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
+        onFait={() => { setAnnulation(null); relire(); }} />}
       {edition !== null && <FormulaireDossier societe={edition === 'nouveau' ? societeSaisie : edition.vente.societe} vente={edition === 'nouveau' ? null : edition.vente}
-        ajouter={edition === 'nouveau' ? null : edition.ajouter}
+        ajouter={edition === 'nouveau' ? null : edition.ajouter} repartitionInitiale={edition === 'nouveau' ? undefined : edition.repartition}
+        message={edition === 'nouveau' ? undefined : edition.message}
         references={d} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); relire(); }} />}
     </section>
+  );
+}
+
+// ── LOT G : le négociateur d'un côté, depuis la carte ────────────────────────────────────────────────────────────────────
+
+/** Le dossier d'un compromis tel qu'il est, prêt à renvoyer avec un seul changement (les mêmes champs que « Modifier »). */
+const champsDe = (v: Vente) => ({ libelle: v.libelle, commission: String(v.honorairesTtc), dateCompromis: v.dateCompromis ?? '', dateActePrevue: v.dossier?.dateActePrevue ?? '',
+  dateActe: '', adresseBien: v.dossier?.adresseBien ?? '', note: v.note ?? '', prixVente: v.prixVente == null ? '' : String(v.prixVente) });
+const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id: p.id, role: p.role, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' }));
+
+/**
+ * 🔴 LOT G — « + Ajouter un négociateur » : dans « Vendeurs », le négociateur d'ENTRÉE du mandat ; dans « Acquéreurs », celui de SORTIE.
+ * Un clic ouvre la liste des comptes actifs (avec leur société, « ⚠ société à renseigner dans Comptes » si elle manque) ; « Valider »
+ * l'enregistre par le même geste que « Modifier » (journalisé, « Annuler » dans l'historique). Choisi, le bouton dit « Négociateur :
+ * Prénom NOM (société) » et se rouvre pour le changer ou le retirer. La répartition suit les règles existantes ; si elle ne fait plus
+ * 100 % (une partie extérieure), rien n'est enregistré : le formulaire s'ouvre pour la revoir, avec le message.
+ */
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }: {
+  v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
+  const [choix, setChoix] = useState<string>(actuel === null ? '' : String(actuel.id));
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const societe = (id: number): Societe | null => v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe
+    ?? references.negociateurs.find((n) => n.id === id)?.societe ?? null;
+  const libelleSociete = (s: Societe | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE[s]);
+  const mot = cote === 'entree' ? 'entrée' : 'sortie';
+  const enregistrer = async (id: number | null): Promise<void> => {
+    setMotif(null);
+    if ((actuel?.id ?? null) === id) { setOuvert(false); return; }
+    const etat = changerNegociateur(etatRepartitionDe(v, references.negociateurs), cote, id, references.negociateurs);
+    const somme = etatSomme(etat, v.honorairesTtc);
+    if (somme.motif !== null) { setOuvert(false); onRevoir(etat, `Le négociateur de ${mot} a changé : la répartition est à revoir. ${somme.motif}`); return; }
+    setEnvoi(true);
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
+    setEnvoi(false);
+    if (r === null) { setOuvert(false); onFait(); } else setMotif(r);
+  };
+  return (
+    <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
+        data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur' : `Négociateur : ${actuel.nom} (${libelleSociete(societe(actuel.id))})`}</button>
+      {ouvert && (
+        <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
+          <label>Négociateur de {mot} du mandat
+            <ListeChoix options={references.negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${libelleSociete(n.societe)}` }))} valeur={choix} vide="— à choisir —"
+              libelle={`Négociateur de ${mot} du mandat`} onChange={setChoix} donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
+          <div className="trx-actions">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || choix === ''} onClick={() => void enregistrer(Number(choix))} data-valider-negociateur>Valider</button>
+            {actuel !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void enregistrer(null)} data-retirer-negociateur>Retirer le négociateur</button>}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setMotif(null); }}>Fermer</button>
+          </div>
+          {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── LOT G : l'annulation d'un compromis ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 🔴 LOT G — LA MODALE « ANNULATION » : le style de la modale de perte d'un mandat de gestion de la Location (`CSS_MODALE_ARCHIVAGE`,
+ * mêmes classes, posée dans la racine du thème). Motif obligatoire (« Défaut de crédit » proposé, ou « Autre motif » écrit), date
+ * (aujourd'hui par défaut), note facultative ; « Confirmer l'annulation » (rouge) et « Fermer ». Un refus laisse la saisie.
+ */
+function ModaleAnnulation({ vente, aujourdhui, onFermer, onFait }: { vente: Vente; aujourdhui: string; onFermer: () => void; onFait: () => void }) {
+  const fermer = useRef<HTMLButtonElement | null>(null);
+  const [sorte, setSorte] = useState<'defaut_credit' | 'autre'>('defaut_credit');
+  const [autre, setAutre] = useState('');
+  const [date, setDate] = useState(aujourdhui);
+  const [note, setNote] = useState('');
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  useEffect(() => {
+    fermer.current?.focus();
+    const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    window.addEventListener('keydown', touche);
+    return () => window.removeEventListener('keydown', touche);
+  }, [onFermer]);
+  const confirmer = async (): Promise<void> => {
+    if (sorte === 'autre' && autre.trim() === '') { setMotif('Écrivez le motif de l’annulation (« Autre motif »).'); return; }
+    setEnvoi(true);
+    const r = await posterTransaction({ action: 'compromis-annuler', id: vente.id, annulation: { motif: sorte, autre, date, note } });
+    setEnvoi(false);
+    if (r === null) onFait(); else setMotif(r);
+  };
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="arc-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
+      <style>{CSS_MODALE_ARCHIVAGE + CSS_ANNULATION}</style>
+      <div className="arc-modale" role="dialog" aria-modal="true" aria-labelledby="trx-annulation-titre" data-modale-annulation={vente.id}>
+        <h2 id="trx-annulation-titre" className="arc-titre">Annuler le compromis « {vente.libelle} »</h2>
+        <div className="arc-corps">
+          <p className="arc-intro">Le compromis sortira des compromis en cours et du prévisionnel ; il ne comptera dans aucun CA. Il restera consultable dans « Compromis annulés », d’où il se rétablit.</p>
+          <fieldset className="trx-annulation-motif">
+            <legend>Motif (obligatoire)</legend>
+            <label className="trx-radio"><input type="radio" name="trx-motif" checked={sorte === 'defaut_credit'} onChange={() => setSorte('defaut_credit')} data-motif="defaut_credit" />Défaut de crédit</label>
+            <label className="trx-radio"><input type="radio" name="trx-motif" checked={sorte === 'autre'} onChange={() => setSorte('autre')} data-motif="autre" />Autre motif</label>
+            {sorte === 'autre' && <label className="trx-annulation-champ">Motif à saisir<input value={autre} onChange={(e) => setAutre(e.target.value)} required autoFocus data-motif-autre /></label>}
+          </fieldset>
+          <label className="trx-annulation-champ">Date de l’annulation<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required data-date-annulation /></label>
+          <label className="trx-annulation-champ">Note (facultative)<textarea value={note} onChange={(e) => setNote(e.target.value)} data-note-annulation /></label>
+          {motif !== null && <p className="cp-refus trx-erreur" role="alert" data-motif-refus-annulation>{motif}</p>}
+        </div>
+        <div className="arc-pied">
+          <button type="button" className="arc-confirmer" disabled={envoi} onClick={() => void confirmer()} data-confirmer-annulation>Confirmer l’annulation</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn arc-annuler" ref={fermer} onClick={onFermer}>Fermer</button>
+        </div>
+      </div>
+    </div>,
+    document.querySelector('.svv-adm-root') ?? document.body,
+  );
+}
+const CSS_ANNULATION = `
+.trx-annulation-motif{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.trx-annulation-motif legend{font-weight:800;margin-bottom:4px}
+.trx-radio{display:flex;align-items:center;gap:10px;min-height:44px;font-weight:600;cursor:pointer}
+.trx-radio input{width:22px;height:22px;accent-color:var(--color-svv-red)}
+.trx-annulation-champ{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-annulation-champ input,.trx-annulation-champ textarea{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface)}
+.trx-annulation-champ textarea{min-height:72px;padding:8px 10px}
+`;
+
+/** LOT G — « Compromis annulés (N) », replié en bas de l'onglet : motif, date, note ; « Rétablir le compromis » (journalisé). */
+function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: readonly Vente[]; disponible: boolean; onFait: () => void; onMotif: (m: string | null) => void }) {
+  const retablir = async (id: number): Promise<void> => {
+    const r = await posterTransaction({ action: 'compromis-retablir', id });
+    onMotif(r);
+    if (r === null) onFait();
+  };
+  return (
+    <BlocReplie id="trx-compromis-annules" section="compromis-annules" titre={<>Compromis annulés ({annules.length})</>} resume="" chevronAGauche defilement={false}
+      classe="tdb-section trx-annules" donnees={{ 'data-bloc': 'compromis-annules' }}>
+      {annules.length === 0 ? <p className="loc-muet">Aucun compromis annulé.</p> : (
+        <ul className="trx-cartes" data-liste-annules>
+          {annules.map((v) => (
+            <li key={v.id} className="trx-annule" data-compromis-annule={v.id}>
+              <div className="trx-annule-tete"><strong>{v.libelle}</strong><span className="trx-carte-ht">{eur(v.honorairesTtc)} TTC · {eur(ht(v.honorairesTtc))} HT</span></div>
+              <p data-annulation-detail>Annulé le {date(v.annulation?.date)} — motif : <strong>{v.annulation?.motif}</strong></p>
+              {v.annulation?.note && <p className="loc-muet" data-annulation-note>Note : {v.annulation.note}</p>}
+              <div className="trx-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible} onClick={() => void retablir(v.id)}
+                data-retablir-compromis={v.id}>Rétablir le compromis</button></div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </BlocReplie>
   );
 }

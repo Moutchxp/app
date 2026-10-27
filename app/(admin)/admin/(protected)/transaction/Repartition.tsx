@@ -78,6 +78,44 @@ export function lignesDe(parties: readonly Partie[], negos: readonly Negociateur
   return [entree, sortie, ...parties.filter((p) => p.sorte === 'exterieure').map(versEcran)];
 }
 
+/**
+ * 🔴 LOT G (Arno) — SAISIR UNE PART. Exactement DEUX lignes : AUTO-COMPENSATION — la part saisie (en % ou en € HT) est bornée entre 0 et
+ * 100 %, et l'autre ligne passe à son complément (60 → 40), le total fait toujours 100 %. Trois lignes ou plus (une partie extérieure) :
+ * chaque ligne se saisit librement, la ligne Total vérifie la somme. PUR.
+ */
+export function saisirPart(parties: readonly PartieEcran[], i: number, mode: 'pct' | 'eur', texte: string, netHt: number): PartieEcran[] {
+  const lignes = parties.map((p, j) => (j === i ? { ...p, mode, texte } : p));
+  if (lignes.length !== 2) return lignes;
+  const x = nombre(texte);
+  const pct = x === null ? 0 : mode === 'pct' ? x : pourcentageDe(x, netHt);
+  const borne = Math.min(100, Math.max(0, pct));
+  if (x !== null && borne !== pct) lignes[i] = { ...lignes[i], mode: 'pct', texte: texteNombre(borne) };
+  lignes[1 - i] = { ...lignes[1 - i], mode: 'pct', texte: texteNombre(Number((100 - borne).toPrecision(12))) };
+  return lignes;
+}
+
+/** LOT G — retirer une partie extérieure : revenu à deux lignes, la première garde sa valeur et la seconde se recale sur 100 %. PUR. */
+export function retirerPartie(parties: readonly PartieEcran[], i: number, netHt: number): PartieEcran[] {
+  const reste = parties.filter((_, j) => j !== i);
+  return reste.length === 2 ? saisirPart(reste, 0, reste[0].mode, reste[0].texte, netHt) : reste;
+}
+
+/**
+ * LOT G — CHOISIR, CHANGER OU RETIRER le négociateur d'un côté (le formulaire ET le bouton de la carte : la même règle). Deux négociateurs
+ * différents avant et après : la répartition personnalisée est CONSERVÉE ; sinon, les parts par défaut (50/50, ou 100 % pour un seul ou le
+ * même négociateur). Avec une partie extérieure, les pourcentages restent tels quels (la ligne Total dit s'il faut les revoir). PUR.
+ */
+export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sortie', id: number | null, negos: readonly NegociateurRef[]): EtatRepartition {
+  const entreeId = cote === 'entree' ? id : etat.entreeId;
+  const sortieId = cote === 'sortie' ? id : etat.sortieId;
+  const n = id === null ? undefined : negos.find((x) => x.id === id);
+  const i = cote === 'entree' ? 0 : 1;
+  const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: n?.societe ?? null } : p));
+  const deux = (e: number | null, s: number | null): boolean => e !== null && s !== null && e !== s;
+  if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, parties: garder() };
+  return { ...etat, entreeId, sortieId, parties: partiesPour(negos, entreeId, sortieId) };
+}
+
 /** LOT E — l'état de la somme pour le formulaire : les parties retenues et, si elle ne fait pas 100 %, la phrase (Enregistrer désactivé). PUR. */
 export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parties: Partie[]; netHt: number; motif: string | null } {
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
@@ -106,13 +144,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro);
   const motifAutre = autre !== null && motifTotal === null ? autre : null;
   const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE[n.societe]}` }));
-  const choisirNego = (i: 0 | 1, v: string): void => {
-    const id = v === '' ? null : Number(v);
-    const entreeId = i === 0 ? id : etat.entreeId;
-    const sortieId = i === 1 ? id : etat.sortieId;
-    onChange({ ...etat, entreeId, sortieId, parties: partiesPour(negociateurs, entreeId, sortieId, etat.parties) });
-  };
+  const choisirNego = (i: 0 | 1, v: string): void => onChange(changerNegociateur(etat, i === 0 ? 'entree' : 'sortie', v === '' ? null : Number(v), negociateurs));
   const changerPartie = (i: number, p: Partial<PartieEcran>): void => onChange({ ...etat, parties: etat.parties.map((x, j) => (j === i ? { ...x, ...p } : x)) });
+  const changerPart = (i: number, mode: 'pct' | 'eur', texte: string): void => onChange({ ...etat, parties: saisirPart(etat.parties, i, mode, texte, net) });
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
@@ -139,7 +173,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                 {interne && <span className={p.compteId !== null && p.societe === null ? 'trx-alerte' : 'loc-muet'} data-societe-partie={i}>
                   {p.compteId === null ? 'négociateur à choisir' : p.societe === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE[p.societe]}</span>}
                 {!interne && <button type="button" className="trx-croix" aria-label="Retirer cette partie extérieure" title="Retirer cette partie extérieure"
-                  onClick={() => onChange({ ...etat, parties: etat.parties.filter((_, j) => j !== i) })} data-retirer-exterieure>×</button>}
+                  onClick={() => onChange({ ...etat, parties: retirerPartie(etat.parties, i, net) })} data-retirer-exterieure>×</button>}
               </div>
               <div className="trx-part">
                 {interne ? (
@@ -150,8 +184,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   <label>Nom (autre agence, confrère)<input value={p.nom ?? ''} onChange={(e) => changerPartie(i, { nom: e.target.value })} data-partie-nom /></label>
                   <label>Coordonnées (facultatif)<input value={p.coordonnees ?? ''} onChange={(e) => changerPartie(i, { coordonnees: e.target.value })} data-partie-coordonnees /></label>
                 </>}
-                <label>Part (%)<input inputMode="decimal" value={pctAffiche} onChange={(e) => changerPartie(i, { mode: 'pct', texte: e.target.value })} data-partie-pct={i} /></label>
-                <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPartie(i, { mode: 'eur', texte: e.target.value })} data-partie-eur={i} /></label>
+                <label>Part (%)<input inputMode="decimal" value={pctAffiche} onChange={(e) => changerPart(i, 'pct', e.target.value)} data-partie-pct={i} /></label>
+                <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPart(i, 'eur', e.target.value)} data-partie-eur={i} /></label>
               </div>
               {interne && p.compteId !== null && p.societe === null && (
                 <span className="trx-alerte" role="status" data-explication-societe={i}>

@@ -28,7 +28,8 @@ const depasse: Vente = { ...compromis, id: 30, libelle: 'LEROY / PETIT', prixVen
   dossier: { ...compromis.dossier!, adresseBien: '8 rue B, Puteaux', dateActePrevue: '2026-10-01', personnes: [{ id: 9, role: 'vendeur', nom: 'LEROY', telephone: null, email: null, adresse: null },
     { id: 10, role: 'acquereur', nom: 'PETIT', telephone: null, email: null, adresse: null }] } };
 let listeCompromis: Vente[] = [compromis];
-const references = { lotD: true, prixVente: true, negociateurs: [JB, MY, AU], apporteurs: [{ id: 4, nom: 'Julien Deblois' }], personnes: [{ id: 3, nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }] };
+let listeAnnules: Vente[] = [];
+const references = { lotD: true, prixVente: true, annulation: true, negociateurs: [JB, MY, AU], apporteurs: [{ id: 4, nom: 'Julien Deblois' }], personnes: [{ id: 3, nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }] };
 const societe = { disponible: true, societe: 'criterimmo', aujourdhui: '2026-10-27', ventes: [], retrocessions: [], aRattacher: [], doubles: [] };
 const global = { disponible: true, aujourdhui: '2026-10-27', location: {}, gestion: [], ventes: [] };
 
@@ -37,13 +38,13 @@ let root: Root;
 let posts: Record<string, unknown>[];
 let reponsePost: { etat: string; motif?: string };
 beforeEach(() => {
-  posts = []; reponsePost = { etat: 'ok' }; listeCompromis = [compromis];
+  posts = []; reponsePost = { etat: 'ok' }; listeCompromis = [compromis]; listeAnnules = []; references.annulation = true;
   window.history.replaceState(null, '', '/');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ ...reponsePost, data: null }) }; }
     const u = String(url);
-    const data = u.includes('vue=compromis') ? { disponible: true, aujourdhui: '2026-10-27', societe: 'criterimmo', compromis: listeCompromis, ...references }
+    const data = u.includes('vue=compromis') ? { disponible: true, aujourdhui: '2026-10-27', societe: 'criterimmo', compromis: listeCompromis, annules: listeAnnules, ...references }
       : u.includes('vue=references') ? { disponible: true, aujourdhui: '2026-10-27', ...references } : u.includes('vue=global') ? global : u.includes('vue=journal') ? [] : societe;
     return { ok: true, status: 200, json: async () => ({ etat: 'ok', data }) };
   }) as unknown as typeof fetch;
@@ -247,13 +248,15 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
   it('un total ≠ 100 % : message rouge, « Enregistrer » désactivé avec l’explication, la saisie reste', async () => {
     await nouveau();
     await choisir('entree', 5); await choisir('sortie', 7);
+    await cliquer('[data-ajouter-exterieure]');
     await saisir('[data-partie-pct="0"]', '60');
     await saisir('[data-partie-pct="1"]', '50');
+    await saisir('[data-partie-pct="2"]', '0');
     expect(texte('[data-motif-repartition]')).toMatch(/fait 110 %/);
     expect(container.querySelector('[data-motif-repartition]')!.className).toBe('trx-alerte');
     expect(enregistrer().disabled).toBe(true);
     expect(texte('[data-enregistrer-bloque]')).toMatch(/exactement 100 %/);
-    expect(pcts()).toEqual(['60', '50']);
+    expect(pcts()).toEqual(['60', '50', '0']);
   });
   it('un négociateur sans société : proposé, signalé, et la répartition dit pourquoi elle ne peut pas l’affecter', async () => {
     await nouveau();
@@ -279,5 +282,154 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     await cliquer('[data-enregistrer-dossier]');
     const p = (posts.at(-1)!.dossier as { personnes: { id: number | null; nom: string }[] }).personnes[0];
     expect(p).toMatchObject({ id: 3, nom: 'DUPONT' });
+  });
+});
+
+describe('🔴 LOT G — auto-compensation à deux parties', () => {
+  const nouveau = async () => {
+    await ouvrir();
+    await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '12000');
+    await cliquer('[data-champ="entree"]'); await cliquer('[role="option"][data-option="5"]');
+    await cliquer('[data-champ="sortie"]'); await cliquer('[role="option"][data-option="7"]');
+  };
+  const pcts = (): string[] => [...container.querySelectorAll('[data-partie-pct]')].map((i) => (i as HTMLInputElement).value);
+  it('en % : 60 → l’autre passe à 40 ; borné entre 0 et 100', async () => {
+    await nouveau();
+    await saisir('[data-partie-pct="0"]', '60');
+    expect(pcts()).toEqual(['60', '40']);
+    await saisir('[data-partie-pct="1"]', '150');
+    expect(pcts()).toEqual(['0', '100']);
+    expect(texte('[data-total-pct]')).toBe('100 %');
+  });
+  it('en € HT : 2 500 € sur 10 000 € nets → 25 %, l’autre 75 %', async () => {
+    await nouveau();
+    await saisir('[data-partie-eur="1"]', '2500');
+    expect(pcts()).toEqual(['75', '25']);
+    expect(texte('[data-total-pct]')).toBe('100 %');
+  });
+  it('à trois parties, pas de compensation ; retirer la troisième revient à deux, la première garde sa valeur', async () => {
+    await nouveau();
+    await cliquer('[data-ajouter-exterieure]');
+    await saisir('[data-partie-pct="0"]', '70');
+    expect(pcts()).toEqual(['70', '50', '0']);
+    expect(texte('[data-motif-repartition]')).toMatch(/fait 120 %/);
+    await cliquer('[data-retirer-exterieure]');
+    expect(pcts()).toEqual(['70', '30']);
+    expect(container.querySelector('[data-motif-repartition]')).toBeNull();
+  });
+});
+
+describe('🔴 LOT G — le négociateur de chaque côté, depuis la carte', () => {
+  const ouvrirCarte = async (id: number) => { await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(id); };
+  const choisirEtValider = async (cote: string, id: number) => {
+    await cliquer(`[data-negociateur-carte="${cote}"]`);
+    await cliquer(`[data-liste-negociateur="${cote}"]`);
+    await cliquer(`[role="option"][data-option="${id}"]`);
+    await cliquer('[data-valider-negociateur]');
+  };
+  type Envoi = { action: string; id: number; dossier: { entreeId: number | null; sortieId: number | null; parties: { sorte: string; compteId: number | null; pourcentage: number | null }[] } };
+  it('« Vendeurs » = négociateur d’ENTRÉE, « Acquéreurs » = de SORTIE (même donnée que le formulaire)', async () => {
+    listeCompromis = [importe];
+    await ouvrirCarte(12);
+    expect(texte('[data-colonne="vendeur"] [data-negociateur-carte="entree"]')).toBe('+ Ajouter un négociateur');
+    expect(texte('[data-colonne="acquereur"] [data-negociateur-carte="sortie"]')).toBe('+ Ajouter un négociateur');
+    await choisirEtValider('entree', 5);
+    let e = posts.at(-1) as Envoi;
+    expect([e.action, e.id, e.dossier.entreeId, e.dossier.sortieId]).toEqual(['dossier-enregistrer', 12, 5, null]);
+    expect(e.dossier.parties.map((p) => [p.sorte, p.compteId, p.pourcentage])).toEqual([['entree', 5, 100]]);
+    await choisirEtValider('sortie', 7);
+    e = posts.at(-1) as Envoi;
+    expect([e.dossier.entreeId, e.dossier.sortieId]).toEqual([null, 7]);
+  });
+  it('choisi : « Négociateur : Prénom NOM (société) », relu identique dans « Modifier »', async () => {
+    await ouvrirCarte(41);
+    expect(texte('[data-colonne="vendeur"] [data-negociateur-carte="entree"]')).toBe('Négociateur : Jean-Baptiste PONS (CRITERIMMO)');
+    expect(texte('[data-colonne="acquereur"] [data-negociateur-carte="sortie"]')).toBe('Négociateur : Mylène EBERLIN (MACJ)');
+    await cliquer('[data-modifier-compromis="41"]');
+    expect(texte('[data-champ="entree"]')).toContain('Jean-Baptiste PONS');
+    expect(texte('[data-champ="sortie"]')).toContain('Mylène EBERLIN');
+  });
+  it('changer en gardant deux parties conserve la répartition personnalisée (60/40)', async () => {
+    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]]
+      .map((p, i) => ({ ...p, pourcentage: i === 0 ? 60 : 40 })) } };
+    listeCompromis = [deux];
+    await ouvrirCarte(41);
+    await choisirEtValider('sortie', 4);
+    const e = posts.at(-1) as Envoi;
+    expect(e.dossier.sortieId).toBe(4);
+    expect(e.dossier.parties.map((p) => [p.compteId, p.pourcentage])).toEqual([[5, 60], [4, 40]]);
+  });
+  it('retirer un négociateur quand la répartition ne fait plus 100 % : rien n’est envoyé, le formulaire s’ouvre « à revoir »', async () => {
+    await ouvrirCarte(41); // 40 / 40 / 20 avec une partie extérieure
+    const avant = posts.length;
+    await cliquer('[data-negociateur-carte="sortie"]');
+    await cliquer('[data-retirer-negociateur]');
+    expect(posts.length).toBe(avant);
+    expect(texte('[data-message-revoir]')).toMatch(/négociateur de sortie a changé : la répartition est à revoir/);
+    expect((container.querySelector('[data-enregistrer-dossier]') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('retirer le négociateur d’un côté (deux parties) : l’autre reçoit 100 %', async () => {
+    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]] } };
+    listeCompromis = [deux];
+    await ouvrirCarte(41);
+    await cliquer('[data-negociateur-carte="sortie"]');
+    await cliquer('[data-retirer-negociateur]');
+    const e = posts.at(-1) as Envoi;
+    expect([e.dossier.entreeId, e.dossier.sortieId]).toEqual([5, null]);
+    expect(e.dossier.parties.map((p) => [p.compteId, p.pourcentage])).toEqual([[5, 100]]);
+  });
+});
+
+describe('🔴 LOT G — « Annulation »', () => {
+  const modale = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41); await cliquer('[data-annulation-compromis="41"]'); };
+  it('le bouton : sur la ligne des actions, le mot « Annulation » ; la modale propose « Défaut de crédit » et la date du jour', async () => {
+    await modale();
+    const b = container.querySelector('.trx-barre-actions [data-annulation-compromis="41"]')!;
+    expect([b.textContent, b.className]).toEqual(['Annulation', 'trx-btn-annulation']);
+    expect((document.querySelector('[data-motif="defaut_credit"]') as HTMLInputElement).checked).toBe(true);
+    expect((document.querySelector('[data-date-annulation]') as HTMLInputElement).value).toBe('2026-10-27');
+  });
+  it('défaut de crédit, avec une note : envoyé', async () => {
+    await modale();
+    const note = document.querySelector('[data-note-annulation]') as HTMLTextAreaElement;
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => { set.call(note, 'Refus de la banque.'); note.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { (document.querySelector('[data-confirmer-annulation]') as HTMLElement).click(); }); await calmer();
+    expect(posts.at(-1)).toEqual({ action: 'compromis-annuler', id: 41, annulation: { motif: 'defaut_credit', autre: '', date: '2026-10-27', note: 'Refus de la banque.' } });
+    expect(document.querySelector('[data-modale-annulation]')).toBeNull();
+  });
+  it('« Autre motif » : le texte est obligatoire', async () => {
+    await modale();
+    await act(async () => { (document.querySelector('[data-motif="autre"]') as HTMLElement).click(); }); await calmer();
+    const avant = posts.length;
+    await act(async () => { (document.querySelector('[data-confirmer-annulation]') as HTMLElement).click(); }); await calmer();
+    expect(posts.length).toBe(avant);
+    expect(document.querySelector('[data-motif-refus-annulation]')!.textContent).toMatch(/Écrivez le motif/);
+    const champ = document.querySelector('[data-motif-autre]') as HTMLInputElement; // la modale est dans un portail, hors du conteneur
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, 'Désistement de l’acquéreur'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { (document.querySelector('[data-confirmer-annulation]') as HTMLElement).click(); }); await calmer();
+    expect(posts.at(-1)).toMatchObject({ action: 'compromis-annuler', annulation: { motif: 'autre', autre: 'Désistement de l’acquéreur' } });
+  });
+  it('un compromis annulé sort des compromis en cours et des totaux ; « Compromis annulés (1) » le montre et le rétablit', async () => {
+    listeAnnules = [{ ...compromis, id: 77, libelle: 'BERNARD / THOMAS', statut: 'annulee', annulation: { date: '2026-10-20', motif: 'Défaut de crédit', note: 'Refus de la banque.' } }];
+    listeCompromis = [importe];
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-nb-compromis]')).toBe('1');
+    expect(texte('[data-commission-en-cours]')).toBe('11 666,67 €');
+    expect(container.querySelector('[data-compromis="77"]')).toBeNull();
+    expect(texte('#trx-compromis-annules .tdb-replie-mot')).toBe('Compromis annulés (1)');
+    await cliquer('[data-deplier="compromis-annules"]');
+    expect(texte('[data-compromis-annule="77"] [data-annulation-detail]')).toBe('Annulé le 20/10/2026 — motif : Défaut de crédit');
+    expect(texte('[data-compromis-annule="77"] [data-annulation-note]')).toBe('Note : Refus de la banque.');
+    await cliquer('[data-retablir-compromis="77"]');
+    expect(posts.at(-1)).toEqual({ action: 'compromis-retablir', id: 77 });
+  });
+  it('sans la migration 436 : le bouton est visible mais inactif, avec la mention', async () => {
+    references.annulation = false;
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect((container.querySelector('[data-annulation-compromis="41"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(texte('[data-annulation-indisponible]')).toMatch(/migration 436/);
   });
 });

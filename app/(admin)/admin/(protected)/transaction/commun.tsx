@@ -91,8 +91,27 @@ export const CSS_TRANSACTION = `
 .trx-croix{appearance:none;margin-left:auto;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;cursor:pointer}
 .trx-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .trx-explication{color:var(--color-svv-red);font-weight:700;font-size:.85rem;align-self:center}
-.trx-cartes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.trx-carte{border:1px solid var(--color-svv-line);border-radius:14px;padding:10px 14px;background:var(--color-svv-surface)}
+.trx-cartes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.trx-carte{border:1px solid var(--color-svv-line-strong);border-radius:14px;padding:10px 14px;background:var(--color-svv-surface)}
+/* LOT G (Arno) — CONTRASTE ET RELIEF, en Clair comme en Sombre (jetons seulement) : la page en « field », les cartes et les tuiles plus
+   claires (« surface-raised » : blanc en Clair, un cran plus clair que la page en Sombre), bordure marquée, ombre légère (teinte
+   « tip-bg », sombre dans les deux thèmes) ; dans une carte dépliée, les sous-blocs reviennent au fond « field », bordés. */
+.trx-onglet-compromis{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
+.trx-onglet-compromis .trx-carte,.trx-onglet-compromis .tdb-tuile,.trx-onglet-compromis .trx-annules{background:var(--color-svv-surface-raised);border:1px solid var(--color-svv-line-strong);
+  box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-tip-bg) 18%, transparent),0 4px 12px color-mix(in srgb, var(--color-svv-tip-bg) 10%, transparent)}
+.trx-onglet-compromis .trx-colonne,.trx-onglet-compromis .trx-communes{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
+.trx-onglet-compromis .trx-carte-detail{border-top-color:var(--color-svv-line-strong)}
+.trx-btn-large{width:100%;min-height:44px}
+.trx-negociateur-carte{display:flex;flex-direction:column;gap:8px;width:100%}
+.trx-choix-negociateur{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface)}
+.trx-choix-negociateur label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-btn-annulation{appearance:none;margin-left:auto;min-height:44px;padding:0 18px;border:2px solid var(--color-svv-red);border-radius:12px;background:transparent;color:var(--color-svv-red);font:inherit;font-weight:800;cursor:pointer}
+.trx-btn-annulation:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-btn-annulation:disabled{opacity:.55;cursor:not-allowed}
+.trx-annulation-note{flex-basis:100%;text-align:right}
+.trx-annule{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-field)}
+.trx-annule p{margin:0}
+.trx-annule-tete{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
 .trx-carte .tdb-replie-ligne{align-items:flex-start;gap:6px 16px}
 .trx-carte .tdb-h-chevron--gauche{padding-top:3px}
 .trx-carte .tdb-replie-mot{flex:1 1 16rem;min-width:0;font-size:inherit;font-weight:400}

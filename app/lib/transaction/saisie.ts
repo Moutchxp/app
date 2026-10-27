@@ -221,6 +221,20 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
     entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, personnes, parties } };
 }
 
+/** LOT G — l'annulation d'un compromis : « Défaut de crédit » (par défaut) ou un autre motif ÉCRIT (obligatoire), la date, une note. */
+export const MOTIF_DEFAUT_CREDIT = 'Défaut de crédit';
+export interface AnnulationSaisie { motif: string; date: string; note: string | null }
+export function lireAnnulation(brut: unknown): Lu<AnnulationSaisie> {
+  const c = (brut ?? {}) as Record<string, unknown>;
+  let motif: string | null;
+  if (c.motif === 'defaut_credit') motif = MOTIF_DEFAUT_CREDIT;
+  else if (c.motif === 'autre') { motif = texte(c.autre); if (motif === null) return refus('Écrivez le motif de l’annulation (« Autre motif »).'); }
+  else return refus('Choisissez le motif de l’annulation.');
+  const d = dateIso(c.date);
+  if (d === undefined || d === null) return refus('Date de l’annulation invalide (AAAA-MM-JJ).');
+  return { ok: true, valeur: { motif, date: d, note: texte(c.note) } };
+}
+
 /** « Acte signé » : le jour de l'acte. */
 export function lireDateActe(x: unknown): Lu<string> {
   const d = dateIso(x);

@@ -8,7 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const disponible = vi.fn<() => Promise<boolean>>();
 const lotD = vi.fn<() => Promise<boolean>>(async () => false);
 const lotE = vi.fn<() => Promise<boolean>>(async () => false);
-vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE() }));
+const lotG = vi.fn<() => Promise<boolean>>(async () => false);
+vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
+  annulationDisponible: () => lotG() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -20,7 +22,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -230,5 +232,34 @@ describe('🔴 LOT F — compléter un compromis importé ne déplace aucun mont
     expect(r.ok).toBe(true);
     const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'));
     expect(maj?.sql ?? '').not.toMatch(/annee|apporteur =|honoraires/);
+  });
+});
+
+describe('🔴 LOT G (436) — annuler un compromis, le rétablir', () => {
+  const ligne = (o: Record<string, unknown>) => ({ libelle: 'X', honoraires_ttc: '12000', statut: 'compromis', annee: 2027, mois_acte: null, date_compromis: null, apporteur: null, note: null,
+    retire_le: null, attribution: null, annulation_date: null, annulation_motif: null, annulation_note: null, ...o });
+  it('sans la 436 : refus avec le motif, rien n’est écrit', async () => {
+    expect(await repo.annulerCompromis(41, { motif: 'Défaut de crédit', date: '2026-10-27', note: null }, A)).toEqual({ ok: false, motif: repo.MOTIF_SANS_436 });
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+  it('annulé : statut « annulee », motif, date, note — journalisé ; rétabli : de nouveau en cours', async () => {
+    lotG.mockResolvedValue(true);
+    let l = ligne({});
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [l] } : undefined), (s) => (s.includes('RETURNING id') ? { rows: [{ id: '9' }] } : undefined));
+    expect(await repo.annulerCompromis(41, { motif: 'Défaut de crédit', date: '2026-10-27', note: 'Refus de la banque.' }, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!.params).toEqual([41, 'annulee', '2026-10-27', 'Défaut de crédit', 'Refus de la banque.']);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[2]).toBe('annulation_compromis');
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+    appels.length = 0;
+    l = ligne({ statut: 'annulee', annulation_date: '2026-10-27', annulation_motif: 'Défaut de crédit', annulation_note: 'Refus de la banque.' });
+    expect(await repo.retablirCompromis(41, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!.params).toEqual([41, 'compromis', null, null, null]);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[2]).toBe('retablissement_compromis');
+  });
+  it('seul un compromis en cours s’annule ; seul un compromis annulé se rétablit', async () => {
+    lotG.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FOR UPDATE') ? { rows: [ligne({ statut: 'vendue' })] } : undefined));
+    expect((await repo.annulerCompromis(41, { motif: 'Défaut de crédit', date: '2026-10-27', note: null }, A)).ok).toBe(false);
+    expect((await repo.retablirCompromis(41, A)).ok).toBe(false);
   });
 });

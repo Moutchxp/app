@@ -2,12 +2,12 @@ import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
-import { lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
+import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerGeste, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
+  acteSigne, annulerCompromis, annulerGeste, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible,
 } from '../../../../lib/transaction/repo';
-import { prixVenteDisponible, repartitionDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, prixVenteDisponible, repartitionDisponible } from '../../../../lib/admin/schemaDroits';
 import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -41,7 +41,7 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
     lireApporteurs().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, prixVente: await prixVenteDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
+  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -72,10 +72,13 @@ export async function GET(request: Request): Promise<Response> {
       const societe = url.searchParams.get('societe');
       if (societe !== 'tous' && !estSociete(societe)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
       const ref = await references(aujourdhui);
-      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis: [], ...ref } });
+      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis: [], annules: [], ...ref } });
       const ventes = await lireVentes(societe === 'tous' ? null : societe);
-      const compromis = ventes.filter((v) => v.statut === 'compromis' && (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : concerne(v, societe)));
-      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, ...ref } });
+      const pourVue = (v: Vente): boolean => (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : concerne(v, societe));
+      const compromis = ventes.filter((v) => v.statut === 'compromis' && pourVue(v));
+      // LOT G — les compromis ANNULÉS par le bouton « Annulation » (motif enregistré) : consultables, rétablissables.
+      const annules = ventes.filter((v) => v.statut === 'annulee' && v.annulation != null && (societe === 'tous' || (v.repartition != null ? concerne(v, societe) : v.societe === societe)));
+      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, annules, ...ref } });
     }
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {
@@ -150,6 +153,15 @@ export async function POST(request: Request): Promise<Response> {
         const d = lireDateActe(corps.dateActe);
         return d.ok ? rendre(await acteSigne(id, d.valeur, auteur)) : rendre(d);
       }
+      case 'compromis-annuler': {
+        // LOT G — « Confirmer l'annulation » (motif, date, note).
+        if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
+        const a = lireAnnulation(corps.annulation);
+        return a.ok ? rendre(await annulerCompromis(id, a.valeur, auteur)) : rendre(a);
+      }
+      case 'compromis-retablir':
+        if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
+        return rendre(await retablirCompromis(id, auteur));
       case 'retour-compromis':
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
         return rendre(await retourCompromis(id, auteur));

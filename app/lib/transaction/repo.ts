@@ -3,10 +3,10 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { droitTransactionDisponible, prixVenteDisponible, repartitionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible } from '../admin/schemaDroits';
 import { estSociete, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
   type Societe, type SortePartie, type Vente } from './modele';
-import type { ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
+import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { libelleDesPersonnes, personneExistante } from './personnes';
 import { societeALaDate, type PeriodeSociete } from './societeNegociateur';
@@ -33,7 +33,9 @@ function venteDe(r: Record<string, unknown>, lignes: LigneVente[], lotD?: { part
     repartition: r.repartition === true ? { parties: lotD.parties, retroApporteurTtc: n(r.retro_apporteur_ttc ?? 0) } : null,
     dossier: dossierDe(r, lotD.personnes),
   } : {};
-  return { ...avecLotD, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
+  const avecAnnulation = 'annulation_motif' in r
+    ? { annulation: r.annulation_motif == null ? null : { date: jour(r.annulation_date), motif: String(r.annulation_motif), note: t(r.annulation_note) } } : {};
+  return { ...avecLotD, ...avecAnnulation, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
     annee: n(r.annee), mois: moisDe(r.mois_acte), dateCompromis: jour(r.date_compromis), apporteur: t(r.apporteur), note: t(r.note),
     origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes,
     double: r.double_cle === null || r.double_cle === undefined ? null : { cle: String(r.double_cle), attribution: r.attribution as Attribution } };
@@ -58,6 +60,7 @@ const NOM_COMPTE = (col: string): string =>
 export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
   const lotD = await repartitionDisponible();
   const avecPrix = await prixVenteDisponible();
+  const avecAnnulation = await annulationDisponible();
   const filtre = lotD
     ? `($1::text IS NULL OR (NOT v.repartition AND v.societe = $1)
          OR (v.repartition AND EXISTS (SELECT 1 FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL AND p.societe = $1)))`
@@ -66,7 +69,8 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
     `SELECT v.id, v.societe, v.libelle, v.honoraires_ttc, v.statut, v.annee, to_char(v.mois_acte, 'YYYY-MM-DD') AS mois_acte,
             to_char(v.date_compromis, 'YYYY-MM-DD') AS date_compromis, v.apporteur, v.note, v.origine, v.source_fichier, v.source_onglet, v.source_ligne,
-            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
+            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${avecAnnulation
+              ? ", to_char(v.annulation_date, 'YYYY-MM-DD') AS annulation_date, v.annulation_motif, v.annulation_note" : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
             to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
        FROM transaction_vente v WHERE v.retire_le IS NULL AND ${filtre} ORDER BY v.annee, v.mois_acte NULLS LAST, v.id`, [societe]);
@@ -164,12 +168,13 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
 };
 /** LOT D — les colonnes de la vente portées par la 434 : lues et écrites SEULEMENT quand elle est appliquée. */
 const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'negociateur_entree_id', 'negociateur_sortie_id', 'apporteur_id', 'retro_apporteur_ttc', 'repartition'];
-const DATES = ['mois_acte', 'date_compromis', 'date_acte_prevue', 'date_acte'];
+const DATES = ['mois_acte', 'date_compromis', 'date_acte_prevue', 'date_acte', 'annulation_date'];
 async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   const c = COLONNES[entite].colonnes;
   if (entite !== 'vente') return c;
   // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
-  return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : [])];
+  return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
+    ...((await annulationDisponible()) ? ['annulation_date', 'annulation_motif', 'annulation_note'] : [])];
 }
 
 /** La valeur d'une colonne comme le journal la garde (numeric en nombre, date en « AAAA-MM-JJ », instant en ISO). */
@@ -629,6 +634,43 @@ export async function retourCompromis(id: number, auteur: AuteurTx): Promise<Iss
     const r = await ecrire(q, 'vente', id, { statut: 'compromis', mois_acte: null, annee: prevue ?? Number(actuel.annee), ...(lotD ? { date_acte: null } : {}) }, true);
     await journaliser(q, { entite: 'vente', id, action: 'retour_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: 'Revenue en compromis en cours (l’acte n’est plus compté).' });
+    return { ok: true };
+  });
+}
+
+// ── LOT G (migration 436) : annuler un compromis, le rétablir ───────────────────────────────────────────────────────────────
+
+export const MOTIF_SANS_436 = 'Disponible après la mise à jour de la base (migration 436) : rien n’a été enregistré.';
+
+/**
+ * « Confirmer l'annulation » : le compromis passe « annulé » (motif, date, note) — il sort des compromis en cours et du prévisionnel, ne
+ * compte dans aucun CA, et reste consultable. Rien n'est supprimé ; journalisé ; « Rétablir le compromis » le défait.
+ */
+export async function annulerCompromis(id: number, a: AnnulationSaisie, auteur: AuteurTx): Promise<Issue> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  if (!(await annulationDisponible())) return { ok: false, motif: MOTIF_SANS_436 };
+  return withTransaction(async (q) => {
+    const actuel = await lireLigne(q, 'vente', id);
+    if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
+    if (actuel.statut !== 'compromis') return { ok: false, motif: 'Ce n’est pas un compromis en cours.' };
+    const r = await ecrire(q, 'vente', id, { statut: 'annulee', annulation_date: a.date, annulation_motif: a.motif, annulation_note: a.note }, true);
+    await journaliser(q, { entite: 'vente', id, action: 'annulation_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
+      commentaire: `Compromis annulé le ${a.date.split('-').reverse().join('/')} : ${a.motif}.` });
+    return { ok: true };
+  });
+}
+
+/** « Rétablir le compromis » : il redevient un compromis en cours (motif, date et note de l'annulation vidés, gardés au journal). */
+export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<Issue> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  if (!(await annulationDisponible())) return { ok: false, motif: MOTIF_SANS_436 };
+  return withTransaction(async (q) => {
+    const actuel = await lireLigne(q, 'vente', id);
+    if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
+    if (actuel.statut !== 'annulee' || actuel.annulation_motif == null) return { ok: false, motif: 'Ce compromis n’est pas annulé.' };
+    const r = await ecrire(q, 'vente', id, { statut: 'compromis', annulation_date: null, annulation_motif: null, annulation_note: null }, true);
+    await journaliser(q, { entite: 'vente', id, action: 'retablissement_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
+      commentaire: 'Compromis rétabli : de nouveau en cours.' });
     return { ok: true };
   });
 }

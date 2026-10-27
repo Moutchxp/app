@@ -17,7 +17,9 @@ import { Journal } from './FormulaireVente';
 export interface PersonneRef { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null }
 export interface References { lotD: boolean; negociateurs: NegociateurRef[]; apporteurs: ApporteurRef[]; personnes: PersonneRef[];
   /** LOT E — la migration 435 (prix de vente) est-elle appliquée ? Absent : réponse d'avant ce lot (champ grisé). */
-  prixVente?: boolean }
+  prixVente?: boolean;
+  /** LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? */
+  annulation?: boolean }
 interface PersonneEcran { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string; email: string; adresse: string }
 const personneVide = (role: PersonneEcran['role']): PersonneEcran => ({ id: null, role, nom: '', telephone: '', email: '', adresse: '' });
 const decrire = (p: PersonneRef): string => [p.nom, p.telephone, p.email].filter((x) => x !== null && x !== '').join(' — ');
@@ -39,7 +41,9 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
     retroApporteurTtc: r.retroTexte, personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null }: {
+export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {
+  /** LOT G — une répartition déjà changée (négociateur choisi depuis la carte) à revoir, et le message qui le dit. */
+  repartitionInitiale?: EtatRepartition; message?: string;
   societe: Societe; vente: Vente | null; references: References; onFermer: () => void; onFait: () => void;
   /** LOT F — « + Ajouter un vendeur / un acquéreur » depuis la carte : une ligne neuve de ce côté, prête à la saisie (personne connue ou neuve). */
   ajouter?: 'vendeur' | 'acquereur' | null;
@@ -55,7 +59,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
     return ajouter !== null && lues.some((p) => p.role === ajouter) ? [...base, personneVide(ajouter)] : base;
   });
-  const [repartition, setRepartition] = useState<EtatRepartition>(() => etatRepartitionDe(vente, references.negociateurs));
+  const [repartition, setRepartition] = useState<EtatRepartition>(() => repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs));
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const commission = nombre(champs.commission) ?? Number.NaN;
@@ -106,6 +110,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
         <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
         <div className="tdb-fenetre-corps">
           {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
+          {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
           <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
             {blocPersonnes('vendeur', 'Vendeur(s)')}
