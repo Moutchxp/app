@@ -69,6 +69,17 @@ describe('annuler un geste', () => {
     expect(r.ok).toBe(false);
     expect(appels.some((x) => x.sql.startsWith('UPDATE'))).toBe(false);
   });
+  it('une MISE À JOUR par l’import (compromis devenu vente, D2) s’annule en remettant la valeur d’avant — jamais en retirant la vente', async () => {
+    reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1')
+      ? { rows: [{ id: '5', entite: 'vente', entite_id: '18', action: 'import_mise_a_jour', avant: { statut: 'compromis', annee: 2025 }, apres: { statut: 'vendue', annee: 2026 }, deja: false }] } : undefined));
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE')
+      ? { rows: [{ libelle: 'OURY/BERTRAND', honoraires_ttc: '50000', statut: 'vendue', annee: 2026, mois_acte: '2026-02-01', date_compromis: null, apporteur: null, note: null, retire_le: null }] } : undefined));
+    reponses.push((s) => (s.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '6' }] } : undefined));
+    expect(await repo.annulerGeste(5, A)).toEqual({ ok: true });
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!;
+    expect(maj.sql).not.toContain('retire_le');
+    expect(maj.params.slice(1)).toEqual(['compromis', 2025]);
+  });
   it('remet la valeur d’avant et journalise l’annulation (annule_journal_id)', async () => {
     reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1')
       ? { rows: [{ id: '7', entite: 'retrocession', entite_id: '4', action: 'rattachement', avant: { vente_id: null }, apres: { vente_id: 10 }, deja: false }] } : undefined));

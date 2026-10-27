@@ -286,7 +286,9 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
     const actuel = await lireLigne(q, entite, id);
     if (actuel === null) return { ok: false, motif: 'Ligne introuvable.' };
     let valeurs: Record<string, unknown>;
-    if (j.action === 'saisie' || String(j.action).startsWith('import')) {
+    // Une SAISIE (ou une ligne écrite par l'import) s'annule en la retirant ; tout autre geste (modification, rattachement, retrait,
+    // mise à jour ou retrait par l'import) remet la valeur d'avant.
+    if (j.action === 'saisie' || j.action === 'import_fichier') {
       if (actuel.retire_le !== null) return { ok: false, motif: 'La ligne est déjà retirée.' };
       valeurs = { retire_le: new Date() };
     } else {

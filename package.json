@@ -113,6 +113,7 @@
     "location:importer-suivi-2026": "tsx app/scripts/importer-suivi-location-2026.ts",
     "location:importer-suivi": "tsx app/scripts/importer-suivi-location-2026.ts",
     "location:importer-octobre-2026": "tsx app/scripts/importer-suivi-octobre-2026.ts",
+    "transaction:importer": "tsx app/scripts/importer-transaction.ts",
     "location:reparer-categorie-prime": "tsx app/scripts/reparer-categorie-prime.ts",
     "location:apporteurs-internes": "tsx app/scripts/apporteurs-internes.ts",
     "location:origine-proprietaires": "tsx app/scripts/origine-proprietaires.ts",
