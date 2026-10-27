@@ -104,8 +104,8 @@ export function resumeDesMois(ms: readonly ResumeCalcule[]): ResumeCalcule {
       return { nature, nb: xs.reduce((s, x) => s + x.nb, 0), ca: c, part: part(c), ids: xs.flatMap((x) => x.ids) };
     }),
     gestion: (() => {
-      const avec = sommeAffichee(r0.map((r) => r.gestion.avec.ca)); const sans = sommeAffichee(r0.map((r) => r.gestion.sans.ca));
-      return { avec: { nb: r0.reduce((s, r) => s + r.gestion.avec.nb, 0), ca: avec, part: part(avec) }, sans: { nb: r0.reduce((s, r) => s + r.gestion.sans.nb, 0), ca: sans, part: part(sans) } };
+      const f = (k: 'avec' | 'sans' | 'aQualifier') => { const c = sommeAffichee(r0.map((r) => r.gestion[k].ca)); return { nb: r0.reduce((s, r) => s + r.gestion[k].nb, 0), ca: c, part: part(c) }; };
+      return { avec: f('avec'), sans: f('sans'), aQualifier: f('aQualifier') };
     })(),
     portefeuille: (() => {
       // Les gains et pertes mensuels additionnés UNE fois (pas d'effet boule de neige) ; / an = × 12.

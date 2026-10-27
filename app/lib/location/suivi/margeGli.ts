@@ -6,7 +6,7 @@ import { dateIsoValide, versionADate, type Datee } from './suivi';
  * 0 accepté), versionné « applicable à partir du » : une GLI prend la marge en vigueur à SA date de souscription, jamais une autre.
  *
  * Une GLI « nouvelle » dans un mois (décisions d'Arno, 25/10/2026) :
- *   · la dernière saisie des garanties du bail dit « GLI » ;
+ *   · la dernière saisie des garanties du bail dit « GLI » — et, depuis le 27/10/2026 (Arno), « Garantme » (« Nouvelle GLI Garantme ») ;
  *   · son mois = celui de la SIGNATURE de la location (la ligne du Suivi, à défaut l'entrée du bail) ; ajoutée plus tard par « Modifier » :
  *     celui de la PREMIÈRE saisie qui dit « GLI » (aucun champ de date nouveau) ;
  *   · seulement les locations AVEC GESTION (bien en gestion à la date de signature), comme les autres lignes du Portefeuille ;

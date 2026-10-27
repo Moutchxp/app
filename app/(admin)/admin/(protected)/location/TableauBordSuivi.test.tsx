@@ -276,8 +276,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await deplierNegos();
     expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,44 €');
     expect(total('primes')).toBe('650,00 €');
-    expect(total('avec')).toBe('14 313,36 €');
-    expect(total('sans')).toBe('1 158,34 €');
+    // 🔴 Arno (27/10/2026) — avec / sans gestion / à qualifier : les statuts du bien regroupés (« CA par statut du bien »), plus la case.
+    const euros = (t: string | null | undefined): number => Number((t ?? '').replace(/[\s\u00a0\u202f€]/g, '').replace('−', '-').replace(',', '.'));
+    const statut = (n: string) => euros(container.querySelector(`[data-statut-ca="${n}"] [data-mot="CA HT"]`)?.textContent);
+    expect(euros(total('avec'))).toBe(Math.round((statut('nouveau_gestion') + statut('relocation')) * 100) / 100);
+    expect(euros(total('sans'))).toBe(Math.round((statut('nouveau_sans_gestion') + statut('client_hors_gestion')) * 100) / 100);
+    expect(euros(total('a_qualifier'))).toBe(statut('a_qualifier'));
+    // Le fichier de septembre : des lignes sans origine du contact (« À qualifier ») ; le total reste le CA HT (15 471,70 €).
+    expect([total('avec'), total('sans'), total('a_qualifier')]).toEqual(['8 628,06 €', '0,00 €', '6 843,64 €']);
     expect(nbsp(container.querySelector('[data-total-commission="Jean-Baptiste PONS"]')?.textContent)).toBe('2 670,42 €');
   });
 
@@ -1602,7 +1608,7 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
       .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
   });
 
-  it('les contrôles au centime : CA net = CA − apporteurs − collègues ; Σ statuts = CA ; avec + sans = CA ; dossiers comptés une fois', async () => {
+  it('les contrôles au centime : CA net = CA − apporteurs − collègues ; Σ statuts = CA ; avec + sans + à qualifier = CA ; dossiers comptés une fois', async () => {
     await septembre();
     const v = (k: string) => euros(bas().querySelector(`[data-total="${k}"]`)?.textContent);
     expect(Math.round((v('ca') - v('apporteurs-externes') - v('apporteurs-internes') - v('collegues')) * 100)).toBe(Math.round(v('ca-net') * 100));
@@ -1610,7 +1616,8 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     const statuts = ca('tbody [data-statut-ca]');
     expect(Math.abs(statuts.reduce((s, x) => s + x, 0) - v('ca'))).toBeLessThanOrEqual(0.05);
     expect(euros(bas().querySelector('[data-statut-ca="total"] [data-mot="CA HT"]')?.textContent)).toBe(v('ca'));
-    expect(Math.round((v('avec') + v('sans')) * 100)).toBe(Math.round(v('ca') * 100));
+    expect(Math.round((v('avec') + v('sans') + v('a_qualifier')) * 100)).toBe(Math.round(v('ca') * 100));
+    expect(euros(bas().querySelector('[data-gestion-ca="total"] [data-mot="CA HT"]')?.textContent)).toBe(v('ca'));
     const nb = (sel: string) => [...bas().querySelectorAll(`${sel} [data-mot="Dossiers"]`)].map((x) => Number(x.textContent));
     expect(nb('tbody [data-statut-ca]').reduce((s, x) => s + x, 0)).toBe(17);
     expect(nb('tbody [data-gestion-ca]').reduce((s, x) => s + x, 0)).toBe(17);
@@ -1908,9 +1915,9 @@ describe('🔴 Arno (25/10/2026) — Portefeuille : une seule grille de colonnes
     expect(table.querySelectorAll('col')).toHaveLength(4);
     expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
     expect([...table.querySelectorAll('[data-portefeuille-cumul] tr.fdm-pf-entetes th')].map((x) => x.textContent)).toEqual(['Gestions', 'Biens', '/ mois', '/ an']);
-    // 🔴 25/10/2026 (427) — « Nouvelles GLI » sous le Solde, dans la même grille, en haut et en bas.
-    expect([...table.querySelectorAll('[data-portefeuille-mois] tr[data-portefeuille] th')].map((x) => x.textContent)).toEqual(['Gagnées (entrées)', 'Perdues (sorties)', 'Solde', 'Nouvelles GLI']);
-    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr[data-cumul] th')].map((x) => x.textContent)).toEqual(['Gestions entrées', 'Gestions sorties', 'Solde mensuel', 'Nouvelles GLI']);
+    // 🔴 25/10/2026 (427) — « Nouvelle GLI Garantme » (27/10/2026) sous le Solde, dans la même grille, en haut et en bas.
+    expect([...table.querySelectorAll('[data-portefeuille-mois] tr[data-portefeuille] th')].map((x) => x.textContent)).toEqual(['Gagnées (entrées)', 'Perdues (sorties)', 'Solde', 'Nouvelle GLI Garantme']);
+    expect([...table.querySelectorAll('[data-portefeuille-cumul] tr[data-cumul] th')].map((x) => x.textContent)).toEqual(['Gestions entrées', 'Gestions sorties', 'Solde mensuel', 'Nouvelle GLI Garantme']);
     // Chaque ligne de chiffres a ses 4 cellules (le Solde du haut aussi : plus de cellule fusionnée).
     for (const tr of table.querySelectorAll('tr[data-portefeuille], tr[data-cumul]')) expect(tr.children).toHaveLength(4);
     expect(table.querySelector('[data-portefeuille="solde"] [colspan]')).toBeNull();
@@ -1931,7 +1938,7 @@ describe('🔴 Arno (25/10/2026, 427) — Portefeuille : « Nouvelles GLI » (lo
   it('le mois : sous le Solde, même grille ; nombre, gain / mois = Σ loyer CC × marge à SA date, / an = × 12 ; la mention des GLI sans loyer', async () => {
     await septembre();
     // 2 : (1 234,56 + 85,44) × 2,5 % = 33,00 (avant le 15/09) ; 3 : 850 × 3 % = 25,50 ; 4 : sans loyer CC.
-    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelles GLI', '3', '58,50 €', '702,00 €']);
+    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelle GLI Garantme', '3', '58,50 €', '702,00 €']);
     expect(container.querySelector('[data-gli-sans-loyer="mois"]')?.textContent).toBe('1 GLI sans loyer charges comprises : non comptées');
     // Sous le Solde (après lui dans le même groupe de lignes) ; 4 cellules, aux colonnes Biens · / mois · / an.
     const rangs = [...container.querySelectorAll('[data-portefeuille-mois] tr')].map((t) => t.getAttribute('data-portefeuille'));
@@ -1941,7 +1948,7 @@ describe('🔴 Arno (25/10/2026, 427) — Portefeuille : « Nouvelles GLI » (lo
 
   it('« Depuis le 1er janvier » : chaque GLI UNE fois (mars 27,50 + septembre 58,50 = 86,00), rien d’octobre', async () => {
     await septembre();
-    expect(cellules('[data-cumul="gli"]')).toEqual(['Nouvelles GLI', '4', '86,00 €', '1 032,00 €']);
+    expect(cellules('[data-cumul="gli"]')).toEqual(['Nouvelle GLI Garantme', '4', '86,00 €', '1 032,00 €']);
     expect(container.querySelector('[data-gli-sans-loyer="cumul"]')?.textContent).toBe('1 GLI sans loyer charges comprises : non comptées');
   });
 
@@ -1965,7 +1972,7 @@ describe('🔴 Arno (25/10/2026, 427) — Portefeuille : « Nouvelles GLI » (lo
   it('visible sans le droit « Voir les commissions » (comme le Portefeuille)', async () => {
     donnees = { ...donnees, voirCommissions: false };
     await septembre();
-    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelles GLI', '3', '58,50 €', '702,00 €']);
+    expect(cellules('[data-portefeuille="gli"]')).toEqual(['Nouvelle GLI Garantme', '3', '58,50 €', '702,00 €']);
   });
 });
 

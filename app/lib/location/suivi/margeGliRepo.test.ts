@@ -65,9 +65,14 @@ describe('🔴 « Nouvelle marge » : une version de plus, journalisée', () => 
 
 describe('🔴 les GLI lues', () => {
   it('les règles d’Arno, par fragments ; les nombres et les dates rendus tels quels', async () => {
-    lignes['WITH ce AS'] = [{ bail_id: '9', activite_id: '41', lot_id: '7', date_gli: '2026-03-10', bien: '3 rue X, Paris', locataire: 'Léa Martin', loyer_hc: '1234.56', provisions: '85.44' }];
+    // 🔴 Arno (27/10/2026) — « Nouvelle GLI Garantme » : seule la GLI dont la dernière saisie nomme Garantme (casse et espaces ignorés) ;
+    // une GLI d'un autre assureur, ou sans précision, n'est pas comptée.
+    lignes['WITH ce AS'] = [{ bail_id: '9', precision_derniere: 'GARANT ME', activite_id: '41', lot_id: '7', date_gli: '2026-03-10', bien: '3 rue X, Paris', locataire: 'Léa Martin', loyer_hc: '1234.56', provisions: '85.44' },
+      { bail_id: '10', precision_derniere: 'Assureur X', activite_id: '42', lot_id: '8', date_gli: '2026-03-11', bien: '4 rue Y, Paris', locataire: 'Paul Durand', loyer_hc: '900', provisions: '50' },
+      { bail_id: '11', precision_derniere: null, activite_id: '43', lot_id: '9', date_gli: '2026-03-12', bien: '5 rue Z, Paris', locataire: 'Ana Roy', loyer_hc: '700', provisions: '40' }];
     expect(await lireGli('2026-01-01', '2026-12-31')).toEqual([{ bailId: 9, activiteId: 41, lotId: 7, date: '2026-03-10', bien: '3 rue X, Paris', locataire: 'Léa Martin', loyerHc: 1234.56, provisions: 85.44 }]);
     const { sql, params } = ecrits.find((e) => e.sql.includes('WITH ce AS'))!;
+    expect(sql.replace(/\s+/g, ' ')).toContain('(array_agg(assurance_precision ORDER BY id DESC))[1] AS precision_derniere');
     expect(params).toEqual(['2026-01-01', '2026-12-31']);
     // La DERNIÈRE saisie dit « GLI ».
     expect(sql).toContain("WHERE ce.derniere = 'gli'");

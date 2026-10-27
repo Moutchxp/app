@@ -445,6 +445,15 @@ export function apporteurAffiche(a: ActiviteCalcul, apporteurs: readonly Apporte
  */
 export const NATURES_BIEN = ['nouveau_gestion', 'relocation', 'nouveau_sans_gestion', 'client_hors_gestion', 'a_qualifier'] as const;
 export type NatureBien = typeof NATURES_BIEN[number];
+/**
+ * 🔴 Arno (27/10/2026) — « HONORAIRES AVEC / SANS GESTION » : la famille d'un statut du bien, la MÊME classification que les badges et que
+ * « CA par statut du bien » (aucune règle recopiée) — avec gestion = Nouvelle gestion + Relocation gestion ; sans gestion = Nouveau sans
+ * gestion + Relocation sans gestion ; à qualifier = À qualifier.
+ */
+export type FamilleGestion = 'avec' | 'sans' | 'a_qualifier';
+export const FAMILLE_GESTION: Record<NatureBien, FamilleGestion> = {
+  nouveau_gestion: 'avec', relocation: 'avec', nouveau_sans_gestion: 'sans', client_hors_gestion: 'sans', a_qualifier: 'a_qualifier',
+};
 export const LIBELLE_NATURE_BIEN: Record<NatureBien, string> = {
   nouveau_gestion: 'Nouvelle gestion', relocation: 'Relocation gestion', nouveau_sans_gestion: 'Nouveau sans gestion',
   client_hors_gestion: 'Relocation sans gestion', a_qualifier: 'À qualifier',
@@ -1376,7 +1385,8 @@ export function gestionSurMois(lignes: readonly LigneGestion[], moisListe: reado
 export interface ResumeDuMois {
   resultat: { ca: number; apporteurs: number; collegues: number; caNet: number };
   parStatut: { nature: NatureBien; nb: number; ca: number; part: number | null; ids: (number | string)[] }[];
-  gestion: { avec: { nb: number; ca: number; part: number | null }; sans: { nb: number; ca: number; part: number | null } };
+  /** 🔴 27/10/2026 — par FAMILLE du statut du bien (`FAMILLE_GESTION`), tiré de `parStatut` : total = celui de « CA par statut du bien ». */
+  gestion: { avec: { nb: number; ca: number; part: number | null }; sans: { nb: number; ca: number; part: number | null }; aQualifier: { nb: number; ca: number; part: number | null } };
   portefeuille: { gagnes: { nb: number; mensuel: number; annuel: number }; perdus: { nb: number; mensuel: number; annuel: number }; solde: { mensuel: number; annuel: number }; sansLoyer: number };
   negociateurs: CascadeNegociateur[];
   /** Les primes (visibles de tous, comme avant) et les rétrocessions (droit) de TOUS les négociateurs du mois. */
@@ -1392,14 +1402,19 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
     const ca = siens.reduce((s, a) => s + caLigne(a), 0);
     return { nature, nb: siens.length, ca, part: part(ca), ids: siens.map((a) => a.id) };
   });
-  const avec = lignesDuMois.filter((a) => a.avecGestion);
-  const sans = lignesDuMois.filter((a) => !a.avecGestion);
+  // 🔴 Arno (27/10/2026) — avec / sans gestion / à qualifier : les statuts du bien regroupés (la case « Relocation » de la ligne n'en
+  // décide plus — elle classait en « avec gestion » une ligne « À qualifier » et en « sans gestion » une « Nouvelle gestion »).
+  const famille = (f: FamilleGestion): { nb: number; ca: number; part: number | null } => {
+    const xs = parStatut.filter((p) => FAMILLE_GESTION[p.nature] === f);
+    const ca = xs.reduce((s, p) => s + p.ca, 0);
+    return { nb: xs.reduce((s, p) => s + p.nb, 0), ca, part: part(ca) };
+  };
   return {
     // La cascade se lit au centime : le CA net est celui des trois montants AFFICHÉS (chacun au centime), l'égalité tombe juste.
     resultat: { ca: t.ca, apporteurs: t.apporteurs, collegues: t.collegues,
       caNet: Math.round((auCentime(t.ca) - auCentime(t.apporteurs) - auCentime(t.collegues)) * 100) / 100 },
     parStatut,
-    gestion: { avec: { nb: avec.length, ca: t.avecGestion, part: part(t.avecGestion) }, sans: { nb: sans.length, ca: t.sansGestion, part: part(t.sansGestion) } },
+    gestion: { avec: famille('avec'), sans: famille('sans'), aQualifier: famille('a_qualifier') },
     portefeuille: {
       gagnes: { nb: g.nbNouvelles, mensuel: g.gagneMensuel, annuel: g.gagneMensuel * 12 },
       perdus: { nb: g.nbPerdues, mensuel: g.perduMensuel, annuel: g.perduMensuel * 12 },

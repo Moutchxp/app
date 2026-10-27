@@ -500,7 +500,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
                 <LigneGli g={gliCumul} portee="cumul" ouvert={gliOuvert} onOuvrir={setGliOuvert} />
               </tbody>
             </table>
-            {gliOuvert !== null && <ListeGli g={gliOuvert === 'mois' ? resume.gli : gliCumul} titre={gliOuvert === 'mois' ? `Nouvelles GLI — ${unite === 'mois' ? libelle.toLowerCase() : libelle}` : `Nouvelles GLI ${cumulTitre.charAt(0).toLowerCase() + cumulTitre.slice(1)}`} />}
+            {gliOuvert !== null && <ListeGli g={gliOuvert === 'mois' ? resume.gli : gliCumul} titre={gliOuvert === 'mois' ? `Nouvelle GLI Garantme — ${unite === 'mois' ? libelle.toLowerCase() : libelle}` : `Nouvelle GLI Garantme ${cumulTitre.charAt(0).toLowerCase() + cumulTitre.slice(1)}`} />}
             {cumulOuvert !== null && (
               <ul className="fdm-cumul-biens" data-cumul-biens={cumulOuvert}>
                 {/* 🔴 Arno (26/10/2026) — une ligne par BIEN et par mois : le lot principal, « + N annexe(s) » en bulle ; / mois = la somme. */}
@@ -531,8 +531,11 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
                   <td data-mot="Part">{r.gestion.avec.part === null ? '—' : pctUn(r.gestion.avec.part)}</td></tr>
                 <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot="CA HT" data-total="sans">{eur(r.gestion.sans.ca)}</td>
                   <td data-mot="Part">{r.gestion.sans.part === null ? '—' : pctUn(r.gestion.sans.part)}</td></tr>
+                {/* 🔴 Arno (27/10/2026) — les lignes « À qualifier » (le même statut que leur badge et que « CA par statut du bien »). */}
+                <tr data-gestion-ca="a_qualifier"><th scope="row">À qualifier</th><td data-mot="Dossiers">{r.gestion.aQualifier.nb}</td><td data-mot="CA HT" data-total="a_qualifier">{eur(r.gestion.aQualifier.ca)}</td>
+                  <td data-mot="Part">{r.gestion.aQualifier.part === null ? '—' : pctUn(r.gestion.aQualifier.part)}</td></tr>
               </tbody>
-              <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb}</td>
+              <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb + r.gestion.aQualifier.nb}</td>
                 <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
             </table>
           </section>
@@ -904,7 +907,7 @@ function LigneGli({ g, portee, ouvert, onOuvrir }: { g: GliPeriode; portee: 'moi
   return (
     <>
       <tr {...attr} className="fdm-pf-gli">
-        <th scope="row">Nouvelles GLI</th><td data-mot="Biens">{g.nb}</td>
+        <th scope="row">Nouvelle GLI Garantme</th><td data-mot="Biens">{g.nb}</td>
         <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir={portee} onClick={basculer}>{eur(g.mensuel)}</button></td>
         <td data-mot="/ an"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir-an={portee} onClick={basculer}>{eur(g.annuel)}</button></td>
       </tr>

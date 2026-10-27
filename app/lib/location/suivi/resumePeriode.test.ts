@@ -61,7 +61,9 @@ describe.each([[2025, 12], [2026, 10]])('🔴 %i (janv. → mois %i) : chaque mo
     }
     expect(c(a.r.gestion.avec.ca)).toBe(somme(mois, (m) => m.r.gestion.avec.ca));
     expect(c(a.r.gestion.sans.ca)).toBe(somme(mois, (m) => m.r.gestion.sans.ca));
-    expect(a.r.gestion.avec.nb + a.r.gestion.sans.nb).toBe(a.dossiers.length);
+    expect(c(a.r.gestion.aQualifier.ca)).toBe(somme(mois, (m) => m.r.gestion.aQualifier.ca));
+    // 🔴 27/10/2026 — avec + sans + à qualifier : tous les dossiers, une fois (les statuts du bien regroupés).
+    expect(a.r.gestion.avec.nb + a.r.gestion.sans.nb + a.r.gestion.aQualifier.nb).toBe(a.dossiers.length);
   });
   it('Portefeuille : gagnées, perdues, solde (gains mensuels additionnés une fois) ; / an = × 12 ; Nouvelles GLI', () => {
     expect(a.r.portefeuille.gagnes.mensuel).toBeCloseTo(mois.reduce((s, m) => s + m.r.portefeuille.gagnes.mensuel, 0), 9);

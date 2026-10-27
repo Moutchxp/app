@@ -4,6 +4,7 @@ import { colonneExisteMemo } from '../sondeLocation';
 import { colonnesTrace } from '../../gestion/traceJournal';
 import { versionADate } from './suivi';
 import { margeFr, verifierMargeGli, type LigneGli, type MargeGli } from './margeGli';
+import { estGarantme } from '../conditionsEntree';
 
 /**
  * 🔴 Arno (25/10/2026, 427) — LA MARGE GLI EN BASE, ET LES GLI DES BAUX AVEC GESTION. Voir `margeGli.ts` pour les règles.
@@ -45,29 +46,32 @@ export async function ajouterMargeGli(brut: unknown, auteur: Auteur): Promise<Re
 
 /**
  * Les GLI des baux AVEC GESTION dont la date de souscription retenue tombe entre `debut` et `fin` (AAAA-MM-JJ) :
- *   · la dernière saisie des garanties du bail dit « GLI » ;
+ *   · la dernière saisie des garanties du bail dit « GLI », et nomme GARANTME (`estGarantme` ; Arno, 27/10/2026) ;
  *   · date = la signature (ligne du Suivi, à défaut entrée du bail) si la PREMIÈRE saisie dit déjà « GLI », sinon le jour (Paris) de la
  *     première saisie qui dit « GLI » ;
  *   · le bien est en gestion à la date de signature (dernier statut daté au plus tard ce jour-là) ;
  *   · loyer HC et provisions : les conditions du bail (à l'entrée), jamais le loyer révisé.
  */
-export async function lireGli(debut: string, fin: string): Promise<LigneGli[]> {
+export async function lireGli(debut: string, fin: string,
+  /** `garantmeSeules: false` : toutes les GLI (la règle d'avant le 27/10/2026) — pour un diagnostic avant / après, jamais pour l'écran. */
+  o: { garantmeSeules?: boolean } = {}): Promise<LigneGli[]> {
   const [conditions, loyers, statuts] = await Promise.all([colonneExisteMemo('gestion_location_conditions_entree', 'bail_id'),
     colonneExisteMemo('gestion_location_conditions', 'bail_id'), colonneExisteMemo('gestion_annuaire_lot', 'statut_bien')]);
   if (!conditions || !loyers || !statuts) return [];
   const { rows } = await query<Record<string, unknown>>(
     `WITH ce AS (
        SELECT bail_id, (array_agg(assurance_loyers ORDER BY id DESC))[1] AS derniere, (array_agg(assurance_loyers ORDER BY id))[1] AS premiere,
+              (array_agg(assurance_precision ORDER BY id DESC))[1] AS precision_derniere,
               min(saisi_le) FILTER (WHERE assurance_loyers = 'gli') AS premiere_gli
          FROM gestion_location_conditions_entree GROUP BY bail_id),
      g AS (
-       SELECT ce.bail_id, a.id AS activite_id, coalesce(a.lot_id, b.lot_id) AS lot_id, coalesce(a.date_signature, b.entree) AS signature,
+       SELECT ce.bail_id, ce.precision_derniere, a.id AS activite_id, coalesce(a.lot_id, b.lot_id) AS lot_id, coalesce(a.date_signature, b.entree) AS signature,
               CASE WHEN ce.premiere = 'gli' THEN coalesce(a.date_signature, b.entree) ELSE (ce.premiere_gli AT TIME ZONE 'Europe/Paris')::date END AS date_gli
          FROM ce JOIN gestion_bail b ON b.id = ce.bail_id
          LEFT JOIN LATERAL (SELECT x.id, x.lot_id, x.date_signature FROM gestion_location_activite x
                              WHERE x.bail_id = ce.bail_id AND x.annule_le IS NULL ORDER BY x.date_signature, x.id LIMIT 1) a ON true
         WHERE ce.derniere = 'gli')
-     SELECT g.bail_id, g.activite_id, g.lot_id, g.date_gli::text AS date_gli,
+     SELECT g.bail_id, g.precision_derniere, g.activite_id, g.lot_id, g.date_gli::text AS date_gli,
             coalesce(nullif(btrim(concat_ws(', ', nullif(btrim(lt.adresse), ''), nullif(btrim(lt.commune), ''))), ''), 'Bien n° ' || lt.id) AS bien,
             (SELECT string_agg(coalesce(nullif(btrim(concat_ws(' ', lo.prenom, lo.nom)), ''), lo.nom), ', ' ORDER BY lo.id) FROM gestion_annuaire_locataire lo
               WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = g.bail_id)) AS locataire,
@@ -79,6 +83,8 @@ export async function lireGli(debut: string, fin: string): Promise<LigneGli[]> {
               ORDER BY t.effet_le DESC, t.id DESC LIMIT 1) = 'en_gestion'
       ORDER BY g.date_gli, g.bail_id`, [debut, fin]);
   const nOuNull = (x: unknown): number | null => (x === null || x === undefined ? null : Number(x));
-  return rows.map((r) => ({ bailId: Number(r.bail_id), activiteId: nOuNull(r.activite_id), lotId: nOuNull(r.lot_id), date: String(r.date_gli),
+  // 🔴 Arno (27/10/2026) — « Nouvelle GLI Garantme » : seules les GLI dont la dernière saisie nomme Garantme (le choix « Garantme » du
+  // bloc 3, ou un texte qui le dit — la règle de l'écran, `estGarantme`) ; une GLI personnalisée (autre assureur) n'est plus comptée.
+  return rows.filter((r) => o.garantmeSeules === false || estGarantme(r.precision_derniere as string | null)).map((r) => ({ bailId: Number(r.bail_id), activiteId: nOuNull(r.activite_id), lotId: nOuNull(r.lot_id), date: String(r.date_gli),
     bien: String(r.bien), locataire: String(r.locataire ?? '—'), loyerHc: nOuNull(r.loyer_hc), provisions: nOuNull(r.provisions) }));
 }
