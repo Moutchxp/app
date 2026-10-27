@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
+  anneesDe, APPORTEUR_NON_NOMME, caHt, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
@@ -15,6 +15,8 @@ import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, parametre, posterTransaction, signePct, useTransaction } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
+import { OngletCompromis } from './OngletCompromis';
+import { FormulaireDossier, type References } from './FormulaireDossier';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION » (Arno, 27/10/2026) — LES ÉCRANS ═══════════════════════════════════════════════════════════════════
@@ -58,7 +60,9 @@ const moisCourt = (a: number, m: number): string => `${COURT[m - 1]} ${a}`;
 export function EcranSociete({ societe }: { societe: Societe }) {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
-  const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
+  // LOT D — trois onglets : « Compromis » (avant), « Le mois », « L'année » ; à l'ouverture, « Le mois » comme avant.
+  const [vue, setVue] = useState<'compromis' | 'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : parametre('vue') === 'compromis' ? 'compromis' : 'mois'));
+  const refs = useTransaction<References>('vue=references');
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? Number(jour.slice(5, 7)));
   const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
@@ -68,6 +72,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   useEffect(() => {
     ecrireAdresse(vue === 'mois' ? { vue: null, annee: String(annee), mois: String(mois), debut: null, fin: null }
+      : vue === 'compromis' ? { vue: 'compromis', annee: null, mois: null, debut: null, fin: null }
       : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin) });
   }, [vue, annee, mois, debut, fin]);
 
@@ -79,13 +84,17 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const filtrees: DonneesSociete = negociateur === '' ? d : { ...d, ventes: d.ventes.filter((v) => negociateursDe(v).includes(negociateur)),
     retrocessions: d.retrocessions.filter((r) => r.negociateur === negociateur), aRattacher: d.aRattacher.filter((x) => x.negociateur === negociateur) };
   const fini = (): void => { setEdition(null); relire(); };
+  const references = refs.lu.etat === 'ok' ? refs.lu.data : null;
+  /** LOT D — une vente répartie (ou avec son dossier) se modifie dans le formulaire du dossier ; les autres, comme avant. */
+  const avecDossier = (v: Vente | 'nouvelle' | null): v is Vente => v !== null && v !== 'nouvelle' && (v.repartition != null || v.dossier != null);
 
   return (
     <div className="tdb loc-page" data-transaction={societe}>
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       <div className="trx-barre">
-        <div className="trx-vues" role="tablist" aria-label="Le mois ou l’année">
+        <div className="trx-vues" role="tablist" aria-label="Les compromis, le mois ou l’année">
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'compromis'} onClick={() => setVue('compromis')} data-vue="compromis">Compromis</button>
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
         </div>
@@ -94,6 +103,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
         </div>
       </div>
       <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
+      {vue === 'compromis' ? <OngletCompromis societe={societe} /> : <>
       <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
         {vue === 'mois' ? (
           <label className="tdb-champ">Année
@@ -115,11 +125,14 @@ export function EcranSociete({ societe }: { societe: Societe }) {
         ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
+      </>}
 
-      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions}
+      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe}
         onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} />}
-      {edition !== null && <FormulaireVente societe={societe} vente={edition === 'nouvelle' ? null : edition} annee={annee} mois={vue === 'mois' ? mois : null}
-        negociateurs={negos} onFermer={() => setEdition(null)} onFait={fini} />}
+      {edition !== null && avecDossier(edition) && references !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={references}
+        onFermer={() => setEdition(null)} onFait={fini} />}
+      {edition !== null && !avecDossier(edition) && <FormulaireVente societe={societe} vente={edition === 'nouvelle' ? null : edition} annee={annee} mois={vue === 'mois' ? mois : null}
+        negociateurs={negos} references={references} onFermer={() => setEdition(null)} onFait={fini} />}
     </div>
   );
 }
@@ -133,8 +146,8 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
   const [cumul, setCumul] = useState(false);
   const T = totauxMois(d, annee, mois);
   const T1 = totauxMois(d, annee - 1, mois);
-  const parMois = caHtParMois(d.ventes, annee);
-  const parMoisN1 = caHtParMois(d.ventes, annee - 1);
+  const parMois = caHtParMois(d.ventes, annee, d.societe);
+  const parMoisN1 = caHtParMois(d.ventes, annee - 1, d.societe);
   const sansN1 = !d.ventes.some((v) => v.annee === annee - 1);
   const cumulN = parMois.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
   const cumulN1 = parMoisN1.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
@@ -170,7 +183,7 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
         <span className="tdb-tuile-mot">CA cumulé {annee} (à fin {NOMS_MOIS[mois - 1].toLowerCase()})</span><strong className="tdb-tuile-valeur">{eur(cumulN[mois - 1])}</strong>
         <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
-        <span className="tdb-tuile-mot">Compromis en cours ({annee})</span><strong className="tdb-tuile-valeur">{eur(comp.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</strong>
+        <span className="tdb-tuile-mot">Compromis en cours ({annee})</span><strong className="tdb-tuile-valeur">{eur(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong>
         <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
     </ul>
 
@@ -192,7 +205,7 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
 
     <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
-      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." />
+      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} />
     </section>
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
@@ -207,8 +220,8 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
     </section>
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
-      resume={`${parNegociateur(ventes, retros).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
-      <TableNegociateurs lignes={parNegociateur(ventes, retros)} onDetail={onDetail} periode={libMois} />
+      resume={`${parNegociateur(ventes, retros, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
+      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe)} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
@@ -224,20 +237,22 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
       </section>
     )}
 
-    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => ht(v.honorairesTtc))))} HT`}
+    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => caHt(v, d.societe))))} HT`}
       donnees={{ 'data-bloc': 'compromis' }}>
-      <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." />
+      <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." societe={d.societe} />
     </BlocReplie>
     <BlocReplie id="trx-confirmer" section="a-confirmer" titre={<>Ventes « mois à confirmer » — {annee}</>}
-      resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => ht(v.honorairesTtc))))} HT`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
+      resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => caHt(v, d.societe))))} HT`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
       <p className="loc-muet">Aucune formule du fichier ne les place dans un mois : elles comptent dans l’année, dans aucun mois. « Modifier » leur donne leur mois.</p>
-      <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." />
+      <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." societe={d.societe} />
     </BlocReplie>
   </>;
 }
 
 /** Les ventes, en tableau (en cartes au téléphone) : chaque ligne s'ouvre en modification. */
-function TableVentes({ ventes, retros, onModifier, vide }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string }) {
+function TableVentes({ ventes, retros, onModifier, vide, societe = null }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
+  /** LOT D — la société vue : la part d'une vente répartie s'affiche sous ses honoraires. */
+  societe?: Societe | null }) {
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
   return (
     <table className="tdb-table tdb-table--large" data-table-ventes>
@@ -250,13 +265,15 @@ function TableVentes({ ventes, retros, onModifier, vide }: { ventes: readonly Ve
               <span className="trx-pastilles">
                 {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
                 {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
+                {v.repartition != null && <span className="loc-pastille trx-pastille--verte" data-pastille-repartie>répartie</span>}
                 {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
               </span>
               {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
             </th>
             <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td>
             <td data-mot="Honoraires TTC">{eur(v.honorairesTtc)}</td>
-            <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}</td>
+            <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}
+              {v.repartition != null && <><br /><span className="trx-source" data-part-vente>{societe === null ? 'nos parts' : `part ${LIBELLE_SOCIETE[societe]}`} : {eur(caHt(v, societe))}</span></>}</td>
             <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
             <td data-mot="Paye négo">{eur(payeTtcDe(v))}</td>
             <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros)))}</td>
@@ -375,19 +392,19 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   const HP = H.filter((h) => periode.includes(h.annee));
   const ventesP = d.ventes.filter((v) => v.statut === 'vendue' && periode.includes(v.annee) && compteDansSociete(v));
   const retrosP = d.retrocessions.filter((r) => periode.includes(r.annee));
-  const T = totaux(ventesP, retrosP);
+  const T = totaux(ventesP, retrosP, d.societe);
   const duree = fin - debut + 1;
   const precedente = annees.filter((a) => a >= debut - duree && a <= debut - 1);
-  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)));
+  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)), d.societe);
   const libPrec = precedente.length === 0 ? '' : duree === 1 ? String(debut - 1) : `${debut - duree} → ${debut - 1}`;
   const compFin = compromisDeLAnnee(d.ventes, fin);
-  const parMois = caHtParMois(d.ventes, fin);
-  const parMoisN1 = caHtParMois(d.ventes, fin - 1);
+  const parMois = caHtParMois(d.ventes, fin, d.societe);
+  const parMoisN1 = caHtParMois(d.ventes, fin - 1, d.societe);
   const sansN1 = !d.ventes.some((v) => v.annee === fin - 1);
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = fin < anneeEnCours ? 12 : fin > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const nb = (a: number, k: number): number => ventesDuMois(d.ventes, a, k).length;
-  const negos = parNegociateur(ventesP, retrosP);
+  const negos = parNegociateur(ventesP, retrosP, d.societe);
   const apporteurs = parApporteur(retrosP, d.ventes);
   return <>
     <p className="tdb-periode">Période : <strong>{libelle}</strong></p>
@@ -399,7 +416,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <span className="tdb-tuile-mot">Ventes <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${TP.nbVentes}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Compromis en cours — ${fin}`, ids: compFin.map((v) => v.id) })} data-tuile="compromis-periode">
-        <span className="tdb-tuile-mot">Compromis en cours <small>({fin})</small></span><strong className="tdb-tuile-valeur">{eur(compFin.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</strong>
+        <span className="tdb-tuile-mot">Compromis en cours <small>({fin})</small></span><strong className="tdb-tuile-valeur">{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong>
         <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
       <li><div className="tdb-tuile" data-tuile="reste-periode">
         <span className="tdb-tuile-mot">Reste à l’agence HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.resteHt)}</strong>
@@ -436,7 +453,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
         <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total">{eur(T.resteHt)}</dd>
-        <dt>Compromis en cours (prévisionnel {fin})</dt><dd>{eur(compFin.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</dd>
+        <dt>Compromis en cours (prévisionnel {fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
       </dl>
     </section>
 
@@ -482,7 +499,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
 }
 
 /** La liste des ventes derrière un chiffre. */
-function ListeVentes({ titre, ventes, retros, onFermer, onModifier }: { titre: string; ventes: readonly Vente[]; retros: readonly Retrocession[]; onFermer: () => void; onModifier: (v: Vente) => void }) {
+function ListeVentes({ titre, ventes, retros, onFermer, onModifier, societe = null }: { titre: string; ventes: readonly Vente[]; retros: readonly Retrocession[]; onFermer: () => void; onModifier: (v: Vente) => void;
+  societe?: Societe | null }) {
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
     window.addEventListener('keydown', clavier);
@@ -493,8 +511,8 @@ function ListeVentes({ titre, ventes, retros, onFermer, onModifier }: { titre: s
       <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-detail>
         <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer} autoFocus>×</button></header>
         <div className="tdb-fenetre-corps">
-          <p className="loc-muet">{ventes.length} vente(s) · CA HT {eur(sommeAffichee(ventes.map((v) => ht(v.honorairesTtc))))}</p>
-          <TableVentes ventes={ventes} retros={retros} onModifier={onModifier} vide="Aucune vente." />
+          <p className="loc-muet">{ventes.length} vente(s) · CA HT {eur(sommeAffichee(ventes.map((v) => caHt(v, societe))))}</p>
+          <TableVentes ventes={ventes} retros={retros} onModifier={onModifier} vide="Aucune vente." societe={societe} />
         </div>
       </div>
     </div>
@@ -544,9 +562,11 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
       </div>
     </li>
   );
+  // 🔴 LOT D (Arno, 27/10/2026) — UN SEUL BLOC REPLIÉ SUR UNE LIGNE, triangle à gauche (comme les autres blocs repliables du Suivi) ;
+  // déplié : le contenu d'avant, inchangé.
   return (
-    <section className="tdb-section" aria-labelledby="trx-a-attribuer" data-bloc="a-attribuer">
-      <h3 id="trx-a-attribuer">Ventes à attribuer ({enAttente.length})</h3>
+    <BlocReplie id="trx-a-attribuer" section="a-attribuer" titre={<>Ventes à attribuer ({enAttente.length})</>} resume="" chevronAGauche defilement={false}
+      donnees={{ 'data-bloc': 'a-attribuer' }}>
       <p className="loc-muet">La même vente notée chez CRITERIMMO et chez MACJ : elle ne compte qu’une fois. Tant qu’elle n’est pas attribuée, elle n’entre dans le total d’aucune des deux sociétés.</p>
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
       {enAttente.length === 0 ? <p className="loc-muet">Aucune vente en attente.</p> : <ul className="trx-journal">{enAttente.map(ligne)}</ul>}
@@ -555,7 +575,7 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
           <ul className="trx-journal">{faites.map(ligne)}</ul>
         </BlocReplie>
       )}
-    </section>
+    </BlocReplie>
   );
 }
 
@@ -568,7 +588,9 @@ export function EcranGlobal() {
   const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
   const [gestionOuverte, setGestionOuverte] = useState<number | null>(null);
-  useEffect(() => { ecrireAdresse({ annee: String(annee) }); }, [annee]);
+  // LOT D — « Compromis » (les deux sociétés réunies) avant le CA ; à l'ouverture, le CA comme avant.
+  const [onglet, setOnglet] = useState<'compromis' | 'ca'>(() => (parametre('vue') === 'compromis' ? 'compromis' : 'ca'));
+  useEffect(() => { ecrireAdresse({ annee: onglet === 'ca' ? String(annee) : null, vue: onglet === 'compromis' ? 'compromis' : null }); }, [annee, onglet]);
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
@@ -581,13 +603,18 @@ export function EcranGlobal() {
   const A1 = celluleGlobal(e, annee - 1, null);
   const P = previsionnel(e, annee);
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
-  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.societe === s && v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
-    .reduce((t, v) => t + ht(v.honorairesTtc), 0);
+  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
+    .reduce((t, v) => t + caHt(v, s), 0);
   const gestionDe = (m: number): GestionMois | null => d.gestion.find((g) => g.annee === annee && g.mois === m) ?? null;
   return (
     <div className="tdb loc-page" data-ca-global>
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
+      <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
+        <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
+        <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">Le mois et l’année</button>
+      </div>
+      {onglet === 'compromis' ? <OngletCompromis societe="tous" /> : <>
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
       <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
         disponible={d.disponible} onRelire={relire} />
@@ -635,6 +662,11 @@ export function EcranGlobal() {
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
                 <td data-mot="Total">{eur(A.aAttribuerHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
             )}
+            {A.exterieurHt > 0 && (
+              <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(autres agences, confrères : hors CA)</small></th>
+                <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
+                <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">hors total</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+            )}
             {(ventesSansMois('criterimmo') > 0 || ventesSansMois('macj') > 0) && (
               <tr data-mois-a-confirmer><th scope="row">Mois à confirmer</th><td data-mot="Vente CRITERIMMO">{eur(ventesSansMois('criterimmo'))}</td>
                 <td data-mot="Vente MACJ">{eur(ventesSansMois('macj'))}</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
@@ -668,6 +700,7 @@ export function EcranGlobal() {
         </table>
       </section>
 
+      </>}
       {gestionOuverte !== null && <SaisieGestion annee={annee} mois={gestionOuverte} actuelle={gestionDe(gestionOuverte)}
         onFermer={() => setGestionOuverte(null)} onFait={() => { setGestionOuverte(null); relire(); }} onRelire={relire} />}
     </div>

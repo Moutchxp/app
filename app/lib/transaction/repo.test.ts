@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * journalise seulement ce qui change ; « Annuler » refuse un geste dépassé par un plus récent. (Éprouvé aussi sur la base jetable.)
  */
 const disponible = vi.fn<() => Promise<boolean>>();
-vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible() }));
+const lotD = vi.fn<() => Promise<boolean>>(async () => false);
+vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -18,7 +19,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -112,5 +113,89 @@ describe('LOT C — attribuer une vente notée chez les deux sociétés', () => 
   it('une société qui n’a pas noté la vente est refusée', async () => {
     reponses.push((s) => (s.includes('WHERE double_cle = $1') ? { rows: [{ id: '1', societe: 'criterimmo' }] } : undefined));
     expect((await repo.attribuer('double|X', 'macj', A)).ok).toBe(false);
+  });
+});
+
+describe('🔴 LOT D (434) — compromis, répartition, « Acte signé »', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: null, honorairesTtc: 12000, dateCompromis: '2026-10-20',
+    dateActePrevue: '2027-01-15', dateActe: null, adresseBien: '1 rue A, Puteaux', note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0,
+    personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: '06 12 34 56 78', email: null, adresse: null }, { id: null, role: 'acquereur' as const, nom: 'MARTIN', telephone: null, email: null, adresse: null }],
+    parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
+    lignes: [], ...o });
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY') ? { rows: [{ id: '5', nom: 'Jean-Baptiste PONS' }, { id: '7', nom: 'Mylène EBERLIN' }] } : undefined);
+  // JB : CRITERIMMO depuis toujours ; Mylène : CRITERIMMO jusqu'au 31/10/2026, MACJ à compter du 01/11/2026.
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' },
+    { compte_id: '7', societe: 'criterimmo', depuis: '2000-01-01' }, { compte_id: '7', societe: 'macj', depuis: '2026-11-01' }] } : undefined);
+  const ecritures = () => appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql));
+
+  it('sans la 434 : refus avec le motif, rien n’est écrit ; la lecture ne nomme aucune colonne neuve', async () => {
+    expect(await repo.enregistrerDossier(null, dossier(), '2026-10-27', A)).toEqual({ ok: false, motif: repo.MOTIF_SANS_434 });
+    expect(ecritures()).toEqual([]);
+    await repo.lireVentes('macj');
+    expect(appels.map((x) => x.sql).join(' ')).not.toMatch(/transaction_partie|repartition|date_acte/);
+  });
+  it('une répartition ≠ 100 % est refusée AVANT toute écriture (la saisie reste à l’écran)', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push(comptes, periodes);
+    const r = await repo.enregistrerDossier(null, dossier({ parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 60, montantHt: null },
+      { sorte: 'sortie', compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }] }), '2026-10-27', A);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.motif).toMatch(/exactement 100 %/);
+    expect(ecritures()).toEqual([]);
+  });
+  it('un compromis neuf : la vente, ses personnes, ses parties — la société FIGÉE à la date de la vente ; tout journalisé', async () => {
+    lotD.mockResolvedValue(true);
+    let id = 40;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    const r = await repo.enregistrerDossier(null, dossier(), '2026-10-27', A);
+    expect(r).toEqual({ ok: true, valeur: 41 });
+    const v = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente ('))!;
+    expect(v.sql).toContain('repartition');
+    expect(v.params).toContain('DUPONT / MARTIN');
+    expect(v.params).toContain(2027); // l'année du prévisionnel : celle de l'acte prévu
+    const parties = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_partie'));
+    // Le compromis est du 20/10/2026 : Mylène était encore CRITERIMMO ce jour-là.
+    expect(parties.map((x) => [x.params[1], x.params[2], x.params[4], x.params[7]])).toEqual([['entree', 5, 'criterimmo', 50], ['sortie', 7, 'criterimmo', 50]]);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_personne'))).toHaveLength(2);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2])).toEqual(['saisie', 'saisie', 'saisie', 'personnes', 'repartition']);
+  });
+  it('une personne déjà connue (même téléphone) est RÉUTILISÉE, jamais recréée', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push(comptes, periodes, (s) => (s.startsWith('SELECT id, nom, telephone, email, adresse FROM transaction_personne')
+      ? { rows: [{ id: '3', nom: 'Paul DUPONT', telephone: '+33 6 12 34 56 78', email: null, adresse: null }] } : undefined),
+    (s) => (s.includes('FROM transaction_personne WHERE id = $1 FOR UPDATE') ? { rows: [{ nom: 'Paul DUPONT', telephone: '+33 6 12 34 56 78', email: null, adresse: null, note: null, retire_le: null }] } : undefined),
+    (s) => (s.includes('RETURNING id') ? { rows: [{ id: '50' }] } : undefined));
+    await repo.enregistrerDossier(null, dossier(), '2026-10-27', A);
+    const nouvelles = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_personne'));
+    expect(nouvelles.map((x) => x.params[0])).toEqual(['MARTIN']);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_vente_personne')).map((x) => x.params[1])).toContain(3);
+  });
+  it('« Acte signé » : vente encaissée au mois de l’acte ; « Revenir en compromis » le défait (journalisé)', async () => {
+    lotD.mockResolvedValue(true);
+    const ligne = { libelle: 'X', honoraires_ttc: '12000', statut: 'compromis', annee: 2027, mois_acte: null, date_compromis: '2026-10-20', apporteur: null, note: null, retire_le: null,
+      attribution: null, adresse_bien: null, date_acte_prevue: '2027-01-15', date_acte: null, negociateur_entree_id: '5', negociateur_sortie_id: '7', apporteur_id: null, retro_apporteur_ttc: '0', repartition: true };
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [ligne] } : undefined), (s) => (s.includes('RETURNING id') ? { rows: [{ id: '9' }] } : undefined));
+    expect(await repo.acteSigne(41, '2026-12-18', A)).toEqual({ ok: true });
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!;
+    expect(maj.params).toEqual([41, 'vendue', 2026, '2026-12-01', '2026-12-18']);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[2]).toBe('acte_signe');
+    appels.length = 0;
+    Object.assign(ligne, { statut: 'vendue', annee: 2026, mois_acte: '2026-12-01', date_acte: '2026-12-18' });
+    expect(await repo.retourCompromis(41, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!.params).toEqual([41, 'compromis', null, 2027, null]);
+    Object.assign(ligne, { statut: 'compromis' });
+    expect((await repo.retourCompromis(41, A)).ok).toBe(false);
+  });
+  it('« Annuler » une répartition : l’ensemble posé est retiré, celui d’avant revient (jamais supprimé)', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1')
+      ? { rows: [{ id: '12', entite: 'vente', entite_id: '41', action: 'repartition', avant: { ids: [1, 2] }, apres: { ids: [3, 4, 5] }, deja: false }] } : undefined),
+    (s) => (s.startsWith('SELECT id FROM transaction_partie WHERE vente_id') ? { rows: [{ id: '3' }, { id: '4' }, { id: '5' }] } : undefined),
+    (s) => (s.includes('RETURNING id') ? { rows: [{ id: '13' }] } : undefined));
+    expect(await repo.annulerGeste(12, A)).toEqual({ ok: true });
+    const majs = appels.filter((x) => x.sql.startsWith('UPDATE transaction_partie'));
+    expect(majs.map((x) => [x.sql.includes('retire_le = now()'), x.params[0]])).toEqual([[true, [3, 4, 5]], [false, [1, 2]]]);
+    const j = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!;
+    expect([j.params[2], j.params[6]]).toEqual(['repartition', 12]);
   });
 });

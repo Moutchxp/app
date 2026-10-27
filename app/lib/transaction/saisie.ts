@@ -1,4 +1,4 @@
-import { estSociete, STATUTS, type RoleLigne, type Societe, type StatutVente } from './modele';
+import { estSociete, STATUTS, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
 
 /**
  * TUILE « TRANSACTION » — la LECTURE d'une saisie venue de l'écran (vente, rétrocession, gestion du mois), avant toute écriture.
@@ -65,14 +65,10 @@ function lireChamps(c: Record<string, unknown>, tous: boolean): Lu<ChampsVente> 
   return { ok: true, valeur: v };
 }
 
-export function lireVente(brut: unknown): Lu<VenteSaisie> {
-  if (brut === null || typeof brut !== 'object') return refus('Saisie illisible.');
-  const c = brut as Record<string, unknown>;
-  if (!estSociete(c.societe)) return refus('Société inconnue.');
-  const ch = lireChamps(c, true);
-  if (!ch.ok) return ch;
+/** Les négociateurs et leurs parts / payes d'une saisie (une ligne sans nom ne compte pas). */
+function lireParts(brut: unknown): Lu<PartSaisie[]> {
   const parts: PartSaisie[] = [];
-  for (const p of Array.isArray(c.parts) ? c.parts : []) {
+  for (const p of Array.isArray(brut) ? brut : []) {
     const o = (p ?? {}) as Record<string, unknown>;
     const n = texte(o.negociateur);
     if (n === null) continue; // une ligne vide de l'écran ne compte pas
@@ -81,6 +77,18 @@ export function lireVente(brut: unknown): Lu<VenteSaisie> {
     if (m === undefined || (m !== null && m < 0)) return refus(`Montant illisible pour ${n}.`);
     parts.push({ negociateur: n, role: o.role as RoleLigne, montantTtc: m });
   }
+  return { ok: true, valeur: parts };
+}
+
+export function lireVente(brut: unknown): Lu<VenteSaisie> {
+  if (brut === null || typeof brut !== 'object') return refus('Saisie illisible.');
+  const c = brut as Record<string, unknown>;
+  if (!estSociete(c.societe)) return refus('Société inconnue.');
+  const ch = lireChamps(c, true);
+  if (!ch.ok) return ch;
+  const lp = lireParts(c.parts);
+  if (!lp.ok) return lp;
+  const parts = lp.valeur;
   const v = ch.valeur as Required<ChampsVente>;
   return { ok: true, valeur: { societe: c.societe, libelle: v.libelle, honorairesTtc: v.honorairesTtc, statut: v.statut, annee: v.annee, mois: v.mois,
     dateCompromis: v.dateCompromis, apporteur: v.apporteur, note: v.note, parts } };
@@ -121,4 +129,89 @@ export function lireGestion(brut: unknown): Lu<GestionSaisie> {
     lus[k] = m;
   }
   return { ok: true, valeur: { nbLots: lots, honorairesHt: lus.honorairesHt, adhocHt: lus.adhocHt, salarieHt: lus.salarieHt, resteHt: lus.resteHt, note: texte(c.note) } };
+}
+
+// ── LOT D (migration 434) : un compromis ou une vente avec son dossier et sa répartition ─────────────────────────────────────────
+
+export interface PersonneSaisie { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+export interface PartieSaisie { sorte: SortePartie; compteId: number | null; nom: string | null; coordonnees: string | null; pourcentage: number | null; montantHt: number | null }
+export interface DossierSaisie {
+  societe: Societe;
+  statut: 'compromis' | 'vendue';
+  /** Vide : tiré des personnes (« VENDEURS / ACQUÉREURS »). */
+  libelle: string | null;
+  honorairesTtc: number;
+  dateCompromis: string | null;
+  dateActePrevue: string | null;
+  /** Le jour de l'acte (obligatoire pour une vente) : son mois est le mois du CA. */
+  dateActe: string | null;
+  adresseBien: string | null;
+  note: string | null;
+  entreeId: number | null;
+  sortieId: number | null;
+  apporteurId: number | null;
+  apporteurNom: string | null;
+  retroApporteurTtc: number;
+  personnes: PersonneSaisie[];
+  parties: PartieSaisie[];
+  /** « Nouvelle vente » : les négociateurs et leurs parts / payes saisis comme avant (posés à la création seulement). */
+  lignes: PartSaisie[];
+}
+const SORTES: readonly SortePartie[] = ['entree', 'sortie', 'entree_sortie', 'exterieure'];
+const idOuNull = (x: unknown): number | null | undefined => entier(x, 1, Number.MAX_SAFE_INTEGER);
+
+export function lireDossier(brut: unknown): Lu<DossierSaisie> {
+  if (brut === null || typeof brut !== 'object') return refus('Saisie illisible.');
+  const c = brut as Record<string, unknown>;
+  if (!estSociete(c.societe)) return refus('Société inconnue.');
+  if (c.statut !== 'compromis' && c.statut !== 'vendue') return refus('Statut inconnu (compromis ou vendue).');
+  const h = montant(c.honorairesTtc);
+  if (h === undefined || h === null || h < 0) return refus('La commission TTC doit être un montant positif ou nul.');
+  const r = montant(c.retroApporteurTtc);
+  if (r === undefined || (r !== null && r < 0)) return refus('La rétrocession de l’apporteur doit être un montant positif ou nul.');
+  const dates: Record<string, string | null> = {};
+  for (const [k, mot] of [['dateCompromis', 'du compromis'], ['dateActePrevue', 'prévue de l’acte'], ['dateActe', 'de l’acte']] as const) {
+    const d = dateIso(c[k]);
+    if (d === undefined) return refus(`Date ${mot} invalide (AAAA-MM-JJ).`);
+    dates[k] = d;
+  }
+  if (c.statut === 'vendue' && dates.dateActe === null) return refus('Une vente porte la date de l’acte (son mois est le mois du CA).');
+  const ids: Record<string, number | null> = {};
+  for (const k of ['entreeId', 'sortieId', 'apporteurId'] as const) {
+    const v = idOuNull(c[k]);
+    if (v === undefined) return refus('Négociateur ou apporteur inconnu.');
+    ids[k] = v;
+  }
+  const personnes: PersonneSaisie[] = [];
+  for (const p of Array.isArray(c.personnes) ? c.personnes : []) {
+    const o = (p ?? {}) as Record<string, unknown>;
+    const nom = texte(o.nom);
+    const id = idOuNull(o.id);
+    if (id === undefined) return refus('Personne inconnue.');
+    if (nom === null && id === null) { if (texte(o.telephone) ?? texte(o.email) ?? texte(o.adresse)) return refus('Chaque vendeur ou acquéreur a un nom.'); continue; }
+    if (o.role !== 'vendeur' && o.role !== 'acquereur') return refus('Rôle inconnu (vendeur ou acquéreur).');
+    personnes.push({ id, role: o.role, nom: nom ?? '', telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse) });
+  }
+  const parties: PartieSaisie[] = [];
+  for (const p of Array.isArray(c.parties) ? c.parties : []) {
+    const o = (p ?? {}) as Record<string, unknown>;
+    if (!SORTES.includes(o.sorte as SortePartie)) return refus('Partie inconnue.');
+    const compteId = idOuNull(o.compteId);
+    if (compteId === undefined) return refus('Négociateur inconnu.');
+    const pc = montant(o.pourcentage);
+    const m = montant(o.montantHt);
+    if (pc === undefined || m === undefined) return refus('Part illisible : un pourcentage ou un montant en chiffres.');
+    parties.push({ sorte: o.sorte as SortePartie, compteId, nom: texte(o.nom), coordonnees: texte(o.coordonnees), pourcentage: pc, montantHt: pc === null ? m : null });
+  }
+  const lignes = lireParts(c.lignes);
+  if (!lignes.ok) return lignes;
+  return { ok: true, valeur: { lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
+    dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
+    entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, personnes, parties } };
+}
+
+/** « Acte signé » : le jour de l'acte. */
+export function lireDateActe(x: unknown): Lu<string> {
+  const d = dateIso(x);
+  return d === undefined || d === null ? refus('Date de l’acte invalide (AAAA-MM-JJ).') : { ok: true, valeur: d };
 }

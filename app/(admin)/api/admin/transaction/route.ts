@@ -1,12 +1,14 @@
 import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
-import { estSociete, type Vente } from '../../../../lib/transaction/modele';
-import { lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
+import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
+import { lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  annulerGeste, attribuer, creerVente, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNotesDoubles, lireRetrocessions, lireVentes, modifierVente,
-  rattacherRetro, retirerVente, saisirRetro, transactionDisponible,
+  acteSigne, annulerGeste, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
+  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible,
 } from '../../../../lib/transaction/repo';
+import { repartitionDisponible } from '../../../../lib/admin/schemaDroits';
+import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 
@@ -20,12 +22,27 @@ import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
  *        action=gestion-enregistrer {annee, mois, gestion}
  *        action=annuler {journalId}
  *        action=attribuer {cle, societe|null}   LOT C : la même vente notée chez les deux sociétés, attribuée (ou remise à attribuer)
+ *   LOT D (migration 434) :
+ *   GET  ?vue=compromis&societe=criterimmo|macj|tous   les compromis en cours (acte non signé) de la société (ou des deux) ;
+ *   GET  ?vue=references                               négociateurs (comptes et société du jour), apporteurs (annuaire de la Location), personnes ;
+ *   POST action=dossier-enregistrer {id|null, dossier} | acte-signe {id, dateActe} | retour-compromis {id}
  * Sans la migration 433 : les lectures rendent des listes vides (`disponible: false`) et toute écriture est refusée avec ce motif.
  */
 export const runtime = 'nodejs';
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 const json = (corps: unknown, status = 200): Response => Response.json(corps, { status, headers: ENTETES });
-const ENTITES = ['vente', 'vente_ligne', 'retrocession', 'ca_a_rattacher', 'gestion_mois'];
+const ENTITES = ['vente', 'vente_ligne', 'retrocession', 'ca_a_rattacher', 'gestion_mois', 'personne'];
+
+/** LOT D — ce que les formulaires proposent : les comptes (actifs) et leur société du jour, l'annuaire des apporteurs de la Location, les personnes. */
+async function references(aujourdhui: string): Promise<Record<string, unknown>> {
+  const lotD = await repartitionDisponible();
+  const [negociateurs, apporteurs, personnes] = await Promise.all([
+    lireNegociateurs(aujourdhui),
+    lireApporteurs().catch(() => []),
+    lotD ? lirePersonnes() : Promise.resolve([]),
+  ]);
+  return { lotD, negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
+}
 
 export async function GET(request: Request): Promise<Response> {
   const garde = await exigerTransaction(request);
@@ -48,8 +65,19 @@ export async function GET(request: Request): Promise<Response> {
       const [ventes, gestion] = await Promise.all([lireVentes(null), lireGestion()]);
       return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location,
         ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
-          double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne })) } });
+          double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne, repartition: v.repartition ?? null })) } });
     }
+    if (vue === 'compromis') {
+      // LOT D — les compromis en cours (acte non signé) qui comptent pour la société (une part, ou la société de l'historique), ou pour les deux.
+      const societe = url.searchParams.get('societe');
+      if (societe !== 'tous' && !estSociete(societe)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
+      const ref = await references(aujourdhui);
+      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis: [], ...ref } });
+      const ventes = await lireVentes(societe === 'tous' ? null : societe);
+      const compromis = ventes.filter((v) => v.statut === 'compromis' && (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : concerne(v, societe)));
+      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, ...ref } });
+    }
+    if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {
       const entite = url.searchParams.get('entite') ?? '';
       const id = Number(url.searchParams.get('id'));
@@ -110,6 +138,21 @@ export async function POST(request: Request): Promise<Response> {
         if (cle === '' || (corps.societe !== null && !estSociete(corps.societe))) return json({ etat: 'refus', motif: 'Vente ou société inconnue.' }, 400);
         return rendre(await attribuer(cle, corps.societe === null ? null : corps.societe as 'criterimmo' | 'macj', auteur));
       }
+      case 'dossier-enregistrer': {
+        // LOT D — un compromis (ou une vente) avec son dossier et sa répartition ; id null : création.
+        if (corps.id != null && !idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
+        const dossierId = corps.id == null ? null : id;
+        const d = lireDossier(corps.dossier);
+        return d.ok ? rendre(await enregistrerDossier(dossierId, d.valeur, aujourdhuiParis(), auteur)) : rendre(d);
+      }
+      case 'acte-signe': {
+        if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
+        const d = lireDateActe(corps.dateActe);
+        return d.ok ? rendre(await acteSigne(id, d.valeur, auteur)) : rendre(d);
+      }
+      case 'retour-compromis':
+        if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
+        return rendre(await retourCompromis(id, auteur));
       case 'annuler': {
         const j = Number(corps.journalId);
         if (!Number.isInteger(j) || j <= 0) return json({ etat: 'refus', motif: 'Geste inconnu.' }, 400);

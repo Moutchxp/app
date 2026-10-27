@@ -63,7 +63,79 @@ export interface Vente {
   lignes: LigneVente[];
   /** LOT C — la même vente notée chez les deux sociétés : sa clé de groupe et l'état de l'attribution ; null : vente ordinaire. */
   double: { cle: string; attribution: Attribution } | null;
+  /**
+   * LOT D (migration 434) — la vente suit la RÉPARTITION entre parties (saisie à partir du lot D) ; absent ou null : l'historique, qui
+   * garde sa règle (toute la commission à la société de la vente).
+   */
+  repartition?: Repartition | null;
+  /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */
+  dossier?: DossierVente | null;
 }
+
+// ── LOT D : la répartition de la commission ──────────────────────────────────────────────────────────────────────────────────
+
+/** 'entree' / 'sortie' du mandat ; 'entree_sortie' : le même négociateur des deux côtés ; 'exterieure' : hors de nos chiffres. */
+export type SortePartie = 'entree' | 'sortie' | 'entree_sortie' | 'exterieure';
+export const LIBELLE_PARTIE: Record<SortePartie, string> = {
+  entree: 'Entrée du mandat', sortie: 'Sortie du mandat', entree_sortie: 'Entrée et sortie du mandat', exterieure: 'Partie extérieure',
+};
+export interface Partie {
+  sorte: SortePartie;
+  /** Le compte du négociateur (partie interne) ; null : partie extérieure. */
+  compteId: number | null;
+  negociateur: string | null;
+  /** La société du négociateur AU MOMENT DE LA VENTE (figée) ; null : partie extérieure (hors CA). */
+  societe: Societe | null;
+  /** Le nom libre d'une partie extérieure (autre agence, confrère) et ses coordonnées facultatives. */
+  nom: string | null;
+  coordonnees: string | null;
+  /** La part : un pourcentage de la commission nette, OU un montant HT (exactement un des deux). */
+  pourcentage: number | null;
+  montantHt: number | null;
+}
+export interface Repartition {
+  parties: Partie[];
+  /** La rétrocession de l'apporteur (TTC), déduite AVANT toute répartition. */
+  retroApporteurTtc: number;
+}
+export interface PersonneVente { id: number; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+export interface DossierVente {
+  adresseBien: string | null;
+  dateActePrevue: string | null;
+  dateActe: string | null;
+  entree: { id: number; nom: string } | null;
+  sortie: { id: number; nom: string } | null;
+  apporteurId: number | null;
+  personnes: PersonneVente[];
+}
+
+/** La commission NETTE HT : (commission − rétrocession de l'apporteur) ÷ 1,2 — l'apporteur est déduit avant toute répartition. PUR. */
+export const commissionNetteHt = (honorairesTtc: number, retroApporteurTtc: number): number => ht(honorairesTtc - retroApporteurTtc);
+
+/** La part HT de chaque partie (dans l'ordre), sans arrondi. PUR. */
+export const partsHt = (parties: readonly Partie[], netHt: number): number[] =>
+  parties.map((p) => (p.pourcentage !== null ? (netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
+
+/**
+ * 🔴 LE CA HT QU'UNE VENTE APPORTE À UNE SOCIÉTÉ (null : à toutes nos sociétés réunies).
+ *   · Historique (sans répartition) : toute la commission, à la société de la vente — inchangé.
+ *   · Répartition : la somme des parts des parties internes dont le négociateur était de cette société au moment de la vente ; la part
+ *     d'une partie extérieure n'entre dans le CA d'aucune. Une commission n'est jamais comptée deux fois. PUR.
+ */
+export function caHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>, societe: Societe | null = null): number {
+  if (v.repartition == null) return societe === null || v.societe === societe ? ht(v.honorairesTtc) : 0;
+  const parts = partsHt(v.repartition.parties, commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc));
+  return v.repartition.parties.reduce((t, p, i) => t + (p.societe !== null && (societe === null || p.societe === societe) ? parts[i] : 0), 0);
+}
+/** La part HT d'une vente qui sort de nos chiffres (parties extérieures). PUR. */
+export function exterieurHt(v: Pick<Vente, 'honorairesTtc' | 'repartition'>): number {
+  if (v.repartition == null) return 0;
+  const parts = partsHt(v.repartition.parties, commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc));
+  return v.repartition.parties.reduce((t, p, i) => t + (p.sorte === 'exterieure' ? parts[i] : 0), 0);
+}
+/** Une vente compte-t-elle pour cette société (historique : la sienne, si elle n'est ni à attribuer ni écartée ; répartition : une part) ? */
+export const concerne = (v: Pick<Vente, 'societe' | 'double' | 'repartition'>, societe: Societe): boolean =>
+  v.repartition == null ? v.societe === societe && compteDansSociete(v) : v.repartition.parties.some((p) => p.societe === societe);
 
 /** LOT C — « a_attribuer » : en attente du choix d'Arno ; « retenue » : la note de la société choisie ; « ecartee » : l'autre. */
 export type Attribution = 'a_attribuer' | 'retenue' | 'ecartee';
@@ -144,8 +216,10 @@ export const estCompromis = (v: Pick<Vente, 'statut'>): boolean => v.statut === 
 export const moisAConfirmer = (v: Pick<Vente, 'statut' | 'mois'>): boolean => v.statut === 'vendue' && v.mois === null;
 
 /** Les négociateurs d'une vente (ordre de leurs lignes, sans doublon) ; « Non attribué » sans ligne. */
-export function negociateursDe(v: Pick<Vente, 'lignes'>): string[] {
-  const n = [...new Set(v.lignes.map((l) => l.negociateur))];
+export function negociateursDe(v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'repartition'>>): string[] {
+  // LOT D — une vente répartie : ses négociateurs sont ceux de ses parties internes.
+  const n = v.repartition != null ? [...new Set(v.repartition.parties.filter((p) => p.negociateur !== null).map((p) => p.negociateur as string))]
+    : [...new Set(v.lignes.map((l) => l.negociateur))];
   return n.length === 0 ? [NON_ATTRIBUE] : n;
 }
 
@@ -164,7 +238,12 @@ export const resteTtcDe = (v: Vente, retros: readonly Retrocession[]): number =>
  * Le CA HT qu'un négociateur PORTE dans une vente : sa part quand la vente est en parts ; sinon les honoraires, partagés à égalité
  * entre les lignes qui comptent (la somme sur les négociateurs redonne les honoraires de la vente). 0 s'il n'y est pas.
  */
-export function caHtPortePar(v: Vente, negociateur: string): number {
+export function caHtPortePar(v: Vente, negociateur: string, societe: Societe | null = null): number {
+  // LOT D — une vente répartie : le négociateur reçoit SA part (celle de ses parties, dans la société vue), jamais la commission entière.
+  if (v.repartition != null) {
+    const parts = partsHt(v.repartition.parties, commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc));
+    return v.repartition.parties.reduce((t, p, i) => t + (p.negociateur === negociateur && p.societe !== null && (societe === null || p.societe === societe) ? parts[i] : 0), 0);
+  }
   const comptees = v.lignes.filter((l) => l.compte);
   if (comptees.length === 0) return negociateur === NON_ATTRIBUE ? ht(v.honorairesTtc) : 0;
   const parts = comptees.filter((l) => l.role === 'part');
@@ -235,24 +314,28 @@ export const retrosDuMois = (retros: readonly Retrocession[], annee: number, moi
  * Les totaux d'un ensemble de ventes ; `retros` : les rétrocessions de la MÊME période (saisies par mois : elles comptent sur leur
  * mois, rattachées ou non). PUR.
  */
-export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[]): Totaux {
+export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null): Totaux {
   if (ventes.length === 0 && retros.length === 0) return { ...VIDE, ids: [] };
-  const caTtc = ventes.reduce((s, v) => s + v.honorairesTtc, 0);
+  // LOT D — le CA d'une vente répartie est la part de la société (rétrocession de l'apporteur déjà déduite) ; l'historique se calcule
+  // EXACTEMENT comme avant (en TTC, puis ÷ 1,2) — aucune vente répartie : les mêmes nombres, au bit près.
+  const historiques = ventes.filter((v) => v.repartition == null && (societe === null || v.societe === societe));
+  const caTtc = historiques.reduce((s, v) => s + v.honorairesTtc, 0);
+  const repartiHt = ventes.reduce((s, v) => s + (v.repartition == null ? 0 : caHt(v, societe)), 0);
   const retroTtc = retros.reduce((s, r) => s + r.montantTtc, 0);
   const payeTtc = ventes.reduce((s, v) => s + payeTtcDe(v), 0);
-  return { nbVentes: ventes.length, caTtc, caHt: ht(caTtc), retroHt: ht(retroTtc), payeHt: ht(payeTtc), resteHt: ht(caTtc - retroTtc - payeTtc),
-    ids: ventes.map((v) => v.id) };
+  return { nbVentes: ventes.length, caTtc: caTtc + repartiHt * TVA, caHt: ht(caTtc) + repartiHt, retroHt: ht(retroTtc), payeHt: ht(payeTtc),
+    resteHt: ht(caTtc - retroTtc - payeTtc) + repartiHt, ids: ventes.map((v) => v.id) };
 }
 
-export const totauxMois = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'>, annee: number, mois: number): Totaux =>
-  totaux(ventesDuMois(d.ventes, annee, mois), retrosDuMois(d.retrocessions, annee, mois));
+export const totauxMois = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annee: number, mois: number): Totaux =>
+  totaux(ventesDuMois(d.ventes, annee, mois), retrosDuMois(d.retrocessions, annee, mois), d.societe ?? null);
 
-export const totauxAnnee = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'>, annee: number): Totaux =>
-  totaux(ventesDeLAnnee(d.ventes, annee), d.retrocessions.filter((r) => r.annee === annee));
+export const totauxAnnee = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annee: number): Totaux =>
+  totaux(ventesDeLAnnee(d.ventes, annee), d.retrocessions.filter((r) => r.annee === annee), d.societe ?? null);
 
 /** Le CA HT de chaque mois (12 valeurs) d'une année ; les ventes « mois à confirmer » n'y sont pas. PUR. */
-export const caHtParMois = (ventes: readonly Vente[], annee: number): number[] =>
-  Array.from({ length: 12 }, (_, i) => ventesDuMois(ventes, annee, i + 1).reduce((s, v) => s + ht(v.honorairesTtc), 0));
+export const caHtParMois = (ventes: readonly Vente[], annee: number, societe: Societe | null = null): number[] =>
+  Array.from({ length: 12 }, (_, i) => ventesDuMois(ventes, annee, i + 1).reduce((s, v) => s + caHt(v, societe), 0));
 
 /** Les années présentes (ventes, compromis, rétrocessions), croissantes. PUR. */
 export function anneesDe(d: Pick<DonneesSociete, 'ventes' | 'retrocessions'>, aujourdhui: string): number[] {
@@ -276,13 +359,14 @@ export interface LigneAnnee {
   resteHt: number;
 }
 
-export function historique(d: Pick<DonneesSociete, 'ventes' | 'retrocessions'>, annees: readonly number[]): LigneAnnee[] {
+export function historique(d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annees: readonly number[]): LigneAnnee[] {
+  const s = d.societe ?? null;
   return annees.map((annee) => {
     const t = totauxAnnee(d, annee);
     const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
     const comp = compromisDeLAnnee(d.ventes, annee);
-    return { annee, nbVentes: t.nbVentes, caHt: t.caHt, moisAConfirmerHt: aConfirmer.reduce((s, v) => s + ht(v.honorairesTtc), 0),
-      nbMoisAConfirmer: aConfirmer.length, compromisHt: comp.reduce((s, v) => s + ht(v.honorairesTtc), 0), nbCompromis: comp.length,
+    return { annee, nbVentes: t.nbVentes, caHt: t.caHt, moisAConfirmerHt: aConfirmer.reduce((x, v) => x + caHt(v, s), 0),
+      nbMoisAConfirmer: aConfirmer.length, compromisHt: comp.reduce((x, v) => x + caHt(v, s), 0), nbCompromis: comp.length,
       retroHt: t.retroHt, payeHt: t.payeHt, resteHt: t.resteHt };
   });
 }
@@ -299,12 +383,12 @@ export interface LigneNegociateur {
 }
 
 /** Par négociateur, sur un ensemble de ventes et les rétrocessions de la même période. Trié par CA HT décroissant. PUR. */
-export function parNegociateur(ventes: readonly Vente[], retros: readonly Retrocession[]): LigneNegociateur[] {
+export function parNegociateur(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null): LigneNegociateur[] {
   const noms = new Set<string>([...ventes.flatMap(negociateursDe), ...retros.map((r) => r.negociateur)]);
   return [...noms].map((n) => {
     const siennes = ventes.filter((v) => negociateursDe(v).includes(n));
     const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' ? l.montantTtc ?? 0 : 0), 0), 0);
-    return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n), 0), payeHt: ht(paye),
+    return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n, societe), 0), payeHt: ht(paye),
       retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id) };
   }).sort((a, b) => b.caHt - a.caHt || a.negociateur.localeCompare(b.negociateur, 'fr'));
 }
@@ -332,7 +416,7 @@ export function parApporteur(retros: readonly Retrocession[], ventes: readonly V
   return [...groupes].map(([apporteur, rs]) => {
     const ids = [...new Set(rs.map((r) => r.venteId).filter((x): x is number => x !== null))];
     return { apporteur, nbRetrocessions: rs.length, retroHt: ht(rs.reduce((s, r) => s + r.montantTtc, 0)), ventesIds: ids,
-      caApporteHt: ids.reduce((s, id) => s + ht(parId.get(id)?.honorairesTtc ?? 0), 0), aRepartir: rs.filter((r) => r.venteId === null).length };
+      caApporteHt: ids.reduce((s, id) => { const v = parId.get(id); return s + (v === undefined ? 0 : caHt(v)); }, 0), aRepartir: rs.filter((r) => r.venteId === null).length };
   }).sort((a, b) => b.retroHt - a.retroHt || a.apporteur.localeCompare(b.apporteur, 'fr'));
 }
 
@@ -357,6 +441,8 @@ export interface CelluleGlobal {
   aAttribuerHt: number;
   locationHt: number | null;
   gestionHt: number | null;
+  /** LOT D — les parts des parties extérieures (autre agence, confrère) : montrées à part, HORS CA. */
+  exterieurHt: number;
   /** Le réalisé : la somme de ce qui est connu. */
   totalHt: number;
   /** CRITERIMMO = vente CRITERIMMO + location + gestion ; MACJ = vente MACJ. */
@@ -365,7 +451,7 @@ export interface CelluleGlobal {
 }
 
 export interface EntreesGlobal {
-  ventes: readonly (Pick<Vente, 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc'> & Partial<Pick<Vente, 'id' | 'libelle' | 'double'>>)[];
+  ventes: readonly (Pick<Vente, 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc'> & Partial<Pick<Vente, 'id' | 'libelle' | 'double' | 'repartition'>>)[];
   /** Le CA HT de la location par mois (« AAAA-MM » → montant), lu dans le Suivi de la Location ; absent : non lu. */
   location: Readonly<Record<string, number>> | null;
   gestion: readonly Pick<GestionMois, 'annee' | 'mois' | 'honorairesHt'>[];
@@ -379,7 +465,8 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const aAttribuerHt = mois !== null ? 0 : groupesDoubles(e.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.double != null)
     .map((v, i) => ({ id: v.id ?? -1 - i, libelle: v.libelle ?? '', ...v, double: v.double ?? null })))
     .filter((g) => g.attribuee === null).reduce((t, g) => t + ht(g.retenuTtc), 0);
-  const somme = (s: Societe): number => ventes.filter((v) => v.societe === s).reduce((t, v) => t + ht(v.honorairesTtc), 0);
+  // LOT D — CA global = parts CRITERIMMO + parts MACJ (une vente répartie entre les deux n'est pas comptée deux fois).
+  const somme = (s: Societe): number => ventes.reduce((t, v) => t + caHt(v, s), 0);
   const moisVises = mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [mois];
   const loc = e.location === null ? null : moisVises.reduce((t, m) => t + (e.location?.[cle(annee, m)] ?? 0), 0);
   const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && g.honorairesHt !== null);
@@ -387,14 +474,15 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const venteCriterimmoHt = somme('criterimmo');
   const venteMacjHt = somme('macj');
   const criterimmoHt = venteCriterimmoHt + (loc ?? 0) + (gestion ?? 0);
-  return { venteCriterimmoHt, venteMacjHt, aAttribuerHt, locationHt: loc, gestionHt: gestion, totalHt: criterimmoHt + venteMacjHt + aAttribuerHt, criterimmoHt, macjHt: venteMacjHt };
+  const exterieur = ventes.reduce((t, v) => t + exterieurHt(v), 0);
+  return { venteCriterimmoHt, venteMacjHt, aAttribuerHt, exterieurHt: exterieur, locationHt: loc, gestionHt: gestion, totalHt: criterimmoHt + venteMacjHt + aAttribuerHt, criterimmoHt, macjHt: venteMacjHt };
 }
 
 /** Le prévisionnel d'une année : les compromis en cours rattachés à l'année, par société (HT). PUR. */
 export function previsionnel(e: Pick<EntreesGlobal, 'ventes'>, annee: number): { criterimmoHt: number; macjHt: number; totalHt: number } {
   const c = e.ventes.filter((v) => v.statut === 'compromis' && v.annee === annee && compteDansSociete({ double: v.double ?? null }));
-  const criterimmoHt = c.filter((v) => v.societe === 'criterimmo').reduce((t, v) => t + ht(v.honorairesTtc), 0);
-  const macjHt = c.filter((v) => v.societe === 'macj').reduce((t, v) => t + ht(v.honorairesTtc), 0);
+  const criterimmoHt = c.reduce((t, v) => t + caHt(v, 'criterimmo'), 0);
+  const macjHt = c.reduce((t, v) => t + caHt(v, 'macj'), 0);
   return { criterimmoHt, macjHt, totalHt: criterimmoHt + macjHt };
 }
 

@@ -119,8 +119,11 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     window.history.replaceState(null, '', '/?annee=2025&mois=3');
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
     await calmer();
-    expect(texte('#trx-a-attribuer')).toBe('Ventes à attribuer (1)');
+    // LOT D — un seul bloc replié sur une ligne (triangle à gauche) ; déplié, le contenu d'avant.
+    expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
+    expect(container.querySelector('[data-attribuer]')).toBeNull();
     expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('0,00 €');
+    await act(async () => { (container.querySelector('[data-deplier="a-attribuer"]') as HTMLButtonElement).click(); });
     await act(async () => { (container.querySelector('[data-attribuer="criterimmo"]') as HTMLButtonElement).click(); });
     await calmer();
     expect(posts).toContainEqual({ action: 'attribuer', cle: 'double|DHIB', societe: 'criterimmo' });
@@ -133,6 +136,6 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     await calmer();
     expect(texte('[data-a-attribuer-global] [data-mot="Total"]')).toBe('8 333,33 €');
     expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0,00 €');
-    expect(texte('#trx-a-attribuer')).toBe('Ventes à attribuer (1)');
+    expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
   });
 });

@@ -7,6 +7,12 @@ import type { RoleAdmin } from '../../../../lib/admin/session';
 /* 🔴 LOT GESTION-INVITATION-ADMIN (16/10/2026) — le mail d'invitation part à la création ; la liste dit l'état de chaque compte. */
 import { envoyerInvitation, etatsInvitations, type IssueEnvoi } from '../../../../lib/admin/invitationRepo';
 import { phraseEnvoi } from '../../../../lib/admin/invitation';
+/* TRANSACTION, LOT D (434) — la société (CRITERIMMO / MACJ), obligatoire à la création dès que la 434 est appliquée. */
+import { definirSocieteCompte, societesDesComptes } from '../../../../lib/admin/societeCompte';
+import { repartitionDisponible } from '../../../../lib/admin/schemaDroits';
+import { estSociete } from '../../../../lib/transaction/modele';
+import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
+import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 
 /**
  * Tuile Administratif (M3-4 Lot C). Namespace PLURIEL `/api/admin/comptes` (disjoint du self-service singulier
@@ -22,7 +28,12 @@ export async function GET(request: Request) {
     const comptes = await listerComptes();
     // État d'invitation (activé ou non, dernier envoi) : une lecture à part ; un échec ne prive pas de la liste.
     const etats = await etatsInvitations(comptes.map((c) => Number(c.id))).catch(() => new Map());
-    return Response.json({ comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null })) });
+    // LOT D — la société de chaque compte (lecture à part ; sans la 434 ou en échec : non renseignée, la liste reste).
+    const societes = await societesDesComptes(comptes.map((c) => Number(c.id))).catch(() => new Map());
+    const societeDisponible = await repartitionDisponible().catch(() => false);
+    // Sans la 434, la réponse reste celle d'avant (aucune clé `societe`) : l'écran ne montre alors pas la ligne « Société ».
+    return Response.json({ societeDisponible, comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null,
+      ...(societeDisponible ? { societe: societes.get(Number(c.id)) ?? null } : {}) })) });
   } catch {
     return Response.json({ erreur: 'Liste indisponible.' }, { status: 503 });
   }
@@ -84,11 +95,24 @@ export async function POST(request: Request) {
     }, { status: 422 });
   }
 
+  // TRANSACTION, LOT D — « Société : CRITERIMMO / MACJ », obligatoire à la création une fois la 434 appliquée (sans elle : ni exigée ni écrite).
+  const avecSociete = await repartitionDisponible().catch(() => false);
+  if (avecSociete && !estSociete(b.societe)) {
+    return Response.json({ erreur: 'Choisissez la société du collaborateur : CRITERIMMO ou MACJ.', champ: 'societe' }, { status: 422 });
+  }
+
   const motDePasseTemporaire = genererMotDePasseTemporaire();
   try {
     const compte = await creerCompteAdministration({
       identifiant, prenom, nom, role, perms, peutModifierPermis: b.permis_modif === true, peutEnvoyerGestion: envoi, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId, // RATT-EDIT lot A3 — sous-droit lu au niveau racine (subordonné à perms.permis côté repo)
     });
+    // La société, posée à compter d'aujourd'hui (une période datée et signée). Un échec ne défait pas le compte : il est dit.
+    let societe: { ok: boolean; motif?: string } | null = null;
+    if (avecSociete) {
+      const r = await definirSocieteCompte(Number(compte.id), b.societe, aujourdhuiParis(), await auteurDeLaRequete(request))
+        .catch(() => ({ ok: false as const, motif: 'Société non enregistrée : renseignez-la dans le détail du compte.' }));
+      societe = r.ok ? { ok: true } : { ok: false, motif: r.motif };
+    }
     // 🔴 LE MAIL D'INVITATION : envoyé APRÈS la création (un échec n'annule pas le compte) et DIT tel quel à l'écran —
     //    jamais « envoyé » quand rien n'est parti. Le mot de passe temporaire reste affiché une fois, comme avant.
     let invitation: IssueEnvoi;
@@ -99,7 +123,7 @@ export async function POST(request: Request) {
     }
     const phrase = phraseEnvoi({ etat: invitation.etat === 'refuse' ? 'echec' : invitation.etat, destinataire: invitation.destinataire || identifiant, motif: invitation.ok ? null : invitation.motif });
     // Le CLAIR n'est renvoyé QU'ICI, une seule fois. Aucun réaffichage possible → l'admin doit le transmettre.
-    return Response.json({ compte, motDePasseTemporaire, invitation: { ...invitation, phrase } }, { status: 201 });
+    return Response.json({ compte, motDePasseTemporaire, invitation: { ...invitation, phrase }, societe }, { status: 201 });
   } catch (e) {
     // ErreurCompte = message métier (identifiant pris, etc.) ; jamais le mot de passe dans l'erreur.
     if (e instanceof ErreurCompte) return Response.json({ erreur: e.message }, { status: 409 });

@@ -62,6 +62,15 @@ export function droitTransactionDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_transaction', () => colonneExiste('admin_utilisateur', 'perm_transaction'));
 }
 
+/**
+ * TRANSACTION, LOT D (Arno, 27/10/2026) — la migration 434 est-elle appliquée ? Elle porte l'onglet « Compromis » (personnes, dates,
+ * négociateurs d'entrée et de sortie), la société datée de chaque collaborateur et la répartition de la commission. Tant qu'elle ne
+ * l'est pas : la tuile lit comme avant, la page Comptes montre la société sans l'exiger ni l'écrire. Aucune connexion n'en dépend.
+ */
+export function repartitionDisponible(): Promise<boolean> {
+  return memoiser('transaction_partie.vente_id', async () => (await colonneExiste('transaction_partie', 'vente_id')) && colonneExiste('transaction_societe_compte', 'societe'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

@@ -4,6 +4,7 @@ import { trouverCompteParId, permsDuCompte, capaciteModifPermis, etatEnvoiGestio
 import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
 import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
 import { lireResultatNet } from '../../../../../lib/admin/resultatNet';
+import { lireSocieteCompte } from '../../../../../lib/admin/societeCompte';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,6 +43,8 @@ export async function GET(request: Request, ctx: Ctx) {
       voirCommissions: await lireVoirCommissions(c.id),
       // 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location).
       resultatNet: await lireResultatNet(c.id),
+      // TRANSACTION, LOT D (434) — la société du collaborateur (CRITERIMMO / MACJ) et ses périodes datées ; sans la 434 : non disponible.
+      societeDetail: await lireSocieteCompte(c.id).catch(() => ({ valeur: null, disponible: false, periodes: [] })),
     },
   });
 }

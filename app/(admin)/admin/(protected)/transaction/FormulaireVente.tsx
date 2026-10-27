@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { ListeChoix } from '../location/ListeChoix';
 import { LIBELLE_ROLE, LIBELLE_SOCIETE, LIBELLE_STATUT, NOMS_MOIS, STATUTS, ht, type RoleLigne, type Societe, type StatutVente, type Vente } from '../../../../lib/transaction/modele';
 import { API_TRANSACTION, eur, posterTransaction } from './commun';
+import { BlocRepartition, type EtatRepartition } from './Repartition';
+import { corpsDossier, etatRepartitionDe, type References } from './FormulaireDossier';
 
 /**
  * TUILE TRANSACTION — SAISIR ou MODIFIER une vente (journalisé, réversible). Une vente neuve porte ses négociateurs et leurs parts ;
@@ -13,8 +15,10 @@ import { API_TRANSACTION, eur, posterTransaction } from './commun';
 interface Part { negociateur: string; role: RoleLigne; montantTtc: string }
 const vide = (): Part => ({ negociateur: '', role: 'vendeur', montantTtc: '' });
 
-export function FormulaireVente({ societe, vente, annee, mois, negociateurs, onFermer, onFait }: {
+export function FormulaireVente({ societe, vente, annee, mois, negociateurs, references = null, onFermer, onFait }: {
   societe: Societe; vente: Vente | null; annee: number; mois: number | null; negociateurs: readonly string[];
+  /** LOT D (434) — les comptes, apporteurs et personnes : le bloc « Négociateurs et répartition » d'une vente neuve (absent sans la 434). */
+  references?: References | null;
   onFermer: () => void; onFait: () => void;
 }) {
   const [libelle, setLibelle] = useState(vente?.libelle ?? '');
@@ -26,6 +30,9 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, onF
   const [apporteur, setApporteur] = useState(vente?.apporteur ?? '');
   const [note, setNote] = useState(vente?.note ?? '');
   const [parts, setParts] = useState<Part[]>([vide()]);
+  const [repartition, setRepartition] = useState<EtatRepartition>(() => etatRepartitionDe(null, references?.negociateurs ?? []));
+  /** LOT D — une vente neuve avec un négociateur d'entrée ou de sortie suit la répartition (enregistrée avec son dossier). */
+  const repartie = vente === null && references?.lotD === true && (repartition.entreeId !== null || repartition.sortieId !== null);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const honorairesNombre = Number(honoraires.replace(/\s/g, '').replace(',', '.'));
@@ -39,7 +46,13 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, onF
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
     const champs = { libelle, honorairesTtc: honoraires, statut, annee: an, mois: m === '' ? null : m, dateCompromis: dateCompromis || null, apporteur, note };
-    const r = vente === null
+    const dateActe = statut === 'vendue' && m !== '' ? `${an}-${String(m).padStart(2, '0')}-01` : '';
+    const r = repartie
+      ? (statut === 'annulee' ? 'Une vente répartie est un compromis ou une vente (pas « annulée »).'
+        : statut === 'vendue' && dateActe === '' ? 'Une vente répartie porte le mois de l’acte.'
+        : await posterTransaction({ action: 'dossier-enregistrer', id: null, dossier: { ...corpsDossier(societe, statut, { libelle, commission: honoraires, dateCompromis,
+          dateActePrevue: '', dateActe, adresseBien: '', note }, [], repartition, parts), apporteurNom: apporteur } }))
+      : vente === null
       ? await posterTransaction({ action: 'vente-saisir', vente: { societe, ...champs, parts } })
       : await posterTransaction({ action: 'vente-modifier', id: vente.id, champs });
     setEnvoi(false);
@@ -82,6 +95,9 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, onF
               <input value={apporteur} onChange={(e) => setApporteur(e.target.value)} data-champ="apporteur" /></label>
             <label className="trx-plein">Note
               <textarea value={note} onChange={(e) => setNote(e.target.value)} data-champ="note" /></label>
+            {vente === null && references?.lotD === true && (
+              <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={honorairesNombre} />
+            )}
             {vente === null ? (
               <fieldset className="trx-plein trx-parts" data-parts>
                 <legend className="loc-muet">Négociateur(s) et leurs parts</legend>
@@ -127,9 +143,11 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, onF
 
 interface Geste { id: number; action: string; avant: unknown; apres: unknown; commentaire: string | null; auteur: string; le: string; annuleJournalId: number | null; annulePar: number | null }
 const LIBELLE_ACTION: Record<string, string> = { saisie: 'Saisie', modification: 'Modification', retrait: 'Retrait', retablissement: 'Rétablissement',
-  rattachement: 'Rattachement', annulation: 'Annulation', import_fichier: 'Import du fichier' };
+  rattachement: 'Rattachement', annulation: 'Annulation', import_fichier: 'Import du fichier', attribution: 'Attribution',
+  // LOT D (434)
+  repartition: 'Répartition de la commission', personnes: 'Vendeurs et acquéreurs', acte_signe: 'Acte signé', retour_compromis: 'Retour en compromis' };
 const resume = (x: unknown): string => (x === null || typeof x !== 'object' ? '—' : Object.entries(x as Record<string, unknown>)
-  .filter(([k]) => k !== 'parts').map(([k, v]) => `${k} : ${v === null ? 'vide' : String(v)}`).join(' · ') || '—');
+  .filter(([k]) => k !== 'parts' && k !== 'lignes').map(([k, v]) => `${k} : ${v === null ? 'vide' : String(v)}`).join(' · ') || '—');
 
 /** L'historique d'une ligne (le plus récent d'abord), chaque geste avec « Annuler » s'il ne l'a pas déjà été. */
 export function Journal({ entite, id, onFait }: { entite: string; id: number; onFait: () => void }) {

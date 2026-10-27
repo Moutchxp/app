@@ -19,6 +19,32 @@ interface CompteVue {
   cree_a: string | null; // date de création (fournie par l'API ; NULL toléré)
   /** LOT GESTION-INVITATION-ADMIN — état de l'invitation (null/absent : invitations non installées → aucun bouton). */
   invitation?: InvitationVue | null;
+  /** TRANSACTION, LOT D (434) — la société d'aujourd'hui ; null : à renseigner ; absent : réponse d'avant ce lot. */
+  societe?: SocieteCompte | null;
+}
+export type SocieteCompte = 'criterimmo' | 'macj';
+export const LIBELLE_SOCIETE_COMPTE: Record<SocieteCompte, string> = { criterimmo: 'CRITERIMMO', macj: 'MACJ' };
+export interface SocieteVue { valeur: SocieteCompte | null; disponible: boolean; periodes: { societe: SocieteCompte; depuis: string; origine: 'saisie' | 'deduction'; poseLe: string; posePar: string; motif: string | null }[] }
+export const MSG_SOCIETE_OBLIGATOIRE = 'Société obligatoire : CRITERIMMO ou MACJ.';
+
+/**
+ * 🔴 TRANSACTION, LOT D (Arno, 27/10/2026) — « SOCIÉTÉ : CRITERIMMO / MACJ ». Deux boutons (●/○, `aria-pressed`), comme « Oui / Non » :
+ * l'état se lit sans la couleur ; « à renseigner » écrit en toutes lettres tant que rien n'est choisi.
+ */
+export function ChoixSociete({ valeur, disabled, onChoisir, idGroupe }: {
+  valeur: SocieteCompte | null; disabled?: boolean; onChoisir: (v: SocieteCompte) => void; idGroupe: string;
+}) {
+  return (
+    <div className="cpt-ouinon" role="group" aria-labelledby={idGroupe} data-choix-societe>
+      {(['criterimmo', 'macj'] as const).map((v) => (
+        <button key={v} type="button" className="cpt-ouinon__btn" aria-pressed={valeur === v} disabled={disabled} onClick={() => onChoisir(v)} data-societe={v}>
+          <span className="cpt-ouinon__ind" aria-hidden="true">{valeur === v ? '●' : '○'}</span>
+          {LIBELLE_SOCIETE_COMPTE[v]}
+        </button>
+      ))}
+      {valeur === null && !disabled && <span className="cpt-a-decider">à renseigner</span>}
+    </div>
+  );
 }
 export interface InvitationVue { active: boolean; dernierEnvoi: string | null; mailEtat: 'en_cours' | 'envoye' | 'factice' | 'echec' | null; mailErreur: string | null; expireLe: string | null }
 /** Le bouton « Renvoyer le mail d'invitation » : seulement pour un compte actif, pas encore activé. PUR. */
@@ -34,6 +60,8 @@ interface DetailCompte extends CompteVue {
   voirCommissions?: { valeur: boolean; disponible: boolean };
   /** 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location). Absent d'une réponse d'avant ce lot. */
   resultatNet?: { valeur: boolean; disponible: boolean };
+  /** TRANSACTION, LOT D (434) — la société et ses périodes datées. Absent d'une réponse d'avant ce lot. */
+  societeDetail?: SocieteVue;
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
@@ -169,8 +197,14 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
   onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions,
-  resultatNet = false, onChoisirResultatNet,
+  resultatNet = false, onChoisirResultatNet, societeChoisie = null, societeDepuis = '', onChoisirSociete, onSocieteDepuis, onEnregistrerSociete,
 }: {
+  /** TRANSACTION, LOT D (434) — la société choisie à l'écran, la date « à compter du », et l'enregistrement (une période datée, journalisée). */
+  societeChoisie?: SocieteCompte | null;
+  societeDepuis?: string;
+  onChoisirSociete?: (v: SocieteCompte) => void;
+  onSocieteDepuis?: (v: string) => void;
+  onEnregistrerSociete?: () => void;
   /** 🔴 Arno (26/10/2026, 428) — la réponse à « Accès au Résultat net de l'agence ? » (Non par défaut), enregistrée avec les permissions. */
   resultatNet?: boolean;
   onChoisirResultatNet?: (v: boolean) => void;
@@ -234,6 +268,38 @@ export function DetailContenu({
           {identiteInvalide && <span className="cpt-err" role="status">Prénom et nom sont obligatoires.</span>}
         </div>
       </div>
+
+      {/* ══ TRANSACTION, LOT D (Arno, 27/10/2026, 434) — « SOCIÉTÉ : CRITERIMMO / MACJ », obligatoire, datée : un changement vaut à compter
+          de sa date et ne réécrit pas le passé (une vente garde la société de son négociateur au moment de la vente). */}
+      {compte.societeDetail !== undefined && (
+        <div className="cpt-identite" role="group" aria-labelledby={`societe-${compte.id}`} style={{ marginTop: 8 }} data-societe-compte>
+          <div className="cpt-perms-titre" id={`societe-${compte.id}`}>Société</div>
+          <ChoixSociete valeur={societeChoisie} disabled={enCours || !compte.societeDetail.disponible} onChoisir={(v) => onChoisirSociete?.(v)} idGroupe={`societe-${compte.id}`} />
+          {compte.societeDetail.disponible && compte.societeDetail.valeur === null && <span className="cpt-err" role="status" data-societe-a-renseigner>{MSG_SOCIETE_OBLIGATOIRE}</span>}
+          {compte.societeDetail.disponible && (
+            <>
+              <label className="cpt-libc">
+                <span className="cpt-libc-t">À compter du</span>
+                <input className="cpt-champ" type="date" value={societeDepuis} disabled={enCours} onChange={(e) => onSocieteDepuis?.(e.target.value)} data-societe-depuis />
+              </label>
+              <div className="cpt-actions">
+                <button type="button" className="cpt-btn cpt-btn--primary" disabled={enCours || societeChoisie === null || societeDepuis === ''} onClick={onEnregistrerSociete}
+                  data-enregistrer-societe>Enregistrer la société</button>
+              </div>
+            </>
+          )}
+          <span className="cpt-note">Un changement de société vaut à compter de sa date : les ventes déjà enregistrées gardent la société du négociateur au moment de la vente.</span>
+          {!compte.societeDetail.disponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 434) avant de pouvoir la renseigner.</span>}
+          {compte.societeDetail.periodes.length > 0 && (
+            <ul className="cpt-note" data-societe-historique style={{ margin: 0, paddingLeft: 18 }}>
+              {[...compte.societeDetail.periodes].reverse().map((p) => (
+                <li key={`${p.depuis}-${p.poseLe}`}>{LIBELLE_SOCIETE_COMPTE[p.societe]} à compter du {p.depuis.split('-').reverse().join('/')}
+                  {' '}— {p.origine === 'deduction' ? 'déduite des fichiers importés' : 'saisie'} le {formaterDate(p.poseLe)}, par {p.posePar}{p.motif ? ` (${p.motif})` : ''}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* ══ LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — « APPARTIENT AU SERVICE GESTION » ═════════════════════════════
           Une AFFECTATION, pas un droit : elle ne touche ni la tuile Gestion ni l'envoi (les permissions sont plus bas).
@@ -355,6 +421,8 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   const [idNom, setIdNom] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [societe, setSociete] = useState<SocieteCompte | null>(null); // TRANSACTION, LOT D (434)
+  const [societeDepuis, setSocieteDepuis] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }));
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => { ref.current?.focus(); }, []); // dépli → focus au détail (focus, pas d'animation)
@@ -365,7 +433,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       if (annule) return;
       if (!res.ok) { setMsg('Détail indisponible.'); return; }
       const body = await res.json();
-      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setResultatNet(body.compte.resultatNet?.valeur === true); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setResultatNet(body.compte.resultatNet?.valeur === true); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); setSociete(body.compte.societeDetail?.valeur ?? null); }
     })();
     return () => { annule = true; };
   }, [id]);
@@ -375,6 +443,17 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     if (!res.ok) { setMsg('Détail indisponible.'); return; }
     const body = await res.json();
     setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setResultatNet(body.compte.resultatNet?.valeur === true); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
+    setSociete(body.compte.societeDetail?.valeur ?? null);
+  }
+  async function enregistrerSociete() {
+    if (societe === null) { setMsg(MSG_SOCIETE_OBLIGATOIRE); return; }
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/societe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ societe, depuis: societeDepuis }) });
+      const body = await res.json().catch(() => null);
+      if (res.ok) { setMsg(body?.change === false ? 'Société inchangée.' : 'Société enregistrée.'); await recharger(); onRafraichir(); }
+      else setMsg(typeof body?.erreur === 'string' ? body.erreur : 'Enregistrement refusé.');
+    } finally { setEnCours(false); }
   }
   async function enregistrerIdentite() {
     const prenom = idPrenom.trim(); const nom = idNom.trim();
@@ -435,7 +514,9 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   return (
     <div ref={ref} tabIndex={-1} className="cpt-detail" id={`detail-${id}`} role="region" aria-labelledby={`cpt-tete-${id}`}>
       {d
-        ? <DetailContenu compte={d} perms={perms} peutModifierPermis={peutModifierPermis} envoi={envoi} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
+        ? <DetailContenu compte={d}
+            societeChoisie={societe} societeDepuis={societeDepuis} onChoisirSociete={setSociete} onSocieteDepuis={setSocieteDepuis} onEnregistrerSociete={enregistrerSociete}
+            perms={perms} peutModifierPermis={peutModifierPermis} envoi={envoi} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
             idPrenom={idPrenom} idNom={idNom} onIdPrenom={setIdPrenom} onIdNom={setIdNom} onEnregistrerIdentite={enregistrerIdentite}
             onToggle={(cle) => {
               if (cle === 'permis' && perms.permis) setPeutModifierPermis(false); // subordination ② : décocher « Permis » retire le sous-droit
@@ -509,15 +590,18 @@ export default function ComptesPage() {
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
   const [peutModifierPermis, setPeutModifierPermis] = useState(false); // RATT-EDIT (lot A3) — sous-droit « modifier après validation »
   const [envoi, setEnvoi] = useState<ReponseEnvoi>(null); // LOT 5-DROITS — aucune valeur pré-cochée, à la création aussi
+  const [societeCreation, setSocieteCreation] = useState<SocieteCompte | null>(null); // TRANSACTION, LOT D (434) — aucune valeur pré-cochée
+  const [societeDisponible, setSocieteDisponible] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
+  const societeManque = societeDisponible && societeCreation === null;
 
   async function recharger() {
     try {
       const res = await fetch('/api/admin/comptes');
       if (!res.ok) throw new Error();
       const body = await res.json();
-      setComptes(body.comptes ?? []); setErreur(null);
+      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setErreur(null);
     } catch { setErreur('Liste indisponible.'); } finally { setChargement(false); }
   }
   useEffect(() => {
@@ -527,7 +611,7 @@ export default function ComptesPage() {
         const res = await fetch('/api/admin/comptes');
         if (!res.ok) throw new Error();
         const body = await res.json();
-        if (!annule) { setComptes(body.comptes ?? []); setErreur(null); }
+        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setErreur(null); }
       } catch { if (!annule) setErreur('Liste indisponible.'); } finally { if (!annule) setChargement(false); }
     })();
     return () => { annule = true; };
@@ -536,14 +620,15 @@ export default function ComptesPage() {
   async function creer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({
           identifiant, motDePasse: body.motDePasseTemporaire,
           invitation: body.invitation ? { ok: body.invitation.ok === true, phrase: String(body.invitation.phrase ?? '') } : null,
         });
-        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false);
+        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null);
+        if (body.societe && body.societe.ok === false) setErreur(String(body.societe.motif ?? 'Société non enregistrée.'));
         await recharger();
       } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
     } catch { setErreur('Création impossible.'); } finally { setEnCours(false); }
@@ -605,6 +690,7 @@ export default function ComptesPage() {
         <div className="cpt-resume">
           <div className="cpt-nom">{c.prenom} {c.nom}</div>
           <div className="cpt-id">{c.identifiant}</div>
+          {c.societe !== undefined && <div className="cpt-meta" data-societe-carte>Société : {c.societe === null ? 'à renseigner' : LIBELLE_SOCIETE_COMPTE[c.societe]}</div>}
           <div className="cpt-meta">{c.role} · créé le : {c.cree_a ? formaterDate(c.cree_a) : '—'} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
           {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
               boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
@@ -678,6 +764,11 @@ export default function ComptesPage() {
             <option value="collaborateur">Collaborateur</option>
             <option value="administrateur">Administrateur</option>
           </select>
+          {/* TRANSACTION, LOT D (434) — « Société : CRITERIMMO / MACJ », obligatoire dès la 434 appliquée (sans elle : montrée, non exigée). */}
+          <div className="cpt-perms-titre" id="societe-creation">Société</div>
+          <ChoixSociete valeur={societeCreation} disabled={!societeDisponible} onChoisir={setSocieteCreation} idGroupe="societe-creation" />
+          {!societeDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 434) avant de pouvoir la renseigner.</span>}
+          {societeManque && <p className="cpt-err" role="status" data-societe-creation-manque>{MSG_SOCIETE_OBLIGATOIRE}</p>}
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
           {/* LOT 5-DROITS — même regroupement qu'au détail : une tuile par bloc, ses droits complémentaires dessous. */}
           <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
@@ -706,7 +797,7 @@ export default function ComptesPage() {
             ))}
           </div>
           {!admin && envoiSansReponse(perms, envoi) && <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>}
-          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi))}>{enCours ? 'Création…' : 'Créer le compte'}</button>
+          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
       </section>
 
