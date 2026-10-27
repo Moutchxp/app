@@ -10,7 +10,7 @@ import ComptesPage, { LIBELLE_RESULTAT_NET } from './page';
  * retire le droit (envoyé à faux). Vraie page, `fetch` simulé : rien n'est écrit.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const PERMS = (o: Record<string, boolean> = {}) => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, ...o });
+const PERMS = (o: Record<string, boolean> = {}) => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, ...o });
 let posts: { url: string; corps: Record<string, unknown> }[];
 let detail: Record<string, unknown>;
 let container: HTMLDivElement;

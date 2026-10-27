@@ -37,7 +37,7 @@ const sqlDuCompte = () => {
   return { sql: String(appel?.[0] ?? ''), params: (appel?.[1] ?? []) as unknown[] };
 };
 
-const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false };
+const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false };
 
 /** Ligne compte minimale renvoyée par trouverCompte. */
 function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -58,6 +58,7 @@ function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unkn
     perm_banc_test: false,
     perm_gestion: false,
     perm_location: false,
+    perm_transaction: false,
     derniere_connexion_a: null,
     cree_a: '2026-01-01',
     ...over,

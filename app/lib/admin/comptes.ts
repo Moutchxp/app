@@ -36,6 +36,11 @@ export interface CompteDB {
    * attente ⇒ toujours `false` (cf. `selectCompte`) : la tuile n'apparaît alors qu'aux administrateurs.
    */
   perm_location: boolean;
+  /**
+   * TRANSACTION (27/10/2026) — accès au module « Transaction » (migration 433), même patron que `perm_location`. Migration en
+   * attente ⇒ toujours `false` (cf. `selectCompte`) : la tuile n'apparaît alors qu'aux administrateurs.
+   */
+  perm_transaction: boolean;
   // Drapeau de première connexion (M3-4). Lu ici pour être DISPONIBLE ; il n'entre PAS encore dans le JWS
   // (ce sera le Lot B — enforcement). Les comptes CLI le portent false ; la future UI (Lot C) le posera true.
   doit_changer_mot_de_passe: boolean;
@@ -58,7 +63,7 @@ export class ErreurCompte extends Error {}
  *  (Objet all-true inline, cohérent avec `permsToutes()` de session.ts — évité ici en import runtime, cf. en-tête.) */
 export function permsDuCompte(c: CompteDB): Perms {
   if (c.role === 'administrateur') {
-    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true };
+    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true };
   }
   return {
     pilotage: c.perm_pilotage,
@@ -70,6 +75,7 @@ export function permsDuCompte(c: CompteDB): Perms {
     permis: c.perm_permis,
     gestion: c.perm_gestion,
     location: c.perm_location === true,
+    transaction: c.perm_transaction === true,
   };
 }
 
@@ -127,12 +133,15 @@ const COLONNES_COMPTE = `id, identifiant, prenom, nom, mot_de_passe, role, actif
  * peut envoyer sauf les administrateurs. C'est exactement le repli voulu, et il n'exige aucune branche ailleurs.
  */
 async function selectCompte(): Promise<string> {
-  const { droitEnvoiGestionDisponible, droitLocationDisponible } = await import('./schemaDroits');
+  const { droitEnvoiGestionDisponible, droitLocationDisponible, droitTransactionDisponible } = await import('./schemaDroits');
   const avecEnvoi = await droitEnvoiGestionDisponible();
   // LOCATION — même précaution, sur le même chemin d'authentification : migration 371 en attente ⇒ `false`.
   const avecLocation = await droitLocationDisponible();
+  // TRANSACTION — même précaution : migration 433 en attente ⇒ `false`.
+  const avecTransaction = await droitTransactionDisponible();
   return `SELECT ${COLONNES_COMPTE}, ${avecEnvoi ? 'perm_gestion_envoi' : 'NULL::boolean AS perm_gestion_envoi'},
-    ${avecLocation ? 'perm_location' : 'false AS perm_location'}
+    ${avecLocation ? 'perm_location' : 'false AS perm_location'},
+    ${avecTransaction ? 'perm_transaction' : 'false AS perm_transaction'}
   FROM admin_utilisateur`;
 }
 
@@ -269,11 +278,14 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
   // LOCATION — la case n'est écrite que si la migration 371 est là ; son paramètre vient APRÈS tous les autres.
   const avecLocation = await (await import('./schemaDroits')).droitLocationDisponible();
   const nLocation = avecEnvoi ? 17 : 16;
+  // TRANSACTION — même règle (migration 433), son paramètre vient APRÈS celui de la Location.
+  const avecTransaction = await (await import('./schemaDroits')).droitTransactionDisponible();
+  const nTransaction = 16 + (avecEnvoi ? 1 : 0) + (avecLocation ? 1 : 0);
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
        INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif, doit_changer_mot_de_passe,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion${avecEnvoi ? ', perm_gestion_envoi' : ''}${avecLocation ? ', perm_location' : ''})
-       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14${avecEnvoi ? ', $16::boolean' : ''}${avecLocation ? `, $${nLocation}::boolean` : ''})
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion${avecEnvoi ? ', perm_gestion_envoi' : ''}${avecLocation ? ', perm_location' : ''}${avecTransaction ? ', perm_transaction' : ''})
+       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14${avecEnvoi ? ', $16::boolean' : ''}${avecLocation ? `, $${nLocation}::boolean` : ''}${avecTransaction ? `, $${nTransaction}::boolean` : ''})
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -291,6 +303,7 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
       p.auteurId,
       ...(avecEnvoi ? [envoi] : []),
       ...(avecLocation ? [admin || p.perms.location] : []), // LOCATION — perm_location (administrateur → true forcé)
+      ...(avecTransaction ? [admin || p.perms.transaction] : []), // TRANSACTION — perm_transaction (administrateur → true forcé)
     ],
   );
   return rows[0];
@@ -403,13 +416,16 @@ export async function modifierPermissions(
   // LOCATION — la case n'est écrite que si la migration 371 est là ; son paramètre vient APRÈS tous les autres.
   const avecLocation = await (await import('./schemaDroits')).droitLocationDisponible();
   const nLocation = avecEnvoi ? 14 : 13;
+  // TRANSACTION — la case n'est écrite que si la migration 433 est là ; son paramètre vient APRÈS celui de la Location.
+  const avecTransaction = await (await import('./schemaDroits')).droitTransactionDisponible();
+  const nTransaction = 13 + (avecEnvoi ? 1 : 0) + (avecLocation ? 1 : 0);
 
   const { rows } = await query<{ id: number }>(
     `WITH maj AS (
        UPDATE admin_utilisateur
           SET perm_pilotage = $2, perm_cartes_annee = $3, perm_statistiques = $4,
               perm_internautes = $5, perm_curation = $6, perm_banc_test = $7, perm_permis = $8, perm_permis_modif = $9,
-              perm_gestion = $10${avecEnvoi ? ', perm_gestion_envoi = $13::boolean' : ''}${avecLocation ? `, perm_location = $${nLocation}::boolean` : ''}
+              perm_gestion = $10${avecEnvoi ? ', perm_gestion_envoi = $13::boolean' : ''}${avecLocation ? `, perm_location = $${nLocation}::boolean` : ''}${avecTransaction ? `, perm_transaction = $${nTransaction}::boolean` : ''}
         WHERE id = $1 AND role = 'collaborateur'
         RETURNING id
      ), jrnl AS (
@@ -424,7 +440,8 @@ export async function modifierPermissions(
      //   qu'on relira dans six mois pour savoir qui avait accordé quoi, et quand.
      JSON.stringify({ ...perms, perm_permis_modif: modif, perm_gestion_envoi: envoi }),
      ...(avecEnvoi ? [envoi] : []),
-     ...(avecLocation ? [perms.location] : [])],
+     ...(avecLocation ? [perms.location] : []),
+     ...(avecTransaction ? [perms.transaction] : [])],
   );
   return rows.length > 0;
 }

@@ -28,7 +28,7 @@ vi.mock('next/link', () => ({
     createElement('a', { href, onClick, ...reste }, children as never),
 }));
 
-const PERMS = { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true } as const;
+const PERMS = { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true } as const;
 
 /** Les 12 entrées demandées par Arno, et l'accueil de chacune. */
 const ENTREES: [string, string][] = [

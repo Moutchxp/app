@@ -1,0 +1,650 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
+import {
+  anneesDe, APPORTEUR_NON_NOMME, caHtParMois, celluleGlobal, compromisDeLAnnee, historique, ht, moisAConfirmer, negociateursDe,
+  NOMS_MOIS, parApporteur, parNegociateur, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
+  variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
+  type Retrocession, type Societe, type Vente,
+} from '../../../../lib/transaction/modele';
+import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
+import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
+import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
+import { ListeChoix } from '../location/ListeChoix';
+import { CSS_LOCATION_ECRANS } from '../location/commun';
+import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, parametre, posterTransaction, signePct, useTransaction } from './commun';
+import { FormulaireVente, Journal } from './FormulaireVente';
+
+/**
+ * ══ 🔴 TUILE « TRANSACTION » (Arno, 27/10/2026) — LES ÉCRANS ═══════════════════════════════════════════════════════════════════
+ * La logique et les COMPOSANTS du Suivi de la Location, réutilisés (pas recopiés) : l'histogramme mois par mois et son encart
+ * (`Histogramme`), la courbe du cumul (`CourbeCumul`), « Année par année » (`CourbeAnnees`), les blocs repliés (`BlocReplie`), les
+ * listes vertes (`ListeChoix`), les tuiles, tableaux et fenêtres (`tdb-*`), les cases de l'accueil (`loc-*`). Le Suivi de la Location
+ * ne change pas. Les calculs sont ceux de `lib/transaction/modele.ts` (HT = TTC ÷ 1,2, sans arrondi ; l'affichage arrondit au centime).
+ */
+
+const CSS = CSS_LOCATION_ECRANS + CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS + CSS_BLOC_REPLIE + CSS_TRANSACTION;
+const SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 433) : la tuile se remplira dès qu’elle sera appliquée.';
+
+// ── L'accueil de la tuile ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+const CASES = [
+  { href: '/admin/transaction/criterimmo', titre: 'Transaction CRITERIMMO', phrase: 'Les ventes et compromis de CRITERIMMO : le mois, l’année, les négociateurs, les apporteurs.', cle: 'criterimmo' },
+  { href: '/admin/transaction/macj', titre: 'Transaction MACJ', phrase: 'Les ventes et compromis de MACJ : le mois, l’année, les négociateurs, les apporteurs.', cle: 'macj' },
+  { href: '/admin/transaction/global', titre: 'CA global transaction et gestion', phrase: 'Vente CRITERIMMO et MACJ, location et gestion, mois par mois et par année, face à N−1.', cle: 'global' },
+];
+
+export function AccueilTransaction() {
+  return (
+    <div className="loc-page">
+      <style>{CSS}</style>
+      <ul className="loc-cases loc-cases--accueil" aria-label="Les tuiles de la Transaction">
+        {CASES.map((c) => (
+          <li key={c.cle}><a className="loc-case" href={c.href} data-tuile-transaction={c.cle}>
+            <span className="loc-case-titre">{c.titre}</span><span className="loc-case-phrase">{c.phrase}</span></a></li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+type Detail = { titre: string; ids: number[] } | null;
+const entier = (x: string | null, min: number, max: number): number | null => { const n = Number(x); return x !== null && Number.isInteger(n) && n >= min && n <= max ? n : null; };
+const moisCourt = (a: number, m: number): string => `${COURT[m - 1]} ${a}`;
+
+export function EcranSociete({ societe }: { societe: Societe }) {
+  const jour = aujourdhuiParis();
+  const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
+  const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
+  const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
+  const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? Number(jour.slice(5, 7)));
+  const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
+  const [fin, setFin] = useState<number | null>(() => entier(parametre('fin'), 2000, 2100));
+  const [negociateur, setNegociateur] = useState('');
+  const [detail, setDetail] = useState<Detail>(null);
+  const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
+  useEffect(() => {
+    ecrireAdresse(vue === 'mois' ? { vue: null, annee: String(annee), mois: String(mois), debut: null, fin: null }
+      : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin) });
+  }, [vue, annee, mois, debut, fin]);
+
+  if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
+  if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
+  const d = lu.data;
+  const annees = anneesDe(d, jour);
+  const negos = [...new Set([...d.ventes.flatMap(negociateursDe), ...d.retrocessions.map((r) => r.negociateur)])].sort((a, b) => a.localeCompare(b, 'fr'));
+  const filtrees: DonneesSociete = negociateur === '' ? d : { ...d, ventes: d.ventes.filter((v) => negociateursDe(v).includes(negociateur)),
+    retrocessions: d.retrocessions.filter((r) => r.negociateur === negociateur), aRattacher: d.aRattacher.filter((x) => x.negociateur === negociateur) };
+  const fini = (): void => { setEdition(null); relire(); };
+
+  return (
+    <div className="tdb loc-page" data-transaction={societe}>
+      <style>{CSS}</style>
+      {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
+      <div className="trx-barre">
+        <div className="trx-vues" role="tablist" aria-label="Le mois ou l’année">
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
+        </div>
+        <div className="trx-actions">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouvelle')} disabled={!d.disponible} data-nouvelle-vente>+ Nouvelle vente</button>
+        </div>
+      </div>
+      <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
+        {vue === 'mois' ? (
+          <label className="tdb-champ">Année
+            <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+              onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
+        ) : <>
+          <label className="tdb-champ">Début
+            <ListeChoix options={annees.filter((a) => a <= (fin ?? annees.at(-1)!)).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(debut ?? annees[0])} vide={null}
+              libelle="Début" onChange={(v) => setDebut(Number(v))} donnees={{ 'data-filtre': 'debut' }} /></label>
+          <label className="tdb-champ">Fin
+            <ListeChoix options={annees.filter((a) => a >= (debut ?? annees[0])).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(fin ?? annees.at(-1))} vide={null}
+              libelle="Fin" onChange={(v) => setFin(Number(v))} donnees={{ 'data-filtre': 'fin' }} /></label>
+        </>}
+        <label className="tdb-champ">Négociateur
+          <ListeChoix options={negos.map((x) => ({ id: x, libelle: x }))} valeur={negociateur} vide="Tous" libelle="Négociateur" onChange={setNegociateur} donnees={{ 'data-filtre': 'negociateur' }} /></label>
+      </form>
+
+      {vue === 'mois'
+        ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} />
+        : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
+            onAnnee={(a) => { setDebut(a); setFin(a); }} />}
+
+      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions}
+        onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} />}
+      {edition !== null && <FormulaireVente societe={societe} vente={edition === 'nouvelle' ? null : edition} annee={annee} mois={vue === 'mois' ? mois : null}
+        negociateurs={negos} onFermer={() => setEdition(null)} onFait={fini} />}
+    </div>
+  );
+}
+
+// ── Le mois ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRelire }: {
+  d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; onMois: (m: number) => void;
+  onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
+}) {
+  const [cumul, setCumul] = useState(false);
+  const T = totauxMois(d, annee, mois);
+  const T1 = totauxMois(d, annee - 1, mois);
+  const parMois = caHtParMois(d.ventes, annee);
+  const parMoisN1 = caHtParMois(d.ventes, annee - 1);
+  const sansN1 = !d.ventes.some((v) => v.annee === annee - 1);
+  const cumulN = parMois.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
+  const cumulN1 = parMoisN1.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
+  const anneeEnCours = Number(jour.slice(0, 4));
+  const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
+  const ventes = ventesDuMois(d.ventes, annee, mois);
+  const retros = retrosDuMois(d.retrocessions, annee, mois);
+  const comp = compromisDeLAnnee(d.ventes, annee);
+  const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
+  const aRattacher = d.aRattacher.filter((x) => x.annee === annee && x.mois === mois);
+  const nbN = (k: number, a: number): number => ventesDuMois(d.ventes, a, k).length;
+  const info = (k: number, cumule: boolean): InfoBarre => ({
+    titre: cumule ? `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : NOMS_MOIS[k - 1], motNb: 'Ventes',
+    courant: { libelle: String(annee), ca: k > dernierMois ? null : (cumule ? cumulN : parMois)[k - 1], nb: k > dernierMois ? null : nbN(k, annee) },
+    precedent: sansN1 ? null : { libelle: String(annee - 1), ca: (cumule ? cumulN1 : parMoisN1)[k - 1], nb: nbN(k, annee - 1) },
+  });
+  const libMois = `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+  const ouvrir = (titre: string, ids: number[]) => () => onDetail({ titre, ids });
+  return <>
+    <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`}>
+      {NOMS_MOIS.map((m, i) => (
+        <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
+      ))}
+    </div>
+    <ul className="tdb-tuiles" aria-label="L’essentiel du mois">
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Ventes — ${libMois}`, T.ids)} data-tuile="ca-mois">
+        <span className="tdb-tuile-mot">CA HT — {NOMS_MOIS[mois - 1].toLowerCase()}</span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(T1.caHt)} en ${annee - 1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Ventes — ${libMois}`, T.ids)} data-tuile="ventes-mois">
+        <span className="tdb-tuile-mot">Ventes — {NOMS_MOIS[mois - 1].toLowerCase()}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${T1.nbVentes} en ${annee - 1}`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA cumulé ${annee}`, Array.from({ length: mois }, (_, i) => ventesDuMois(d.ventes, annee, i + 1).map((v) => v.id)).flat())} data-tuile="cumul">
+        <span className="tdb-tuile-mot">CA cumulé {annee} (à fin {NOMS_MOIS[mois - 1].toLowerCase()})</span><strong className="tdb-tuile-valeur">{eur(cumulN[mois - 1])}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
+        <span className="tdb-tuile-mot">Compromis en cours ({annee})</span><strong className="tdb-tuile-valeur">{eur(comp.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</strong>
+        <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
+    </ul>
+
+    <section className="tdb-section" aria-labelledby="trx-histo" data-bloc="histogramme-mois">
+      <div className="trx-barre">
+        <h3 id="trx-histo">Mois par mois — {annee} <small className="loc-muet">(CA HT{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></h3>
+        <button type="button" className="tdb-bascule-cumul" onClick={() => setCumul((c) => !c)} data-cumul-etat={cumul ? 'cumul' : 'mensuel'}>
+          <span className="tdb-bascule-cumul-icone" aria-hidden="true">⇄</span><span>{cumul ? 'Cumul' : 'Mensuel'}</span></button>
+      </div>
+      {cumul ? (
+        <CourbeCumul courant={cumulN.slice(0, dernierMois)} n1={sansN1 ? null : cumulN1} annee={annee} selection={mois}
+          aria={`CA HT cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} />
+      ) : (
+        <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={onMois} aria={`CA HT par mois, ${annee}`}
+          legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
+          barres={parMois.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : parMoisN1[i], info: info(i + 1, false) }))} />
+      )}
+    </section>
+
+    <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
+      <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
+      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." />
+    </section>
+
+    <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
+      <h3 id="trx-resultat">Résultat de l’agence — {libMois}</h3>
+      <dl className="trx-resultat">
+        <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
+        <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
+        <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
+        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
+      </dl>
+      <p className="loc-muet">Les rétrocessions comptent sur le mois où elles sont saisies (comme dans les fichiers), rattachées ou « à répartir ».</p>
+    </section>
+
+    <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
+      resume={`${parNegociateur(ventes, retros).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
+      <TableNegociateurs lignes={parNegociateur(ventes, retros)} onDetail={onDetail} periode={libMois} />
+    </BlocReplie>
+
+    <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
+      <h3 id="trx-apporteurs">Apporteurs du mois — {libMois} <span className="loc-pastille">{retros.length}</span></h3>
+      <OutilRetrocessions retros={retros} ventes={tout.ventes} societe={d.societe} annee={annee} mois={mois} disponible={d.disponible} onRelire={onRelire} />
+    </section>
+
+    {aRattacher.length > 0 && (
+      <section className="tdb-section" data-bloc="a-rattacher">
+        <h3>Montants saisis sans vente — à rattacher <span className="loc-pastille">{aRattacher.length}</span></h3>
+        <p className="loc-muet">Saisis en dur dans le fichier, sans vente derrière : montrés ici, jamais ajoutés au CA.</p>
+        <TableARattacher lignes={aRattacher} />
+      </section>
+    )}
+
+    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => ht(v.honorairesTtc))))} HT`}
+      donnees={{ 'data-bloc': 'compromis' }}>
+      <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." />
+    </BlocReplie>
+    <BlocReplie id="trx-confirmer" section="a-confirmer" titre={<>Ventes « mois à confirmer » — {annee}</>}
+      resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => ht(v.honorairesTtc))))} HT`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
+      <p className="loc-muet">Aucune formule du fichier ne les place dans un mois : elles comptent dans l’année, dans aucun mois. « Modifier » leur donne leur mois.</p>
+      <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." />
+    </BlocReplie>
+  </>;
+}
+
+/** Les ventes, en tableau (en cartes au téléphone) : chaque ligne s'ouvre en modification. */
+function TableVentes({ ventes, retros, onModifier, vide }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string }) {
+  if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
+  return (
+    <table className="tdb-table tdb-table--large" data-table-ventes>
+      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">Négociateur(s)</th><th scope="col">Honoraires TTC</th><th scope="col">Honoraires HT</th>
+        <th scope="col">Rétrocessions</th><th scope="col">Paye négo</th><th scope="col">Reste agence HT</th><th scope="col">Action</th></tr></thead>
+      <tbody>
+        {ventes.map((v) => (
+          <tr key={v.id} data-vente={v.id}>
+            <th scope="row">{v.libelle}
+              <span className="trx-pastilles">
+                {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
+                {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
+                {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
+              </span>
+              {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
+            </th>
+            <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td>
+            <td data-mot="Honoraires TTC">{eur(v.honorairesTtc)}</td>
+            <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}</td>
+            <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
+            <td data-mot="Paye négo">{eur(payeTtcDe(v))}</td>
+            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros)))}</td>
+            <td data-mot="Action"><button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TableNegociateurs({ lignes, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; onDetail: (x: Detail) => void; periode: string }) {
+  if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
+  return (
+    <table className="tdb-table tdb-table--large" data-table-negociateurs>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
+      <tbody>{lignes.map((l) => (
+        <tr key={l.negociateur} data-negociateur={l.negociateur}>
+          <th scope="row">{l.negociateur}</th>
+          <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${l.negociateur} — ${periode}`, ids: l.ids })} disabled={l.ids.length === 0}>{l.nbVentes}</button></td>
+          <td data-mot="CA HT porté">{eur(l.caHt)}</td><td data-mot="Paye HT">{eur(l.payeHt)}</td><td data-mot="Rétrocessions HT">{eur(l.retroHt)}</td>
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+function TableARattacher({ lignes }: { lignes: readonly CaARattacher[] }) {
+  return (
+    <table className="tdb-table tdb-table--large" data-table-a-rattacher>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Origine</th></tr></thead>
+      <tbody>{lignes.map((x) => (
+        <tr key={x.id}><th scope="row">{x.negociateur}</th><td data-mot="Montant TTC">{eur(x.montantTtc)}</td>
+          <td data-mot="Origine">{x.libelle ?? ''} <span className="trx-source">{x.sourceOnglet} › {x.sourceCellule}</span></td></tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+/**
+ * 🔴 D5 — LE PETIT OUTIL DE RATTACHEMENT : chaque rétrocession du mois se rattache à la main à la bonne vente (celles du négociateur
+ * et du mois d'abord), ou redevient « à répartir » ; réversible et journalisé (son historique, avec « Annuler »).
+ */
+function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, onRelire }: {
+  retros: readonly Retrocession[]; ventes: readonly Vente[]; societe: Societe; annee: number; mois: number; disponible: boolean; onRelire: () => void;
+}) {
+  const [motif, setMotif] = useState<string | null>(null);
+  const [historique, setHistorique] = useState<number | null>(null);
+  const [saisie, setSaisie] = useState(false);
+  const parId = useMemo(() => new Map(ventes.map((v) => [v.id, v])), [ventes]);
+  const rattacher = async (id: number, venteId: number | null): Promise<void> => {
+    const r = await posterTransaction({ action: 'retro-rattacher', id, venteId });
+    setMotif(r);
+    if (r === null) onRelire();
+  };
+  const aRepartir = retros.filter((r) => r.venteId === null).length;
+  return <>
+    {aRepartir > 0 && <p className="loc-alerte loc-alerte--orange" role="status" data-a-repartir>{aRepartir} rétrocession(s) « à répartir » : rattachez-les à la vente qu’elles paient.</p>}
+    {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
+    {retros.length === 0 ? <p className="loc-muet">Aucune rétrocession ce mois.</p> : (
+      <table className="tdb-table tdb-table--large" data-table-retrocessions>
+        <thead><tr><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Apporteur</th><th scope="col">Vente</th><th scope="col">Historique</th></tr></thead>
+        <tbody>{retros.map((r) => {
+          const p = ventesProposees(r, ventes);
+          const options = [...p.duMois, ...p.autres].map((v) => ({ id: v.id, libelle: `${v.libelle} — ${eur(v.honorairesTtc)} TTC${v.mois === null ? ` (${v.annee})` : ` (${moisCourt(v.annee, v.mois)})`}` }));
+          return (
+            <tr key={r.id} data-retrocession={r.id}>
+              <th scope="row">{r.negociateur}{r.sourceCellule !== null && <><br /><span className="trx-source">{r.sourceOnglet} › {r.sourceCellule}{r.libelle ? ` · ${r.libelle}` : ''}</span></>}</th>
+              <td data-mot="Montant TTC">{eur(r.montantTtc)}</td>
+              <td data-mot="Apporteur">{r.apporteur ?? (r.venteId !== null ? parId.get(r.venteId)?.apporteur : null) ?? <span className="loc-muet">{APPORTEUR_NON_NOMME}</span>}</td>
+              <td data-mot="Vente">
+                <ListeChoix options={options} valeur={r.venteId === null ? '' : String(r.venteId)} vide="À répartir" libelle={`Vente de la rétrocession de ${eur(r.montantTtc)}`}
+                  desactive={!disponible} onChange={(v) => void rattacher(r.id, v === '' ? null : Number(v))} donnees={{ 'data-rattacher': String(r.id) }} />
+              </td>
+              <td data-mot="Historique"><button type="button" className="trx-bouton-lien" onClick={() => setHistorique(historique === r.id ? null : r.id)}>{historique === r.id ? 'Masquer' : 'Voir'}</button></td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
+    )}
+    {historique !== null && <Journal entite="retrocession" id={historique} onFait={onRelire} />}
+    <p><button type="button" className="trx-bouton-lien" onClick={() => setSaisie((s) => !s)} disabled={!disponible} data-saisir-retro>+ Rétrocession</button></p>
+    {saisie && <SaisieRetro societe={societe} annee={annee} mois={mois} onFait={() => { setSaisie(false); onRelire(); }} />}
+  </>;
+}
+
+function SaisieRetro({ societe, annee, mois, onFait }: { societe: Societe; annee: number; mois: number; onFait: () => void }) {
+  const [negociateur, setNegociateur] = useState('');
+  const [montantTtc, setMontant] = useState('');
+  const [apporteur, setApporteur] = useState('');
+  const [motif, setMotif] = useState<string | null>(null);
+  const envoyer = async (): Promise<void> => {
+    const r = await posterTransaction({ action: 'retro-saisir', retro: { societe, annee, mois, negociateur, montantTtc, apporteur, venteId: null } });
+    if (r === null) onFait(); else setMotif(r);
+  };
+  return (
+    <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void envoyer(); }} data-form-retro>
+      <label>Négociateur<input value={negociateur} onChange={(e) => setNegociateur(e.target.value)} required /></label>
+      <label>Montant TTC<input value={montantTtc} onChange={(e) => setMontant(e.target.value)} inputMode="decimal" required /></label>
+      <label>Apporteur<input value={apporteur} onChange={(e) => setApporteur(e.target.value)} /></label>
+      {motif !== null && <p className="trx-erreur trx-plein" role="alert">{motif}</p>}
+      <div className="trx-actions trx-plein"><button type="submit" className="svv-btn svv-btn-primary gst-btn">Enregistrer (à répartir)</button></div>
+    </form>
+  );
+}
+
+// ── L'année ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
+  d: DonneesSociete; annees: readonly number[]; debut: number; fin: number; jour: string; onDetail: (x: Detail) => void; onAnnee: (a: number) => void;
+}) {
+  const [cumul, setCumul] = useState(false);
+  const periode = annees.filter((a) => a >= debut && a <= fin);
+  const libelle = debut === fin ? String(debut) : `${debut} → ${fin}`;
+  const H = historique(d, annees);
+  const HP = H.filter((h) => periode.includes(h.annee));
+  const ventesP = d.ventes.filter((v) => v.statut === 'vendue' && periode.includes(v.annee));
+  const retrosP = d.retrocessions.filter((r) => periode.includes(r.annee));
+  const T = totaux(ventesP, retrosP);
+  const duree = fin - debut + 1;
+  const precedente = annees.filter((a) => a >= debut - duree && a <= debut - 1);
+  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee)), d.retrocessions.filter((r) => precedente.includes(r.annee)));
+  const libPrec = precedente.length === 0 ? '' : duree === 1 ? String(debut - 1) : `${debut - duree} → ${debut - 1}`;
+  const compFin = compromisDeLAnnee(d.ventes, fin);
+  const parMois = caHtParMois(d.ventes, fin);
+  const parMoisN1 = caHtParMois(d.ventes, fin - 1);
+  const sansN1 = !d.ventes.some((v) => v.annee === fin - 1);
+  const anneeEnCours = Number(jour.slice(0, 4));
+  const dernierMois = fin < anneeEnCours ? 12 : fin > anneeEnCours ? 0 : Number(jour.slice(5, 7));
+  const nb = (a: number, k: number): number => ventesDuMois(d.ventes, a, k).length;
+  const negos = parNegociateur(ventesP, retrosP);
+  const apporteurs = parApporteur(retrosP, d.ventes);
+  return <>
+    <p className="tdb-periode">Période : <strong>{libelle}</strong></p>
+    <ul className="tdb-tuiles" aria-label={`L’essentiel — ${libelle}`}>
+      <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ca-periode">
+        <span className="tdb-tuile-mot">CA HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
+        <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${eur(TP.caHt)} · ${ecartEur(T.caHt - TP.caHt)} (${signePct(variation(T.caHt, TP.caHt))})`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ventes-periode">
+        <span className="tdb-tuile-mot">Ventes <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
+        <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${TP.nbVentes}`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Compromis en cours — ${fin}`, ids: compFin.map((v) => v.id) })} data-tuile="compromis-periode">
+        <span className="tdb-tuile-mot">Compromis en cours <small>({fin})</small></span><strong className="tdb-tuile-valeur">{eur(compFin.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</strong>
+        <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
+      <li><div className="tdb-tuile" data-tuile="reste-periode">
+        <span className="tdb-tuile-mot">Reste à l’agence HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.resteHt)}</strong>
+        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions et {eur(T.payeHt)} de paye</span></div></li>
+    </ul>
+
+    {HP.length > 0 && (
+      <section className="tdb-section" aria-labelledby="trx-h" data-bloc="annee-par-annee">
+        <div className="trx-barre">
+          <h3 id="trx-h">Année par année <small className="loc-muet">(CA HT{cumul ? `, cumulé depuis ${debut}` : ''} ; une année s’ouvre d’un clic)</small></h3>
+          <button type="button" className="tdb-bascule-cumul" onClick={() => setCumul((c) => !c)} data-cumul-etat={cumul ? 'cumul' : 'annuel'}>
+            <span className="tdb-bascule-cumul-icone" aria-hidden="true">⇄</span><span>{cumul ? 'Cumul' : 'Annuel'}</span></button>
+        </div>
+        <CourbeAnnees lignes={HP.map((h) => ({ annee: h.annee, nbBaux: h.nbVentes, nb: h.nbVentes, ca: h.caHt, caNet: h.resteHt, apporteurs: h.retroHt, commission: null }))}
+          annee={fin} onAnnee={onAnnee} cumul={cumul} motNb="Ventes" />
+      </section>
+    )}
+
+    <section className="tdb-section" aria-labelledby="trx-m" data-bloc="mois-annee">
+      <h3 id="trx-m">{fin} mois par mois, face à {fin - 1} <small className="loc-muet">(CA HT)</small></h3>
+      <Histogramme attribut="data-barre-mois-annee" courante={dernierMois === 0 ? 1 : dernierMois} onChoisir={() => undefined} aria={`CA HT par mois, ${fin}`}
+        legende={{ courant: String(fin), n1: sansN1 ? null : String(fin - 1) }}
+        barres={parMois.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : parMoisN1[i],
+          info: { titre: NOMS_MOIS[i], motNb: 'Ventes', courant: { libelle: String(fin), ca: i + 1 > dernierMois ? null : v, nb: i + 1 > dernierMois ? null : nb(fin, i + 1) },
+            precedent: sansN1 ? null : { libelle: String(fin - 1), ca: parMoisN1[i], nb: nb(fin - 1, i + 1) } } }))} />
+    </section>
+
+    <section className="tdb-section" aria-labelledby="trx-resume" data-bloc="resume-periode">
+      <h3 id="trx-resume">Résumé — {libelle}</h3>
+      <dl className="trx-resultat">
+        <dt>Ventes</dt><dd>{T.nbVentes}</dd>
+        <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
+        <dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => h.moisAConfirmerHt)))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd>
+        <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
+        <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
+        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total">{eur(T.resteHt)}</dd>
+        <dt>Compromis en cours (prévisionnel {fin})</dt><dd>{eur(compFin.reduce((s, v) => s + ht(v.honorairesTtc), 0))}</dd>
+      </dl>
+    </section>
+
+    <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA HT ${eur(sommeAffichee(negos.map((l) => l.caHt)))}`}
+      donnees={{ 'data-bloc': 'negociateurs-periode' }}>
+      <TableNegociateurs lignes={negos} onDetail={onDetail} periode={libelle} />
+    </BlocReplie>
+
+    <BlocReplie id="trx-apporteurs-annee" section="apporteurs" titre={<>{periode.length > 1 ? 'Apporteur des années' : 'Apporteur de l’année'} — {libelle}</>}
+      resume={`${apporteurs.length} apporteur(s) · rétrocessions ${eur(sommeAffichee(apporteurs.map((a) => a.retroHt)))} HT`} donnees={{ 'data-bloc': 'apporteurs-periode' }}>
+      {apporteurs.length === 0 ? <p className="loc-muet">Aucune rétrocession sur la période.</p> : (
+        <table className="tdb-table tdb-table--large" data-table-apporteurs>
+          <thead><tr><th scope="col">Apporteur</th><th scope="col">Rétrocessions</th><th scope="col">Montant HT</th><th scope="col">Ventes rattachées</th><th scope="col">CA apporté HT</th><th scope="col">À répartir</th></tr></thead>
+          <tbody>{apporteurs.map((a) => (
+            <tr key={a.apporteur} data-apporteur={a.apporteur}>
+              <th scope="row">{a.apporteur}</th><td data-mot="Rétrocessions">{a.nbRetrocessions}</td><td data-mot="Montant HT">{eur(a.retroHt)}</td>
+              <td data-mot="Ventes rattachées"><button type="button" className="tdb-chiffre" disabled={a.ventesIds.length === 0}
+                onClick={() => onDetail({ titre: `Ventes apportées — ${a.apporteur}`, ids: a.ventesIds })}>{a.ventesIds.length}</button></td>
+              <td data-mot="CA apporté HT">{eur(a.caApporteHt)}</td><td data-mot="À répartir">{a.aRepartir}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      <p className="loc-muet">Les fichiers saisissent les rétrocessions par mois, sans nom d’apporteur : elles sont « {APPORTEUR_NON_NOMME} » tant que la vente rattachée ne nomme pas son apporteur.</p>
+    </BlocReplie>
+
+    <section className="tdb-section" aria-labelledby="trx-histoire" data-bloc="toute-histoire">
+      <h3 id="trx-histoire">Toute l’histoire — {annees[0]} → {annees.at(-1)}</h3>
+      <table className="tdb-table tdb-table--large" data-table-histoire>
+        <thead><tr><th scope="col">Année</th><th scope="col">Ventes</th><th scope="col">CA HT</th><th scope="col">dont mois à confirmer</th><th scope="col">Compromis HT</th>
+          <th scope="col">Rétrocessions HT</th><th scope="col">Reste agence HT</th><th scope="col">Évolution du CA</th></tr></thead>
+        <tbody>{H.map((h, i) => (
+          <tr key={h.annee} className={periode.includes(h.annee) ? 'tdb-fort' : undefined} data-annee-histoire={h.annee}>
+            <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnnee(h.annee)}>{h.annee}</button></th>
+            <td data-mot="Ventes">{h.nbVentes}</td><td data-mot="CA HT">{eur(h.caHt)}</td><td data-mot="dont mois à confirmer">{eur(h.moisAConfirmerHt)}</td>
+            <td data-mot="Compromis HT">{eur(h.compromisHt)}</td><td data-mot="Rétrocessions HT">{eur(h.retroHt)}</td><td data-mot="Reste agence HT">{eur(h.resteHt)}</td>
+            <td data-mot="Évolution du CA">{i === 0 ? '—' : signePct(variation(h.caHt, H[i - 1].caHt))}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </section>
+  </>;
+}
+
+/** La liste des ventes derrière un chiffre. */
+function ListeVentes({ titre, ventes, retros, onFermer, onModifier }: { titre: string; ventes: readonly Vente[]; retros: readonly Retrocession[]; onFermer: () => void; onModifier: (v: Vente) => void }) {
+  useEffect(() => {
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [onFermer]);
+  return (
+    <div className="tdb-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
+      <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-detail>
+        <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer} autoFocus>×</button></header>
+        <div className="tdb-fenetre-corps">
+          <p className="loc-muet">{ventes.length} vente(s) · CA HT {eur(sommeAffichee(ventes.map((v) => ht(v.honorairesTtc))))}</p>
+          <TableVentes ventes={ventes} retros={retros} onModifier={onModifier} vide="Aucune vente." />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: EntreesGlobal['ventes'][number][]; gestion: GestionMois[]; location: Record<string, number> | null }
+
+export function EcranGlobal() {
+  const jour = aujourdhuiParis();
+  const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
+  const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
+  const [gestionOuverte, setGestionOuverte] = useState<number | null>(null);
+  useEffect(() => { ecrireAdresse({ annee: String(annee) }); }, [annee]);
+  if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
+  if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
+  const d = lu.data;
+  const e: EntreesGlobal = { ventes: d.ventes, location: d.location, gestion: d.gestion };
+  const annees = [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee), ...d.gestion.map((g) => g.annee),
+    ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
+  const anneeEnCours = Number(jour.slice(0, 4));
+  const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
+  const A = celluleGlobal(e, annee, null);
+  const A1 = celluleGlobal(e, annee - 1, null);
+  const P = previsionnel(e, annee);
+  const manque = (x: number | null): string => (x === null ? '—' : eur(x));
+  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.societe === s && v.statut === 'vendue' && v.annee === annee && v.mois === null)
+    .reduce((t, v) => t + ht(v.honorairesTtc), 0);
+  const gestionDe = (m: number): GestionMois | null => d.gestion.find((g) => g.annee === annee && g.mois === m) ?? null;
+  return (
+    <div className="tdb loc-page" data-ca-global>
+      <style>{CSS}</style>
+      {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
+      {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
+      <form className="tdb-filtres" aria-label="Année" onSubmit={(x) => x.preventDefault()}>
+        <label className="tdb-champ">Année
+          <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+            onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
+      </form>
+      <ul className="tdb-tuiles" aria-label={`L’essentiel — ${annee}`}>
+        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global HT ({annee})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>
+          <span className="tdb-tuile-n1">{eur(A1.totalHt)} en {annee - 1} ({signePct(variation(A.totalHt, A1.totalHt))})</span></div></li>
+        <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO HT <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>
+          <span className="tdb-tuile-n1">{eur(A1.criterimmoHt)} en {annee - 1} ({signePct(variation(A.criterimmoHt, A1.criterimmoHt))})</span></div></li>
+        <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ HT <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>
+          <span className="tdb-tuile-n1">{eur(A1.macjHt)} en {annee - 1} ({signePct(variation(A.macjHt, A1.macjHt))})</span></div></li>
+        <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel HT <small>(compromis en cours {annee})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>
+          <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}</span></div></li>
+      </ul>
+
+      <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
+        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">(HT ; la gestion se saisit mois par mois)</small></h3>
+        <table className="tdb-table tdb-table--large" data-table-global>
+          <thead><tr><th scope="col">Mois</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Vente MACJ</th><th scope="col">Location</th><th scope="col">Gestion</th>
+            <th scope="col">Total</th><th scope="col">{annee - 1}</th><th scope="col">Écart</th><th scope="col">Gestion du mois</th></tr></thead>
+          <tbody>
+            {NOMS_MOIS.map((nom, i) => {
+              const c = celluleGlobal(e, annee, i + 1);
+              const c1 = celluleGlobal(e, annee - 1, i + 1);
+              const aVenir = i + 1 > dernierMois;
+              return (
+                <tr key={nom} data-mois-global={i + 1}>
+                  <th scope="row">{nom}</th>
+                  <td data-mot="Vente CRITERIMMO">{eur(c.venteCriterimmoHt)}</td><td data-mot="Vente MACJ">{eur(c.venteMacjHt)}</td>
+                  <td data-mot="Location">{manque(c.locationHt)}</td><td data-mot="Gestion">{manque(c.gestionHt)}</td>
+                  <td data-mot="Total" className="trx-total">{aVenir && c.totalHt === 0 ? '—' : eur(c.totalHt)}</td>
+                  <td data-mot={String(annee - 1)}>{eur(c1.totalHt)}</td>
+                  <td data-mot="Écart" className={`tdb-signe tdb-signe--${sensDe(c.totalHt - c1.totalHt)}`}>{aVenir ? '—' : `${ecartEur(c.totalHt - c1.totalHt)} (${signePct(variation(c.totalHt, c1.totalHt))})`}</td>
+                  <td data-mot="Gestion du mois"><button type="button" className="trx-bouton-lien" onClick={() => setGestionOuverte(i + 1)} disabled={!d.disponible} data-saisir-gestion={i + 1}>
+                    {gestionDe(i + 1) === null ? 'Saisir' : 'Modifier'}</button></td>
+                </tr>
+              );
+            })}
+            {(ventesSansMois('criterimmo') > 0 || ventesSansMois('macj') > 0) && (
+              <tr data-mois-a-confirmer><th scope="row">Mois à confirmer</th><td data-mot="Vente CRITERIMMO">{eur(ventesSansMois('criterimmo'))}</td>
+                <td data-mot="Vente MACJ">{eur(ventesSansMois('macj'))}</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
+                <td data-mot="Total">{eur(ventesSansMois('criterimmo') + ventesSansMois('macj'))}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+            )}
+            <tr className="tdb-fort" data-total-annee><th scope="row">Année {annee}</th><td data-mot="Vente CRITERIMMO">{eur(A.venteCriterimmoHt)}</td><td data-mot="Vente MACJ">{eur(A.venteMacjHt)}</td>
+              <td data-mot="Location">{manque(A.locationHt)}</td><td data-mot="Gestion">{manque(A.gestionHt)}</td><td data-mot="Total">{eur(A.totalHt)}</td>
+              <td data-mot={String(annee - 1)}>{eur(A1.totalHt)}</td><td data-mot="Écart">{`${ecartEur(A.totalHt - A1.totalHt)} (${signePct(variation(A.totalHt, A1.totalHt))})`}</td><td data-mot="Gestion du mois" /></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="tdb-section" aria-labelledby="trx-g-annees" data-bloc="global-annees">
+        <h3 id="trx-g-annees">Année par année <small className="loc-muet">(HT ; réalisé et prévisionnel)</small></h3>
+        <table className="tdb-table tdb-table--large" data-table-global-annees>
+          <thead><tr><th scope="col">Année</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total CRITERIMMO</th>
+            <th scope="col">Vente MACJ</th><th scope="col">Réalisé</th><th scope="col">Prévisionnel</th><th scope="col">Évolution</th></tr></thead>
+          <tbody>{annees.map((a, i) => {
+            const c = celluleGlobal(e, a, null);
+            const prec = i === 0 ? null : celluleGlobal(e, annees[i - 1], null);
+            return (
+              <tr key={a} className={a === annee ? 'tdb-fort' : undefined} data-annee-global={a}>
+                <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(a)}>{a}</button></th>
+                <td data-mot="Vente CRITERIMMO">{eur(c.venteCriterimmoHt)}</td><td data-mot="Location">{manque(c.locationHt)}</td><td data-mot="Gestion">{manque(c.gestionHt)}</td>
+                <td data-mot="Total CRITERIMMO">{eur(c.criterimmoHt)}</td><td data-mot="Vente MACJ">{eur(c.venteMacjHt)}</td>
+                <td data-mot="Réalisé" className="trx-total">{eur(c.totalHt)}</td><td data-mot="Prévisionnel">{eur(previsionnel(e, a).totalHt)}</td>
+                <td data-mot="Évolution">{prec === null ? '—' : signePct(variation(c.totalHt, prec.totalHt))}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </section>
+
+      {gestionOuverte !== null && <SaisieGestion annee={annee} mois={gestionOuverte} actuelle={gestionDe(gestionOuverte)}
+        onFermer={() => setGestionOuverte(null)} onFait={() => { setGestionOuverte(null); relire(); }} onRelire={relire} />}
+    </div>
+  );
+}
+
+/** La gestion d'un mois (CRITERIMMO) : nombre de lots, honoraires HT, ADHOC, salarié, reste — saisie, modifiée, journalisée. */
+function SaisieGestion({ annee, mois, actuelle, onFermer, onFait, onRelire }: {
+  annee: number; mois: number; actuelle: GestionMois | null; onFermer: () => void; onFait: () => void; onRelire: () => void;
+}) {
+  const txt = (x: number | null | undefined): string => (x === null || x === undefined ? '' : String(x).replace('.', ','));
+  const [v, setV] = useState({ nbLots: txt(actuelle?.nbLots), honorairesHt: txt(actuelle?.honorairesHt), adhocHt: txt(actuelle?.adhocHt),
+    salarieHt: txt(actuelle?.salarieHt), resteHt: txt(actuelle?.resteHt), note: actuelle?.note ?? '' });
+  const [motif, setMotif] = useState<string | null>(null);
+  const nombre = (s: string): number | null => (s.trim() === '' ? null : Number(s.replace(/\s/g, '').replace(',', '.')));
+  const propose = resteGestionPropose({ honorairesHt: nombre(v.honorairesHt), adhocHt: nombre(v.adhocHt), salarieHt: nombre(v.salarieHt) });
+  const envoyer = async (): Promise<void> => {
+    const r = await posterTransaction({ action: 'gestion-enregistrer', annee, mois, gestion: v });
+    if (r === null) onFait(); else setMotif(r);
+  };
+  const titre = `Gestion — ${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+  const champ = (k: keyof typeof v, mot: string) => (
+    <label>{mot}<input value={v[k]} inputMode={k === 'note' ? undefined : 'decimal'} onChange={(x) => setV((y) => ({ ...y, [k]: x.target.value }))} data-champ-gestion={k} /></label>
+  );
+  return (
+    <div className="tdb-voile" onMouseDown={(x) => { if (x.target === x.currentTarget) onFermer(); }}>
+      <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-saisie-gestion>
+        <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
+        <div className="tdb-fenetre-corps">
+          <form className="trx-form" onSubmit={(x) => { x.preventDefault(); void envoyer(); }}>
+            {champ('nbLots', 'Nombre de lots')}{champ('honorairesHt', 'Honoraires HT')}{champ('adhocHt', 'ADHOC HT')}{champ('salarieHt', 'Salarié HT')}
+            <label>Reste HT<input value={v.resteHt} inputMode="decimal" onChange={(x) => setV((y) => ({ ...y, resteHt: x.target.value }))} data-champ-gestion="resteHt" />
+              <span className="loc-muet">{propose === null ? '' : <>Proposé : {eur(propose)} <button type="button" className="trx-bouton-lien" onClick={() => setV((y) => ({ ...y, resteHt: String(propose).replace('.', ',') }))}>Reprendre</button></>}</span></label>
+            <label className="trx-plein">Note<textarea value={v.note} onChange={(x) => setV((y) => ({ ...y, note: x.target.value }))} /></label>
+            {motif !== null && <p className="trx-erreur trx-plein" role="alert">{motif}</p>}
+            <div className="trx-actions trx-plein">
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-enregistrer-gestion>Enregistrer</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
+            </div>
+          </form>
+          {actuelle !== null && <Journal entite="gestion_mois" id={actuelle.id} onFait={onRelire} />}
+        </div>
+      </div>
+    </div>
+  );
+}

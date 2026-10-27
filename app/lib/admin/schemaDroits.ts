@@ -53,6 +53,15 @@ export function droitLocationDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_location', () => colonneExiste('admin_utilisateur', 'perm_location'));
 }
 
+/**
+ * La migration 433 est-elle appliquée ? Elle porte le droit de module « Transaction » (`perm_transaction`) et les tables de la
+ * tuile. Tant qu'elle ne l'est pas : la colonne est lue comme `false` partout, la tuile n'apparaît qu'aux administrateurs, et
+ * la case de l'écran des comptes n'écrit rien. Aucune connexion n'échoue.
+ */
+export function droitTransactionDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_transaction', () => colonneExiste('admin_utilisateur', 'perm_transaction'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

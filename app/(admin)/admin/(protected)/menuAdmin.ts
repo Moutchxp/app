@@ -52,6 +52,12 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
     slug: '/admin/location', libelle: 'Location', perm: 'location',
     desc: 'Prospects, estimations, candidats, baux et dossiers d’entrée.',
   },
+  // TRANSACTION (Arno, 27/10/2026) — module GARDÉ (perm_transaction, migration 433), AJOUTÉ EN FIN DE LISTE, juste après « Location » :
+  //   aucune tuile existante n'est retirée ni déplacée. La tuile ouvre ses trois tuiles : CRITERIMMO, MACJ, CA global.
+  {
+    slug: '/admin/transaction', libelle: 'Transaction', perm: 'transaction',
+    desc: 'CA de la vente CRITERIMMO et MACJ, et CA global transaction et gestion.',
+  },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */

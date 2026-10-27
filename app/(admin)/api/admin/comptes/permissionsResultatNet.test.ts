@@ -20,7 +20,7 @@ vi.mock('../../../../lib/admin/sessionServeur', () => ({ lireSessionCuration: as
 import { POST } from './[id]/permissions/route';
 
 const PERMS = (o: Record<string, boolean> = {}) => ({
-  pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, ...o,
+  pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, ...o,
 });
 const requete = (corps: unknown) => new Request('http://x/api', { method: 'POST', body: JSON.stringify(corps) });
 const ctx = { params: Promise.resolve({ id: '42' }) };

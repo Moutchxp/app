@@ -7,8 +7,9 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
  *  GESTION (lot 2) : 'gestion' rejoint la liste sur le MÊME patron (colonne perm_gestion, migration 228). Le module porte des
  *  données personnelles de locataires — un accès « tout compte authentifié » n'est pas tenable. AJOUT PUR : aucun module
  *  existant n'est retiré, renommé ni réordonné.
- *  LOCATION (17/10/2026) : 'location' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_location, migration 371). */
-export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis', 'gestion', 'location'] as const;
+ *  LOCATION (17/10/2026) : 'location' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_location, migration 371).
+ *  TRANSACTION (27/10/2026) : 'transaction' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_transaction, migration 433). */
+export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis', 'gestion', 'location', 'transaction'] as const;
 export type Module = (typeof MODULES)[number];
 export type Perms = Record<Module, boolean>;
 export type RoleAdmin = 'administrateur' | 'collaborateur';
@@ -34,12 +35,12 @@ export interface SessionAdmin {
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
 export function permsToutes(): Perms {
-  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true };
+  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true };
 }
 
 /** Toutes permissions à false (collaborateur par défaut ; complétées au Lot 4). */
 export function permsAucune(): Perms {
-  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false };
+  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false };
 }
 
 /** Nom du cookie de session admin. */

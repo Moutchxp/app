@@ -58,8 +58,9 @@ const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'permis', libelle: 'Permis de construire' }, // RATT-EDIT (lot A2) — module gardé (perm_permis) au même rang que les 6
   { cle: 'gestion', libelle: 'Gestion' }, // GESTION (lot 2) — module gardé (perm_gestion), AJOUTÉ en fin de liste : les cases existantes ne bougent pas
   { cle: 'location', libelle: 'Location' }, // LOCATION (17/10/2026) — module gardé (perm_location, migration 371), AJOUTÉ en fin de liste
+  { cle: 'transaction', libelle: 'Transaction' }, // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433), AJOUTÉ en fin de liste
 ];
-const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false });
+const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false });
 
 /** LOT 5-DROITS — réponse à la question d'envoi : `null` = pas encore répondu (« à décider »). */
 export type ReponseEnvoi = boolean | null;

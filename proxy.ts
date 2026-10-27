@@ -34,6 +34,7 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/admin/permis', 'permis'], // RATT-EDIT (lot A2) — « Permis de construire » devient un module gardé (perm_permis) au lieu du défaut fail-closed administrateur-only
   ['/admin/gestion', 'gestion'], // GESTION (lot 2) — module gardé (perm_gestion, migration 228)
   ['/admin/location', 'location'], // LOCATION (17/10/2026) — module gardé (perm_location, migration 371)
+  ['/admin/transaction', 'transaction'], // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433)
   // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET dans chaque handler via garde.ts).
   ['/api/admin/config', 'pilotage'],
   ['/api/admin/cartes-annee', 'cartes_annee'],
@@ -51,6 +52,8 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/api/admin/gestion', 'gestion'],
   // LOCATION (17/10/2026) — même patron : tout /api/admin/location/* exige le droit, refus ici même sinon.
   ['/api/admin/location', 'location'],
+  // TRANSACTION (27/10/2026) — même patron : tout /api/admin/transaction/* exige le droit, refus ici même sinon.
+  ['/api/admin/transaction', 'transaction'],
 ];
 
 /** Permission requise pour un chemin, ou `null` si aucune (chemin authentifié suffit). */

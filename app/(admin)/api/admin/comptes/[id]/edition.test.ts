@@ -22,6 +22,9 @@ beforeAll(async () => {
   // LOCATION — même préchauffage pour la sonde de la migration 371, répondue « absente » : le SQL reste celui d'avant.
   queryMock.mockResolvedValueOnce({ rows: [{ n: 0 }] });
   await (await import('../../../../../lib/admin/schemaDroits')).droitLocationDisponible();
+  // TRANSACTION — même préchauffage pour la sonde de la migration 433, répondue « absente » : le SQL reste celui d'avant.
+  queryMock.mockResolvedValueOnce({ rows: [{ n: 0 }] });
+  await (await import('../../../../../lib/admin/schemaDroits')).droitTransactionDisponible();
 });
 
 beforeEach(() => {

@@ -803,7 +803,7 @@ function EnteteGraphe({ id, titre, mesure, onMesure, cumul, onBasculer, motPerio
  * `n1` = les 12 de l'année précédente (null : non importée) ; `entier` : axe en nombres entiers (négatifs permis : un solde de gestions) ;
  * `bulle` : chaque mois se survole et s'ouvre, le détail s'écrit À DROITE (comme l'histogramme). Sans `bulle` : la courbe d'avant, telle quelle.
  */
-function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende }: {
+export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende }: {
   courant: readonly number[]; n1: readonly number[] | null; annee: number; selection: number; aria: string; entier?: boolean;
   bulle?: (cle: number) => InfoBarre; onChoisir?: (cle: number) => void;
   /** 🔴 Arno (25/10/2026) — « Année par année » : un point par ANNÉE (les étiquettes et les clés des points ; défaut : les 12 mois, clés 1 → 12). */
@@ -892,7 +892,9 @@ export function moisDeLaCourbe(annee: number, jour: string): number {
 interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
 export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null;
   /** Arno (23/10/2026) — une mesure en NOMBRE (« Baux signés », « Nouvelles gestions ») : `ca` porte alors ce nombre ; absent : le CA HT. */
-  compte?: string }
+  compte?: string;
+  /** TRANSACTION (27/10/2026) — le mot de la ligne du nombre (« Ventes ») ; absent : « Baux », comme avant. */
+  motNb?: string }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre }
 
 /** Le sens d'un nombre, pour sa couleur : positif (vert), négatif (rouge), nul (gris). PUR. */
@@ -910,7 +912,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : (
         <>
           <p className="tdb-bulle-ligne"><span>CA HT</span><span className="tdb-bulle-montant">{eur(x.ca)}</span></p>
-          <p className="tdb-bulle-ligne"><span>Baux</span><span className="tdb-bulle-montant">{x.nb}</span></p>
+          <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>
         </>
       )}
     </div>
@@ -1158,8 +1160,10 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
  * suit l'année survolée ou choisie : la valeur de l'année et de la précédente, l'écart ; en cumul, les cumuls à fin d'année. L'année en cours
  * est arrêtée au mois courant (« janv. → <mois> »). Sans `mesure` : le CA en barres, comme avant.
  */
-export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, fin, precedents }: {
+export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, fin, precedents, motNb }: {
   lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void;
+  /** TRANSACTION (27/10/2026) — le mot de la ligne du nombre dans l'encart (« Ventes ») ; absent : « Baux », comme avant. */
+  motNb?: string;
   mesure?: MesureMois; cumul?: boolean; soldes?: readonly number[] | null;
   /** 🔴 Arno (25/10/2026) — la FIN de la période (AAAA-MM-JJ) : sa dernière année, si elle s'arrête avant le 31 décembre, est dite « (janv. → <mois>) ». */
   fin?: string;
@@ -1179,7 +1183,7 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
       const i = lignes.findIndex((l) => l.annee === a);
       const titre = `Cumul à fin ${a}${periode(a)}`;
       const prec = i > 0 ? i - 1 : -1;
-      if (mesure === 'ca') return { titre, courant: { libelle: String(a), ca: i < 0 ? null : cumuls[i], nb: i < 0 ? null : baux[i] },
+      if (mesure === 'ca') return { titre, motNb, courant: { libelle: String(a), ca: i < 0 ? null : cumuls[i], nb: i < 0 ? null : baux[i] },
         precedent: prec < 0 ? null : { libelle: String(lignes[prec].annee), ca: cumuls[prec], nb: baux[prec] } };
       return { titre, compte: `${compte} (cumul)`, courant: { libelle: String(a), ca: i < 0 || sansGestion ? null : cumuls[i], nb: null },
         precedent: prec < 0 || sansGestion ? null : { libelle: String(lignes[prec].annee), ca: cumuls[prec], nb: null } };
@@ -1200,7 +1204,7 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
         const p = suite(i) ? lignes[i - 1] : null;
         const precedent = pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: pr.ca, nb: pr.nbBaux })
           : p === null ? null : { libelle: String(p.annee), ca: p.ca, nb: p.nbBaux };
-        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux }, precedent } };
+        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, motNb, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux }, precedent } };
       }
       const precedent = sansGestion ? null : pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: mesure === 'baux' ? pr.nbBaux : pr.solde, nb: null })
         : !suite(i) ? null : { libelle: String(lignes[i - 1].annee), ca: valeurs[i - 1], nb: null };

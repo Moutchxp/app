@@ -51,6 +51,10 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/proprietaires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
   'location/proprietaires/supprimer': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/proprietaires">← Propriétaires et biens</a>' }],
   'location/proprietaires/archiver': [{ fichier: `${L}/ArchivageProprietaire.tsx`, lien: '<a href="/admin/location/proprietaires/supprimer">← Supprimer un propriétaire ou un bien</a>' }],
+  // TRANSACTION (27/10/2026) — les trois tuiles de la Transaction : retour vers l'accueil de la tuile.
+  'transaction/criterimmo': [{ fichier: `${RACINE}/transaction/criterimmo/page.tsx`, lien: 'retour="/admin/transaction"' }],
+  'transaction/global': [{ fichier: `${RACINE}/transaction/global/page.tsx`, lien: 'retour="/admin/transaction"' }],
+  'transaction/macj': [{ fichier: `${RACINE}/transaction/macj/page.tsx`, lien: 'retour="/admin/transaction"' }],
 };
 /** Hors tuile : l'accueil de l'admin, la boîte de recette (mode recette seul), « Mes tâches » (sans entrée de menu). */
 const HORS_TUILE = ['', 'recette', 'taches'];

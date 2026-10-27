@@ -14,7 +14,8 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toContain('/admin/permis'); // tuile Permis de construire (veille S3), administrateur uniquement
     expect(slugs).toContain('/admin/sources'); // tuile Sources de données (fraîcheur lot 1), administrateur uniquement
     expect(slugs).toContain('/admin/location'); // tuile Location (17/10/2026)
-    expect(liens).toHaveLength(12); // 6 modules + Administratif + Audit + Permis + Sources de données + Gestion (lot 2) + Location
+    expect(slugs).toContain('/admin/transaction'); // tuile Transaction (27/10/2026)
+    expect(liens).toHaveLength(13); // 6 modules + Administratif + Audit + Permis + Sources de données + Gestion (lot 2) + Location + Transaction
   });
 
   it('collaborateur → uniquement ses permissions, JAMAIS « Administratif » ni « Audit »', () => {
@@ -32,8 +33,8 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
 
   it('collaborateur avec TOUTES les perms → 7 modules dont « Permis de construire » (RATT-EDIT lot A2), mais JAMAIS Administratif/Audit/Sources (rôle, pas permission)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
-    expect(slugs).toHaveLength(9); // 6 modules historiques + Permis + Gestion (lot 2) + Location (17/10/2026)
-    expect(slugs[slugs.length - 1]).toBe('/admin/location'); // AJOUTÉE EN FIN : aucune tuile existante n'a bougé
+    expect(slugs).toHaveLength(10); // 6 modules historiques + Permis + Gestion (lot 2) + Location (17/10/2026) + Transaction (27/10/2026)
+    expect(slugs.slice(-2)).toEqual(['/admin/location', '/admin/transaction']); // AJOUTÉES EN FIN : aucune tuile existante n'a bougé
     expect(slugs).toContain('/admin/permis'); // RATT-EDIT — désormais un module GARDÉ, visible avec le droit
     expect(slugs).not.toContain('/admin/comptes');
     expect(slugs).not.toContain('/admin/audit');
@@ -114,13 +115,13 @@ describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké n
     expect(slugs(r)).toEqual(['/admin/curation']);
   });
 
-  it('administrateur : les 12 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
-    const visibles = liensVisibles('administrateur', permsToutes()); // 12 tuiles (Location comprise)
-    expect(visibles).toHaveLength(12);
+  it('administrateur : les 13 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
+    const visibles = liensVisibles('administrateur', permsToutes()); // 13 tuiles (Location et Transaction comprises)
+    expect(visibles).toHaveLength(13);
     const r = ordonner(visibles, ['/admin/curation', '/admin/audit']); // ordre partiel
     expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
-    expect(r).toHaveLength(12); // aucune tuile perdue (règle b appende le reste)
-    expect(new Set(slugs(r)).size).toBe(12); // aucun doublon
+    expect(r).toHaveLength(13); // aucune tuile perdue (règle b appende le reste)
+    expect(new Set(slugs(r)).size).toBe(13); // aucun doublon
   });
 });
 
@@ -182,8 +183,21 @@ describe('LOCATION (17/10/2026) — la tuile dédiée, même règle que les autr
   it('les tuiles existantes gardent leur ordre : Location s’ajoute juste après Gestion, avant les tuiles réservées au rôle', () => {
     const slugs = liensVisibles('administrateur', permsToutes()).map((l) => l.slug);
     expect(slugs.indexOf('/admin/location')).toBe(slugs.indexOf('/admin/gestion') + 1);
-    expect(slugs.filter((x) => x !== '/admin/location')).toEqual(['/admin/pilotage', '/admin/cartes-annee', '/admin/statistiques',
+    expect(slugs.filter((x) => x !== '/admin/location' && x !== '/admin/transaction')).toEqual(['/admin/pilotage', '/admin/cartes-annee', '/admin/statistiques',
       '/admin/internautes', '/admin/curation', '/admin/banc-test', '/admin/permis', '/admin/gestion', '/admin/comptes', '/admin/audit',
       '/admin/sources']);
+  });
+});
+
+describe('TRANSACTION (27/10/2026) — la tuile dédiée, même règle que les autres', () => {
+  it('visible pour le droit Transaction seul, et pour un administrateur ; elle mène à /admin/transaction', () => {
+    const collab = liensVisibles('collaborateur', { ...permsAucune(), transaction: true });
+    expect(collab.map((l) => [l.slug, l.libelle, l.accueil ?? l.slug])).toEqual([['/admin/transaction', 'Transaction', '/admin/transaction']]);
+    expect(liensVisibles('collaborateur', { ...permsAucune(), location: true }).map((l) => l.slug)).not.toContain('/admin/transaction');
+    expect(liensVisibles('administrateur', permsAucune()).map((l) => l.slug)).toContain('/admin/transaction');
+  });
+  it('les tuiles existantes gardent leur ordre : Transaction s’ajoute juste après Location', () => {
+    const slugs = liensVisibles('administrateur', permsToutes()).map((l) => l.slug);
+    expect(slugs.indexOf('/admin/transaction')).toBe(slugs.indexOf('/admin/location') + 1);
   });
 });
