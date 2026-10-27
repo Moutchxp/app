@@ -157,15 +157,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
                         </span></h4>
                       <dl className="trx-grille">
-                        {info(v.origine === 'import' ? 'Libellé du fichier' : 'Libellé', v.libelle, 'libelle')}
-                        {info('Adresse du bien', ouManque(v.dossier?.adresseBien))}
-                        {info('Prix de vente', v.prixVente == null ? A_RENSEIGNER : eur(v.prixVente))}
-                        {info('Commission', <>{eur(ht(v.honorairesTtc))} HT · {eur(v.honorairesTtc)} TTC{c.pctPrix !== null ? ` · ${c.pctPrix.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix` : ''}</>)}
-                        {info('Date du compromis', date(v.dateCompromis))}
-                        {info('Acte au plus tard le', v.dossier?.dateActePrevue ? <span className={c.depassee ? 'trx-depassee' : undefined}>{date(v.dossier.dateActePrevue)}{c.depassee ? ' — dépassée' : ''}</span>
-                          : `${A_RENSEIGNER} (prévisionnel ${v.annee})`, 'acte-prevu')}
-                        {info('Négociateur d’entrée', ouManque(v.dossier?.entree?.nom))}
-                        {info('Négociateur de sortie', ouManque(v.dossier?.sortie?.nom))}
+                        {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
+                            négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
+                        {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
+                        {info('Taux de commission', c.pctPrix === null ? A_RENSEIGNER
+                          : `${c.pctPrix.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix de vente`, 'taux')}
+                        {info('Date du compromis', date(v.dateCompromis), 'date-compromis')}
                         {info('Apporteur', <>{ouManque(v.apporteur)}{r !== null && r.retroApporteurTtc > 0 ? ` · rétrocession ${eur(r.retroApporteurTtc)} TTC` : ''}</>)}
                       </dl>
                       {r !== null && ps !== null ? (
@@ -211,6 +208,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           })}
         </ul>
       )}
+      <div className="trx-espace-annules" />
       <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}

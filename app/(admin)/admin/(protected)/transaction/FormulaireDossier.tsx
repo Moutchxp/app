@@ -5,6 +5,8 @@ import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/t
 import { BlocRepartition, etatSomme, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { Journal } from './FormulaireVente';
+// LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
+import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — LE DOSSIER D'UN COMPROMIS (ou d'une vente répartie) ════════════════════
@@ -62,6 +64,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const [repartition, setRepartition] = useState<EtatRepartition>(() => repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs));
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.
+  const [adresseVerifiee, setAdresseVerifiee] = useState(true);
   const commission = nombre(champs.commission) ?? Number.NaN;
   // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
   const somme = etatSomme(repartition, commission);
@@ -109,13 +113,17 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
       <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-formulaire-dossier={vente?.id ?? 'nouveau'}>
         <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
         <div className="tdb-fenetre-corps">
+          <style>{CSS_CHAMP_ADRESSE}</style>
           {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
           {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
           <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
             {blocPersonnes('vendeur', 'Vendeur(s)')}
             {blocPersonnes('acquereur', 'Acquéreur(s)')}
-            <label className="trx-plein">Adresse du bien<input value={champs.adresseBien} onChange={champ('adresseBien')} data-champ="adresse-bien" /></label>
+            <label className="trx-plein" data-champ-adresse-bien>Adresse du bien
+              <ChampAdresseBan id="trx-adresse-bien" valeur={champs.adresseBien} verifiee={adresseVerifiee} exemple="ex. 12 rue de la République, 92800 Puteaux"
+                onChange={(x) => { setAdresseVerifiee(false); setChamps((c) => ({ ...c, adresseBien: x })); }}
+                onChoisir={(a) => { setAdresseVerifiee(true); setChamps((c) => ({ ...c, adresseBien: [a.voie, [a.codePostal, a.commune].filter((y) => y !== '').join(' ')].filter((y) => y !== '').join(', ') })); }} /></label>
             <label>Date du compromis<input type="date" value={champs.dateCompromis} onChange={champ('dateCompromis')} data-champ="date-compromis" /></label>
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}

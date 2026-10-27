@@ -98,9 +98,6 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
         </div>
-        <div className="trx-actions">
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouvelle')} disabled={!d.disponible} data-nouvelle-vente>+ Nouvelle vente</button>
-        </div>
       </div>
       <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
       {vue === 'compromis' ? <OngletCompromis societe={societe} /> : <>
@@ -453,7 +450,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
         <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total">{eur(T.resteHt)}</dd>
-        <dt>Compromis en cours (prévisionnel {fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
+        <dt>Compromis en cours ({fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
       </dl>
     </section>
 

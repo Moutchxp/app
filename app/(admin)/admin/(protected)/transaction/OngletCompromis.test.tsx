@@ -42,6 +42,10 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    // LOT H — la Base Adresse Nationale, simulée (le composant d'autocomplétion de l'administration l'interroge).
+    if (String(url).startsWith('https://api-adresse.data.gouv.fr/')) {
+      return { ok: true, status: 200, json: async () => ({ features: [{ properties: { label: '12 Rue de la République 92800 Puteaux', name: '12 Rue de la République', postcode: '92800', city: 'Puteaux' } }] }) };
+    }
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ ...reponsePost, data: null }) }; }
     const u = String(url);
     const data = u.includes('vue=compromis') ? { disponible: true, aujourdhui: '2026-10-27', societe: 'criterimmo', compromis: listeCompromis, annules: listeAnnules, ...references }
@@ -111,7 +115,8 @@ describe('l’onglet « Compromis »', () => {
     expect(texte('[data-aucune-personne="acquereur"]')).toBe('Aucun acquéreur enregistré');
     expect(container.querySelector('[data-colonne="vendeur"] [data-ajouter-personne-carte="vendeur"]')).not.toBeNull();
     expect(texte('[data-info="libelle"]')).toBe('Libellé du fichierMARMONIER');
-    expect(texte('[data-compromis="12"]')).toContain('Négociateur d’entréeà renseigner');
+    // LOT H — les négociateurs ne sont plus répétés dans les informations communes : ils sont sous les deux colonnes.
+    expect(texte('[data-compromis="12"] [data-negociateur-carte="entree"]')).toBe('+ Ajouter un négociateur');
   });
   it('déplié : colonnes Vendeurs et Acquéreurs (téléphone et e-mail cliquables), puis les informations communes et la barre d’actions', async () => {
     await ouvrir();
@@ -431,5 +436,54 @@ describe('🔴 LOT G — « Annulation »', () => {
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect((container.querySelector('[data-annulation-compromis="41"]') as HTMLButtonElement).disabled).toBe(true);
     expect(texte('[data-annulation-indisponible]')).toMatch(/migration 436/);
+  });
+});
+
+describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
+  it('l’adresse du bien passe par l’autocomplétion d’adresse partagée (Base Adresse Nationale)', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-nouveau-compromis]');
+    const champ = container.querySelector('[data-champ-adresse-bien] input#trx-adresse-bien') as HTMLInputElement;
+    expect(champ.getAttribute('role')).toBe('combobox');
+    await saisir('#trx-adresse-bien', '12 rue de la Rép');
+    await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
+    await calmer();
+    expect(vi.mocked(globalThis.fetch).mock.calls.some(([u]) => String(u).startsWith('https://api-adresse.data.gouv.fr/search/?q=12%20rue%20de%20la%20R'))).toBe(true);
+    const proposition = container.querySelector('.cab-prop') as HTMLButtonElement;
+    await act(async () => { proposition.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+    expect(champ.value).toMatch(/^12 Rue de la République, 92800 PUTEAUX$/i);
+    await saisir('[data-personne-nom="0"]', 'DUPONT');
+    await saisir('[data-champ="commission"]', '12000');
+    await cliquer('[data-enregistrer-dossier]');
+    expect((posts.at(-1) as { dossier: { adresseBien: string } }).dossier.adresseBien).toMatch(/^12 Rue de la République, 92800 PUTEAUX$/i);
+  });
+  it('aucun champ répété : les informations communes ne gardent que le taux de commission, la date du compromis, l’apporteur (et le libellé d’un import)', async () => {
+    listeCompromis = [{ ...compromis, prixVente: 240000 }, importe];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41); await deplier(12);
+    const intitules = (id: number) => [...container.querySelectorAll(`[data-compromis="${id}"] [data-informations-communes] dt`)].map((x) => x.textContent);
+    expect(intitules(41)).toEqual(['Taux de commission', 'Date du compromis', 'Apporteur']);
+    expect(intitules(12)).toEqual(['Libellé du fichier', 'Taux de commission', 'Date du compromis', 'Apporteur']);
+    expect(texte('[data-compromis="41"] [data-info="taux"] dd')).toBe('5,00 % du prix de vente');
+    expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('à renseigner');
+    // ce qui est en tête de carte n'est pas répété dans le corps
+    const corps = texte('[data-compromis="41"] [data-informations-communes]');
+    for (const x of ['1 rue A, Puteaux', '240 000,00 €', '15/01/2027', '12 000,00 € TTC']) expect(corps).not.toContain(x);
+  });
+  it('plus de « (prévisionnel AAAA) », ni dans l’onglet Compromis ni dans « L’année »', async () => {
+    listeCompromis = [importe];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(12);
+    expect(container.textContent).not.toMatch(/\(prévisionnel/);
+    await cliquer('[data-vue="annee"]');
+    expect(container.textContent).not.toMatch(/\(prévisionnel/);
+  });
+  it('« + Nouvelle vente » a disparu ; une vente se crée par « + Nouveau compromis » puis « Acte signé »', async () => {
+    await ouvrir();
+    expect(container.querySelector('[data-nouvelle-vente]')).toBeNull();
+    expect([...container.querySelectorAll('button')].some((b) => /Nouvelle vente/.test(b.textContent ?? ''))).toBe(false);
+    await cliquer('[data-vue="compromis"]');
+    expect(container.querySelector('[data-nouveau-compromis]')).not.toBeNull();
+    await deplier(41);
+    await cliquer('[data-acte-signe="41"]');
+    await cliquer('[data-confirmer-acte]');
+    expect(posts.at(-1)).toEqual({ action: 'acte-signe', id: 41, dateActe: '2026-10-27' });
   });
 });

@@ -91,7 +91,16 @@ export const CSS_TRANSACTION = `
 .trx-croix{appearance:none;margin-left:auto;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;cursor:pointer}
 .trx-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .trx-explication{color:var(--color-svv-red);font-weight:700;font-size:.85rem;align-self:center}
-.trx-cartes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.trx-cartes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:16px}
+/* LOT H (Arno) — UN ESPACEMENT NET ET RÉGULIER (16 px) : entre les tuiles et la première carte, entre les cartes, sous la barre d'actions
+   d'une carte dépliée, et avant « Compromis annulés (N) ». */
+.trx-onglet-compromis > .tdb-tuiles{margin-bottom:16px}
+.trx-onglet-compromis .trx-carte-detail{padding-bottom:6px}
+.trx-onglet-compromis .trx-carte.tdb-replie--ouvert{padding-bottom:14px}
+.trx-espace-annules{height:16px}
+/* LOT H — le champ d'adresse partagé (ChampAdresseBan) dans les formulaires de la tuile : pleine largeur, propositions ≥ 44 px. */
+.trx-form .cab-enveloppe input{width:100%;box-sizing:border-box}
+.trx-form .cab-prop{min-height:44px;font-size:.92rem}
 .trx-carte{border:1px solid var(--color-svv-line-strong);border-radius:14px;padding:10px 14px;background:var(--color-svv-surface)}
 /* LOT G (Arno) — CONTRASTE ET RELIEF, en Clair comme en Sombre (jetons seulement) : la page en « field », les cartes et les tuiles plus
    claires (« surface-raised » : blanc en Clair, un cran plus clair que la page en Sombre), bordure marquée, ombre légère (teinte
