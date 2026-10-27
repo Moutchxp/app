@@ -18,9 +18,11 @@
  */
 import { useState } from 'react';
 import {
-  estBorne, familleDe, motCorrection, motRetrait, natureParDefautApresTransformation, naturesPour, peutRevenirAutomatique,
+  estBorne, familleDe, motCorrection, motRetrait, naturesPour, peutRevenirAutomatique,
   phraseDelier, type Famille,
 } from '../../../../lib/gestion/correctionEtape';
+/* 🔴 LOT FRISE-ORDRE, PARTIE B — les deux transformations, composants PARTAGÉS avec la bulle (la grille du « + »). */
+import { BoutonTransformerEnPoint, PanneauTransformerEnEtape } from './GrilleCartes';
 import { dateAffichee, etapeOuvrable, type EtapeAAfficher } from '../../../../lib/gestion/frise';
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
 
@@ -39,9 +41,13 @@ export function intituleDe(e: EtapeAAfficher): string {
 }
 
 export function PanneauCorrection({
-  e, disponible, occupe, question, onGeste, onOuvrirFil,
+  e, disponible, occupe, question, onGeste, onOuvrirFil, evenementOuvert = true, onParcoursBorne,
 }: {
   e: EtapeAAfficher;
+  /** 🔴 LOT FRISE-ORDRE — l'état de l'événement, qui décide de la grille (« Réouverture » seule s'il est clos), comme au « + ». */
+  evenementOuvert?: boolean;
+  /** 🔴 LOT FRISE-ORDRE, B2 — Clôture / Réouverture choisies dans la grille : le parcours de clôture du « + ». Absent : rien ne s'ouvre. */
+  onParcoursBorne?: (t: 'cloture' | 'reouverture') => void;
   /** `false` = la migration 429 n'est pas là : tout s'affiche, en lecture, avec la mention. */
   disponible: boolean;
   occupe: boolean;
@@ -52,23 +58,15 @@ export function PanneauCorrection({
 }) {
   const borne = estBorne(e.type);
   const familleInitiale = familleDe(e.type);
-  const [famille, setFamille] = useState<Famille>(familleInitiale);
   const [type, setType] = useState<TypeEtape>(e.type);
   const [titre, setTitre] = useState<string>(e.titre ?? '');
   const [jour, setJour] = useState<string>(e.jourConnu === false ? '' : e.survenuLe.slice(0, 10));
   const [confirmeRetrait, setConfirmeRetrait] = useState(false);
+  /* 🔴 LOT FRISE-ORDRE, B1 — la grille « Transformer en carte d'étape » est ouverte (un point seulement). */
+  const [grille, setGrille] = useState(false);
   const inerte = !disponible || occupe;
   const trace = motCorrection({ ...e, statut: e.statut ?? 'vif' });
-  const natures = borne ? [e.type] : naturesPour(famille);
-  const transforme = famille !== familleInitiale;
-
-  const transformer = (): void => {
-    const vers: Famille = famille === 'point' ? 'carte' : 'point';
-    setFamille(vers);
-    /* Revenir à sa famille d'origine rend sa nature d'origine ; sinon, une nature proposée, qu'on peut changer. */
-    setType(vers === familleInitiale ? e.type : natureParDefautApresTransformation(e.type));
-    if (vers === 'carte' && titre.trim() === '') setTitre(intituleDe(e));
-  };
+  const natures = borne ? [e.type] : naturesPour(familleInitiale);
 
   return (
     <section className="pce" aria-label={`Corriger : ${intituleDe(e)}`}>
@@ -89,12 +87,27 @@ export function PanneauCorrection({
       )}
       {e.aEuUnMail && e.filId === null && <p className="pce-aide">Mail supprimé — l’étape est conservée.</p>}
 
-      {!borne && (
-        <button type="button" className="pce-btn pce-btn--trait" disabled={inerte} onClick={transformer} aria-pressed={transforme}>
-          {famille === 'point' ? 'Transformer en carte d’étape' : 'Transformer en point'}
+      {/* ══ 🔴🔴 LOT FRISE-ORDRE, PARTIE B (Arno, 27/10/2026) — LES DEUX TRANSFORMATIONS, LES MÊMES QUE DANS LA BULLE ═══════════════
+          CE QUI ÉTAIT ICI : un bouton qui basculait la famille, puis une nature à choisir dans la liste et « Enregistrer ». Arno :
+          « remplacer la liste par le MÊME panneau que “Ajouter une carte” du “+” » (accord explicite) — un point ouvre donc la grille
+          du « + », et le choix transforme d'un geste ; une carte se transforme en point d'un geste (date, titre, mail gardés). Sur
+          une borne, le bouton reste et dit pourquoi il ne transforme pas. « Nature », « Titre », « Date » et « Enregistrer la
+          correction » restent, pour corriger sans changer de forme. */}
+      {familleInitiale === 'point' ? (
+        <button type="button" className="pce-btn pce-btn--trait" disabled={inerte} aria-expanded={grille}
+          data-panneau-transformer-en-carte={e.id} onClick={() => setGrille(!grille)}>
+          Transformer en carte d’étape
         </button>
+      ) : (
+        <BoutonTransformerEnPoint carte={e} occupe={occupe} disponible={disponible} classe="pce-btn pce-btn--trait"
+          onCorriger={onGeste} />
       )}
-      {transforme && <p className="pce-aide" role="status">Sera enregistré comme {motFamille(famille)} : choisissez sa nature, puis « Enregistrer ».</p>}
+      {familleInitiale === 'point' && grille && !inerte && (
+        <PanneauTransformerEnEtape point={e} evenementOuvert={evenementOuvert} occupe={occupe}
+          onCorriger={(g) => { setGrille(false); onGeste(g); }}
+          onParcoursBorne={(t) => { setGrille(false); onParcoursBorne?.(t); }}
+          onAnnuler={() => setGrille(false)} />
+      )}
 
       <div className="pce-champs">
         <label className="pce-champ">

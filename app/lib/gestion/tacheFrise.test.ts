@@ -27,8 +27,11 @@ describe('la place du point : entre les carrés qui encadrent la mission, rien n
     // Les éléments d'origine sont les MÊMES objets, dans le même ordre.
     expect(l.filter((e) => e.sorte !== 'taches')).toEqual(LIGNE);
   });
-  it('avant tout : devant le premier carré ; après tout : après le dernier carré ; le même jour qu’un carré : après lui', () => {
-    expect(insererTachesDansLaLigne(LIGNE, [tache({ jour: '2026-09-01' })])[0].cle).toBe('taches-1');
+  it('avant tout : juste après l’Ouverture (rien avant elle, Arno 27/10/2026), devant le premier carré s’il n’y a pas d’Ouverture ; après tout : après le dernier carré ; le même jour qu’un carré : après lui', () => {
+    const avantTout = insererTachesDansLaLigne(LIGNE, [tache({ jour: '2026-09-01' })]).map((e) => e.cle);
+    expect(avantTout.slice(0, 2)).toEqual(['c1', 'taches-1']);
+    const sansOuverture = LIGNE.map((e) => (e.case === undefined ? e : { ...e, case: { ...e.case, type: 'devis_recu' as const } }));
+    expect(insererTachesDansLaLigne(sansOuverture, [tache({ jour: '2026-09-01' })])[0].cle).toBe('taches-1');
     const fin = insererTachesDansLaLigne(LIGNE, [tache({ jour: '2026-12-01' })]).map((e) => e.cle);
     expect(fin.indexOf('taches-1')).toBe(fin.indexOf('c3') + 1);
     const meme = insererTachesDansLaLigne(LIGNE, [tache({ jour: '2026-10-15' })]).map((e) => e.cle);

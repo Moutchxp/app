@@ -12,7 +12,9 @@ import { ModaleIssue } from '../location/ModaleIssue';
 import {
   carteDeplacable, cartesHorsChronologie,
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
-  parOrdreDePose, type MentionCreation,
+  type MentionCreation,
+  /* 🔴 LOT FRISE-ORDRE — l'ordre unique de la frise, et le plancher de date d'une carte posée au bout (A1-A3). */
+  dernierIdDeLaFrise, dernierJourDeLaFrise, jourDeRepliAuBout, ordreDeLaFrise, poseAuBout,
   motAjout, motGroupeMessages,
   motMailDOrigine, motMontant, motOrigineCarte, motSource, rangerEnLigne, referencesDeLaFrise,
   /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le formulaire naît rempli, et son refus s'explique. Deux fonctions
@@ -34,8 +36,10 @@ import { ecouterTaches } from './tachesClient';
 import { ecouterFrise, friseConcernee } from '../../../../lib/gestion/signalFrise';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import { lignesExpediteur, motSuivieAilleurs } from '../../../../lib/gestion/frise';
-/* 🔴 Arno (26/10/2026, R3) — « Transformer en étape » : la liste du « + », le geste de correction existant. */
-import { cartesPourTransformer, familleDe as familleCorrection, gesteTransformerEnEtape, peutRemettreEnPoint } from '../../../../lib/gestion/correctionEtape';
+/* 🔴 Arno (26/10/2026, R3) — « Transformer en étape » : le geste de correction existant.
+   🔴 LOT FRISE-ORDRE, PARTIE B — la grille du « + », composant partagé (`GrilleCartes`), aux deux portes de la transformation. */
+import { familleDe as familleCorrection, peutRemettreEnPoint } from '../../../../lib/gestion/correctionEtape';
+import { BoutonTransformerEnPoint, GrilleCartes, PanneauTransformerEnEtape } from './GrilleCartes';
 /* 🔴 Arno (26/10/2026) — les zones actives des points : centrées, sans chevauchement (module PUR, éprouvé). */
 import { CSS_ZONES_POINTS } from '../../../../lib/gestion/zonesPoints';
 /* 🔴 LOT FRISE-CORRECTION-MANUELLE — le panneau de correction, la liste des retirés, délier / relier. */
@@ -44,8 +48,8 @@ import {
 } from './PanneauCorrectionEtape';
 import { signalerFrise } from '../../../../lib/gestion/signalFrise';
 import {
-  cartesDuReservoir, confirmationCarte,
-  estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
+  confirmationCarte,
+  estRepere, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
 import { jourParis } from '../../../../lib/temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
@@ -606,6 +610,16 @@ export function FriseAvancement({
   const relierIntervention = (reference: string): void => {
     void agir('/api/admin/gestion/monga', 'POST', { reference, evenementId, depuis: 'frise' }, true);
   };
+  /**
+   * 🔴 LOT FRISE-ORDRE, B2 — « “Clôture” déclenche le même parcours de clôture que depuis le “+” » (Arno). Choisir Clôture (ou
+   * Réouverture, sur un événement clos) dans la grille d'une transformation ouvre EXACTEMENT ce que le « + » ouvre : le formulaire de
+   * la carte de borne, puis sa modale. Le point reste sur la frise.
+   */
+  const parcoursDeBorneDuPlus = (t: 'cloture' | 'reouverture'): void => {
+    ouvrirReservoir(aujourdhuiLocal());
+    setTypePose(t);
+    setAjout(true);
+  };
   const questionCloture = confirmationCarte('cloture');
 
   agirRef.current = agir;
@@ -630,6 +644,13 @@ export function FriseAvancement({
   const { majeures, reperes } = construireFrise(etapes, vue.d.ouvertLe ?? null);
   /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches se GLISSENT dans la suite déjà rangée ; rien n'y est déplacé. */
   const ligne = insererTachesDansLaLigne(rangerEnLigne(majeures, reperes, aujourdhui), vue.d.taches ?? []);
+  /**
+   * 🔴 LOT FRISE-ORDRE, A2-A3 (Arno, 27/10/2026) — UNE CARTE POSÉE AU BOUT (gros « + » rouge, ou petit « + » qui suit le dernier
+   * élément) ne se date pas avant le dernier élément de la frise : le formulaire le refuse avec la phrase d'Arno, et une date laissée
+   * vide se range au jour de repli (aujourd'hui, ou ce dernier jour s'il est plus tardif). La route tient la même règle.
+   */
+  const plancherAuBout = dernierJourDeLaFrise(etapes, vue.d.ouvertLe ?? null);
+  const ajoutAuBout = modifie === null && poseAuBout(reservoir?.apresId, dernierIdDeLaFrise(etapes));
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
   /**
@@ -654,7 +675,8 @@ export function FriseAvancement({
    * qu'Arno demande de comparer à la référence.
    */
   const deplacees = cartesHorsChronologie(
-    [...etapes].filter((x) => x.certitude !== 'ecartee').sort(parOrdreDePose)
+    /* 🔴 LOT FRISE-ORDRE — l'ordre AFFICHÉ (`ordreDeLaFrise`), le même que la frise : étapes de la relève à leur date, Ouverture en tête. */
+    ordreDeLaFrise(etapes)
       /* 🔴 LOT FRISE-PLUS-INTERCALAIRE — `poseChoisie` voyage jusqu'ici : une carte posée à un endroit CHOISI
          sort du calcul, ni marquée ni repère (voir `cartesHorsChronologie`). */
       .map((x) => ({ cle: `e${x.id}`, creeLe: x.creeLe, poseChoisie: x.poseChoisie })));
@@ -900,7 +922,8 @@ export function FriseAvancement({
                */
               key={modifie === null ? 'ajout' : `modif-${modifie.id}`}
               evenementId={evenementId} typeImpose={typePose} modifie={modifie}
-              jourDefaut={reservoir?.jour ?? aujourdhui}
+              jourDefaut={ajoutAuBout ? jourDeRepliAuBout(reservoir?.jour ?? aujourdhui, plancherAuBout) : (reservoir?.jour ?? aujourdhui)}
+              plancher={ajoutAuBout ? plancherAuBout : null}
               /* 🔴 LOT FRISE-PLUS-INTERCALAIRE — la place demandée (points 1-2) et la forme présélectionnée
                  (point 3). Absentes pour le gros « + » rouge : au bout, en carré, comme avant. */
               insererApres={reservoir?.apresId}
@@ -968,8 +991,8 @@ export function FriseAvancement({
             onFermer={() => setFixe(null)}
             /* 🔴 Arno (26/10/2026, R3) — « Transformer en étape » : la liste du « + », le geste de correction de la 429. */
             transformation={lectureSeule ? null : {
-              types: cartesPourTransformer(vue.d.ouvert !== false), disponible: vue.d.correction === true,
-              onCorriger: (g) => corrigerCarte(detailFixe, g) }}
+              evenementOuvert: vue.d.ouvert !== false, disponible: vue.d.correction === true,
+              onCorriger: (g) => corrigerCarte(detailFixe, g), onParcoursBorne: parcoursDeBorneDuPlus }}
             mot={motDuDetail} />
           {/* 🔴 LOT FRISE-CORRECTION-MANUELLE — au toucher d'un point, ou par ✎ / « … » d'une carte, le panneau de correction
               s'ouvre SOUS le détail, qui reste entier (aucun geste existant n'est retiré). Une clé par élément : passer
@@ -979,6 +1002,7 @@ export function FriseAvancement({
               <style>{CSS_PANNEAU_CORRECTION}</style>
               <PanneauCorrection key={`corr-${detailFixe.id}`} e={detailFixe} disponible={vue.d.correction === true}
                 occupe={occupe} question={questionAvantRetrait(detailFixe.type, vue.d.ouvert !== false)}
+                evenementOuvert={vue.d.ouvert !== false} onParcoursBorne={parcoursDeBorneDuPlus}
                 onGeste={(g) => corrigerCarte(detailFixe, g)} onOuvrirFil={onOuvrirFil} />
             </>
           )}
@@ -1658,7 +1682,12 @@ function BulleDetail({
    * ne l'écrase jamais, journalisée), « Remettre en point d'information » sur une carte qui était un point. `disponible` faux (429
    * absente) : bouton visible, inactif, avec la mention. `null` : bulle de survol ou frise en lecture seule (rien d'ajouté).
    */
-  transformation?: { types: readonly TypeEtape[]; disponible: boolean; onCorriger: (g: GesteCorrection) => void } | null;
+  /* 🔴 LOT FRISE-ORDRE, PARTIE B — la grille du « + » (`PanneauTransformerEnEtape`, composant partagé) à la place de la liste de
+     liens ; « Clôture » / « Réouverture » ouvrent le parcours de clôture du « + » (`onParcoursBorne`). */
+  transformation?: {
+    evenementOuvert: boolean; disponible: boolean; onCorriger: (g: GesteCorrection) => void;
+    onParcoursBorne: (t: 'cloture' | 'reouverture') => void;
+  } | null;
   /**
    * 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — LA QUESTION À POSER AVANT DE RETIRER CETTE CARTE, ou `null` quand il
    * n'y a rien à demander. Elle vient du module PUR (`questionAvantRetrait`), calculée sur la suite des bornes
@@ -1744,12 +1773,17 @@ function BulleDetail({
         )}
         {/* 🔴 R3 — « Transformer en étape » (un point) ; « Remettre en point d'information » (une carte qui était un point). */}
         {transformation !== null && estPoint && (
-          <button type="button" className="fav-lien" disabled={occupe || !transformation.disponible || transformation.types.length === 0}
+          <button type="button" className="fav-lien" disabled={occupe || !transformation.disponible}
             aria-expanded={listePour === e.id} onClick={() => setListePour(listePour === e.id ? null : e.id)} data-transformer-en-etape={e.id}
-            title={!transformation.disponible ? 'Disponible après la mise à jour de la base (migration 429).'
-              : transformation.types.length === 0 ? 'Événement clos : rouvrez-le pour poser une carte.' : undefined}>
+            title={!transformation.disponible ? 'Disponible après la mise à jour de la base (migration 429).' : undefined}>
             Transformer en étape
           </button>
+        )}
+        {/* 🔴 LOT FRISE-ORDRE, B3 — « Transformer en point d'information » depuis une carte (« … » de la carte). Sur une borne, il
+            reste visible et dit pourquoi il ne transforme pas. */}
+        {transformation !== null && !estPoint && (
+          <BoutonTransformerEnPoint carte={e} occupe={occupe} disponible={transformation.disponible} classe="fav-lien"
+            onCorriger={transformation.onCorriger} />
         )}
         {transformation !== null && peutRemettreEnPoint({ ...e, source: e.source }) && (
           <button type="button" className="fav-lien" disabled={occupe || !transformation.disponible}
@@ -1762,20 +1796,14 @@ function BulleDetail({
           <button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>
         )}
       </p>
-      {transformation !== null && !transformation.disponible && (estPoint || peutRemettreEnPoint({ ...e, source: e.source })) && (
+      {transformation !== null && !transformation.disponible && (
         <p className="fav-perdu" data-transformation-indisponible>Transformer : disponible après la mise à jour de la base (migration 429).</p>
       )}
       {transformation !== null && estPoint && listePour === e.id && transformation.disponible && (
-        <div className="fav-transformer" role="group" aria-label="Transformer en étape : choisir la carte" data-liste-transformer={e.id}>
-          <p className="fav-bulle-pose">Choisir la carte — elle prend la date du point et garde le lien vers le mail d’origine :</p>
-          <p className="fav-bulle-gestes">
-            {transformation.types.map((t) => (
-              <button key={t} type="button" className="fav-lien" disabled={occupe} data-transformer-vers={t}
-                onClick={() => { setListePour(null); transformation.onCorriger(gesteTransformerEnEtape(e, t)); }}>{motEtape(t)}</button>
-            ))}
-            <button type="button" className="fav-lien" onClick={() => setListePour(null)}>Annuler</button>
-          </p>
-        </div>
+        <PanneauTransformerEnEtape point={e} evenementOuvert={transformation.evenementOuvert} occupe={occupe}
+          onCorriger={(g) => { setListePour(null); transformation.onCorriger(g); }}
+          onParcoursBorne={(t) => { setListePour(null); transformation.onParcoursBorne(t); }}
+          onAnnuler={() => setListePour(null)} />
       )}
       {/**
         * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — « SUPPRIMER CETTE CLÔTURE ROUVRIRA L'ÉVÉNEMENT. » ═════════════
@@ -1923,8 +1951,6 @@ function Reservoir({
    * ⚠️ LA BASCULE N'EST PAS RETIRÉE (garde-fou CLAUDE.md) : son second bouton devient INACTIF sur un dossier
    * clos, et la raison est écrite juste en dessous. Un bouton qu'on retire ne s'explique pas.
    */
-  const liste = forme === 'etape'
-    ? cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert);
   return (
     <>
       <p className="fav-ajout-titre">
@@ -1958,29 +1984,9 @@ function Reservoir({
         </p>
       )}
 
-      <ul className="fav-reserve-liste">
-        {liste.map((t) => (
-          <li key={t}>
-            {/* 🔴 LOT CLOTURE-REOUVERTURE — « le bouton “Réouverture” a aussi un contour rouge plus marqué, pour
-                le distinguer. Les autres boutons de la grille ne changent pas. » (Arno)
-
-                🔴🔴 LOT FRISE-COULEURS-DATES — ET « CLÔTURE » EST LA **SEULE** CARTE À CONTOUR VERT DE LA
-                GRILLE (Arno, point 1) : « Toutes les autres cartes (Prise de rendez-vous… Carte libre,
-                Réouverture) : contour ROUGE, comme aujourd'hui. » Le vert la détache du reste du réservoir
-                parce que c'est le geste qui FERME le dossier — le seul de la grille qui change son état dans ce
-                sens. « Réouverture » garde donc son rouge et son trait plus épais, inchangés.
-                ⚠️ LA COULEUR NE DIT PAS SEULE : le mot « Clôture » est écrit dans le bouton, et la
-                confirmation d'Arno est demandée avant de poser la carte. */}
-            <button type="button"
-              className={`fav-carre fav-carre--reserve${t === 'reouverture' ? ' fav-carre--reouverture' : ''}`
-                + (t === 'cloture' ? ' fav-carre--reserve-close' : '')}
-              onClick={() => onChoisir(t)}>
-              <span className="fav-titre">{motEtape(t)}</span>
-              {t === 'autre' && <span className="fav-date">titre à saisir</span>}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {/* 🔴 LOT FRISE-ORDRE, PARTIE B — la grille est un composant PARTAGÉ (`GrilleCartes`) : la transformation d'un point en
+          carte rend exactement la même (mêmes cartes, même ordre, même style). Les couleurs de Clôture / Réouverture y vivent. */}
+      <GrilleCartes porte="ajout" forme={forme} evenementOuvert={evenementOuvert} onChoisir={onChoisir} />
 
       <div className="fav-ajout-ligne">
         <button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>
@@ -1996,9 +2002,11 @@ function Reservoir({
 
 function AjouterEtape({
   evenementId, typeImpose, modifie, jourDefaut, onFermer, onRetour, onFait, onSaisieSale,
-  insererApres, formeDefaut = 'etape',
+  insererApres, formeDefaut = 'etape', plancher = null,
 }: {
   evenementId: number; typeImpose: TypeEtape | null;
+  /** 🔴 LOT FRISE-ORDRE, A3 — le jour du dernier élément quand la carte se pose au bout ; `null` : aucun plancher (intercalaire, modification). */
+  plancher?: string | null;
   /**
    * 🔴 LA DATE PROPOSÉE PAR LE « + » QUI A OUVERT LE RÉSERVOIR (Arno, points 2 et 4) : aujourd'hui pour le gros
    * « + », une date entre les deux voisines pour un intercalaire. Obligatoire, et modifiable.
@@ -2160,6 +2168,8 @@ function AjouterEtape({
    */
   const refus = refusDEnregistrement({
     jour, type, titre, montantLisible: montantEnCents() !== undefined,
+    /* 🔴 LOT FRISE-ORDRE, A3 — à l'ajout seulement : une modification garde sa date, et sa place. */
+    plancher: modifie === null ? plancher : null,
   });
   /**
    * 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — « dès l'ouverture », et jusqu'à la saisie.
@@ -3010,6 +3020,12 @@ ${CSS_ZONES_POINTS}
   text-decoration:underline;cursor:pointer;min-height:24px}
 .fav-lien:disabled{color:var(--color-svv-muted);cursor:default}
 .fav-perdu{font-size:.74rem;font-style:italic;color:var(--color-svv-muted);margin:0}
+/* LOT FRISE-ORDRE, PARTIE B : la grille du « + » ouverte pour transformer un point (bulle et panneau de correction), et la bulle
+   qui dit pourquoi une borne ne se transforme pas en point. Cibles de 44 px (mobile). */
+.fav-transformer{margin-top:8px;padding:9px;background:var(--color-svv-field);border-radius:8px;display:flex;flex-direction:column;gap:6px}
+.fav-transformer .fav-btn{min-height:44px}
+.fav-bulle-borne{display:block;flex-basis:100%;margin:4px 0 0;padding:6px 8px;border-radius:6px;background:var(--color-svv-amber-soft);
+  color:var(--color-svv-ink);font-size:.78rem;font-style:normal}
 
 .fav-btn{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
   color:var(--color-svv-ink);background:var(--color-svv-bg);border:1px solid var(--color-svv-line);

@@ -74,6 +74,9 @@ export interface EtapeEcran {
   titre: string | null;
   /** Le rang du devis dans sa référence (« Devis 2 »), calculé par le module pur. */
   rangDevis: number | null;
+  /** 🔴 LOT FRISE-ORDRE — le rang de pose (migration 321) et la place choisie (322), déjà rendus par `friseDeLEvenement` : la route range avec. */
+  rangPose: number | null;
+  poseChoisie: boolean;
   /** 🔴 LOT FRISE-CORRECTION-MANUELLE (migration 429) — la valeur d'origine et la dernière correction. Absents sans la 429. */
   autoType?: TypeEtape | null;
   autoStatut?: 'vif' | 'retire' | null;
@@ -351,6 +354,16 @@ export async function friseDeLEvenement(
   }));
 }
 
+/**
+ * 🔴 LOT FRISE-ORDRE — LES ÉTAPES DE LA FRISE DE L'ÉVÉNEMENT `$1`, vues depuis l'alias donné : posées sur l'événement, ou portées par
+ * une référence Monga qui lui est reliée. C'est la condition de `friseDeLEvenement`, écrite une seule fois pour les rangs de pose.
+ * Aucun accent grave dans le SQL émis.
+ */
+export function sqlEtapesDeLaFrise(alias: string): string {
+  return `(${alias}.evenement_id = $1 OR ${alias}.reference IN (SELECT svv_fl.reference FROM gestion_monga_lien svv_fl
+                                                  WHERE svv_fl.evenement_id = $1 AND svv_fl.retire_le IS NULL))`;
+}
+
 /** AJOUTER UNE ÉTAPE À LA MAIN (Arno : « + Ajouter une étape »). */
 export async function ajouterEtapeManuelle(a: {
   evenementId: number;
@@ -434,16 +447,24 @@ async function insererEtapeManuelle(
       ? 'coalesce(min(x.rang_pose) / 2, 1)'
       : null;
 
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE (27/10/2026) — LES RANGS SE LISENT SUR TOUTE LA FRISE, PAS SUR LES SEULES CARTES DE L'ÉVÉNEMENT ══════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI : `WHERE x.evenement_id = $1`. Les étapes Monga d'une référence reliée sont sur la frise mais pas sur
+   * l'événement (`evenement_id` vide) : leurs rangs (migration 321) étaient invisibles au maximum, et une carte neuve pouvait prendre
+   * un rang plus petit que le leur — donc passer devant elles. Le maximum, le minimum et le « suivant » portent désormais sur les
+   * MÊMES étapes que `friseDeLEvenement` lit (`sqlEtapesDeLaFrise`).
+   */
   const sql = rangChoisi !== null
-    ? `(SELECT ${rangChoisi} FROM gestion_monga_etape x WHERE x.evenement_id = $1)`
+    ? `(SELECT ${rangChoisi} FROM gestion_monga_etape x WHERE ${sqlEtapesDeLaFrise('x')})`
     /* ENTRE DEUX : le milieu du rang de l'étape nommée et du rang suivant ; +1 s'il n'y a pas de suivant. */
     : `(SELECT coalesce(
            (SELECT CASE WHEN s.suivant IS NULL THEN v.rang + 1 ELSE (v.rang + s.suivant) / 2 END
-              FROM (SELECT rang_pose AS rang FROM gestion_monga_etape
-                     WHERE id = $12 AND evenement_id = $1 AND rang_pose IS NOT NULL) v
-              LEFT JOIN LATERAL (SELECT min(rang_pose) AS suivant FROM gestion_monga_etape
-                                  WHERE evenement_id = $1 AND rang_pose > v.rang) s ON true),
-           (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x WHERE x.evenement_id = $1)))`;
+              FROM (SELECT y.rang_pose AS rang FROM gestion_monga_etape y
+                     WHERE y.id = $12 AND ${sqlEtapesDeLaFrise('y')} AND y.rang_pose IS NOT NULL) v
+              LEFT JOIN LATERAL (SELECT min(z.rang_pose) AS suivant FROM gestion_monga_etape z
+                                  WHERE ${sqlEtapesDeLaFrise('z')} AND z.rang_pose > v.rang) s ON true),
+           (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x WHERE ${sqlEtapesDeLaFrise('x')})))`;
 
   /* ⚠️ `jour_connu` EST LE ONZIÈME PARAMÈTRE, et l'étape nommée par un « + » intercalaire passe donc en $12. */
   const params: unknown[] = [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents,
@@ -607,9 +628,11 @@ export async function reordonnerCartes(
   return withTransaction(async (q) => {
     /* ⚠️ ON LIT AVANT D'ÉCRIRE, ET SOUS VERROU : `withTransaction` commite au retour (db/client.ts), donc un
        refus rendu après une écriture serait un refus qui a écrit. Piège consigné dans `gestes.ts`. */
+    /* 🔴 LOT FRISE-ORDRE — TOUTE LA FRISE, points Monga compris : l'écran envoie la suite entière (`sequenceReordonnee`), et un
+       ensemble limité aux cartes de l'événement refusait en bloc tout glisser sur une frise portant des étapes Monga. */
     const { rows } = await q<{ id: string }>(
-      `SELECT id::text FROM gestion_monga_etape
-        WHERE evenement_id = $1 AND statut = 'vif' ORDER BY id FOR UPDATE`, [evenementId]);
+      `SELECT x.id::text AS id FROM gestion_monga_etape x
+        WHERE ${sqlEtapesDeLaFrise('x')} AND x.statut = 'vif' ORDER BY x.id FOR UPDATE`, [evenementId]);
     const vives = new Set(rows.map((r) => Number(r.id)));
     const recu = new Set(ordre);
     if (recu.size !== ordre.length) return { ok: false, motif: 'Deux fois la même carte dans l’ordre reçu.' };
@@ -620,7 +643,7 @@ export async function reordonnerCartes(
       `UPDATE gestion_monga_etape e
           SET rang_pose = o.n, maj_le = now(), maj_par_libelle = $3
          FROM unnest($2::bigint[]) WITH ORDINALITY AS o(id, n)
-        WHERE e.id = o.id AND e.evenement_id = $1`,
+        WHERE e.id = o.id AND ${sqlEtapesDeLaFrise('e')}`,
       [evenementId, ordre, parLibelle]);
     return { ok: true };
   });

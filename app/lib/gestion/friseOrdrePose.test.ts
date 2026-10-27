@@ -507,7 +507,9 @@ describe('🔴🔴 ⑥ le câblage : un rang à la pose, un ordre complet au dé
      * une Clôture et une ouverture dérivée — la suite ne change jamais, où qu'on mette la Clôture : l'appel de
      * contrôle l'a ramenée en tête, et la route a répondu « ok ». On compare donc l'INDICE, borne par borne.
      */
-    expect(ROUTE_FRISE).toContain('const indiceAvant = new Map(avant.map((e, i) => [e.id, i]));');
+    /* 🔴 LOT FRISE-ORDRE (27/10/2026) — les indices sont ceux de la frise AFFICHÉE (`ordreDeLaFrise`), plus ceux du SELECT brut. */
+    expect(ROUTE_FRISE).toContain('const ordreAvant = ordreDeLaFrise(avant);');
+    expect(ROUTE_FRISE).toContain('const indiceAvant = new Map(ordreAvant.map((e, i) => [e.id, i]));');
     expect(ROUTE_FRISE).toContain('indiceAvant.get(id) !== i');
     expect(ROUTE_FRISE).toContain('Ouverture, Clôture et Réouverture ne se déplacent pas');
     /* 🔴 ET LA SUITE SEULE NE SUFFIT PLUS : l'ancienne comparaison ne doit plus exister. */

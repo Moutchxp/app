@@ -16,7 +16,7 @@
  * TRANSFORME rien EN borne : une Clôture se pose depuis le « + », avec sa modale.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { REPERES, cartesDuReservoir, estRepere, motEtape, type TypeEtape } from './mongaEtape';
+import { REPERES, estRepere, motEtape, type TypeEtape } from './mongaEtape';
 import { MENTION_DATE_RDV, TYPES_BORNE, estCarteRendezVous } from './frise';
 
 /** Les natures d'une CARTE d'étape qu'une correction peut choisir (les bornes exceptées). */
@@ -165,20 +165,60 @@ export function phraseDelier(reference: string, evenementReference: string | nul
 
 
 /**
- * ══ 🔴🔴 Arno (26/10/2026, R3) — « TRANSFORMER EN ÉTAPE » DEPUIS LA BULLE D'UN POINT : LA LISTE DU « + », ET ELLE SEULE. PUR. ═══════════
- * La MÊME source que la grille « Ajouter une carte » du « + » (`cartesDuReservoir`, qui suit l'état ouvert / clos de l'événement) — jamais
- * une liste recopiée —, privée de ce qu'une correction ne peut pas poser : une borne (Clôture, Réouverture : elles se posent depuis le
- * « + », avec leur modale) et un repère (Facture : c'est un point, pas une carte). Événement clos : liste vide (le « + » n'y offre
- * que « Réouverture »).
+ * ══ 🔴🔴 LOT FRISE-ORDRE, PARTIE B (Arno, 27/10/2026) — « TRANSFORMER EN ÉTAPE » OFFRE LA GRILLE DU « + », ENTIÈRE ═══════════════════
+ *
+ * CE QUI VIVAIT ICI : `cartesPourTransformer`, la liste du « + » privée des bornes (Clôture, Réouverture) et des repères (Facture),
+ * rendue en liens soulignés. ARNO : « le MÊME panneau que “Ajouter une carte” du “+” : la même grille de boutons-cartes, même source
+ * de données, même ordre, même style (y compris Facture, Clôture, Carte libre “titre à saisir”) ». La grille est désormais le
+ * composant partagé `GrilleCartes`, qui calcule sa liste lui-même ; il n'y a plus de liste propre à la transformation.
+ *
+ * Ce qui reste propre à la transformation, et vit ici :
+ *   · une carte ordinaire (ou Facture, qui reste un point comme depuis le « + ») ⇒ le geste de correction ci-dessous, à la DATE DU
+ *     POINT, le mail d'origine conservé (la correction ne touche ni `message_id` ni le rang de pose) ;
+ *   · Clôture / Réouverture ⇒ PAS de correction (`REFUS_VERS_BORNE` tient toujours) : l'écran ouvre le parcours de clôture du « + »,
+ *     avec sa modale — `parcoursDeBorne` le dit.
  */
-export function cartesPourTransformer(evenementOuvert: boolean): TypeEtape[] {
-  return cartesDuReservoir(evenementOuvert).filter((t) => !estBorne(t) && familleDe(t) === 'carte');
+export function parcoursDeBorne(t: TypeEtape): boolean {
+  return t === 'cloture' || t === 'reouverture';
 }
 
-/** Le geste « Transformer en étape » : la carte choisie, à la DATE DU POINT (sans date s'il n'en avait pas), titre inchangé. PUR. */
-export function gesteTransformerEnEtape(e: { survenuLe: string; jourConnu?: boolean; titre: string | null }, type: TypeEtape):
+/**
+ * Le geste « Transformer en étape » : la carte choisie, à la DATE DU POINT (sans date s'il n'en avait pas). PUR.
+ * `titreSaisi` : le titre d'une Carte libre (« titre à saisir ») ; sinon le titre du point est gardé tel quel.
+ */
+export function gesteTransformerEnEtape(e: { survenuLe: string; jourConnu?: boolean; titre: string | null }, type: TypeEtape, titreSaisi?: string):
   { geste: 'corriger'; type: TypeEtape; titre: string | null; jour: string | null } {
-  return { geste: 'corriger', type, titre: e.titre !== null && e.titre.trim() !== '' ? e.titre.trim() : null, jour: e.jourConnu === false ? null : e.survenuLe.slice(0, 10) };
+  const saisi = (titreSaisi ?? '').trim().slice(0, TITRE_MAX);
+  const titre = saisi !== '' ? saisi : (e.titre !== null && e.titre.trim() !== '' ? e.titre.trim() : null);
+  return { geste: 'corriger', type, titre, jour: e.jourConnu === false ? null : e.survenuLe.slice(0, 10) };
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-ORDRE, B3 — « TRANSFORMER EN POINT D'INFORMATION », DEPUIS UNE CARTE. PUR. ═════════════════════════════════════════
+ *
+ * ARNO : « le point garde la date, le titre, la nature et le lien vers le mail d'origine. Pas pour les cartes Ouverture / Clôture /
+ * Réouverture (gérées par la modale de clôture) : dis-le dans une bulle plutôt que de masquer le bouton. »
+ *
+ * · LA DATE : celle de la carte (le dépôt garde l'instant à la seconde quand le jour ne change pas) ;
+ * · LE TITRE ET LA NATURE : un point ne peut pas porter une nature de carte (c'est elle qui décide de la forme) — le mot de la carte
+ *   (« Devis reçu », ou son titre) devient donc le TITRE du point, qui le dit sur la frise, et la nature d'origine reste lue dans la
+ *   trace de correction ; la nature du point est celle que l'automatisation lui avait donnée s'il en était un, sinon un
+ *   « Commentaire » pour un élément venu de Monga, une « Note » pour un élément posé à la main (jamais un faux commentaire Monga) ;
+ * · LE LIEN VERS LE MAIL : la correction ne touche pas `message_id`.
+ */
+export const MOT_BORNE_NON_TRANSFORMABLE = 'Ouverture, Clôture et Réouverture ne se transforment pas en point : elles disent l’état de '
+  + 'l’événement et se gèrent par la modale de clôture (« + » de la frise).';
+
+export function natureDuPointApresTransformation(e: { source: 'monga' | 'manuelle'; autoType?: TypeEtape | null }): TypeEtape {
+  if (e.source === 'monga' && (e.autoType ?? null) !== null && familleDe(e.autoType as TypeEtape) === 'point') return e.autoType as TypeEtape;
+  return e.source === 'monga' ? 'commentaire' : 'note';
+}
+
+export function gesteTransformerEnPoint(e: {
+  type: TypeEtape; titre: string | null; survenuLe: string; jourConnu?: boolean; source: 'monga' | 'manuelle'; autoType?: TypeEtape | null;
+}): { geste: 'corriger'; type: TypeEtape; titre: string | null; jour: string | null } {
+  const titre = e.titre !== null && e.titre.trim() !== '' ? e.titre.trim() : motEtape(e.type);
+  return { geste: 'corriger', type: natureDuPointApresTransformation(e), titre: titre.slice(0, TITRE_MAX), jour: e.jourConnu === false ? null : e.survenuLe.slice(0, 10) };
 }
 
 /** « Remettre en point d'information » : une carte qui ÉTAIT un point pour l'automatisation (Monga, corrigée depuis). PUR. */

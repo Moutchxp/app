@@ -597,12 +597,103 @@ export function parOrdreDePose(a: EtapeAAfficher, b: EtapeAAfficher): number {
   return (rangEtape(a.type) - rangEtape(b.type)) || (a.id - b.id);
 }
 
+/**
+ * ══ 🔴🔴 LOT FRISE-ORDRE (27/10/2026) — L'ORDRE DE LA FRISE, CARRÉS ET POINTS MÊLÉS, ÉCRIT UNE SEULE FOIS. PUR. ═══════════
+ *
+ * CONSTAT D'ARNO (GES-2026-000011, 27/10/2026) : une carte « Attente intervention syndic » posée par le « + » de fin s'affichait EN
+ * PREMIER, avant « Ouverture 23/10/2026 » et avant les 5 points Monga des 23-24/10.
+ *
+ * 🔴 LA CAUSE, PROUVÉE DANS LE CODE : les étapes écrites par la RELÈVE (`enregistrerEtapesDuMail`, `poserOuvertureDeRepli`) n'ont
+ * AUCUN rang de pose — elles naissent sur une référence Monga, sans événement. `parOrdreDePose` les envoyait donc au bout
+ * (`Number.MAX_SAFE_INTEGER`), et la carte posée à la main, elle, prenait `max(rang de pose des cartes DE L'ÉVÉNEMENT) + 1` = 1 —
+ * un maximum qui ne voyait pas les étapes Monga. Rang 1 contre « sans rang » : la carte neuve passait devant tout, Ouverture comprise.
+ *
+ * LA RÈGLE (Arno, A1-A5) :
+ *   · les éléments RANGÉS (un rang de pose : posés à la main, glissés, ou numérotés par la migration 321) gardent leur ordre ;
+ *   · les éléments SANS RANG (apportés par la relève) se placent par leur DATE RÉELLE (A5) : juste après le dernier élément rangé
+ *     dont le jour (puis l'instant d'enregistrement) ne dépasse pas le leur ;
+ *   · l'OUVERTURE est toujours le premier élément (A1) : la plus ancienne étape « Ouverture » passe en tête — l'ouverture dérivée
+ *     de l'événement, quand il n'y en a pas, y est déjà (`construireFrise`).
+ *
+ * ⚠️ SANS AUCUN RANG (base sans la migration 321, épreuves d'avant), l'ordre est EXACTEMENT celui d'avant : un seul paquet, rangé par
+ * `parOrdreDePose`, c'est-à-dire par date, rang de type, identifiant.
+ */
+function cleDAncrage(e: EtapeAAfficher): string {
+  return `${e.survenuLe.slice(0, 10)}|${e.creeLe ?? ''}`;
+}
+
+export function ordreDeLaFrise(etapes: readonly EtapeAAfficher[]): EtapeAAfficher[] {
+  const vives = etapes.filter((e) => e.certitude !== 'ecartee');
+  const ranges = vives.filter((e) => e.rangPose !== null).sort(parOrdreDePose);
+  const libres = vives.filter((e) => e.rangPose === null).sort(parOrdreDePose);
+  /* Pour chaque élément sans rang : la place après laquelle il se pose (0 = avant tout élément rangé). */
+  const paquets = new Map<number, EtapeAAfficher[]>();
+  for (const l of libres) {
+    const cle = cleDAncrage(l);
+    let place = 0;
+    ranges.forEach((r, i) => { if (cleDAncrage(r) <= cle) place = i + 1; });
+    paquets.set(place, [...(paquets.get(place) ?? []), l]);
+  }
+  const out: EtapeAAfficher[] = [...(paquets.get(0) ?? [])];
+  ranges.forEach((r, i) => { out.push(r, ...(paquets.get(i + 1) ?? [])); });
+  /* A1 — L'OUVERTURE EN TÊTE : la plus ancienne (puis le plus petit identifiant), si elle n'y est pas déjà. */
+  const ouverture = out.filter((e) => e.type === 'ouverture')
+    .sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)))[0];
+  if (ouverture !== undefined && out[0] !== ouverture) return [ouverture, ...out.filter((e) => e !== ouverture)];
+  return out;
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-ORDRE, A3 — LE JOUR DU DERNIER ÉLÉMENT DE LA FRISE. PUR. ══════════════════════════════════════════════════════
+ *
+ * ARNO : « À la création, impossible de le placer ou le dater avant un élément déjà enregistré : […] une date antérieure à celle du
+ * dernier élément est refusée. » Le dernier élément AFFICHÉ (carré ou point, dans l'ordre de la frise) dont la date est connue ; à
+ * défaut, l'ouverture de l'événement. `null` : rien n'est daté (la frise d'une épreuve sans ouverture) — aucun plancher.
+ *
+ * ⚠️ UNE DATE NON SAISIE (`jourConnu: false`) N'EST PAS UN PLANCHER : elle n'est affichée nulle part, et le message citerait un jour
+ * que personne ne voit.
+ */
+export function dernierJourDeLaFrise(etapes: readonly EtapeAAfficher[], ouvertLe?: string | null): string | null {
+  const ordre = ordreDeLaFrise(etapes);
+  for (let i = ordre.length - 1; i >= 0; i -= 1) {
+    if (ordre[i].jourConnu !== false && /^\d{4}-\d{2}-\d{2}/.test(ordre[i].survenuLe)) return ordre[i].survenuLe.slice(0, 10);
+  }
+  return ouvertLe !== undefined && ouvertLe !== null && /^\d{4}-\d{2}-\d{2}/.test(ouvertLe) ? ouvertLe.slice(0, 10) : null;
+}
+
+/** L'identifiant du dernier élément de la frise (carré ou point), ou `null`. Un « + » qui le suit pose AU BOUT (A2, A3). PUR. */
+export function dernierIdDeLaFrise(etapes: readonly EtapeAAfficher[]): number | null {
+  return ordreDeLaFrise(etapes).at(-1)?.id ?? null;
+}
+
+/** Le « + » cliqué pose-t-il au bout de la frise ? Le gros « + » rouge (aucune place), ou le petit « + » qui suit le dernier élément. PUR. */
+export function poseAuBout(insererApres: number | 'debut' | undefined, dernierId: number | null): boolean {
+  return insererApres === undefined || (dernierId !== null && insererApres === dernierId);
+}
+
+/** Les mots du refus (Arno, A3), écrits une seule fois : l'écran et la route disent la même phrase. PUR. */
+export function motDateAvantDernier(plancher: string): string {
+  return `Cette étape ne peut pas être datée avant le dernier élément de la frise, du ${plancher.slice(8, 10)}/${plancher.slice(5, 7)}/${plancher.slice(0, 4)}.`;
+}
+
+/** Le refus d'une date antérieure au dernier élément, ou `null`. Jour vide = date non saisie : rien à refuser (le repli s'en charge). PUR. */
+export function refusDateAvantDernier(jour: string, plancher: string | null): string | null {
+  if (plancher === null || jour === '' || !/^\d{4}-\d{2}-\d{2}/.test(jour)) return null;
+  return jour.slice(0, 10) < plancher ? motDateAvantDernier(plancher) : null;
+}
+
+/** Le jour de repli d'une carte posée au bout sans date : aujourd'hui, ou le jour du dernier élément s'il est plus tardif. PUR. */
+export function jourDeRepliAuBout(jourPropose: string, plancher: string | null): string {
+  return plancher !== null && jourPropose.slice(0, 10) < plancher ? plancher : jourPropose;
+}
+
 export function construireFrise(
   etapes: readonly EtapeAAfficher[], ouvertLe?: string | null,
 ): { majeures: CaseFrise[]; reperes: EtapeAAfficher[] } {
-  const vives = etapes.filter((e) => e.certitude !== 'ecartee');
-  const reperes = [...vives.filter((e) => estRepere(e.type))].sort(parOrdreDePose);
-  const reelles = [...vives.filter((e) => !estRepere(e.type))].sort(parOrdreDePose);
+  /* 🔴 LOT FRISE-ORDRE — UN SEUL ORDRE pour les carrés ET les points (`ordreDeLaFrise`) : les deux listes en sont des extraits. */
+  const ordre = ordreDeLaFrise(etapes);
+  const reperes = ordre.filter((e) => estRepere(e.type));
+  const reelles = ordre.filter((e) => !estRepere(e.type));
 
   const numeros = numerosDesEtapes(reelles);
   /* 🔴 LE RANG D'UN DEVIS N'A DE SENS QUE DANS SON INTERVENTION : voir `devisParReference`. */
@@ -791,12 +882,15 @@ export function insererTachesDansLaLigne(ligne: readonly ElementFrise[], taches:
   /** Pour chaque tâche : l'indice de l'élément APRÈS lequel elle se pose (-1 = avant le premier carré). */
   const apres = new Map<number, TacheFrise[]>();
   const premierCarre = ligne.findIndex((e) => e.sorte === 'carre');
+  /* 🔴 LOT FRISE-ORDRE, A1 — « rien ne s'affiche jamais avant l'Ouverture » : une mission antérieure à tout se pose juste APRÈS elle. */
+  const ouvertureEnTete = premierCarre !== -1 && ligne[premierCarre].case?.type === 'ouverture';
   for (const t of ordre) {
     let pos = -1;
     ligne.forEach((e, i) => {
       if (e.sorte === 'carre' && e.case !== undefined && e.case.survenuLe.slice(0, 10) <= t.jour) pos = i;
     });
-    const cle = pos === -1 ? (premierCarre === -1 ? ligne.length - 1 : premierCarre - 1) : pos;
+    const cle = pos === -1
+      ? (premierCarre === -1 ? ligne.length - 1 : (ouvertureEnTete ? premierCarre : premierCarre - 1)) : pos;
     apres.set(cle, [...(apres.get(cle) ?? []), t]);
   }
   const out: ElementFrise[] = [];
@@ -912,13 +1006,17 @@ export function rangerEnLigne(
    * ⚠️ LE REPLI VAUT ICI AUSSI : sans rang de pose (migration non appliquée), `parOrdreDePose` retombe sur la
    * date et le tissage est EXACTEMENT celui d'avant ce lot.
    */
-  const restants = [...reperes].sort(parOrdreDePose);
+  /* 🔴 LOT FRISE-ORDRE — le tissage lit l'ordre UNIQUE de la frise (`ordreDeLaFrise`) : la place de chaque élément dans la suite. */
+  const ordre = ordreDeLaFrise([...majeures.flatMap((c) => (c.etape === null ? [] : [c.etape])), ...reperes]);
+  const place = new Map(ordre.map((e, i) => [e.id, i]));
+  const rangDe = (e: EtapeAAfficher): number => place.get(e.id) ?? Number.MAX_SAFE_INTEGER;
+  const restants = [...reperes].sort((a, b) => rangDe(a) - rangDe(b));
 
   /** Les messages posés AVANT ce carré, retirés de la file. `null` = tout ce qui reste. */
   const avant = (borne: EtapeAAfficher | null): EtapeAAfficher[] => {
     const pris: EtapeAAfficher[] = [];
     while (restants.length > 0
-      && (borne === null || parOrdreDePose(restants[0], borne) <= 0)) {
+      && (borne === null || rangDe(restants[0]) <= rangDe(borne))) {
       pris.push(restants.shift() as EtapeAAfficher);
     }
     return pris;
@@ -982,8 +1080,7 @@ export function rangerEnLigne(
    * ⚠️ AUCUN « + » SUR UNE FRISE SANS AUCUNE ÉTAPE : il n'y a alors rien à suivre, et le gros carré rouge est
    * déjà la seule chose à faire. Un « + » intercalaire collé à lui n'apprendrait effectivement rien.
    */
-  const dernier = [...majeures.flatMap((c) => (c.etape === null ? [] : [c.etape])), ...reperes]
-    .sort(parOrdreDePose).at(-1);
+  const dernier = ordre.at(-1);
   if (dernier !== undefined) {
     out.push({ cle: 'plus-entre-fin', sorte: 'plus-entre', jourPropose: aujourdhui, apresId: dernier.id });
   }
@@ -1193,7 +1290,11 @@ export function valeursDeLaCarte(
  */
 export function refusDEnregistrement(v: {
   jour: string; type: TypeEtape; titre: string; montantLisible: boolean;
+  /** 🔴 LOT FRISE-ORDRE, A3 — le jour du dernier élément quand la carte se pose AU BOUT ; absent ou `null` : aucun plancher. */
+  plancher?: string | null;
 }): string | null {
+  const avantDernier = dateAuCentre(v.type) ? null : refusDateAvantDernier(v.jour, v.plancher ?? null);
+  if (avantDernier !== null) return avantDernier;
   /**
    * ══ 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — LA DATE VIDE N'A PLUS LE MÊME SENS SELON LA CARTE ════════
    *

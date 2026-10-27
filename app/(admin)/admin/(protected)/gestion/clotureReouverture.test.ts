@@ -31,6 +31,8 @@ import { motCarteDeBorne } from '../../../../lib/gestion/etatParLaFrise';
  */
 
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
+/* 🔴 LOT FRISE-ORDRE (27/10/2026) — la grille du réservoir est un composant PARTAGÉ (« + » et transformation d'un point). */
+const GRILLE = readFileSync('app/(admin)/admin/(protected)/gestion/GrilleCartes.tsx', 'utf8');
 const BLOC = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
 const ROUTE = readFileSync('app/(admin)/api/admin/gestion/evenements/[id]/frise/route.ts', 'utf8');
 const PUR = readFileSync('app/lib/gestion/mongaEtape.ts', 'utf8');
@@ -74,8 +76,7 @@ describe('🔴🔴 ① la grille : plus de Relance, Réouverture en dernier', ()
    * pure jumelle `informationsDuReservoir`.
    */
   it('🔴 la grille lit le module pur, des DEUX côtés', () => {
-    expect(FRISE).toContain("const liste = forme === 'etape'");
-    expect(FRISE).toContain('cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)');
+    expect(GRILLE).toContain("forme === 'etape' ? cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)");
     expect(FRISE).toContain('evenementOuvert={vue.d.ouvert !== false}');
   });
 });
@@ -226,7 +227,7 @@ describe('🔴🔴 ⑤ les couleurs de la frise', () => {
   it('🔴 dans la grille, le bouton « Réouverture » a un contour plus marqué', () => {
     expect(FRISE).toContain('.fav-carre--reserve.fav-carre--reouverture{border-width:2px}');
     /* ⚠️ ET IL EST TOUJOURS POSÉ SUR LA CARTE DE LA GRILLE, c'est-à-dire là où il sert encore. */
-    expect(FRISE).toContain("t === 'reouverture' ? ' fav-carre--reouverture' : ''");
+    expect(GRILLE).toContain("t === 'reouverture' ? ' fav-carre--reouverture' : ''");
   });
 
   /**

@@ -61,7 +61,8 @@ describe('🔴🔴 ① l’horodatage de création, à la seconde et dans le bon
    */
   it('🔴🔴 la référence chronologique mêle les carrés et les points', () => {
     expect(FRISE).toContain('const deplacees = cartesHorsChronologie(');
-    expect(FRISE).toContain("[...etapes].filter((x) => x.certitude !== 'ecartee').sort(parOrdreDePose)");
+    /* 🔴 LOT FRISE-ORDRE (27/10/2026) — la suite est l'ordre AFFICHÉ, carrés et points mêlés, écartées exclues (`ordreDeLaFrise`). */
+    expect(FRISE).toContain('ordreDeLaFrise(etapes)\n      /*');
     /* ⚠️ `poseChoisie` VOYAGE AVEC (lot FRISE-PLUS-INTERCALAIRE, point 1) : une carte posée à un endroit
        CHOISI sort du calcul, ni marquée ni repère. Les carrés et les points restent mêlés, ce qui est ce que
        ce cas tient. */

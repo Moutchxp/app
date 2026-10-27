@@ -27,6 +27,8 @@ import { ecrireEtatUrl, ETAT_DEFAUT, lireEtatUrl } from '../../../../lib/gestion
  */
 
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
+/* 🔴 LOT FRISE-ORDRE (27/10/2026) — la grille du réservoir est un composant PARTAGÉ (« + » et transformation d'un point). */
+const GRILLE = readFileSync('app/(admin)/admin/(protected)/gestion/GrilleCartes.tsx', 'utf8');
 const ZONES = readFileSync('app/lib/gestion/zonesPoints.ts', 'utf8');
 /* 🔴 LE DÉFILEMENT A DÉMÉNAGÉ DANS UN CROCHET PARTAGÉ (lot FRISES-REPARATION, B.3) : les épreuves qui le
    concernent lisent désormais CE fichier, puisqu'il est le seul chemin des DEUX frises. */
@@ -732,9 +734,10 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
        « Réouverture » s'il est clos. C'est toujours le module PUR qui la rend — `cartesDuReservoir`. */
     /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX FACES VIENNENT DU MODULE PUR : la face « Simple information »
        n'était pas filtrée du tout, et Arno demande qu'un dossier clos ne propose QUE « Réouverture ». */
-    expect(FRISE).toContain("const liste = forme === 'etape'");
-    expect(FRISE).toContain('cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)');
-    expect(FRISE).toContain('className={`fav-carre fav-carre--reserve${t === \'reouverture\'');
+    /* 🔴 LOT FRISE-ORDRE — la grille vit dans `GrilleCartes` (composant partagé), que le réservoir rend. */
+    expect(GRILLE).toContain("forme === 'etape' ? cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)");
+    expect(GRILLE).toContain('className={`fav-carre fav-carre--reserve${t === \'reouverture\'');
+    expect(FRISE).toContain('<GrilleCartes porte="ajout" forme={forme} evenementOuvert={evenementOuvert} onChoisir={onChoisir} />');
     /* ⚠️ AUCUNE LISTE RECOPIÉE DANS LE COMPOSANT : il n'énumère aucun type en dur. */
     for (const t of RESERVOIR_TYPES) {
       if (t === 'autre') continue;
@@ -744,7 +747,7 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
 
   /** 🔴 LA CARTE LIBRE DIT CE QU'ELLE DEMANDE, et son titre est exigé — à l'écran comme à la route. */
   it('🔴🔴 la carte libre demande un titre, et les deux portes l’exigent', () => {
-    expect(FRISE).toContain('titre à saisir');
+    expect(GRILLE).toContain('titre à saisir');
     /* ⚠️ LA RÈGLE A CHANGÉ D'ENDROIT (lot FRISE-BULLE-ET-ENREGISTRER), PAS DE SENS : elle est dans
        `refusDEnregistrement` (module pur), avec sa phrase, parce qu'un refus sans phrase éteignait le bouton
        en silence. L'exigence reste la même : une carte libre sans titre ne s'enregistre pas. */
@@ -766,7 +769,8 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
     expect(bloc).toContain('Simple information (point)');
     /* 🔴 LOT ETAT-PAR-LA-FRISE — la liste vient de `informationsDuReservoir`, la jumelle pure de
        `cartesDuReservoir` : elle rend `TYPES_INFORMATION` sur un dossier ouvert, et rien sur un dossier clos. */
-    expect(bloc).toContain('informationsDuReservoir(evenementOuvert)');
+    expect(bloc).toContain('<GrilleCartes porte="ajout" forme={forme}');
+    expect(GRILLE).toContain('informationsDuReservoir(evenementOuvert)');
   });
 
   /** 🔴🔴 « Échap ou “Fermer” referme le réservoir » (Arno) — les deux, et l'écouteur ne vit que tant qu'il est ouvert. */
@@ -786,7 +790,8 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
        NEUVE — éprouvé dans `friseBulleEtEnregistrer.test.ts`. Ce qui comptait ici, « la date part remplie »,
        est désormais vrai aussi à la MODIFICATION, ce qui était tout l'objet du lot. */
     expect(FRISE).toContain('const [jour, setJour] = useState(depart.jour);');
-    expect(FRISE).toContain('jourDefaut={reservoir?.jour ?? aujourdhui}');
+    /* 🔴 LOT FRISE-ORDRE, A3 — posée au bout, le jour de repli ne descend pas sous le dernier élément ; ailleurs, inchangé. */
+    expect(FRISE).toContain('jourDefaut={ajoutAuBout ? jourDeRepliAuBout(reservoir?.jour ?? aujourdhui, plancherAuBout) : (reservoir?.jour ?? aujourdhui)}');
     expect(FRISE).toContain('onChange={(e) => setJour(e.target.value)}');
   });
 

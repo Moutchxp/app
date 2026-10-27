@@ -205,7 +205,8 @@ describe('🔴 ⑤ le dépôt écrit `jour_connu` à la bonne place', () => {
     const sql = ins.sql.replace(/\s+/g, ' ');
     expect(ins.params[10]).toBe(false);
     expect(ins.params[11]).toBe(33);
-    expect(sql).toContain('WHERE id = $12 AND evenement_id = $1');
+    /* 🔴 LOT FRISE-ORDRE (27/10/2026) — l'étape nommée se cherche sur TOUTE la frise (cartes de l'événement et références reliées). */
+    expect(sql).toContain('WHERE y.id = $12 AND (y.evenement_id = $1 OR y.reference IN');
     expect(sql).toContain('pose_choisie, jour_connu)');
   });
 

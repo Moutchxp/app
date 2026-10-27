@@ -4,7 +4,6 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FriseAvancement } from './FriseAvancement';
 import { cartesDuReservoir, motEtape } from '../../../../lib/gestion/mongaEtape';
-import { cartesPourTransformer } from '../../../../lib/gestion/correctionEtape';
 import { lignesExpediteur, MOT_EXPEDITEUR_INCONNU } from '../../../../lib/gestion/frise';
 
 /**
@@ -80,7 +79,7 @@ describe('R2 — « Envoyé par » et « À l’origine »', () => {
 });
 
 describe('R3 — « Transformer en étape » dans la bulle dépliée', () => {
-  it('la liste est celle du « + » (même source), sans les bornes ni les repères ; le choix transforme à la date du point', async () => {
+  it('🔴 LOT FRISE-ORDRE (27/10/2026) — la grille du « + », entière (Facture, Clôture, Carte libre comprises) ; le choix transforme à la date du point', async () => {
     await monter();
     await act(async () => { point(2).click(); });
     expect(fixee()?.querySelector('[data-transformer-en-etape="2"]')?.textContent).toBe('Transformer en étape');
@@ -88,11 +87,10 @@ describe('R3 — « Transformer en étape » dans la bulle dépliée', () => {
     expect(fixee()?.textContent).toContain('Voir le mail d’origine');
     expect(fixee()?.textContent).toContain('Fermer');
     await act(async () => { (fixee()?.querySelector('[data-transformer-en-etape="2"]') as HTMLButtonElement).click(); });
-    const proposes = [...container.querySelectorAll('[data-liste-transformer="2"] [data-transformer-vers]')].map((b) => b.getAttribute('data-transformer-vers'));
-    expect(proposes).toEqual(cartesPourTransformer(true));
-    expect(proposes.every((t) => cartesDuReservoir(true).includes(t as never))).toBe(true);
-    expect(proposes).not.toContain('cloture');
-    const devis = container.querySelector('[data-liste-transformer="2"] [data-transformer-vers="devis_recu"]') as HTMLButtonElement;
+    const proposes = [...container.querySelectorAll('[data-liste-transformer="2"] [data-carte-grille]')].map((b) => b.getAttribute('data-carte-grille'));
+    expect(proposes).toEqual(cartesDuReservoir(true));
+    expect(proposes).toEqual(expect.arrayContaining(['facture', 'cloture', 'autre']));
+    const devis = container.querySelector('[data-liste-transformer="2"] [data-carte-grille="devis_recu"]') as HTMLButtonElement;
     expect(devis.textContent).toBe(motEtape('devis_recu'));
     await act(async () => { devis.click(); });
     await calmer();

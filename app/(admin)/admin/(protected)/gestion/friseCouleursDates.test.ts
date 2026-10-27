@@ -28,6 +28,8 @@ import { TYPES_RESERVOIR } from '../../../../lib/gestion/mongaEtape';
  */
 
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
+/* 🔴 LOT FRISE-ORDRE (27/10/2026) — la grille du réservoir est un composant PARTAGÉ (« + » et transformation d'un point). */
+const GRILLE = readFileSync('app/(admin)/admin/(protected)/gestion/GrilleCartes.tsx', 'utf8');
 
 /** La feuille seule, commentaires retirés : ce sont les RÈGLES qui comptent, pas les explications. */
 const FEUILLE = FRISE.slice(FRISE.indexOf('const CSS_FRISE_AVANCEMENT')).replace(/\/\*[\s\S]*?\*\//g, '');
@@ -45,7 +47,7 @@ describe('🔴🔴 ① la grille : « Clôture » est la seule carte verte', () 
    * réservoir se réordonne (il l'a déjà fait au lot CLOTURE-REOUVERTURE), et un index aurait verdi son voisin.
    */
   it('🔴🔴 le bouton « Clôture » de la grille porte le modificateur vert', () => {
-    expect(FRISE).toContain("(t === 'cloture' ? ' fav-carre--reserve-close' : '')");
+    expect(GRILLE).toContain("(t === 'cloture' ? ' fav-carre--reserve-close' : '')");
     expect(FEUILLE).toContain('.fav-carre--reserve-close{border-color:var(--color-svv-green)}');
   });
 
@@ -65,7 +67,7 @@ describe('🔴🔴 ① la grille : « Clôture » est la seule carte verte', () 
     expect(FEUILLE).toMatch(/\.fav-carre--reserve\{[^}]*border-color:var\(--color-svv-red\)/);
     /* 🔴 ET « RÉOUVERTURE » GARDE SON TRAIT PLUS ÉPAIS, nommément : Arno écrit « comme aujourd'hui ». */
     expect(FEUILLE).toContain('.fav-carre--reserve.fav-carre--reouverture{border-width:2px}');
-    expect(FRISE).toContain("t === 'reouverture' ? ' fav-carre--reouverture' : ''");
+    expect(GRILLE).toContain("t === 'reouverture' ? ' fav-carre--reouverture' : ''");
   });
 
   /**

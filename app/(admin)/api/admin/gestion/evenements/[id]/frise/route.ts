@@ -10,7 +10,10 @@ import {
 import { correctionEtapeDisponible } from '../../../../../../../lib/gestion/schema';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
    imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
-import { dateAuCentre, estCarteRendezVous, MENTION_DATE_RDV } from '../../../../../../../lib/gestion/frise';
+import {
+  dateAuCentre, dernierIdDeLaFrise, dernierJourDeLaFrise, estCarteRendezVous, jourDeRepliAuBout, MENTION_DATE_RDV,
+  ordreDeLaFrise, poseAuBout, refusDateAvantDernier,
+} from '../../../../../../../lib/gestion/frise';
 import {
   cartesDuReservoir, etatApresCarte, informationsDuReservoir,
   proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION,
@@ -249,8 +252,8 @@ export async function POST(
      * 🔴 ET C'EST LA **FRISE** QU'ON INTERROGE, jamais la colonne : la grille et la garde répondent donc à la
      * même question, par la même règle.
      */
-    const { rows: etatLu } = await query<{ ouvert: boolean }>(
-      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`,
+    const { rows: etatLu } = await query<{ ouvert: boolean; ouvert_le: string | null }>(
+      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text AS ouvert_le FROM gestion_evenement e WHERE e.id = $1`,
       [evenementId]);
     if (etatLu.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
     const ouvertAvant = etatLu[0].ouvert;
@@ -258,6 +261,30 @@ export async function POST(
       return Response.json({
         erreur: 'Cet événement est clos : posez d’abord une carte « Réouverture » pour le reprendre.',
       }, { status: 409 });
+    }
+
+    /**
+     * ══ 🔴🔴 LOT FRISE-ORDRE (Arno, 27/10/2026), A2-A3 — UNE CARTE POSÉE AU BOUT NE SE DATE PAS AVANT LE DERNIER ÉLÉMENT ═══════
+     *
+     * « À la création, impossible de le placer ou le dater avant un élément déjà enregistré : date par défaut = aujourd'hui ; une
+     * date antérieure à celle du dernier élément est refusée avec un message clair. » La garde est ICI autant qu'à l'écran (une
+     * règle tenue par le seul formulaire est contournée par le premier appel qui l'oublie). Elle vaut pour le gros « + » rouge et
+     * pour le petit « + » qui suit le dernier élément — les deux posent au bout. Les « + » intercalaires, qui rattrapent un oubli
+     * à une place choisie, et les bornes (datées par le serveur) n'y sont pas soumis.
+     * Une date non saisie se range au jour de repli : aujourd'hui, ou le jour du dernier élément s'il est plus tardif.
+     */
+    let jourAEcrire = survenuLe;
+    if (!dateAuCentre(type)) {
+      const frise = await friseDeLEvenement(evenementId);
+      if (poseAuBout(placeDemandee(corps.insererApres), dernierIdDeLaFrise(frise))) {
+        const plancher = dernierJourDeLaFrise(frise, etatLu[0].ouvert_le);
+        if (jourConnu) {
+          const refusDate = refusDateAvantDernier(survenuLe, plancher);
+          if (refusDate !== null) return Response.json({ erreur: refusDate }, { status: 409 });
+        } else {
+          jourAEcrire = jourDeRepliAuBout(survenuLe.slice(0, 10), plancher);
+        }
+      }
     }
 
     /**
@@ -292,7 +319,7 @@ export async function POST(
     const idEtape = await ajouterEtapeManuelle({
       evenementId,
       type,
-      survenuLe,
+      survenuLe: jourAEcrire,
       heureConnue: corps.heureConnue === true,
       jourConnu,
       texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
@@ -424,7 +451,18 @@ export async function PATCH(
        * cette garde ne sert qu'aux appels qui contournent le formulaire. C'est précisément pour eux qu'Arno la
        * demande côté serveur — l'état de l'événement se lit sur l'ordre des bornes.
        */
-      const indiceAvant = new Map(avant.map((e, i) => [e.id, i]));
+      /* 🔴 LOT FRISE-ORDRE — les indices sont ceux de la frise AFFICHÉE (`ordreDeLaFrise`, le même ordre que l'écran), et non
+         l'ordre brut du SELECT, où les étapes de la relève sans rang de pose venaient en dernier. */
+      const ordreAvant = ordreDeLaFrise(avant);
+      /* 🔴 LOT FRISE-ORDRE, A4 — « le glisser-déposer ne peut jamais déposer un élément avant l'Ouverture » : si la frise porte une
+         étape Ouverture, elle est en tête (A1) et l'ordre reçu doit commencer par elle. (L'ouverture DÉRIVÉE n'est pas dans la liste
+         et reste toujours en tête.) */
+      if (ordreAvant[0]?.type === 'ouverture' && cartes[0] !== ordreAvant[0].id) {
+        return Response.json({
+          erreur: 'Rien ne se place avant l’Ouverture : elle reste le premier élément de la frise.',
+        }, { status: 409 });
+      }
+      const indiceAvant = new Map(ordreAvant.map((e, i) => [e.id, i]));
       const borneDeplacee = cartes.findIndex((id, i) => {
         const e = parId.get(id);
         return e !== undefined && dateAuCentre(e.type) && indiceAvant.get(id) !== i;
