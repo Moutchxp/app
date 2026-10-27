@@ -32,7 +32,7 @@ import { estPointEntree } from '../lib/scripts/pointEntree';
 import { cheminRapport, optionLigne, RACINE_PROJET } from '../lib/ops/rapportScript';
 import { depuisExcelJs } from '../lib/location/suivi/classeurExcelJs';
 import { identifierFichier, lireFichier, type FichierLu } from '../lib/transaction/lectureTableau';
-import { planifier, type OptionsPlan } from '../lib/transaction/planImport';
+import { ACCEPTATIONS_NON_RECALCULE, planifier, type OptionsPlan } from '../lib/transaction/planImport';
 import { texteFichier, texteSynthese } from '../lib/transaction/rapportImport';
 
 const P = '[transaction:importer]';
@@ -94,7 +94,7 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
     const inconnus = choisis.filter((c) => !lus.some((l) => l.fichier === c));
     if (inconnus.length > 0) throw new Error(`fichier(s) absent(s) du dossier ${dossier} : ${inconnus.join(', ')}`);
     dire(`Sources : ${dossier} — ${lus.length} fichier(s) lu(s) : ${lus.map((l) => l.fichier).join(' · ')}`,
-      `Options : parts égales = ${options.partsEgales} ; totaux non recalculés acceptés : ${options.accepterNonRecalcule.join(', ') || 'aucun'}`,
+      `Options : parts égales = ${options.partsEgales} (décision d'Arno du 27/10/2026 : les deux parts sont gardées) ; totaux non recalculés acceptés : ${[...ACCEPTATIONS_NON_RECALCULE.map((a) => `${a.fichier} (décision d'${a.decision})`), ...options.accepterNonRecalcule].join(', ') || 'aucun'}`,
       `Écriture visée : ${choisis.length === 0 ? 'tous les fichiers lus' : choisis.join(', ')}`);
     const plan = planifier(lus, options);
     const location = await repo.caLocationParMois().catch(() => null);
@@ -111,7 +111,7 @@ export async function principal(argv: readonly string[] = process.argv.slice(2))
     for (const r of vises) {
       if (r.bloque) { dire(`⛔ ${r.fichier} : un total ne s’explique pas (B4) — RIEN n’est écrit pour ce fichier.`); process.exitCode = 2; continue; }
       const b = await repo.ecrireFichier(plan, r.fichier, marque);
-      dire(`✔ ${r.fichier} : ventes créées ${b.ventesCreees}, mises à jour ${b.ventesMisesAJour}, lignes ${b.lignes}, rétrocessions ${b.retros}, à rattacher ${b.aRattacher}, gestion ${b.gestion} mois`,
+      dire(`✔ ${r.fichier} : ventes créées ${b.ventesCreees}, mises à jour ${b.ventesMisesAJour}, marquées « à attribuer » ${b.doubles}, lignes ${b.lignes}, rétrocessions ${b.retros}, à rattacher ${b.aRattacher}, gestion ${b.gestion} mois`,
         ...b.gestionLaissee.map((x) => `     gestion ${x}`), ...b.retrosSansVente.map((x) => `     ${x}`));
     }
   } finally {

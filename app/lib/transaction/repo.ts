@@ -4,7 +4,7 @@
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { droitTransactionDisponible } from '../admin/schemaDroits';
-import type { CaARattacher, GestionMois, LigneVente, Retrocession, Societe, Vente } from './modele';
+import type { Attribution, CaARattacher, GestionMois, LigneVente, Retrocession, Societe, Vente } from './modele';
 import type { ChampsVente, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 
 export interface AuteurTx { id: number | null; libelle: string }
@@ -27,7 +27,8 @@ const premierDuMois = (annee: number, mois: number | null): string | null => (mo
 function venteDe(r: Record<string, unknown>, lignes: LigneVente[]): Vente {
   return { id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
     annee: n(r.annee), mois: moisDe(r.mois_acte), dateCompromis: jour(r.date_compromis), apporteur: t(r.apporteur), note: t(r.note),
-    origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes };
+    origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes,
+    double: r.double_cle === null || r.double_cle === undefined ? null : { cle: String(r.double_cle), attribution: r.attribution as Attribution } };
 }
 
 /** Les ventes (et compromis) non retirés d'une société — toutes si `societe` est null — avec leurs lignes. */
@@ -35,7 +36,8 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
   const { rows } = await query<Record<string, unknown>>(
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
     `SELECT id, societe, libelle, honoraires_ttc, statut, annee, to_char(mois_acte, 'YYYY-MM-DD') AS mois_acte,
-            to_char(date_compromis, 'YYYY-MM-DD') AS date_compromis, apporteur, note, origine, source_fichier, source_onglet, source_ligne
+            to_char(date_compromis, 'YYYY-MM-DD') AS date_compromis, apporteur, note, origine, source_fichier, source_onglet, source_ligne,
+            double_cle, attribution
        FROM transaction_vente WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois_acte NULLS LAST, id`, [societe]);
   const { rows: ls } = await query<Record<string, unknown>>(
     `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note
@@ -104,7 +106,7 @@ async function journaliser(q: RequeteTx, e: { entite: Entite; id: number; action
 
 /** Les colonnes que chaque geste peut écrire — et donc rejouer à l'annulation. Une liste fermée : rien d'autre ne se réécrit. */
 const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> = {
-  vente: { table: 'transaction_vente', colonnes: ['libelle', 'honoraires_ttc', 'statut', 'annee', 'mois_acte', 'date_compromis', 'apporteur', 'note', 'retire_le'] },
+  vente: { table: 'transaction_vente', colonnes: ['libelle', 'honoraires_ttc', 'statut', 'annee', 'mois_acte', 'date_compromis', 'apporteur', 'note', 'retire_le', 'attribution'] },
   vente_ligne: { table: 'transaction_vente_ligne', colonnes: ['negociateur', 'role', 'montant_ttc', 'retire_le'] },
   retrocession: { table: 'transaction_retrocession', colonnes: ['vente_id', 'apporteur', 'montant_ttc', 'retire_le'] },
   ca_a_rattacher: { table: 'transaction_ca_a_rattacher', colonnes: ['retire_le'] },
@@ -204,6 +206,39 @@ export async function retirerVente(id: number, retirer: boolean, auteur: AuteurT
     if (retirer) await q('UPDATE transaction_vente SET retire_par_libelle = $2 WHERE id = $1', [id, auteur.libelle]);
     await journaliser(q, { entite: 'vente', id, action: retirer ? 'retrait' : 'retablissement', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur });
     return { ok: true };
+  });
+}
+
+// ── LOT C : attribuer une vente notée chez les deux sociétés ──────────────────────────────────────────────────────────────
+
+/** Les notes (toutes sociétés) des groupes « même vente notée deux fois » qui touchent cette société (null : tous les groupes). */
+export async function lireNotesDoubles(societe: Societe | null): Promise<Vente[]> {
+  const toutes = await lireVentes(null);
+  const cles = new Set(toutes.filter((v) => v.double !== null && (societe === null || v.societe === societe)).map((v) => v.double!.cle));
+  return toutes.filter((v) => v.double !== null && cles.has(v.double.cle));
+}
+
+/**
+ * « Attribuer à CRITERIMMO / à MACJ » : la note de la société choisie devient « retenue », celle de l'autre « écartée » ; `null` remet
+ * le groupe « à attribuer ». Chaque note changée laisse sa trace au journal (valeur avant / après) : chaque geste se défait.
+ */
+export async function attribuer(cle: string, societe: Societe | null, auteur: AuteurTx): Promise<Issue> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string; societe: Societe }>(
+      'SELECT id, societe FROM transaction_vente WHERE double_cle = $1 AND retire_le IS NULL ORDER BY id FOR UPDATE', [cle]);
+    if (rows.length === 0) return { ok: false, motif: 'Vente à attribuer introuvable.' };
+    if (societe !== null && !rows.some((r) => r.societe === societe)) return { ok: false, motif: 'Cette société n’a pas noté cette vente.' };
+    let changees = 0;
+    for (const r of rows) {
+      const voulu: Attribution = societe === null ? 'a_attribuer' : r.societe === societe ? 'retenue' : 'ecartee';
+      const e = await ecrire(q, 'vente', n(r.id), { attribution: voulu }, true);
+      if (e === null || Object.keys(e.apres).length === 0) continue;
+      changees++;
+      await journaliser(q, { entite: 'vente', id: n(r.id), action: 'attribution', avant: e.avant, apres: e.apres, auteur,
+        commentaire: societe === null ? `Vente « ${cle} » remise à attribuer.` : `Vente « ${cle} » attribuée à ${societe === 'macj' ? 'MACJ' : 'CRITERIMMO'}.` });
+    }
+    return changees === 0 ? { ok: false, motif: 'Rien n’a changé.' } : { ok: true };
   });
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  anneesDe, caHtParMois, caHtPortePar, celluleGlobal, historique, ht, moisAConfirmer, negociateursDe, NON_ATTRIBUE, parApporteur, parNegociateur,
+  anneesDe, caHtParMois, compteDansSociete, groupesDoubles, caHtPortePar, celluleGlobal, historique, ht, moisAConfirmer, negociateursDe, NON_ATTRIBUE, parApporteur, parNegociateur,
   previsionnel, resteGestionPropose, resteTtcDe, totauxMois, variation, ventesProposees, type LigneVente, type Retrocession, type Vente,
 } from './modele';
 
@@ -10,7 +10,7 @@ const ligne = (negociateur: string, role: LigneVente['role'], montantTtc: number
   id: ++idLigne, negociateur, role, montantTtc, nature: 'vente', compte, origine: 'import', sourceFichier: 'F', sourceOnglet: negociateur, sourceLigne: 1, note: null });
 const vente = (id: number, o: Partial<Vente> = {}): Vente => ({
   id, societe: 'criterimmo', libelle: `V${id}`, honorairesTtc: 12000, statut: 'vendue', annee: 2025, mois: 3, dateCompromis: null, apporteur: null, note: null,
-  origine: 'import', sourceFichier: 'F', sourceOnglet: 'CEDRIC', sourceLigne: id, lignes: [ligne('CEDRIC', 'vendeur', null)], ...o });
+  origine: 'import', sourceFichier: 'F', sourceOnglet: 'CEDRIC', sourceLigne: id, lignes: [ligne('CEDRIC', 'vendeur', null)], double: null, ...o });
 const retro = (id: number, o: Partial<Retrocession> = {}): Retrocession => ({
   id, societe: 'criterimmo', annee: 2025, mois: 3, negociateur: 'CEDRIC', montantTtc: 1200, apporteur: null, venteId: null, libelle: null, origine: 'import',
   sourceOnglet: 'CEDRIC', sourceCellule: 'F3', ...o });
@@ -83,7 +83,7 @@ describe('le CA global : vente CRITERIMMO + vente MACJ + location + gestion', ()
   };
   it('un mois : chaque part, le total, et le total par société (location et gestion = CRITERIMMO)', () => {
     const c = celluleGlobal(e, 2025, 3);
-    expect(c).toEqual({ venteCriterimmoHt: 10000, venteMacjHt: 5000, locationHt: 9398.6, gestionHt: 14665, totalHt: 10000 + 9398.6 + 14665 + 5000,
+    expect(c).toEqual({ venteCriterimmoHt: 10000, venteMacjHt: 5000, aAttribuerHt: 0, locationHt: 9398.6, gestionHt: 14665, totalHt: 10000 + 9398.6 + 14665 + 5000,
       criterimmoHt: 10000 + 9398.6 + 14665, macjHt: 5000 });
   });
   it('l’année : les ventes « mois à confirmer » comprises ; location non lue = null, jamais 0 inventé', () => {
@@ -101,5 +101,35 @@ describe('le CA global : vente CRITERIMMO + vente MACJ + location + gestion', ()
   });
   it('les années présentes, l’année en cours comprise', () => {
     expect(anneesDe({ ventes: [vente(1, { annee: 2019 })], retrocessions: [retro(1, { annee: 2021 })] }, '2026-10-27')).toEqual([2019, 2021, 2026]);
+  });
+});
+
+describe('🔴 LOT C — la même vente notée chez CRITERIMMO et chez MACJ', () => {
+  const dbl = (attribution: 'a_attribuer' | 'retenue' | 'ecartee') => ({ cle: 'double|DHIB', attribution });
+  const notes = (crit: 'a_attribuer' | 'retenue' | 'ecartee', macj: 'a_attribuer' | 'retenue' | 'ecartee') => [
+    vente(1, { honorairesTtc: 12000, double: dbl(crit) }),
+    vente(2, { societe: 'macj', honorairesTtc: 6000, double: dbl(macj) }),
+    vente(3, { honorairesTtc: 2400 }),
+  ];
+  const e = (v: Vente[]) => ({ ventes: v, location: null, gestion: [] });
+  it('à attribuer : comptée UNE fois au global (le plus bas), dans AUCUNE société', () => {
+    const v = notes('a_attribuer', 'a_attribuer');
+    const a = celluleGlobal(e(v), 2025, null);
+    expect([a.venteCriterimmoHt, a.venteMacjHt, a.aAttribuerHt, a.totalHt]).toEqual([2000, 0, 5000, 7000]);
+    expect(totauxMois({ ventes: v, retrocessions: [] }, 2025, 3).caHt).toBe(2000);
+    expect(celluleGlobal(e(v), 2025, 3).totalHt).toBe(2000);
+    const g = groupesDoubles(v);
+    expect(g.map((x) => [x.cle, x.attribuee, x.retenuTtc])).toEqual([['double|DHIB', null, 6000]]);
+  });
+  it('attribuée à CRITERIMMO : dans CRITERIMMO seulement, au montant de SA note ; à MACJ : dans MACJ seulement', () => {
+    const c = celluleGlobal(e(notes('retenue', 'ecartee')), 2025, null);
+    expect([c.venteCriterimmoHt, c.venteMacjHt, c.aAttribuerHt, c.totalHt]).toEqual([12000, 0, 0, 12000]);
+    const m = celluleGlobal(e(notes('ecartee', 'retenue')), 2025, null);
+    expect([m.venteCriterimmoHt, m.venteMacjHt, m.aAttribuerHt, m.totalHt]).toEqual([2000, 5000, 0, 7000]);
+    expect(compteDansSociete({ double: dbl('ecartee') })).toBe(false);
+  });
+  it('remise à attribuer (annulation) : de nouveau dans aucune société, une fois au global', () => {
+    const r = celluleGlobal(e(notes('a_attribuer', 'a_attribuer')), 2025, null);
+    expect(r.totalHt).toBe(7000);
   });
 });

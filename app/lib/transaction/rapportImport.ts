@@ -55,15 +55,46 @@ export function texteFichier(r: RapportFichier, f: FichierLu | undefined, plan: 
   return l;
 }
 
+/**
+ * LOT C — les ventes notées chez les deux sociétés : la liste, et l'effet sur les totaux par année et par société — avant (l'import brut,
+ * chaque fichier compté tel quel) et tant qu'elles sont « à attribuer » (dans aucune société, une fois au global, au plus bas), puis
+ * selon l'attribution de chacune (l'écart qu'elle ajoute à CRITERIMMO ou à MACJ). PUR.
+ */
+export function texteDoubles(plan: Plan): string[] {
+  if (plan.doubles.length === 0) return [];
+  const parCle = new Map(plan.ventes.map((v) => [v.cle, v]));
+  const l: string[] = ['', '═'.repeat(110), `VENTES À ATTRIBUER — la même vente notée chez CRITERIMMO ET chez MACJ (${plan.doubles.length} ventes, ${plan.interSocietes.length} rapprochements)`, '═'.repeat(110)];
+  l.push('Tant qu’Arno ne l’a pas attribuée : dans le total d’AUCUNE société ; au CA global, UNE fois, au plus bas des deux montants (TTC ; HT = ÷ 1,2).');
+  const somme = (cles: string[], s: string): number => cles.map((k) => parCle.get(k)!).filter((v) => v.societe === s).reduce((t, v) => t + v.honorairesTtc, 0);
+  let i = 0;
+  for (const g of plan.doubles) {
+    const c = somme(g.ventes, 'criterimmo'); const m = somme(g.ventes, 'macj');
+    l.push(`  ${String(++i).padStart(2)}. ${g.annee} — ${g.ventes.map((k) => { const v = parCle.get(k)!; return `${v.societe === 'macj' ? 'MACJ' : 'CRITERIMMO'} « ${v.libelle} » ${eur(v.honorairesTtc)} (${v.primaire.onglet} l.${v.primaire.ligne})`; }).join(' ↔ ')}`);
+    l.push(`        au global tant qu’à attribuer : ${eur(Math.min(c, m))} · attribuée à CRITERIMMO : CRITERIMMO +${eur(c)} · attribuée à MACJ : MACJ +${eur(m)}`);
+  }
+  const annees = [...new Set(plan.doubles.map((g) => g.annee))].sort();
+  l.push('', 'Effet par année (TTC) — « brut » = l’import tel quel (la vente comptée deux fois) ; « à attribuer » = avant toute attribution :');
+  l.push('Année  CRITERIMMO brut   CRITERIMMO à attr.   MACJ brut         MACJ à attr.      Global brut        Global à attr.     Doublon retiré');
+  for (const a of annees) {
+    const vs = plan.ventes.filter((v) => v.annee === a && v.statut === 'vendue');
+    const dbl = new Set(plan.doubles.filter((g) => g.annee === a).flatMap((g) => g.ventes));
+    const brut = (s: string): number => vs.filter((v) => v.societe === s).reduce((t, v) => t + v.honorairesTtc, 0);
+    const net = (s: string): number => vs.filter((v) => v.societe === s && !dbl.has(v.cle)).reduce((t, v) => t + v.honorairesTtc, 0);
+    const unefois = plan.doubles.filter((g) => g.annee === a).reduce((t, g) => t + Math.min(somme(g.ventes, 'criterimmo'), somme(g.ventes, 'macj')), 0);
+    const gBrut = brut('criterimmo') + brut('macj');
+    const gNet = net('criterimmo') + net('macj') + unefois;
+    l.push(`${a}   ${eur(brut('criterimmo')).padStart(16)}  ${eur(net('criterimmo')).padStart(18)}  ${eur(brut('macj')).padStart(16)}  ${eur(net('macj')).padStart(16)}  ${eur(gBrut).padStart(17)}  ${eur(gNet).padStart(17)}  ${eur(gBrut - gNet).padStart(14)}`);
+  }
+  l.push('Après attribution d’une vente : sa société retrouve le montant de SA note (colonne « attribuée à … » ci-dessus), l’autre rien ; le global passe du plus bas des deux à ce montant.');
+  return l;
+}
+
 export function texteSynthese(plan: Plan): string[] {
   const l: string[] = ['', '═'.repeat(110), 'SYNTHÈSE PAR SOCIÉTÉ ET PAR ANNÉE', '═'.repeat(110)];
   l.push('Société     Année  Ventes  Honoraires TTC      Honoraires HT       Compromis HT      Mois à conf.  À répartir  État');
   for (const r of plan.rapports) {
     l.push(`${(r.societe === 'macj' ? 'MACJ' : 'CRITERIMMO').padEnd(11)} ${r.annee}  ${String(r.nbVentes).padStart(6)}  ${eur(r.ventesTtc).padStart(18)}  ${eur(r.ventesTtc / 1.2).padStart(18)}  ${eur(r.compromisTtc / 1.2).padStart(16)}  ${String(r.moisAConfirmer.length).padStart(12)}  ${String(r.retrosARepartir.length).padStart(10)}  ${r.bloque ? 'BLOQUÉ' : 'ok'}`);
   }
-  if (plan.interSocietes.length > 0) {
-    l.push('', `▸ Ventes présentes chez CRITERIMMO ET chez MACJ la même année (${plan.interSocietes.length}) — information : chaque société garde ce que dit son fichier ; à trancher par Arno :`);
-    for (const x of plan.interSocietes) l.push(`      ${x}`);
-  }
+  l.push(...texteDoubles(plan));
   return l;
 }

@@ -61,7 +61,24 @@ export interface Vente {
   sourceOnglet: string | null;
   sourceLigne: number | null;
   lignes: LigneVente[];
+  /** LOT C — la même vente notée chez les deux sociétés : sa clé de groupe et l'état de l'attribution ; null : vente ordinaire. */
+  double: { cle: string; attribution: Attribution } | null;
 }
+
+/** LOT C — « a_attribuer » : en attente du choix d'Arno ; « retenue » : la note de la société choisie ; « ecartee » : l'autre. */
+export type Attribution = 'a_attribuer' | 'retenue' | 'ecartee';
+
+/**
+ * LOT C (Arno, 27/10/2026) — une vente notée chez les deux sociétés n'entre dans le total d'une société QUE si elle lui est attribuée
+ * (« retenue »). En attente, ou écartée : dans le total d'aucune.
+ */
+export const compteDansSociete = (v: Pick<Vente, 'double'>): boolean => v.double === null || v.double.attribution === 'retenue';
+
+/**
+ * LOT C — avant attribution, le CA global compte la vente UNE fois, au PLUS BAS des montants notés par les deux sociétés (choix prudent
+ * retenu faute de réponse d'Arno, le 27/10/2026 ; une seule ligne à changer). Après attribution : le montant de la société choisie.
+ */
+export const REGLE_A_ATTRIBUER: 'plus_bas' | 'plus_haut' = 'plus_bas';
 
 export interface Retrocession {
   id: number;
@@ -112,6 +129,8 @@ export interface DonneesSociete {
   ventes: Vente[];
   retrocessions: Retrocession[];
   aRattacher: CaARattacher[];
+  /** LOT C — les notes (des deux sociétés) des ventes notées deux fois qui touchent cette société. */
+  doubles?: Vente[];
 }
 
 export const NOMS_MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -173,13 +192,41 @@ export interface Totaux {
 }
 const VIDE: Totaux = { nbVentes: 0, caHt: 0, caTtc: 0, retroHt: 0, payeHt: 0, resteHt: 0, ids: [] };
 
-/** Les ventes VENDUES d'un mois (année + mois de l'acte). */
+/** Les ventes VENDUES d'un mois (année + mois de l'acte) qui comptent pour la société (LOT C : pas une vente à attribuer ou écartée). */
 export const ventesDuMois = (ventes: readonly Vente[], annee: number, mois: number): Vente[] =>
-  ventes.filter((v) => estVendue(v) && v.annee === annee && v.mois === mois);
-/** Les ventes VENDUES d'une année (mois à confirmer compris). */
-export const ventesDeLAnnee = (ventes: readonly Vente[], annee: number): Vente[] => ventes.filter((v) => estVendue(v) && v.annee === annee);
+  ventes.filter((v) => estVendue(v) && v.annee === annee && v.mois === mois && compteDansSociete(v));
+/** Les ventes VENDUES d'une année (mois à confirmer compris) qui comptent pour la société. */
+export const ventesDeLAnnee = (ventes: readonly Vente[], annee: number): Vente[] => ventes.filter((v) => estVendue(v) && v.annee === annee && compteDansSociete(v));
 /** Les compromis en cours rattachés à une année (le prévisionnel de l'année). */
-export const compromisDeLAnnee = (ventes: readonly Vente[], annee: number): Vente[] => ventes.filter((v) => estCompromis(v) && v.annee === annee);
+export const compromisDeLAnnee = (ventes: readonly Vente[], annee: number): Vente[] => ventes.filter((v) => estCompromis(v) && v.annee === annee && compteDansSociete(v));
+
+// ── LOT C : les ventes notées chez les deux sociétés ─────────────────────────────────────────────────────────────────────
+
+type NoteDouble = Pick<Vente, 'id' | 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc' | 'libelle' | 'double'>;
+export interface GroupeDouble<V extends NoteDouble = NoteDouble> {
+  cle: string;
+  annee: number;
+  notes: V[];
+  /** La société choisie ; null : à attribuer. */
+  attribuee: Societe | null;
+  /** Le montant TTC de chaque société (somme de ses notes du groupe). */
+  parSociete: Record<Societe, number>;
+  /** Ce que le CA global compte pour ce groupe (TTC) : la société choisie, sinon la règle « plus bas ». */
+  retenuTtc: number;
+}
+/** Les groupes « même vente notée deux fois » présents dans ces ventes. PUR. */
+export function groupesDoubles<V extends NoteDouble>(ventes: readonly V[]): GroupeDouble<V>[] {
+  const m = new Map<string, V[]>();
+  for (const v of ventes) if (v.double !== null && v.statut !== 'annulee') m.set(v.double.cle, [...(m.get(v.double.cle) ?? []), v]);
+  return [...m].map(([cle, notes]) => {
+    const parSociete: Record<Societe, number> = { criterimmo: 0, macj: 0 };
+    for (const n of notes) parSociete[n.societe] += n.honorairesTtc;
+    const choisie = notes.find((n) => n.double?.attribution === 'retenue')?.societe ?? null;
+    const valeurs = SOCIETES.filter((s) => notes.some((n) => n.societe === s)).map((s) => parSociete[s]);
+    const retenuTtc = choisie !== null ? parSociete[choisie] : REGLE_A_ATTRIBUER === 'plus_bas' ? Math.min(...valeurs) : Math.max(...valeurs);
+    return { cle, annee: Math.min(...notes.map((n) => n.annee)), notes, attribuee: choisie, parSociete, retenuTtc };
+  }).sort((a, b) => a.annee - b.annee || a.cle.localeCompare(b.cle));
+}
 /** Les rétrocessions saisies sur un mois (rattachées ou à répartir). */
 export const retrosDuMois = (retros: readonly Retrocession[], annee: number, mois: number): Retrocession[] =>
   retros.filter((r) => r.annee === annee && r.mois === mois);
@@ -306,6 +353,8 @@ export function ventesProposees(r: Retrocession, ventes: readonly Vente[]): { du
 export interface CelluleGlobal {
   venteCriterimmoHt: number;
   venteMacjHt: number;
+  /** LOT C — les ventes à attribuer, comptées UNE fois (plus bas des deux montants), dans l'année seulement (dans aucun mois, aucune société). */
+  aAttribuerHt: number;
   locationHt: number | null;
   gestionHt: number | null;
   /** Le réalisé : la somme de ce qui est connu. */
@@ -316,7 +365,7 @@ export interface CelluleGlobal {
 }
 
 export interface EntreesGlobal {
-  ventes: readonly Pick<Vente, 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc'>[];
+  ventes: readonly (Pick<Vente, 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc'> & Partial<Pick<Vente, 'id' | 'libelle' | 'double'>>)[];
   /** Le CA HT de la location par mois (« AAAA-MM » → montant), lu dans le Suivi de la Location ; absent : non lu. */
   location: Readonly<Record<string, number>> | null;
   gestion: readonly Pick<GestionMois, 'annee' | 'mois' | 'honorairesHt'>[];
@@ -326,7 +375,10 @@ const cle = (annee: number, mois: number): string => `${annee}-${String(mois).pa
 
 /** Une cellule du CA global : un mois (mois 1 → 12), ou l'année entière (mois null : les ventes « mois à confirmer » comprises). PUR. */
 export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | null): CelluleGlobal {
-  const ventes = e.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && (mois === null || v.mois === mois));
+  const ventes = e.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && (mois === null || v.mois === mois) && compteDansSociete({ double: v.double ?? null }));
+  const aAttribuerHt = mois !== null ? 0 : groupesDoubles(e.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.double != null)
+    .map((v, i) => ({ id: v.id ?? -1 - i, libelle: v.libelle ?? '', ...v, double: v.double ?? null })))
+    .filter((g) => g.attribuee === null).reduce((t, g) => t + ht(g.retenuTtc), 0);
   const somme = (s: Societe): number => ventes.filter((v) => v.societe === s).reduce((t, v) => t + ht(v.honorairesTtc), 0);
   const moisVises = mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [mois];
   const loc = e.location === null ? null : moisVises.reduce((t, m) => t + (e.location?.[cle(annee, m)] ?? 0), 0);
@@ -335,12 +387,12 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const venteCriterimmoHt = somme('criterimmo');
   const venteMacjHt = somme('macj');
   const criterimmoHt = venteCriterimmoHt + (loc ?? 0) + (gestion ?? 0);
-  return { venteCriterimmoHt, venteMacjHt, locationHt: loc, gestionHt: gestion, totalHt: criterimmoHt + venteMacjHt, criterimmoHt, macjHt: venteMacjHt };
+  return { venteCriterimmoHt, venteMacjHt, aAttribuerHt, locationHt: loc, gestionHt: gestion, totalHt: criterimmoHt + venteMacjHt + aAttribuerHt, criterimmoHt, macjHt: venteMacjHt };
 }
 
 /** Le prévisionnel d'une année : les compromis en cours rattachés à l'année, par société (HT). PUR. */
 export function previsionnel(e: Pick<EntreesGlobal, 'ventes'>, annee: number): { criterimmoHt: number; macjHt: number; totalHt: number } {
-  const c = e.ventes.filter((v) => v.statut === 'compromis' && v.annee === annee);
+  const c = e.ventes.filter((v) => v.statut === 'compromis' && v.annee === annee && compteDansSociete({ double: v.double ?? null }));
   const criterimmoHt = c.filter((v) => v.societe === 'criterimmo').reduce((t, v) => t + ht(v.honorairesTtc), 0);
   const macjHt = c.filter((v) => v.societe === 'macj').reduce((t, v) => t + ht(v.honorairesTtc), 0);
   return { criterimmoHt, macjHt, totalHt: criterimmoHt + macjHt };

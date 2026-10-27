@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, caHtParMois, celluleGlobal, compromisDeLAnnee, historique, ht, moisAConfirmer, negociateursDe,
+  anneesDe, APPORTEUR_NON_NOMME, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
@@ -93,6 +93,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouvelle')} disabled={!d.disponible} data-nouvelle-vente>+ Nouvelle vente</button>
         </div>
       </div>
+      <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
       <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
         {vue === 'mois' ? (
           <label className="tdb-champ">Année
@@ -372,12 +373,12 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   const libelle = debut === fin ? String(debut) : `${debut} → ${fin}`;
   const H = historique(d, annees);
   const HP = H.filter((h) => periode.includes(h.annee));
-  const ventesP = d.ventes.filter((v) => v.statut === 'vendue' && periode.includes(v.annee));
+  const ventesP = d.ventes.filter((v) => v.statut === 'vendue' && periode.includes(v.annee) && compteDansSociete(v));
   const retrosP = d.retrocessions.filter((r) => periode.includes(r.annee));
   const T = totaux(ventesP, retrosP);
   const duree = fin - debut + 1;
   const precedente = annees.filter((a) => a >= debut - duree && a <= debut - 1);
-  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee)), d.retrocessions.filter((r) => precedente.includes(r.annee)));
+  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)));
   const libPrec = precedente.length === 0 ? '' : duree === 1 ? String(debut - 1) : `${debut - duree} → ${debut - 1}`;
   const compFin = compromisDeLAnnee(d.ventes, fin);
   const parMois = caHtParMois(d.ventes, fin);
@@ -500,9 +501,67 @@ function ListeVentes({ titre, ventes, retros, onFermer, onModifier }: { titre: s
   );
 }
 
+// ── LOT C : les ventes notées chez les deux sociétés ─────────────────────────────────────────────────────────────────────
+
+type NoteAffichee = { sourceFichier?: string | null; sourceOnglet?: string | null; sourceLigne?: number | null };
+type NoteBloc = Pick<Vente, 'id' | 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc' | 'libelle' | 'double'> & NoteAffichee;
+
+/**
+ * 🔴 LOT C (Arno, 27/10/2026) — « VENTES À ATTRIBUER (N) » : la même vente notée chez CRITERIMMO ET chez MACJ. Tant qu'Arno n'a pas
+ * choisi la société qui l'a facturée, elle n'entre dans le total d'AUCUNE des deux (le CA global la compte une fois, au plus bas des deux
+ * montants) ; « Attribuer à … » la fait compter dans cette société seulement ; « Remettre à attribuer » défait (journalisé).
+ */
+export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonly NoteBloc[]; disponible: boolean; onRelire: () => void }) {
+  const [motif, setMotif] = useState<string | null>(null);
+  const groupes = groupesDoubles(notes);
+  if (groupes.length === 0) return null;
+  const enAttente = groupes.filter((g) => g.attribuee === null);
+  const faites = groupes.filter((g) => g.attribuee !== null);
+  const attribuer = async (cle: string, societe: Societe | null): Promise<void> => {
+    const r = await posterTransaction({ action: 'attribuer', cle, societe });
+    setMotif(r);
+    if (r === null) onRelire();
+  };
+  const ligne = (g: (typeof groupes)[number]) => (
+    <li key={g.cle} className="tdb-section" data-groupe-double={g.cle} data-attribuee={g.attribuee ?? ''}>
+      <p><strong>{g.annee}</strong> — {g.notes.map((n) => n.libelle).filter((x, i, t) => t.indexOf(x) === i).join(' / ')}
+        {g.attribuee !== null && <span className="loc-pastille trx-pastille--verte trx-pastilles">attribuée à {LIBELLE_SOCIETE[g.attribuee]}</span>}</p>
+      <ul className="trx-journal">
+        {g.notes.map((n) => (
+          <li key={n.id} data-note={n.id}>{LIBELLE_SOCIETE[n.societe]} : « {n.libelle} » {eur(n.honorairesTtc)} TTC
+            {n.double?.attribution === 'ecartee' && <span className="loc-pastille trx-pastilles">écartée</span>}
+            {n.sourceOnglet != null && <span className="trx-source"> · {n.sourceFichier} › {n.sourceOnglet} › ligne {n.sourceLigne}</span>}</li>
+        ))}
+      </ul>
+      <p className="loc-muet">Compté au CA global : {eur(ht(g.retenuTtc))} HT {g.attribuee === null ? '(une fois, le plus bas des deux montants ; dans aucune société)' : `(${LIBELLE_SOCIETE[g.attribuee]} seulement)`}</p>
+      <div className="trx-actions">
+        {SOCIETES.filter((s) => g.notes.some((n) => n.societe === s) && g.attribuee !== s).map((s) => (
+          <button key={s} type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible} onClick={() => void attribuer(g.cle, s)}
+            data-attribuer={s}>Attribuer à {LIBELLE_SOCIETE[s]}</button>
+        ))}
+        {g.attribuee !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible} onClick={() => void attribuer(g.cle, null)}
+          data-remettre-a-attribuer>Remettre à attribuer</button>}
+      </div>
+    </li>
+  );
+  return (
+    <section className="tdb-section" aria-labelledby="trx-a-attribuer" data-bloc="a-attribuer">
+      <h3 id="trx-a-attribuer">Ventes à attribuer ({enAttente.length})</h3>
+      <p className="loc-muet">La même vente notée chez CRITERIMMO et chez MACJ : elle ne compte qu’une fois. Tant qu’elle n’est pas attribuée, elle n’entre dans le total d’aucune des deux sociétés.</p>
+      {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
+      {enAttente.length === 0 ? <p className="loc-muet">Aucune vente en attente.</p> : <ul className="trx-journal">{enAttente.map(ligne)}</ul>}
+      {faites.length > 0 && (
+        <BlocReplie id="trx-attribuees" section="attribuees" titre={<>Déjà attribuées</>} resume={`${faites.length}`} donnees={{ 'data-bloc': 'attribuees' }}>
+          <ul className="trx-journal">{faites.map(ligne)}</ul>
+        </BlocReplie>
+      )}
+    </section>
+  );
+}
+
 // ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: EntreesGlobal['ventes'][number][]; gestion: GestionMois[]; location: Record<string, number> | null }
+interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null }
 
 export function EcranGlobal() {
   const jour = aujourdhuiParis();
@@ -522,7 +581,7 @@ export function EcranGlobal() {
   const A1 = celluleGlobal(e, annee - 1, null);
   const P = previsionnel(e, annee);
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
-  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.societe === s && v.statut === 'vendue' && v.annee === annee && v.mois === null)
+  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.societe === s && v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
     .reduce((t, v) => t + ht(v.honorairesTtc), 0);
   const gestionDe = (m: number): GestionMois | null => d.gestion.find((g) => g.annee === annee && g.mois === m) ?? null;
   return (
@@ -530,6 +589,8 @@ export function EcranGlobal() {
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
+      <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
+        disponible={d.disponible} onRelire={relire} />
       <form className="tdb-filtres" aria-label="Année" onSubmit={(x) => x.preventDefault()}>
         <label className="tdb-champ">Année
           <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
@@ -569,6 +630,11 @@ export function EcranGlobal() {
                 </tr>
               );
             })}
+            {A.aAttribuerHt > 0 && (
+              <tr data-a-attribuer-global><th scope="row">Ventes à attribuer <small className="loc-muet">(comptées une fois, dans aucune société)</small></th>
+                <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
+                <td data-mot="Total">{eur(A.aAttribuerHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+            )}
             {(ventesSansMois('criterimmo') > 0 || ventesSansMois('macj') > 0) && (
               <tr data-mois-a-confirmer><th scope="row">Mois à confirmer</th><td data-mot="Vente CRITERIMMO">{eur(ventesSansMois('criterimmo'))}</td>
                 <td data-mot="Vente MACJ">{eur(ventesSansMois('macj'))}</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
@@ -585,7 +651,7 @@ export function EcranGlobal() {
         <h3 id="trx-g-annees">Année par année <small className="loc-muet">(HT ; réalisé et prévisionnel)</small></h3>
         <table className="tdb-table tdb-table--large" data-table-global-annees>
           <thead><tr><th scope="col">Année</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total CRITERIMMO</th>
-            <th scope="col">Vente MACJ</th><th scope="col">Réalisé</th><th scope="col">Prévisionnel</th><th scope="col">Évolution</th></tr></thead>
+            <th scope="col">Vente MACJ</th><th scope="col">À attribuer</th><th scope="col">Réalisé</th><th scope="col">Prévisionnel</th><th scope="col">Évolution</th></tr></thead>
           <tbody>{annees.map((a, i) => {
             const c = celluleGlobal(e, a, null);
             const prec = i === 0 ? null : celluleGlobal(e, annees[i - 1], null);
@@ -593,7 +659,7 @@ export function EcranGlobal() {
               <tr key={a} className={a === annee ? 'tdb-fort' : undefined} data-annee-global={a}>
                 <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(a)}>{a}</button></th>
                 <td data-mot="Vente CRITERIMMO">{eur(c.venteCriterimmoHt)}</td><td data-mot="Location">{manque(c.locationHt)}</td><td data-mot="Gestion">{manque(c.gestionHt)}</td>
-                <td data-mot="Total CRITERIMMO">{eur(c.criterimmoHt)}</td><td data-mot="Vente MACJ">{eur(c.venteMacjHt)}</td>
+                <td data-mot="Total CRITERIMMO">{eur(c.criterimmoHt)}</td><td data-mot="Vente MACJ">{eur(c.venteMacjHt)}</td><td data-mot="À attribuer">{eur(c.aAttribuerHt)}</td>
                 <td data-mot="Réalisé" className="trx-total">{eur(c.totalHt)}</td><td data-mot="Prévisionnel">{eur(previsionnel(e, a).totalHt)}</td>
                 <td data-mot="Évolution">{prec === null ? '—' : signePct(variation(c.totalHt, prec.totalHt))}</td>
               </tr>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CelluleLue, ClasseurLu } from '../location/suivi/lectureExcel';
 import { analyserFormule, colonnesMois, identifierFichier, lireFichier, termesConstants } from './lectureTableau';
-import { centimes, memeLibelle, planifier, type Plan } from './planImport';
+import { acceptation, ACCEPTATIONS_NON_RECALCULE, centimes, memeLibelle, OPTIONS_DEFAUT, planifier, type Plan } from './planImport';
 
 /**
  * 🔴 TUILE « TRANSACTION », LOT B — la reprise, sur des classeurs FABRIQUÉS (les fichiers d'Arno ne sont jamais committés) qui
@@ -187,5 +187,29 @@ describe('B4 — un total qui ne s’explique pas bloque le fichier', () => {
     const f = lireFichier('TABLEAU DE BORD 2024.xlsx', classeur('CEDRIC!B15', 1000, null, null, d));
     expect(f.alertes.join('\n')).toMatch(/#REF! ignorée \(D6\)/);
     expect(planifier([f]).rapports[0].bloque).toBe(false);
+  });
+});
+
+describe('🔴 LOT C — décisions d’Arno du 27/10/2026', () => {
+  it('la même vente notée chez les deux sociétés la même année forme UN groupe « à attribuer » (HOPPENOT : une note CRITERIMMO, deux MACJ)', () => {
+    const crit = onglet('CEDRIC', { ca: { 10: 'B25' }, lignes: [[25, 'HOPPENOT / DANLOS', 2180], [27, 'DHIB / FARIA', 10000]], total: { ligne: 28, formule: 'SUM(B9:B27)' } });
+    crit.cellules.L2 = { v: null, f: 'B27' };
+    const mc = onglet('CEDRIC', { ca: { 5: 'B16', 7: 'B19', 10: 'B22' }, lignes: [[16, 'DOYEN HOPPENOT', 3451.67], [19, 'HOPPENOT/DANLOS', 3270], [22, 'DHIB/FARIA', 5000]],
+      total: { ligne: 25, formule: 'SUM(B9:B24)' } });
+    const jc = onglet('JEAN CLAUDE', { ca: { 4: 'B19' }, lignes: [[19, 'HOPPENOT', 1090]], total: { ligne: 21, formule: 'B19' } });
+    const p = planifier([lireFichier('TABLEAU DE BORD 2019 .xlsx', classeur('CEDRIC!B28/1.2', 12180 / 1.2, null, null, crit)),
+      lireFichier('TABLEAU DE BORD MACJ 2019.xlsx', classeur("CEDRIC!B25+'JEAN CLAUDE'!B21", 12811.67, null, null, mc, jc))]);
+    expect(p.doubles.map((g) => g.ventes.length).sort()).toEqual([2, 3]);
+    expect(p.interSocietes).toHaveLength(3);
+  });
+  it('MACJ 2023 : accepté nommément, avec son motif, malgré le total non recalculé ; les parts restent gardées', () => {
+    expect(ACCEPTATIONS_NON_RECALCULE.map((a) => a.fichier)).toEqual(['TABLEAU DE BORD MACJ 2023.xlsx']);
+    expect(acceptation('TABLEAU DE BORD MACJ 2023.xlsx', OPTIONS_DEFAUT)).toMatch(/^accepté par décision d'Arno, 27\/10\/2026.*10 950 €.*179 935 €/);
+    expect(acceptation('TABLEAU DE BORD MACJ 2024.xlsx', OPTIONS_DEFAUT)).toBeNull();
+    expect(OPTIONS_DEFAUT.partsEgales).toBe('parts');
+    const c = onglet('CEDRIC', { ca: { 1: 'B10' }, lignes: [[10, 'X', 1000]], total: { ligne: 15, formule: 'SUM(B9:B14)' } });
+    const r = planifier([lireFichier('TABLEAU DE BORD MACJ 2023.xlsx', classeur('CEDRIC!B15', 999, null, null, c))]).rapports[0];
+    expect(r.bloque).toBe(false);
+    expect(r.reconciliations[0].ecarts.at(-1)?.libelle).toMatch(/✔ accepté par décision d'Arno/);
   });
 });

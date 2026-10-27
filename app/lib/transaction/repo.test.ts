@@ -92,3 +92,25 @@ describe('annuler un geste', () => {
     expect(j.params[6]).toBe(7);
   });
 });
+
+describe('LOT C — attribuer une vente notée chez les deux sociétés', () => {
+  const notesEnBase = (s: string) => (s.includes('WHERE double_cle = $1') ? { rows: [{ id: '1', societe: 'criterimmo' }, { id: '2', societe: 'macj' }] } : undefined);
+  const etat: Record<string, string> = { '1': 'a_attribuer', '2': 'a_attribuer' };
+  it('« Attribuer à MACJ » : MACJ retenue, CRITERIMMO écartée, chaque note journalisée ; « Remettre à attribuer » défait', async () => {
+    reponses.push(notesEnBase);
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'X', honoraires_ttc: '1', statut: 'vendue', annee: 2025, mois_acte: null,
+      date_compromis: null, apporteur: null, note: null, retire_le: null, attribution: etat[String(appels.at(-1)!.params[0])] }] } : undefined));
+    reponses.push((s) => (s.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined));
+    expect(await repo.attribuer('double|X', 'macj', A)).toEqual({ ok: true });
+    const majs = appels.filter((x) => x.sql.startsWith('UPDATE transaction_vente'));
+    expect(majs.map((x) => x.params)).toEqual([[1, 'ecartee'], [2, 'retenue']]);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2])).toEqual(['attribution', 'attribution']);
+    appels.length = 0; etat['1'] = 'ecartee'; etat['2'] = 'retenue';
+    expect(await repo.attribuer('double|X', null, A)).toEqual({ ok: true });
+    expect(appels.filter((x) => x.sql.startsWith('UPDATE transaction_vente')).map((x) => x.params)).toEqual([[1, 'a_attribuer'], [2, 'a_attribuer']]);
+  });
+  it('une société qui n’a pas noté la vente est refusée', async () => {
+    reponses.push((s) => (s.includes('WHERE double_cle = $1') ? { rows: [{ id: '1', societe: 'criterimmo' }] } : undefined));
+    expect((await repo.attribuer('double|X', 'macj', A)).ok).toBe(false);
+  });
+});

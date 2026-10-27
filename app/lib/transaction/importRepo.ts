@@ -33,7 +33,7 @@ export async function lireExistant(): Promise<Existant> {
     gestionMois: new Map(g.rows.filter((x) => !x.retire).map((x) => [`${x.annee}-${x.mois}`, { origine: x.origine, cle: x.import_cle }])) };
 }
 
-export interface Bilan { ventesCreees: number; ventesMisesAJour: number; lignes: number; retros: number; aRattacher: number; gestion: number; gestionLaissee: string[]; retrosSansVente: string[] }
+export interface Bilan { doubles: number; ventesCreees: number; ventesMisesAJour: number; lignes: number; retros: number; aRattacher: number; gestion: number; gestionLaissee: string[]; retrosSansVente: string[] }
 
 async function journal(q: RequeteTx, entite: string, id: number, action: string, avant: unknown, apres: unknown, commentaire: string, marque: string): Promise<void> {
   await q(`INSERT INTO transaction_journal (entite, entite_id, action, avant, apres, commentaire, auteur_libelle) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)`,
@@ -51,20 +51,24 @@ const venteExistante = (v: VentePlan, e: Existant): number | null =>
 export async function ecrireFichier(plan: Plan, fichier: string, marque: string): Promise<Bilan> {
   const e = await lireExistant();
   return withTransaction(async (q) => {
-    const b: Bilan = { ventesCreees: 0, ventesMisesAJour: 0, lignes: 0, retros: 0, aRattacher: 0, gestion: 0, gestionLaissee: [], retrosSansVente: [] };
+    const b: Bilan = { doubles: 0, ventesCreees: 0, ventesMisesAJour: 0, lignes: 0, retros: 0, aRattacher: 0, gestion: 0, gestionLaissee: [], retrosSansVente: [] };
     const idDeVente = new Map<string, number>();
+    // LOT C — la clé de groupe « à attribuer » de chaque vente notée chez les deux sociétés.
+    const doubleDe = new Map(plan.doubles.flatMap((g) => g.ventes.map((k) => [k, g.cle] as const)));
     for (const v of plan.ventes.filter((x) => x.fichier === fichier)) {
       let id = venteExistante(v, e);
       const valeurs = { honoraires_ttc: v.honorairesTtc, statut: v.statut, annee: v.annee, mois_acte: premierDuMois(v.annee, v.statut === 'vendue' ? v.mois : null) };
       if (id === null) {
         const { rows } = await q<{ id: string }>(
-          `INSERT INTO transaction_vente (societe, libelle, honoraires_ttc, statut, annee, mois_acte, note, origine, import_marque, import_cle, source_fichier, source_onglet, source_ligne, cree_par_libelle)
-           VALUES ($1, $2, $3, $4, $5, $6::date, $7, 'import', $8, $9, $10, $11, $12, $8) RETURNING id`,
+          `INSERT INTO transaction_vente (societe, libelle, honoraires_ttc, statut, annee, mois_acte, note, origine, import_marque, import_cle, source_fichier, source_onglet, source_ligne, cree_par_libelle,
+             double_cle, attribution)
+           VALUES ($1, $2, $3, $4, $5, $6::date, $7, 'import', $8, $9, $10, $11, $12, $8, $13, $14) RETURNING id`,
           [v.societe, v.libelle, v.honorairesTtc, v.statut, v.annee, valeurs.mois_acte, [v.motifMois === null ? null : `Mois à confirmer : ${v.motifMois}.`, ...v.notes].filter(Boolean).join(' ') || null,
-            marque, v.cle, v.fichier, v.primaire.onglet, v.primaire.ligne]);
+            marque, v.cle, v.fichier, v.primaire.onglet, v.primaire.ligne, doubleDe.get(v.cle) ?? null, doubleDe.has(v.cle) ? 'a_attribuer' : null]);
         id = n(rows[0].id);
         await journal(q, 'vente', id, 'import_fichier', null, { ...valeurs, libelle: v.libelle, cle: v.cle }, `${marque} — ${v.fichier} › ${v.primaire.onglet} › ligne ${v.primaire.ligne} ; réversible par --annuler (retrait, jamais de suppression)`, marque);
         b.ventesCreees++;
+        if (doubleDe.has(v.cle)) b.doubles++;
       } else {
         // Un compromis importé plus tôt (fichier de son année), retrouvé dans un fichier plus récent : il devient la vente de ce fichier.
         const { rows } = await q<Record<string, unknown>>(`SELECT honoraires_ttc, statut, annee, to_char(mois_acte, 'YYYY-MM-DD') AS mois_acte FROM transaction_vente WHERE id = $1 FOR UPDATE`, [id]);
@@ -78,6 +82,16 @@ export async function ecrireFichier(plan: Plan, fichier: string, marque: string)
         }
       }
       idDeVente.set(v.cle, id);
+      // LOT C — une vente déjà en base, reconnue « notée chez les deux sociétés » : marquée à attribuer (jamais si Arno l'a déjà attribuée).
+      const groupe = doubleDe.get(v.cle);
+      if (groupe !== undefined) {
+        const { rows: d } = await q<{ double_cle: string | null }>('SELECT double_cle FROM transaction_vente WHERE id = $1', [id]);
+        if (d[0]?.double_cle === null) {
+          await q(`UPDATE transaction_vente SET double_cle = $2, attribution = 'a_attribuer', modifie_le = now() WHERE id = $1`, [id, groupe]);
+          await journal(q, 'vente', id, 'import_double', { attribution: null }, { attribution: 'a_attribuer' }, `${marque} — même vente notée chez les deux sociétés (lot C) : à attribuer`, marque);
+          b.doubles++;
+        }
+      }
       for (const l of v.lignes) {
         if (e.lignes.has(l.occ.cle)) continue;
         await q(`INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, nature, compte, origine, import_marque, import_cle, source_fichier, source_onglet, source_ligne, note, cree_par_libelle)

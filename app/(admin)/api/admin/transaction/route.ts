@@ -1,10 +1,10 @@
 import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
-import { estSociete } from '../../../../lib/transaction/modele';
+import { estSociete, type Vente } from '../../../../lib/transaction/modele';
 import { lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  annulerGeste, creerVente, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireRetrocessions, lireVentes, modifierVente,
+  annulerGeste, attribuer, creerVente, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNotesDoubles, lireRetrocessions, lireVentes, modifierVente,
   rattacherRetro, retirerVente, saisirRetro, transactionDisponible,
 } from '../../../../lib/transaction/repo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
@@ -19,6 +19,7 @@ import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
  *        action=retro-rattacher {id, venteId|null} | retro-saisir {retro}
  *        action=gestion-enregistrer {annee, mois, gestion}
  *        action=annuler {journalId}
+ *        action=attribuer {cle, societe|null}   LOT C : la même vente notée chez les deux sociétés, attribuée (ou remise à attribuer)
  * Sans la migration 433 : les lectures rendent des listes vides (`disponible: false`) et toute écriture est refusée avec ce motif.
  */
 export const runtime = 'nodejs';
@@ -37,16 +38,17 @@ export async function GET(request: Request): Promise<Response> {
     if (vue === 'societe') {
       const societe = url.searchParams.get('societe');
       if (!estSociete(societe)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
-      if (!disponible) return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes: [], retrocessions: [], aRattacher: [] } });
-      const [ventes, retrocessions, aRattacher] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe)]);
-      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher } });
+      if (!disponible) return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes: [], retrocessions: [], aRattacher: [], doubles: [] } });
+      const [ventes, retrocessions, aRattacher, doubles] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe), lireNotesDoubles(societe)]);
+      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles } });
     }
     if (vue === 'global') {
       const location = await lireCaLocation().catch(() => null);
       if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location } });
       const [ventes, gestion] = await Promise.all([lireVentes(null), lireGestion()]);
       return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location,
-        ventes: ventes.map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle })) } });
+        ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
+          double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne })) } });
     }
     if (vue === 'journal') {
       const entite = url.searchParams.get('entite') ?? '';
@@ -101,6 +103,12 @@ export async function POST(request: Request): Promise<Response> {
         if (!Number.isInteger(annee) || annee < 2000 || annee > 2100 || !Number.isInteger(mois) || mois < 1 || mois > 12) return json({ etat: 'refus', motif: 'Mois invalide.' }, 400);
         const g = lireSaisieGestion(corps.gestion);
         return g.ok ? rendre(await enregistrerGestion(annee, mois, g.valeur, auteur)) : rendre(g);
+      }
+      case 'attribuer': {
+        // LOT C — « Attribuer à CRITERIMMO / à MACJ » ; societe null : remettre à attribuer (annuler l'attribution).
+        const cle = typeof corps.cle === 'string' ? corps.cle : '';
+        if (cle === '' || (corps.societe !== null && !estSociete(corps.societe))) return json({ etat: 'refus', motif: 'Vente ou société inconnue.' }, 400);
+        return rendre(await attribuer(cle, corps.societe === null ? null : corps.societe as 'criterimmo' | 'macj', auteur));
       }
       case 'annuler': {
         const j = Number(corps.journalId);

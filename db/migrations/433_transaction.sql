@@ -63,8 +63,15 @@ CREATE TABLE IF NOT EXISTS transaction_vente (
   modifie_le         timestamptz,
   retire_le          timestamptz,
   retire_par_libelle text,
-  CHECK (origine = 'saisie' OR import_cle IS NOT NULL)
+  -- LOT C (Arno, 27/10/2026) — LA MÊME VENTE NOTÉE CHEZ LES DEUX SOCIÉTÉS : ses notes partagent `double_cle` ; tant qu'Arno n'a pas
+  -- choisi la société qui l'a facturée (« a_attribuer »), elle n'entre dans le total d'aucune ; attribuée, la note de la société
+  -- choisie est « retenue », l'autre « ecartee » (réversible, journalisé).
+  double_cle         text,
+  attribution        text          CHECK (attribution IN ('a_attribuer', 'retenue', 'ecartee')),
+  CHECK (origine = 'saisie' OR import_cle IS NOT NULL),
+  CHECK ((double_cle IS NULL) = (attribution IS NULL))
 );
+CREATE INDEX IF NOT EXISTS transaction_vente_double_idx ON transaction_vente (double_cle) WHERE double_cle IS NOT NULL;
 CREATE INDEX IF NOT EXISTS transaction_vente_societe_annee_idx ON transaction_vente (societe, annee) WHERE retire_le IS NULL;
 COMMENT ON TABLE transaction_vente IS
   'Une vente (ou un compromis) de CRITERIMMO ou de MACJ (433) : honoraires TTC (HT = TTC ÷ 1,2), mois de l''acte = mois du CA (NULL : mois à confirmer). Jamais effacée : retire_le.';

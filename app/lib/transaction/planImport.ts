@@ -31,6 +31,21 @@ export interface OptionsPlan {
 }
 export const OPTIONS_DEFAUT: OptionsPlan = { partsEgales: 'parts', accepterNonRecalcule: [] };
 
+/**
+ * 🔴 LOT C — LES TOTAUX NON RECALCULÉS QU'ARNO A ACCEPTÉS, nommément, avec leur motif (B4 : sans cette liste, le fichier est bloqué).
+ * Toujours dits au rapport. Une nouvelle acceptation s'ajoute ici (décision d'Arno), ou ponctuellement par `--accepter-non-recalcule=`.
+ */
+export const ACCEPTATIONS_NON_RECALCULE: readonly { fichier: string; motif: string; decision: string }[] = [
+  { fichier: 'TABLEAU DE BORD MACJ 2023.xlsx', decision: 'Arno, 27/10/2026 (lot C)',
+    motif: 'le TOTAL COMPROMIS du CA GLOBAL affiche 10 950 € alors que sa formule CEDRIC!C21 = SUM(C10:C67) additionne 179 935 € (valeur non recalculée par Excel) ; les ventes du fichier se réconcilient au centime' },
+];
+/** L'acceptation d'un fichier : celle de la liste d'Arno, ou celle de l'option du script ; null : non acceptée. PUR. */
+export function acceptation(fichier: string, o: OptionsPlan): string | null {
+  const a = ACCEPTATIONS_NON_RECALCULE.find((x) => x.fichier === fichier);
+  if (a !== undefined) return `accepté par décision d'${a.decision} — ${a.motif}`;
+  return o.accepterNonRecalcule.includes(fichier) ? 'accepté par l’option --accepter-non-recalcule' : null;
+}
+
 export const centimes = (x: number): number => Math.round((x + Number.EPSILON) * 100);
 const memeMontant = (a: number, b: number): boolean => centimes(a) === centimes(b);
 
@@ -142,6 +157,8 @@ export interface Plan {
   rapports: RapportFichier[];
   destins: Map<string, Destin>;
   interSocietes: string[];
+  /** LOT C — la même vente notée chez les deux sociétés la même année : un groupe = ses notes (clés de ventes du plan). */
+  doubles: { cle: string; annee: number; ventes: string[] }[];
 }
 
 const cleOcc = (fichier: string, onglet: string, ligne: number): string => `${fichier}|${onglet}|${ligne}`;
@@ -379,16 +396,29 @@ export function planifier(fichiers: readonly FichierLu[], o: OptionsPlan = OPTIO
   // ── Les ventes présentes chez les deux sociétés la même année : listées (information), jamais retirées ──
   const interSocietes: string[] = [];
   const crit = ventes.filter((v) => v.societe === 'criterimmo');
-  for (const m of ventes.filter((v) => v.societe === 'macj')) {
-    for (const c of crit.filter((x) => x.annee === m.annee && memeLibelle(x.libelle, m.libelle))) {
+  // LOT C (Arno, 27/10/2026) — chaque rapprochement CRITERIMMO ↔ MACJ est la MÊME vente notée deux fois : les notes reliées entre elles
+  // (HOPPENOT 2019 : une note CRITERIMMO, deux MACJ) forment un groupe « à attribuer ».
+  const parent = new Map<string, string>();
+  const racine = (k: string): string => { let r = k; while ((parent.get(r) ?? r) !== r) r = parent.get(r)!; return r; };
+  for (const m of ventes.filter((v) => v.societe === 'macj' && v.statut === 'vendue')) {
+    for (const c of crit.filter((x) => x.annee === m.annee && x.statut === 'vendue' && memeLibelle(x.libelle, m.libelle))) {
       interSocietes.push(`${m.annee} : CRITERIMMO « ${c.libelle} » ${eur(c.honorairesTtc)} (${c.primaire.onglet} l.${c.primaire.ligne}) ↔ MACJ « ${m.libelle} » ${eur(m.honorairesTtc)} (${m.primaire.onglet} l.${m.primaire.ligne})`);
+      for (const k of [c.cle, m.cle]) if (!parent.has(k)) parent.set(k, k);
+      parent.set(racine(m.cle), racine(c.cle));
     }
   }
-  return { ventes, retros, aRattacher, gestion, rapports, destins, interSocietes };
+  const groupes = new Map<string, string[]>();
+  for (const k of parent.keys()) groupes.set(racine(k), [...(groupes.get(racine(k)) ?? []), k]);
+  const doubles = [...groupes.values()].map((cles) => {
+    const vs = cles.map((k) => ventes.find((v) => v.cle === k)!);
+    return { cle: `double|${[...cles].sort()[0]}`, annee: Math.min(...vs.map((v) => v.annee)), ventes: [...cles].sort() };
+  }).sort((a, b) => a.annee - b.annee || a.cle.localeCompare(b.cle));
+  return { ventes, retros, aRattacher, gestion, rapports, destins, interSocietes, doubles };
 }
 
 function reconcilier(quoi: string, fichierTtc: number | null, cellules: Occurrence[], textes: Feuille[], importes: VentePlan[], destins: Map<string, Destin>,
-  ajouts: Ecart[], accepte: boolean, horsCellules: number): Reconciliation {
+  ajouts: Ecart[], acceptation: string | null, horsCellules: number): Reconciliation {
+  const accepte = acceptation !== null;
   const somme = cellules.reduce((s, x) => s + x.montant, 0) + horsCellules;
   const ecarts: Ecart[] = [];
   for (const x of cellules) {
@@ -404,7 +434,7 @@ function reconcilier(quoi: string, fichierTtc: number | null, cellules: Occurren
   const importe = importes.reduce((s, v) => s + v.honorairesTtc, 0);
   const base = fichierTtc ?? somme;
   if (fichierTtc !== null && centimes(fichierTtc) !== centimes(somme)) {
-    ecarts.push({ libelle: `⚠ le total AFFICHÉ par le fichier (${eur(fichierTtc)}) n'est pas la somme des cellules de sa formule (${eur(somme)}) : valeur non recalculée par Excel — ${accepte ? 'accepté par Arno (option)' : 'BLOQUANT tant qu’Arno ne l’accepte pas (--accepter-non-recalcule)'}`, montant: somme - fichierTtc });
+    ecarts.push({ libelle: `⚠ le total AFFICHÉ par le fichier (${eur(fichierTtc)}) n'est pas la somme des cellules de sa formule (${eur(somme)}) : valeur non recalculée par Excel — ${accepte ? `✔ ${acceptation}` : 'BLOQUANT tant qu’Arno ne l’accepte pas (liste ACCEPTATIONS_NON_RECALCULE ou --accepter-non-recalcule)'}`, montant: somme - fichierTtc });
   }
   const reste = centimes(base) + centimes(ecarts.reduce((s, e) => s + e.montant, 0)) - centimes(importe);
   const stale = fichierTtc !== null && centimes(fichierTtc) !== centimes(somme);
@@ -439,10 +469,10 @@ function rapportDe(f: FichierLu, ventes: VentePlan[], retros: RetroPlan[], aRatt
   }
   // Une vente d'un AUTRE fichier qui compte une ligne de celui-ci (D2 : compromis repris l'année suivante) n'est pas importée ici.
   for (const x of dejaVentes) ajoutsC.push({ libelle: `− ${x.ref.feuille} l.${x.ref.ligne} « ${x.libelle ?? ''} » ${eur(x.valeur as number)} : déjà comptée par le TOTAL VENTES — une vente, comptée une fois`, montant: -(x.valeur as number) });
-  const accepte = o.accepterNonRecalcule.includes(f.fichier);
+  const motifAcceptation = acceptation(f.fichier, o);
   const reconciliations = [
-    reconcilier('Ventes (TOTAL VENTES du CA GLOBAL)', f.ventes?.valeurFichierTtc ?? null, cellsV, pf.textes.filter((t) => venteCells.has(cleOcc(f.fichier, t.ref.feuille, t.ref.ligne))), vendues, destins, ajoutsV, accepte, 0),
-    reconcilier('Compromis en cours (TOTAL COMPROMIS du CA GLOBAL)', f.compromis?.valeurFichierTtc ?? null, cellsC, [], compromis, destins, ajoutsC, accepte,
+    reconcilier('Ventes (TOTAL VENTES du CA GLOBAL)', f.ventes?.valeurFichierTtc ?? null, cellsV, pf.textes.filter((t) => venteCells.has(cleOcc(f.fichier, t.ref.feuille, t.ref.ligne))), vendues, destins, ajoutsV, motifAcceptation, 0),
+    reconcilier('Compromis en cours (TOTAL COMPROMIS du CA GLOBAL)', f.compromis?.valeurFichierTtc ?? null, cellsC, [], compromis, destins, ajoutsC, motifAcceptation,
       dejaVentes.reduce((s, x) => s + (x.valeur as number), 0)),
   ];
   // Les apporteurs : la somme de la ligne « Apporteur » de chaque onglet = les rétrocessions importées + les non importées.

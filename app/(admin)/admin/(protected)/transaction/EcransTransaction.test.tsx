@@ -15,7 +15,7 @@ const ligne = (negociateur: string, role: LigneVente['role'], montantTtc: number
   id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: role !== 'negociateur', origine: 'import', sourceFichier: 'TABLEAU DE BORD MACJ 2025.xlsx',
   sourceOnglet: negociateur, sourceLigne: 30, note: null });
 const vente = (id: number, o: Partial<Vente>): Vente => ({ id, societe: 'macj', libelle: `V${id}`, honorairesTtc: 12000, statut: 'vendue', annee: 2025, mois: 1,
-  dateCompromis: null, apporteur: null, note: null, origine: 'import', sourceFichier: 'TABLEAU DE BORD MACJ 2025.xlsx', sourceOnglet: 'MYLENE', sourceLigne: id, lignes: [], ...o });
+  dateCompromis: null, apporteur: null, note: null, origine: 'import', sourceFichier: 'TABLEAU DE BORD MACJ 2025.xlsx', sourceOnglet: 'MYLENE', sourceLigne: id, lignes: [], double: null, ...o });
 const donnees: DonneesSociete = {
   disponible: true, societe: 'macj', aujourdhui: '2025-10-27',
   ventes: [
@@ -107,5 +107,32 @@ describe('le CA global', () => {
     expect(cel('Total')).toBe('32 610,55 €');
     expect(texte('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe('20 833,33 €');
     expect(container.querySelector('[data-mois-a-confirmer]')).not.toBeNull();
+  });
+});
+
+describe('🔴 LOT C — « Ventes à attribuer »', () => {
+  const dhibMacj = vente(20, { libelle: 'DHIB/FARIA', honorairesTtc: 10000, mois: 3, double: { cle: 'double|DHIB', attribution: 'a_attribuer' } });
+  const dhibCrit = { ...vente(21, { libelle: 'DHIB / FARIA', honorairesTtc: 12000, mois: 3, double: { cle: 'double|DHIB', attribution: 'a_attribuer' as const } }), societe: 'criterimmo' as const };
+  it('le bloc liste la vente, hors du total de la société ; « Attribuer à CRITERIMMO » envoie le geste', async () => {
+    donnees.ventes.push(dhibMacj);
+    donnees.doubles = [dhibMacj, dhibCrit];
+    window.history.replaceState(null, '', '/?annee=2025&mois=3');
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+    await calmer();
+    expect(texte('#trx-a-attribuer')).toBe('Ventes à attribuer (1)');
+    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('0,00 €');
+    await act(async () => { (container.querySelector('[data-attribuer="criterimmo"]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts).toContainEqual({ action: 'attribuer', cle: 'double|DHIB', societe: 'criterimmo' });
+    donnees.ventes.pop(); delete donnees.doubles;
+  });
+  it('le CA global la compte une fois (le plus bas), dans aucune société', async () => {
+    donneesGlobal.ventes = [...donneesGlobal.ventes, ...[dhibMacj, dhibCrit].map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois,
+      honorairesTtc: v.honorairesTtc, libelle: v.libelle, double: v.double }))];
+    await act(async () => { root.render(createElement(EcranGlobal)); });
+    await calmer();
+    expect(texte('[data-a-attribuer-global] [data-mot="Total"]')).toBe('8 333,33 €');
+    expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0,00 €');
+    expect(texte('#trx-a-attribuer')).toBe('Ventes à attribuer (1)');
   });
 });

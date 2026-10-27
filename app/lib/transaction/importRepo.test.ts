@@ -16,7 +16,7 @@ const occ = { cle: 'F.xlsx|CEDRIC|10', fichier: 'F.xlsx', societe: 'criterimmo' 
   deuxMontants: false, nature: 'vente' as const, sorte: 'comptee' as const, mois: [2], requalifie: false };
 const vente: VentePlan = { cle: occ.cle, societe: 'criterimmo', fichier: 'F.xlsx', annee: 2025, libelle: 'X', honorairesTtc: 1000, statut: 'vendue', mois: 2, motifMois: null,
   primaire: occ, lignes: [{ occ, role: 'vendeur', montantTtc: null, compte: true, note: null }], notes: [] };
-const plan = (): Plan => ({ ventes: [vente], retros: [], aRattacher: [], destins: new Map(), rapports: [], interSocietes: [],
+const plan = (): Plan => ({ ventes: [vente], retros: [], aRattacher: [], destins: new Map(), rapports: [], interSocietes: [], doubles: [],
   gestion: [{ cle: 'F.xlsx|GESTION|1', fichier: 'F.xlsx', annee: 2025, mois: 1, nbLots: null, honorairesHt: 14127, adhocHt: 6437, salarieHt: null, resteHt: 7690, note: null }] });
 beforeEach(() => { appels.length = 0; reponse = () => []; });
 
@@ -26,7 +26,7 @@ describe('écrire un fichier', () => {
     const b = await repo.ecrireFichier(plan(), 'F.xlsx', 'import fichier transaction du 27/10');
     expect(b).toMatchObject({ ventesCreees: 1, lignes: 1, gestion: 1 });
     const v = appels.find((a) => a.sql.startsWith('INSERT INTO transaction_vente ('))!;
-    expect(v.params).toEqual(['criterimmo', 'X', 1000, 'vendue', 2025, '2025-02-01', null, 'import fichier transaction du 27/10', 'F.xlsx|CEDRIC|10', 'F.xlsx', 'CEDRIC', 10]);
+    expect(v.params).toEqual(['criterimmo', 'X', 1000, 'vendue', 2025, '2025-02-01', null, 'import fichier transaction du 27/10', 'F.xlsx|CEDRIC|10', 'F.xlsx', 'CEDRIC', 10, null, null]);
   });
   it('rejouer n’écrit rien : les clés sont déjà là (idempotent)', async () => {
     reponse = (s) => {
@@ -47,6 +47,16 @@ describe('écrire un fichier', () => {
     const b = await repo.ecrireFichier(plan(), 'F.xlsx', 'm');
     expect(b.gestion).toBe(0);
     expect(b.gestionLaissee[0]).toMatch(/déjà en base \(saisie\)/);
+  });
+});
+
+describe('LOT C — une vente notée chez les deux sociétés', () => {
+  it('est importée « à attribuer », avec la clé de son groupe', async () => {
+    reponse = (s) => (s.includes('information_schema.tables') ? [{ n: 1 }] : s.startsWith('SELECT double_cle') ? [{ double_cle: 'double|F.xlsx|CEDRIC|10' }]
+      : s.includes('RETURNING id') ? [{ id: '7' }] : []);
+    const p = { ...plan(), doubles: [{ cle: 'double|F.xlsx|CEDRIC|10', annee: 2025, ventes: ['F.xlsx|CEDRIC|10', 'M.xlsx|PIERRE|3'] }] };
+    await repo.ecrireFichier(p, 'F.xlsx', 'm');
+    expect(appels.find((a) => a.sql.startsWith('INSERT INTO transaction_vente ('))!.params.slice(-2)).toEqual(['double|F.xlsx|CEDRIC|10', 'a_attribuer']);
   });
 });
 
