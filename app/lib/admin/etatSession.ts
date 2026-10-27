@@ -44,7 +44,7 @@ export interface EtatCompte {
 export async function lireEtatCompte(id: number): Promise<EtatCompte | null> {
   const { rows } = await query<Record<string, unknown>>(
     `SELECT u.actif, u.role, u.mot_de_passe,
-            ${MODULES.map((m) => `u.perm_${m}`).join(', ')},
+            ${MODULES.map((m) => `to_jsonb(u) ->> 'perm_${m}' AS perm_${m}`).join(', ')},
             to_jsonb(u) ->> 'session_version' AS version
        FROM admin_utilisateur u WHERE u.id = $1`,
     [id],
@@ -53,7 +53,10 @@ export async function lireEtatCompte(id: number): Promise<EtatCompte | null> {
   if (!r) return null;
   const role: RoleAdmin = r.role === 'administrateur' ? 'administrateur' : 'collaborateur';
   const perms = role === 'administrateur' ? permsToutes() : permsAucune();
-  if (role !== 'administrateur') for (const m of MODULES) perms[m] = r[`perm_${m}`] === true;
+  // 🔴 Lu en TEXTE via to_jsonb (comme `session_version`) : un droit dont la migration n'est pas appliquée (colonne absente,
+  //    ex. perm_transaction avant la 433) vaut « non » — jamais une erreur SQL, qui ferait répondre 503 au proxy pour TOUT l'admin
+  //    (incident de recette du 27/10/2026).
+  if (role !== 'administrateur') for (const m of MODULES) perms[m] = r[`perm_${m}`] === true || r[`perm_${m}`] === 'true';
   const version = r.version === null || r.version === undefined ? null : Number(r.version);
   return {
     actif: r.actif === true,

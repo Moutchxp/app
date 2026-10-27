@@ -59,6 +59,14 @@ describe('verdictSession (pur)', () => {
 });
 
 describe('lireEtatCompte', () => {
+  it('🔴 un droit dont la migration manque (perm_transaction sans la 433) vaut « non », jamais une erreur SQL (503 de recette du 27/10/2026)', async () => {
+    q.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur', mot_de_passe: 'H', perm_curation: 'true', perm_location: 'false', perm_transaction: null, version: null }] });
+    const e = await lireEtatCompte(3);
+    expect(e?.perms).toMatchObject({ curation: true, location: false, transaction: false });
+    const sql = String(q.mock.calls.at(-1)?.[0]).replace(/\s+/g, ' ');
+    expect(sql).not.toMatch(/u\.perm_/);
+    expect(sql).toContain("to_jsonb(u) ->> 'perm_transaction' AS perm_transaction");
+  });
   it('une requête par clé primaire ; version lue sans nommer la colonne (to_jsonb), donc sans migration', async () => {
     q.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur', mot_de_passe: 'H', perm_curation: true, perm_gestion: false, version: null }] });
     const e = await lireEtatCompte(3);
