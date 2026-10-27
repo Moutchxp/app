@@ -530,6 +530,10 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     } else {
       const actuel = await lireLigne(q, 'vente', id);
       if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+      // LOT F — compléter un compromis (personnes, prix…) ne change aucun montant de place : sans date pour la fixer, il garde SON année
+      // (le prévisionnel d'un compromis importé reste où il était) ; sans apporteur de l'annuaire, il garde l'apporteur écrit du fichier.
+      if (s.statut === 'compromis' && s.dateActePrevue === null && s.dateCompromis === null) valeurs.annee = Number(actuel.annee);
+      if (s.apporteurId === null && s.apporteurNom === null && actuel.apporteur_id == null) delete valeurs.apporteur;
       const r = await ecrire(q, 'vente', id, valeurs, true);
       if (r !== null && Object.keys(r.apres).length > 0) await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
       venteId = id;

@@ -91,16 +91,43 @@ export const CSS_TRANSACTION = `
 .trx-croix{appearance:none;margin-left:auto;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;cursor:pointer}
 .trx-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .trx-explication{color:var(--color-svv-red);font-weight:700;font-size:.85rem;align-self:center}
-.trx-carte .tdb-replie-ligne{align-items:flex-start}
-.trx-carte-lignes{display:flex;flex-direction:column;gap:2px;min-width:0;font-weight:400;font-size:.92rem;color:var(--color-svv-ink)}
-.trx-carte-vendeurs{font-weight:800}
-.trx-carte-infos{display:flex;flex-wrap:wrap;gap:2px 8px;color:var(--color-svv-muted)}
+.trx-cartes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.trx-carte{border:1px solid var(--color-svv-line);border-radius:14px;padding:10px 14px;background:var(--color-svv-surface)}
+.trx-carte .tdb-replie-ligne{align-items:flex-start;gap:6px 16px}
+.trx-carte .tdb-h-chevron--gauche{padding-top:3px}
+.trx-carte .tdb-replie-mot{flex:1 1 16rem;min-width:0;font-size:inherit;font-weight:400}
+.trx-carte .tdb-replie-resume{margin-left:auto;text-align:right;font-weight:400;color:inherit}
+.trx-carte-gauche{display:flex;flex-direction:column;gap:4px;min-width:0}
+.trx-carte-titre{font-size:1.02rem;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.trx-carte-infos{display:flex;flex-wrap:wrap;gap:2px 0;font-size:.86rem;color:var(--color-svv-muted)}
+.trx-carte-droite{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap}
 .trx-commission{color:var(--color-svv-green-ink);font-weight:800}
 .trx-commission small{font-weight:600;color:var(--color-svv-muted)}
+.trx-commission--ttc{font-size:1.15rem}
+.trx-carte-ht{font-size:.88rem;font-weight:700;color:var(--color-svv-ink)}
+.trx-carte-pct{font-size:.8rem;color:var(--color-svv-muted)}
+.trx-carte-detail{display:flex;flex-direction:column;gap:14px;padding-top:6px;border-top:1px solid var(--color-svv-line)}
+.trx-carte-detail h4{margin:0 0 8px;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-colonnes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.trx-colonne{display:flex;flex-direction:column;gap:8px;align-items:flex-start;border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;min-width:0}
+.trx-personnes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;width:100%}
+.trx-personnes li{display:flex;flex-direction:column;gap:2px;font-size:.9rem;overflow-wrap:anywhere}
+.trx-personnes li{gap:0}
+.trx-personnes a{color:var(--color-svv-red);display:inline-flex;align-items:center;min-height:44px}
+.trx-sep{white-space:pre}
+.trx-communes{border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;min-width:0}
+.trx-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 16px;margin:0 0 12px}
+.trx-info{min-width:0}
+.trx-info dt{font-size:.78rem;color:var(--color-svv-muted)}
+.trx-info dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.trx-repartition-titre{margin:0 0 6px}
+.trx-barre-actions{border-top:1px solid var(--color-svv-line);padding-top:10px}
+@media (max-width:900px){ .trx-grille{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .trx-depassee{color:var(--color-svv-red);font-weight:800}
 .trx-a-renseigner{font-style:italic}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
+  .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }
 `;

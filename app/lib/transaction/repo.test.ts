@@ -216,3 +216,19 @@ describe('🔴 LOT E (435) — le prix de vente', () => {
     expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[4]).toBe(JSON.stringify({ prix_vente: 450000 }));
   });
 });
+
+describe('🔴 LOT F — compléter un compromis importé ne déplace aucun montant', () => {
+  it('sans date : il garde son année ; sans apporteur de l’annuaire : il garde l’apporteur du fichier', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE')
+      ? { rows: [{ libelle: 'HEIDIDON', honoraires_ttc: '4000', statut: 'compromis', annee: 2019, mois_acte: null, date_compromis: null, apporteur: 'Gardien Dacquet', note: null, retire_le: null,
+        attribution: null, adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null, negociateur_sortie_id: null, apporteur_id: null, retro_apporteur_ttc: null, repartition: false }] } : undefined),
+    (s) => (s.includes('RETURNING id') ? { rows: [{ id: '70' }] } : undefined));
+    const r = await repo.enregistrerDossier(12, { societe: 'criterimmo', statut: 'compromis', libelle: 'HEIDIDON', honorairesTtc: 4000, dateCompromis: null, dateActePrevue: null, dateActe: null,
+      adresseBien: null, note: null, entreeId: null, sortieId: null, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, prixVente: null, lignes: [], parties: [],
+      personnes: [{ id: null, role: 'vendeur', nom: 'DUPONT', telephone: null, email: null, adresse: null }] }, '2026-10-27', A);
+    expect(r.ok).toBe(true);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'));
+    expect(maj?.sql ?? '').not.toMatch(/annee|apporteur =|honoraires/);
+  });
+});

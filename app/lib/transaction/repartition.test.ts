@@ -147,7 +147,7 @@ describe('les vendeurs et acquéreurs : jamais de doublon', () => {
     expect(cleTelephone('0612')).toBe('');
     expect(memePersonne({ nom: 'A', telephone: null, email: null, adresse: null }, { nom: 'A', telephone: null, email: null, adresse: null })).toBe(false);
   });
-  it('le libellé d’une vente : « vendeurs / acquéreurs »', () => {
-    expect(libelleDesPersonnes([{ role: 'acquereur', nom: 'MARTIN' }, { role: 'vendeur', nom: 'DUPONT' }, { role: 'vendeur', nom: 'DURAND' }])).toBe('DUPONT, DURAND / MARTIN');
+  it('le libellé d’une vente : « vendeurs / acquéreurs », tirets entre les personnes d’un même côté (lot F)', () => {
+    expect(libelleDesPersonnes([{ role: 'acquereur', nom: 'MARTIN' }, { role: 'vendeur', nom: 'DUPONT' }, { role: 'vendeur', nom: 'DURAND' }])).toBe('DUPONT-DURAND / MARTIN');
   });
 });

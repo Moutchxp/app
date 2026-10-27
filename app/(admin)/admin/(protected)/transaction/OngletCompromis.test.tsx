@@ -64,7 +64,6 @@ const ouvrir = async () => {
 };
 
 const deplier = async (id: number) => cliquer(`[data-deplier="compromis-${id}"]`);
-const lignesCarte = (id: number): string[] => [...container.querySelectorAll(`[data-compromis="${id}"] [data-carte-ligne]`)].map((x) => x.textContent!.replace(/\s/g, ' '));
 
 describe('l’onglet « Compromis »', () => {
   it('placé AVANT « Le mois » et « L’année » ; « Le mois » reste l’onglet d’ouverture', async () => {
@@ -72,27 +71,73 @@ describe('l’onglet « Compromis »', () => {
     expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.textContent)).toEqual(['Compromis', 'Le mois', 'L’année']);
     expect(container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')).toBe('true');
   });
-  it('🔴 LOT E — la carte compacte : vendeurs, acquéreurs, puis adresse · prix · commission verte (« € HT ») · date butoir', async () => {
-    listeCompromis = [{ ...compromis, prixVente: 450000 }];
+  it('🔴 LOT F — carte repliée : à gauche le titre puis adresse · prix · acte au plus tard ; à droite TTC (vert, « TTC »), HT, % du prix', async () => {
+    listeCompromis = [{ ...compromis, prixVente: 240000 }];
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
-    expect(lignesCarte(41)).toEqual(['DUPONT', 'MARTIN', '1 rue A, Puteaux · prix 450 000,00 € · 10 000,00 € HT (12 000,00 € TTC) · acte au plus tard le 15/01/2027']);
-    const commission = container.querySelector('[data-compromis="41"] [data-carte="commission"]')!;
-    expect(commission.className).toBe('trx-commission');
-    expect(commission.textContent).toContain('€ HT');
-    // replié : le détail n'est pas là, rien n'est perdu — il se déplie
-    expect(container.querySelector('[data-compromis="41"] [data-acte-signe]')).toBeNull();
+    const carte = '[data-compromis="41"]';
+    expect(texte(`${carte} [data-carte="titre"]`)).toBe('DUPONT / MARTIN');
+    expect(texte(`${carte} [data-carte-ligne="infos"]`)).toBe('1 rue A, Puteaux · prix 240 000,00 € · acte au plus tard le 15/01/2027');
+    const montants = container.querySelector(`${carte} [data-carte="montants"]`)!;
+    expect(montants.closest('.tdb-replie-resume')).not.toBeNull(); // le bloc de droite, aligné à droite
+    expect([...montants.children].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['12 000,00 € TTC', '10 000,00 € HT', '5,00 % du prix']);
+    expect(montants.querySelector('[data-carte="commission"]')!.className).toContain('trx-commission');
+    // toute la ligne est le bouton qui déplie ; replié, le détail n'est pas là
+    expect(montants.closest('button[data-deplier="compromis-41"]')).not.toBeNull();
+    expect(container.querySelector(`${carte} [data-acte-signe]`)).toBeNull();
     await deplier(41);
-    expect(container.querySelector('[data-compromis="41"] [data-acte-signe]')).not.toBeNull();
+    expect(container.querySelector(`${carte} [data-acte-signe]`)).not.toBeNull();
   });
-  it('ce qui manque s’écrit « à renseigner » ; un compromis importé sans noms : son libellé, puis « acquéreurs à renseigner »', async () => {
+  it('sans libellé propre : « VENDEURS / ACQUÉREURS », tirets entre les personnes d’un même côté ; le % seulement avec un prix', async () => {
+    const deux = { ...compromis, libelle: 'DUPONT, DURANT / MARTIN', prixVente: null, dossier: { ...compromis.dossier!, personnes: [...compromis.dossier!.personnes,
+      { id: 11, role: 'vendeur' as const, nom: 'DURANT', telephone: null, email: null, adresse: null }] } };
+    listeCompromis = [deux];
+    await ouvrir();
+    await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-compromis="41"] [data-carte="titre"]')).toBe('DUPONT-DURANT / MARTIN');
+    expect(container.querySelector('[data-compromis="41"] [data-carte="pct-prix"]')).toBeNull();
+    expect(texte('[data-compromis="41"] [data-carte="prix"]')).toBe('prix à renseigner');
+  });
+  it('ce qui manque s’écrit « à renseigner » ; un compromis importé : son libellé en titre, « Aucun vendeur enregistré », « Libellé du fichier »', async () => {
     listeCompromis = [importe];
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
-    expect(lignesCarte(12)).toEqual(['MARMONIER', 'acquéreurs à renseigner', 'adresse à renseigner · prix à renseigner · 11 666,67 € HT (14 000,00 € TTC) · date butoir à renseigner']);
+    expect(texte('[data-compromis="12"] [data-carte="titre"]')).toBe('MARMONIER');
+    expect(texte('[data-compromis="12"] [data-carte-ligne="infos"]')).toBe('adresse à renseigner · prix à renseigner · acte au plus tard le : à renseigner');
     expect(texte('[data-compromis="12"]')).not.toMatch(/(^|\s)—(\s|$)/);
     await deplier(12);
+    expect(texte('[data-aucune-personne="vendeur"]')).toBe('Aucun vendeur enregistré');
+    expect(texte('[data-aucune-personne="acquereur"]')).toBe('Aucun acquéreur enregistré');
+    expect(container.querySelector('[data-colonne="vendeur"] [data-ajouter-personne-carte="vendeur"]')).not.toBeNull();
+    expect(texte('[data-info="libelle"]')).toBe('Libellé du fichierMARMONIER');
     expect(texte('[data-compromis="12"]')).toContain('Négociateur d’entréeà renseigner');
+  });
+  it('déplié : colonnes Vendeurs et Acquéreurs (téléphone et e-mail cliquables), puis les informations communes et la barre d’actions', async () => {
+    await ouvrir();
+    await cliquer('[data-vue="compromis"]');
+    await deplier(41);
+    expect([...container.querySelectorAll('[data-colonne]')].map((x) => x.getAttribute('data-colonne'))).toEqual(['vendeur', 'acquereur']);
+    expect(container.querySelector('[data-colonne="vendeur"] a[href="tel:0612345678"]')).not.toBeNull();
+    expect(container.querySelector('[data-colonne="vendeur"] a[href="mailto:p.dupont@exemple.fr"]')).not.toBeNull();
+    expect(texte('[data-colonne="acquereur"]')).toContain('MARTIN');
+    const ordre = [...container.querySelectorAll('[data-compromis="41"] [data-colonne], [data-compromis="41"] [data-informations-communes], [data-compromis="41"] .trx-barre-actions')]
+      .map((x) => x.getAttribute('data-colonne') ?? (x.hasAttribute('data-informations-communes') ? 'communes' : 'actions'));
+    expect(ordre).toEqual(['vendeur', 'acquereur', 'communes', 'actions']);
+    expect(texte('[data-repartition-compromis]')).toContain('Part extérieure — Agence du Parc');
+  });
+  it('« + Ajouter un vendeur » depuis la carte : le formulaire s’ouvre sur une ligne neuve, la personne s’ajoute aux autres', async () => {
+    await ouvrir();
+    await cliquer('[data-vue="compromis"]');
+    await deplier(41);
+    await cliquer('[data-colonne="vendeur"] [data-ajouter-personne-carte="vendeur"]');
+    const neuve = document.activeElement as HTMLInputElement;
+    expect(neuve.getAttribute('data-personne-nom')).not.toBeNull();
+    expect(neuve.value).toBe('');
+    await saisir(`[data-personne-nom="${neuve.getAttribute('data-personne-nom')}"]`, 'DURANT');
+    await cliquer('[data-enregistrer-dossier]');
+    const envoi = posts.at(-1) as { action: string; id: number; dossier: { personnes: { id: number | null; role: string; nom: string }[] } };
+    expect([envoi.action, envoi.id]).toEqual(['dossier-enregistrer', 41]);
+    expect(envoi.dossier.personnes.map((p) => [p.role, p.nom, p.id])).toEqual([['vendeur', 'DUPONT', 3], ['acquereur', 'MARTIN', 8], ['vendeur', 'DURANT', null]]);
   });
   it('une date butoir dépassée est en rouge, avec le mot « dépassée » ; le tri : la plus proche d’abord, sans date à la fin', async () => {
     listeCompromis = [importe, compromis, depasse];

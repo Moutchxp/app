@@ -25,9 +25,12 @@ export function personneExistante<P extends FichePersonne & { id: number }>(sais
   return [...existantes].sort((x, y) => x.id - y.id).find((p) => memePersonne(saisie, p)) ?? null;
 }
 
-/** Le libellé d'une vente tiré de ses personnes : « VENDEURS / ACQUÉREURS » (noms dans l'ordre de saisie). PUR. */
+/**
+ * Le libellé d'une vente tiré de ses personnes : « VENDEURS / ACQUÉREURS », plusieurs personnes d'un même côté jointes par un tiret
+ * (« DUPONT-DURANT / MARTIN-MICHOU », Arno, lot F). PUR.
+ */
 export function libelleDesPersonnes(personnes: readonly { role: 'vendeur' | 'acquereur'; nom: string }[]): string {
   const v = personnes.filter((p) => p.role === 'vendeur').map((p) => p.nom.trim()).filter((x) => x !== '');
   const a = personnes.filter((p) => p.role === 'acquereur').map((p) => p.nom.trim()).filter((x) => x !== '');
-  return [v.join(', '), a.join(', ')].filter((x) => x !== '').join(' / ');
+  return [v.join('-'), a.join('-')].filter((x) => x !== '').join(' / ');
 }

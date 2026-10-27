@@ -27,4 +27,19 @@ describe('la carte compacte', () => {
     const l = [{ id: 1, dossier: null }, { id: 2, dossier: d({ dateActePrevue: '2027-01-15' }) }, { id: 3, dossier: d({ dateActePrevue: '2026-11-05' }) }, { id: 4, dossier: d() }];
     expect(trierCompromis(l).map((x) => x.id)).toEqual([3, 2, 1, 4]);
   });
+  it('🔴 LOT F — le titre : le libellé ; sans libellé propre, « VENDEURS / ACQUÉREURS » avec des tirets', () => {
+    const gens = [{ id: 1, role: 'vendeur' as const, nom: 'DUPONT', telephone: null, email: null, adresse: null }, { id: 2, role: 'vendeur' as const, nom: 'DURANT', telephone: null, email: null, adresse: null },
+      { id: 3, role: 'acquereur' as const, nom: 'MARTIN', telephone: null, email: null, adresse: null }, { id: 4, role: 'acquereur' as const, nom: 'MICHOU', telephone: null, email: null, adresse: null }];
+    for (const libelle of ['', 'DUPONT-DURANT / MARTIN-MICHOU', 'DUPONT, DURANT / MARTIN, MICHOU']) {
+      expect(carteCompromis({ libelle, honorairesTtc: 1, dossier: d({ personnes: gens }) }, '2026-10-27').titre).toBe('DUPONT-DURANT / MARTIN-MICHOU');
+    }
+    expect(carteCompromis({ libelle: 'Vente maison Puteaux', honorairesTtc: 1, dossier: d({ personnes: gens }) }, '2026-10-27').titre).toBe('Vente maison Puteaux');
+    expect(carteCompromis({ libelle: 'DUPONT', honorairesTtc: 1, dossier: d({ personnes: gens.slice(0, 1) }) }, '2026-10-27').titre).toBe('DUPONT / acquéreurs à renseigner');
+    expect(carteCompromis({ libelle: 'MARMONIER', honorairesTtc: 1, dossier: null }, '2026-10-27').titre).toBe('MARMONIER');
+  });
+  it('🔴 LOT F — le % de la commission TTC sur le prix, seulement avec un prix connu', () => {
+    expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: 240000, dossier: null }, '2026-10-27').pctPrix).toBe(5);
+    expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: null, dossier: null }, '2026-10-27').pctPrix).toBeNull();
+    expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: 0, dossier: null }, '2026-10-27').pctPrix).toBeNull();
+  });
 });

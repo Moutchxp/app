@@ -1,4 +1,5 @@
 import { ht, type Vente } from './modele';
+import { libelleDesPersonnes } from './personnes';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT E (Arno, 27/10/2026) — LA CARTE COMPACTE D'UN COMPROMIS (PUR) ═════════════════════════════════
@@ -11,6 +12,13 @@ import { ht, type Vente } from './modele';
 export const A_RENSEIGNER = 'à renseigner';
 
 export interface CarteCompromis {
+  /**
+   * LOT F — le titre de la carte : le libellé ; « sans libellé » (le libellé n'est que celui tiré des noms, ou il est vide), « VENDEURS /
+   * ACQUÉREURS » (tirets entre les personnes d'un même côté ; un côté vide : « … à renseigner »).
+   */
+  titre: string;
+  /** LOT F — la commission TTC rapportée au prix de vente, en % ; null sans prix connu (rien ne s'affiche). */
+  pctPrix: number | null;
   vendeurs: string;
   acquereurs: string;
   adresse: string;
@@ -32,11 +40,19 @@ export function carteCompromis(v: Pick<Vente, 'libelle' | 'honorairesTtc' | 'pri
   const acquereurs = noms('acquereur');
   const adresse = (v.dossier?.adresseBien ?? '').trim();
   const butoir = v.dossier?.dateActePrevue ?? null;
+  const tire = (sep: string): string => [personnes.filter((p) => p.role === 'vendeur'), personnes.filter((p) => p.role === 'acquereur')]
+    .map((xs) => xs.map((p) => p.nom.trim()).filter((x) => x !== '').join(sep)).filter((x) => x !== '').join(' / ');
+  const libelle = v.libelle.trim();
+  const sansLibelle = personnes.length > 0 && (libelle === '' || libelle === libelleDesPersonnes(personnes) || libelle === tire(', '));
+  const prix = v.prixVente ?? null;
   return {
+    titre: sansLibelle ? `${vendeurs === '' ? `vendeurs ${A_RENSEIGNER}` : noms('vendeur').replace(/, /g, '-')} / ${acquereurs === '' ? `acquéreurs ${A_RENSEIGNER}` : acquereurs.replace(/, /g, '-')}`
+      : libelle === '' ? `libellé ${A_RENSEIGNER}` : libelle,
+    pctPrix: prix === null || prix <= 0 ? null : (v.honorairesTtc / prix) * 100,
     vendeurs: vendeurs === '' ? `vendeurs ${A_RENSEIGNER}` : vendeurs,
     acquereurs: acquereurs === '' ? `acquéreurs ${A_RENSEIGNER}` : acquereurs,
     adresse: adresse === '' ? `adresse ${A_RENSEIGNER}` : adresse,
-    prix: v.prixVente ?? null,
+    prix,
     commissionHt: ht(v.honorairesTtc),
     commissionTtc: v.honorairesTtc,
     butoir,

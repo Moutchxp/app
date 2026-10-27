@@ -39,8 +39,10 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
     retroApporteurTtc: r.retroTexte, personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait }: {
+export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null }: {
   societe: Societe; vente: Vente | null; references: References; onFermer: () => void; onFait: () => void;
+  /** LOT F — « + Ajouter un vendeur / un acquéreur » depuis la carte : une ligne neuve de ce côté, prête à la saisie (personne connue ou neuve). */
+  ajouter?: 'vendeur' | 'acquereur' | null;
 }) {
   const statut: 'compromis' | 'vendue' = vente?.statut === 'vendue' ? 'vendue' : 'compromis';
   const d = vente?.dossier ?? null;
@@ -50,7 +52,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
     prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ',') });
   const [personnes, setPersonnes] = useState<PersonneEcran[]>(() => {
     const lues = (d?.personnes ?? []).map((p) => ({ id: p.id, role: p.role, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' }));
-    return [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
+    const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
+    return ajouter !== null && lues.some((p) => p.role === ajouter) ? [...base, personneVide(ajouter)] : base;
   });
   const [repartition, setRepartition] = useState<EtatRepartition>(() => etatRepartitionDe(vente, references.negociateurs));
   const [motif, setMotif] = useState<string | null>(null);
@@ -85,7 +88,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
       <legend className="loc-muet">{mot}</legend>
       {personnes.map((p, i) => p.role !== role ? null : (
         <div className="trx-part" key={i} data-personne={i}>
-          <label>Nom<input list="trx-personnes" value={p.nom} onChange={(e) => choisirConnue(i, e.target.value)} data-personne-nom={i} />
+          <label>Nom<input list="trx-personnes" value={p.nom} onChange={(e) => choisirConnue(i, e.target.value)} data-personne-nom={i}
+            autoFocus={ajouter === role && i === personnes.map((x) => x.role).lastIndexOf(role)} />
             {p.id !== null && <span className="loc-muet">fiche de l’annuaire n° {p.id}</span>}</label>
           <label>Téléphone<input type="tel" inputMode="tel" value={p.telephone} onChange={(e) => changerPersonne(i, { telephone: e.target.value })} /></label>
           <label>E-mail<input type="email" inputMode="email" autoCapitalize="none" value={p.email} onChange={(e) => changerPersonne(i, { email: e.target.value })} /></label>
