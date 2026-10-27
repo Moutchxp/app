@@ -16,7 +16,7 @@ import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../
 import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
-  type ActiviteLue, type GestionDepuisJanvier, totalDesIntermediaires, apporteurAffiche, apporteursEtCollegues, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
+  type ActiviteCalcul, type ActiviteLue, type GestionDepuisJanvier, totalDesIntermediaires, apporteurAffiche, apporteursEtColleguesDesMois, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
   gestionDuMois, honorairesGestionMensuels, loyerChargesComprises, type LigneGestion, type MouvementGestion, NOMS_MOIS, primeDe, primeSaisieALaMain, STATUT_ARRIVEE, tauxAffichage,
   commissionCollegueMensuelleDe, commissionCollegueSignatureDe, remunerationCollegueDe, dusParDossier,
 } from '../../../../lib/location/suivi/tableauBord';
@@ -91,14 +91,6 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   const cumul = gestionDepuisJanvier(d.gestionLignes ?? [], cle, regleA);
   // 🔴 Arno (25/10/2026, 427) — les NOUVELLES GLI « depuis le 1er janvier » (celles du mois sont dans le résumé du mois).
   const gliC = gliDepuisJanvier(d.gli ?? [], d.margesGli ?? [], cle);
-  // 413 — la part gestion « Récurrent » due ce mois-ci s'ajoute au dû de l'apporteur et de son collègue.
-  const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
-  /* 🔴 Arno (26/10/2026) — le Total du tableau « Apporteurs du mois » : les seules affaires passées par un intermédiaire. */
-  const interm = totalDesIntermediaires(ac);
-  const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
-  // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
-  const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
-  const basculerCollegue = (c: string): void => setColOuverts((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; });
   const [edition, setEdition] = useState<number | string | null>(null);
   // 🔴 Arno (24/10/2026) — la fiche ouverte depuis le panneau (locataire ou bien) ; enregistrée : fermée, et la page se relit.
   const [fiche, setFiche] = useState<{ sorte: 'locataire' | 'lot' | 'dossier'; id: number; libelle: string; bailId?: number | null; activiteId?: number | null; origineLigne?: string } | null>(null);
@@ -285,106 +277,137 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
       <ResumePeriode d={d} resume={resumeDuMoisComplet(d, lignes, ctx, cle, negociateur)} unite="mois" libelle={nom} idp="fdm" moisCascade={cle} onRelire={onRelire}
         cumul={cumul} cumulTitre={`Depuis le 1er janvier ${annee}`} gliCumul={gliC} onDetail={onDetail} />
 
-      <section className="tdb-section" aria-labelledby="fdm-apporteurs" data-bloc="apporteurs-mois">
-        <h3 id="fdm-apporteurs">Apporteurs du mois</h3>
-        {/* 🔴 Arno (25/10/2026) — TOUS les apporteurs du mois (internes, externes, collègues « directement », commission non nommée), triés
-            par CA apporté ; le meilleur mis en avant (ex aequo compris) ; puis le Total des seules affaires passées par un intermédiaire
-            (Arno, 26/10/2026 : la ligne « Sans apporteur » est retirée). */}
-        {duMois.length === 0 ? <p className="loc-muet">Aucune affaire ce mois-ci.</p> : (
-          <div className="fdm-deux">
-            <table className="fdm-table fdm-apporteurs">
-              <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              <tbody>{[...ac.apporteurs.filter((x) => x.sorte !== 'non_nomme'), ...ac.apporteurs.filter((x) => x.sorte === 'non_nomme')].map((x) => (
-                <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom} className={x.meilleur ? 'fdm-meilleur' : undefined}>
-                  <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}
-                    {(x.sorte === 'interne' || x.sorte === 'externe') && <span className={`fdm-sorte fdm-sorte--${x.sorte}`} data-sorte-apporteur={x.sorte}>{x.sorte === 'interne' ? 'Interne' : 'Externe'}</span>}
-                    {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
-                  <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${nom}`, x.ids)}>{x.nb}</button></td>
-                  <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${nom}`, x.ids)}>{eur(x.ca)}</button></td>
-                  <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
-                </tr>))}
-                {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
-                    par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
-                {ac.apporteurs.length === 0 && <tr data-aucun-apporteur><td colSpan={4} className="loc-muet">Aucun apporteur ce mois-ci.</td></tr>}</tbody>
-              <tfoot><tr data-apporteur-mois="total">
-                <th scope="row">Total</th>
-                <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${nom}`, interm.ids)}>{interm.nb}</button></td>
-                <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(interm.ca)}</td><td data-mot="Hono. d’apporteur">{eur(interm.commission)}</td>
-              </tr></tfoot>
-            </table>
-            {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
-                deux existent ; triés par CA total ; le meilleur badgé ; Total = somme des totaux des collègues. */}
-            <table className="fdm-table fdm-collegues">
-              <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
-              {/* 🔴 Arno (25/10/2026) — UNE ligne par collègue, REPLIÉE au chargement : ses TOTAUX (gras) et, en petit sous le nom, les origines
-                  présentes. S'il y a plus d'une ligne de détail (deux origines, ou plusieurs apporteurs), un chevron : la ligne se déplie en
-                  sous-lignes empilées et alignées d'une colonne à l'autre (via ses apporteurs, un apporteur par sous-ligne dès deux, en direct,
-                  Total). Chaque montant au centime affiché : Σ apporteurs = via ; via + direct = Total. */}
-              <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun collègue ce mois-ci.</td></tr> : collegues.map(({ x, det }) => {
-                const ouvert = det.depliable && colOuverts.has(x.cle);
-                const lien = (texte: string, titre: string, ids: (number | string)[], repere: string) => (
-                  <button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${nom}`, ids)} data-detail-origine={repere}>{texte}</button>);
-                const titre = (l: LigneDetailCollegue): string => l.sorte === 'total' ? `Affaires de ${x.libelle}` : l.sorte === 'apporteur' ? `Affaires de ${x.libelle} — via ${l.mot}`
-                  : `Affaires de ${x.libelle} — ${l.mot}`;
-                const repere = (l: LigneDetailCollegue): string => (l.sorte === 'apporteur' ? l.cle : l.sorte);
-                const badge = x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>;
-                const total = det.lignes[det.lignes.length - 1];
-                const classe = `fdm-collegue${ouvert ? ' fdm-collegue--deux' : ''}${det.depliable ? ' fdm-collegue--depliable' : ''}${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`;
-                const chevron = det.depliable && (
-                  <button type="button" className="fdm-chevron fdm-chevron--collegue" aria-expanded={ouvert} data-deplier-collegue={x.cle}
-                    aria-label={`${ouvert ? 'Replier' : 'Déplier'} le détail — ${x.libelle}`} onClick={(e) => { e.stopPropagation(); basculerCollegue(x.cle); }}>
-                    <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>);
-                // Un clic sur la ligne (hors montants cliquables et liens) la déplie, comme le chevron.
-                const surLigne = det.depliable ? (e: { target: EventTarget }) => { if ((e.target as Element).closest('button, a') === null) basculerCollegue(x.cle); } : undefined;
-                if (ouvert) {
-                  const pile = (cellule: (l: LigneDetailCollegue) => ReactNode) => (
-                    <span className="fdm-pile">
-                      <span className="fdm-pile-l fdm-pile-l--nom" aria-hidden="true" />
-                      {det.lignes.map((l) => (
-                        <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
-                          data-pile={l.sorte} data-pile-cle={l.cle} data-pile-mot={l.sorte === 'apporteur' ? `· ${l.mot}` : l.sorte === 'total' ? 'total' : l.mot}>{cellule(l)}</span>))}
-                    </span>);
-                  return (
-                    <tr key={x.cle} data-collegue-mois={x.libelle} data-deux-chemins data-collegue-deplie className={classe} onClick={surLigne}>
-                      <th scope="row">
-                        <span className="fdm-pile">
-                          <span className="fdm-pile-l fdm-pile-l--nom">{chevron}{x.libelle}{badge}</span>
-                          {det.lignes.map((l) => (
-                            <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
-                              data-pile={l.sorte} data-pile-cle={l.cle}>
-                              {l.sorte === 'apporteur' ? `· ${l.mot}` : l.mot}
-                              {l.sorte === 'via' && det.seulApporteur !== null && <small className="fdm-pile-seul" data-seul-apporteur>&nbsp;· {det.seulApporteur}</small>}
-                            </span>))}
-                        </span></th>
-                      <td data-mot="Affaires">{pile((l) => lien(String(l.nb), titre(l), l.ids, `${repere(l)}-nb`))}</td>
-                      <td data-mot="CA apporté">{pile((l) => lien(eur(l.caCentimes / 100), titre(l), l.ids, `${repere(l)}-ca`))}</td>
-                      <td data-mot="Hono. d’apporteur">{pile((l) => eur(l.commissionCentimes / 100))}</td>
-                    </tr>
-                  );
-                }
+      {/* 🔴 Arno (27/10/2026) — « Apporteurs du mois » : le module partagé avec le Suivi annuel (`ModuleApporteurs`), seule la période change. */}
+      <ModuleApporteurs lignes={duMois} ctx={ctx} mois={[cle]} aujourdhui={ctx.aujourdhui ?? d.aujourdhui} titre="Apporteurs du mois" idp="fdm" bloc="apporteurs-mois"
+        libelle={nom} motVide="ce mois-ci" onDetail={onDetail} />
+    </div>
+  );
+}
+
+/**
+ * ══ 🔴 Arno (25-27/10/2026) — LE MODULE « APPORTEURS » : la page du mois (« Apporteurs du mois ») ET le Suivi annuel (« Apporteur de l'année… »)
+ * — un seul composant, les mêmes règles de calcul et de classement (`apporteursEtCollegues`, `totalDesIntermediaires`, `detailCollegue`) ;
+ * seule la PÉRIODE change : `lignes` (les affaires de la période), `mois` (ses mois « AAAA-MM » : la part gestion « Récurrent » due ces
+ * mois-là s'ajoute au dû, 413).
+ */
+export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bloc, libelle, motVide, onDetail }: {
+  lignes: readonly ActiviteCalcul[]; ctx: ContexteCalcul; mois: readonly string[]; aujourdhui: string;
+  titre: string; idp: string; bloc: string;
+  /** La fin du titre des listes ouvertes (« Affaires de X — <libelle> »). */
+  libelle: string;
+  /** « ce mois-ci », « sur la période » : les phrases sans affaire. */
+  motVide: string;
+  onDetail: (titre: string, ids: (number | string)[]) => void;
+}) {
+  // 413 — la part gestion « Récurrent » due ces mois-là s'ajoute au dû de l'apporteur et de son collègue. Plusieurs mois : chaque mois
+  // calculé comme le module du mois, additionné au centime affiché (la période = la somme de ses mois).
+  const ac = apporteursEtColleguesDesMois(lignes, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois, aujourdhui });
+  /* 🔴 Arno (26/10/2026) — le Total du tableau « Apporteurs du mois » : les seules affaires passées par un intermédiaire. */
+  const interm = totalDesIntermediaires(ac);
+  const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
+  // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
+  const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
+  const basculerCollegue = (c: string): void => setColOuverts((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; });
+  return (
+    <section className="tdb-section" aria-labelledby={`${idp}-apporteurs`} data-bloc={bloc}>
+      <h3 id={`${idp}-apporteurs`} data-titre-apporteurs>{titre}</h3>
+      {/* 🔴 Arno (25/10/2026) — TOUS les apporteurs du mois (internes, externes, collègues « directement », commission non nommée), triés
+          par CA apporté ; le meilleur mis en avant (ex aequo compris) ; puis le Total des seules affaires passées par un intermédiaire
+          (Arno, 26/10/2026 : la ligne « Sans apporteur » est retirée). */}
+      {lignes.length === 0 ? <p className="loc-muet">Aucune affaire {motVide}.</p> : (
+        <div className="fdm-deux">
+          <table className="fdm-table fdm-apporteurs">
+            <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
+            <tbody>{[...ac.apporteurs.filter((x) => x.sorte !== 'non_nomme'), ...ac.apporteurs.filter((x) => x.sorte === 'non_nomme')].map((x) => (
+              <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom} className={x.meilleur ? 'fdm-meilleur' : undefined}>
+                <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}
+                  {(x.sorte === 'interne' || x.sorte === 'externe') && <span className={`fdm-sorte fdm-sorte--${x.sorte}`} data-sorte-apporteur={x.sorte}>{x.sorte === 'interne' ? 'Interne' : 'Externe'}</span>}
+                  {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
+                <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{x.nb}</button></td>
+                <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{eur(x.ca)}</button></td>
+                <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
+              </tr>))}
+              {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
+                  par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
+              {ac.apporteurs.length === 0 && <tr data-aucun-apporteur><td colSpan={4} className="loc-muet">Aucun apporteur {motVide}.</td></tr>}</tbody>
+            <tfoot><tr data-apporteur-mois="total">
+              <th scope="row">Total</th>
+              <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${libelle}`, interm.ids)}>{interm.nb}</button></td>
+              <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(interm.ca)}</td><td data-mot="Hono. d’apporteur">{eur(interm.commission)}</td>
+            </tr></tfoot>
+          </table>
+          {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
+              deux existent ; triés par CA total ; le meilleur badgé ; Total = somme des totaux des collègues. */}
+          <table className="fdm-table fdm-collegues">
+            <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
+            {/* 🔴 Arno (25/10/2026) — UNE ligne par collègue, REPLIÉE au chargement : ses TOTAUX (gras) et, en petit sous le nom, les origines
+                présentes. S'il y a plus d'une ligne de détail (deux origines, ou plusieurs apporteurs), un chevron : la ligne se déplie en
+                sous-lignes empilées et alignées d'une colonne à l'autre (via ses apporteurs, un apporteur par sous-ligne dès deux, en direct,
+                Total). Chaque montant au centime affiché : Σ apporteurs = via ; via + direct = Total. */}
+            <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun collègue {motVide}.</td></tr> : collegues.map(({ x, det }) => {
+              const ouvert = det.depliable && colOuverts.has(x.cle);
+              const lien = (texte: string, titre: string, ids: (number | string)[], repere: string) => (
+                <button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${libelle}`, ids)} data-detail-origine={repere}>{texte}</button>);
+              const titre = (l: LigneDetailCollegue): string => l.sorte === 'total' ? `Affaires de ${x.libelle}` : l.sorte === 'apporteur' ? `Affaires de ${x.libelle} — via ${l.mot}`
+                : `Affaires de ${x.libelle} — ${l.mot}`;
+              const repere = (l: LigneDetailCollegue): string => (l.sorte === 'apporteur' ? l.cle : l.sorte);
+              const badge = x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-collegue>Meilleur collègue</span>;
+              const total = det.lignes[det.lignes.length - 1];
+              const classe = `fdm-collegue${ouvert ? ' fdm-collegue--deux' : ''}${det.depliable ? ' fdm-collegue--depliable' : ''}${x.cle === 'a-rattacher' ? ' fdm-orange-ligne' : ''}${x.meilleur ? ' fdm-meilleur' : ''}`;
+              const chevron = det.depliable && (
+                <button type="button" className="fdm-chevron fdm-chevron--collegue" aria-expanded={ouvert} data-deplier-collegue={x.cle}
+                  aria-label={`${ouvert ? 'Replier' : 'Déplier'} le détail — ${x.libelle}`} onClick={(e) => { e.stopPropagation(); basculerCollegue(x.cle); }}>
+                  <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>);
+              // Un clic sur la ligne (hors montants cliquables et liens) la déplie, comme le chevron.
+              const surLigne = det.depliable ? (e: { target: EventTarget }) => { if ((e.target as Element).closest('button, a') === null) basculerCollegue(x.cle); } : undefined;
+              if (ouvert) {
+                const pile = (cellule: (l: LigneDetailCollegue) => ReactNode) => (
+                  <span className="fdm-pile">
+                    <span className="fdm-pile-l fdm-pile-l--nom" aria-hidden="true" />
+                    {det.lignes.map((l) => (
+                      <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
+                        data-pile={l.sorte} data-pile-cle={l.cle} data-pile-mot={l.sorte === 'apporteur' ? `· ${l.mot}` : l.sorte === 'total' ? 'total' : l.mot}>{cellule(l)}</span>))}
+                  </span>);
                 return (
-                  <tr key={x.cle} data-collegue-mois={x.libelle} className={classe} onClick={surLigne}>
-                    <th scope="row">{chevron}{x.libelle}{badge}
-                      <small className="fdm-origine-collegue" data-origines-collegue>{det.mention}</small></th>
-                    <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(total.nb), titre(total), total.ids, 'total-nb')}</td>
-                    <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(total.caCentimes / 100), titre(total), total.ids, 'total-ca')}</td>
-                    <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(total.commissionCentimes / 100)}</td>
+                  <tr key={x.cle} data-collegue-mois={x.libelle} data-deux-chemins data-collegue-deplie className={classe} onClick={surLigne}>
+                    <th scope="row">
+                      <span className="fdm-pile">
+                        <span className="fdm-pile-l fdm-pile-l--nom">{chevron}{x.libelle}{badge}</span>
+                        {det.lignes.map((l) => (
+                          <span key={l.cle} className={`fdm-pile-l ${l.sorte === 'total' ? 'fdm-pile-l--total' : 'fdm-pile-l--detail'}${l.sorte === 'apporteur' ? ' fdm-pile-l--apporteur' : ''}`}
+                            data-pile={l.sorte} data-pile-cle={l.cle}>
+                            {l.sorte === 'apporteur' ? `· ${l.mot}` : l.mot}
+                            {l.sorte === 'via' && det.seulApporteur !== null && <small className="fdm-pile-seul" data-seul-apporteur>&nbsp;· {det.seulApporteur}</small>}
+                          </span>))}
+                      </span></th>
+                    <td data-mot="Affaires">{pile((l) => lien(String(l.nb), titre(l), l.ids, `${repere(l)}-nb`))}</td>
+                    <td data-mot="CA apporté">{pile((l) => lien(eur(l.caCentimes / 100), titre(l), l.ids, `${repere(l)}-ca`))}</td>
+                    <td data-mot="Hono. d’apporteur">{pile((l) => eur(l.commissionCentimes / 100))}</td>
                   </tr>
                 );
-              })}</tbody>
-              {ac.collegues.length > 0 && (
-                <tfoot><tr data-collegue-mois="total">
-                  <th scope="row">Total</th>
-                  <td data-mot="Affaires">{collegues.reduce((t2, c2) => t2 + c2.x.nb, 0)}</td>
-                  <td data-mot="CA apporté" data-total-collegues-ca>{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100)}</td>
-                  <td data-mot="Hono. d’apporteur">{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100)}</td>
-                </tr></tfoot>
-              )}
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
+              }
+              return (
+                <tr key={x.cle} data-collegue-mois={x.libelle} className={classe} onClick={surLigne}>
+                  <th scope="row">{chevron}{x.libelle}{badge}
+                    <small className="fdm-origine-collegue" data-origines-collegue>{det.mention}</small></th>
+                  <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(total.nb), titre(total), total.ids, 'total-nb')}</td>
+                  <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(total.caCentimes / 100), titre(total), total.ids, 'total-ca')}</td>
+                  <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(total.commissionCentimes / 100)}</td>
+                </tr>
+              );
+            })}</tbody>
+            {ac.collegues.length > 0 && (
+              <tfoot><tr data-collegue-mois="total">
+                <th scope="row">Total</th>
+                <td data-mot="Affaires">{collegues.reduce((t2, c2) => t2 + c2.x.nb, 0)}</td>
+                <td data-mot="CA apporté" data-total-collegues-ca>{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100)}</td>
+                <td data-mot="Hono. d’apporteur">{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100)}</td>
+              </tr></tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

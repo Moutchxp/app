@@ -134,3 +134,23 @@ export function finAnneeMois(c: ChoixPeriode, jour: string): { annee: number; mo
   if (typeof c.fin === 'string' && c.fin !== 'aujourdhui') return { annee, mois: annee === enCours ? Math.min(Number(c.fin.slice(5, 7)), Number(jour.slice(5, 7))) : Number(c.fin.slice(5, 7)) };
   return { annee, mois: annee === enCours ? Number(jour.slice(5, 7)) : 12 };
 }
+
+/**
+ * 🔴 Arno (27/10/2026) — le titre du module « Apporteurs » du Suivi annuel, selon les années RÉELLEMENT couvertes par la période :
+ * « Apporteur de l'année 2026 », « Apporteur des années 2024, 2025, 2026 » ; une année couverte en partie le dit (« 2026, jusqu'au
+ * 27/10 », « 2024, à partir du 15/03 », « 2026, du 15/03 au 27/10 »). PUR.
+ */
+export function titreApporteursPeriode(p: Pick<PeriodeSuivi, 'debutDate' | 'finDate'>): string {
+  const a0 = Number(p.debutDate.slice(0, 4));
+  const a1 = Number(p.finDate.slice(0, 4));
+  const jm = (iso: string): string => dateFr(iso.slice(5));
+  const annees = Array.from({ length: Math.max(0, a1 - a0 + 1) }, (_, i) => a0 + i).map((a) => {
+    const debut = a === a0 && p.debutDate.slice(5) !== '01-01' ? p.debutDate : null;
+    const fin = a === a1 && p.finDate.slice(5) !== '12-31' ? p.finDate : null;
+    if (debut !== null && fin !== null) return `${a}, du ${jm(debut)} au ${jm(fin)}`;
+    if (debut !== null) return `${a}, à partir du ${jm(debut)}`;
+    if (fin !== null) return `${a}, jusqu’au ${jm(fin)}`;
+    return String(a);
+  });
+  return annees.length <= 1 ? `Apporteur de l’année ${annees[0] ?? a0}` : `Apporteur des années ${annees.join(', ')}`;
+}

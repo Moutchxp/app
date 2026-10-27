@@ -4,18 +4,18 @@ import { regleAnnexesDe, stockGestion } from '../../../../lib/location/suivi/ann
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   type ActiviteLue, caLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau, filtrer, type Filtre, filtreVersParams,
-  cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionIndicateurs, sectionMois,
+  cumulDepuisJanvier, entreesGestionParMois, lignesDePeriode, NOMS_MOIS, soldeGestionParMois, type Periode, primeDe, sectionApporteurs, sectionCumul, sectionGestion, sectionMois,
   sectionNegociateurs, totauxPeriode, type TotauxPeriode, variation,
   type AnneeHistorique,
 } from '../../../../lib/location/suivi/tableauBord';
 import { aujourdhuiParis, LIBELLE_TYPE_ACTIVITE, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
-import { CSS_FEUILLE_MOIS, FeuilleDuMois, ResumePeriode } from './FeuilleDuMois';
+import { CSS_FEUILLE_MOIS, FeuilleDuMois, ModuleApporteurs, ResumePeriode } from './FeuilleDuMois';
 import { BulleAnnexes } from './BulleAnnexes';
 import { regrouperParBien, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
 import { BlocReplie, CSS_BLOC_REPLIE } from './BlocReplie';
 import { gestionDepuisLeDebut, resumeDeLaPeriode } from '../../../../lib/location/suivi/resumePeriode';
 import { gliEntre } from '../../../../lib/location/suivi/margeGli';
-import { anneesDeLaPeriode, anneesProposees, choixDeLAdresse, dansPeriode, finAnneeMois, moisDeLaPeriode, parametresDe, periodeDe, periodePrecedente, type ChoixPeriode } from '../../../../lib/location/suivi/periodeSuivi';
+import { anneesDeLaPeriode, anneesProposees, choixDeLAdresse, dansPeriode, finAnneeMois, moisDeLaPeriode, parametresDe, periodeDe, periodePrecedente, titreApporteursPeriode, type ChoixPeriode } from '../../../../lib/location/suivi/periodeSuivi';
 import { comparaisonsAnnees, historiquePeriode, tuilesPeriode } from '../../../../lib/location/suivi/suiviPeriode';
 import { ListeChoix } from './ListeChoix';
 
@@ -270,8 +270,6 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   const D = sectionGestion(d.gestion.transitions, stockA, annee === Number(jour.slice(0, 4)) && mois > Number(jour.slice(5, 7)) ? jour.slice(0, 7) : moisFinGestion, regleA);
   const Dm = D.at(-1)!;
   const lignesPeriode = lignesDePeriode(lignes, periode);
-  const preavis = moisP.reduce((s, m) => s + (d.preavis[m] ?? 0), 0);
-  const E = sectionIndicateurs(lignesPeriode, preavis);
   // 🔴 Arno (25/10/2026) — un administrateur calcule tous les négociateurs ; un négociateur non administrateur reçoit SES lignes (serveur).
   const propre = d.voirCommissions ? undefined : d.negociateurPropre;
   // Sur plusieurs années : les lignes de chaque année de la période, ses seuls mois.
@@ -686,22 +684,11 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         )}
       </BlocReplie>
 
-      <section className="tdb-section" aria-labelledby="tdb-e" data-section="E">
-        <h3 id="tdb-e">Indicateurs — {libellePeriode}</h3>
-        <ul className="tdb-indicateurs">
-          <li><span className="tdb-tuile-mot">Vacance moyenne avant l’entrée</span>
-            {chiffre(E.vacanceMoyenneJours === null ? '—' : `${Math.round(E.vacanceMoyenneJours)} j`, 'Baux dont la vacance est connue', E.vacanceIds, 'vacance')}
-            <small className="loc-muet">{E.vacanceIds.length} bail(aux) dont la sortie précédente est connue</small></li>
-          <li><span className="tdb-tuile-mot">Préavis reçus</span><strong className="tdb-indic">{E.preavis}</strong>
-            <small className="loc-muet">sur la période</small></li>
-          <li><span className="tdb-tuile-mot">Part GLI / Visale</span>
-            {chiffre(pct(E.partGaranties), 'Baux avec GLI ou Visale', E.garantiesIds, 'garanties')}
-            <small className="loc-muet">parmi {E.assuranceConnue} bail(aux) renseigné(s)</small></li>
-          <li><span className="tdb-tuile-mot">Part des parkings</span>
-            {chiffre(pct(E.partParkingNb), 'Parkings et box', E.parkingIds, 'parkings')}
-            <small className="loc-muet">{pct(E.partParkingCa)} du CA</small></li>
-        </ul>
-      </section>
+      {/* 🔴 Arno (27/10/2026, accord explicite) — le bloc « Indicateurs » (vacance, préavis, part GLI / Visale, part des parkings) est RETIRÉ du
+          Suivi annuel ; à sa place, le module « Apporteurs du mois » de la page du mois (`ModuleApporteurs`, le même composant), sur la
+          PÉRIODE choisie en haut de page (les mêmes bornes que le reste de la page). */}
+      <ModuleApporteurs lignes={lignesPeriode} ctx={ctx} mois={moisP} aujourdhui={ctx.aujourdhui ?? d.aujourdhui} titre={titreApporteursPeriode(P)} idp="tdb"
+        bloc="apporteurs-periode" libelle={P.libelle} motVide="sur la période" onDetail={(titre, ids) => setDetail({ titre, ids })} />
 
       <section className="tdb-section tdb-export" aria-labelledby="tdb-g" data-section="G">
         <h3 id="tdb-g">Export</h3>

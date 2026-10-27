@@ -6,6 +6,7 @@ import { activitesDuMois } from './repriseExcel';
 import { SANS_REGLE_ANNEXES } from './annexesGestion';
 import {
   anneesProposees, choixDeLAdresse, finAnneeMois, incoherente, moisDeLaPeriode, parametresDe, periodeDe, periodePrecedente, PERIODE_DEFAUT, reculer,
+  titreApporteursPeriode,
 } from './periodeSuivi';
 import { historiquePeriode, mouvementsGestionEntre, stockALaDate, tuilesPeriode } from './suiviPeriode';
 import { totauxPeriode, type ActiviteLue, type ContexteCalcul, type Transition } from './tableauBord';
@@ -100,5 +101,23 @@ describe('🔴 les sommes au centime : période = somme des années = somme des 
     expect(mouvementsGestionEntre(tr, { debutDate: '2025-01-01', finDate: '2025-12-31' }, SANS_REGLE_ANNEXES)).toEqual({ entrees: 1, sorties: 1, solde: 0 });
     // Aujourd'hui 10 biens ; au 31/12/2025, l'entrée de février 2026 n'y était pas : 9.
     expect(stockALaDate(tr, 10, '2025-12-31', SANS_REGLE_ANNEXES)).toBe(9);
+  });
+});
+
+/** 🔴 Arno (27/10/2026) — le titre du module « Apporteurs » du Suivi annuel : les années réellement couvertes, une année partielle dite. */
+describe('🔴 titre des apporteurs de la période', () => {
+  it('une année entière ; plusieurs années ; une année partielle (jusqu’à aujourd’hui, à partir du, du … au …)', () => {
+    expect(titreApporteursPeriode({ debutDate: '2025-01-01', finDate: '2025-12-31' })).toBe('Apporteur de l’année 2025');
+    expect(titreApporteursPeriode({ debutDate: '2024-01-01', finDate: '2026-12-31' })).toBe('Apporteur des années 2024, 2025, 2026');
+    expect(titreApporteursPeriode({ debutDate: '2026-01-01', finDate: '2026-10-27' })).toBe('Apporteur de l’année 2026, jusqu’au 27/10');
+    expect(titreApporteursPeriode({ debutDate: '2024-01-01', finDate: '2026-10-27' })).toBe('Apporteur des années 2024, 2025, 2026, jusqu’au 27/10');
+    expect(titreApporteursPeriode({ debutDate: '2024-03-15', finDate: '2025-12-31' })).toBe('Apporteur des années 2024, à partir du 15/03, 2025');
+    expect(titreApporteursPeriode({ debutDate: '2026-03-15', finDate: '2026-10-27' })).toBe('Apporteur de l’année 2026, du 15/03 au 27/10');
+  });
+  it('les bornes réelles de la page : « Origine → aujourd’hui », une année passée, l’année en cours, une ancienne adresse (fin d’un mois)', () => {
+    expect(titreApporteursPeriode(periodeDe({ debut: 'origine', fin: 'aujourdhui' }, 2019, '2026-10-27'))).toBe('Apporteur des années 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, jusqu’au 27/10');
+    expect(titreApporteursPeriode(periodeDe({ debut: 2025, fin: 2025 }, 2019, '2026-10-27'))).toBe('Apporteur de l’année 2025');
+    expect(titreApporteursPeriode(periodeDe({ debut: 2026, fin: 2026 }, 2019, '2026-10-27'))).toBe('Apporteur de l’année 2026, jusqu’au 27/10');
+    expect(titreApporteursPeriode(periodeDe({ debut: 2025, fin: '2025-03' }, 2019, '2026-10-27'))).toBe('Apporteur de l’année 2025, jusqu’au 31/03');
   });
 });

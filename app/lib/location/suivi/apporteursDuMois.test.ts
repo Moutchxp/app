@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Apporteur } from './suivi';
-import { apporteursEtCollegues, caLigne, detailCollegue, totauxPeriode, ventilationCommissions, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
+import { apporteursEtCollegues, apporteursEtColleguesDesMois, caLigne, detailCollegue, totauxPeriode, ventilationCommissions, type ActiviteCalcul, type ContexteCalcul } from './tableauBord';
 
 /**
  * 🔴 Arno (25/10/2026) — « Apporteurs du mois » : TOUS les apporteurs du mois (internes, externes, collègues « directement »), triés par
@@ -202,5 +202,34 @@ describe('🔴 Arno (25/10/2026) — les commissions VENTILÉES : externes, inte
 
   it('le net ne change pas : CA − externes − internes − collègues = CA − apporteurs − collègues', () => {
     expect(cent(t.ca) - v.externes.centimes - v.internes.centimes - v.collegues.centimes).toBe(cent(t.ca) - cent(t.apporteurs) - cent(t.collegues));
+  });
+});
+
+/**
+ * 🔴 Arno (27/10/2026) — LE MODULE SUR UNE PÉRIODE (Suivi annuel) : chaque mois calculé comme « Apporteurs du mois », additionné au centime
+ * affiché ; un seul mois = le calcul du mois tel quel ; le classement (tri, meilleur apporteur, meilleur collègue) est le même.
+ */
+describe('🔴 apporteurs d’une période = la somme de ses mois', () => {
+  const sansRec = (mois: string[]) => ({ lignes: [], mois, aujourdhui: '2026-10-27' });
+  const deuxMois = [...lignes, ligne(9, 333.335, { dateSignature: '2026-07-03', apporteurId: 1, apporteurNom: 'Frédéric Rousseau', origineContact: 'apporteur' }),
+    ligne(10, 2000, { dateSignature: '2026-07-20', apporteurId: 2, apporteurNom: 'Mylène Interne', origineContact: 'apporteur' })];
+  it('un seul mois : exactement le calcul du mois', () => {
+    expect(apporteursEtColleguesDesMois(lignes, apporteurs, sansRec(['2026-06']))).toEqual(apporteursEtCollegues(lignes, apporteurs, sansRec(['2026-06'])));
+  });
+  it('deux mois : chaque apporteur et chaque collègue = la somme des montants AFFICHÉS de ses mois ; reclassés (meilleur sur la période)', () => {
+    const c = (v: number) => Math.round((v + Number.EPSILON) * 100);
+    const p = apporteursEtColleguesDesMois(deuxMois, apporteurs, sansRec(['2026-06', '2026-07']));
+    const m = ['2026-06', '2026-07'].map((k) => apporteursEtCollegues(deuxMois.filter((a) => a.dateSignature.startsWith(k)), apporteurs, sansRec([k])));
+    for (const x of p.apporteurs) {
+      const siens = m.flatMap((r) => r.apporteurs.filter((y) => y.nom === x.nom));
+      expect([x.nom, x.nb, c(x.ca), c(x.commission)]).toEqual([x.nom, siens.reduce((t, y) => t + y.nb, 0), siens.reduce((t, y) => t + c(y.ca), 0), siens.reduce((t, y) => t + c(y.commission), 0)]);
+    }
+    for (const x of p.collegues) {
+      const siens = m.flatMap((r) => r.collegues.filter((y) => y.cle === x.cle));
+      expect([x.cle, x.nb, c(x.ca)]).toEqual([x.cle, siens.reduce((t, y) => t + y.nb, 0), siens.reduce((t, y) => t + c(y.ca), 0)]);
+    }
+    expect(p.apporteurs[0].nom).toBe('Mylène Interne');
+    expect(p.apporteurs.filter((x) => x.meilleur).map((x) => x.nom)).toEqual(['Mylène Interne']);
+    expect(c(p.total.ca)).toBe(m.reduce((t, r) => t + c(r.total.ca), 0));
   });
 });

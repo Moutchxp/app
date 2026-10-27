@@ -1137,19 +1137,74 @@ export function apporteursEtCollegues(lignes: readonly ActiviteCalcul[], apporte
     ajouterDu(ligneA, du);
     if (c !== null) { ajouterDu(c.ligneC, du); ajouterDu(c.ligneC[c.part] as CumulAffaires, du); const v = viaDe(c); if (v !== null) ajouterDu(v, du); }
   }
+  const { liste, collegues } = classerApporteurs([...parApp.values()], [...parCol.values()]);
+  total.commission = liste.reduce((s2, x) => s2 + x.commission, 0) + sans.commission;
+  return { apporteurs: liste, collegues, sans, total };
+}
+
+/** Le CLASSEMENT du module « Apporteurs » (tri par CA, meilleur apporteur, meilleur collègue) : le même pour un mois et pour une période. */
+function classerApporteurs(apps: ApporteurDuMois[], cols: CollegueDuMois[]): { liste: ApporteurDuMois[]; collegues: CollegueDuMois[] } {
   const tri = <T extends { ca: number; nom?: string; libelle?: string }>(x: T[]): T[] => x.sort((p, q) => q.ca - p.ca || String(p.nom ?? p.libelle).localeCompare(String(q.nom ?? q.libelle)));
-  const liste = tri([...parApp.values()]);
+  const liste = tri(apps);
   // Le MEILLEUR apporteur : le plus fort CA apporté (au centime) ; les ex aequo le sont tous. Une commission « non nommée » n'en est pas un.
   const nommes = liste.filter((x) => x.sorte !== 'non_nomme');
   const haut = nommes.length === 0 ? 0 : auCentime(nommes[0].ca);
   for (const x of liste) x.meilleur = x.sorte !== 'non_nomme' && haut > 0 && auCentime(x.ca) === haut;
-  total.commission = liste.reduce((s2, x) => s2 + x.commission, 0) + sans.commission;
   // Le MEILLEUR collègue : le plus fort CA total (via + direct, au centime) ; « À rattacher » n'en est pas un.
-  const collegues = tri([...parCol.values()]);
+  const collegues = tri(cols);
   for (const x of collegues) if (x.viaApporteurs !== undefined) tri(x.viaApporteurs);
   const vrais = collegues.filter((x) => x.cle !== 'a-rattacher');
   const hautC = vrais.length === 0 ? 0 : auCentime(vrais[0].ca);
   for (const x of collegues) x.meilleur = x.cle !== 'a-rattacher' && hautC > 0 && auCentime(x.ca) === hautC;
+  return { liste, collegues };
+}
+
+/**
+ * 🔴 Arno (27/10/2026) — LE MODULE « APPORTEURS » D'UNE PÉRIODE (Suivi annuel) : chaque mois calculé EXACTEMENT comme « Apporteurs du mois »
+ * (`apporteursEtCollegues`, sa part « Récurrent » due ce mois-là), puis additionné au CENTIME AFFICHÉ — la règle du Résumé de l'année :
+ * chaque montant de la période = la somme des montants mensuels affichés ; le classement (tri, meilleurs) est celui du mois. Un seul mois :
+ * le calcul du mois, tel quel. PUR.
+ */
+export function apporteursEtColleguesDesMois(lignes: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[],
+  recurrent: { lignes: readonly ActiviteCalcul[]; mois: readonly string[]; aujourdhui: string }):
+  { apporteurs: ApporteurDuMois[]; collegues: CollegueDuMois[]; sans: CumulAffaires; total: CumulAffaires } {
+  if (recurrent.mois.length <= 1) return apporteursEtCollegues(lignes, apporteurs, recurrent);
+  const c = (v: number): number => Math.round((v + Number.EPSILON) * 100);
+  const cumuler = <T extends CumulAffaires>(cible: T, x: CumulAffaires): T => {
+    cible.nb += x.nb; cible.avenants += x.avenants; cible.ids.push(...x.ids);
+    for (const k of ['ca', 'commission', 'location', 'gestion', 'recurrente'] as const) cible[k] = (c(cible[k]) + c(x[k])) / 100;
+    return cible;
+  };
+  const apps = new Map<string, ApporteurDuMois>();
+  const cols = new Map<string, CollegueDuMois>();
+  const sans = cumulVide();
+  const total = cumulVide();
+  for (const m of recurrent.mois) {
+    const r = apporteursEtCollegues(lignes.filter((a) => a.dateSignature.startsWith(m)), apporteurs, { lignes: recurrent.lignes, mois: [m], aujourdhui: recurrent.aujourdhui });
+    cumuler(sans, r.sans); cumuler(total, r.total);
+    for (const x of r.apporteurs) {
+      const cle = x.apporteurId !== null ? `id:${x.apporteurId}` : x.sorte === 'non_nomme' ? 'non-nomme' : `nom:${x.nom.toLowerCase()}`;
+      const l = apps.get(cle) ?? { ...cumulVide(), apporteurId: x.apporteurId, nom: x.nom, aRattacher: x.aRattacher, sorte: x.sorte };
+      // La qualité la plus récente (interne / externe à la date de l'affaire, « à rattacher ») : celle du dernier mois où il apparaît.
+      l.nom = x.nom; l.aRattacher = x.aRattacher; l.sorte = x.sorte;
+      apps.set(cle, cumuler(l, x));
+    }
+    for (const x of r.collegues) {
+      const l = cols.get(x.cle) ?? { ...cumulVide(), cle: x.cle, libelle: x.libelle, via: cumulVide(), direct: cumulVide() };
+      l.libelle = x.libelle;
+      cumuler(l, x);
+      if (x.via !== undefined) cumuler(l.via!, x.via);
+      if (x.direct !== undefined) cumuler(l.direct!, x.direct);
+      for (const v of x.viaApporteurs ?? []) {
+        const liste = l.viaApporteurs ?? (l.viaApporteurs = []);
+        let w = liste.find((y) => y.cle === v.cle);
+        if (w === undefined) { w = { ...cumulVide(), cle: v.cle, nom: v.nom }; liste.push(w); }
+        cumuler(w, v);
+      }
+      cols.set(x.cle, l);
+    }
+  }
+  const { liste, collegues } = classerApporteurs([...apps.values()], [...cols.values()]);
   return { apporteurs: liste, collegues, sans, total };
 }
 

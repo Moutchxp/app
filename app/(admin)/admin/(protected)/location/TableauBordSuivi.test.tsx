@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 // Les fiches ouvertes depuis le panneau (Annuaire, ModifierFicheBien) lisent le routeur de Next : simulé ici.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 import { anneesComparables, comparerDeLAdresse, LARGEURS_A, moisCompare, moisDeLaCourbe, TableauBordSuivi } from './TableauBordSuivi';
+import { ModuleApporteurs } from './FeuilleDuMois';
 import { lireClasseur, type ClasseurLu } from '../../../../lib/location/suivi/lectureExcel';
 import { activitesDuMois, retrocessionDuMois } from '../../../../lib/location/suivi/repriseExcel';
 import { cumulDepuisJanvier, natureBienLoue, sectionCumul, soldeGestionParMois, suiviDuNegociateur, totauxPeriode, variablesDuNegociateur, type ActiviteLue, type DonneesTableau } from '../../../../lib/location/suivi/tableauBord';
@@ -248,7 +249,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(nbsp(sept?.textContent)).toBe('2 670,42 €');
   });
 
-  it('🔴 les deux briques se partagent les sections : A et la feuille au mois, H, F, C, E, G à l’année (B et D retirés, accord d’Arno)', async () => {
+  it('🔴 les deux briques se partagent les sections : A et la feuille au mois, H, F, C, G et les apporteurs de la période à l’année (B, D et E retirés, accord d’Arno)', async () => {
     await monter('mois');
     expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['A']);
     expect(container.querySelector('[data-feuille-mois]')).not.toBeNull();
@@ -257,7 +258,9 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     act(() => { root.unmount(); }); root = createRoot(container);
     await monter('annee');
     // 🔴 25/10/2026 — « Année par année » (H) suit la période : il est là dès qu'elle compte une année.
-    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'F', 'C', 'E', 'G']);
+    // 🔴 27/10/2026 — « Indicateurs » (E) retiré du Suivi annuel (accord d'Arno) : le module des apporteurs de la période à sa place.
+    expect([...container.querySelectorAll('[data-section], [data-bloc="apporteurs-periode"]')].map((x) => x.getAttribute('data-section') ?? x.getAttribute('data-bloc')))
+      .toEqual(['H', 'F', 'C', 'apporteurs-periode', 'G']);
     expect(container.querySelector('[data-onglets-mois]')).toBeNull();
   });
 
@@ -865,7 +868,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     donnees = { ...donnees, annees: [2024, 2025, 2026], activites: [...donnees.activites.map((a) => (a.dateSignature < '2026' ? bail(a) : a)),
       bail(n1('a24-1', '2024-02-10', 600, 400)), bail(n1('a24-2', '2024-11-05', 1000, 500)), bail(n1('a25-d', '2025-12-15', 200, 200))] };
     await monter('annee');
-    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'F', 'C', 'E', 'G']);
+    expect([...container.querySelectorAll('[data-section]')].map((x) => x.getAttribute('data-section'))).toEqual(['H', 'F', 'C', 'G']);
     expect(container.querySelectorAll('[data-barre-annee]')).toHaveLength(3);
     expect([...container.querySelectorAll('[data-barre-annee] [data-valeur]')].map((r) => Number(r.getAttribute('data-valeur')))).toEqual([2500, 3400, 94612.61]);
     await act(async () => { (container.querySelector('[data-deplier-historique]') as HTMLElement).click(); });
@@ -2237,8 +2240,8 @@ describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : de
 
   it('« Les négociateurs » À LA PLACE du cumul (juste après le Résumé de la période) ; négociateurs et apporteurs REPLIÉS par défaut, sur une ligne', async () => {
     await monter('annee');
-    const ordre = [...container.querySelectorAll('[data-section], [data-bloc="resume-periode"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
-    expect(ordre).toEqual(['H', 'resume-periode', 'F', 'C', 'E', 'G']);
+    const ordre = [...container.querySelectorAll('[data-section], [data-bloc="resume-periode"], [data-bloc="apporteurs-periode"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
+    expect(ordre).toEqual(['H', 'resume-periode', 'F', 'C', 'apporteurs-periode', 'G']);
     for (const k of ['F', 'C']) {
       const s = container.querySelector(`[data-section="${k}"]`) as HTMLElement;
       expect(s.getAttribute('data-replie')).toBe('replie');
@@ -2525,5 +2528,84 @@ describe('🔴 Arno (26/10/2026) — corrections de la page « Suivi du mois »'
     expect(rangee).toContain('<ConversionMandat a={a} onFini={onRelire} />');
     expect(rangee.indexOf('<ConversionMandat')).toBeGreaterThan(rangee.indexOf('data-fiche-bien'));
     expect(src).toContain('.fdm-detail-gestes .fdm-conversion{display:contents}');
+  });
+});
+
+/**
+ * 🔴 Arno (27/10/2026, accord explicite) — SUIVI ANNUEL : le bloc « Indicateurs » est retiré ; à sa place, le module « Apporteurs du mois »
+ * de la page du mois (le même composant), sur la période choisie en haut de page. Sur un mois : les chiffres du module du mois ; sur une
+ * année : la somme des mois.
+ */
+describe('🔴 Suivi annuel — « Apporteur de l’année » à la place des Indicateurs (27/10/2026)', () => {
+  /** Les lignes d'un module (apporteurs puis collègues, Total compris) : nom → [affaires, CA, hono.] en centimes. */
+  const lire = (bloc: Element): Map<string, [number, number, number]> => {
+    const c = (t: string | null | undefined): number => Math.round(Number(nbsp(t).replace(/[\s€]/g, '').replace(',', '.')) * 100);
+    const m = new Map<string, [number, number, number]>();
+    for (const tr of bloc.querySelectorAll('tr[data-apporteur-mois], tr[data-collegue-mois]')) {
+      const cle = `${tr.hasAttribute('data-apporteur-mois') ? 'A' : 'C'}:${tr.getAttribute('data-apporteur-mois') ?? tr.getAttribute('data-collegue-mois')}`;
+      const td = (mot: string) => tr.querySelector(`td[data-mot="${mot}"]`)?.textContent;
+      m.set(cle, [Number(td('Affaires')), c(td('CA apporté')), c(td('Hono. d’apporteur'))]);
+    }
+    return m;
+  };
+  const blocApporteurs = () => container.querySelector('[data-bloc="apporteurs-periode"]') as HTMLElement;
+  const ctx = () => ({ regles: donnees.regles, apporteurs: donnees.apporteurs, retrocessions: donnees.retrocessions, recurrents: [], aujourdhui: donnees.aujourdhui });
+  /** Le module rendu seul, pour les lignes d'un mois — ce que la page du mois affiche (même composant, mêmes paramètres). */
+  const moduleDuMois = async (cle: string): Promise<Map<string, [number, number, number]>> => {
+    const hote = document.createElement('div'); document.body.appendChild(hote); const r = createRoot(hote);
+    await act(async () => { r.render(createElement(ModuleApporteurs, { lignes: donnees.activites.filter((a) => a.dateSignature.startsWith(cle)), ctx: ctx(), mois: [cle],
+      aujourdhui: donnees.aujourdhui, titre: 'x', idp: 'x', bloc: 'apporteurs-mois', libelle: cle, motVide: 'ce mois-ci', onDetail: () => {} })); });
+    const lu = lire(hote.querySelector('[data-bloc="apporteurs-mois"]')!);
+    act(() => { r.unmount(); }); hote.remove();
+    return lu;
+  };
+
+  it('le bloc « Indicateurs » n’est plus dans le Suivi annuel ; le module des apporteurs est à sa place, titré par la période', async () => {
+    await monter('annee');
+    expect(container.querySelector('[data-section="E"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/Indicateurs —|Vacance moyenne avant l’entrée|Préavis reçus|Part GLI \/ Visale|Part des parkings/);
+    expect(blocApporteurs().querySelector('[data-titre-apporteurs]')?.textContent).toBe('Apporteur des années 2025, 2026, jusqu’au 22/10');
+    // Les mêmes tableaux que le module du mois : apporteurs (badges, Total) et collègues.
+    expect(blocApporteurs().querySelector('table.fdm-apporteurs [data-apporteur-mois="total"]')).not.toBeNull();
+    expect(blocApporteurs().querySelector('table.fdm-collegues')).not.toBeNull();
+    expect(blocApporteurs().querySelector('[data-meilleur-apporteur]')).not.toBeNull();
+  });
+
+  it('le titre et les chiffres suivent la période choisie en haut de page (une année, une année en cours, plusieurs années)', async () => {
+    await monter('annee');
+    const avant = lire(blocApporteurs());
+    await choisir('debut', '2025');
+    await choisir('fin', '2025');
+    expect(blocApporteurs().querySelector('[data-titre-apporteurs]')?.textContent).toBe('Apporteur de l’année 2025');
+    const de2025 = lire(blocApporteurs());
+    await choisir('fin', '2026');
+    await choisir('debut', '2026');
+    expect(blocApporteurs().querySelector('[data-titre-apporteurs]')?.textContent).toBe('Apporteur de l’année 2026, jusqu’au 22/10');
+    // Les lignes 2025 du jeu d'essai n'ont pas d'apporteur : 2025 seule n'en montre aucun ; 2026 retrouve ceux d'« Origine → aujourd'hui ».
+    expect(blocApporteurs().querySelector('[data-aucun-apporteur]')).toBeNull();
+    expect(de2025.get('A:total')?.[0]).toBe(0);
+    expect(lire(blocApporteurs())).not.toEqual(de2025);
+    expect(lire(blocApporteurs())).toEqual(avant);
+  });
+
+  it('une année = la SOMME de ses mois (chaque ligne, Total compris) ; un mois = le module « Apporteurs du mois » de ce mois', async () => {
+    window.history.replaceState(null, '', '/?debut=2026&fin=2026');
+    await monter('annee');
+    const annee = lire(blocApporteurs());
+    const somme = new Map<string, [number, number, number]>();
+    for (let m = 1; m <= 10; m += 1) {
+      for (const [k, v] of await moduleDuMois(`2026-${String(m).padStart(2, '0')}`)) {
+        const x = somme.get(k) ?? [0, 0, 0];
+        somme.set(k, [x[0] + v[0], x[1] + v[1], x[2] + v[2]]);
+      }
+    }
+    expect(annee.size).toBeGreaterThan(2);
+    // Chaque ligne (apporteurs, collègues, les deux Totaux) : affaires, CA apporté, hono. d'apporteur = la somme des mois, au centime.
+    expect(annee).toEqual(somme);
+    // Le module de la page du mois (septembre) : le même rendu que le composant seul pour ce mois.
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', '/?annee=2026&mois=9');
+    await monter('mois');
+    expect(lire(container.querySelector('[data-bloc="apporteurs-mois"]')!)).toEqual(await moduleDuMois('2026-09'));
   });
 });
