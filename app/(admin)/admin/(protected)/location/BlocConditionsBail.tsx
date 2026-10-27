@@ -1,13 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { BlocConditionsEntree } from './ConditionsEntree';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { BlocConditionsEntree, type SaisieHonoraires } from './ConditionsEntree';
 import { LoyersRevises } from './IndicesLoyers';
 import { useLecture } from './commun';
-import type { CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
+import { montantHonorairesSaisi, MOTIF_MONTANT_SAISI, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { BlocEntretien, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
-import { versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
+import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, versSaisieConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { chargesDesLots, signalCharges } from '../../../../lib/location/chargesDesLots';
+import { manquesEntretien } from '../../../../lib/location/bienComplet';
 import { changementsDossier, type ChangementDossier, type LectureDossier, type NomsDossier, type SaisieDossier } from '../../../../lib/location/dossierLocation';
 
 const API = '/api/admin/gestion/annuaire/location';
@@ -34,22 +35,41 @@ export function ContenuBienLoue({ l, onCaracteristiques, repere }: { l: LectureD
  * « Nouveau locataire » (`BlocConditionsEntree`, dossier complet), l'entretien du bien, le paiement des charges présélectionné depuis le
  * bien, les loyers révisés réels, les lignes d'honoraires propriétaire.
  */
-export function ContenuConditionsBail({ l, conditions, onConditions, entretien, onEntretien }: {
+export function ContenuConditionsBail({ l, conditions, onConditions, entretien, onEntretien, creation }: {
   l: LectureDossier; conditions: SaisieConditions | null; onConditions: (c: SaisieConditions) => void;
   entretien: SaisieEntretien | null; onEntretien: (e: SaisieEntretien) => void;
+  /**
+   * 🔴 Arno (27/10/2026) — « Fiche locataire » du Suivi du mois, bail SANS conditions d'entrée : le formulaire de « Nouveau locataire »,
+   * VIDE et saisissable (`conditions` = la saisie vide), avec le montant des honoraires propriétaire (`hono`), les messages sous les
+   * champs (`manque`) et le premier geste de l'utilisateur (`onTouche`). Absent (Dossier de location) : rien ne change.
+   */
+  creation?: { hono: SaisieHonoraires; manque: (cle: string) => ReactNode; onTouche: () => void };
 }) {
   // 🔴 Arno (25/10/2026) — le barème des honoraires agence (part du locataire) : le même calcul que « Nouveau locataire » (bien, date d'entrée).
   const bareme = useLecture<CalculHonoraires>(`honorairesProprietaire=${l.lotId}${l.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(l.entree) ? `&entree=${l.entree}` : ''}`);
+  const formulaire = (c: SaisieConditions): ReactNode => (
+    <BlocConditionsEntree valeur={c} onChange={onConditions} manque={creation?.manque ?? (() => null)} dateEntree={l.entree} agenceEnHt indice={{ famille: l.bien.famille }} complet
+      loyer={creation !== undefined && l.loyerSansConditions != null && (l.loyerSansConditions.principal !== null || l.loyerSansConditions.provisions !== null)
+        ? { note: 'Pré-rempli avec le loyer de départ déjà enregistré pour ce bail — modifiable.' } : {}}
+      baremeAgence={{ calcul: bareme.etat.etat === 'ok' ? bareme.etat.data : null, charge: bareme.etat.etat === 'charge' }}
+      {...(creation !== undefined ? { honoraires: { calcul: bareme.etat.etat === 'ok' ? bareme.etat.data : null, charge: bareme.etat.etat === 'charge',
+        lienBien: `/admin/location/bien/${l.lotId}`, saisie: { ...creation.hono, erreur: creation.manque('honorairesProprietaireMontant') } } } : {})}
+      charges={c.chargesCopro === undefined ? undefined
+        : { signal: signalCharges(c.chargesCopro, chargesDesLots(l.lots.map((x) => x.chargesCopro))) }}
+      entretien={entretien === null ? undefined : creation === undefined ? <BlocEntretien valeur={entretien} onChange={onEntretien} obligatoire />
+        : <BlocEntretien valeur={entretien} onChange={onEntretien} obligatoire
+          manques={{ reponse: creation.manque('entretien'), liste: creation.manque('entretienListe'), autre: (k) => creation.manque(`entretien-autre-${k}`) }} />} />
+  );
   return (
     <>
       {conditions === null ? (
         <p className="loc-muet" data-sans-conditions>Aucune condition d’entrée n’est enregistrée pour ce bail : il n’y a rien à modifier ici.</p>
-      ) : (
-        <BlocConditionsEntree valeur={conditions} onChange={onConditions} manque={() => null} dateEntree={l.entree} loyer={{}} agenceEnHt indice={{ famille: l.bien.famille }} complet
-          baremeAgence={{ calcul: bareme.etat.etat === 'ok' ? bareme.etat.data : null, charge: bareme.etat.etat === 'charge' }}
-          charges={conditions.chargesCopro === undefined ? undefined
-            : { signal: signalCharges(conditions.chargesCopro, chargesDesLots(l.lots.map((x) => x.chargesCopro))) }}
-          entretien={entretien !== null ? <BlocEntretien valeur={entretien} onChange={onEntretien} obligatoire /> : undefined} />
+      ) : creation === undefined ? formulaire(conditions) : (
+        /* 🔴 27/10/2026 — en création, le premier geste (clic, frappe) est relevé AVANT d'être appliqué : les pré-remplissages
+           automatiques (proratas, indice, honoraires au barème) ne comptent jamais comme une saisie. Le Dossier n'a pas cette enveloppe. */
+        <div data-conditions-creation onClickCapture={creation.onTouche} onInputCapture={creation.onTouche} onKeyDownCapture={creation.onTouche}>
+          {formulaire(conditions)}
+        </div>
       )}
       {conditions === null && entretien !== null && <BlocEntretien valeur={entretien} onChange={onEntretien} obligatoire />}
       {/* 🔴 Arno (25/10/2026, Q2) — le loyer révisé RÉEL du bail (prioritaire sur le calcul, « réel » dans le tableau mensuel). */}
@@ -74,7 +94,28 @@ const NOMS_SANS_BLOC4: NomsDossier = { negociateur: (id) => `n° ${id}`, collegu
 
 export type EtatConditionsBail =
   | { sorte: 'aucun' } | { sorte: 'lecture' } | { sorte: 'non_rattache' } | { sorte: 'erreur'; motif: string }
-  | { sorte: 'ok'; l: LectureDossier; conditions: SaisieConditions | null; entretien: SaisieEntretien | null };
+  | { sorte: 'ok'; l: LectureDossier; conditions: SaisieConditions | null; entretien: SaisieEntretien | null;
+      /** 🔴 27/10/2026 — le bail n'a pas de conditions d'entrée : `conditions` est la saisie VIDE de « Nouveau locataire » (création). */
+      creation?: boolean };
+
+/**
+ * 🔴 Arno (27/10/2026) — la saisie de départ d'un bail SANS conditions : vide, comme « Nouveau locataire » ; le loyer de départ déjà connu
+ * du bail ; le paiement des charges présélectionné depuis les lots (base avec la 400 seulement). PUR.
+ */
+export function conditionsDeDepart(l: LectureDossier): SaisieConditions {
+  const lo = l.loyerSansConditions ?? null;
+  const c: SaisieConditions = { ...CONDITIONS_VIDES, loyer: lo === null ? { principal: '', provisions: '' } : { principal: montantSaisi(lo.principal), provisions: montantSaisi(lo.provisions) } };
+  if (!l.lots.some((x) => x.chargesCopro !== undefined)) return c;
+  const fiche = chargesDesLots(l.lots.map((x) => x.chargesCopro ?? null));
+  return { ...c, chargesCopro: fiche.sorte === 'valeur' ? fiche.valeur : null };
+}
+
+/** Ce qui manque au montant des honoraires propriétaire (la règle de « Nouveau locataire »). PUR. */
+export function manqueHonorairesSaisis(h: { valeur: string; manuel: boolean }): string | null {
+  if (!h.manuel) return h.valeur.trim() === '' ? 'Honoraires propriétaire : le montant (€ HT), 0 si aucun.' : null;
+  const m = montantHonorairesSaisi(h.valeur);
+  return m === false ? MOTIF_MONTANT_SAISI : m === null ? 'Honoraires propriétaire : saisissez le montant, ou « recalculer ».' : null;
+}
 
 /**
  * Le bloc 3 d'une ligne du Suivi, pour la « Fiche locataire » : la lecture du Dossier de location (`activiteId`), la saisie (conditions,
@@ -94,7 +135,9 @@ export function useConditionsBail(activiteId: number | null) {
     vue.current = l;
     setEtat((e) => {
       if (garder && e.sorte === 'ok') return { ...e, l, conditions: conditionsApresRelecture(e.conditions, avant, l.conditions?.valeurs.chargesCopro) };
-      return { sorte: 'ok', l, conditions: l.conditions === null ? null : versSaisieConditions(l.conditions.valeurs, l.conditions.loyer),
+      // 🔴 27/10/2026 — sans conditions : le formulaire VIDE (création), jamais « rien à modifier ».
+      return { sorte: 'ok', l, conditions: l.conditions === null ? conditionsDeDepart(l) : versSaisieConditions(l.conditions.valeurs, l.conditions.loyer),
+        creation: l.conditions === null,
         entretien: l.entretien === null ? null : versSaisieEntretien(l.entretien.aPrevoir, l.entretien.entretiens as Parameters<typeof versSaisieEntretien>[1]) };
     });
   }, []);
@@ -107,17 +150,44 @@ export function useConditionsBail(activiteId: number | null) {
     void charger().then((d) => { if (vivant) appliquer(d, false); });
     return () => { vivant = false; };
   }, [activiteId, charger, appliquer]);
+  /* 🔴 Arno (27/10/2026) — CRÉATION : le montant des honoraires propriétaire (pré-rempli au barème par l'encadré, modifiable) ; la saisie
+     de départ relevée au PREMIER geste de l'utilisateur (`toucher`) — le bloc n'est exigé et n'est envoyé que s'il diffère de ce départ. */
+  const [hono, setHono] = useState<{ valeur: string; manuel: boolean }>({ valeur: '', manuel: false });
+  // La saisie de départ, attachée à la VERSION lue : après un enregistrement (ou une relecture), elle ne vaut plus.
+  const [departLu, setDepart] = useState<{ version: string; c: SaisieConditions } | null>(null);
+  const [tente, setTente] = useState(false);
+  // Relevé à la capture du geste, AVANT son effet : `etat` est encore celui d'avant le clic ou la frappe.
+  const toucher = (): void => {
+    if (etat.sorte !== 'ok' || etat.creation !== true || etat.conditions === null) return;
+    const v = etat.l.version;
+    const c = etat.conditions;
+    setDepart((d) => (d !== null && d.version === v ? d : { version: v, c }));
+  };
+  const creation = etat.sorte === 'ok' && etat.creation === true;
+  const depart = etat.sorte === 'ok' && departLu !== null && departLu.version === etat.l.version ? departLu.c : null;
+  const touche = creation && etat.sorte === 'ok' && depart !== null && (hono.manuel || JSON.stringify(etat.conditions) !== JSON.stringify(depart));
+  // Les obligatoires de « Nouveau locataire » : les conditions (dossier complet), le montant des honoraires propriétaire, l'entretien du bien.
+  const parCle: Record<string, string> = !creation || etat.sorte !== 'ok' || etat.conditions === null ? {} : {
+    ...manquesConditions(versEnvoiConditions(etat.conditions), { complet: true, charges: etat.l.lots.some((x) => x.chargesCopro !== undefined) }),
+    ...((m): Record<string, string> => (m === null ? {} : { honorairesProprietaireMontant: m }))(manqueHonorairesSaisis(hono)),
+    ...(etat.entretien === null ? {} : ((e) => manquesEntretien({ entretienAPrevoir: e.entretienAPrevoir, entretiens: e.entretiens }))(versEnvoiEntretien(etat.entretien))),
+  };
+  const manques = Object.values(parCle);
+  const manqueDe = (k: string): string | null => (tente ? parCle[k] ?? null : null);
+  const montantHono = hono.manuel ? montantHonorairesSaisi(hono.valeur) : null;
   const saisie: SaisieDossier | null = etat.sorte !== 'ok' ? null : {
-    version: etat.l.version, locataires: [], conditions: etat.conditions, suivi: etat.l.suivi,
+    version: etat.l.version, locataires: [], conditions: creation && !touche ? null : etat.conditions, suivi: etat.l.suivi,
+    ...(creation && typeof montantHono === 'string' ? { honorairesSaisis: hono.valeur } : {}),
     entretien: etat.entretien === null ? null : (() => { const e = versEnvoiEntretien(etat.entretien); return { aPrevoir: e.entretienAPrevoir, entretiens: e.entretiens }; })(),
   };
   const changements: ChangementDossier[] = etat.sorte !== 'ok' || saisie === null ? [] : changementsDossier(etat.l, saisie, NOMS_SANS_BLOC4).filter((c) => c.bloc === 3);
   return {
-    etat, saisie, changements, lire,
+    etat, saisie, changements, lire, creation, touche, manques, manqueDe, tente, setTente, toucher, hono, setHono,
     poserConditions: (c: SaisieConditions) => setEtat((e) => (e.sorte === 'ok' ? { ...e, conditions: c } : e)),
     poserEntretien: (x: SaisieEntretien) => setEtat((e) => (e.sorte === 'ok' ? { ...e, entretien: x } : e)),
     /** Ce qui part au serveur (bloc 3 seulement : le serveur ignore le reste). */
-    envoi: saisie === null || activiteId === null ? null : { activiteId, saisie: { version: saisie.version, conditions: saisie.conditions, entretien: saisie.entretien } },
+    envoi: saisie === null || activiteId === null ? null : { activiteId, saisie: { version: saisie.version, conditions: saisie.conditions, entretien: saisie.entretien,
+      ...(saisie.honorairesSaisis !== undefined ? { honorairesSaisis: saisie.honorairesSaisis } : {}) } },
   };
 }
 

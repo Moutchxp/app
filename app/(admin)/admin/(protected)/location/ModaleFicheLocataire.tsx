@@ -30,12 +30,15 @@ import {
  * écraser ; après confirmation, la modale RESTE ouverte (« ✓ Modifications enregistrées ») et la ligne du Suivi se relit derrière.
  * Aucun geste Drive.
  * 🔴 Arno (25/10/2026) — EN DESSOUS, LE BLOC 3 « CONDITIONS D'ENTRÉE » de la ligne (le Dossier de location : `activiteId`), complet, en
- * modification — le MÊME contenu que le Dossier (`ContenuConditionsBail`) — et « Caractéristiques du bien loué ». UN SEUL « Enregistrer
+ * modification — le MÊME contenu que le Dossier (`ContenuConditionsBail`). UN SEUL « Enregistrer
  * les modifications » pour les deux blocs : récapitulatif groupé par bloc, un seul enregistrement (tout est vérifié avant d'écrire).
  * Une ligne sans bail : « Dossier non rattaché — à rattacher d'abord » (rien n'est créé). Aucun envoi à ADHOC & MONGA.
  * 🔴 Arno (26/10/2026) — ET LE BLOC 4 « SUIVI COMMERCIAL » de « Nouveau locataire » (`ContenuSuiviLocataire`), sur la ligne de suivi de
  * la ligne : pré-rempli si le bloc a été validé, vide sinon ; ses changements rejoignent le MÊME récapitulatif et le MÊME enregistrement
  * (le chemin du Dossier de location : la même ligne, la même version que le bloc 3). Ce qui manque : « Reste à renseigner » (barre du bas).
+ * 🔴 Arno (27/10/2026) — un bail SANS conditions d'entrée : le bloc 3 est le formulaire de « Nouveau locataire » (`BlocConditionsEntree`),
+ * VIDE et saisissable ; ses obligatoires vont dans « Reste à renseigner » dès qu'on y touche, et l'enregistrement les CRÉE sur ce bail
+ * (le geste de « Nouveau locataire »). « Caractéristiques du bien loué » : une seule fois, au bloc 2 (accord d'Arno pour le bloc 3).
  */
 const API = '/api/admin/gestion/annuaire/location';
 
@@ -103,7 +106,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
   const changements = [...changementsCartes, ...bloc3.changements, ...bloc4.changements];
   const nbChangements = changements.length;
   // 🔴 26/10/2026 — un bloc 4 touché mais incomplet compte aussi : « Enregistrer » dit ce qui manque, rien ne se perd en silence.
-  const aEnregistrer = nbChangements > 0 || bloc4.touche;
+  // 🔴 27/10/2026 — et un bloc 3 en création touché mais incomplet : « Enregistrer » dit ce qui manque.
+  const aEnregistrer = nbChangements > 0 || bloc4.touche || bloc3.touche;
   const ouvertes = etat?.ouvertes ?? 0;
   const fermer = useCallback((): void => {
     if (aEnregistrer && !envoi) { setIssue({ sorte: 'abandon' }); return; }
@@ -132,6 +136,11 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
     if ((etat?.existants.length ?? 0) > 0) { setIssue({ sorte: 'erreur', motif: 'Une fiche déjà connue a été retenue (« Utiliser cette fiche ») : elle ne peut pas rejoindre le bail depuis cette fenêtre. Retirez-la, ou faites-la entrer par « Nouveau locataire ».' }); return; }
     const refus = refusFiche(lu, saisie);
     if (refus !== null) { setIssue({ sorte: 'erreur', motif: refus }); return; }
+    // 🔴 Arno (27/10/2026) — le bloc 3 en CRÉATION (bail sans conditions), touché : les obligatoires de « Nouveau locataire ».
+    if (bloc3.touche && bloc3.manques.length > 0) {
+      bloc3.setTente(true);
+      setIssue({ sorte: 'erreur', motif: `Conditions d’entrée — reste à renseigner : ${bloc3.manques.join(' · ')}` }); return;
+    }
     // Le bloc 3 : les mêmes contrôles que le Dossier de location (dossier complet : 0 valide, vide refusé).
     if (bloc3.changements.length > 0 && bloc3.etat.sorte === 'ok' && bloc3.saisie !== null) {
       const r3 = refusDossier(bloc3.etat.l, bloc3.saisie, { suivi: false, charges: bloc3.etat.conditions?.chargesCopro !== undefined });
@@ -157,7 +166,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
     activiteId: avec4 && bloc4.envoi !== null && bloc4.envoi.activiteId !== null ? bloc4.envoi.activiteId : bloc3.envoi?.activiteId,
     saisie: {
       version: avec3 && bloc3.envoi !== null ? bloc3.envoi.saisie.version : bloc4.envoi?.version,
-      ...(avec3 && bloc3.envoi !== null ? { conditions: bloc3.envoi.saisie.conditions, entretien: bloc3.envoi.saisie.entretien } : {}),
+      ...(avec3 && bloc3.envoi !== null ? { conditions: bloc3.envoi.saisie.conditions, entretien: bloc3.envoi.saisie.entretien,
+        ...(bloc3.envoi.saisie.honorairesSaisis !== undefined ? { honorairesSaisis: bloc3.envoi.saisie.honorairesSaisis } : {}) } : {}),
       ...(avec4 && bloc4.envoi !== null ? { suivi: bloc4.envoi.suivi } : {}),
     },
   };
@@ -241,12 +251,15 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
                 ) : bloc3.etat.sorte !== 'ok' ? (
                   <p className="gst-info" role="status">Lecture des conditions d’entrée…</p>
                 ) : (
-                  <>
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn loc-bouton-bien" onClick={() => setCaracteristiques(true)} data-caracteristiques-bien="fiche-locataire">
-                      Caractéristiques du bien loué</button>
-                    <ContenuConditionsBail l={bloc3.etat.l} conditions={bloc3.etat.conditions} onConditions={bloc3.poserConditions}
-                      entretien={bloc3.etat.entretien} onEntretien={bloc3.poserEntretien} />
-                  </>
+                  /* 🔴 Arno (27/10/2026) — « Caractéristiques du bien loué » n'est plus ici (accord d'Arno : il reste au bloc 2 de cette
+                     fenêtre). Un bail sans conditions : le formulaire VIDE de « Nouveau locataire », créé à l'enregistrement. */
+                  <ContenuConditionsBail l={bloc3.etat.l} conditions={bloc3.etat.conditions} onConditions={bloc3.poserConditions}
+                    entretien={bloc3.etat.entretien} onEntretien={bloc3.poserEntretien}
+                    {...(bloc3.creation ? { creation: {
+                      hono: { ...bloc3.hono, onChange: bloc3.setHono },
+                      manque: (k: string) => { const m = bloc3.manqueDe(k); return m === null ? null : <p className="loc-manque" role="alert">{m}</p>; },
+                      onTouche: bloc3.toucher,
+                    } } : {})} />
                 )}
               </section>
               {/* 🔴 Arno (26/10/2026) — le bloc 4 de « Nouveau locataire », sur la ligne de suivi du bail (pré-rempli si validé, vide sinon). */}
@@ -268,7 +281,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
         <div className="mfl-pied">
           {ok !== null && <p className="mfl-ok" role="status" data-fiche-enregistree>{ok}</p>}
           {/* 🔴 26/10/2026 — « Reste à renseigner » du suivi commercial : une ligne, la liste dans une bulle (`LigneManques`). */}
-          <LigneManques manques={bloc4.manques} attributs={{ 'data-manques-suivi': '' }} />
+          {/* 🔴 27/10/2026 — et les obligatoires du bloc 3 en création (bail sans conditions d'entrée). */}
+          <LigneManques manques={[...bloc3.manques, ...bloc4.manques]} attributs={{ 'data-manques-suivi': '' }} />
           <p className="loc-muet" data-etat-fiche style={{ margin: 0 }}>{changements.length === 0 ? 'Aucune modification.' : `${changements.length} modification${changements.length > 1 ? 's' : ''} à enregistrer.`}</p>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!aEnregistrer || envoi} onClick={enregistrer} data-enregistrer-fiche>
             Enregistrer les modifications</button>

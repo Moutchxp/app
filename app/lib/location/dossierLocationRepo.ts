@@ -10,18 +10,21 @@ import { colonnesTrace } from '../gestion/traceJournal';
 import { lireCartesRattachees } from '../gestion/partieCategorieRepo';
 import { motifConflitFiche } from '../gestion/traceFiche';
 import { colonneExisteMemo } from './sondeLocation';
+import { honorairesGestionDisponible } from '../gestion/schema';
 import { familleDuLot } from './bienComplet';
 import { complementsDuBien } from './creationBienRepo';
-import { conditionsParOccupation, modifierConditionsEntree } from './conditionsEntreeRepo';
-import { versEnvoiConditions } from './conditionsEntree';
-import { lignesHonoraires } from './honorairesProprietaire';
+import { conditionsEntreeDisponible, conditionsParOccupation, enregistrerConditionsEntreeDans, honorairesSaisisDisponible, modifierConditionsEntree, MOTIF_SANS_402 } from './conditionsEntreeRepo';
+import { ecrireLoyerDans, loyerDesOccupations } from './loyerEntreeRepo';
+import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
+import { verifierConditions, versEnvoiConditions } from './conditionsEntree';
+import { honorairesAEnregistrer, lignesHonoraires, type CalculHonoraires } from './honorairesProprietaire';
 import { entretiensEnTexte } from './encartBien';
 import { modifierEncartBien } from './encartBienRepo';
 import { empreinte } from './ficheBienEntiere';
 import { annuaireDisponible, mettreAJourActivite } from './suivi/suiviRepo';
 import { MODES_PRIME, typeDeBienDesFiches, type CategoriePrime, type ModeApporteur, type ModePrime, type Origine, type OrigineContact } from './suivi/suivi';
 import {
-  changementsDossier, refusDossier, titreDossier, TITRE_BLOC, type CarteLocataireDossier, type ChangementDossier, type LectureDossier,
+  changementsDossier, loyerDeLaSaisieDossier, refusDossier, titreDossier, TITRE_BLOC, type CarteLocataireDossier, type ChangementDossier, type LectureDossier,
   type NomsDossier, type SaisieDossier, type SuiviDossier,
 } from './dossierLocation';
 import { CONDITIONS_VIDES, versSaisieConditions, type SaisieConditions } from './conditionsEntree';
@@ -133,6 +136,8 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
   const lecture: Omit<LectureDossier, 'version'> = {
     activiteId, bailId, lotId, titre: titreDossier(locataires, adresse),
     bien: { id: lotId, titre: adresse || `Bien n° ${lotId}`, famille }, lots: lotsCharges, entree: b.entree, locataires, contacts, conditions, entretien, suivi,
+    // 🔴 Arno (27/10/2026) — sans conditions : le loyer de départ du bail, pour pré-remplir le formulaire vide de la « Fiche locataire ».
+    ...(conditions === null ? { loyerSansConditions: await loyerDesOccupations(occ.map((o) => n(o.id))) } : {}),
   };
   return { etat: 'ok', data: { ...lecture, version: empreinte({ ...lecture, modifie: a.modifie_le }) } };
 }
@@ -155,6 +160,18 @@ export function lireSaisieDossier(brut: Record<string, unknown>, lu: LectureDoss
   const lus = lu.conditions === null ? null : versSaisieConditions(lu.conditions.valeurs, lu.conditions.loyer);
   const charges = condBrut === null || lus?.chargesCopro === undefined ? undefined
     : condBrut.chargesCopro === undefined ? lus.chargesCopro : (CHARGES_COPRO as readonly unknown[]).includes(condBrut.chargesCopro) ? condBrut.chargesCopro : null;
+  // 🔴 Arno (27/10/2026) — un bail SANS conditions (création depuis la « Fiche locataire ») : la saisie entière ; le paiement des charges
+  // seulement si la base l'a (les lots le portent, migration 400), une valeur inconnue refusée.
+  if (lu.conditions === null && condBrut !== null) {
+    const avec400 = lu.lots.some((x) => x.chargesCopro !== undefined);
+    const nouvelles: SaisieConditions = { ...CONDITIONS_VIDES, ...condBrut, loyer: { principal: ch(condBrut.loyer?.principal, 40), provisions: ch(condBrut.loyer?.provisions, 40) } };
+    if (!avec400) delete nouvelles.chargesCopro;
+    else nouvelles.chargesCopro = (CHARGES_COPRO as readonly unknown[]).includes(condBrut.chargesCopro) ? condBrut.chargesCopro : null;
+    const e0 = brut.entretien !== null && typeof brut.entretien === 'object' ? brut.entretien as SaisieDossier['entretien'] : null;
+    const suivi0 = brut.suivi !== null && typeof brut.suivi === 'object' ? { ...lu.suivi, ...(brut.suivi as Partial<SuiviDossier>) } : lu.suivi;
+    return { version: ch(brut.version, 64), locataires, conditions: nouvelles, ...(typeof brut.honorairesSaisis === 'string' ? { honorairesSaisis: ch(brut.honorairesSaisis, 40) } : {}),
+      entretien: lu.entretien === null ? null : e0, suivi: suivi0 };
+  }
   const conditions = lu.conditions === null || condBrut === null ? null : { ...CONDITIONS_VIDES, ...condBrut, loyer: { principal: ch(condBrut.loyer?.principal, 40), provisions: ch(condBrut.loyer?.provisions, 40) },
     ...(condBrut.indice === undefined && lus?.indice !== undefined ? { indice: lus.indice } : {}),
     ...(charges === undefined ? {} : { chargesCopro: charges }) };
@@ -214,20 +231,36 @@ export type IssueModificationDossier =
  * du Suivi du mois, qui vérifie TOUT (cartes et bloc 3) avant d'écrire quoi que ce soit.
  */
 export async function preparerDossier(activiteId: number, brutRecu: Record<string, unknown>, o: { ficheLocataire?: boolean } = {}):
-  Promise<{ etat: 'pret'; lu: LectureDossier; s: SaisieDossier; changements: ChangementDossier[] } | Exclude<IssueModificationDossier, { etat: 'ok' }> | { etat: 'ok'; data: { changements: ChangementDossier[] } }> {
+  Promise<{ etat: 'pret'; lu: LectureDossier; s: SaisieDossier; changements: ChangementDossier[]; honoraires: CalculHonoraires | null } | Exclude<IssueModificationDossier, { etat: 'ok' }> | { etat: 'ok'; data: { changements: ChangementDossier[] } }> {
   const l = await lireDossierLocation(activiteId);
   if (l.etat !== 'ok') return l;
   const lu = l.data;
   // 🔴 Arno (26/10/2026) — « Fiche locataire » : jamais les cartes (elles ont leur geste) ; le bloc 4 seulement s'il est ENVOYÉ (on y a touché).
   const avecSuivi = o.ficheLocataire === true && brutRecu.suivi !== null && typeof brutRecu.suivi === 'object';
   const brut = o.ficheLocataire === true
-    ? { version: brutRecu.version, conditions: brutRecu.conditions, entretien: brutRecu.entretien, ...(avecSuivi ? { suivi: brutRecu.suivi } : {}) } : brutRecu;
+    ? { version: brutRecu.version, conditions: brutRecu.conditions, entretien: brutRecu.entretien, ...(avecSuivi ? { suivi: brutRecu.suivi } : {}),
+        ...(brutRecu.honorairesSaisis !== undefined ? { honorairesSaisis: brutRecu.honorairesSaisis } : {}) } : brutRecu;
   const s = lireSaisieDossier(brut, lu);
   if (s.version !== lu.version) return { etat: 'conflit', motif: motifConflitFiche(await derniereModification(lu)) };
-  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges: lu.conditions?.valeurs.chargesCopro !== undefined, ...(o.ficheLocataire === true && !avecSuivi ? { suivi: false } : {}) });
+  const creation = lu.conditions === null && s.conditions !== null;
+  const charges = creation ? lu.lots.some((x) => x.chargesCopro !== undefined) : lu.conditions?.valeurs.chargesCopro !== undefined;
+  const refus = refusDossier(lu, s, { indice: await indiceDuBailDisponible(), charges, ...(o.ficheLocataire === true && !avecSuivi ? { suivi: false } : {}) });
   if (refus !== null) return { etat: 'refus', motif: refus };
+  /* 🔴 Arno (27/10/2026) — CRÉATION des conditions d'un bail qui n'en a pas : les HONORAIRES PROPRIÉTAIRE comme « Nouveau locataire »
+     (calculés au barème de la date d'entrée, ou saisis à la main ; le montant est obligatoire, 0 accepté) — jugés ICI, avant toute écriture. */
+  let honoraires: CalculHonoraires | null = null;
+  if (creation) {
+    if (!(await conditionsEntreeDisponible())) return { etat: 'sans_schema' };
+    const h = honorairesAEnregistrer(await calculHonorairesDuBien(lu.lotId, lu.entree), s.honorairesSaisis, lu.entree, new Date().toISOString().slice(0, 10));
+    if (!h.ok) return { etat: 'refus', motif: h.motif };
+    if (h.saisi && !(await honorairesSaisisDisponible())) return { etat: 'refus', motif: MOTIF_SANS_402 };
+    if (h.honoraires === null || (h.honoraires.etat !== 'ok' && h.honoraires.etat !== 'saisi')) {
+      return { etat: 'refus', motif: `Honoraires propriétaire : le montant (€ HT) est obligatoire${h.honoraires !== null && 'motif' in h.honoraires ? ` (${h.honoraires.motif})` : ''} — saisissez-le (0 si aucun).` };
+    }
+    honoraires = h.honoraires;
+  }
   const changements = changementsDossier(lu, s, await nomsDuDossier());
-  return { etat: 'pret', lu, s, changements };
+  return { etat: 'pret', lu, s, changements, honoraires };
 }
 
 export async function modifierDossierLocation(activiteId: number, brutRecu: Record<string, unknown>, auteur: Auteur,
@@ -239,7 +272,7 @@ export async function modifierDossierLocation(activiteId: number, brutRecu: Reco
   o: { ficheLocataire?: boolean } = {}): Promise<IssueModificationDossier> {
   const p = await preparerDossier(activiteId, brutRecu, o);
   if (p.etat !== 'pret') return p;
-  const { lu, s, changements } = p;
+  const { lu, s, changements, honoraires } = p;
   if (changements.length === 0) return { etat: 'ok', data: { changements } };
   const faits: string[] = [];
   const partiel = (motif: string): IssueModificationDossier => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
@@ -259,6 +292,33 @@ export async function modifierDossierLocation(activiteId: number, brutRecu: Reco
   if (cond.length > 0 && lu.conditions !== null && s.conditions !== null) {
     const r = await modifierConditionsEntree(lu.conditions.occupationId, { ...versEnvoiConditions(s.conditions), loyer: { ...s.conditions.loyer } }, auteur);
     if (r.etat !== 'ok') return partiel('motif' in r && typeof r.motif === 'string' ? r.motif : 'Les conditions d’entrée n’ont pas pu être modifiées.');
+    await journaliserChamps({ entite: 'location_bail', id: lu.bailId, lotId: lu.lotId, action: 'location_dossier_conditions', changements: cond, auteur });
+    faits.push(...cond.map((c) => c.champ));
+  }
+  /* 🔴 Arno (27/10/2026) — CRÉATION (« Fiche locataire », bail sans conditions) : le MÊME geste que « Nouveau locataire » — le jeu de
+     conditions du bail (`enregistrerConditionsEntreeDans`, journal par locataire) et le loyer de départ s'il a changé (`ecrireLoyerDans`,
+     ajout seul), dans UNE transaction ; puis le journal du bail. Rien n'est remplacé : une modification ultérieure en fera une nouvelle version. */
+  if (cond.length > 0 && lu.conditions === null && s.conditions !== null) {
+    const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true });
+    const loyer = loyerDeLaSaisieDossier(s.conditions.loyer);
+    if (!v.ok || loyer === undefined) return partiel(v.ok ? 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).' : v.motif);
+    const occ = (await query<{ id: string; lot_id: string }>('SELECT id::text, lot_id::text FROM gestion_annuaire_occupation WHERE bail_id = $1 ORDER BY (lot_id = $2) DESC, id', [lu.bailId, lu.lotId])).rows;
+    if (occ.length === 0) return partiel('Ce bail n’a plus d’occupant : les conditions d’entrée ne peuvent pas être créées.');
+    const avant = lu.loyerSansConditions ?? null;
+    const loyerChange = avant === null ? (loyer.principal !== null || loyer.provisions !== null) : avant.principal !== loyer.principal || avant.provisions !== loyer.provisions;
+    const avecLoyer = loyerChange && await honorairesGestionDisponible();
+    const avecCopie = avecLoyer && await colonneExisteMemo('gestion_location_activite', 'loyer_hc');
+    await withTransaction(async (q) => {
+      if (avecLoyer) {
+        await ecrireLoyerDans(q, n(occ[0].id), n(occ[0].lot_id), loyer, auteur, true);
+        // La copie du loyer sur la ligne de suivi du bail suit, comme à la modification (le bail est la source).
+        if (avecCopie) {
+          await q('UPDATE gestion_location_activite SET loyer_hc = $2, charges = $3 WHERE bail_id = $1 AND annule_le IS NULL',
+            [lu.bailId, loyer.principal === null ? null : loyer.principal / 100, loyer.provisions === null ? null : loyer.provisions / 100]);
+        }
+      }
+      await enregistrerConditionsEntreeDans(q, occ.map((o) => n(o.id)), lu.lotId, v.valeurs, honoraires, auteur, lu.bailId);
+    });
     await journaliserChamps({ entite: 'location_bail', id: lu.bailId, lotId: lu.lotId, action: 'location_dossier_conditions', changements: cond, auteur });
     faits.push(...cond.map((c) => c.champ));
   }

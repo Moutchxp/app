@@ -24,6 +24,8 @@ const { query, pool } = await import('../db/client');
 const { lireFicheLocataireCartes, enregistrerFicheLocataire } = await import('./ficheLocataireCartesRepo');
 const { lireDossierLocation } = await import('./dossierLocationRepo');
 const { ficheLocataire } = await import('../gestion/annuaireRepo');
+const { ficheLocataireLocation } = await import('./locationRepo');
+const { CONDITIONS_VIDES } = await import('./conditionsEntree');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const id = async (sql: string, p: unknown[]): Promise<number> => Number((await query<{ id: string }>(sql, p)).rows[0].id);
@@ -96,4 +98,42 @@ describe('🔴 la fiche locataire du Suivi du mois — la base partagée', () =>
     // Journalisé.
     expect((await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_journal`)).rows[0].n).toBeGreaterThan(avant);
   });
+
+  it('🔴 27/10/2026 — bail SANS conditions : la fiche les CRÉE (formulaire de « Nouveau locataire ») ; relues IDENTIQUES depuis le Dossier de location et la fiche Location ; journalisées', async () => {
+    const d0 = await lireDossierLocation(L.ligne);
+    if (d0.etat !== 'ok') throw new Error(`dossier ${d0.etat}`);
+    expect(d0.data.conditions).toBeNull();
+    const lu = await lireFicheLocataireCartes(L.loc, L.bail);
+    if (lu.etat !== 'ok') throw new Error('lecture');
+    const avant = (await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_journal`)).rows[0].n;
+    const conditions = { ...CONDITIONS_VIDES, depot: 'bailleur', prelevement: true, jour: '10', garant: false, assurance: 'visale', honorairesLocataire: 'agence',
+      honorairesProprietaire: 'gestion', reglement: 'cheque', loyer: { principal: '950', provisions: '50' },
+      sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '950', honorairesAgence: '0' },
+      indice: { type: 'irl', reference: '2026-2', revision: '2027-09-12' }, chargesCopro: 'agence' };
+    const r = await enregistrerFicheLocataire(L.loc, L.bail, { version: lu.data.version, nouvelles: [], modifiees: [] },
+      { activiteId: L.ligne, saisie: { version: d0.data.version, conditions, entretien: null, honorairesSaisis: '0' } }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(`enregistrement : ${JSON.stringify(r)}`);
+    expect(r.data.dossier.map((c) => c.champ)).toContain('Mode de règlement');
+    expect(r.data.dossier.every((c) => c.avant === '(vide)')).toBe(true);
+
+    // Le Dossier de location : les MÊMES conditions (une version, sur ce bail).
+    const d1 = await lireDossierLocation(L.ligne);
+    if (d1.etat !== 'ok' || d1.data.conditions === null) throw new Error('dossier relu');
+    expect(d1.data.conditions.valeurs).toMatchObject({ depot: 'bailleur', prelevement: true, jour: 10, garant: false, assurance: 'visale', reglement: 'cheque',
+      honorairesLocataire: 'agence', honorairesProprietaire: 'gestion', sommes: { depotGarantie: 95000, honorairesAgence: 0 } });
+    expect(d1.data.conditions.loyer).toEqual({ principal: 95000, provisions: 5000 });
+    // La fiche du locataire (Location / Gestion) : le MÊME jeu de conditions.
+    const f = await ficheLocataireLocation(L.loc);
+    if (f.etat !== 'ok') throw new Error('fiche Location');
+    const lues = f.data.conditionsEntree ?? [];
+    expect(lues).toHaveLength(1);
+    // Le paiement des charges est la donnée du BIEN (lu avec les lots au Dossier) : comparé à part.
+    expect({ ...lues[0].conditions, chargesCopro: undefined }).toEqual({ ...d1.data.conditions.valeurs, chargesCopro: undefined });
+    expect(lues[0].bailId).toBe(L.bail);
+    // Une seule ligne de conditions pour ce bail (rien en double) ; journalisé.
+    expect((await query<{ n: number }>('SELECT count(*)::int AS n FROM gestion_location_conditions_entree WHERE bail_id = $1', [L.bail])).rows[0].n).toBe(1);
+    expect((await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_journal`)).rows[0].n).toBeGreaterThan(avant);
+    expect((await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_journal WHERE entite = 'location_bail' AND entite_id = $1 AND action = 'location_dossier_conditions'`, [L.bail])).rows[0].n).toBeGreaterThan(0);
+  });
 });
+

@@ -29,7 +29,12 @@ const VALIDE: SuiviDossier = {
 const DOSSIER: LectureDossier = {
   activiteId: 100, bailId: 70, lotId: 51, version: 'v1d', titre: 'Dossier de location — MARTIN Léa — 7 rue des Essais Courbevoie',
   bien: { id: 51, titre: '7 rue des Essais Courbevoie', famille: 'logement' }, lots: [{ id: 51, libelle: 'Appartement — 7 rue des Essais Courbevoie' }], entree: '2026-09-12',
-  locataires: [], contacts: [], conditions: null, entretien: null, suivi: VALIDE,
+  // 27/10/2026 — des conditions d'entrée déjà enregistrées : ces épreuves portent sur le bloc 4 (sans conditions, le bloc 3 serait le
+  // formulaire VIDE de création, dont les obligatoires rejoindraient « Reste à renseigner » — éprouvé dans `ModaleFicheLocataire.test.tsx`).
+  locataires: [], contacts: [], entretien: null, suivi: VALIDE,
+  conditions: { occupationId: 900, loyer: { principal: 100000, provisions: 10000 }, lignesHonoraires: [],
+    valeurs: { depot: 'agence', prelevement: true, jour: 5, garant: true, assurance: 'aucune', assurancePrecision: null, honorairesLocataire: 'agence', honorairesProprietaire: 'gestion',
+      sommes: { prorataLoyer: 50000, prorataCharges: 5000, depotGarantie: 100000, honorairesAgence: 68086 }, reglement: 'virement', reglementPrecision: null, commentaire: null } },
 };
 const PARAMETRES = { disponible: true, apporteurs: [], negociateurs: [{ id: 3, libelle: 'Jean-Baptiste Pons' }, { id: 4, libelle: 'Arnaud Jorel' }], moi: 4, collegues: [],
   regles: [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }], annuaire: true, dejaClient: true };

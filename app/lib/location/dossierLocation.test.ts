@@ -216,3 +216,25 @@ describe('🔴 le dépôt du dossier', () => {
     expect(branche).not.toMatch(/[Dd]rive/);
   });
 });
+
+/**
+ * 🔴 Arno (27/10/2026) — un bail SANS conditions d'entrée (« Fiche locataire ») : la saisie entière CRÉE les conditions — le récapitulatif
+ * part de « (vide) », les MÊMES exigences que « Nouveau locataire » (dossier complet) ; une saisie absente (bloc non touché) : rien.
+ */
+describe('🔴 création des conditions d’un bail qui n’en a pas (27/10/2026)', () => {
+  const sans: LectureDossier = { ...lecture, conditions: null };
+  it('bloc non touché (conditions absentes) : aucun changement, aucun refus', () => {
+    expect(changementsDossier(sans, saisie({ conditions: null }), noms).filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens')).toEqual([]);
+    expect(refusDossier(sans, saisie({ conditions: null }), { suivi: false })).toBeNull();
+  });
+  it('saisie complète : chaque information renseignée part de « (vide) »', () => {
+    const ch = changementsDossier(sans, saisie(), noms).filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens');
+    expect(ch.length).toBeGreaterThan(5);
+    expect(ch.every((c) => c.avant === '(vide)')).toBe(true);
+    expect(ch).toContainEqual({ bloc: 3, champ: 'Mode de règlement', avant: '(vide)', apres: 'Virement' });
+  });
+  it('saisie incomplète : refusée avec le motif de « Nouveau locataire » (rien n’est créé à moitié)', () => {
+    expect(refusDossier(sans, saisie({ conditions: { ...CONDITIONS_VIDES, depot: 'agence' } }), { suivi: false })).toContain('Prélèvement');
+    expect(changementsDossier(sans, saisie({ conditions: { ...CONDITIONS_VIDES, depot: 'agence' } }), noms).filter((c) => c.bloc === 3 && c.champ === 'Dépôt de garantie')).toEqual([]);
+  });
+});

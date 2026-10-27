@@ -44,6 +44,11 @@ export interface LectureDossier {
   contacts: { id: number; libelle: string; qualite: string | null }[];
   /** Les conditions d'entrée du bail (la dernière version) ; `null` : aucune n'a été enregistrée (rien n'est inventé). */
   conditions: { occupationId: number; valeurs: ConditionsEntree; loyer: LoyerMensuel | null; lignesHonoraires: { mot: string; valeur: string }[] } | null;
+  /**
+   * 🔴 Arno (27/10/2026) — sans conditions d'entrée (`conditions` null) : le loyer de départ déjà connu du bail (migration 370), pour
+   * PRÉ-REMPLIR le formulaire vide de la « Fiche locataire » ; absent ou `null` : aucun.
+   */
+  loyerSansConditions?: LoyerMensuel | null;
   /** L'entretien à prévoir du BIEN (logement, local) ; `null` : sans objet (parking, cave) ou base d'avant la 379. */
   entretien: { aPrevoir: boolean | null; entretiens: { sorte: string; nom?: string | null; dateAnniversaire?: string | null }[] } | null;
   suivi: SuiviDossier;
@@ -54,6 +59,11 @@ export interface SaisieDossier {
   /** Les seuls champs modifiés de chaque carte de locataire modifiée. */
   locataires: { id: number; champs: CarteApres }[];
   conditions: SaisieConditions | null;
+  /**
+   * 🔴 Arno (27/10/2026) — CRÉATION des conditions d'un bail qui n'en a pas (« Fiche locataire ») : le montant des honoraires
+   * propriétaire SAISI À LA MAIN (€ TTC), comme « Nouveau locataire » ; absent : le calcul au barème.
+   */
+  honorairesSaisis?: string;
   entretien: { aPrevoir: boolean | null; entretiens: { sorte: string; nom?: string; dateAnniversaire: string }[] } | null;
   suivi: SuiviDossier;
 }
@@ -100,6 +110,14 @@ export function changementsDossier(lu: LectureDossier, s: SaisieDossier, noms: N
     for (const c of changementsCarte(carte, l.champs)) sortie.push({ bloc: 1, champ: `${qui} — ${c.champ}`, avant: c.avant, apres: c.apres });
   }
   // ③ Les conditions d'entrée (lues comme sur la fiche : une ligne par information) et l'entretien du bien.
+  // 🔴 Arno (27/10/2026) — un bail SANS conditions (création, « Fiche locataire ») : chaque information renseignée part de « (vide) ».
+  if (lu.conditions === null && s.conditions !== null) {
+    const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true });
+    const loyer = loyerDeLaSaisieDossier(s.conditions.loyer);
+    if (v.ok && loyer !== undefined) {
+      for (const [mot, b] of parIntitule(lignesConditions(v.valeurs, null, loyer))) if (b !== '') sortie.push({ bloc: 3, champ: mot, avant: '(vide)', apres: b });
+    }
+  }
   if (lu.conditions !== null && s.conditions !== null) {
     const v = verifierConditions(versEnvoiConditions(s.conditions));
     const loyer = loyerDeLaSaisieDossier(s.conditions.loyer);
@@ -174,7 +192,8 @@ export function changementsSuivi(avant: SuiviDossier | null, apres: SuiviDossier
 export function refusDossier(lu: LectureDossier, s: SaisieDossier,
   /** Le serveur : l'indice (423) et le paiement des charges (400) exigés quand la base les a, même si la saisie ne les porte pas. */
   exiger: { indice?: boolean; charges?: boolean; suivi?: boolean } = {}): string | null {
-  if (lu.conditions !== null && s.conditions !== null) {
+  // 🔴 Arno (27/10/2026) — et à la CRÉATION des conditions d'un bail qui n'en a pas (« Fiche locataire ») : les mêmes exigences.
+  if (s.conditions !== null) {
     // 🔴 Arno (25/10/2026) — à l'ENREGISTREMENT, le dossier complet (loyer, dépôt, honoraires agence, indice, paiement des charges) ; un
     // dossier ancien incomplet s'ouvre et se lit toujours : seule cette vérification, au moment d'enregistrer, l'exige.
     const v = verifierConditions(versEnvoiConditions(s.conditions), { complet: true, indice: exiger.indice, charges: exiger.charges });

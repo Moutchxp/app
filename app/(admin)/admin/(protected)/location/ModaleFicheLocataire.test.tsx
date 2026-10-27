@@ -150,7 +150,7 @@ describe('🔴 Arno (25/10/2026) — la « Fiche locataire » porte aussi le blo
   const bloc3 = () => document.querySelector('[data-bloc-conditions-locataire]') as HTMLElement;
   const pilule = (groupe: string, mot: string) => [...bloc3().querySelectorAll(`[aria-label="${groupe}"] button`)].find((b) => b.textContent === mot) as HTMLButtonElement;
 
-  it('PRÉREMPLI depuis le bail, sous le bloc 1 : les mêmes conditions que Nouveau locataire et le Dossier ; « Caractéristiques du bien loué »', async () => {
+  it('PRÉREMPLI depuis le bail, sous le bloc 1 : les mêmes conditions que Nouveau locataire et le Dossier ; plus de « Caractéristiques du bien loué » au bloc 3 (27/10/2026)', async () => {
     await monterAvecBail();
     const blocs = [...document.querySelectorAll('[data-bloc-cartes-locataire], [data-bloc-conditions-locataire]')];
     expect(blocs.map((b) => b.querySelector('h3')?.textContent)).toEqual(['1Le ou les locataires', '3Conditions d’entrée et sommes dues']);
@@ -161,7 +161,8 @@ describe('🔴 Arno (25/10/2026) — la « Fiche locataire » porte aussi le blo
     expect((bloc3().querySelector('[data-somme="depotGarantie"] input') as HTMLInputElement).value).toBe('1000');
     expect((bloc3().querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toMatch(/^1\s?000(,00)?$/);
     expect(bloc3().querySelector('[data-honoraires-dossier]')?.textContent).toContain('567,38 € HT');
-    expect(bloc3().querySelector('[data-caracteristiques-bien="fiche-locataire"]')?.textContent).toBe('Caractéristiques du bien loué');
+    // 🔴 Arno (27/10/2026) — retiré du bloc 3 de CETTE fenêtre (accord d'Arno) : il reste au bloc 2.
+    expect(bloc3().querySelector('[data-caracteristiques-bien]')).toBeNull();
     expect(enregistrer().disabled).toBe(true);
   });
 
@@ -264,8 +265,9 @@ describe('🔴 la fiche locataire complète (27/10/2026)', () => {
     const bien2 = document.querySelector('[data-bloc-bien-locataire]') as HTMLElement;
     expect((bien2.textContent ?? '').replace(/\s+/g, ' ')).toBe(bien2Dossier);
     expect(bien2.querySelector('[data-entree-dossier]')?.textContent).toContain('12/09/2026');
-    // « Caractéristiques du bien loué » reste aussi au bloc 3 (rien n'est retiré).
-    expect(document.querySelectorAll('[data-caracteristiques-bien]')).toHaveLength(2);
+    // 🔴 Arno (27/10/2026) — « Caractéristiques du bien loué » UNE seule fois, au bloc 2 (retiré du bloc 3 avec son accord).
+    expect([...document.querySelectorAll('[data-caracteristiques-bien]')].map((b) => b.getAttribute('data-caracteristiques-bien'))).toEqual(['fiche-locataire-bien']);
+    expect(bien2.querySelector('[data-caracteristiques-bien]')?.textContent).toBe('Caractéristiques du bien loué');
   });
 
   it('TITRE : « Propriétaire : NOM Prénom » en gros, le locataire juste en dessous ; plusieurs copropriétaires : « Propriétaires : X, Y » ; sans propriétaire : le titre d’avant', async () => {
@@ -284,5 +286,119 @@ describe('🔴 la fiche locataire complète (27/10/2026)', () => {
     await monterLigne();
     expect(document.querySelector('h2')?.textContent).toBe('Fiche locataire — Mme MARTIN Léa');
     expect(document.querySelector('[data-titre-proprietaires]')).toBeNull();
+  });
+});
+
+/**
+ * 🔴 Arno (27/10/2026) — UN BAIL SANS CONDITIONS D'ENTRÉE (ex. un bail importé) : le bloc 3 de la fiche est le formulaire de « Nouveau
+ * locataire » (`BlocConditionsEntree`), VIDE et saisissable — plus « il n'y a rien à modifier ici » ; ses obligatoires (*) dans « Reste à
+ * renseigner » ; « Enregistrer les modifications » les CRÉE sur ce bail (le chemin du Dossier de location) ; « Loyer révisé » reste dessous.
+ */
+describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de « Nouveau locataire », vide et créable (27/10/2026)', () => {
+  /** Les sous-blocs du bloc 3 de « Nouveau locataire » (relevés par `ConditionsEntreeLocataire.test.tsx`), dans l'ordre. */
+  const SOUS_BLOCS_NOUVEAU_LOCATAIRE = ['depot', 'prelevement', 'garanties', 'honoraires', 'entretien', 'loyer', 'indice', 'sommes', 'honoraires-proprietaire', 'reglement', 'charges', 'commentaire'];
+  const CALCUL = { etat: 'ok', surface: '41.8', zone: 'tres_tendue', date: '2026-09-12', dateSupposee: false, baremeId: 1, baremeDepuis: '2026-01-01',
+    source: 'Arrêté du 17/07/2025', tarifZone: '12.1', tarifEdl: '3.03', visiteBail: '505.78', etatDesLieux: '126.654', total: '632.434' };
+  const SANS: LectureDossier = { ...DOSSIER, conditions: null, loyerSansConditions: { principal: 95000, provisions: 5000 },
+    entretien: { aPrevoir: null, entretiens: [] }, lots: [{ id: 51, libelle: 'Appartement — 7 rue des Essais Courbevoie', chargesCopro: null }] };
+  beforeEach(() => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const url = String(u);
+      if (!init?.method && url.includes('dossierLocation=100')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: SANS }) } as unknown as Response;
+      if (!init?.method && url.includes('honorairesProprietaire=51')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: CALCUL }) } as unknown as Response;
+      return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const monterSans = async () => {
+    await act(async () => { root.render(createElement(ModaleFicheLocataire, { locataireId: 230, bailId: 70, activiteId: 100, libelle: 'MARTIN Léa', onFermer, onEnregistre })); });
+    await calmer();
+  };
+  const bloc3 = () => document.querySelector('[data-bloc-conditions-locataire]') as HTMLElement;
+  const pilule = (groupe: string, mot: string) => [...bloc3().querySelectorAll(`[aria-label="${groupe}"] button`)].find((b) => b.textContent === mot) as HTMLButtonElement;
+  const barre = () => document.querySelector('.mfl-pied')?.textContent ?? '';
+  const toutRepondre = async () => {
+    await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
+    await clic(pilule('Prélèvement', 'Oui'));
+    await clic(pilule('Jour du prélèvement', 'au 10'));
+    await clic(pilule('Garant personne physique', 'Non'));
+    await clic(pilule('Assurance loyers impayés', 'Visale'));
+    await clic(bloc3().querySelector('[data-entretien-reponse="non"]')!);
+    await clic(pilule('Honoraires du locataire', 'Compte bancaire transaction'));
+    await clic(pilule('Honoraires du propriétaire', 'Compte bancaire gestion'));
+    await clic(pilule('Mode de règlement', 'Chèque'));
+    await clic(pilule('Paiement des charges', 'Agence'));
+    await saisir(bloc3().querySelector('[data-somme="depotGarantie"] input') as HTMLInputElement, '950');
+    await saisir(bloc3().querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '0');
+    await calmer();
+  };
+
+  it('le formulaire de « Nouveau locataire » : les MÊMES sous-blocs, dans le même ordre ; VIDE (loyer de départ du bail pré-rempli) ; « Loyer révisé » dessous ; un seul « Caractéristiques du bien loué »', async () => {
+    await monterSans();
+    expect(bloc3().textContent).not.toContain('il n’y a rien à modifier ici');
+    expect(bloc3().querySelector('[data-sans-conditions]')).toBeNull();
+    expect([...bloc3().querySelectorAll('[data-conditions-entree] .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'))).toEqual(SOUS_BLOCS_NOUVEAU_LOCATAIRE);
+    expect([...bloc3().querySelectorAll('[aria-label="Assurance loyers impayés"] button')].map((b) => b.textContent)).toEqual(['GLI', 'Visale', 'Autre', 'Aucune']);
+    expect([...bloc3().querySelectorAll('[aria-label="Honoraires du locataire"] button')].map((b) => b.textContent)).toEqual(['Compte bancaire transaction', 'Compte bancaire gestion']);
+    // Vide : aucun choix fait ; le loyer de départ déjà enregistré pour ce bail, pré-rempli et dit.
+    expect(bloc3().querySelectorAll('[data-conditions-entree] button[aria-pressed="true"]')).toHaveLength(0);
+    expect((bloc3().querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toMatch(/^950(,00)?$/);
+    expect((bloc3().querySelector('[data-somme="depotGarantie"] input') as HTMLInputElement).value).toBe('');
+    expect(bloc3().textContent).toContain('Pré-rempli avec le loyer de départ déjà enregistré pour ce bail');
+    // « Loyer révisé » reste sous le formulaire.
+    expect([...bloc3().querySelectorAll('[data-conditions-entree], [data-loyers-revises]')].map((x) => (x.hasAttribute('data-loyers-revises') ? 'loyer révisé' : 'formulaire')))
+      .toEqual(['formulaire', 'loyer révisé']);
+    expect([...document.querySelectorAll('[data-caracteristiques-bien]')].map((b) => b.getAttribute('data-caracteristiques-bien'))).toEqual(['fiche-locataire-bien']);
+    // Les obligatoires (*) dans « Reste à renseigner » ; rien à enregistrer tant qu'on n'y a pas touché.
+    expect(barre()).toContain('Dépôt de garantie');
+    expect(barre()).toContain('Paiement des charges');
+    expect(barre()).toMatch(/Entretien à prévoir/);
+    expect(enregistrer().disabled).toBe(true);
+  });
+
+  it('touché mais incomplet : « Enregistrer » dit ce qui reste à renseigner, sous les champs aussi ; rien ne part', async () => {
+    await monterSans();
+    await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
+    expect(barre()).not.toContain('Dépôt de garantie : conservé');
+    expect(barre()).toContain('Prélèvement');
+    expect(enregistrer().disabled).toBe(false);
+    await clic(enregistrer());
+    expect(document.querySelector('[data-motif-fiche]')?.textContent).toContain('Conditions d’entrée — reste à renseigner');
+    expect(document.querySelector('[data-motif-fiche]')?.textContent).toContain('Prélèvement : répondez Oui ou Non.');
+    expect(posts).toEqual([]);
+    await clic([...document.querySelectorAll('.mfl-boite button')].find((b) => b.textContent === 'Fermer')!);
+    expect(bloc3().querySelector('.loc-manque')).not.toBeNull();
+  });
+
+  it('complet : le récapitulatif part de « (vide) » ; « Confirmer » CRÉE les conditions par le chemin du Dossier de location (même version, même ligne)', async () => {
+    await monterSans();
+    await toutRepondre();
+    expect(barre()).not.toMatch(/Reste à renseigner/);
+    await clic(enregistrer());
+    const recap = document.querySelector('[data-recap-bloc="3"]')!;
+    expect(recap.textContent).toContain('Mode de règlement : (vide) → Chèque');
+    expect(recap.textContent).toContain('(vide) → Reversé au bailleur');
+    await clic(document.querySelector('[data-confirmer-fiche]')!);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ action: 'modifier-fiche-locataire', id: 230, saisie: { modifiees: [], nouvelles: [] },
+      dossier: { activiteId: 100, saisie: { version: 'v1d', conditions: { depot: 'bailleur', prelevement: true, reglement: 'cheque', chargesCopro: 'agence', loyer: { principal: '950' } } } } });
+    // Les honoraires propriétaire : le calcul au barème (rien de saisi à la main, donc rien d'envoyé).
+    expect((posts[0].dossier as { saisie: Record<string, unknown> }).saisie).not.toHaveProperty('honorairesSaisis');
+    expect(document.querySelector('[data-fiche-enregistree]')?.textContent).toBe('✓ Modifications enregistrées');
+  });
+
+  it('bloc 3 non touché : les cartes seules s’enregistrent comme avant (aucune condition envoyée, rien n’est exigé)', async () => {
+    await monterSans();
+    await modifierLea();
+    await saisir(champ('Commune'), 'PUTEAUX');
+    await clic([...document.querySelectorAll('.cp-ajouts button')].find((b) => b.textContent?.includes('E-mail'))!);
+    const lignes = document.querySelectorAll('.cp-form .cp-saisie--valeur');
+    await saisir(lignes[lignes.length - 1] as HTMLInputElement, 'lea@exemple.test');
+    await validerCarte();
+    await clic(enregistrer());
+    expect(document.querySelector('[data-recap-bloc="3"]')).toBeNull();
+    await clic(document.querySelector('[data-confirmer-fiche]')!);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).not.toHaveProperty('dossier');
   });
 });
