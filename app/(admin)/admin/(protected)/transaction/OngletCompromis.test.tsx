@@ -576,6 +576,7 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     await choisir('entree', 5);
     await choisir('sortie', 7);
     await saisir('[data-champ="commission-entree"]', '1000');
+    await cliquer('[data-unite-de="commission-entree"][data-unite="ht"]'); // LOT O : TTC par défaut ; on choisit HT
     expect(texte('[data-equivalent="commission-entree"]')).toBe('soit 1 200,00 € TTC');
     await saisir('[data-champ="commission-sortie"]', '1200');
     await cliquer('[data-unite-de="commission-sortie"][data-unite="ttc"]');
@@ -778,5 +779,61 @@ describe('🔴 LOT N — la colonne « % » des lignes « Part CRITERIMMO / MACJ
     expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'macj', 50)])).toEqual(['50 %', '50 %', '']);
     expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'macj', 40)])).toEqual(['60 %', '40 %', '']);
     expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 40), pa('sortie', 7, MY.nom, 'macj', 40), ext])).toEqual(['40 %', '40 %', '20 %']);
+  });
+});
+
+describe('🔴 LOT O — la commission versée PROPOSÉE (part × commission TTC)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const champ = (sel: string) => (container.querySelector(sel) as HTMLInputElement).value.replace(/\s/g, ' ');
+  const presse = (c: string, u: string) => container.querySelector(`[data-unite-de="${c}"][data-unite="${u}"]`)!.getAttribute('aria-pressed');
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) => ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null });
+  const v = (pE: number, pS: number, o: Partial<Vente> = {}): Vente => ({ ...compromis, honorairesTtc: 7500, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo', pE), pa('sortie', 7, MY.nom, 'macj', pS)] }, ...o });
+  const carte = async (x: Vente) => { listeCompromis = [x]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(x.id); };
+
+  it('50/50 : depuis la carte, 50 % × 7 500 € = 3 750,00 TTC (TTC enfoncé), avec la mention ; bascule HT : 3 125,00', async () => {
+    await carte(v(50, 50));
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('3 750,00');
+    expect(presse('commission-carte-entree', 'ttc')).toBe('true');
+    expect(texte('[data-propose="commission-carte-entree"]')).toBe('proposé : 50 % de 7 500,00 € TTC');
+    await cliquer('[data-unite-de="commission-carte-entree"][data-unite="ht"]');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('3 125,00');
+  });
+  it('60/40 : le formulaire Modifier propose 4 500,00 et 3 000,00 TTC ; une frappe remplace la proposition', async () => {
+    await carte(v(60, 40));
+    await cliquer('[data-modifier-compromis="41"]');
+    expect([champ('[data-champ="commission-entree"]'), champ('[data-champ="commission-sortie"]')]).toEqual(['4 500,00', '3 000,00']);
+    await saisir('[data-champ="commission-sortie"]', '2800');
+    expect(champ('[data-champ="commission-sortie"]')).toBe('2800');
+    expect(container.querySelector('[data-propose="commission-sortie"]')).toBeNull();
+  });
+  it('une commission déjà enregistrée s’affiche telle quelle, jamais recalculée', async () => {
+    await carte(v(50, 50, { lignes: [{ id: 1, negociateur: JB.nom, role: 'negociateur', montantTtc: 1200, montantHt: 1000, cote: 'entree', nature: 'compromis', compte: false, origine: 'saisie',
+      sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] }));
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('1000');
+    expect(presse('commission-carte-entree', 'ht')).toBe('true');
+    expect(container.querySelector('[data-propose="commission-carte-entree"]')).toBeNull();
+  });
+  it('rien n’est écrit sans « Valider » ; « Valider » n’envoie que la proposition de SON côté (celle de l’autre côté ne part pas)', async () => {
+    await carte(v(50, 50));
+    await cliquer('[data-negociateur-carte="entree"]');
+    await cliquer('[data-negociateur-carte="sortie"]');
+    expect(posts).toEqual([]);
+    expect(texte('[data-commissions-ht]')).toBe('0,00 € HT'); // la proposition n'est pas dans les tuiles tant qu'elle n'est pas validée
+    await cliquer('[data-choix-negociateur="entree"] [data-valider-negociateur]');
+    const e = posts.at(-1) as { dossier: { commissions: { entree: { montant: string; unite: string }; sortie: { montant: string; unite: string } } } };
+    // (l'espace des milliers est insécable : le serveur, `montant()` de saisie.ts, l'ignore comme toute espace)
+    expect({ ...e.dossier.commissions.entree, montant: e.dossier.commissions.entree.montant.replace(/\s/g, ' ') }).toEqual({ montant: '3 750,00', unite: 'ttc' });
+    expect(e.dossier.commissions.sortie).toEqual({ montant: '', unite: 'ttc' });
+  });
+  it('sans répartition (import « toute la commission à CRITERIMMO ») : champ vide, TTC par défaut, aucune mention', async () => {
+    await carte({ ...importe, honorairesTtc: 7500, dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: JB.nom }, sortie: null, apporteurId: null, personnes: [] } });
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('');
+    expect(presse('commission-carte-entree', 'ttc')).toBe('true');
+    expect(container.querySelector('[data-propose="commission-carte-entree"]')).toBeNull();
   });
 });

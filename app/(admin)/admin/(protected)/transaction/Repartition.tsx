@@ -26,7 +26,12 @@ export interface ApporteurRef { id: number; nom: string }
 /** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
 export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
 /** Un montant à l'écran, tel que saisi, avec SON unité (LOT I). */
-export interface MontantEcran { texte: string; unite: Unite }
+export interface MontantEcran { texte: string; unite: Unite;
+  /**
+   * LOT O — vrai : la commission n'est pas saisie, elle est PROPOSÉE (part de ce côté × commission TTC), recalculée à l'écran et convertie
+   * quand l'unité change ; une frappe la rend saisie. Rien n'est écrit avant « Valider » / « Enregistrer ».
+   */
+  auto?: boolean }
 /**
  * `parties[0]` : la ligne « Entrée du mandat », `parties[1]` : « Sortie du mandat » (toujours là) ; ensuite les parties extérieures.
  * LOT I (437) — `retroUnite` : l'unité de la rétrocession ; `commissions` : les commissions versées aux négociateurs d'entrée et de sortie
@@ -129,7 +134,7 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
   const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: societeDOffice(n?.societe) } : p));
   const deux = (e: number | null, s: number | null): boolean => e !== null && s !== null && e !== s;
   // LOT I — le négociateur retiré : la commission de ce côté n'a plus de destinataire, elle est vidée (rien n'est encore enregistré).
-  const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '' } } : etat.commissions;
+  const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '', auto: false } } : etat.commissions;
   if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, commissions, parties: garder() };
   return { ...etat, entreeId, sortieId, commissions, parties: partiesPour(negos, entreeId, sortieId) };
 }
@@ -219,6 +224,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
               {interne && i < 2 && (etat.commissions != null ? (
                 p.compteId === null ? <span className="loc-muet" data-commission-sans-negociateur={i === 0 ? 'entree' : 'sortie'}>Commission versée : choisissez d’abord le négociateur.</span>
                   : <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
+                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission)}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
               {!interne && <span className="loc-muet">Hors de nos chiffres : dans le CA d’aucune société.</span>}
@@ -263,21 +269,26 @@ export function equivalent(m: MontantEcran): string | null {
  * 🔴 LOT I (Arno) — UN MONTANT AVEC SON UNITÉ « HT / TTC » AU CHOIX : le champ, deux boutons (cibles de 44 px, le bouton choisi est
  * enfoncé et dit « HT » ou « TTC » — jamais la couleur seule), et l'équivalent dans l'autre unité dessous. Sans la 437 : « HT » grisé.
  */
-export function ChampMontantUnite({ mot, valeur, onChange, avecHt, champ, aide }: {
+export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose = null }: {
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
+  /** LOT O — la commission proposée (part de ce côté × commission TTC) ; montrée tant que le champ n'est pas saisi (`auto`). */
+  propose?: Proposition | null;
 }) {
+  const valeur = montantEffectif(brute, propose);
   const eq = equivalent(valeur);
   return (
     <div className="trx-montant-unite" data-montant-unite={champ}>
       <label>{mot} ({LIBELLE_UNITE[valeur.unite]})
-        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange({ ...valeur, texte: e.target.value })} data-champ={champ} /></label>
+        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange({ texte: e.target.value, unite: valeur.unite, auto: false })} data-champ={champ} /></label>
       <div className="trx-unites" role="group" aria-label={`Unité : ${mot}`}>
         {UNITES.map((u) => (
           <button key={u} type="button" className="trx-unite" aria-pressed={valeur.unite === u} disabled={u === 'ht' && !avecHt}
-            onClick={() => onChange({ ...valeur, unite: u })} data-unite={u} data-unite-de={champ}>{LIBELLE_UNITE[u]}</button>
+            onClick={() => onChange({ ...brute, unite: u })} data-unite={u} data-unite-de={champ}>{LIBELLE_UNITE[u]}</button>
         ))}
       </div>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
+      {brute.auto === true && propose !== null && <span className="loc-muet" data-propose={champ}>
+        proposé : {propose.pct.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % de {eur(propose.baseTtc)} TTC</span>}
       {aide !== undefined && <span className="loc-muet">{aide}</span>}
       {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
     </div>
@@ -317,4 +328,43 @@ export function ChoixSocieteVente({ valeur, onChoisir, cle }: { valeur: Societe 
       {valeur === null && <span className="trx-alerte" data-societe-vente-manque>choix obligatoire</span>}
     </div>
   );
+}
+
+// ── LOT O : la commission versée proposée ─────────────────────────────────────────────────────────────────────────────────
+
+/** La commission proposée d'un côté : sa part (en %) dans la répartition, la commission TTC du compromis, et leur produit (TTC). */
+export interface Proposition { pct: number; baseTtc: number; ttc: number }
+
+/**
+ * 🔴 LOT O (Arno) — LA COMMISSION VERSÉE PROPOSÉE d'un côté = la part de ce côté dans la répartition (sa ligne : en %, ou en € HT
+ * ramenée en %) × la commission TTC du compromis (ex. 50 % × 7 500 € = 3 750 € TTC). null : pas de négociateur, part nulle, ou commission
+ * illisible — le champ reste vide. PUR.
+ */
+export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'>, cote: 'entree' | 'sortie', honorairesTtc: number): Proposition | null {
+  const p = etat.parties[cote === 'entree' ? 0 : 1];
+  if (p === undefined || p.compteId === null || !Number.isFinite(honorairesTtc) || honorairesTtc <= 0) return null;
+  const x = nombre(p.texte);
+  if (x === null) return null;
+  const pct = p.mode === 'pct' ? x : pourcentageDe(x, commissionNetteHt(honorairesTtc, retroTtcDe(etat)));
+  return pct > 0 ? { pct, baseTtc: honorairesTtc, ttc: (honorairesTtc * pct) / 100 } : null;
+}
+
+const texteCentimes = (x: number): string => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Ce que le champ montre (et ce qui s'enverra) : une commission saisie, telle quelle ; une commission PROPOSÉE, le montant proposé dans
+ * l'unité choisie (TTC ; HT = TTC ÷ 1,2), sans proposition : vide. PUR.
+ */
+export function montantEffectif(m: MontantEcran, propose: Proposition | null): MontantEcran {
+  if (m.auto !== true) return m;
+  if (propose === null) return { texte: '', unite: m.unite, auto: true };
+  return { texte: texteCentimes(m.unite === 'ttc' ? propose.ttc : propose.ttc / TVA), unite: m.unite, auto: true };
+}
+
+/** Les commissions telles qu'elles s'enregistrent : la proposition affichée devient le montant envoyé (« Enregistrer » la valide). PUR. */
+export function commissionsResolues(etat: EtatRepartition, honorairesTtc: number): EtatRepartition {
+  if (etat.commissions == null) return etat;
+  const c = etat.commissions;
+  const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc)); return { texte: e.texte, unite: e.unite }; };
+  return { ...etat, commissions: { entree: r('entree'), sortie: r('sortie') } };
 }

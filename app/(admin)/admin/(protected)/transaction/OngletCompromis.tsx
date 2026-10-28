@@ -7,7 +7,8 @@ import { commissionDuCote, partDuCote, retroApporteurDe, tuilesCompromis } from 
 import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, motifSocieteVente, type EtatRepartition, type MontantEcran } from './Repartition';
+import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, propositionCommission,
+  type EtatRepartition, type MontantEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
@@ -293,7 +294,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   // LOT J — sa part de la vente dans la répartition enregistrée (relue après chaque enregistrement) ; sans répartition : rien.
   const part = partDuCote(v, cote);
   const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
-  const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ht' };
+  const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ttc' };
   const [commission, setCommission] = useState<MontantEcran>(initiale);
   // La société affichée : celle de SA partie sur cette vente (côté de ce bouton d'abord) ; à défaut, celle de son compte.
   const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
@@ -307,17 +308,26 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const societeInitiale = actuel !== null && choisi === actuel.id ? societeVente(actuel.id) : null;
   const [societeChoisie, setSocieteChoisie] = useState<Societe | null>(societeInitiale);
   const mot = cote === 'entree' ? 'entrée' : 'sortie';
+  // 🔴 LOT O — la commission PROPOSÉE de ce côté : sa part dans la répartition (celle d'après le choix du négociateur) × la commission TTC.
+  const hypothese = choisi === null || choisi === (actuel?.id ?? null) ? base : changerNegociateur(base, cote, choisi, references.negociateurs);
+  const propose = propositionCommission(hypothese, cote, v.honorairesTtc);
   const enregistrer = async (id: number | null): Promise<void> => {
     setMotif(null);
     if (id !== null && desDeux && societeChoisie === null) {
       setMotif(`${references.negociateurs.find((n) => n.id === id)?.nom ?? 'Ce négociateur'} travaille pour CRITERIMMO et pour MACJ : choisissez pour quelle société il travaille sur cette vente. Rien n’a été enregistré.`);
       return;
     }
-    const memeCommission = commission.texte === initiale.texte && commission.unite === initiale.unite;
+    // « Valider » valide la proposition affichée de CE côté ; celle de l'autre côté (non validée) ne part jamais.
+    const saisie = montantEffectif(commission, propose);
+    const memeCommission = saisie.texte === initiale.texte && saisie.unite === initiale.unite;
     const memeSociete = !desDeux || societeChoisie === societeInitiale;
     if ((actuel?.id ?? null) === id && (!avecUnite || memeCommission) && memeSociete) { setOuvert(false); return; }
     const change = (actuel?.id ?? null) === id ? base : changerNegociateur(base, cote, id, references.negociateurs);
-    const avecCommission: EtatRepartition = change.commissions != null && id !== null ? { ...change, commissions: { ...change.commissions, [cote]: commission } } : change;
+    const autre = cote === 'entree' ? 'sortie' : 'entree';
+    const sansAutreProposee = change.commissions != null && change.commissions[autre].auto === true
+      ? { ...change, commissions: { ...change.commissions, [autre]: { texte: '', unite: change.commissions[autre].unite } } } : change;
+    const avecCommission: EtatRepartition = sansAutreProposee.commissions != null && id !== null
+      ? { ...sansAutreProposee, commissions: { ...sansAutreProposee.commissions, [cote]: { texte: saisie.texte, unite: saisie.unite } } } : sansAutreProposee;
     const etat = id !== null && desDeux && societeChoisie !== null ? choisirSocietePartie(avecCommission, cote === 'entree' ? 0 : 1, societeChoisie) : avecCommission;
     const manque = motifSocieteVente(etat, references.negociateurs);
     if (manque !== null) { setOuvert(false); onRevoir(etat, manque); return; }
@@ -343,7 +353,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
               libelle={`Négociateur de ${mot} du mandat`} onChange={(x) => { setChoix(x); setSocieteChoisie(actuel !== null && x === String(actuel.id) ? societeVente(actuel.id) : null); }}
               donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
           {desDeux && <ChoixSocieteVente valeur={societeChoisie} onChoisir={(s) => { setSocieteChoisie(s); setMotif(null); }} cle={`carte-${cote}`} />}
-          {avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} />
+          {avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} propose={propose} />
             : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>}
           <div className="trx-actions">
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || choix === ''} onClick={() => void enregistrer(Number(choix))} data-valider-negociateur>Valider</button>

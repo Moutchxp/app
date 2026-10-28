@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { BlocRepartition, commissionsResolues, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { commissionDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
@@ -42,9 +42,12 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
   const sortieId = v?.dossier?.sortie?.id ?? null;
   // La rétrocession enregistrée (dans son unité d'origine) ; à défaut, celle d'une réponse d'avant ce lot (TTC, dans la répartition).
   const retro = v?.retroApporteur ?? (v?.repartition && v.repartition.retroApporteurTtc !== 0 ? { montant: v.repartition.retroApporteurTtc, unite: 'ttc' as const } : null);
+  // LOT O (Arno) — une commission déjà enregistrée : telle quelle, jamais recalculée. Sinon, PROPOSÉE (part de ce côté × commission TTC)
+  // pour un compromis neuf ou un compromis réparti ; sans répartition (import « toute la commission à … ») : vide. TTC par défaut.
   const commission = (cote: 'entree' | 'sortie') => {
     const c = v === null ? null : commissionDuCote(v, cote);
-    return c === null ? { texte: '', unite: 'ht' as const } : { texte: texteMontant(c.montant.montant), unite: c.montant.unite };
+    if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite };
+    return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null };
   };
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
     retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
@@ -54,10 +57,12 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
 
 /** Le corps envoyé à `dossier-enregistrer` (la saisie telle quelle : le serveur relit et vérifie tout). */
 export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', champs: { libelle: string; commission: string; dateCompromis: string; dateActePrevue: string;
-  dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], r: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
+  dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], etat: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
+  const r = commissionsResolues(etat, nombre(champs.commission) ?? Number.NaN);
   return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
     retroApporteurTtc: r.retroTexte, retroApporteurUnite: r.retroUnite ?? 'ttc', personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}),
+    // LOT O — une commission proposée part comme elle s'affiche (c'est « Enregistrer » qui la valide).
     // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
     ...(r.commissions != null ? { commissions: {
       entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite },

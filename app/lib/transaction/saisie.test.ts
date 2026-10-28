@@ -64,3 +64,10 @@ describe('🔴 LOT I — lireDossier : l’unité de la rétrocession et les com
     expect(lireDossier(dossier({ commissions: { entree: { montant: '5', unite: 'HTT' } } })).ok).toBe(false);
   });
 });
+
+describe('🔴 LOT O — une commission proposée à l’écran (« 3 750,00 », espace insécable des milliers) se lit telle quelle', () => {
+  it('3 750,00 et 3 750,00 valent 3 750', () => {
+    const r = lireDossier({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '7500', commissions: { entree: { montant: '3 750,00', unite: 'ttc' }, sortie: { montant: '3 750,00', unite: 'ttc' } } });
+    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 3750, unite: 'ttc' }, sortie: { montant: 3750, unite: 'ttc' } });
+  });
+});
