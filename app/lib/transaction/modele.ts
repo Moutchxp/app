@@ -15,7 +15,7 @@
  */
 
 // LOT Q — la règle unique du statut d'une commission (aucune boucle à l'exécution : statutLigne.ts n'importe de ce fichier que des types).
-import { classeDeCommission, resolveurDe, statutDePartie, type StatutDuLibelle } from './statutLigne';
+import { classeDeCommission, commissionIgnoree, resolveurDe, statutDePartie, type StatutDuLibelle } from './statutLigne';
 import type { ClasseCommission, Statut } from '../admin/statut';
 
 export type Societe = 'criterimmo' | 'macj';
@@ -119,7 +119,8 @@ export interface Miroir {
   /** « annulee » : la société ne reçoit plus rien de cette vente (registre 440) — la ligne reste, jamais supprimée. */
   etat: 'active' | 'annulee';
   /** Les côtés tenus par un négociateur de cette société : leur base de rémunération (la part reçue, TTC). */
-  cotes: { cote: 'entree' | 'sortie'; negociateur: string; compteId: number | null; statut: Statut | null; baseTtc: number }[];
+  /** LOT S — `commissionne` : faux pour un négociateur non commissionné (aucune rémunération ne se saisit ni ne compte). */
+  cotes: { cote: 'entree' | 'sortie'; negociateur: string; compteId: number | null; statut: Statut | null; baseTtc: number; commissionne?: boolean }[];
 }
 
 // ── LOT D : la répartition de la commission ──────────────────────────────────────────────────────────────────────────────────
@@ -148,6 +149,12 @@ export interface Partie {
    */
   statut?: 'associe' | 'salarie' | 'independant' | 'observateur' | null;
   statutCompte?: 'associe' | 'salarie' | 'independant' | 'observateur' | null;
+  /**
+   * 🔴 LOT S (441) — le négociateur était-il COMMISSIONNÉ, FIGÉ à l'enregistrement (absent ou null : vente d'avant) — et, lu à part, le
+   * choix ACTUEL de son compte (`commissionneCompte` ; un collaborateur l'est toujours), qui sert quand rien n'a été figé.
+   */
+  commissionne?: boolean | null;
+  commissionneCompte?: boolean | null;
 }
 export interface Repartition {
   parties: Partie[];
@@ -363,8 +370,9 @@ export function negociateursDe(v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'r
 }
 
 /** La paye des négociateurs (TTC) : les lignes « paye du négociateur » — TOUTES (affichée telle quelle). */
-export const payeTtcDe = (v: Pick<Vente, 'lignes'>): number =>
-  v.lignes.reduce((s, l) => s + (l.role === 'negociateur' && l.montantTtc !== null ? l.montantTtc : 0), 0);
+export const payeTtcDe = (v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'repartition'>>): number =>
+  // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ sur cette vente reste en base, ignorée de tout calcul.
+  v.lignes.reduce((s, l) => s + (l.role === 'negociateur' && l.montantTtc !== null && !commissionIgnoree(v, l) ? l.montantTtc : 0), 0);
 
 /**
  * 🔴 LOT Q — la paye d'une vente PAR CLASSE (TTC) : déduite (indépendants), interne (associés, salariés), à renseigner — la règle unique
@@ -373,7 +381,7 @@ export const payeTtcDe = (v: Pick<Vente, 'lignes'>): number =>
 export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition' | 'societe'>, statutDuLibelle?: StatutDuLibelle, societe: Societe | null = null): Record<ClasseCommission, number> {
   const r: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
   // 🔴 LOT R — chaque commission compte dans la société OÙ son négociateur travaille sur cette vente (null : le groupe, toutes).
-  for (const l of v.lignes) if (l.role === 'negociateur' && l.montantTtc !== null && ligneDeLaSociete(v, l, societe)) r[classeDeCommission(v, l, statutDuLibelle)] += l.montantTtc;
+  for (const l of v.lignes) if (l.role === 'negociateur' && l.montantTtc !== null && ligneDeLaSociete(v, l, societe) && !commissionIgnoree(v, l)) r[classeDeCommission(v, l, statutDuLibelle)] += l.montantTtc;
   return r;
 }
 
@@ -575,7 +583,7 @@ export function parNegociateur(ventes: readonly Vente[], retros: readonly Retroc
   const noms = new Set<string>([...ventes.flatMap(negociateursDe), ...retros.map((r) => r.negociateur)]);
   return [...noms].map((n) => {
     const siennes = ventes.filter((v) => negociateursDe(v).includes(n));
-    const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' ? l.montantTtc ?? 0 : 0), 0), 0);
+    const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' && !commissionIgnoree(v, l) ? l.montantTtc ?? 0 : 0), 0), 0);
     return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n, societe), 0), payeHt: ht(paye),
       retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id), statut: statutDe(n) };
   }).sort((a, b) => b.caHt - a.caHt || a.negociateur.localeCompare(b.negociateur, 'fr'));

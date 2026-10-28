@@ -15,14 +15,33 @@ export type StatutDuLibelle = (libelle: string) => Statut | null;
 /** Le statut qui compte pour une partie : celui FIGÉ à l'enregistrement ; à défaut, l'actuel de son compte ; sinon null (à renseigner). PUR. */
 export const statutDePartie = (p: Pick<Partie, 'statut' | 'statutCompte'>): Statut | null => p.statut ?? p.statutCompte ?? null;
 
+/** La partie du négociateur d'une ligne sur cette vente (le côté d'abord) ; sans répartition ou sans partie : undefined. PUR. */
+function partieDeLigne(v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>): Partie | undefined {
+  if (v.repartition == null) return undefined;
+  const sortes = l.cote === 'entree' ? ['entree', 'entree_sortie'] : l.cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'sortie', 'entree_sortie'];
+  return v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null && sortes.includes(x.sorte))
+    ?? v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null);
+}
+
 /** Le statut du négociateur d'une ligne d'après SA partie sur cette vente (le côté d'abord) ; sans répartition ou sans partie : null. PUR. */
 export function statutDeLigne(v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>): Statut | null {
-  if (v.repartition == null) return null;
-  const sortes = l.cote === 'entree' ? ['entree', 'entree_sortie'] : l.cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'sortie', 'entree_sortie'];
-  const p = v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null && sortes.includes(x.sorte))
-    ?? v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null);
+  const p = partieDeLigne(v, l);
   return p === undefined ? null : statutDePartie(p);
 }
+
+/**
+ * ══ 🔴 LOT S (Arno, 28/10/2026) — UN NÉGOCIATEUR NON COMMISSIONNÉ (un administrateur qui l'a choisi) : aucune commission personnelle
+ * n'entre dans aucun calcul (ni versées, ni internes, ni espaces négociateurs, ni reste à l'agence) ; sa part reste dans la répartition et
+ * dans le CA de sa société. Le choix FIGÉ sur sa partie à l'enregistrement ; à défaut, celui de son compte aujourd'hui ; sinon commissionné.
+ */
+export const commissionneDePartie = (p: Pick<Partie, 'commissionne' | 'commissionneCompte'>): boolean => p.commissionne ?? p.commissionneCompte ?? true;
+
+/** 🔴 La commission de cette ligne est-elle IGNORÉE (son négociateur n'est pas commissionné sur cette vente) ? Restée en base, intacte. PUR. */
+export const commissionIgnoree = (v: Partial<Pick<Vente, 'repartition'>>, l: Pick<LigneVente, 'negociateur' | 'cote' | 'role'>): boolean => {
+  if (l.role !== 'negociateur') return false;
+  const p = partieDeLigne({ repartition: v.repartition ?? null }, l);
+  return p !== undefined && !commissionneDePartie(p);
+};
 
 /**
  * 🔴 Le statut d'une commission de négociateur : celui recopié sur la ligne (LOT R : commission d'une ligne miroir, figé sur la vente

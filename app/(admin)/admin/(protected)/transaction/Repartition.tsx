@@ -4,6 +4,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
+import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
 import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
 
@@ -21,7 +22,9 @@ import { eur } from './commun';
  */
 
 /** LOT K — `societe` : « les_deux » pour un collaborateur des deux sociétés (la société se choisit alors vente par vente). */
-export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null }
+export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null;
+  /** LOT S (441) — commissionné aujourd'hui (absent : oui ; un collaborateur l'est toujours). */
+  commissionne?: boolean }
 export interface ApporteurRef { id: number; nom: string }
 /** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
 export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
@@ -59,7 +62,9 @@ const texteNombre = (x: number): string => String(x).replace('.', ',');
 
 /** Partie (modèle) → partie à l'écran. */
 export const versEcran = (p: Partie): PartieEcran => ({ sorte: p.sorte, compteId: p.compteId, negociateur: p.negociateur, societe: p.societe, nom: p.nom, coordonnees: p.coordonnees,
-  mode: p.pourcentage !== null ? 'pct' : 'eur', texte: texteNombre(p.pourcentage ?? p.montantHt ?? 0) });
+  mode: p.pourcentage !== null ? 'pct' : 'eur', texte: texteNombre(p.pourcentage ?? p.montantHt ?? 0),
+  // LOT S — non commissionné sur cette vente (figé, sinon son compte) : l'écran ne propose ni commission, ni calcul.
+  ...(p.compteId !== null && !commissionneDePartie(p) ? { commissionne: false } : {}) });
 const versModeleUne = (p: PartieEcran): Partie => {
   const x = nombre(p.texte) ?? (p.texte.trim() === '' ? 0 : Number.NaN);
   return { sorte: p.sorte, compteId: p.compteId, negociateur: p.negociateur, societe: p.societe, nom: p.nom, coordonnees: p.coordonnees,
@@ -80,7 +85,9 @@ export function versModele(parties: readonly PartieEcran[]): Partie[] {
 }
 
 const ligne = (sorte: 'entree' | 'sortie', n: NegociateurRef | undefined, pct: number): PartieEcran => ({ sorte, compteId: n?.id ?? null, negociateur: n?.nom ?? null,
-  societe: societeDOffice(n?.societe), nom: null, coordonnees: null, mode: 'pct', texte: texteNombre(pct) });
+  societe: societeDOffice(n?.societe), nom: null, coordonnees: null, mode: 'pct', texte: texteNombre(pct), ...(n?.commissionne === false ? { commissionne: false } : {}) });
+/** 🔴 LOT S — la partie (à l'écran) est-elle celle d'un négociateur NON COMMISSIONNÉ ? PUR. */
+export const nonCommissionne = (p: Pick<PartieEcran, 'commissionne'> | undefined): boolean => p?.commissionne === false;
 /** Les pourcentages par défaut des deux lignes : différents ⇒ 50/50 ; un seul ou le même ⇒ 100/0 ; aucun ⇒ 50/50 (à choisir). PUR. */
 export function defautsLignes(entreeId: number | null, sortieId: number | null): [number, number] {
   if (entreeId !== null && sortieId !== null) return entreeId === sortieId ? [100, 0] : [50, 50];
@@ -136,10 +143,14 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
   const sortieId = cote === 'sortie' ? id : etat.sortieId;
   const n = id === null ? undefined : negos.find((x) => x.id === id);
   const i = cote === 'entree' ? 0 : 1;
-  const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: societeDOffice(n?.societe) } : p));
+  const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: societeDOffice(n?.societe),
+    commissionne: n?.commissionne === false ? false : undefined } : p));
   const deux = (e: number | null, s: number | null): boolean => e !== null && s !== null && e !== s;
   // LOT I — le négociateur retiré : la commission de ce côté n'a plus de destinataire, elle est vidée (rien n'est encore enregistré).
-  const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '', auto: false } } : etat.commissions;
+  // LOT S — le négociateur d'avant était NON COMMISSIONNÉ : sa commission (gardée en base) n'est jamais reportée sur le nouveau ; ce côté repart proposé.
+  const avant = etat.parties[i];
+  const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '', auto: false } }
+    : nonCommissionne(avant) && avant?.compteId !== id && etat.commissions != null ? { ...etat.commissions, [cote]: { texte: '', unite: etat.commissions[cote].unite, auto: true } } : etat.commissions;
   if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, commissions, parties: garder() };
   return { ...etat, entreeId, sortieId, commissions, parties: partiesPour(negos, entreeId, sortieId) };
 }
@@ -228,6 +239,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
               {/* LOT I — la commission versée au négociateur de ce côté (entrée : ligne 0, sortie : ligne 1), HT ou TTC au choix. */}
               {interne && i < 2 && (etat.commissions != null ? (
                 p.compteId === null ? <span className="loc-muet" data-commission-sans-negociateur={i === 0 ? 'entree' : 'sortie'}>Commission versée : choisissez d’abord le négociateur.</span>
+                  // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
+                  : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>
                   : <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
                     propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission)}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
@@ -370,7 +383,8 @@ export interface Proposition { pct: number; baseTtc: number; taux: number; ttc: 
  */
 export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'> & Partial<Pick<EtatRepartition, 'commissions'>>, cote: 'entree' | 'sortie', honorairesTtc: number): Proposition | null {
   const p = etat.parties[cote === 'entree' ? 0 : 1];
-  if (p === undefined || p.compteId === null || !Number.isFinite(honorairesTtc) || honorairesTtc <= 0) return null;
+  // LOT S — un négociateur non commissionné : aucune proposition (le champ ne s'affiche pas, rien ne s'écrit pour lui).
+  if (p === undefined || p.compteId === null || nonCommissionne(p) || !Number.isFinite(honorairesTtc) || honorairesTtc <= 0) return null;
   const x = nombre(p.texte);
   if (x === null) return null;
   const netTtc = honorairesTtc - retroTtcDe(etat);

@@ -1,5 +1,5 @@
 import { bilanVente, commissionNetteHt, LIBELLE_SOCIETE, societeDeLigne, societePorteuse, SOCIETES, TVA, type LigneVente, type Miroir, type Societe, type Vente } from './modele';
-import { statutDePartie } from './statutLigne';
+import { commissionIgnoree, commissionneDePartie, statutDePartie } from './statutLigne';
 import { baseRemunerationTtc } from './commissions';
 
 /**
@@ -50,10 +50,11 @@ export function ligneMiroir(v: Vente, s: Societe, partHt: number, pourcentage: n
     const p = partieDe(cote);
     const base = baseRemunerationTtc(v, cote);
     return p === undefined || p.negociateur === null || base === null ? []
-      : [{ cote, negociateur: p.negociateur, compteId: p.compteId, statut: statutDePartie(p), baseTtc: base }];
+      : [{ cote, negociateur: p.negociateur, compteId: p.compteId, statut: statutDePartie(p), baseTtc: base, commissionne: commissionneDePartie(p) }];
   });
   // Ses lignes : les commissions des négociateurs de CETTE société (statut figé recopié) ; une ligne « part » par négociateur (CA porté).
-  const commissions: LigneVente[] = v.lignes.filter((l) => l.role === 'negociateur' && societeDeLigne(v, l) === s)
+  // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ n'est pas recopiée (elle reste sur la vente d'origine, ignorée).
+  const commissions: LigneVente[] = v.lignes.filter((l) => l.role === 'negociateur' && societeDeLigne(v, l) === s && !commissionIgnoree(v, l))
     .map((l) => ({ ...l, statut: cotes.find((c) => c.cote === l.cote)?.statut ?? r?.parties.find((p) => p.negociateur === l.negociateur && p.societe === s)?.statut ?? null }));
   const parNego = new Map<string, number>();
   if (r != null && etat === 'active') r.parties.forEach((p) => {

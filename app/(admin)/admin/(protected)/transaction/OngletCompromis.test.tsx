@@ -998,3 +998,59 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     expect(container.querySelector('[data-carte-compromis="38"]')!.getAttribute('data-replie')).toBe('ouvert');
   });
 });
+
+describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const vente = (commissionneCompte: boolean): Vente => ({ ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe', commissionneCompte },
+      { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant', commissionneCompte: true }] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
+    lignes: [lc(445, 'Arnaud Jorel', 'entree', 2000), lc(446, 'Pierre Thevenin', 'sortie', 1000)] });
+  const negos = references.negociateurs;
+  beforeEach(() => { (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }, { id: 8, nom: 'Pierre Thevenin', societe: 'macj' }]; });
+  afterEach(() => { (references as { negociateurs: unknown[] }).negociateurs = negos; });
+  const carte = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(38); };
+
+  it('la carte : « Non commissionné » sous son bouton — ni commission, ni calcul proposé, ni « Appliquer le calcul » ; Pierre inchangé ; tuiles sans sa commission', async () => {
+    await carte(vente(false));
+    expect(texte('[data-non-commissionne="entree"]')).toBe('Non commissionné');
+    expect(container.querySelector('[data-commission-carte="entree"]')).toBeNull();
+    expect(container.querySelector('[data-ecart-remuneration="entree"]')).toBeNull();
+    expect(container.querySelector('[data-appliquer-calcul-carte="entree"]')).toBeNull();
+    expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé');
+    expect(texte('[data-commission-carte="sortie"]')).toBe('Commission versée : 1 000,00 € TTC (soit 833,33 € HT)');
+    // sa part et le CA : inchangés ; sa commission : ni versée, ni interne
+    expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Arnaud Jorel (CRITERIMMO) (50 %)');
+    expect(texte('[data-ca-ttc]')).toBe('4 000,00 € TTC');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 0,00 € HT — non déduits');
+    // le bouton ouvert : aucun champ « Commission versée » ni taux pour lui
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(texte('[data-non-commissionne-choix="entree"]')).toBe('Non commissionné');
+    expect(container.querySelector('[data-champ="commission-carte-entree"]')).toBeNull();
+    expect(container.querySelector('[data-taux="commission-carte-entree"]')).toBeNull();
+  });
+  it('« Modifier » : ni champ ni taux pour lui ; ses 2 000 € déjà saisis repartent TELS QUELS (rien n’est effacé) ; Pierre a son champ', async () => {
+    await carte(vente(false));
+    await cliquer('[data-modifier-compromis="38"]');
+    expect(texte('[data-non-commissionne-form="entree"]')).toBe('Non commissionné');
+    expect(container.querySelector('[data-champ="commission-entree"]')).toBeNull();
+    expect(container.querySelector('[data-taux="commission-entree"]')).toBeNull();
+    expect(container.querySelector('[data-champ="commission-sortie"]')).not.toBeNull();
+    await cliquer('[data-enregistrer-dossier]');
+    const cs = (posts.at(-1) as { dossier: { commissions: Record<string, { montant: string; unite: string }> } }).dossier.commissions;
+    expect([cs.entree.montant, cs.entree.unite]).toEqual(['2000', 'ttc']);
+  });
+  it('commissionné (le même administrateur) : le comportement actuel — sa commission, le calcul proposé, « Appliquer le calcul »', async () => {
+    (references as { negociateurs: { id: number; commissionne?: boolean }[] }).negociateurs = (references.negociateurs as { id: number; commissionne?: boolean }[]).map((n) => (n.id === 2 ? { ...n, commissionne: true } : n));
+    await carte(vente(true));
+    expect(container.querySelector('[data-non-commissionne="entree"]')).toBeNull();
+    expect(texte('[data-commission-carte="entree"]')).toBe('Commission versée : 2 000,00 € TTC (soit 1 666,67 € HT)');
+    expect(texte('[data-ecart-remuneration="entree"]')).toContain('valeur saisie — calcul proposé : 1 000,00 € TTC');
+  });
+});

@@ -1,6 +1,6 @@
 import { bilanVente, commissionNetteHt, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
 import type { ClasseCommission } from '../admin/statut';
-import { classeDeCommission, type StatutDuLibelle } from './statutLigne';
+import { classeDeCommission, commissionIgnoree, commissionneDePartie, type StatutDuLibelle } from './statutLigne';
 
 export type { MontantSaisi, Unite };
 
@@ -112,8 +112,24 @@ export function remuneration(baseTtc: number, ligne: Pick<LigneVente, 'montantTt
   return { baseTtc, taux, calculTtc, saisie, ecart: saisie !== null && Math.abs(enTtc(saisie) - calculTtc) >= EPSILON };
 }
 
-/** La rémunération d'un côté d'une vente répartie (vente d'origine) ; null : pas de base (pas de répartition, pas de négociateur). PUR. */
+/**
+ * 🔴 LOT S — le négociateur de ce côté est-il COMMISSIONNÉ sur cette vente (sa partie : figé, sinon son compte) ? Sans négociateur ou sans
+ * partie : oui (rien ne change). PUR.
+ */
+export function commissionneDuCote(v: Pick<Vente, 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): boolean {
+  const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
+  if (nego === null || v.repartition == null) return true;
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
+  const p = v.repartition.parties.find((x) => x.compteId === nego.id && sortes.includes(x.sorte)) ?? v.repartition.parties.find((x) => x.compteId === nego.id);
+  return p === undefined || commissionneDePartie(p);
+}
+
+/**
+ * La rémunération d'un côté d'une vente répartie (vente d'origine) ; null : pas de base (pas de répartition, pas de négociateur) — ou
+ * 🔴 LOT S : un négociateur NON COMMISSIONNÉ (ni calcul proposé, ni « Appliquer le calcul »). PUR.
+ */
 export function remunerationDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier' | 'lignes'>, cote: 'entree' | 'sortie'): Remuneration | null {
+  if (!commissionneDuCote(v, cote)) return null;
   const base = baseRemunerationTtc(v, cote);
   return base === null ? null : remuneration(base, v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote));
 }
@@ -164,6 +180,8 @@ function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: Stat
   const parClasse: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
   for (const l of v.lignes) {
     if (l.role !== 'negociateur') continue;
+    // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ : restée en base, ignorée (ni versée, ni interne).
+    if (commissionIgnoree(v, l)) continue;
     const m = montantDeLigne(l);
     if (m === null) continue;
     // Chaque commission compte dans la société OÙ son négociateur travaille sur cette vente (sans société connue : à la vente vue).

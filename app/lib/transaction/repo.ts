@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, droitTransactionDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estSociete, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -13,6 +13,7 @@ import { estUnite } from './commissions';
 import { libelleDesPersonnes, personneExistante } from './personnes';
 import { statutLu, type Statut } from '../admin/statut';
 import { statutsDesComptes } from '../admin/statutCompte';
+import { commissionneEffectif, commissionneLu } from '../admin/commissionneCompte';
 import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suivi/negociateurIdentiteRepo';
 import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
 import { comptesDeLOnglet } from './societeNegociateur';
@@ -140,10 +141,13 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
   const ids = rows.map((r) => n(r.id));
   // LOT P — le statut FIGÉ de chaque partie (439) et, pour une vente d'avant, l'ACTUEL de son compte (to_jsonb : jamais d'erreur SQL).
   const avecStatut = await statutDisponible();
+  // LOT S (441) — « commissionné » FIGÉ sur la partie, et le choix ACTUEL du compte (un collaborateur l'est toujours ; sans la 441 : tous).
+  const avecCommissionne = await commissionneDisponible();
   const [{ rows: ps }, { rows: pers }] = await Promise.all([
     query<Record<string, unknown>>(
-      `SELECT p.vente_id, p.sorte, p.compte_id, p.negociateur_libelle, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montant_ht${avecStatut ? ', p.statut' : ''},
-              (SELECT to_jsonb(u) ->> 'statut' FROM admin_utilisateur u WHERE u.id = p.compte_id) AS statut_compte
+      `SELECT p.vente_id, p.sorte, p.compte_id, p.negociateur_libelle, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montant_ht${avecStatut ? ', p.statut' : ''}${avecCommissionne ? ', p.commissionne' : ''},
+              (SELECT to_jsonb(u) ->> 'statut' FROM admin_utilisateur u WHERE u.id = p.compte_id) AS statut_compte,
+              (SELECT u.role || ':' || coalesce(to_jsonb(u) ->> 'commissionne', '') FROM admin_utilisateur u WHERE u.id = p.compte_id) AS commissionne_compte
          FROM transaction_partie p WHERE p.retire_le IS NULL AND p.vente_id = ANY($1::bigint[]) ORDER BY p.vente_id, p.rang, p.id`, [ids]),
     query<Record<string, unknown>>(
       `SELECT l.vente_id, p.id, l.role, p.nom, p.telephone, p.email, p.adresse
@@ -151,7 +155,8 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
         WHERE l.retire_le IS NULL AND l.vente_id = ANY($1::bigint[]) ORDER BY l.vente_id, l.role DESC, l.rang, l.id`, [ids]),
   ]);
   const parties = new Map<number, Partie[]>();
-  for (const p of ps) parties.set(n(p.vente_id), [...(parties.get(n(p.vente_id)) ?? []), { ...partieDe(p), statutCompte: statutLu(p.statut_compte) }]);
+  for (const p of ps) parties.set(n(p.vente_id), [...(parties.get(n(p.vente_id)) ?? []), { ...partieDe(p), statutCompte: statutLu(p.statut_compte),
+    ...(p.compte_id != null ? { commissionneCompte: commissionneDuCompteLu(p.commissionne_compte) } : {}) }]);
   const personnes = new Map<number, PersonneVente[]>();
   for (const p of pers) personnes.set(n(p.vente_id), [...(personnes.get(n(p.vente_id)) ?? []), { id: n(p.id), role: p.role as PersonneVente['role'],
     nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse) }]);
@@ -160,7 +165,14 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
 const partieDe = (p: Record<string, unknown>): Partie => ({ sorte: p.sorte as SortePartie, compteId: nOuNull(p.compte_id), negociateur: t(p.negociateur_libelle),
   societe: estSociete(p.societe) ? p.societe : null, nom: t(p.nom), coordonnees: t(p.coordonnees), pourcentage: nOuNull(p.pourcentage), montantHt: nOuNull(p.montant_ht),
   // LOT P — le statut figé, seulement quand la colonne est lue (439) : sans elle, la partie est celle d'avant, au bit près.
-  ...('statut' in p ? { statut: statutLu(p.statut) } : {}) });
+  ...('statut' in p ? { statut: statutLu(p.statut) } : {}),
+  // LOT S — « commissionné » figé, seulement quand la colonne est lue (441).
+  ...('commissionne' in p ? { commissionne: commissionneLu(p.commissionne) } : {}) });
+/** « role:valeur » (lu avec la partie) → le choix effectif du compte : un collaborateur, toujours commissionné. */
+const commissionneDuCompteLu = (x: unknown): boolean => {
+  const [role, valeur] = String(x ?? ':').split(':');
+  return commissionneEffectif(role, commissionneLu(valeur));
+};
 
 export async function lireRetrocessions(societe: Societe | null): Promise<Retrocession[]> {
   const { rows } = await query<Record<string, unknown>>(
@@ -559,18 +571,22 @@ async function defaireEnsemble(q: RequeteTx, j: Record<string, unknown>, journal
 /** `societe` : celle d'aujourd'hui — LOT K : « les_deux » pour un collaborateur des deux sociétés (choisie vente par vente). */
 export interface NegociateurCompte { id: number; nom: string; actif: boolean; societe: SocieteCompte | null; periodes: PeriodeSociete[];
   /** LOT P (439) — son statut d'aujourd'hui ; null : à renseigner (ou avant la 439). */
-  statut?: Statut | null }
+  statut?: Statut | null;
+  /** LOT S (441) — commissionné aujourd'hui (un collaborateur l'est toujours ; sans la 441 : tous). */
+  commissionne?: boolean }
 
 /** Les comptes (négociateurs possibles) avec leurs périodes de société ; `societe` : celle d'aujourd'hui. */
 export async function lireNegociateurs(aujourdhui: string): Promise<NegociateurCompte[]> {
   // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur : il n'entre pas dans la liste (statut lu via to_jsonb : sans la 439, personne n'est exclu).
-  const { rows } = await query<{ id: string; nom: string; actif: boolean; statut: string | null }>(
-    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, actif, to_jsonb(u) ->> 'statut' AS statut
+  const { rows } = await query<{ id: string; nom: string; actif: boolean; statut: string | null; role?: string; commissionne?: string | null }>(
+    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, actif, to_jsonb(u) ->> 'statut' AS statut,
+            role, to_jsonb(u) ->> 'commissionne' AS commissionne
        FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY lower(nom), lower(prenom), id`);
   const periodes = await lirePeriodesSociete(rows.map((r) => n(r.id)));
   return rows.map((r) => {
     const p = periodes.get(n(r.id)) ?? [];
-    return { id: n(r.id), nom: String(r.nom), actif: r.actif === true, societe: societeALaDate(p, aujourdhui), periodes: p, statut: statutLu(r.statut) };
+    return { id: n(r.id), nom: String(r.nom), actif: r.actif === true, societe: societeALaDate(p, aujourdhui), periodes: p, statut: statutLu(r.statut),
+      commissionne: commissionneEffectif(r.role, commissionneLu(r.commissionne)) };
   });
 }
 /** Les périodes de société de ces comptes (vide sans la 434). */
@@ -615,8 +631,10 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   const dateVente = s.dateActe ?? s.dateCompromis ?? aujourdhui;
   // ① les négociateurs, relus en base, avec leur société à la date de la vente
   const comptesIds = [...new Set([s.entreeId, s.sortieId, ...s.parties.map((p) => p.compteId)].filter((x): x is number => x !== null))];
-  const { rows: cs } = comptesIds.length === 0 ? { rows: [] as { id: string; nom: string; statut?: string | null }[] } : await query<{ id: string; nom: string; statut?: string | null }>(
-    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, to_jsonb(admin_utilisateur) ->> 'statut' AS statut
+  type CompteLu = { id: string; nom: string; statut?: string | null; role?: string; commissionne?: string | null };
+  const { rows: cs } = comptesIds.length === 0 ? { rows: [] as CompteLu[] } : await query<CompteLu>(
+    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, to_jsonb(admin_utilisateur) ->> 'statut' AS statut,
+            role, to_jsonb(admin_utilisateur) ->> 'commissionne' AS commissionne
        FROM admin_utilisateur WHERE id = ANY($1::bigint[])`, [comptesIds]);
   if (cs.length !== comptesIds.length) return { ok: false, motif: 'Négociateur inconnu.' };
   // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur (la liste ne le propose pas ; une saisie forgée est refusée ici).
@@ -633,6 +651,16 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     for (const d of deja) statutFige.set(n(d.compte_id), statutLu(d.statut));
   }
   const statutPour = (compteId: number): Statut | null => statutFige.get(compteId) ?? statutActuel.get(compteId) ?? null;
+  // 🔴 LOT S (441) — « commissionné » FIGÉ sur la partie, comme le statut : celui déjà figé sur cette vente reste ; sinon le choix actuel du compte.
+  const avecCommissionne = await commissionneDisponible();
+  const commissionneActuel = new Map(cs.map((c) => [n(c.id), commissionneEffectif(c.role, commissionneLu(c.commissionne))]));
+  const commissionneFige = new Map<number, boolean>();
+  if (avecCommissionne && id !== null) {
+    const { rows: deja } = await query<{ compte_id: string | null; commissionne: boolean | null }>(
+      'SELECT compte_id, commissionne FROM transaction_partie WHERE vente_id = $1 AND retire_le IS NULL AND compte_id IS NOT NULL AND commissionne IS NOT NULL', [id]);
+    for (const d of deja) if (d.commissionne !== null) commissionneFige.set(n(d.compte_id), d.commissionne);
+  }
+  const commissionnePour = (compteId: number): boolean => commissionneFige.get(compteId) ?? commissionneActuel.get(compteId) ?? true;
   const periodes = await lirePeriodesSociete(comptesIds);
   const nomDe = new Map(cs.map((c) => [n(c.id), String(c.nom)]));
   // 🔴 LOT K — un collaborateur des DEUX sociétés : la société de sa partie est celle CHOISIE pour cette vente (obligatoire) ; tout autre
@@ -647,7 +675,8 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     : { sorte: p.sorte, compteId: p.compteId, negociateur: p.compteId === null ? null : nomDe.get(p.compteId) ?? null,
       societe: p.compteId === null ? null : societeDuCompte(p.compteId) === LES_DEUX ? p.societe ?? null : societeDOffice(societeDuCompte(p.compteId)),
       nom: null, coordonnees: null, pourcentage: p.pourcentage, montantHt: p.montantHt }))
-    .map((p) => (avecStatut ? { ...p, statut: p.compteId === null ? null : statutPour(p.compteId) } : p));
+    .map((p) => (avecStatut ? { ...p, statut: p.compteId === null ? null : statutPour(p.compteId) } : p))
+    .map((p) => (avecCommissionne ? { ...p, commissionne: p.compteId === null ? null : commissionnePour(p.compteId) } : p));
   // ② la répartition (somme = 100 %, sociétés connues, apporteur déduit d'abord)
   const repartie = s.entreeId !== null || s.sortieId !== null || parties.length > 0;
   if (repartie) {
@@ -742,15 +771,16 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     // ⑤ la répartition : l'ensemble des parties est remplacé s'il a changé (réversible)
     await remplacerEnsemble(q, 'repartition', venteId, auteur, async (avant) => {
       const { rows: a } = await q<Record<string, unknown>>(
-        `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht${avecStatut ? ', statut' : ''} FROM transaction_partie WHERE id = ANY($1::bigint[]) ORDER BY rang, id`, [avant]);
+        `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht${avecStatut ? ', statut' : ''}${avecCommissionne ? ', commissionne' : ''} FROM transaction_partie WHERE id = ANY($1::bigint[]) ORDER BY rang, id`, [avant]);
       return JSON.stringify(a.map(partieDe)) === JSON.stringify(repartie ? parties : []);
     }, async () => {
       const ids: number[] = [];
       for (const [i, p] of (repartie ? parties : []).entries()) {
         const { rows } = await q<{ id: string }>(
-          `INSERT INTO transaction_partie (vente_id, sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht, rang, cree_par_libelle${avecStatut ? ', statut' : ''})
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11${avecStatut ? ', $12' : ''}) RETURNING id`,
-          [venteId, p.sorte, p.compteId, p.negociateur, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montantHt, i, auteur.libelle, ...(avecStatut ? [p.statut ?? null] : [])]);
+          `INSERT INTO transaction_partie (vente_id, sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht, rang, cree_par_libelle${avecStatut ? ', statut' : ''}${avecCommissionne ? ', commissionne' : ''})
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11${avecStatut ? ', $12' : ''}${avecCommissionne ? `, $${avecStatut ? 13 : 12}` : ''}) RETURNING id`,
+          [venteId, p.sorte, p.compteId, p.negociateur, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montantHt, i, auteur.libelle, ...(avecStatut ? [p.statut ?? null] : []),
+            ...(avecCommissionne ? [p.commissionne ?? null] : [])]);
         ids.push(n(rows[0].id));
       }
       return ids;
@@ -764,7 +794,19 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
         return m === null || negoId === null ? [] : [{ cote, negociateur: nomDe.get(negoId) ?? '', ttc: m.unite === 'ttc' ? m.montant : null, ht: m.unite === 'ht' ? m.montant : null,
           taux: avecTaux ? commissions.taux?.[cote] ?? null : null }];
       });
-      await poserCommissions(q, venteId, s.statut, voulues, avecTaux, auteur);
+      // 🔴 LOT S — un côté tenu par un négociateur NON COMMISSIONNÉ : sa commission déjà enregistrée reste TELLE QUELLE (intacte, ignorée des
+      // calculs) ; rien de neuf ne s'écrit pour lui, quoi que l'écran envoie.
+      const nonCommissionnes = (['entree', 'sortie'] as const).filter((cote) => { const negoId = cote === 'entree' ? s.entreeId : s.sortieId; return negoId !== null && !commissionnePour(negoId); });
+      let finales = voulues;
+      if (nonCommissionnes.length > 0) {
+        const { rows: deja } = id === null ? { rows: [] as Record<string, unknown>[] } : await q<Record<string, unknown>>(
+          `SELECT cote, negociateur, montant_ttc, montant_ht${avecTaux ? ', taux' : ''} FROM transaction_vente_ligne WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL ORDER BY id`, [venteId]);
+        const garde = deja.filter((l) => nonCommissionnes.includes(l.cote as 'entree' | 'sortie')
+          && String(l.negociateur) === (nomDe.get((l.cote === 'entree' ? s.entreeId : s.sortieId) as number) ?? ''))
+          .map((l): CommissionVoulue => ({ cote: l.cote as 'entree' | 'sortie', negociateur: String(l.negociateur), ttc: nOuNull(l.montant_ttc), ht: nOuNull(l.montant_ht), taux: avecTaux ? nOuNull(l.taux) : null }));
+        finales = [...voulues.filter((c) => !nonCommissionnes.includes(c.cote)), ...garde].sort((a, b) => (a.cote === b.cote ? 0 : a.cote === 'entree' ? -1 : 1));
+      }
+      await poserCommissions(q, venteId, s.statut, finales, avecTaux, auteur);
     }
     // 🔴 LOT R — la ligne miroir de l'autre société suit la vente (création, %, négociateur, commission, apporteur).
     await synchroniserInterCabinet(q, venteId, auteur);
@@ -812,7 +854,15 @@ export async function enregistrerCommissionCote(id: number, cote: 'entree' | 'so
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
     const negoId = cote === 'entree' ? actuel.negociateur_entree_id : actuel.negociateur_sortie_id;
     if (negoId == null) return { ok: false, motif: `Choisissez le négociateur ${cote === 'entree' ? 'd’entrée' : 'de sortie'} avant de saisir sa rémunération.` };
-    const { rows: c } = await q<{ nom: string }>(`SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom FROM admin_utilisateur WHERE id = $1`, [negoId]);
+    const { rows: c } = await q<{ nom: string; role: string; commissionne: string | null }>(
+      `SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, role, to_jsonb(admin_utilisateur) ->> 'commissionne' AS commissionne FROM admin_utilisateur WHERE id = $1`, [negoId]);
+    // 🔴 LOT S — un négociateur NON COMMISSIONNÉ sur cette vente (figé sur sa partie, sinon son compte) : aucune rémunération ne s'enregistre.
+    const { rows: fige } = (await commissionneDisponible())
+      ? await q<{ commissionne: boolean | null }>('SELECT commissionne FROM transaction_partie WHERE vente_id = $1 AND compte_id = $2 AND retire_le IS NULL AND commissionne IS NOT NULL ORDER BY rang, id LIMIT 1', [id, negoId])
+      : { rows: [] as { commissionne: boolean | null }[] };
+    if (!(fige[0]?.commissionne ?? commissionneEffectif(c[0]?.role, commissionneLu(c[0]?.commissionne)))) {
+      return { ok: false, motif: `${String(c[0]?.nom ?? 'Ce négociateur')} n’est pas commissionné sur cette vente : aucune rémunération ne s’enregistre. Rien n’a été enregistré.` };
+    }
     const { rows: ls } = await q<Record<string, unknown>>(
       `SELECT cote, negociateur, montant_ttc, montant_ht${avecTaux ? ', taux' : ''} FROM transaction_vente_ligne
         WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL ORDER BY id`, [id]);

@@ -121,6 +121,14 @@ export function interCabinetDisponible(): Promise<boolean> {
   return memoiser('transaction_inter_cabinet', async () => (await colonneExiste('transaction_inter_cabinet', 'vente_id')) && colonneExiste('transaction_vente_ligne', 'taux'));
 }
 
+/**
+ * LOT S — la migration 441 (« Commissionné / Non commissionné » d'un administrateur, figé sur chaque côté de vente) est-elle appliquée ?
+ * Sans elle : tout le monde est commissionné, comme avant ; le choix est montré grisé, rien ne s'écrit.
+ */
+export function commissionneDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.commissionne', async () => (await colonneExiste('admin_utilisateur', 'commissionne')) && colonneExiste('transaction_partie', 'commissionne'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

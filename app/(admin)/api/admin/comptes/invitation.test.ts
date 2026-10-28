@@ -16,7 +16,7 @@ vi.mock('../../../../lib/admin/comptes', () => ({
 vi.mock('../../../../lib/admin/motDePasseTemporaire', () => ({ genererMotDePasseTemporaire: () => 'TEMP-FIXE' }));
 // TRANSACTION, LOTS D-E — la sonde de la 434 (société à la création) ne doit jamais lire la vraie base : « absente », comme avant ce lot.
 // LOT P — la sonde du statut (439) figée ici : sans elle, le test lirait la VRAIE base (et changerait d'issue selon la recette).
-vi.mock('../../../../lib/admin/schemaDroits', async (importOriginal) => ({ ...(await importOriginal<object>()), repartitionDisponible: async () => false, statutDisponible: async () => false }));
+vi.mock('../../../../lib/admin/schemaDroits', async (importOriginal) => ({ ...(await importOriginal<object>()), commissionneDisponible: async () => false, repartitionDisponible: async () => false, statutDisponible: async () => false }));
 vi.mock('../../../../lib/admin/invitationRepo', () => ({
   envoyerInvitation: h.envoyerInvitation, etatsInvitations: h.etatsInvitations, activerParLien: h.activerParLien, lireLien: h.lireLien,
 }));

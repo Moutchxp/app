@@ -10,7 +10,7 @@ vi.mock('../../../../lib/admin/garde', () => ({ exigerAdministrateur: async () =
 vi.mock('../../../../lib/admin/comptes', () => ({ creerCompteAdministration: h.creer, listerComptes: async () => [{ id: 1, prenom: 'Arnaud', nom: 'Jorel' }, { id: 9, prenom: 'Léa', nom: 'Essai' }], ErreurCompte: class extends Error {} }));
 vi.mock('../../../../lib/admin/motDePasseTemporaire', () => ({ genererMotDePasseTemporaire: () => 'TEMP' }));
 vi.mock('../../../../lib/admin/invitationRepo', () => ({ envoyerInvitation: async () => ({ ok: true, etat: 'factice', destinataire: 'x@x.fr' }), etatsInvitations: async () => new Map() }));
-vi.mock('../../../../lib/admin/schemaDroits', () => ({ repartitionDisponible: async () => false, societeLesDeuxDisponible: async () => false, statutDisponible: () => h.lotP() }));
+vi.mock('../../../../lib/admin/schemaDroits', () => ({ commissionneDisponible: async () => false, repartitionDisponible: async () => false, societeLesDeuxDisponible: async () => false, statutDisponible: () => h.lotP() }));
 vi.mock('../../../../lib/admin/societeCompte', () => ({ definirSocieteCompte: vi.fn(), societesDesComptes: async () => new Map() }));
 vi.mock('../../../../lib/admin/statutCompte', () => ({ definirStatutCompte: h.definir, statutsDesComptes: async () => new Map([[1, 'associe'], [9, null]]) }));
 vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 2, libelle: 'a.jorel@sansvisavis.com' }) }));

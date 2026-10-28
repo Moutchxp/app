@@ -1,6 +1,7 @@
 'use client';
 
 import { AIDE_STATUT, BlocStatutCompte, ChoixStatut, MSG_STATUT_OBLIGATOIRE, type StatutVue } from './StatutCompte';
+import { AIDE_COMMISSIONNE, BlocCommissionneCompte, ChoixCommissionne, MSG_COMMISSIONNE_OBLIGATOIRE, type CommissionneVue } from './CommissionneCompte';
 import { LIBELLE_STATUT_PERSONNE, type Statut } from '../../../../lib/admin/statut';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
@@ -25,6 +26,8 @@ interface CompteVue {
   societe?: SocieteCompte | null;
   /** 🔴 LOT P (439) — le statut de la personne ; null : à renseigner ; absent : avant la 439. */
   statut?: Statut | null;
+  /** 🔴 LOT S (441) — commissionné (choix effectif ; un collaborateur l'est toujours) ; absent : avant la 441. */
+  commissionne?: boolean;
 }
 /** LOT K (Arno, 28/10/2026) — « les_deux » : un collaborateur qui négocie pour CRITERIMMO ET pour MACJ (la société se choisit vente par vente). */
 export type SocieteCompte = 'criterimmo' | 'macj' | 'les_deux';
@@ -72,6 +75,8 @@ interface DetailCompte extends CompteVue {
   societeDetail?: SocieteVue;
   /** 🔴 LOT P (439) — le statut et l'historique de ses changements. Absent d'une réponse d'avant ce lot. */
   statutDetail?: StatutVue;
+  /** 🔴 LOT S (441) — « Commissionné / Non commissionné » (administrateur) et son historique. Absent d'une réponse d'avant ce lot. */
+  commissionneDetail?: CommissionneVue;
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
@@ -283,6 +288,9 @@ export function DetailContenu({
 
       {/* 🔴 LOT P (Arno, 28/10/2026, 439) — « STATUT » : Associé, Salarié, Indépendant, Observateur ; obligatoire, journalisé avec sa date. */}
       {compte.statutDetail !== undefined && <BlocStatutCompte key={`${compte.id}-${compte.statutDetail.valeur ?? ''}`} compteId={compte.id} etat={compte.statutDetail} onFait={() => onStatutEnregistre?.()} />}
+
+      {/* 🔴 LOT S (Arno, 28/10/2026, 441) — « COMMISSIONNÉ / NON COMMISSIONNÉ » : administrateur seulement ; obligatoire, journalisé avec sa date. */}
+      {compte.commissionneDetail !== undefined && <BlocCommissionneCompte key={`${compte.id}-c-${String(compte.commissionneDetail.valeur)}`} compteId={compte.id} etat={compte.commissionneDetail} onFait={() => onStatutEnregistre?.()} />}
 
       {/* ══ TRANSACTION, LOT D (Arno, 27/10/2026, 434) — « SOCIÉTÉ : CRITERIMMO / MACJ », obligatoire, datée : un changement vaut à compter
           de sa date et ne réécrit pas le passé (une vente garde la société de son négociateur au moment de la vente). */}
@@ -614,17 +622,21 @@ export default function ComptesPage() {
   const [societeLesDeux, setSocieteLesDeux] = useState(false); // LOT K (438)
   const [statutCreation, setStatutCreation] = useState<Statut | null>(null); // 🔴 LOT P (439) — aucune valeur pré-cochée
   const [statutDisponible, setStatutDisponible] = useState(false);
+  const [commissionneCreation, setCommissionneCreation] = useState<boolean | null>(null); // 🔴 LOT S (441) — aucune valeur pré-cochée
+  const [commissionneDisponible, setCommissionneDisponible] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
   const societeManque = societeDisponible && societeCreation === null;
   const statutManque = statutDisponible && statutCreation === null;
+  // LOT S — obligatoire pour un ADMINISTRATEUR seulement (un collaborateur ne voit pas le choix).
+  const commissionneManque = admin && commissionneDisponible && commissionneCreation === null;
 
   async function recharger() {
     try {
       const res = await fetch('/api/admin/comptes');
       if (!res.ok) throw new Error();
       const body = await res.json();
-      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setErreur(null);
+      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setCommissionneDisponible(body.commissionneDisponible === true); setErreur(null);
     } catch { setErreur('Liste indisponible.'); } finally { setChargement(false); }
   }
   useEffect(() => {
@@ -634,7 +646,7 @@ export default function ComptesPage() {
         const res = await fetch('/api/admin/comptes');
         if (!res.ok) throw new Error();
         const body = await res.json();
-        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setErreur(null); }
+        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setCommissionneDisponible(body.commissionneDisponible === true); setErreur(null); }
       } catch { if (!annule) setErreur('Liste indisponible.'); } finally { if (!annule) setChargement(false); }
     })();
     return () => { annule = true; };
@@ -643,16 +655,17 @@ export default function ComptesPage() {
   async function creer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation, statut: statutCreation }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation, statut: statutCreation, ...(admin ? { commissionne: commissionneCreation } : {}) }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({
           identifiant, motDePasse: body.motDePasseTemporaire,
           invitation: body.invitation ? { ok: body.invitation.ok === true, phrase: String(body.invitation.phrase ?? '') } : null,
         });
-        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null); setStatutCreation(null);
+        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null); setStatutCreation(null); setCommissionneCreation(null);
         if (body.societe && body.societe.ok === false) setErreur(String(body.societe.motif ?? 'Société non enregistrée.'));
         if (body.statut && body.statut.ok === false) setErreur(String(body.statut.motif ?? 'Statut non enregistré.'));
+        if (body.commissionne && body.commissionne.ok === false) setErreur(String(body.commissionne.motif ?? 'Choix « Commissionné » non enregistré.'));
         await recharger();
       } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
     } catch { setErreur('Création impossible.'); } finally { setEnCours(false); }
@@ -716,6 +729,7 @@ export default function ComptesPage() {
           <div className="cpt-id">{c.identifiant}</div>
           {c.societe !== undefined && <div className="cpt-meta" data-societe-carte>Société : {c.societe === null ? 'à renseigner' : LIBELLE_SOCIETE_COMPTE[c.societe]}</div>}
           {c.statut !== undefined && <div className="cpt-meta" data-statut-carte>Statut : {c.statut === null ? 'à renseigner' : LIBELLE_STATUT_PERSONNE[c.statut]}</div>}
+          {c.commissionne !== undefined && c.role === 'administrateur' && <div className="cpt-meta" data-commissionne-carte>Commissions : {c.commissionne ? 'Commissionné' : 'Non commissionné'}</div>}
           <div className="cpt-meta">{c.role} · créé le : {c.cree_a ? formaterDate(c.cree_a) : '—'} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
           {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
               boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
@@ -800,6 +814,14 @@ export default function ComptesPage() {
           <span className="cpt-note">{AIDE_STATUT}</span>
           {!statutDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 439) avant de pouvoir le renseigner.</span>}
           {statutManque && <p className="cpt-err" role="status" data-statut-creation-manque>{MSG_STATUT_OBLIGATOIRE}</p>}
+          {/* 🔴 LOT S (441) — « Commissionné / Non commissionné » : pour un ADMINISTRATEUR seulement, obligatoire dès la 441 appliquée. */}
+          {admin && <>
+            <div className="cpt-perms-titre" id="commissionne-creation">Commissions</div>
+            <ChoixCommissionne valeur={commissionneCreation} disabled={!commissionneDisponible} onChoisir={setCommissionneCreation} idGroupe="commissionne-creation" />
+            <span className="cpt-note">{AIDE_COMMISSIONNE}</span>
+            {!commissionneDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 441) avant de pouvoir le renseigner.</span>}
+            {commissionneManque && <p className="cpt-err" role="status" data-commissionne-creation-manque>{MSG_COMMISSIONNE_OBLIGATOIRE}</p>}
+          </>}
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
           {/* LOT 5-DROITS — même regroupement qu'au détail : une tuile par bloc, ses droits complémentaires dessous. */}
           <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
@@ -828,7 +850,7 @@ export default function ComptesPage() {
             ))}
           </div>
           {!admin && envoiSansReponse(perms, envoi) && <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>}
-          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque || statutManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
+          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque || statutManque || commissionneManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
       </section>
 

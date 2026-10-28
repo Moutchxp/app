@@ -11,7 +11,8 @@ import { phraseEnvoi } from '../../../../lib/admin/invitation';
 import { definirSocieteCompte, societesDesComptes } from '../../../../lib/admin/societeCompte';
 import { definirStatutCompte, statutsDesComptes } from '../../../../lib/admin/statutCompte';
 import { estStatut } from '../../../../lib/admin/statut';
-import { repartitionDisponible, societeLesDeuxDisponible, statutDisponible } from '../../../../lib/admin/schemaDroits';
+import { commissionneDisponible, repartitionDisponible, societeLesDeuxDisponible, statutDisponible } from '../../../../lib/admin/schemaDroits';
+import { commissionnesDesComptes, definirCommissionneCompte } from '../../../../lib/admin/commissionneCompte';
 import { estSocieteCompte, LES_DEUX } from '../../../../lib/transaction/societeNegociateur';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -38,9 +39,13 @@ export async function GET(request: Request) {
     // LOT P (439) — le statut de chaque compte (associé, salarié, indépendant, observateur ; null : à renseigner).
     const avecStatut = await statutDisponible().catch(() => false);
     const statuts = avecStatut ? await statutsDesComptes(comptes.map((c) => Number(c.id))) : new Map();
+    // 🔴 LOT S (441) — « Commissionné / Non commissionné » : le choix effectif (un collaborateur, toujours commissionné).
+    const avecCommissionne = await commissionneDisponible().catch(() => false);
+    const commissionnes = avecCommissionne ? await commissionnesDesComptes(comptes.map((c) => Number(c.id))) : new Map<number, boolean>();
     // Sans la 434, la réponse reste celle d'avant (aucune clé `societe`) : l'écran ne montre alors pas la ligne « Société ».
-    return Response.json({ societeDisponible, ...(societeDisponible ? { societeLesDeux } : {}), statutDisponible: avecStatut, comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null,
-      ...(societeDisponible ? { societe: societes.get(Number(c.id)) ?? null } : {}), ...(avecStatut ? { statut: statuts.get(Number(c.id)) ?? null } : {}) })) });
+    return Response.json({ societeDisponible, ...(societeDisponible ? { societeLesDeux } : {}), statutDisponible: avecStatut, commissionneDisponible: avecCommissionne, comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null,
+      ...(societeDisponible ? { societe: societes.get(Number(c.id)) ?? null } : {}), ...(avecStatut ? { statut: statuts.get(Number(c.id)) ?? null } : {}),
+      ...(avecCommissionne ? { commissionne: commissionnes.get(Number(c.id)) ?? true } : {}) })) });
   } catch {
     return Response.json({ erreur: 'Liste indisponible.' }, { status: 503 });
   }
@@ -118,6 +123,13 @@ export async function POST(request: Request) {
     return Response.json({ erreur: 'Choisissez le statut de la personne : Associé, Salarié, Indépendant ou Observateur.', champ: 'statut' }, { status: 422 });
   }
 
+  // 🔴 LOT S — « Commissionné / Non commissionné » obligatoire pour un ADMINISTRATEUR une fois la 441 appliquée ; un collaborateur ne
+  // porte pas ce choix (toujours commissionné : ce que l'écran envoie pour lui est ignoré).
+  const avecCommissionne = role === 'administrateur' && await commissionneDisponible().catch(() => false);
+  if (avecCommissionne && typeof b.commissionne !== 'boolean') {
+    return Response.json({ erreur: 'Choisissez « Commissionné » ou « Non commissionné » pour cet administrateur.', champ: 'commissionne' }, { status: 422 });
+  }
+
   const motDePasseTemporaire = genererMotDePasseTemporaire();
   try {
     const compte = await creerCompteAdministration({
@@ -136,6 +148,13 @@ export async function POST(request: Request) {
       const r = await definirStatutCompte(Number(compte.id), b.statut, garde.auteurId).catch(() => ({ ok: false as const, motif: 'Statut non enregistré : renseignez-le dans le détail du compte.' }));
       statut = r.ok ? { ok: true } : { ok: false, motif: r.motif };
     }
+    // LOT S — le choix « Commissionné / Non commissionné » d'un administrateur, journalisé. Un échec ne défait pas le compte : il est dit.
+    let commissionne: { ok: boolean; motif?: string } | null = null;
+    if (avecCommissionne) {
+      const r = await definirCommissionneCompte(Number(compte.id), b.commissionne, garde.auteurId)
+        .catch(() => ({ ok: false as const, motif: 'Choix « Commissionné » non enregistré : renseignez-le dans le détail du compte.' }));
+      commissionne = r.ok ? { ok: true } : { ok: false, motif: r.motif };
+    }
     // 🔴 LE MAIL D'INVITATION : envoyé APRÈS la création (un échec n'annule pas le compte) et DIT tel quel à l'écran —
     //    jamais « envoyé » quand rien n'est parti. Le mot de passe temporaire reste affiché une fois, comme avant.
     let invitation: IssueEnvoi;
@@ -146,7 +165,7 @@ export async function POST(request: Request) {
     }
     const phrase = phraseEnvoi({ etat: invitation.etat === 'refuse' ? 'echec' : invitation.etat, destinataire: invitation.destinataire || identifiant, motif: invitation.ok ? null : invitation.motif });
     // Le CLAIR n'est renvoyé QU'ICI, une seule fois. Aucun réaffichage possible → l'admin doit le transmettre.
-    return Response.json({ compte, motDePasseTemporaire, invitation: { ...invitation, phrase }, societe, statut }, { status: 201 });
+    return Response.json({ compte, motDePasseTemporaire, invitation: { ...invitation, phrase }, societe, statut, commissionne }, { status: 201 });
   } catch (e) {
     // ErreurCompte = message métier (identifiant pris, etc.) ; jamais le mot de passe dans l'erreur.
     if (e instanceof ErreurCompte) return Response.json({ erreur: e.message }, { status: 409 });

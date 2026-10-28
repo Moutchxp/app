@@ -6,6 +6,7 @@ import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
 import { lireResultatNet } from '../../../../../lib/admin/resultatNet';
 import { lireSocieteCompte } from '../../../../../lib/admin/societeCompte';
 import { lireStatutCompte } from '../../../../../lib/admin/statutCompte';
+import { lireCommissionneCompte } from '../../../../../lib/admin/commissionneCompte';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -48,6 +49,8 @@ export async function GET(request: Request, ctx: Ctx) {
       societeDetail: await lireSocieteCompte(c.id).catch(() => ({ valeur: null, disponible: false, periodes: [] })),
       // 🔴 LOT P (439) — le statut de la personne et l'historique de ses changements (date, avant, après, auteur).
       statutDetail: await lireStatutCompte(c.id).catch(() => ({ valeur: null, disponible: false, historique: [] })),
+      // 🔴 LOT S (441) — « Commissionné / Non commissionné » (administrateur seulement) et l'historique de ses changements.
+      commissionneDetail: await lireCommissionneCompte(c.id).catch(() => ({ valeur: null, applicable: c.role === 'administrateur', disponible: false, historique: [] })),
     },
   });
 }
