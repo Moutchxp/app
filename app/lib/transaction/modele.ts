@@ -8,9 +8,15 @@
  *   · Un compromis en cours n'est pas du CA : il fait le PRÉVISIONNEL de son année.
  *   · Les rétrocessions d'apporteurs se saisissent PAR MOIS (comme dans les fichiers) ; rattachées à une vente, ou « à répartir ».
  *   · Les montants mensuels saisis en dur sans vente (« à rattacher ») se MONTRENT, ils ne s'ajoutent jamais au CA.
- *   · Reste à l'agence = honoraires − rétrocessions − paye des négociateurs (TTC, puis ÷ 1,2 pour le HT).
+ *   · Reste à l'agence = honoraires − rétrocessions − paye des négociateurs INDÉPENDANTS (TTC, puis ÷ 1,2 pour le HT). LOT Q (Arno) : la
+ *     paye des associés et des salariés (« internes ») et celle d'un négociateur au statut inconnu restent affichées, non déduites —
+ *     la règle unique de `statutLigne.ts`, partagée avec le cumul « Commissions versées » de l'onglet Compromis.
  * Rien ici ne lit la base : les écrans et la route appellent ces fonctions sur les lignes lues.
  */
+
+// LOT Q — la règle unique du statut d'une commission (aucune boucle à l'exécution : statutLigne.ts n'importe de ce fichier que des types).
+import { classeDeCommission, resolveurDe, statutDePartie, type StatutDuLibelle } from './statutLigne';
+import type { ClasseCommission, Statut } from '../admin/statut';
 
 export type Societe = 'criterimmo' | 'macj';
 export const SOCIETES: readonly Societe[] = ['criterimmo', 'macj'];
@@ -226,6 +232,11 @@ export interface DonneesSociete {
   aRattacher: CaARattacher[];
   /** LOT C — les notes (des deux sociétés) des ventes notées deux fois qui touchent cette société. */
   doubles?: Vente[];
+  /**
+   * LOT Q — le statut du compte RAPPROCHÉ de chaque libellé de négociateur des lignes (paye importée) ; null : aucun compte sûr, ou compte
+   * « à renseigner ». Absent : réponse d'avant ce lot (aucun libellé importé n'est rapproché : sa paye n'est pas déduite).
+   */
+  statutsNegociateurs?: Record<string, 'associe' | 'salarie' | 'independant' | 'observateur' | null>;
 }
 
 export const NOMS_MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -246,16 +257,27 @@ export function negociateursDe(v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'r
   return n.length === 0 ? [NON_ATTRIBUE] : n;
 }
 
-/** La paye des négociateurs (TTC) : les lignes « paye du négociateur ». */
+/** La paye des négociateurs (TTC) : les lignes « paye du négociateur » — TOUTES (affichée telle quelle). */
 export const payeTtcDe = (v: Pick<Vente, 'lignes'>): number =>
   v.lignes.reduce((s, l) => s + (l.role === 'negociateur' && l.montantTtc !== null ? l.montantTtc : 0), 0);
+
+/**
+ * 🔴 LOT Q — la paye d'une vente PAR CLASSE (TTC) : déduite (indépendants), interne (associés, salariés), à renseigner — la règle unique
+ * `classeDeCommission` (statutLigne.ts). PUR.
+ */
+export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition'>, statutDuLibelle?: StatutDuLibelle): Record<ClasseCommission, number> {
+  const r: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
+  for (const l of v.lignes) if (l.role === 'negociateur' && l.montantTtc !== null) r[classeDeCommission(v, l, statutDuLibelle)] += l.montantTtc;
+  return r;
+}
 
 /** Les rétrocessions rattachées à cette vente (TTC). */
 export const retroTtcDe = (v: Pick<Vente, 'id'>, retros: readonly Retrocession[]): number =>
   retros.reduce((s, r) => s + (r.venteId === v.id ? r.montantTtc : 0), 0);
 
-/** Le reste à l'agence d'une vente (TTC) : honoraires − rétrocessions rattachées − paye des négociateurs. */
-export const resteTtcDe = (v: Vente, retros: readonly Retrocession[]): number => v.honorairesTtc - retroTtcDe(v, retros) - payeTtcDe(v);
+/** Le reste à l'agence d'une vente (TTC) : honoraires − rétrocessions rattachées − paye des négociateurs INDÉPENDANTS (LOT Q). */
+export const resteTtcDe = (v: Vente, retros: readonly Retrocession[], statutDuLibelle?: StatutDuLibelle): number =>
+  v.honorairesTtc - retroTtcDe(v, retros) - payeParClasseTtc(v, statutDuLibelle).independant;
 
 /**
  * Le CA HT qu'un négociateur PORTE dans une vente : sa part quand la vente est en parts ; sinon les honoraires, partagés à égalité
@@ -287,12 +309,16 @@ export interface Totaux {
   caHt: number;
   caTtc: number;
   retroHt: number;
+  /** LOT Q — la paye DÉDUITE : celle des négociateurs indépendants. */
   payeHt: number;
-  /** CA HT − rétrocessions HT − paye HT. */
+  /** LOT Q — la paye des associés et des salariés (internes) et celle des statuts inconnus : affichées, NON déduites. */
+  internesHt: number;
+  aRenseignerHt: number;
+  /** CA HT − rétrocessions HT − paye déduite HT. */
   resteHt: number;
   ids: number[];
 }
-const VIDE: Totaux = { nbVentes: 0, caHt: 0, caTtc: 0, retroHt: 0, payeHt: 0, resteHt: 0, ids: [] };
+const VIDE: Totaux = { nbVentes: 0, caHt: 0, caTtc: 0, retroHt: 0, payeHt: 0, internesHt: 0, aRenseignerHt: 0, resteHt: 0, ids: [] };
 
 /** Les ventes VENDUES d'un mois (année + mois de l'acte) qui comptent pour la société (LOT C : pas une vente à attribuer ou écartée). */
 export const ventesDuMois = (ventes: readonly Vente[], annee: number, mois: number): Vente[] =>
@@ -337,7 +363,7 @@ export const retrosDuMois = (retros: readonly Retrocession[], annee: number, moi
  * Les totaux d'un ensemble de ventes ; `retros` : les rétrocessions de la MÊME période (saisies par mois : elles comptent sur leur
  * mois, rattachées ou non). PUR.
  */
-export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null): Totaux {
+export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null, statutDuLibelle?: StatutDuLibelle): Totaux {
   if (ventes.length === 0 && retros.length === 0) return { ...VIDE, ids: [] };
   // LOT D — le CA d'une vente répartie est la part de la société (rétrocession de l'apporteur déjà déduite) ; l'historique se calcule
   // EXACTEMENT comme avant (en TTC, puis ÷ 1,2) — aucune vente répartie : les mêmes nombres, au bit près.
@@ -345,16 +371,20 @@ export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[]
   const caTtc = historiques.reduce((s, v) => s + v.honorairesTtc, 0);
   const repartiHt = ventes.reduce((s, v) => s + (v.repartition == null ? 0 : caHt(v, societe)), 0);
   const retroTtc = retros.reduce((s, r) => s + r.montantTtc, 0);
-  const payeTtc = ventes.reduce((s, v) => s + payeTtcDe(v), 0);
+  // 🔴 LOT Q — seule la paye des INDÉPENDANTS est déduite ; les internes et les « à renseigner » sont rendus à part.
+  const paye = ventes.map((v) => payeParClasseTtc(v, statutDuLibelle));
+  const payeTtc = paye.reduce((s, p) => s + p.independant, 0);
   return { nbVentes: ventes.length, caTtc: caTtc + repartiHt * TVA, caHt: ht(caTtc) + repartiHt, retroHt: ht(retroTtc), payeHt: ht(payeTtc),
+    internesHt: ht(paye.reduce((s, p) => s + p.interne, 0)), aRenseignerHt: ht(paye.reduce((s, p) => s + p.a_renseigner, 0)),
     resteHt: ht(caTtc - retroTtc - payeTtc) + repartiHt, ids: ventes.map((v) => v.id) };
 }
 
-export const totauxMois = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annee: number, mois: number): Totaux =>
-  totaux(ventesDuMois(d.ventes, annee, mois), retrosDuMois(d.retrocessions, annee, mois), d.societe ?? null);
+type DonneesTotaux = Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe' | 'statutsNegociateurs'>>;
+export const totauxMois = (d: DonneesTotaux, annee: number, mois: number): Totaux =>
+  totaux(ventesDuMois(d.ventes, annee, mois), retrosDuMois(d.retrocessions, annee, mois), d.societe ?? null, resolveurDe(d.statutsNegociateurs));
 
-export const totauxAnnee = (d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annee: number): Totaux =>
-  totaux(ventesDeLAnnee(d.ventes, annee), d.retrocessions.filter((r) => r.annee === annee), d.societe ?? null);
+export const totauxAnnee = (d: DonneesTotaux, annee: number): Totaux =>
+  totaux(ventesDeLAnnee(d.ventes, annee), d.retrocessions.filter((r) => r.annee === annee), d.societe ?? null, resolveurDe(d.statutsNegociateurs));
 
 /** Le CA HT de chaque mois (12 valeurs) d'une année ; les ventes « mois à confirmer » n'y sont pas. PUR. */
 export const caHtParMois = (ventes: readonly Vente[], annee: number, societe: Societe | null = null): number[] =>
@@ -379,10 +409,13 @@ export interface LigneAnnee {
   nbCompromis: number;
   retroHt: number;
   payeHt: number;
+  /** LOT Q — internes et statuts inconnus : affichés, non déduits. */
+  internesHt: number;
+  aRenseignerHt: number;
   resteHt: number;
 }
 
-export function historique(d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe'>>, annees: readonly number[]): LigneAnnee[] {
+export function historique(d: DonneesTotaux, annees: readonly number[]): LigneAnnee[] {
   const s = d.societe ?? null;
   return annees.map((annee) => {
     const t = totauxAnnee(d, annee);
@@ -390,7 +423,7 @@ export function historique(d: Pick<DonneesSociete, 'ventes' | 'retrocessions'> &
     const comp = compromisDeLAnnee(d.ventes, annee);
     return { annee, nbVentes: t.nbVentes, caHt: t.caHt, moisAConfirmerHt: aConfirmer.reduce((x, v) => x + caHt(v, s), 0),
       nbMoisAConfirmer: aConfirmer.length, compromisHt: comp.reduce((x, v) => x + caHt(v, s), 0), nbCompromis: comp.length,
-      retroHt: t.retroHt, payeHt: t.payeHt, resteHt: t.resteHt };
+      retroHt: t.retroHt, payeHt: t.payeHt, internesHt: t.internesHt, aRenseignerHt: t.aRenseignerHt, resteHt: t.resteHt };
   });
 }
 
@@ -403,16 +436,22 @@ export interface LigneNegociateur {
   payeHt: number;
   retroHt: number;
   ids: number[];
+  /** LOT Q — son statut (partie figée, sinon compte rapproché) : décide si sa paye est déduite du reste à l'agence. */
+  statut: Statut | null;
 }
 
 /** Par négociateur, sur un ensemble de ventes et les rétrocessions de la même période. Trié par CA HT décroissant. PUR. */
-export function parNegociateur(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null): LigneNegociateur[] {
+export function parNegociateur(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null, statutDuLibelle?: StatutDuLibelle): LigneNegociateur[] {
+  const statutDe = (n: string): Statut | null => {
+    const p = ventes.flatMap((v) => v.repartition?.parties ?? []).find((x) => x.negociateur === n && x.compteId !== null);
+    return (p === undefined ? null : statutDePartie(p)) ?? statutDuLibelle?.(n) ?? null;
+  };
   const noms = new Set<string>([...ventes.flatMap(negociateursDe), ...retros.map((r) => r.negociateur)]);
   return [...noms].map((n) => {
     const siennes = ventes.filter((v) => negociateursDe(v).includes(n));
     const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' ? l.montantTtc ?? 0 : 0), 0), 0);
     return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n, societe), 0), payeHt: ht(paye),
-      retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id) };
+      retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id), statut: statutDe(n) };
   }).sort((a, b) => b.caHt - a.caHt || a.negociateur.localeCompare(b.negociateur, 'fr'));
 }
 

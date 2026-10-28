@@ -159,3 +159,17 @@ describe('🔴 LOT P — le cumul « Commissions versées » : indépendants + a
     expect(avant.independantsHt).toBe(2000);
   });
 });
+
+describe('🔴 LOT Q — une seule règle : le cumul de l’onglet Compromis et le reste à l’agence classent la même paye de la même façon', () => {
+  it('une paye importée (sans partie) suit le compte rapproché, dans les tuiles comme dans les totaux du mois', async () => {
+    const { totaux } = await import('./modele');
+    const lignes = [ligne({ negociateur: 'MYLENE', montantTtc: 2400 }), ligne({ id: 2, negociateur: 'PIERRE', montantTtc: 1200 }), ligne({ id: 3, negociateur: 'ANNA', montantTtc: 600 })];
+    const resolveur = (n: string) => (n === 'MYLENE' ? 'salarie' as const : n === 'PIERRE' ? 'independant' as const : null);
+    const t = tuilesCompromis([vente({ lignes })], 'criterimmo', resolveur);
+    const m = totaux([vente({ statut: 'vendue', mois: 3, lignes })], [], 'criterimmo', resolveur);
+    expect([t.internesHt, t.independantsHt, t.aRenseignerHt]).toEqual([2000, 1000, 500]);
+    expect([m.internesHt, m.payeHt, m.aRenseignerHt]).toEqual([2000, 1000, 500]);
+    expect(t.soldeHt).toBe(10000 - 1000);
+    expect(m.resteHt).toBe(10000 - 1000);
+  });
+});

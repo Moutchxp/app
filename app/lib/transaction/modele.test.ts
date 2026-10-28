@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   anneesDe, caHtParMois, compteDansSociete, groupesDoubles, caHtPortePar, celluleGlobal, historique, ht, moisAConfirmer, negociateursDe, NON_ATTRIBUE, parApporteur, parNegociateur,
-  previsionnel, resteGestionPropose, resteTtcDe, totauxMois, variation, ventesProposees, type LigneVente, type Retrocession, type Vente,
+  previsionnel, resteGestionPropose, resteTtcDe, totauxAnnee, totauxMois, variation, ventesProposees, type LigneVente, type Retrocession, type Vente,
 } from './modele';
 
 /** TUILE « TRANSACTION » — les calculs purs : HT = TTC ÷ 1,2 sans arrondi, le mois du CA, le prévisionnel, les parts, le CA global. */
@@ -40,15 +40,15 @@ describe('HT, mois du CA, prévisionnel', () => {
 });
 
 describe('le mois d’une société : rétrocessions, paye, reste à l’agence', () => {
-  it('reste = honoraires − rétrocessions du mois − paye des négociateurs', () => {
+  it('reste = honoraires − rétrocessions du mois − paye des négociateurs INDÉPENDANTS (LOT Q : MYLENE, rapprochée, indépendante)', () => {
     const v = vente(1, { societe: 'macj', honorairesTtc: 11025, lignes: [ligne('MYLENE', 'negociateur', 3215), ligne('CEDRIC', 'part', 7810, false)] });
     const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 });
-    const t = totauxMois({ ventes: [v], retrocessions: [r] }, 2025, 3);
+    const t = totauxMois({ ventes: [v], retrocessions: [r], statutsNegociateurs: { MYLENE: 'independant' } }, 2025, 3);
     expect(t.caHt).toBe(11025 / 1.2);
     expect(t.retroHt).toBe(1200 / 1.2);
     expect(t.payeHt).toBe(3215 / 1.2);
     expect(t.resteHt).toBe((11025 - 1200 - 3215) / 1.2);
-    expect(resteTtcDe(v, [r])).toBe(11025 - 1200 - 3215);
+    expect(resteTtcDe(v, [r], (n) => (n === 'MYLENE' ? 'independant' : null))).toBe(11025 - 1200 - 3215);
   });
   it('les négociateurs : la somme du CA porté redonne le CA (parts, partage à égalité, non attribué)', () => {
     const enParts = vente(1, { honorairesTtc: 16100, lignes: [ligne('CEDRIC', 'part', 6440), ligne('MYLENE', 'part', 9660)] });
@@ -131,5 +131,26 @@ describe('🔴 LOT C — la même vente notée chez CRITERIMMO et chez MACJ', ()
   it('remise à attribuer (annulation) : de nouveau dans aucune société, une fois au global', () => {
     const r = celluleGlobal(e(notes('a_attribuer', 'a_attribuer')), 2025, null);
     expect(r.totalHt).toBe(7000);
+  });
+});
+
+describe('🔴 LOT Q — le reste à l’agence ne déduit que les INDÉPENDANTS (et les apporteurs)', () => {
+  // 12 000 TTC ; apporteur 1 200 TTC (rétrocession du mois) ; paye de MYLENE 2 400 TTC (importée, sans partie).
+  const v = vente(1, { societe: 'macj', honorairesTtc: 12000, lignes: [ligne('MYLENE', 'negociateur', 2400)] });
+  const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 });
+  const avec = (statut: 'associe' | 'salarie' | 'independant' | null) => totauxMois({ ventes: [v], retrocessions: [r], statutsNegociateurs: { MYLENE: statut } }, 2025, 3);
+  it('indépendant : déduit ; associé, salarié : internes, non déduits ; inconnu : non déduit et signalé ; l’apporteur est toujours déduit', () => {
+    expect(avec('independant')).toMatchObject({ payeHt: 2000, internesHt: 0, aRenseignerHt: 0, resteHt: (12000 - 1200 - 2400) / 1.2 });
+    expect(avec('associe')).toMatchObject({ payeHt: 0, internesHt: 2000, aRenseignerHt: 0, resteHt: (12000 - 1200) / 1.2 });
+    expect(avec('salarie')).toMatchObject({ payeHt: 0, internesHt: 2000, resteHt: (12000 - 1200) / 1.2 });
+    expect(avec(null)).toMatchObject({ payeHt: 0, internesHt: 0, aRenseignerHt: 2000, resteHt: (12000 - 1200) / 1.2 });
+    // sans table (réponse d'avant ce lot) : aucun libellé importé n'est rapproché → non déduit, signalé
+    expect(totauxMois({ ventes: [v], retrocessions: [r] }, 2025, 3)).toMatchObject({ aRenseignerHt: 2000, resteHt: (12000 - 1200) / 1.2 });
+  });
+  it('la même règle partout : le mois, l’année, l’historique, la paye par négociateur', () => {
+    const d = { ventes: [v], retrocessions: [r], statutsNegociateurs: { MYLENE: 'salarie' as const } };
+    expect(totauxMois(d, 2025, 3).resteHt).toBe(totauxAnnee(d, 2025).resteHt);
+    expect(historique(d, [2025])[0]).toMatchObject({ resteHt: (12000 - 1200) / 1.2, internesHt: 2000 });
+    expect(parNegociateur([v], [r], null, (n) => (n === 'MYLENE' ? 'salarie' : null))[0]).toMatchObject({ negociateur: 'MYLENE', payeHt: 2000, statut: 'salarie' });
   });
 });

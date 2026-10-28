@@ -10,6 +10,10 @@ import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, Retro
 import { verifierRepartition } from './repartition';
 import { libelleDesPersonnes, personneExistante } from './personnes';
 import { statutLu, type Statut } from '../admin/statut';
+import { statutsDesComptes } from '../admin/statutCompte';
+import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suivi/negociateurIdentiteRepo';
+import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
+import { comptesDeLOnglet } from './societeNegociateur';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 
 export interface AuteurTx { id: number | null; libelle: string }
@@ -773,3 +777,32 @@ export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<I
     return { ok: true };
   });
 }
+
+// ── LOT Q : le statut des négociateurs IMPORTÉS (paye d'un fichier, sans partie) ──────────────────────────────────────────────────
+
+/**
+ * 🔴 LOT Q (Arno, 28/10/2026) — « libellé de négociateur → statut ACTUEL du compte rapproché », pour la paye importée (lignes sans partie).
+ * Le rapprochement est celui qui existe déjà, sans rien deviner : ① un rattachement posé à la main (Location, migration 432) ; ② le nom
+ * complet ou l'adresse d'UN SEUL compte (`rattacherLibelle`) ; ③ sinon le prénom (ou « prénom nom ») d'UN SEUL compte (`comptesDeLOnglet`,
+ * la règle de la société au lot D). Aucun compte sûr, ou compte « à renseigner » : null — la paye n'est pas déduite et elle est signalée.
+ * Les observateurs ne sont jamais négociateurs (exclus de la liste des comptes). LECTURE SEULE.
+ */
+export async function lireStatutsNegociateurs(libelles: readonly string[]): Promise<Record<string, Statut | null>> {
+  const uniques = [...new Set(libelles.filter((l) => l.trim() !== ''))];
+  if (uniques.length === 0) return {};
+  const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
+  const statuts = await statutsDesComptes(comptes.map((c) => c.id));
+  const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '' }));
+  const out: Record<string, Statut | null> = {};
+  for (const l of uniques) {
+    const r = rattacherLibelle(l, comptes, alias);
+    let id: number | null = r.sorte === 'compte' || r.sorte === 'alias' || r.sorte === 'auto' ? r.compteId : null;
+    if (id === null) { const cs = comptesDeLOnglet(l, pourOnglet); if (cs.length === 1) id = cs[0].id; }
+    out[l] = id === null ? null : statuts.get(id) ?? null;
+  }
+  return out;
+}
+
+/** Les libellés des négociateurs dont la paye est saisie sur ces ventes (lignes « paye du négociateur »). PUR. */
+export const libellesDePaye = (ventes: readonly Vente[]): string[] =>
+  [...new Set(ventes.flatMap((v) => v.lignes.filter((l) => l.role === 'negociateur').map((l) => l.negociateur)))];

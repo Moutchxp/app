@@ -31,6 +31,8 @@ const donnees: DonneesSociete = {
   retrocessions: [{ id: 9, societe: 'macj', annee: 2025, mois: 1, negociateur: 'MYLENE', montantTtc: 1200, apporteur: null, venteId: null, libelle: '=1200', origine: 'import',
     sourceOnglet: 'MYLENE', sourceCellule: 'D3' }],
   aRattacher: [],
+  // LOT Q — MYLENE, rapprochée d'un compte INDÉPENDANT : sa paye est déduite du reste à l'agence.
+  statutsNegociateurs: { MYLENE: 'independant' },
 };
 const donneesGlobal = { disponible: true, aujourdhui: '2025-10-27', location: { '2025-01': 9296.05 }, gestion: [{ id: 1, annee: 2025, mois: 1, nbLots: null, honorairesHt: 14127, adhocHt: 6437, salarieHt: null, resteHt: 7690, note: null, origine: 'import' }],
   ventes: donnees.ventes.map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle })) };
@@ -232,5 +234,34 @@ describe('🔴 LOT L — le CA global : synthèse par société, puis le global'
     expect([...container.querySelectorAll('[data-synthese]')].map((x) => x.getAttribute('data-synthese'))).toEqual(['criterimmo', 'macj', 'global']);
     expect(texte('[data-synthese="criterimmo"] [data-synthese-total]')).toBe('23 423,05 €');
     expect(texte('[data-synthese="global"] [data-synthese-total]')).toBe(texte('[data-total-annee] [data-mot="Total"]'));
+  });
+});
+
+describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépendants sont déduits ; les internes et les inconnus, à part', () => {
+  it('MYLENE salariée : sa paye n’est plus déduite, elle s’affiche « Internes — non déduits » ; son statut dans l’espace par négociateur', async () => {
+    const avant = donnees.statutsNegociateurs;
+    donnees.statutsNegociateurs = { MYLENE: 'salarie' };
+    try {
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+      await calmer();
+      // 11 025 − 1 200 (apporteur), ÷ 1,2 : la paye de Mylène (3 215) n'est plus déduite.
+      expect(texte('[data-reste-agence]')).toBe('8 187,50 €');
+      expect(texte('[data-paye-deduite]')).toBe('0,00 €');
+      expect(texte('[data-internes-non-deduits]')).toBe('2 679,17 €');
+      expect(texte('[data-paye-non-deduite="1"]')).toBe('dont 3 215,00 € non déduite (interne)');
+      await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); });
+      expect(texte('[data-statut-negociateur="MYLENE"]')).toBe('Salarié — paye interne, non déduite');
+    } finally { donnees.statutsNegociateurs = avant; }
+  });
+  it('statut inconnu : non déduit et SIGNALÉ', async () => {
+    const avant = donnees.statutsNegociateurs;
+    donnees.statutsNegociateurs = { MYLENE: null };
+    try {
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+      await calmer();
+      expect(texte('[data-a-renseigner-non-deduits]')).toBe('2 679,17 €');
+      await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); });
+      expect(texte('[data-statut-negociateur="MYLENE"]')).toBe('à renseigner — paye non déduite');
+    } finally { donnees.statutsNegociateurs = avant; }
   });
 });

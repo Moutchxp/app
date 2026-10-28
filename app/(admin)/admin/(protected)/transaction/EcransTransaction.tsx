@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
   anneesDe, APPORTEUR_NON_NOMME, caHt, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
-  NOMS_MOIS, parApporteur, parNegociateur, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
+  NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
 } from '../../../../lib/transaction/modele';
@@ -16,6 +16,16 @@ import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, parametre, posterTransaction, signePct, useTransaction } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { OngletCompromis } from './OngletCompromis';
+import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
+import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
+
+/** 🔴 LOT Q — la paye NON déduite du reste à l'agence, à part : internes (associés, salariés), puis statut à renseigner (signalé). */
+function NonDeduits({ T }: { T: { internesHt: number; aRenseignerHt: number } }) {
+  return <>
+    <dt className="trx-tuile-detail-a-part">Internes (associés, salariés) — non déduits (HT)</dt><dd className="trx-tuile-detail-a-part" data-internes-non-deduits>{eur(T.internesHt)}</dd>
+    {T.aRenseignerHt > 0 && <><dt className="trx-alerte">Statut à renseigner — non déduits (HT)</dt><dd className="trx-alerte" data-a-renseigner-non-deduits>{eur(T.aRenseignerHt)}</dd></>}
+  </>;
+}
 import { FormulaireDossier, type References } from './FormulaireDossier';
 
 /**
@@ -151,7 +161,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
       </>}
 
-      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe}
+      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
         onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} />}
       {edition !== null && avecDossier(edition) && references !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={references}
         onFermer={() => setEdition(null)} onFait={fini} />}
@@ -229,7 +239,7 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
 
     <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
-      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} />
+      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </section>
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
@@ -237,15 +247,16 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
       <dl className="trx-resultat">
         <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
-        <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
+        <dt>− Paye des négociateurs indépendants (HT)</dt><dd data-paye-deduite>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
+        <NonDeduits T={T} />
       </dl>
       <p className="loc-muet">Les rétrocessions comptent sur le mois où elles sont saisies (comme dans les fichiers), rattachées ou « à répartir ».</p>
     </section>
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
       resume={`${parNegociateur(ventes, retros, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
-      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe)} onDetail={onDetail} periode={libMois} />
+      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe, resolveurDe(d.statutsNegociateurs))} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
@@ -263,18 +274,20 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
 
     <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => caHt(v, d.societe))))} HT`}
       donnees={{ 'data-bloc': 'compromis' }}>
-      <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." societe={d.societe} />
+      <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </BlocReplie>
     <BlocReplie id="trx-confirmer" section="a-confirmer" titre={<>Ventes « mois à confirmer » — {annee}</>}
       resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => caHt(v, d.societe))))} HT`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
       <p className="loc-muet">Aucune formule du fichier ne les place dans un mois : elles comptent dans l’année, dans aucun mois. « Modifier » leur donne leur mois.</p>
-      <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." societe={d.societe} />
+      <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </BlocReplie>
   </>;
 }
 
 /** Les ventes, en tableau (en cartes au téléphone) : chaque ligne s'ouvre en modification. */
-function TableVentes({ ventes, retros, onModifier, vide, societe = null }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
+function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
+  /** LOT Q — le statut des négociateurs importés : le reste à l'agence ne déduit que la paye des indépendants. */
+  statutDuLibelle?: StatutDuLibelle;
   /** LOT D — la société vue : la part d'une vente répartie s'affiche sous ses honoraires. */
   societe?: Societe | null }) {
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
@@ -299,8 +312,9 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null }: { ven
             <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}
               {v.repartition != null && <><br /><span className="trx-source" data-part-vente>{societe === null ? 'nos parts' : `part ${LIBELLE_SOCIETE[societe]}`} : {eur(caHt(v, societe))}</span></>}</td>
             <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
-            <td data-mot="Paye négo">{eur(payeTtcDe(v))}</td>
-            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros)))}</td>
+            <td data-mot="Paye négo">{eur(payeTtcDe(v))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle); const nd = c.interne + c.a_renseigner;
+              return nd > 0 ? <><br /><span className={c.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(nd)} non déduite{c.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></> : null; })()}</td>
+            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle)))}</td>
             <td data-mot="Action"><button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button></td>
           </tr>
         ))}
@@ -313,10 +327,13 @@ function TableNegociateurs({ lignes, onDetail, periode }: { lignes: ReturnType<t
   if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
   return (
     <table className="tdb-table tdb-table--large" data-table-negociateurs>
-      <thead><tr><th scope="col">Négociateur</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
       <tbody>{lignes.map((l) => (
         <tr key={l.negociateur} data-negociateur={l.negociateur}>
           <th scope="row">{l.negociateur}</th>
+          {/* LOT Q — son statut et ce que devient sa paye dans le reste à l'agence. */}
+          <td data-mot="Statut" data-statut-negociateur={l.negociateur} className={l.payeHt > 0 && classeCommission(l.statut) === 'a_renseigner' ? 'trx-alerte' : undefined}>{libelleStatut(l.statut)}
+            {l.payeHt > 0 && <>{' — '}{classeCommission(l.statut) === 'independant' ? 'paye déduite' : classeCommission(l.statut) === 'interne' ? 'paye interne, non déduite' : 'paye non déduite'}</>}</td>
           <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${l.negociateur} — ${periode}`, ids: l.ids })} disabled={l.ids.length === 0}>{l.nbVentes}</button></td>
           <td data-mot="CA HT porté">{eur(l.caHt)}</td><td data-mot="Paye HT">{eur(l.payeHt)}</td><td data-mot="Rétrocessions HT">{eur(l.retroHt)}</td>
         </tr>
@@ -416,10 +433,10 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   const HP = H.filter((h) => periode.includes(h.annee));
   const ventesP = d.ventes.filter((v) => v.statut === 'vendue' && periode.includes(v.annee) && compteDansSociete(v));
   const retrosP = d.retrocessions.filter((r) => periode.includes(r.annee));
-  const T = totaux(ventesP, retrosP, d.societe);
+  const T = totaux(ventesP, retrosP, d.societe, resolveurDe(d.statutsNegociateurs));
   const duree = fin - debut + 1;
   const precedente = annees.filter((a) => a >= debut - duree && a <= debut - 1);
-  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)), d.societe);
+  const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)), d.societe, resolveurDe(d.statutsNegociateurs));
   const libPrec = precedente.length === 0 ? '' : duree === 1 ? String(debut - 1) : `${debut - duree} → ${debut - 1}`;
   const compFin = compromisDeLAnnee(d.ventes, fin);
   const parMois = caHtParMois(d.ventes, fin, d.societe);
@@ -428,7 +445,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = fin < anneeEnCours ? 12 : fin > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const nb = (a: number, k: number): number => ventesDuMois(d.ventes, a, k).length;
-  const negos = parNegociateur(ventesP, retrosP, d.societe);
+  const negos = parNegociateur(ventesP, retrosP, d.societe, resolveurDe(d.statutsNegociateurs));
   const apporteurs = parApporteur(retrosP, d.ventes);
   return <>
     <p className="tdb-periode">Période : <strong>{libelle}</strong></p>
@@ -444,7 +461,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
       <li><div className="tdb-tuile" data-tuile="reste-periode">
         <span className="tdb-tuile-mot">Reste à l’agence HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.resteHt)}</strong>
-        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions et {eur(T.payeHt)} de paye</span></div></li>
+        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions et {eur(T.payeHt)} de paye (indépendants)</span>
+        {T.internesHt + T.aRenseignerHt > 0 && <span className="tdb-tuile-n1" data-non-deduits-tuile>{eur(T.internesHt + T.aRenseignerHt)} de paye non déduite (internes, statut à renseigner)</span>}</div></li>
     </ul>
 
     {HP.length > 0 && (
@@ -475,8 +493,9 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
         <dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => h.moisAConfirmerHt)))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd>
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
-        <dt>− Paye des négociateurs (HT)</dt><dd>{eur(T.payeHt)}</dd>
-        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total">{eur(T.resteHt)}</dd>
+        <dt>− Paye des négociateurs indépendants (HT)</dt><dd>{eur(T.payeHt)}</dd>
+        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total" data-reste-agence-periode>{eur(T.resteHt)}</dd>
+        <NonDeduits T={T} />
         <dt>Compromis en cours ({fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
       </dl>
     </section>
@@ -508,12 +527,13 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
       <h3 id="trx-histoire">Toute l’histoire — {annees[0]} → {annees.at(-1)}</h3>
       <table className="tdb-table tdb-table--large" data-table-histoire>
         <thead><tr><th scope="col">Année</th><th scope="col">Ventes</th><th scope="col">CA HT</th><th scope="col">dont mois à confirmer</th><th scope="col">Compromis HT</th>
-          <th scope="col">Rétrocessions HT</th><th scope="col">Reste agence HT</th><th scope="col">Évolution du CA</th></tr></thead>
+          <th scope="col">Rétrocessions HT</th><th scope="col">Reste agence HT</th><th scope="col">Paye non déduite HT</th><th scope="col">Évolution du CA</th></tr></thead>
         <tbody>{H.map((h, i) => (
           <tr key={h.annee} className={periode.includes(h.annee) ? 'tdb-fort' : undefined} data-annee-histoire={h.annee}>
             <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnnee(h.annee)}>{h.annee}</button></th>
             <td data-mot="Ventes">{h.nbVentes}</td><td data-mot="CA HT">{eur(h.caHt)}</td><td data-mot="dont mois à confirmer">{eur(h.moisAConfirmerHt)}</td>
             <td data-mot="Compromis HT">{eur(h.compromisHt)}</td><td data-mot="Rétrocessions HT">{eur(h.retroHt)}</td><td data-mot="Reste agence HT">{eur(h.resteHt)}</td>
+            <td data-mot="Paye non déduite HT" data-non-deduits-annee={h.annee}>{eur(h.internesHt + h.aRenseignerHt)}{h.aRenseignerHt > 0 && <><br /><span className="trx-alerte">dont {eur(h.aRenseignerHt)} à renseigner</span></>}</td>
             <td data-mot="Évolution du CA">{i === 0 ? '—' : signePct(variation(h.caHt, H[i - 1].caHt))}</td>
           </tr>
         ))}</tbody>
@@ -523,7 +543,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
 }
 
 /** La liste des ventes derrière un chiffre. */
-function ListeVentes({ titre, ventes, retros, onFermer, onModifier, societe = null }: { titre: string; ventes: readonly Vente[]; retros: readonly Retrocession[]; onFermer: () => void; onModifier: (v: Vente) => void;
+function ListeVentes({ titre, ventes, retros, onFermer, onModifier, societe = null, statutDuLibelle }: { titre: string; ventes: readonly Vente[]; retros: readonly Retrocession[]; onFermer: () => void; onModifier: (v: Vente) => void;
+  statutDuLibelle?: StatutDuLibelle;
   societe?: Societe | null }) {
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
@@ -536,7 +557,7 @@ function ListeVentes({ titre, ventes, retros, onFermer, onModifier, societe = nu
         <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer} autoFocus>×</button></header>
         <div className="tdb-fenetre-corps">
           <p className="loc-muet">{ventes.length} vente(s) · CA HT {eur(sommeAffichee(ventes.map((v) => caHt(v, societe))))}</p>
-          <TableVentes ventes={ventes} retros={retros} onModifier={onModifier} vide="Aucune vente." societe={societe} />
+          <TableVentes ventes={ventes} retros={retros} onModifier={onModifier} vide="Aucune vente." societe={societe} statutDuLibelle={statutDuLibelle} />
         </div>
       </div>
     </div>

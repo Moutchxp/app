@@ -5,8 +5,7 @@ import { concerne, estSociete, type Vente } from '../../../../lib/transaction/mo
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
   acteSigne, annulerCompromis, annulerGeste, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
-  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible,
-} from '../../../../lib/transaction/repo';
+  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
 import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
@@ -57,7 +56,9 @@ export async function GET(request: Request): Promise<Response> {
       if (!estSociete(societe)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
       if (!disponible) return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes: [], retrocessions: [], aRattacher: [], doubles: [] } });
       const [ventes, retrocessions, aRattacher, doubles] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe), lireNotesDoubles(societe)]);
-      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles } });
+      // LOT Q — le statut du compte rapproché de chaque négociateur payé (paye importée) : le « Reste à l'agence » ne déduit que les indépendants.
+      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
+      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles, statutsNegociateurs } });
     }
     if (vue === 'global') {
       const location = await lireCaLocation().catch(() => null);
@@ -78,7 +79,9 @@ export async function GET(request: Request): Promise<Response> {
       const compromis = ventes.filter((v) => v.statut === 'compromis' && pourVue(v));
       // LOT G — les compromis ANNULÉS par le bouton « Annulation » (motif enregistré) : consultables, rétablissables.
       const annules = ventes.filter((v) => v.statut === 'annulee' && v.annulation != null && (societe === 'tous' || (v.repartition != null ? concerne(v, societe) : v.societe === societe)));
-      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, annules, ...ref } });
+      // LOT Q — même règle pour le cumul « Commissions versées » : la paye importée d'un compromis suit le compte rapproché.
+      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(compromis)).catch(() => ({}));
+      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, annules, statutsNegociateurs, ...ref } });
     }
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {

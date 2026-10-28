@@ -1,5 +1,6 @@
-import { caHt, commissionNetteHt, exterieurHt, ht, SOCIETES, TVA, type LigneVente, type MontantSaisi, type Partie, type Societe, type Unite, type Vente } from './modele';
-import { classeCommission, type ClasseCommission, type Statut } from '../admin/statut';
+import { caHt, commissionNetteHt, exterieurHt, ht, SOCIETES, TVA, type LigneVente, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
+import type { ClasseCommission } from '../admin/statut';
+import { classeDeCommission, type StatutDuLibelle } from './statutLigne';
 
 export type { MontantSaisi, Unite };
 
@@ -93,22 +94,9 @@ export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dos
   return siennes.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : net === 0 ? 0 : ((p.montantHt ?? 0) / net) * 100), 0);
 }
 
-// ── LOT P : le statut du négociateur d'une commission ───────────────────────────────────────────────────────────────────
+// ── LOTS P / Q : le statut du négociateur d'une commission — la règle unique est dans statutLigne.ts ─────────────────────────
 
-/** Le statut qui compte pour une partie : celui FIGÉ à l'enregistrement ; à défaut, l'actuel de son compte ; sinon null (à renseigner). PUR. */
-export const statutDePartie = (p: Pick<Partie, 'statut' | 'statutCompte'>): Statut | null => p.statut ?? p.statutCompte ?? null;
-
-/**
- * 🔴 LOT P (Arno) — LE STATUT DU NÉGOCIATEUR D'UNE COMMISSION VERSÉE : celui de SA partie sur cette vente (même règle que la société :
- * le côté d'abord) ; sans répartition (historique, import) ou sans partie : null — « à renseigner ». PUR.
- */
-export function statutDeLigne(v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>): Statut | null {
-  if (v.repartition == null) return null;
-  const sortes = l.cote === 'entree' ? ['entree', 'entree_sortie'] : l.cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'sortie', 'entree_sortie'];
-  const p = v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null && sortes.includes(x.sorte))
-    ?? v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null);
-  return p === undefined ? null : statutDePartie(p);
-}
+export { statutDeLigne, statutDePartie, statutDeCommission, classeDeCommission, resolveurDe, type StatutDuLibelle } from './statutLigne';
 
 // ── Les 4 tuiles ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -139,7 +127,7 @@ export interface TuilesCompromis {
 type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation'>>;
 
 /** Le CA, les commissions et le solde d'une vente pour une société (null : nos deux sociétés). PUR. */
-function uneVente(v: VenteTuile, societe: Societe | null): { caHt: number; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
+function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: StatutDuLibelle): { caHt: number; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
   const f = fractionSociete(v, societe);
   const retro = retroApporteurDe(v);
   // L'apporteur d'une vente répartie est DÉJÀ déduit de la commission nette : sa quote-part se lit sur la rétrocession comptée par la répartition.
@@ -151,7 +139,7 @@ function uneVente(v: VenteTuile, societe: Societe | null): { caHt: number; parCl
     if (m === null) continue;
     const s = societeDeLigne(v, l);
     const part = societe === null ? (s === null ? f : 1) : s === null ? f : s === societe ? 1 : 0;
-    parClasse[classeCommission(statutDeLigne(v, l))] += enHt(m) * part;
+    parClasse[classeDeCommission(v, l, statutDuLibelle)] += enHt(m) * part;
   }
   return { caHt: ht(v.honorairesTtc) * f, parClasse, apporteursHt: retroHt * f };
 }
@@ -160,10 +148,10 @@ function uneVente(v: VenteTuile, societe: Societe | null): { caHt: number; parCl
  * 🔴 LES 4 TUILES DE L'ONGLET « COMPROMIS », sur les compromis EN COURS (statut « compromis » : ni acte signé, ni annulés — un compromis
  * annulé est écarté même s'il est passé par erreur). `societe` null : CA global (CRITERIMMO + MACJ). PUR.
  */
-export function tuilesCompromis(ventes: readonly VenteTuile[], societe: Societe | null): TuilesCompromis {
+export function tuilesCompromis(ventes: readonly VenteTuile[], societe: Societe | null, statutDuLibelle?: StatutDuLibelle): TuilesCompromis {
   const enCours = ventes.filter((v) => v.statut === 'compromis');
   const partHt = Object.fromEntries(SOCIETES.map((s) => [s, enCours.reduce((t, v) => t + uneVente(v, s).caHt, 0)])) as Record<Societe, number>;
-  const sommes = enCours.map((v) => uneVente(v, societe));
+  const sommes = enCours.map((v) => uneVente(v, societe, statutDuLibelle));
   const caHtTotal = sommes.reduce((t, x) => t + x.caHt, 0);
   const de = (k: ClasseCommission): number => sommes.reduce((t, x) => t + x.parClasse[k], 0);
   const independantsHt = de('independant');

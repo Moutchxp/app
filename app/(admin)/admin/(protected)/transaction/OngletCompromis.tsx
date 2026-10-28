@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, partDuCote, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
-import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
+import { commissionDuCote, partDuCote, resolveurDe, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { classeCommission, libelleStatut, type Statut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
@@ -30,7 +30,9 @@ import { Journal } from './FormulaireVente';
 
 interface DonneesCompromis extends References { disponible: boolean; aujourdhui: string; compromis: Vente[];
   /** LOT G — les compromis annulés par « Annulation » (absent : réponse d'avant ce lot). */
-  annules?: Vente[] }
+  annules?: Vente[];
+  /** LOT Q — le statut du compte rapproché des négociateurs payés (paye importée). */
+  statutsNegociateurs?: Record<string, Statut | null> }
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
@@ -54,7 +56,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   const liste = trierCompromis(d.compromis);
   // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
-  const tu = tuilesCompromis(liste, vue);
+  const tu = tuilesCompromis(liste, vue, resolveurDe(d.statutsNegociateurs));
   const detail = detailEpingle || detailSurvol;
   const signer = async (): Promise<void> => {
     if (acte === null) return;
