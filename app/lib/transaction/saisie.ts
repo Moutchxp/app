@@ -167,7 +167,9 @@ export interface DossierSaisie {
    * LOT I (437) — les commissions versées aux négociateurs d'entrée et de sortie, chacune dans SON unité ; null : rien de saisi pour ce
    * côté. Absent (une saisie qui n'en parle pas) : les commissions enregistrées restent telles quelles.
    */
-  commissions?: { entree: MontantSaisi | null; sortie: MontantSaisi | null };
+  commissions?: { entree: MontantSaisi | null; sortie: MontantSaisi | null;
+    /** LOT R (440) — le taux de rémunération de chaque côté (%) ; null ou absent : le défaut (50 %). */
+    taux?: { entree: number | null; sortie: number | null } };
   personnes: PersonneSaisie[];
   parties: PartieSaisie[];
   /** LOT E (435) — le prix de vente (€), facultatif. */
@@ -232,6 +234,7 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
   if (c.commissions !== undefined && c.commissions !== null) {
     const o = c.commissions as Record<string, unknown>;
     const lus: Record<'entree' | 'sortie', MontantSaisi | null> = { entree: null, sortie: null };
+    const taux: Record<'entree' | 'sortie', number | null> = { entree: null, sortie: null };
     for (const [k, mot] of [['entree', 'd’entrée'], ['sortie', 'de sortie']] as const) {
       const x = (o[k] ?? {}) as Record<string, unknown>;
       const m = montant(x.montant);
@@ -239,8 +242,12 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
       const u = unite(x.unite);
       if (u === undefined) return refus(`Unité inconnue pour la commission du négociateur ${mot} (HT ou TTC).`);
       lus[k] = m === null ? null : { montant: m, unite: u };
+      // LOT R — le taux de rémunération (%) : vide, le défaut.
+      const t = montant(x.taux);
+      if (t === undefined || (t !== null && t < 0)) return refus(`Le taux de rémunération du négociateur ${mot} doit être un pourcentage positif (ou vide).`);
+      taux[k] = t;
     }
-    commissions = lus;
+    commissions = { ...lus, taux };
   }
   const prix = montant(c.prixVente);
   if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');

@@ -58,7 +58,7 @@ describe('🔴 LOT I — lireDossier : l’unité de la rétrocession et les com
   it('HT ou TTC par montant ; un montant vide : rien pour ce côté ; une unité inconnue ou un montant négatif : refusés', () => {
     const r = lireDossier(dossier({ retroApporteurUnite: 'ht', commissions: { entree: { montant: '1 000', unite: 'ht' }, sortie: { montant: '', unite: 'ttc' } } }));
     expect(r.ok && r.valeur.retroUnite).toBe('ht');
-    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 1000, unite: 'ht' }, sortie: null });
+    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 1000, unite: 'ht' }, sortie: null, taux: { entree: null, sortie: null } });
     expect(lireDossier(dossier({ retroApporteurUnite: 'eur' })).ok).toBe(false);
     expect(lireDossier(dossier({ commissions: { entree: { montant: '-5', unite: 'ht' } } })).ok).toBe(false);
     expect(lireDossier(dossier({ commissions: { entree: { montant: '5', unite: 'HTT' } } })).ok).toBe(false);
@@ -68,6 +68,16 @@ describe('🔴 LOT I — lireDossier : l’unité de la rétrocession et les com
 describe('🔴 LOT O — une commission proposée à l’écran (« 3 750,00 », espace insécable des milliers) se lit telle quelle', () => {
   it('3 750,00 et 3 750,00 valent 3 750', () => {
     const r = lireDossier({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '7500', commissions: { entree: { montant: '3 750,00', unite: 'ttc' }, sortie: { montant: '3 750,00', unite: 'ttc' } } });
-    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 3750, unite: 'ttc' }, sortie: { montant: 3750, unite: 'ttc' } });
+    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 3750, unite: 'ttc' }, sortie: { montant: 3750, unite: 'ttc' }, taux: { entree: null, sortie: null } });
+  });
+});
+
+describe('🔴 LOT R — le taux de rémunération de chaque côté', () => {
+  it('lu en % (« 62,5 » compris) ; vide : le défaut ; négatif ou illisible : refusé', () => {
+    const base = { societe: 'criterimmo', statut: 'compromis', honorairesTtc: '4000', personnes: [], parties: [] };
+    const r = lireDossier({ ...base, commissions: { entree: { montant: '1000', unite: 'ttc', taux: '62,5' }, sortie: { montant: '', unite: 'ttc', taux: null } } });
+    expect(r.ok && r.valeur.commissions?.taux).toEqual({ entree: 62.5, sortie: null });
+    expect(lireDossier({ ...base, commissions: { entree: { montant: '1000', unite: 'ttc', taux: '-5' }, sortie: null } }).ok).toBe(false);
+    expect(lireDossier({ ...base, commissions: { entree: { montant: '1000', unite: 'ttc', taux: 'abc' }, sortie: null } }).ok).toBe(false);
   });
 });

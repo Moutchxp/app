@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, partDuCote, resolveurDe, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { bilanVente, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { commissionDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type Statut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
+import { eur, eurEtEquivalent, eurUnite, parametre, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, propositionCommission,
+import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, propositionCommission, tauxDe, texteTaux,
   type EtatRepartition, type MontantEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
@@ -46,6 +46,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const [fait, setFait] = useState<{ id: number; libelle: string } | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [historique, setHistorique] = useState<number | null>(null);
+  // 🔴 LOT R — « Voir la vente d'origine » (depuis une ligne miroir) : la carte visée (?vente=N) s'ouvre et vient à l'écran.
+  const [venteVisee] = useState<number | null>(() => { const x = Number(parametre('vente')); return Number.isInteger(x) && x > 0 ? x : null; });
+  useEffect(() => {
+    if (venteVisee === null || lu.etat !== 'ok') return;
+    document.querySelector(`[data-compromis="${venteVisee}"]`)?.scrollIntoView?.({ block: 'start' });
+  }, [venteVisee, lu.etat]);
   // LOT I — le détail de la tuile « Commissions versées » : épinglé au toucher (ou au clic), montré au survol.
   const [detailEpingle, setDetailEpingle] = useState(false);
   const [detailSurvol, setDetailSurvol] = useState(false);
@@ -88,14 +94,17 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <li><div className="tdb-tuile" data-tuile="ca"><span className="tdb-tuile-mot">Chiffre d’affaires</span>
           <strong className="tdb-tuile-valeur trx-vert" data-ca-ttc>{eur(tu.caTtc)} <small>TTC</small></strong>
           <span className="trx-tuile-ht" data-ca-ht>{eur(tu.caHt)} HT</span>
+          {/* 🔴 LOT R (Arno) — « CA de la vente » + « dont reversé en inter-cabinet » (remplace « part de la société après répartition »). */}
           {vue !== null
-            ? <span className="tdb-tuile-n1" data-part-compromis={vue}>Part {LIBELLE_SOCIETE[vue]} : part de la société après répartition</span>
-            : <span className="tdb-tuile-n1" data-parts-compromis>{SOCIETES.map((s) => <span key={s} className="trx-tuile-part" data-part-compromis={s}>Part {LIBELLE_SOCIETE[s]} : {eur(tu.partHt[s])} HT</span>)
+            ? <span className="tdb-tuile-n1" data-part-compromis={vue}>CA de la vente : {eur(tu.caHt)} HT · dont reversé en inter-cabinet : {eur(sommeSocietes(tu.interCabinetHt) + tu.exterieurHt)} HT
+              {tu.recuHt > 0 && <> · dont reçu en inter-cabinet : {eur(tu.recuHt)} HT</>}</span>
+            : <span className="tdb-tuile-n1" data-parts-compromis>{SOCIETES.map((s) => <span key={s} className="trx-tuile-part" data-part-compromis={s}>CA {LIBELLE_SOCIETE[s]} : {eur(tu.caSocieteHt[s])} HT</span>)
               .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</span>}
-          <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · parts extérieures (hors CA) : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
+          {vue === null && <span className="tdb-tuile-n1" data-neutralise-compromis>Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT (neutralisé)</span>}
+          <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · dont inter-cabinet extérieur : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
         <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-expanded={detail} onClick={() => setDetailEpingle((x) => !x)}
           onMouseEnter={() => setDetailSurvol(true)} onMouseLeave={() => setDetailSurvol(false)}
-          title={`Indépendants : ${eur(tu.independantsHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT · Internes (associés, salariés) : ${eur(tu.internesHt)} HT — non déduits`}>
+          title={`Indépendants : ${eur(tu.independantsHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT${SOCIETES.filter((s) => tu.interCabinetHt[s] > 0).map((s) => ` · Inter-cabinet vers ${LIBELLE_SOCIETE[s]} : ${eur(tu.interCabinetHt[s])} HT`).join('')}${tu.exterieurHt > 0 ? ` · Inter-cabinet extérieur : ${eur(tu.exterieurHt)} HT` : ''} · Internes (associés, salariés) : ${eur(tu.internesHt)} HT — non déduits`}>
           <span className="tdb-tuile-mot">Commissions versées</span>
           <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(tu.commissionsTtc)} <small>TTC versées</small></strong>
           <span className="trx-tuile-ht" data-commissions-ht>{eur(tu.commissionsHt)} HT</span>
@@ -104,10 +113,14 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
               {/* 🔴 LOT P (Arno) — n'entrent que les INDÉPENDANTS et les APPORTEURS ; les internes et les statuts à renseigner, à part. */}
               <span data-detail="independants">Indépendants : {eur(tu.independantsHt)} HT <span className="trx-tuile-detail-n">({eur(tu.independantsHt * TVA)} TTC)</span></span>
               <span data-detail="apporteurs">Apporteurs : {eur(tu.apporteursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.apporteursHt * TVA)} TTC)</span></span>
+              {/* 🔴 LOT R — l'inter-cabinet versé par la société porteuse (à l'autre société, à l'extérieur) ; entre nos sociétés, neutralisé au global. */}
+              {SOCIETES.filter((s) => tu.interCabinetHt[s] > 0).map((s) => <span key={s} data-detail={`inter-cabinet-${s}`}>Inter-cabinet vers {LIBELLE_SOCIETE[s]} : {eur(tu.interCabinetHt[s])} HT <span className="trx-tuile-detail-n">({eur(tu.interCabinetHt[s] * TVA)} TTC)</span></span>)}
+              {tu.exterieurHt > 0 && <span data-detail="inter-cabinet-exterieur">Inter-cabinet extérieur : {eur(tu.exterieurHt)} HT <span className="trx-tuile-detail-n">({eur(tu.exterieurHt * TVA)} TTC)</span></span>}
+              {tu.neutraliseHt > 0 && <span data-detail="inter-cabinet-neutralise" className="trx-tuile-detail-a-part">Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT — neutralisé</span>}
               <span data-detail="internes" className="trx-tuile-detail-a-part">Internes (associés, salariés) : {eur(tu.internesHt)} HT — non déduits</span>
               {tu.aRenseignerHt > 0 && <span data-detail="a-renseigner" className="trx-tuile-detail-a-part trx-alerte">Statut à renseigner : {eur(tu.aRenseignerHt)} HT — non déduits</span>}
             </span>
-          ) : <span className="tdb-tuile-n1">indépendants + apporteurs — toucher pour le détail</span>}
+          ) : <span className="tdb-tuile-n1">indépendants + apporteurs + inter-cabinet — toucher pour le détail</span>}
         </button></li>
         {/* LOT L (Arno) — le Solde net : TTC en premier, en grand et en VERT (« TTC » écrit) ; HT dessous, en gris. */}
         <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
@@ -123,6 +136,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       {liste.length === 0 ? <p className="loc-muet">Aucun compromis en cours.</p> : (
         <ul className="trx-cartes" data-liste-compromis>
           {liste.map((v) => {
+            // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
+            if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} />;
             const r = v.repartition ?? null;
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
             // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
@@ -180,7 +195,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             return (
               <li key={v.id} data-compromis={v.id} data-depassee={c.depassee ? '' : undefined}>
                 <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte"
-                  donnees={{ 'data-carte-compromis': String(v.id) }}>
+                  donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
                   <div className="trx-carte-detail">
                     <div className="trx-colonnes">
                       {colonne('vendeur', 'Vendeurs')}
@@ -221,15 +236,28 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col">€ HT</th></tr></thead>
                           <tbody>
                             {r.parties.map((p, i) => (
-                              <tr key={i}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'hors CA' : LIBELLE_SOCIETE[p.societe]}</td>
+                              <tr key={i}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
                                 <td data-mot="%">{p.pourcentage !== null ? `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : `${(ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`}</td>
                                 <td data-mot="€ HT">{eur(p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0)}</td></tr>
                             ))}
                             {SOCIETES.map((s) => <tr key={s} className="tdb-fort"><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
                               <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
                               <td data-mot="€ HT" data-part-societe-compromis={s}>{eur(ps.societe[s])} HT</td></tr>)}
-                            {ps.exterieurHt > 0 && <tr><th scope="row">Part extérieure (hors CA)</th><td data-mot="Société">hors CA</td>
+                            {ps.exterieurHt > 0 && <tr><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
                               <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td><td data-mot="€ HT">{eur(ps.exterieurHt)} HT</td></tr>}
+                            {/* 🔴 LOT R (Arno) — la société PORTEUSE encaisse le CA de la vente ; la part de l'autre société et l'extérieur lui sont reversés. */}
+                            {(() => {
+                              const b = bilanVente(v, null);
+                              const pv = bilanVente(v, b.porteuse);
+                              return <>
+                                <tr className="tdb-fort" data-ca-vente-compromis={b.porteuse}><th scope="row">CA de la vente — {LIBELLE_SOCIETE[b.porteuse]} (société porteuse)</th><td data-mot="Société">{LIBELLE_SOCIETE[b.porteuse]}</td>
+                                  <td data-mot="%">100 %</td><td data-mot="€ HT">{eur(b.caHt)} HT</td></tr>
+                                {SOCIETES.filter((s) => pv.verseHt[s] > 0).map((s) => <tr key={`ic-${s}`} data-reverse-compromis={s}><th scope="row">dont reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</th>
+                                  <td data-mot="Société">{LIBELLE_SOCIETE[s]}</td><td data-mot="%">{pcts === null ? '' : pct(pcts.societe[s])}</td><td data-mot="€ HT">{eur(pv.verseHt[s])} HT</td></tr>)}
+                                {pv.exterieurHt > 0 && <tr data-reverse-compromis="exterieur"><th scope="row">dont reversé en inter-cabinet extérieur</th><td data-mot="Société">extérieur</td>
+                                  <td data-mot="%">{pcts === null ? '' : pct(pcts.exterieur)}</td><td data-mot="€ HT">{eur(pv.exterieurHt)} HT</td></tr>}
+                              </>;
+                            })()}
                           </tbody>
                         </table>
                         </div>
@@ -334,7 +362,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
     const sansAutreProposee = change.commissions != null && change.commissions[autre].auto === true
       ? { ...change, commissions: { ...change.commissions, [autre]: { texte: '', unite: change.commissions[autre].unite } } } : change;
     const avecCommission: EtatRepartition = sansAutreProposee.commissions != null && id !== null
-      ? { ...sansAutreProposee, commissions: { ...sansAutreProposee.commissions, [cote]: { texte: saisie.texte, unite: saisie.unite } } } : sansAutreProposee;
+      ? { ...sansAutreProposee, commissions: { ...sansAutreProposee.commissions, [cote]: { texte: saisie.texte, unite: saisie.unite, ...(commission.taux !== undefined ? { taux: commission.taux } : {}) } } } : sansAutreProposee;
     const etat = id !== null && desDeux && societeChoisie !== null ? choisirSocietePartie(avecCommission, cote === 'entree' ? 0 : 1, societeChoisie) : avecCommission;
     const manque = motifSocieteVente(etat, references.negociateurs);
     if (manque !== null) { setOuvert(false); onRevoir(etat, manque); return; }
@@ -353,6 +381,17 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
           {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : `Commission versée : ${eurUnite(enregistree.montant)}`}</span>
       )}
+      {/* 🔴 LOT R — la valeur saisie n'est jamais recalculée seule : si elle diffère du calcul (taux × sa part), le calcul proposé et « Appliquer le calcul ». */}
+      {actuel !== null && avecUnite && (() => {
+        const rem = remunerationDuCote(v, cote);
+        if (rem === null || !rem.ecart || rem.saisie === null) return null;
+        const u = rem.saisie.unite;
+        return <span className="trx-negociateur-commission trx-ecart-calcul" data-ecart-remuneration={cote}>
+          <span className="trx-alerte">valeur saisie — calcul proposé : {eur(rem.calculTtc)} TTC ({rem.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % × {eur(rem.baseTtc)} TTC)</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible || envoi} data-appliquer-calcul-carte={cote}
+            onClick={() => { setEnvoi(true); void posterTransaction({ action: 'commission-cote', id: v.id, cote, montant: { montant: u === 'ttc' ? rem.calculTtc : rem.calculTtc / TVA, unite: u }, taux: rem.taux })
+              .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); }); }}>Appliquer le calcul</button></span>;
+      })()}
       {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul. */}
       {actuel !== null && partieDuCote !== undefined && (() => {
         const st = statutDePartie(partieDuCote);
@@ -378,6 +417,124 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
           {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 🔴 LOT R : la ligne miroir de l'inter-cabinet, et la rémunération d'un côté ─────────────────────────────────────────────────
+
+/** L'adresse de la vente d'origine (chez la société porteuse), carte dépliée. */
+export const adresseOrigine = (porteuse: Societe, id: number): string => `/admin/transaction/${porteuse}?vente=${id}`;
+
+/**
+ * 🔴 LOT R (Arno) — LA CARTE D'UNE LIGNE MIROIR : « … — inter-cabinet reçu de CRITERIMMO / MACJ », sa SEULE part en tête (TTC en grand,
+ * HT dessous) — jamais le montant de la vente ni la commission totale. Non modifiable d'ici : « Voir la vente d'origine » ; seule la
+ * rémunération de son négociateur se modifie (elle s'enregistre sur la vente d'origine, sans doublon).
+ */
+function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void }) {
+  const m = v.miroir!;
+  const c = carteCompromis(v, aujourdhui);
+  const pctTexte = m.pourcentage === null ? null : `${m.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
+  const titre = (
+    <span className="trx-carte-gauche">
+      <span className="trx-carte-titre" data-carte="titre">{v.libelle}</span>
+      <span className="trx-carte-infos" data-carte-ligne="infos">
+        <span data-carte="part-recue">part reçue{pctTexte === null ? '' : ` : ${pctTexte} de la commission nette`}</span>
+        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
+        <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+      </span>
+    </span>
+  );
+  const droite = (
+    <span className="trx-carte-droite" data-carte="montants">
+      <span className="trx-commission trx-commission--ttc" data-carte="commission">{eur(v.honorairesTtc)} <small>TTC</small></span>
+      <span className="trx-carte-ht" data-carte="commission-ht">{eur(m.partHt)} HT</span>
+      <span className="trx-carte-pct" data-carte="inter-cabinet">inter-cabinet reçu</span>
+    </span>
+  );
+  return (
+    <li data-compromis={v.id} data-miroir={m.origineId}>
+      <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte trx-carte--miroir"
+        donnees={{ 'data-carte-miroir': String(m.origineId) }}>
+        <div className="trx-carte-detail">
+          <p data-miroir-explication>Inter-cabinet reçu de <strong>{LIBELLE_SOCIETE[m.porteuse]}</strong> (société porteuse) sur la vente « {m.libelleOrigine} » : la part de {LIBELLE_SOCIETE[v.societe]},
+            {' '}{eur(v.honorairesTtc)} TTC ({eur(m.partHt)} HT){pctTexte === null ? '' : `, ${pctTexte} de la commission nette`} — c’est le CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
+          <p className="loc-muet" data-miroir-lecture-seule>Ligne miroir : elle suit la vente d’origine (compromis, acte signé, annulation, répartition) et ne se modifie pas d’ici, sauf la rémunération du négociateur.
+            {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></p>
+          <dl className="trx-grille">
+            <div className="trx-info" data-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
+              <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
+              <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+            </span></dd></div>
+          </dl>
+          {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
+            : m.cotes.map((x) => <RemunerationCote key={x.cote} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
+              baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)}
+              disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
+        </div>
+      </BlocReplie>
+    </li>
+  );
+}
+
+/**
+ * 🔴 LOT R — LA RÉMUNÉRATION D'UN CÔTÉ : la valeur enregistrée (son unité, son équivalent), le calcul (taux × le CA que la vente apporte à
+ * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
+ * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
+ */
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait }: {
+  venteId: number; cote: 'entree' | 'sortie'; negociateur: string; societe: Societe; statut: Statut | null; baseTtc: number; pct: number | null;
+  ligne: Vente['lignes'][number] | undefined; disponible: boolean; onFait: () => void;
+}) {
+  const r = remuneration(baseTtc, ligne);
+  const [ouvert, setOuvert] = useState(false);
+  const [champ, setChamp] = useState<MontantEcran>(() => r.saisie === null ? { texte: '', unite: 'ttc', auto: true, taux: texteTaux(r.taux) }
+    : { texte: String(r.saisie.montant).replace('.', ','), unite: r.saisie.unite, taux: texteTaux(r.taux) });
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const mot = cote === 'entree' ? 'entrée' : 'sortie';
+  const classe = classeCommission(statut);
+  const propose = { pct: pct ?? 0, baseTtc, taux: tauxDe(champ), ttc: (baseTtc * tauxDe(champ)) / 100 };
+  const envoyer = async (montant: { montant: number; unite: 'ht' | 'ttc' } | null, taux: number): Promise<void> => {
+    setEnvoi(true); setMotif(null);
+    const res = await posterTransaction({ action: 'commission-cote', id: venteId, cote, montant, taux });
+    setEnvoi(false);
+    if (res === null) { setOuvert(false); onFait(); } else setMotif(res);
+  };
+  const appliquer = (): Promise<void> => {
+    const u = r.saisie?.unite ?? 'ttc';
+    return envoyer({ montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, r.taux);
+  };
+  const valider = (): Promise<void> => {
+    const e = montantEffectif(champ, propose);
+    const x = Number(e.texte.replace(/[\s  €]/g, '').replace(',', '.'));
+    return envoyer(e.texte.trim() === '' ? null : { montant: x, unite: e.unite }, tauxDe(champ));
+  };
+  return (
+    <div className="trx-remuneration" data-remuneration={cote}>
+      <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}
+        {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</p>
+      <p data-remuneration-saisie={cote} className={r.saisie === null ? 'trx-a-renseigner' : undefined}>Rémunération : {r.saisie === null ? A_RENSEIGNER : eurUnite(r.saisie)}</p>
+      <p className="loc-muet" data-remuneration-calcul={cote}>Calcul : {r.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % × {eur(r.baseTtc)} TTC (CA que la vente apporte à {LIBELLE_SOCIETE[societe]}) = {eur(r.calculTtc)} TTC</p>
+      {(r.ecart || r.saisie === null) && (
+        <p className="trx-ecart-calcul" data-ecart-remuneration={cote}>
+          {r.ecart && <span className="trx-alerte">valeur saisie — calcul proposé : {eur(r.calculTtc)} TTC</span>}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible || envoi} onClick={() => void appliquer()} data-appliquer-calcul-carte={cote}>Appliquer le calcul</button>
+        </p>
+      )}
+      <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
+      {ouvert && (
+        <div className="trx-choix-negociateur" role="group" aria-label={`Rémunération du négociateur de ${mot}`}>
+          <ChampMontantUnite mot="Rémunération" valeur={champ} onChange={setChamp} avecHt champ={`remuneration-${cote}`} propose={propose} />
+          <div className="trx-actions">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void valider()} data-valider-remuneration={cote}>Valider</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setMotif(null); }}>Fermer</button>
+          </div>
+        </div>
+      )}
+      {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
     </div>
   );
 }
@@ -464,8 +621,11 @@ function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: r
               <div className="trx-annule-tete"><strong>{v.libelle}</strong><span className="trx-carte-ht">{eur(v.honorairesTtc)} TTC · {eur(ht(v.honorairesTtc))} HT</span></div>
               <p data-annulation-detail>Annulé le {date(v.annulation?.date)} — motif : <strong>{v.annulation?.motif}</strong></p>
               {v.annulation?.note && <p className="loc-muet" data-annulation-note>Note : {v.annulation.note}</p>}
-              <div className="trx-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible} onClick={() => void retablir(v.id)}
-                data-retablir-compromis={v.id}>Rétablir le compromis</button></div>
+              {/* 🔴 LOT R — une ligne miroir suit la vente d'origine : elle se rétablit avec elle, depuis la société porteuse. */}
+              {v.miroir != null
+                ? <p className="loc-muet" data-miroir-annule={v.miroir.origineId}>Ligne miroir : elle suit la vente d’origine. <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a></p>
+                : <div className="trx-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible} onClick={() => void retablir(v.id)}
+                  data-retablir-compromis={v.id}>Rétablir le compromis</button></div>}
             </li>
           ))}
         </ul>

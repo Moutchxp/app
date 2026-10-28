@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, caHt, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
+  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
@@ -15,7 +15,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, parametre, posterTransaction, signePct, useTransaction } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
-import { OngletCompromis } from './OngletCompromis';
+import { adresseOrigine, OngletCompromis } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 
@@ -247,6 +247,8 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
       <dl className="trx-resultat">
         <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
+        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-mois>{eur(T.interCabinetHt)}</dd></>}
+        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-mois>{eur(T.exterieurHt)}</dd></>}
         <dt>− Paye des négociateurs indépendants (HT)</dt><dd data-paye-deduite>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
         <NonDeduits T={T} />
@@ -303,6 +305,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
                 {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
                 {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
                 {v.repartition != null && <span className="loc-pastille trx-pastille--verte" data-pastille-repartie>répartie</span>}
+                {v.miroir != null && <span className="loc-pastille trx-pastille--verte" data-pastille-miroir>inter-cabinet reçu</span>}
                 {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
               </span>
               {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
@@ -310,12 +313,17 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
             <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td>
             <td data-mot="Honoraires TTC">{eur(v.honorairesTtc)}</td>
             <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}
-              {v.repartition != null && <><br /><span className="trx-source" data-part-vente>{societe === null ? 'nos parts' : `part ${LIBELLE_SOCIETE[societe]}`} : {eur(caHt(v, societe))}</span></>}</td>
+              {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
+              {v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
+                return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {eur(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${eur(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${eur(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })()}</td>
             <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
-            <td data-mot="Paye négo">{eur(payeTtcDe(v))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle); const nd = c.interne + c.a_renseigner;
+            <td data-mot="Paye négo">{eur(payeTtcDe(v))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
               return nd > 0 ? <><br /><span className={c.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(nd)} non déduite{c.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></> : null; })()}</td>
-            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle)))}</td>
-            <td data-mot="Action"><button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button></td>
+            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle, societe)))}</td>
+            {/* 🔴 LOT R — une ligne miroir ne se modifie pas d'ici : elle suit la vente d'origine. */}
+            <td data-mot="Action">{v.miroir != null
+              ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
+              : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
           </tr>
         ))}
       </tbody>
@@ -461,7 +469,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
       <li><div className="tdb-tuile" data-tuile="reste-periode">
         <span className="tdb-tuile-mot">Reste à l’agence HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.resteHt)}</strong>
-        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions et {eur(T.payeHt)} de paye (indépendants)</span>
+        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions{T.interCabinetHt + T.exterieurHt > 0 ? `, ${eur(T.interCabinetHt + T.exterieurHt)} d’inter-cabinet` : ''} et {eur(T.payeHt)} de paye (indépendants)</span>
         {T.internesHt + T.aRenseignerHt > 0 && <span className="tdb-tuile-n1" data-non-deduits-tuile>{eur(T.internesHt + T.aRenseignerHt)} de paye non déduite (internes, statut à renseigner)</span>}</div></li>
     </ul>
 
@@ -493,6 +501,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
         <dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => h.moisAConfirmerHt)))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd>
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
+        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-periode>{eur(T.interCabinetHt)}</dd></>}
+        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-periode>{eur(T.exterieurHt)}</dd></>}
         <dt>− Paye des négociateurs indépendants (HT)</dt><dd>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total" data-reste-agence-periode>{eur(T.resteHt)}</dd>
         <NonDeduits T={T} />
@@ -677,7 +687,7 @@ export function EcranGlobal() {
         <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ HT <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>
           <span className="tdb-tuile-n1">{eur(A1.macjHt)} en {annee - 1} ({signePct(variation(A.macjHt, A1.macjHt))})</span></div></li>
         <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel HT <small>(compromis en cours {annee})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>
-          <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}</span></div></li>
+          <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
@@ -727,10 +737,15 @@ export function EcranGlobal() {
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
                 <td data-mot="Total">{eur(A.aAttribuerHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
-            {A.exterieurHt > 0 && (
-              <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(autres agences, confrères : hors CA)</small></th>
+            {A.interCabinetHt > 0 && (
+              <tr data-inter-cabinet-global><th scope="row">Inter-cabinet entre nos sociétés <small className="loc-muet">(dans les deux ventes : retiré une fois, neutralisé)</small></th>
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
-                <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">hors total</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
+                <td data-mot="Total">−{eur(A.interCabinetHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
+            )}
+            {A.exterieurHt > 0 && (
+              <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(inter-cabinet extérieur : dans le CA de la société porteuse, versé par elle)</small></th>
+                <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
+                <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">pour information</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
             {(ventesSansMois('criterimmo') > 0 || ventesSansMois('macj') > 0) && (
               <tr data-mois-a-confirmer><th scope="row">Mois à confirmer</th><td data-mot="Vente CRITERIMMO">{eur(ventesSansMois('criterimmo'))}</td>
@@ -771,7 +786,7 @@ export function EcranGlobal() {
 }
 
 /** Une ligne de la synthèse du CA global (HT) ; null : sans objet pour cette ligne (« — »). */
-export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;
+export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'inter_cabinet' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;
   totalHt: number; totalN1Ht: number; previsionnelHt: number | null }
 
 /**
@@ -788,7 +803,10 @@ export function syntheseGlobal(e: EntreesGlobal, annee: number): LigneSynthese[]
   ];
   if (A.aAttribuerHt > 0 || A1.aAttribuerHt > 0) lignes.push({ cle: 'a_attribuer', libelle: 'Ventes à attribuer', venteHt: A.aAttribuerHt, locationHt: null, gestionHt: null,
     totalHt: A.aAttribuerHt, totalN1Ht: A1.aAttribuerHt, previsionnelHt: null });
-  lignes.push({ cle: 'global', libelle: 'Global (les deux sociétés)', venteHt: A.venteCriterimmoHt + A.venteMacjHt + A.aAttribuerHt, locationHt: A.locationHt, gestionHt: A.gestionHt,
+  // 🔴 LOT R — « Inter-cabinet entre nos sociétés : X € (neutralisé) » : compté dans CRITERIMMO ET dans MACJ, retiré une fois.
+  if (A.interCabinetHt > 0 || A1.interCabinetHt > 0 || P.interCabinetHt > 0) lignes.push({ cle: 'inter_cabinet', libelle: `Inter-cabinet entre nos sociétés : ${eur(A.interCabinetHt)} (neutralisé)`,
+    venteHt: -A.interCabinetHt, locationHt: null, gestionHt: null, totalHt: -A.interCabinetHt, totalN1Ht: -A1.interCabinetHt, previsionnelHt: -P.interCabinetHt });
+  lignes.push({ cle: 'global', libelle: 'Global (les deux sociétés)', venteHt: A.venteCriterimmoHt + A.venteMacjHt + A.aAttribuerHt - A.interCabinetHt, locationHt: A.locationHt, gestionHt: A.gestionHt,
     totalHt: A.totalHt, totalN1Ht: A1.totalHt, previsionnelHt: P.totalHt });
   return lignes;
 }

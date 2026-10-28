@@ -3,11 +3,13 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, droitTransactionDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estSociete, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
+import { miroirsAttendus, planRegistre, venteDansSociete, type EntreeRegistre } from './interCabinet';
+import { estUnite } from './commissions';
 import { libelleDesPersonnes, personneExistante } from './personnes';
 import { statutLu, type Statut } from '../admin/statut';
 import { statutsDesComptes } from '../admin/statutCompte';
@@ -72,16 +74,44 @@ const NOM_COMPTE = (col: string): string =>
 
 /**
  * Les ventes (et compromis) non retirés d'une société — toutes si `societe` est null — avec leurs lignes. LOT D (434 appliquée) : une
- * vente RÉPARTIE appartient aux sociétés de ses parties (pas à la société où elle a été saisie) ; ses parties et ses personnes suivent.
+ * vente RÉPARTIE se lit avec ses parties et ses personnes. 🔴 LOT R — L'INTER-CABINET : pour une société, la vente qu'elle PORTE (négociateur
+ * d'entrée) telle quelle ; celle que l'autre société porte et dont elle reçoit une part, sa LIGNE MIROIR (sa seule part) ; une part disparue
+ * connue du registre (440), la ligne miroir annulée. Toutes (null) : chaque vente une fois, telle quelle (le CA global neutralise
+ * l'inter-cabinet entre nos sociétés).
  */
 export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
+  const ventes = await lireVentesBrutes(societe);
+  if (societe === null || !(await repartitionDisponible())) return ventes;
+  const registre = await lireRegistre(ventes.map((v) => v.id), societe);
+  return ventes.flatMap((v) => { const x = venteDansSociete(v, societe, registre.get(v.id) ?? null); return x === null ? [] : [x]; });
+}
+
+/** LOT R (440) — les lignes du registre de l'inter-cabinet de ces ventes pour cette société (vide sans la 440). */
+async function lireRegistre(ids: readonly number[], societe: Societe): Promise<Map<number, EntreeRegistre>> {
+  const out = new Map<number, EntreeRegistre>();
+  if (ids.length === 0 || !(await interCabinetDisponible())) return out;
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT vente_id, societe, porteuse, part_ht, pourcentage, etat, to_char(coalesce(modifie_le, cree_le) AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD') AS le
+       FROM transaction_inter_cabinet WHERE societe = $1 AND vente_id = ANY($2::bigint[])`, [societe, [...ids]]);
+  for (const r of rows) out.set(n(r.vente_id), registreDe(r));
+  return out;
+}
+const registreDe = (r: Record<string, unknown>): EntreeRegistre => ({ societe: r.societe as Societe, porteuse: r.porteuse as Societe, partHt: n(r.part_ht),
+  pourcentage: nOuNull(r.pourcentage), etat: r.etat === 'annulee' ? 'annulee' : 'active', modifieLe: jour(r.le) });
+
+/** Les ventes lues en base, telles qu'enregistrées (avant la vue d'une société). */
+async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
   const lotD = await repartitionDisponible();
   const avecPrix = await prixVenteDisponible();
   const avecAnnulation = await annulationDisponible();
   const avecUnite = await uniteCommissionDisponible();
+  const avecTaux = await interCabinetDisponible();
+  // 🔴 LOT R — une vente répartie se lit pour sa société de saisie et pour chaque société d'une de ses parties (la porteuse ou celle qui
+  // reçoit) ; avec le registre (440), aussi pour une société qui ne reçoit plus rien (sa ligne miroir annulée). `venteDansSociete` tranche.
   const filtre = lotD
-    ? `($1::text IS NULL OR (NOT v.repartition AND v.societe = $1)
-         OR (v.repartition AND EXISTS (SELECT 1 FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL AND p.societe = $1)))`
+    ? `($1::text IS NULL OR v.societe = $1
+         OR (v.repartition AND EXISTS (SELECT 1 FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL AND p.societe = $1))${avecTaux
+           ? '\n         OR EXISTS (SELECT 1 FROM transaction_inter_cabinet ic WHERE ic.vente_id = v.id AND ic.societe = $1)' : ''})`
     : '($1::text IS NULL OR v.societe = $1)';
   const { rows } = await query<Record<string, unknown>>(
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
@@ -93,7 +123,7 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
        FROM transaction_vente v WHERE v.retire_le IS NULL AND ${filtre} ORDER BY v.annee, v.mois_acte NULLS LAST, v.id`, [societe]);
   const { rows: ls } = await query<Record<string, unknown>>(
-    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note${avecUnite ? ', l.cote, l.montant_ht' : ''}
+    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note${avecUnite ? ', l.cote, l.montant_ht' : ''}${avecTaux ? ', l.taux' : ''}
        FROM transaction_vente_ligne l JOIN transaction_vente v ON v.id = l.vente_id
       WHERE l.retire_le IS NULL AND v.retire_le IS NULL AND ${filtre} ORDER BY l.id`, [societe]);
   const parVente = new Map<number, LigneVente[]>();
@@ -102,7 +132,8 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
     // LOT I — une ligne saisie EN HT (437) : `montantHt` est le montant saisi, `montantTtc` son équivalent (les totaux d'avant le lisent).
     const enHt = nOuNull(l.montant_ht);
     parVente.set(id, [...(parVente.get(id) ?? []), { id: n(l.id), negociateur: String(l.negociateur), role: l.role as LigneVente['role'],
-      montantTtc: enHt !== null ? enHt * TVA : nOuNull(l.montant_ttc), ...(avecUnite ? { montantHt: enHt, cote: (l.cote ?? null) as LigneVente['cote'] } : {}), nature: l.nature as LigneVente['nature'], compte: l.compte === true, origine: l.origine as LigneVente['origine'],
+      montantTtc: enHt !== null ? enHt * TVA : nOuNull(l.montant_ttc), ...(avecUnite ? { montantHt: enHt, cote: (l.cote ?? null) as LigneVente['cote'] } : {}),
+      ...(avecTaux ? { taux: nOuNull(l.taux) } : {}), nature: l.nature as LigneVente['nature'], compte: l.compte === true, origine: l.origine as LigneVente['origine'],
       sourceFichier: t(l.source_fichier), sourceOnglet: t(l.source_onglet), sourceLigne: nOuNull(l.source_ligne), note: t(l.note) }]);
   }
   if (!lotD) return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? []));
@@ -236,6 +267,50 @@ async function ecrire(q: RequeteTx, entite: Entite, id: number, valeurs: Record<
 }
 const AVEC_MODIFIE: Record<Entite, boolean> = { vente: true, vente_ligne: false, retrocession: true, ca_a_rattacher: false, gestion_mois: true, personne: true };
 
+// ── 🔴 LOT R (440) : le registre des lignes miroir de l'inter-cabinet ─────────────────────────────────────────────────────────
+
+/**
+ * Met le REGISTRE des lignes miroir d'une vente d'accord avec elle, dans la transaction du geste qui l'a changée : une part neuve chez
+ * l'autre société → ligne créée ; changée → mise à jour ; disparue → ANNULÉE (jamais supprimée) ; retrouvée → rétablie. Chaque changement
+ * est écrit au journal de la vente (action « inter_cabinet », avant / après). Sans la 440 : rien (les lignes miroir se calculent à la lecture).
+ */
+async function synchroniserInterCabinet(q: RequeteTx, venteId: number, auteur: AuteurTx): Promise<void> {
+  if (!(await interCabinetDisponible())) return;
+  const { rows: vs } = await q<Record<string, unknown>>(
+    'SELECT id, societe, honoraires_ttc, retro_apporteur_ttc, retro_apporteur_ht, repartition, retire_le FROM transaction_vente WHERE id = $1', [venteId]);
+  const v = vs[0];
+  // Une vente retirée (retire_le) n'est lue nulle part, ni elle ni sa ligne miroir : le registre reste tel quel.
+  if (v === undefined || v.retire_le != null) return;
+  const { rows: ps } = await q<Record<string, unknown>>(
+    `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht FROM transaction_partie
+      WHERE vente_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [venteId]);
+  const retroTtc = v.retro_apporteur_ht != null ? n(v.retro_apporteur_ht) * TVA : v.retro_apporteur_ttc == null ? 0 : n(v.retro_apporteur_ttc);
+  const attendus = miroirsAttendus({ societe: v.societe as Societe, honorairesTtc: n(v.honoraires_ttc),
+    repartition: v.repartition === true ? { parties: ps.map(partieDe), retroApporteurTtc: retroTtc } : null });
+  const { rows: ex } = await q<Record<string, unknown>>(
+    `SELECT vente_id, societe, porteuse, part_ht, pourcentage, etat, NULL AS le FROM transaction_inter_cabinet WHERE vente_id = $1 ORDER BY id FOR UPDATE`, [venteId]);
+  const vue = (e: Pick<EntreeRegistre, 'societe' | 'porteuse' | 'partHt' | 'pourcentage' | 'etat'>) =>
+    ({ societe: e.societe, porteuse: e.porteuse, part_ht: e.partHt, pourcentage: e.pourcentage, etat: e.etat });
+  const nom = (x: Societe): string => (x === 'macj' ? 'MACJ' : 'CRITERIMMO');
+  for (const o of planRegistre(attendus, ex.map(registreDe))) {
+    if (o.sorte === 'creer') {
+      await q(`INSERT INTO transaction_inter_cabinet (vente_id, societe, porteuse, part_ht, pourcentage, etat, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, 'active', $6)`,
+        [venteId, o.societe, o.porteuse, o.partHt, o.pourcentage, auteur.libelle]);
+      await journaliser(q, { entite: 'vente', id: venteId, action: 'inter_cabinet', avant: null, apres: vue({ ...o, etat: 'active' }), auteur,
+        commentaire: `Ligne miroir créée : ${nom(o.societe)} reçoit sa part en inter-cabinet de ${nom(o.porteuse)}.` });
+    } else if (o.sorte === 'annuler') {
+      await q(`UPDATE transaction_inter_cabinet SET etat = 'annulee', modifie_le = now() WHERE vente_id = $1 AND societe = $2`, [venteId, o.societe]);
+      await journaliser(q, { entite: 'vente', id: venteId, action: 'inter_cabinet', avant: vue(o.avant), apres: vue({ ...o.avant, etat: 'annulee' }), auteur,
+        commentaire: `Ligne miroir annulée : ${nom(o.societe)} ne reçoit plus rien de cette vente (la ligne reste, rien n’est supprimé).` });
+    } else {
+      await q(`UPDATE transaction_inter_cabinet SET porteuse = $3, part_ht = $4, pourcentage = $5, etat = 'active', modifie_le = now() WHERE vente_id = $1 AND societe = $2`,
+        [venteId, o.societe, o.porteuse, o.partHt, o.pourcentage]);
+      await journaliser(q, { entite: 'vente', id: venteId, action: 'inter_cabinet', avant: vue(o.avant), apres: vue({ ...o, etat: 'active' }), auteur,
+        commentaire: o.sorte === 'retablir' ? `Ligne miroir rétablie : ${nom(o.societe)} reçoit de nouveau une part.` : `Ligne miroir mise à jour : la part de ${nom(o.societe)} a changé.` });
+    }
+  }
+}
+
 // ── Les ventes ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issue<number>> {
@@ -288,6 +363,7 @@ export async function modifierVente(id: number, ch: ChampsVente, auteur: AuteurT
     const r = await ecrire(q, 'vente', id, colonnesDeChamps(ch, actuel), true);
     if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
     await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -302,6 +378,7 @@ export async function retirerVente(id: number, retirer: boolean, auteur: AuteurT
     const r = await ecrire(q, 'vente', id, { retire_le: retirer ? new Date() : null }, true);
     if (retirer) await q('UPDATE transaction_vente SET retire_par_libelle = $2 WHERE id = $1', [id, auteur.libelle]);
     await journaliser(q, { entite: 'vente', id, action: retirer ? 'retrait' : 'retablissement', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -415,8 +492,14 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
     if (j.deja === true) return { ok: false, motif: 'Ce geste a déjà été annulé.' };
     const entite = String(j.entite) as Entite;
     const id = n(j.entite_id);
+    // 🔴 LOT R — une ligne miroir suit sa vente d'origine : elle ne se défait pas seule (« Annuler » le geste de la vente qui l'a changée).
+    if (j.action === 'inter_cabinet') return { ok: false, motif: 'La ligne miroir suit la vente d’origine : annulez le geste de la vente qui l’a changée.' };
     // LOT D — un geste sur un ENSEMBLE de lignes (les parties, les personnes d'une vente) se défait en rétablissant l'ensemble d'avant.
-    if (entite === 'vente' && ENSEMBLES[String(j.action)] !== undefined) return defaireEnsemble(q, j, journalId, auteur);
+    if (entite === 'vente' && ENSEMBLES[String(j.action)] !== undefined) {
+      const r = await defaireEnsemble(q, j, journalId, auteur);
+      if (r.ok) await synchroniserInterCabinet(q, id, auteur);
+      return r;
+    }
     const actuel = await lireLigne(q, entite, id);
     if (actuel === null) return { ok: false, motif: 'Ligne introuvable.' };
     let valeurs: Record<string, unknown>;
@@ -436,6 +519,7 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
     const r = await ecrire(q, entite, id, valeurs, AVEC_MODIFIE[entite]);
     await journaliser(q, { entite, id, action: 'annulation', avant: r?.avant ?? null, apres: r?.apres ?? null, annule: journalId, auteur,
       commentaire: `Annulation du geste n° ${journalId} (${String(j.action)}).` });
+    if (entite === 'vente') await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -522,6 +606,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
   // LOT I — sans la 437, tout reste en TTC comme avant : une saisie en HT, ou une commission de négociateur par côté, est refusée (rien n'est écrit).
   const avecUnite = await uniteCommissionDisponible();
+  const avecTaux = await interCabinetDisponible();
   const commissions = s.commissions;
   const aDesCommissions = commissions !== undefined && (commissions.entree !== null || commissions.sortie !== null);
   if (!avecUnite && (s.retroUnite === 'ht' || aDesCommissions)) return { ok: false, motif: MOTIF_SANS_437 };
@@ -676,26 +761,70 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       const voulues = (['entree', 'sortie'] as const).flatMap((cote) => {
         const m = commissions[cote];
         const negoId = cote === 'entree' ? s.entreeId : s.sortieId;
-        return m === null || negoId === null ? [] : [{ cote, negociateur: nomDe.get(negoId) ?? '', ttc: m.unite === 'ttc' ? m.montant : null, ht: m.unite === 'ht' ? m.montant : null }];
+        return m === null || negoId === null ? [] : [{ cote, negociateur: nomDe.get(negoId) ?? '', ttc: m.unite === 'ttc' ? m.montant : null, ht: m.unite === 'ht' ? m.montant : null,
+          taux: avecTaux ? commissions.taux?.[cote] ?? null : null }];
       });
-      await remplacerEnsemble(q, 'commissions', venteId, auteur, async (avant) => {
-        const { rows: a } = await q<Record<string, unknown>>(
-          'SELECT cote, negociateur, montant_ttc, montant_ht FROM transaction_vente_ligne WHERE id = ANY($1::bigint[]) ORDER BY id', [avant]);
-        return JSON.stringify(a.map((x) => [x.cote, x.negociateur, nOuNull(x.montant_ttc), nOuNull(x.montant_ht)]))
-          === JSON.stringify(voulues.map((x) => [x.cote, x.negociateur, x.ttc, x.ht]));
-      }, async () => {
-        const ids: number[] = [];
-        for (const c of voulues) {
-          const { rows } = await q<{ id: string }>(
-            `INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, montant_ht, cote, nature, compte, origine, cree_par_libelle)
-             VALUES ($1, $2, 'negociateur', $3, $4, $5, $6, false, 'saisie', $7) RETURNING id`,
-            [venteId, c.negociateur, c.ttc, c.ht, c.cote, s.statut === 'compromis' ? 'compromis' : 'vente', auteur.libelle]);
-          ids.push(n(rows[0].id));
-        }
-        return ids;
-      }, voulues.length === 0 ? 'Commissions versées retirées.' : `Commissions versées : ${voulues.map((c) => `${c.cote === 'entree' ? 'entrée' : 'sortie'} ${c.negociateur} ${c.ht ?? c.ttc} € ${c.ht !== null ? 'HT' : 'TTC'}`).join(' · ')}`);
+      await poserCommissions(q, venteId, s.statut, voulues, avecTaux, auteur);
     }
+    // 🔴 LOT R — la ligne miroir de l'autre société suit la vente (création, %, négociateur, commission, apporteur).
+    await synchroniserInterCabinet(q, venteId, auteur);
     return { ok: true, valeur: venteId };
+  });
+}
+
+/** Une commission de négociateur à poser (LOT I : son unité ; LOT R : son taux de rémunération, null : 50 % par défaut). */
+interface CommissionVoulue { cote: 'entree' | 'sortie'; negociateur: string; ttc: number | null; ht: number | null; taux: number | null }
+
+/** LOT I / R — l'ensemble des commissions d'une vente remplacé s'il a changé (réversible, journalisé). */
+async function poserCommissions(q: RequeteTx, venteId: number, statut: string, voulues: readonly CommissionVoulue[], avecTaux: boolean, auteur: AuteurTx): Promise<void> {
+  await remplacerEnsemble(q, 'commissions', venteId, auteur, async (avant) => {
+    const { rows: a } = await q<Record<string, unknown>>(
+      `SELECT cote, negociateur, montant_ttc, montant_ht${avecTaux ? ', taux' : ''} FROM transaction_vente_ligne WHERE id = ANY($1::bigint[]) ORDER BY id`, [avant]);
+    return JSON.stringify(a.map((x) => [x.cote, x.negociateur, nOuNull(x.montant_ttc), nOuNull(x.montant_ht), avecTaux ? nOuNull(x.taux) : null]))
+      === JSON.stringify(voulues.map((x) => [x.cote, x.negociateur, x.ttc, x.ht, avecTaux ? x.taux : null]));
+  }, async () => {
+    const ids: number[] = [];
+    for (const c of voulues) {
+      const { rows } = await q<{ id: string }>(
+        `INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, montant_ht, cote, nature, compte, origine, cree_par_libelle${avecTaux ? ', taux' : ''})
+         VALUES ($1, $2, 'negociateur', $3, $4, $5, $6, false, 'saisie', $7${avecTaux ? ', $8' : ''}) RETURNING id`,
+        [venteId, c.negociateur, c.ttc, c.ht, c.cote, statut === 'compromis' ? 'compromis' : 'vente', auteur.libelle, ...(avecTaux ? [c.taux] : [])]);
+      ids.push(n(rows[0].id));
+    }
+    return ids;
+  }, voulues.length === 0 ? 'Commissions versées retirées.' : `Commissions versées : ${voulues.map((c) => `${c.cote === 'entree' ? 'entrée' : 'sortie'} ${c.negociateur} ${c.ht ?? c.ttc} € ${c.ht !== null ? 'HT' : 'TTC'}${c.taux !== null ? ` (taux ${c.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %)` : ''}`).join(' · ')}`);
+}
+
+/**
+ * 🔴 LOT R — LA RÉMUNÉRATION D'UN CÔTÉ, SEULE (depuis la carte d'un compromis ou depuis sa ligne miroir chez l'autre société) : le montant
+ * dans son unité et le taux (ou « Appliquer le calcul »). Elle s'enregistre sur la VENTE D'ORIGINE (aucune donnée dupliquée) ; la commission
+ * de l'autre côté ne bouge pas. Journalisé, réversible (« Annuler » dans l'historique de la vente).
+ */
+export async function enregistrerCommissionCote(id: number, cote: 'entree' | 'sortie', montant: MontantSaisi | null, taux: number | null, auteur: AuteurTx): Promise<Issue> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
+  if (!(await uniteCommissionDisponible())) return { ok: false, motif: MOTIF_SANS_437 };
+  const avecTaux = await interCabinetDisponible();
+  if (montant !== null && (!Number.isFinite(montant.montant) || montant.montant < 0 || !estUnite(montant.unite))) return { ok: false, motif: 'La rémunération doit être un montant positif, en HT ou en TTC.' };
+  if (taux !== null && (!Number.isFinite(taux) || taux < 0)) return { ok: false, motif: 'Le taux de rémunération doit être un pourcentage positif.' };
+  return withTransaction(async (q) => {
+    const actuel = await lireLigne(q, 'vente', id);
+    if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+    const negoId = cote === 'entree' ? actuel.negociateur_entree_id : actuel.negociateur_sortie_id;
+    if (negoId == null) return { ok: false, motif: `Choisissez le négociateur ${cote === 'entree' ? 'd’entrée' : 'de sortie'} avant de saisir sa rémunération.` };
+    const { rows: c } = await q<{ nom: string }>(`SELECT coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom FROM admin_utilisateur WHERE id = $1`, [negoId]);
+    const { rows: ls } = await q<Record<string, unknown>>(
+      `SELECT cote, negociateur, montant_ttc, montant_ht${avecTaux ? ', taux' : ''} FROM transaction_vente_ligne
+        WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL ORDER BY id`, [id]);
+    const garde = ls.filter((l) => l.cote !== cote).map((l): CommissionVoulue => ({ cote: l.cote as 'entree' | 'sortie', negociateur: String(l.negociateur),
+      ttc: nOuNull(l.montant_ttc), ht: nOuNull(l.montant_ht), taux: avecTaux ? nOuNull(l.taux) : null }));
+    const neuve: CommissionVoulue[] = montant === null ? [] : [{ cote, negociateur: String(c[0]?.nom ?? ''), ttc: montant.unite === 'ttc' ? montant.montant : null,
+      ht: montant.unite === 'ht' ? montant.montant : null, taux: avecTaux ? taux : null }];
+    const voulues = [...garde, ...neuve].sort((a, b) => (a.cote === b.cote ? 0 : a.cote === 'entree' ? -1 : 1));
+    const avant = await idsActifs(q, 'transaction_vente_ligne', id, filtreDe('commissions'));
+    await poserCommissions(q, id, String(actuel.statut), voulues, avecTaux, auteur);
+    if (memesIds(await idsActifs(q, 'transaction_vente_ligne', id, filtreDe('commissions')), avant)) return { ok: false, motif: 'Rien n’a changé.' };
+    return { ok: true };
   });
 }
 
@@ -721,6 +850,7 @@ export async function acteSigne(id: number, dateActe: string, auteur: AuteurTx):
     const r = await ecrire(q, 'vente', id, { statut: 'vendue', annee: Number(dateActe.slice(0, 4)), mois_acte: `${dateActe.slice(0, 7)}-01`, ...(lotD ? { date_acte: dateActe } : {}) }, true);
     await journaliser(q, { entite: 'vente', id, action: 'acte_signe', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: `Acte signé le ${dateActe.split('-').reverse().join('/')} : vente encaissée au mois de l’acte.` });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -737,6 +867,7 @@ export async function retourCompromis(id: number, auteur: AuteurTx): Promise<Iss
     const r = await ecrire(q, 'vente', id, { statut: 'compromis', mois_acte: null, annee: prevue ?? Number(actuel.annee), ...(lotD ? { date_acte: null } : {}) }, true);
     await journaliser(q, { entite: 'vente', id, action: 'retour_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: 'Revenue en compromis en cours (l’acte n’est plus compté).' });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -759,6 +890,7 @@ export async function annulerCompromis(id: number, a: AnnulationSaisie, auteur: 
     const r = await ecrire(q, 'vente', id, { statut: 'annulee', annulation_date: a.date, annulation_motif: a.motif, annulation_note: a.note }, true);
     await journaliser(q, { entite: 'vente', id, action: 'annulation_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: `Compromis annulé le ${a.date.split('-').reverse().join('/')} : ${a.motif}.` });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }
@@ -774,6 +906,7 @@ export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<I
     const r = await ecrire(q, 'vente', id, { statut: 'compromis', annulation_date: null, annulation_motif: null, annulation_note: null }, true);
     await journaliser(q, { entite: 'vente', id, action: 'retablissement_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: 'Compromis rétabli : de nouveau en cours.' });
+    await synchroniserInterCabinet(q, id, auteur);
     return { ok: true };
   });
 }

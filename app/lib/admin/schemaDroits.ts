@@ -113,6 +113,14 @@ export function statutDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.statut', async () => (await colonneExiste('admin_utilisateur', 'statut')) && colonneExiste('transaction_partie', 'statut'));
 }
 
+/**
+ * LOT R — la migration 440 (le registre des lignes miroir inter-cabinet, le taux de rémunération des négociateurs) est-elle appliquée ?
+ * Sans elle : les lignes miroir se calculent à la lecture (aucune n'est « annulée » faute de registre), le taux vaut 50 % sans s'enregistrer.
+ */
+export function interCabinetDisponible(): Promise<boolean> {
+  return memoiser('transaction_inter_cabinet', async () => (await colonneExiste('transaction_inter_cabinet', 'vente_id')) && colonneExiste('transaction_vente_ligne', 'taux'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

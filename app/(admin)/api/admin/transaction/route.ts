@@ -4,9 +4,10 @@ import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerCompromis, annulerGeste, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
+  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs } from '../../../../lib/transaction/repo';
-import { annulationDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
+import { montant } from '../../../../lib/transaction/saisie';
 import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -25,6 +26,8 @@ import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
  *   GET  ?vue=compromis&societe=criterimmo|macj|tous   les compromis en cours (acte non signé) de la société (ou des deux) ;
  *   GET  ?vue=references                               négociateurs (comptes et société du jour), apporteurs (annuaire de la Location), personnes ;
  *   POST action=dossier-enregistrer {id|null, dossier} | acte-signe {id, dateActe} | retour-compromis {id}
+ *   LOT R : POST action=commission-cote {id, cote, montant: {montant, unite} | null, taux} — la rémunération d'un côté, seule (sur la vente
+ *        d'origine, aussi depuis sa ligne miroir) ; les vues d'une société rendent les LIGNES MIROIR de l'inter-cabinet.
  * Sans la migration 433 : les lectures rendent des listes vides (`disponible: false`) et toute écriture est refusée avec ce motif.
  */
 export const runtime = 'nodejs';
@@ -40,7 +43,7 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
     lireApporteurs().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
+  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -75,7 +78,8 @@ export async function GET(request: Request): Promise<Response> {
       const ref = await references(aujourdhui);
       if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis: [], annules: [], ...ref } });
       const ventes = await lireVentes(societe === 'tous' ? null : societe);
-      const pourVue = (v: Vente): boolean => (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : concerne(v, societe));
+      // 🔴 LOT R — une société : les ventes qu'elle porte et ses LIGNES MIROIR (sa part reçue en inter-cabinet), déjà triées par `lireVentes`.
+      const pourVue = (v: Vente): boolean => (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : v.miroir != null || concerne(v, societe));
       const compromis = ventes.filter((v) => v.statut === 'compromis' && pourVue(v));
       // LOT G — les compromis ANNULÉS par le bouton « Annulation » (motif enregistré) : consultables, rétablissables.
       const annules = ventes.filter((v) => v.statut === 'annulee' && v.annulation != null && (societe === 'tous' || (v.repartition != null ? concerne(v, societe) : v.societe === societe)));
@@ -168,6 +172,16 @@ export async function POST(request: Request): Promise<Response> {
       case 'retour-compromis':
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
         return rendre(await retourCompromis(id, auteur));
+      case 'commission-cote': {
+        // 🔴 LOT R — la rémunération d'un côté (montant dans son unité, taux de rémunération) ; montant null : retirée.
+        if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
+        if (corps.cote !== 'entree' && corps.cote !== 'sortie') return json({ etat: 'refus', motif: 'Côté inconnu (entrée ou sortie).' }, 400);
+        const m = corps.montant == null ? null : corps.montant as Record<string, unknown>;
+        const x = m === null ? null : montant(m.montant);
+        const t = montant(corps.taux);
+        if (x === undefined || t === undefined || (m !== null && m.unite !== 'ht' && m.unite !== 'ttc')) return json({ etat: 'refus', motif: 'Rémunération illisible.' }, 400);
+        return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur));
+      }
       case 'annuler': {
         const j = Number(corps.journalId);
         if (!Number.isInteger(j) || j <= 0) return json({ etat: 'refus', motif: 'Geste inconnu.' }, 400);

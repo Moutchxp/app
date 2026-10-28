@@ -265,3 +265,66 @@ describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépend
     } finally { donnees.statutsNegociateurs = avant; }
   });
 });
+
+describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', () => {
+  // HEIDIDON signée en janvier 2025 : CRITERIMMO (Arnaud, entrée) porte 4 000 TTC ; MACJ (Pierre, indépendant) reçoit 50 %.
+  const parties = [
+    { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
+    { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
+  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, parties },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
+    lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
+
+  it('CA global : CRITERIMMO 3 333,33 + MACJ 1 666,67 − 1 666,67 neutralisé = 3 333,33 HT, une seule fois ; la ligne « Inter-cabinet entre nos sociétés »', () => {
+    const e = { ventes: [heididon], location: null, gestion: [] };
+    const lignes = syntheseGlobal(e, 2025);
+    expect(lignes.map((l) => l.cle)).toEqual(['criterimmo', 'macj', 'inter_cabinet', 'global']);
+    const de = (cle: string) => lignes.find((l) => l.cle === cle)!;
+    expect(de('inter_cabinet').libelle.replace(/\s/g, ' ')).toBe('Inter-cabinet entre nos sociétés : 1 666,67 € (neutralisé)');
+    expect(de('criterimmo').totalHt).toBeCloseTo(4000 / 1.2, 9);
+    expect(de('macj').totalHt).toBeCloseTo(2000 / 1.2, 9);
+    expect(de('global').totalHt).toBeCloseTo(4000 / 1.2, 9);
+    expect(de('global').venteHt).toBeCloseTo(4000 / 1.2, 9);
+  });
+
+  it('« Le mois » de MACJ : la ligne miroir (sa part, jamais 4 000), « Voir la vente d’origine » au lieu de « Modifier » ; le reste déduit Pierre', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const m = venteDansSociete(heididon, 'macj')!;
+    const avant = donnees.ventes;
+    const retros = donnees.retrocessions;
+    donnees.ventes = [m];
+    donnees.retrocessions = [];
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+      await calmer();
+      const row = '[data-table-ventes] [data-vente="38"]';
+      expect(texte(`${row} th`)).toContain('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
+      expect(texte(`${row} [data-mot="Honoraires TTC"]`)).toBe('2 000,00 €');
+      expect(texte(row)).not.toContain('4 000');
+      expect(container.querySelector(`${row} [data-modifier-vente]`)).toBeNull();
+      expect(container.querySelector(`${row} [data-voir-origine="38"]`)!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
+      // Reste : 1 666,67 − 833,33 (Pierre, 1 000 TTC, indépendant) = 833,33 HT
+      expect(texte('[data-reste-agence]')).toBe('833,33 €');
+    } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
+  });
+
+  it('« Le mois » de CRITERIMMO (porteuse) : le CA de la vente, et « − Inter-cabinet vers nos autres sociétés »', async () => {
+    const avant = donnees.ventes;
+    const avantS = donnees.societe;
+    const retros = donnees.retrocessions;
+    donnees.retrocessions = [];
+    donnees.ventes = [heididon];
+    donnees.societe = 'criterimmo';
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
+      await calmer();
+      expect(texte('[data-table-ventes] [data-vente="38"] [data-part-vente]')).toBe('CA de la vente (CRITERIMMO) : 3 333,33 € · dont reversé en inter-cabinet : 1 666,67 €');
+      expect(texte('[data-inter-cabinet-mois]')).toBe('1 666,67 €');
+      // Reste : 3 333,33 − 1 666,67 ; Pierre (MACJ) n'est pas déduit chez CRITERIMMO
+      expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
+      expect(texte('[data-paye-deduite]')).toBe('0,00 €');
+    } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
+  });
+});

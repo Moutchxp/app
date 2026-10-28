@@ -10,13 +10,15 @@ import { useState, type ReactNode } from 'react';
  * ligne de titre). `defilement` : la mécanique de « Année par année » (défilement interne au-delà d'une hauteur, en-tête de tableau
  * figé), pour un long tableau. `classe`, `niveau`, `donnees` : l'allure et les repères de l'écran hôte.
  */
-export function BlocReplie({ id, section, titre, resume, children, classe = 'tdb-section', niveau = 'h3', defilement = true, donnees, chevronAGauche = false }: {
+export function BlocReplie({ id, section, titre, resume, children, classe = 'tdb-section', niveau = 'h3', defilement = true, donnees, chevronAGauche = false, ouvertInitial = false }: {
   id: string; section: string; titre: ReactNode; resume: ReactNode; children: ReactNode;
   classe?: string; niveau?: 'h3' | 'h4'; defilement?: boolean; donnees?: Record<string, string>;
   /** 🔴 Arno (26/10/2026) — le triangle d'ouverture À GAUCHE du titre (comme les lignes « Négociateur ») ; absent : à droite, comme avant. */
   chevronAGauche?: boolean;
+  /** LOT R (Transaction) — déplié dès l'affichage (une carte visée par un lien) ; absent : replié, comme avant. */
+  ouvertInitial?: boolean;
 }) {
-  const [ouvert, setOuvert] = useState(false);
+  const [ouvert, setOuvert] = useState(ouvertInitial);
   const Titre = niveau;
   return (
     <section className={`${classe} tdb-replie${ouvert ? ' tdb-replie--ouvert' : ''}`} aria-labelledby={id} data-replie={ouvert ? 'ouvert' : 'replie'} {...donnees}>

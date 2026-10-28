@@ -11,8 +11,9 @@ const lotE = vi.fn<() => Promise<boolean>>(async () => false);
 const lotG = vi.fn<() => Promise<boolean>>(async () => false);
 const lotI = vi.fn<() => Promise<boolean>>(async () => false);
 const lotP = vi.fn<() => Promise<boolean>>(async () => false);
+const lotR = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
-  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP() }));
+  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -24,7 +25,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); lotR.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -455,5 +456,92 @@ describe('🔴 LOT Q — le statut ACTUEL du compte rapproché d’un négociate
     const t = await repo.lireStatutsNegociateurs(['ARNAUD', 'Jean-Baptiste PONS', 'Jean Baptiste', 'MYLENE', 'Augustin Jorel', 'ARNAUD']);
     expect(t).toEqual({ ARNAUD: 'associe', 'Jean-Baptiste PONS': 'salarie', 'Jean Baptiste': 'salarie', MYLENE: null, 'Augustin Jorel': null });
     expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+});
+
+describe('🔴 LOT R (440) — l’inter-cabinet : le registre des lignes miroir, la rémunération d’un côté', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: 'HEIDIDON', honorairesTtc: 4000, dateCompromis: '2026-10-20',
+    dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId: 2, sortieId: 8, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const,
+    personnes: [], parties: [{ sorte: 'entree' as const, compteId: 2, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 8, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
+    lignes: [], prixVente: null, ...o });
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY') ? { rows: [{ id: '2', nom: 'Arnaud Jorel' }, { id: '8', nom: 'Pierre Thevenin' }] } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '2', societe: 'criterimmo', depuis: '2000-01-01' }, { compte_id: '8', societe: 'macj', depuis: '2026-10-28' }] } : undefined);
+  /** La vente telle que la synchronisation la relit (dans la transaction du geste). */
+  const relue = (parties: Record<string, unknown>[], registre: Record<string, unknown>[] = []) => [
+    (s: string) => (s.startsWith('SELECT id, societe, honoraires_ttc, retro_apporteur_ttc') ? { rows: [{ id: '38', societe: 'criterimmo', honoraires_ttc: '4000', retro_apporteur_ttc: '0', retro_apporteur_ht: null, repartition: true, retire_le: null }] } : undefined),
+    (s: string) => (s.includes('FROM transaction_partie WHERE vente_id = $1 AND retire_le IS NULL ORDER BY rang') ? { rows: parties } : undefined),
+    (s: string) => (s.includes('FROM transaction_inter_cabinet WHERE vente_id = $1') ? { rows: registre } : undefined)];
+  const P = (sorte: string, id: string, nom: string, societe: string, pct: string) => ({ sorte, compte_id: id, negociateur_libelle: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montant_ht: null });
+  const journal = () => appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2]);
+  beforeEach(() => { lotD.mockResolvedValue(true); lotI.mockResolvedValue(true); lotR.mockResolvedValue(true); });
+
+  it('HEIDIDON enregistrée : la ligne miroir de MACJ est CRÉÉE au registre (part 1 666,67 HT, 50 %), journalisée ; le taux de rémunération s’enregistre', async () => {
+    let id = 37;
+    reponses.push(comptes, periodes, ...relue([P('entree', '2', 'Arnaud Jorel', 'criterimmo', '50'), P('sortie', '8', 'Pierre Thevenin', 'macj', '50')]),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    const r = await repo.enregistrerDossier(null, dossier({ commissions: { entree: null, sortie: { montant: 1000, unite: 'ttc' }, taux: { entree: null, sortie: 50 } } }), '2026-10-28', A);
+    expect(r.ok).toBe(true);
+    const ic = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_inter_cabinet'))!;
+    expect(ic.params.slice(0, 3)).toEqual([38, 'macj', 'criterimmo']);
+    expect(ic.params[3]).toBeCloseTo(4000 / 1.2 / 2, 9);
+    expect(ic.params[4]).toBe(50);
+    expect(journal()).toContain('inter_cabinet');
+    const l = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente_ligne') && x.sql.includes('taux'))!;
+    expect(l.params.at(-1)).toBe(50);
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+  });
+  it('Pierre remplacé par un négociateur CRITERIMMO : la ligne miroir est ANNULÉE (jamais supprimée) ; il revient : RÉTABLIE (jamais un doublon)', async () => {
+    const actif = { vente_id: '38', societe: 'macj', porteuse: 'criterimmo', part_ht: String(4000 / 1.2 / 2), pourcentage: '50', etat: 'active', le: null };
+    reponses.push(...relue([P('entree', '2', 'Arnaud Jorel', 'criterimmo', '50'), P('sortie', '5', 'Jean-Baptiste PONS', 'criterimmo', '50')], [actif]),
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ statut: 'compromis', retire_le: null, annee: 2026 }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '9' }] } : undefined));
+    expect(await repo.modifierVente(38, { note: 'x' }, A)).toEqual({ ok: true });
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_inter_cabinet'))!;
+    expect(maj.sql).toContain("etat = 'annulee'");
+    expect(maj.params).toEqual([38, 'macj']);
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+    appels.length = 0; reponses = [];
+    reponses.push(...relue([P('entree', '2', 'Arnaud Jorel', 'criterimmo', '50'), P('sortie', '8', 'Pierre Thevenin', 'macj', '50')], [{ ...actif, etat: 'annulee' }]),
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ statut: 'compromis', retire_le: null, annee: 2026 }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '10' }] } : undefined));
+    await repo.modifierVente(38, { note: 'y' }, A);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_inter_cabinet'))).toEqual([]);
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_inter_cabinet'))!.sql).toContain("etat = 'active'");
+  });
+  it('« Appliquer le calcul » / la rémunération d’un côté : seul ce côté change, sur la vente d’origine ; l’autre côté est gardé tel quel ; journalisé', async () => {
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ statut: 'compromis', retire_le: null, negociateur_entree_id: '2', negociateur_sortie_id: '8' }] } : undefined),
+      (s) => (s.includes('FROM admin_utilisateur WHERE id = $1') ? { rows: [{ nom: 'Pierre Thevenin' }] } : undefined),
+      (s) => (s.includes('cote IS NOT NULL ORDER BY id') && s.startsWith('SELECT cote') ? { rows: [{ cote: 'entree', negociateur: 'Arnaud Jorel', montant_ttc: '2000', montant_ht: null, taux: null },
+        { cote: 'sortie', negociateur: 'Pierre Thevenin', montant_ttc: '2000', montant_ht: null, taux: null }] } : undefined),
+      (() => { let n = 0; return (s: string) => (s.startsWith('SELECT id FROM transaction_vente_ligne') ? { rows: n++ === 0 ? [{ id: '443' }, { id: '444' }] : [{ id: '450' }, { id: '451' }] } : undefined); })(),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '450' }] } : undefined));
+    expect(await repo.enregistrerCommissionCote(38, 'sortie', { montant: 1000, unite: 'ttc' }, 50, A)).toEqual({ ok: true });
+    const poses = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_vente_ligne'));
+    // [négociateur, montant_ttc, montant_ht, côté] puis le taux
+    expect(poses.map((x) => [...x.params.slice(1, 5), x.params.at(-1)])).toEqual([['Arnaud Jorel', 2000, null, 'entree', null], ['Pierre Thevenin', 1000, null, 'sortie', 50]]);
+    expect(journal()).toEqual(['commissions']);
+    expect(await repo.enregistrerCommissionCote(38, 'sortie', { montant: -1, unite: 'ttc' }, 50, A)).toMatchObject({ ok: false });
+  });
+  it('« Annuler » refuse de défaire une ligne miroir seule : elle suit la vente d’origine', async () => {
+    reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1') ? { rows: [{ id: '70', entite: 'vente', entite_id: '38', action: 'inter_cabinet', avant: null, apres: {}, deja: false }] } : undefined));
+    const r = await repo.annulerGeste(70, A);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok ? '' : r.motif).toMatch(/suit la vente d’origine/);
+  });
+  it('lire MACJ : la vente portée par CRITERIMMO devient sa LIGNE MIROIR (sa seule part) ; le registre est lu', async () => {
+    reponses.push(
+      (s) => (s.startsWith('SELECT v.id, v.societe') ? { rows: [{ id: '38', societe: 'criterimmo', libelle: 'HEIDIDON', honoraires_ttc: '4000', statut: 'compromis', annee: 2026, mois_acte: null,
+        date_compromis: null, apporteur: null, note: null, origine: 'import', source_fichier: null, source_onglet: null, source_ligne: null, double_cle: null, attribution: null,
+        adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: '2', negociateur_sortie_id: '8', apporteur_id: null, retro_apporteur_ttc: '0', repartition: true,
+        entree_nom: 'Arnaud Jorel', sortie_nom: 'Pierre Thevenin' }] } : undefined),
+      (s) => (s.startsWith('SELECT l.id, l.vente_id') ? { rows: [{ id: '444', vente_id: '38', negociateur: 'Pierre Thevenin', role: 'negociateur', montant_ttc: '2000', nature: 'compromis', compte: false,
+        origine: 'saisie', source_fichier: null, source_onglet: null, source_ligne: null, note: null, cote: 'sortie', montant_ht: null, taux: null }] } : undefined),
+      (s) => (s.startsWith('SELECT p.vente_id, p.sorte') ? { rows: [{ vente_id: '38', ...P('entree', '2', 'Arnaud Jorel', 'criterimmo', '50') }, { vente_id: '38', ...P('sortie', '8', 'Pierre Thevenin', 'macj', '50') }] } : undefined));
+    const [m] = await repo.lireVentes('macj');
+    expect(m.libelle).toBe('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
+    expect(m.honorairesTtc).toBeCloseTo(2000, 9);
+    expect(m.miroir).toMatchObject({ origineId: 38, porteuse: 'criterimmo' });
+    expect(appels.some((x) => x.sql.includes('transaction_inter_cabinet ic'))).toBe(true);
+    expect(appels.some((x) => x.sql.includes('FROM transaction_inter_cabinet WHERE societe = $1'))).toBe(true);
   });
 });

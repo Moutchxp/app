@@ -35,7 +35,7 @@ describe('HT, mois du CA, prévisionnel', () => {
   it('le compromis n’est pas du CA : il fait le prévisionnel de son année', () => {
     const e = { ventes: [vente(1), vente(2, { statut: 'compromis', mois: null, societe: 'macj', honorairesTtc: 6000 })], location: null, gestion: [] };
     expect(celluleGlobal(e, 2025, null).totalHt).toBe(10000);
-    expect(previsionnel(e, 2025)).toEqual({ criterimmoHt: 0, macjHt: 5000, totalHt: 5000 });
+    expect(previsionnel(e, 2025)).toEqual({ criterimmoHt: 0, macjHt: 5000, interCabinetHt: 0, totalHt: 5000 });
   });
 });
 
@@ -83,7 +83,7 @@ describe('le CA global : vente CRITERIMMO + vente MACJ + location + gestion', ()
   };
   it('un mois : chaque part, le total, et le total par société (location et gestion = CRITERIMMO)', () => {
     const c = celluleGlobal(e, 2025, 3);
-    expect(c).toEqual({ venteCriterimmoHt: 10000, venteMacjHt: 5000, aAttribuerHt: 0, exterieurHt: 0, locationHt: 9398.6, gestionHt: 14665, totalHt: 10000 + 9398.6 + 14665 + 5000,
+    expect(c).toEqual({ venteCriterimmoHt: 10000, venteMacjHt: 5000, aAttribuerHt: 0, exterieurHt: 0, interCabinetHt: 0, locationHt: 9398.6, gestionHt: 14665, totalHt: 10000 + 9398.6 + 14665 + 5000,
       criterimmoHt: 10000 + 9398.6 + 14665, macjHt: 5000 });
   });
   it('l’année : les ventes « mois à confirmer » comprises ; location non lue = null, jamais 0 inventé', () => {

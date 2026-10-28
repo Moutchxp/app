@@ -48,6 +48,13 @@ export interface LigneVente {
   montantHt?: number | null;
   /** LOT I (437) — la commission versée au négociateur d'entrée ou de sortie, saisie depuis le dossier ; absent ou null : ligne d'avant. */
   cote?: 'entree' | 'sortie' | null;
+  /** LOT R (440) — le taux de rémunération enregistré (%) ; absent ou null : le défaut (50 %). */
+  taux?: number | null;
+  /**
+   * LOT R — le statut du négociateur FIGÉ sur la vente d'origine, recopié sur la commission d'une LIGNE MIROIR (qui n'a pas de répartition) ;
+   * absent : lu sur la partie (règle des lots P / Q).
+   */
+  statut?: 'associe' | 'salarie' | 'independant' | 'observateur' | null;
   nature: 'vente' | 'compromis';
   /** La ligne compte-t-elle dans les honoraires de la vente (une part comptée par le fichier) ? */
   compte: boolean;
@@ -93,6 +100,26 @@ export interface Vente {
   prixVente?: number | null;
   /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */
   dossier?: DossierVente | null;
+  /**
+   * 🔴 LOT R — cette vente est la LIGNE MIROIR, chez la société qui la reçoit, de la part inter-cabinet d'une vente portée par l'autre
+   * société (construite à la lecture, `interCabinet.ts`) : ses honoraires sont la SEULE part reçue. Absent ou null : une vente ordinaire.
+   */
+  miroir?: Miroir | null;
+}
+
+/** 🔴 LOT R — ce qu'une ligne miroir sait de sa vente d'origine (jamais le montant de la vente ni la commission totale). */
+export interface Miroir {
+  /** La vente d'origine, chez la société porteuse : les gestes (même la rémunération modifiée d'ici) s'y font. */
+  origineId: number;
+  porteuse: Societe;
+  libelleOrigine: string;
+  /** La part reçue (HT) et son % de la commission nette. */
+  partHt: number;
+  pourcentage: number | null;
+  /** « annulee » : la société ne reçoit plus rien de cette vente (registre 440) — la ligne reste, jamais supprimée. */
+  etat: 'active' | 'annulee';
+  /** Les côtés tenus par un négociateur de cette société : leur base de rémunération (la part reçue, TTC). */
+  cotes: { cote: 'entree' | 'sortie'; negociateur: string; compteId: number | null; statut: Statut | null; baseTtc: number }[];
 }
 
 // ── LOT D : la répartition de la commission ──────────────────────────────────────────────────────────────────────────────────
@@ -145,26 +172,104 @@ export const commissionNetteHt = (honorairesTtc: number, retroApporteurTtc: numb
 export const partsHt = (parties: readonly Partie[], netHt: number): number[] =>
   parties.map((p) => (p.pourcentage !== null ? (netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
 
+// ── 🔴 LOT R (Arno, 28/10/2026) : L'INTER-CABINET — LA RÈGLE UNIQUE ─────────────────────────────────────────────────────────────
+//
+// Remplace la répartition par société du lot D pour les ventes RÉPARTIES (l'historique importé, sans répartition, est inchangé) :
+//   · la SOCIÉTÉ PORTEUSE (celle du négociateur d'entrée du mandat, figée sur sa partie ; sans lui, la société où la vente est saisie)
+//     encaisse TOUT : son CA = la commission totale ;
+//   · la part de l'AUTRE société (son % de la commission nette, apporteur déduit d'abord : coût partagé) est une rétrocession INTER-CABINET :
+//     une commission versée par la porteuse, et le CA de l'autre société (sa LIGNE MIROIR) ; la part EXTÉRIEURE (autre agence) aussi ;
+//   · le GROUPE compte la commission UNE fois : CA porteuse + CA miroir − inter-cabinet entre nos sociétés (neutralisé).
+// Les 4 tuiles du Compromis, Le mois, L'année, les espaces négociateurs, les apporteurs et le CA global lisent CETTE fonction.
+
+/** 🔴 LOT R — LA SOCIÉTÉ PORTEUSE d'une vente : celle du négociateur d'ENTRÉE (sa partie, société figée à la vente) ; sinon, la société de saisie. PUR. */
+export function societePorteuse(v: Pick<Vente, 'societe' | 'repartition'>): Societe {
+  return v.repartition?.parties.find((p) => (p.sorte === 'entree' || p.sorte === 'entree_sortie') && p.societe !== null)?.societe ?? v.societe;
+}
+
+/** Les parts HT d'une vente répartie : par société (parties internes) et extérieure — sur la commission nette (apporteur déduit). PUR. */
+function partsDeLaVente(r: Repartition, honorairesTtc: number): { parSociete: Record<Societe, number>; exterieurHt: number; netHt: number } {
+  const netHt = commissionNetteHt(honorairesTtc, r.retroApporteurTtc);
+  const parts = partsHt(r.parties, netHt);
+  const parSociete: Record<Societe, number> = { criterimmo: 0, macj: 0 };
+  let exterieur = 0;
+  r.parties.forEach((p, i) => { if (p.sorte === 'exterieure') exterieur += parts[i]; else if (p.societe !== null) parSociete[p.societe] += parts[i]; });
+  return { parSociete, exterieurHt: exterieur, netHt };
+}
+
+/** Ce qu'une vente apporte à une société (null : au groupe), en HT. */
+export interface BilanVente {
+  porteuse: Societe;
+  /** Le CA de la vente pour cette vue : porteuse et groupe, la commission totale ; l'autre société, sa part reçue (sa ligne miroir). */
+  caHt: number;
+  /** L'apporteur (vue porteuse et groupe ; 0 pour l'autre société : la porteuse le paie, son coût est partagé par la commission nette). */
+  apporteurHt: number;
+  /** Vue porteuse : l'inter-cabinet VERSÉ à chacune de nos autres sociétés (une commission versée). */
+  verseHt: Record<Societe, number>;
+  /** Vue porteuse et groupe : l'inter-cabinet extérieur (autre agence) — une commission versée. */
+  exterieurHt: number;
+  /** Vue de l'autre société : la part REÇUE (= son CA). */
+  recuHt: number;
+  /** Vue groupe : l'inter-cabinet ENTRE NOS SOCIÉTÉS, neutralisé (ni CA en plus, ni commission versée). */
+  neutraliseHt: number;
+}
+const RIEN: Record<Societe, number> = { criterimmo: 0, macj: 0 };
+
 /**
- * 🔴 LE CA HT QU'UNE VENTE APPORTE À UNE SOCIÉTÉ (null : à toutes nos sociétés réunies).
- *   · Historique (sans répartition) : toute la commission, à la société de la vente — inchangé.
- *   · Répartition : la somme des parts des parties internes dont le négociateur était de cette société au moment de la vente ; la part
- *     d'une partie extérieure n'entre dans le CA d'aucune. Une commission n'est jamais comptée deux fois. PUR.
+ * 🔴 LOT R — LE BILAN D'UNE VENTE pour une société (null : le groupe). Historique (sans répartition) : toute la commission à la société de
+ * la vente, rien d'autre — inchangé (son apporteur se lit comme avant, hors de cette fonction). PUR.
  */
-export function caHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>, societe: Societe | null = null): number {
-  if (v.repartition == null) return societe === null || v.societe === societe ? ht(v.honorairesTtc) : 0;
-  const parts = partsHt(v.repartition.parties, commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc));
-  return v.repartition.parties.reduce((t, p, i) => t + (p.societe !== null && (societe === null || p.societe === societe) ? parts[i] : 0), 0);
+export function bilanVente(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>, societe: Societe | null): BilanVente {
+  if (v.repartition == null) {
+    const ca = societe === null || v.societe === societe ? ht(v.honorairesTtc) : 0;
+    return { porteuse: v.societe, caHt: ca, apporteurHt: 0, verseHt: { ...RIEN }, exterieurHt: 0, recuHt: 0, neutraliseHt: 0 };
+  }
+  const porteuse = societePorteuse(v);
+  const { parSociete, exterieurHt: ext } = partsDeLaVente(v.repartition, v.honorairesTtc);
+  const autres: Record<Societe, number> = { criterimmo: 0, macj: 0 };
+  for (const s of SOCIETES) if (s !== porteuse) autres[s] = parSociete[s];
+  const intra = SOCIETES.reduce((t, s) => t + autres[s], 0);
+  if (societe === null) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: ht(v.repartition.retroApporteurTtc), verseHt: { ...RIEN }, exterieurHt: ext, recuHt: 0, neutraliseHt: intra };
+  if (societe === porteuse) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: ht(v.repartition.retroApporteurTtc), verseHt: autres, exterieurHt: ext, recuHt: 0, neutraliseHt: 0 };
+  return { porteuse, caHt: autres[societe], apporteurHt: 0, verseHt: { ...RIEN }, exterieurHt: 0, recuHt: autres[societe], neutraliseHt: 0 };
 }
-/** La part HT d'une vente qui sort de nos chiffres (parties extérieures). PUR. */
+/** Le total d'un enregistrement « par société ». */
+export const sommeSocietes = (r: Readonly<Record<Societe, number>>): number => SOCIETES.reduce((t, s) => t + r[s], 0);
+/** Ce que la vente laisse à la société vue (HT) : CA − apporteur − inter-cabinet versé (nos sociétés, extérieur). PUR. */
+export const resteBilanHt = (b: BilanVente): number => b.caHt - b.apporteurHt - sommeSocietes(b.verseHt) - b.exterieurHt;
+
+/**
+ * 🔴 LE CA HT QU'UNE VENTE APPORTE À UNE SOCIÉTÉ (null : au groupe) — la règle de l'inter-cabinet (LOT R) : la porteuse, la commission
+ * totale ; l'autre société, sa part reçue ; le groupe, la commission totale (une seule fois). Historique : inchangé. PUR.
+ */
+export const caHt = (v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>, societe: Societe | null = null): number => bilanVente(v, societe).caHt;
+/** La part HT d'une vente versée à l'extérieur (parties extérieures : inter-cabinet extérieur). PUR. */
 export function exterieurHt(v: Pick<Vente, 'honorairesTtc' | 'repartition'>): number {
-  if (v.repartition == null) return 0;
-  const parts = partsHt(v.repartition.parties, commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc));
-  return v.repartition.parties.reduce((t, p, i) => t + (p.sorte === 'exterieure' ? parts[i] : 0), 0);
+  return v.repartition == null ? 0 : partsDeLaVente(v.repartition, v.honorairesTtc).exterieurHt;
 }
-/** Une vente compte-t-elle pour cette société (historique : la sienne, si elle n'est ni à attribuer ni écartée ; répartition : une part) ? */
-export const concerne = (v: Pick<Vente, 'societe' | 'double' | 'repartition'>, societe: Societe): boolean =>
-  v.repartition == null ? v.societe === societe && compteDansSociete(v) : v.repartition.parties.some((p) => p.societe === societe);
+/**
+ * Une vente compte-t-elle pour cette société (historique : la sienne, si elle n'est ni à attribuer ni écartée ; répartie : la porteuse,
+ * ou une part reçue en inter-cabinet) ?
+ */
+export function concerne(v: Pick<Vente, 'societe' | 'double' | 'repartition' | 'honorairesTtc'>, societe: Societe): boolean {
+  if (v.repartition == null) return v.societe === societe && compteDansSociete(v);
+  return societePorteuse(v) === societe || partsDeLaVente(v.repartition, v.honorairesTtc).parSociete[societe] > 0;
+}
+
+/** La société qui verse la commission d'une ligne « négociateur » : celle du négociateur sur cette vente ; null : inconnue. PUR. */
+export function societeDeLigne(v: Pick<Vente, 'societe' | 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>): Societe | null {
+  if (v.repartition == null) return v.societe;
+  const sortes = l.cote === 'entree' ? ['entree', 'entree_sortie'] : l.cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'sortie', 'entree_sortie'];
+  const p = v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.societe !== null && sortes.includes(x.sorte))
+    ?? v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.societe !== null);
+  return p?.societe ?? null;
+}
+/** La ligne compte-t-elle pour cette société (null : le groupe ; une ligne sans société connue reste à la vente vue) ? PUR. */
+const ligneDeLaSociete = (v: Pick<Vente, 'societe' | 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>, societe: Societe | null): boolean => {
+  if (societe === null) return true;
+  const s = societeDeLigne(v, l);
+  return s === null || s === societe;
+};
 
 /** LOT C — « a_attribuer » : en attente du choix d'Arno ; « retenue » : la note de la société choisie ; « ecartee » : l'autre. */
 export type Attribution = 'a_attribuer' | 'retenue' | 'ecartee';
@@ -265,9 +370,10 @@ export const payeTtcDe = (v: Pick<Vente, 'lignes'>): number =>
  * 🔴 LOT Q — la paye d'une vente PAR CLASSE (TTC) : déduite (indépendants), interne (associés, salariés), à renseigner — la règle unique
  * `classeDeCommission` (statutLigne.ts). PUR.
  */
-export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition'>, statutDuLibelle?: StatutDuLibelle): Record<ClasseCommission, number> {
+export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition' | 'societe'>, statutDuLibelle?: StatutDuLibelle, societe: Societe | null = null): Record<ClasseCommission, number> {
   const r: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
-  for (const l of v.lignes) if (l.role === 'negociateur' && l.montantTtc !== null) r[classeDeCommission(v, l, statutDuLibelle)] += l.montantTtc;
+  // 🔴 LOT R — chaque commission compte dans la société OÙ son négociateur travaille sur cette vente (null : le groupe, toutes).
+  for (const l of v.lignes) if (l.role === 'negociateur' && l.montantTtc !== null && ligneDeLaSociete(v, l, societe)) r[classeDeCommission(v, l, statutDuLibelle)] += l.montantTtc;
   return r;
 }
 
@@ -275,9 +381,15 @@ export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition'>, statu
 export const retroTtcDe = (v: Pick<Vente, 'id'>, retros: readonly Retrocession[]): number =>
   retros.reduce((s, r) => s + (r.venteId === v.id ? r.montantTtc : 0), 0);
 
-/** Le reste à l'agence d'une vente (TTC) : honoraires − rétrocessions rattachées − paye des négociateurs INDÉPENDANTS (LOT Q). */
-export const resteTtcDe = (v: Vente, retros: readonly Retrocession[], statutDuLibelle?: StatutDuLibelle): number =>
-  v.honorairesTtc - retroTtcDe(v, retros) - payeParClasseTtc(v, statutDuLibelle).independant;
+/**
+ * Le reste à l'agence d'une vente (TTC) pour la société vue (null : le groupe) : honoraires − rétrocessions rattachées − paye des
+ * négociateurs INDÉPENDANTS de cette société (LOT Q). 🔴 LOT R — une vente répartie : CA de la vente − apporteur − inter-cabinet versé.
+ */
+export function resteTtcDe(v: Vente, retros: readonly Retrocession[], statutDuLibelle?: StatutDuLibelle, societe: Societe | null = null): number {
+  const paye = payeParClasseTtc(v, statutDuLibelle, societe).independant;
+  if (v.repartition == null) return v.honorairesTtc - retroTtcDe(v, retros) - paye;
+  return resteBilanHt(bilanVente(v, societe ?? null)) * TVA - retroTtcDe(v, retros) - paye;
+}
 
 /**
  * Le CA HT qu'un négociateur PORTE dans une vente : sa part quand la vente est en parts ; sinon les honoraires, partagés à égalité
@@ -314,11 +426,18 @@ export interface Totaux {
   /** LOT Q — la paye des associés et des salariés (internes) et celle des statuts inconnus : affichées, NON déduites. */
   internesHt: number;
   aRenseignerHt: number;
-  /** CA HT − rétrocessions HT − paye déduite HT. */
+  /**
+   * 🔴 LOT R — l'inter-cabinet VERSÉ par la société (porteuse) à nos autres sociétés et à l'extérieur : déduit du reste ; au niveau du
+   * groupe, seul l'extérieur l'est (l'inter-cabinet entre nos sociétés est neutralisé : `neutraliseHt`).
+   */
+  interCabinetHt: number;
+  exterieurHt: number;
+  neutraliseHt: number;
+  /** CA HT − rétrocessions HT (apporteurs) − inter-cabinet versé HT − paye déduite HT. */
   resteHt: number;
   ids: number[];
 }
-const VIDE: Totaux = { nbVentes: 0, caHt: 0, caTtc: 0, retroHt: 0, payeHt: 0, internesHt: 0, aRenseignerHt: 0, resteHt: 0, ids: [] };
+const VIDE: Totaux = { nbVentes: 0, caHt: 0, caTtc: 0, retroHt: 0, payeHt: 0, internesHt: 0, aRenseignerHt: 0, interCabinetHt: 0, exterieurHt: 0, neutraliseHt: 0, resteHt: 0, ids: [] };
 
 /** Les ventes VENDUES d'un mois (année + mois de l'acte) qui comptent pour la société (LOT C : pas une vente à attribuer ou écartée). */
 export const ventesDuMois = (ventes: readonly Vente[], annee: number, mois: number): Vente[] =>
@@ -365,18 +484,25 @@ export const retrosDuMois = (retros: readonly Retrocession[], annee: number, moi
  */
 export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[], societe: Societe | null = null, statutDuLibelle?: StatutDuLibelle): Totaux {
   if (ventes.length === 0 && retros.length === 0) return { ...VIDE, ids: [] };
-  // LOT D — le CA d'une vente répartie est la part de la société (rétrocession de l'apporteur déjà déduite) ; l'historique se calcule
-  // EXACTEMENT comme avant (en TTC, puis ÷ 1,2) — aucune vente répartie : les mêmes nombres, au bit près.
+  // L'historique (et les lignes miroir, sans répartition) se calcule EXACTEMENT comme avant (en TTC, puis ÷ 1,2) — aucune vente
+  // répartie : les mêmes nombres, au bit près. 🔴 LOT R — une vente répartie : le bilan de l'inter-cabinet (`bilanVente`).
   const historiques = ventes.filter((v) => v.repartition == null && (societe === null || v.societe === societe));
   const caTtc = historiques.reduce((s, v) => s + v.honorairesTtc, 0);
-  const repartiHt = ventes.reduce((s, v) => s + (v.repartition == null ? 0 : caHt(v, societe)), 0);
+  const bilans = ventes.filter((v) => v.repartition != null).map((v) => bilanVente(v, societe));
+  const somme = (f: (b: BilanVente) => number): number => bilans.reduce((s, b) => s + f(b), 0);
+  const repartiHt = somme((b) => b.caHt);
+  const apporteurHt = somme((b) => b.apporteurHt);
+  const interCabinetHt = somme((b) => sommeSocietes(b.verseHt));
+  const exterieur = somme((b) => b.exterieurHt);
   const retroTtc = retros.reduce((s, r) => s + r.montantTtc, 0);
-  // 🔴 LOT Q — seule la paye des INDÉPENDANTS est déduite ; les internes et les « à renseigner » sont rendus à part.
-  const paye = ventes.map((v) => payeParClasseTtc(v, statutDuLibelle));
+  // 🔴 LOT Q — seule la paye des INDÉPENDANTS est déduite ; les internes et les « à renseigner » sont rendus à part. LOT R : chacune dans
+  // la société où son négociateur travaille sur la vente.
+  const paye = ventes.map((v) => payeParClasseTtc(v, statutDuLibelle, societe));
   const payeTtc = paye.reduce((s, p) => s + p.independant, 0);
-  return { nbVentes: ventes.length, caTtc: caTtc + repartiHt * TVA, caHt: ht(caTtc) + repartiHt, retroHt: ht(retroTtc), payeHt: ht(payeTtc),
+  return { nbVentes: ventes.length, caTtc: caTtc + repartiHt * TVA, caHt: ht(caTtc) + repartiHt, retroHt: ht(retroTtc) + apporteurHt, payeHt: ht(payeTtc),
     internesHt: ht(paye.reduce((s, p) => s + p.interne, 0)), aRenseignerHt: ht(paye.reduce((s, p) => s + p.a_renseigner, 0)),
-    resteHt: ht(caTtc - retroTtc - payeTtc) + repartiHt, ids: ventes.map((v) => v.id) };
+    interCabinetHt, exterieurHt: exterieur, neutraliseHt: somme((b) => b.neutraliseHt),
+    resteHt: ht(caTtc - retroTtc - payeTtc) + repartiHt - apporteurHt - interCabinetHt - exterieur, ids: ventes.map((v) => v.id) };
 }
 
 type DonneesTotaux = Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe' | 'statutsNegociateurs'>>;
@@ -503,9 +629,14 @@ export interface CelluleGlobal {
   aAttribuerHt: number;
   locationHt: number | null;
   gestionHt: number | null;
-  /** LOT D — les parts des parties extérieures (autre agence, confrère) : montrées à part, HORS CA. */
+  /**
+   * LOT D — les parts des parties extérieures (autre agence, confrère). 🔴 LOT R : l'inter-cabinet extérieur, compris dans le CA de la
+   * société porteuse (elle encaisse tout) et versé par elle : montré à part, pour information.
+   */
   exterieurHt: number;
-  /** Le réalisé : la somme de ce qui est connu. */
+  /** 🔴 LOT R — l'inter-cabinet ENTRE NOS SOCIÉTÉS : dans les ventes CRITERIMMO ET MACJ, retiré UNE fois du total (neutralisé). */
+  interCabinetHt: number;
+  /** Le réalisé : la somme de ce qui est connu (l'inter-cabinet entre nos sociétés retiré une fois). */
   totalHt: number;
   /** CRITERIMMO = vente CRITERIMMO + location + gestion ; MACJ = vente MACJ. */
   criterimmoHt: number;
@@ -527,8 +658,10 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const aAttribuerHt = mois !== null ? 0 : groupesDoubles(e.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.double != null)
     .map((v, i) => ({ id: v.id ?? -1 - i, libelle: v.libelle ?? '', ...v, double: v.double ?? null })))
     .filter((g) => g.attribuee === null).reduce((t, g) => t + ht(g.retenuTtc), 0);
-  // LOT D — CA global = parts CRITERIMMO + parts MACJ (une vente répartie entre les deux n'est pas comptée deux fois).
+  // 🔴 LOT R — vente CRITERIMMO / MACJ : le CA de chaque société (porteuse : la commission totale ; l'autre : sa part reçue) ; le total
+  // retire UNE fois l'inter-cabinet entre nos sociétés : chaque commission n'est comptée qu'une fois pour le groupe.
   const somme = (s: Societe): number => ventes.reduce((t, v) => t + caHt(v, s), 0);
+  const interCabinet = ventes.reduce((t, v) => t + bilanVente(v, null).neutraliseHt, 0);
   const moisVises = mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [mois];
   const loc = e.location === null ? null : moisVises.reduce((t, m) => t + (e.location?.[cle(annee, m)] ?? 0), 0);
   const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && g.honorairesHt !== null);
@@ -537,15 +670,18 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const venteMacjHt = somme('macj');
   const criterimmoHt = venteCriterimmoHt + (loc ?? 0) + (gestion ?? 0);
   const exterieur = ventes.reduce((t, v) => t + exterieurHt(v), 0);
-  return { venteCriterimmoHt, venteMacjHt, aAttribuerHt, exterieurHt: exterieur, locationHt: loc, gestionHt: gestion, totalHt: criterimmoHt + venteMacjHt + aAttribuerHt, criterimmoHt, macjHt: venteMacjHt };
+  return { venteCriterimmoHt, venteMacjHt, aAttribuerHt, exterieurHt: exterieur, locationHt: loc, gestionHt: gestion, interCabinetHt: interCabinet,
+    totalHt: criterimmoHt + venteMacjHt + aAttribuerHt - interCabinet, criterimmoHt, macjHt: venteMacjHt };
 }
 
 /** Le prévisionnel d'une année : les compromis en cours rattachés à l'année, par société (HT). PUR. */
-export function previsionnel(e: Pick<EntreesGlobal, 'ventes'>, annee: number): { criterimmoHt: number; macjHt: number; totalHt: number } {
+export function previsionnel(e: Pick<EntreesGlobal, 'ventes'>, annee: number): { criterimmoHt: number; macjHt: number; interCabinetHt: number; totalHt: number } {
   const c = e.ventes.filter((v) => v.statut === 'compromis' && v.annee === annee && compteDansSociete({ double: v.double ?? null }));
   const criterimmoHt = c.reduce((t, v) => t + caHt(v, 'criterimmo'), 0);
   const macjHt = c.reduce((t, v) => t + caHt(v, 'macj'), 0);
-  return { criterimmoHt, macjHt, totalHt: criterimmoHt + macjHt };
+  // 🔴 LOT R — l'inter-cabinet entre nos sociétés, retiré une fois (neutralisé).
+  const interCabinetHt = c.reduce((t, v) => t + bilanVente(v, null).neutraliseHt, 0);
+  return { criterimmoHt, macjHt, interCabinetHt, totalHt: criterimmoHt + macjHt - interCabinetHt };
 }
 
 /** L'écart et sa part (null : rien à comparer). PUR. */

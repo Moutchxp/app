@@ -24,12 +24,15 @@ export function statutDeLigne(v: Pick<Vente, 'repartition'>, l: Pick<LigneVente,
   return p === undefined ? null : statutDePartie(p);
 }
 
-/** 🔴 Le statut d'une commission de négociateur : sa partie (figé, puis compte) ; sinon le compte rapproché de son libellé. PUR. */
-export const statutDeCommission = (v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>, statutDuLibelle?: StatutDuLibelle): Statut | null =>
-  statutDeLigne(v, l) ?? statutDuLibelle?.(l.negociateur) ?? null;
+/**
+ * 🔴 Le statut d'une commission de négociateur : celui recopié sur la ligne (LOT R : commission d'une ligne miroir, figé sur la vente
+ * d'origine) ; sinon sa partie (figé, puis compte) ; sinon le compte rapproché de son libellé. PUR.
+ */
+export const statutDeCommission = (v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote' | 'statut'>, statutDuLibelle?: StatutDuLibelle): Statut | null =>
+  l.statut ?? statutDeLigne(v, l) ?? statutDuLibelle?.(l.negociateur) ?? null;
 
 /** 🔴 La classe d'une commission de négociateur (déduite, interne, à renseigner). PUR. */
-export const classeDeCommission = (v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>, statutDuLibelle?: StatutDuLibelle): ClasseCommission =>
+export const classeDeCommission = (v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote' | 'statut'>, statutDuLibelle?: StatutDuLibelle): ClasseCommission =>
   classeCommission(statutDeCommission(v, l, statutDuLibelle));
 
 /** Le résolveur d'une table « libellé → statut » envoyée par le serveur (absente : aucun libellé importé n'est rapproché). PUR. */

@@ -160,11 +160,11 @@ describe('l’onglet « Compromis »', () => {
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     expect(texte('[data-nb-compromis]')).toBe('1');
-    expect(texte('[data-commission-en-cours]')).toBe('sur 10 000,00 € HT de commission · parts extérieures (hors CA) : 1 600,00 € HT');
-    // (12 000 − 2 400) ÷ 1,2 = 8 000 HT nets ; 40 % = 3 200 nets — LOT I : le CA est la part (40 %) de la commission entière, 4 000 HT,
-    // dont la quote-part de l'apporteur (800 HT) est une commission versée : le solde redonne la part nette d'avant, 3 200.
-    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : part de la société après répartition');
-    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+    expect(texte('[data-commission-en-cours]')).toBe('sur 10 000,00 € HT de commission · dont inter-cabinet extérieur : 1 600,00 € HT');
+    // (12 000 − 2 400) ÷ 1,2 = 8 000 HT nets ; 40 % = 3 200 nets — 🔴 LOT R : CRITERIMMO (JB à l'entrée) PORTE la vente : son CA est la
+    // commission entière, 10 000 HT ; elle reverse MACJ (3 200) et l'extérieur (1 600) et paie l'apporteur (2 000) : le solde redonne sa part, 3 200.
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('CA de la vente : 10 000,00 € HT · dont reversé en inter-cabinet : 4 800,00 € HT');
+    expect(texte('[data-ca-ht]')).toBe('10 000,00 € HT');
     expect(texte('[data-solde-ht]')).toBe('3 200,00 € HT');
     await deplier(41);
     const fiche = texte('[data-compromis="41"]');
@@ -190,7 +190,10 @@ describe('l’onglet « Compromis »', () => {
     expect([...container.querySelectorAll('[role="tab"]')].slice(0, 2).map((b) => b.textContent)).toEqual(['Compromis', 'Le mois et l’année']);
     await cliquer('[data-vue="compromis"]');
     expect(container.querySelector('[data-onglet-compromis="tous"]')).not.toBeNull();
-    expect(texte('[data-part-compromis="macj"]')).toBe('Part MACJ : 4 000,00 € HT');
+    // 🔴 LOT R — au global : le CA de chaque société (CRITERIMMO porte : 10 000 ; MACJ reçoit 3 200), l'inter-cabinet neutralisé.
+    expect(texte('[data-part-compromis="macj"]')).toBe('CA MACJ : 3 200,00 € HT');
+    expect(texte('[data-ca-ht]')).toBe('10 000,00 € HT');
+    expect(texte('[data-neutralise-compromis]')).toBe('Inter-cabinet entre nos sociétés : 3 200,00 € HT (neutralisé)');
   });
 });
 
@@ -247,7 +250,8 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie', 'exterieure']);
     await saisir('[data-partie-pct="0"]', '40'); await saisir('[data-partie-pct="1"]', '40'); await saisir('[data-partie-pct="2"]', '20');
     await saisir('[data-partie-nom]', 'Agence du Parc');
-    expect(texte('[data-parts-societes]')).toContain('part extérieure (hors CA) : 2 000,00 € HT (20 %)');
+    expect(texte('[data-parts-societes]')).toContain('part extérieure (inter-cabinet extérieur) : 2 000,00 € HT (20 %)');
+    expect(texte('[data-inter-cabinet-form]')).toBe('CA de la vente : CRITERIMMO (société porteuse), 10 000,00 € HT · dont reversé en inter-cabinet : vers MACJ 4 000,00 € HT · extérieur 2 000,00 € HT');
     expect(container.querySelector('[data-retirer-exterieure]')!.getAttribute('aria-label')).toBe('Retirer cette partie extérieure');
     await cliquer('[data-retirer-exterieure]');
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie']);
@@ -512,16 +516,16 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     expect([...container.querySelectorAll('[data-totaux-compromis] .tdb-tuile-mot')].map((x) => x.textContent)).toEqual(['Compromis en cours', 'Chiffre d’affaires', 'Commissions versées', 'Solde net']);
     const ca = container.querySelector('[data-ca-ttc]')!;
     expect(ca.className).toContain('trx-vert');
-    expect(texte('[data-ca-ttc]')).toBe('4 800,00 € TTC'); // 40 % de 10 000 HT = 4 000 HT
-    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+    expect(texte('[data-ca-ttc]')).toBe('12 000,00 € TTC'); // 🔴 LOT R : CRITERIMMO porte la vente, toute la commission
+    expect(texte('[data-ca-ht]')).toBe('10 000,00 € HT');
     const co = container.querySelector('[data-commissions-ttc]')!;
     expect(co.className).toContain('trx-rouge');
-    // JB 1 000 HT + apporteur 40 % × 2 000 HT = 800 HT ⇒ 1 800 HT, 2 160 TTC (Mylène est MACJ)
-    expect(texte('[data-commissions-ttc]')).toBe('2 160,00 € TTC versées');
-    expect(texte('[data-commissions-ht]')).toBe('1 800,00 € HT');
+    // JB 1 000 HT + apporteur 2 000 HT + inter-cabinet MACJ 3 200 HT + extérieur 1 600 HT ⇒ 7 800 HT, 9 360 TTC (Mylène est MACJ)
+    expect(texte('[data-commissions-ttc]')).toBe('9 360,00 € TTC versées');
+    expect(texte('[data-commissions-ht]')).toBe('7 800,00 € HT');
     expect(texte('[data-solde-ht]')).toBe('2 200,00 € HT');
     expect(texte('[data-solde-ttc]')).toBe('2 640,00 € TTC');
-    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : part de la société après répartition');
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('CA de la vente : 10 000,00 € HT · dont reversé en inter-cabinet : 4 800,00 € HT');
   });
   it('« Commissions versées » : le détail négociateurs / apporteurs au toucher (et au survol)', async () => {
     listeCompromis = [avecCommissions];
@@ -530,7 +534,9 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     await cliquer('[data-tuile="commissions"]');
     expect(container.querySelector('[data-tuile="commissions"]')!.getAttribute('aria-expanded')).toBe('true');
     expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
-    expect(texte('[data-detail="apporteurs"]')).toBe('Apporteurs : 800,00 € HT (960,00 € TTC)');
+    expect(texte('[data-detail="apporteurs"]')).toBe('Apporteurs : 2 000,00 € HT (2 400,00 € TTC)');
+    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 3 200,00 € HT (3 840,00 € TTC)');
+    expect(texte('[data-detail="inter-cabinet-exterieur"]')).toBe('Inter-cabinet extérieur : 1 600,00 € HT (1 920,00 € TTC)');
   });
   it('un solde négatif s’affiche tel quel, avec le signe moins', async () => {
     listeCompromis = [{ ...avecCommissions, lignes: [{ ...avecCommissions.lignes[0], montantHt: 9000, montantTtc: 10800 }] }];
@@ -542,7 +548,7 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     listeAnnules = [{ ...compromis, id: 77, statut: 'annulee', annulation: { date: '2026-10-20', motif: 'Défaut de crédit', note: null } }];
     await onglet();
     expect(texte('[data-nb-compromis]')).toBe('1');
-    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+    expect(texte('[data-ca-ht]')).toBe('10 000,00 € HT');
   });
   it('nouveau compromis : la rétrocession de l’apporteur proposée en HT ; sans la 437, en TTC (HT grisé)', async () => {
     await onglet();
@@ -585,7 +591,10 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     await saisir('[data-personne-nom="0"]', 'DUPONT');
     await cliquer('[data-enregistrer-dossier]');
     const d = (posts.at(-1) as { dossier: Record<string, unknown> }).dossier;
-    expect(d.commissions).toEqual({ entree: { montant: '1000', unite: 'ht' }, sortie: { montant: '1200', unite: 'ttc' } });
+    const cs = d.commissions as Record<'entree' | 'sortie', { montant: string; unite: string; taux: string | null }>;
+    expect([cs.entree.montant, cs.entree.unite, cs.sortie.montant, cs.sortie.unite]).toEqual(['1000', 'ht', '1200', 'ttc']);
+    // 🔴 LOT R — un montant saisi recalcule le taux : 1 200 TTC ÷ 6 000 TTC (50 % de 12 000) = 20 %.
+    expect(cs.sortie.taux).toBe('20');
     expect(d.retroApporteurUnite).toBe('ht');
   });
   it('depuis la carte : le bouton du négociateur saisit sa commission (HT / TTC) et l’enregistre avec lui ; dessous, la commission enregistrée', async () => {
@@ -602,7 +611,8 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     const envoi = posts.at(-1) as { action: string; dossier: { sortieId: number; commissions: unknown } };
     expect(envoi.action).toBe('dossier-enregistrer');
     expect(envoi.dossier.sortieId).toBe(7);
-    expect(envoi.dossier.commissions).toEqual({ entree: { montant: '1000', unite: 'ht' }, sortie: { montant: '700', unite: 'ht' } });
+    const cs = envoi.dossier.commissions as Record<'entree' | 'sortie', { montant: string; unite: string }>;
+    expect([cs.entree.montant, cs.entree.unite, cs.sortie.montant, cs.sortie.unite]).toEqual(['1000', 'ht', '700', 'ht']);
   });
 });
 
@@ -726,8 +736,9 @@ describe('🔴 LOT K — collaborateur des deux sociétés ; la case « Dates »
     listeCompromis = [v];
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
     await cliquer('[data-vue="compromis"]');
-    expect(texte('[data-part-compromis="macj"]')).toBe('Part MACJ : 10 000,00 € HT');
-    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : 0,00 € HT');
+    // 🔴 LOT R — Cédric à l'entrée pour MACJ : MACJ porte la vente.
+    expect(texte('[data-part-compromis="macj"]')).toBe('CA MACJ : 10 000,00 € HT');
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('CA CRITERIMMO : 0,00 € HT');
   });
   it('« Dates » : compromis signé au-dessus, vente définitive au-dessous ; absente « à renseigner » ; dépassée en rouge', async () => {
     listeCompromis = [compromis, { ...depasse, dateCompromis: null }];
@@ -783,7 +794,7 @@ describe('🔴 LOT N — la colonne « % » des lignes « Part CRITERIMMO / MACJ
   });
 });
 
-describe('🔴 LOT O — la commission versée PROPOSÉE (part × commission TTC)', () => {
+describe('🔴 LOT O / R — la rémunération PROPOSÉE (taux 50 % × la part de ce côté, sur la commission nette)', () => {
   const ref = references as Record<string, unknown>;
   beforeEach(() => { ref.uniteCommission = true; });
   afterEach(() => { delete ref.uniteCommission; });
@@ -793,19 +804,19 @@ describe('🔴 LOT O — la commission versée PROPOSÉE (part × commission TTC
   const v = (pE: number, pS: number, o: Partial<Vente> = {}): Vente => ({ ...compromis, honorairesTtc: 7500, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo', pE), pa('sortie', 7, MY.nom, 'macj', pS)] }, ...o });
   const carte = async (x: Vente) => { listeCompromis = [x]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(x.id); };
 
-  it('50/50 : depuis la carte, 50 % × 7 500 € = 3 750,00 TTC (TTC enfoncé), avec la mention ; bascule HT : 3 125,00', async () => {
+  it('50/50 : depuis la carte, 50 % × (50 % × 7 500 €) = 1 875,00 TTC (TTC enfoncé), avec la mention ; bascule HT : 1 562,50', async () => {
     await carte(v(50, 50));
     await cliquer('[data-negociateur-carte="entree"]');
-    expect(champ('[data-champ="commission-carte-entree"]')).toBe('3 750,00');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('1 875,00');
     expect(presse('commission-carte-entree', 'ttc')).toBe('true');
-    expect(texte('[data-propose="commission-carte-entree"]')).toBe('proposé : 50 % de 7 500,00 € TTC');
+    expect(texte('[data-propose="commission-carte-entree"]')).toBe('proposé : 50 % de 3 750,00 € TTC (sa part : 50 % de la commission nette)');
     await cliquer('[data-unite-de="commission-carte-entree"][data-unite="ht"]');
-    expect(champ('[data-champ="commission-carte-entree"]')).toBe('3 125,00');
+    expect(champ('[data-champ="commission-carte-entree"]')).toBe('1 562,50');
   });
-  it('60/40 : le formulaire Modifier propose 4 500,00 et 3 000,00 TTC ; une frappe remplace la proposition', async () => {
+  it('60/40 : le formulaire Modifier propose 2 250,00 et 1 500,00 TTC ; une frappe remplace la proposition', async () => {
     await carte(v(60, 40));
     await cliquer('[data-modifier-compromis="41"]');
-    expect([champ('[data-champ="commission-entree"]'), champ('[data-champ="commission-sortie"]')]).toEqual(['4 500,00', '3 000,00']);
+    expect([champ('[data-champ="commission-entree"]'), champ('[data-champ="commission-sortie"]')]).toEqual(['2 250,00', '1 500,00']);
     await saisir('[data-champ="commission-sortie"]', '2800');
     expect(champ('[data-champ="commission-sortie"]')).toBe('2800');
     expect(container.querySelector('[data-propose="commission-sortie"]')).toBeNull();
@@ -823,12 +834,13 @@ describe('🔴 LOT O — la commission versée PROPOSÉE (part × commission TTC
     await cliquer('[data-negociateur-carte="entree"]');
     await cliquer('[data-negociateur-carte="sortie"]');
     expect(posts).toEqual([]);
-    expect(texte('[data-commissions-ht]')).toBe('0,00 € HT'); // la proposition n'est pas dans les tuiles tant qu'elle n'est pas validée
+    // la proposition n'est pas dans les tuiles tant qu'elle n'est pas validée : seul l'inter-cabinet vers MACJ (50 % de 6 250 HT) y est
+    expect(texte('[data-commissions-ht]')).toBe('3 125,00 € HT');
     await cliquer('[data-choix-negociateur="entree"] [data-valider-negociateur]');
     const e = posts.at(-1) as { dossier: { commissions: { entree: { montant: string; unite: string }; sortie: { montant: string; unite: string } } } };
     // (l'espace des milliers est insécable : le serveur, `montant()` de saisie.ts, l'ignore comme toute espace)
-    expect({ ...e.dossier.commissions.entree, montant: e.dossier.commissions.entree.montant.replace(/\s/g, ' ') }).toEqual({ montant: '3 750,00', unite: 'ttc' });
-    expect(e.dossier.commissions.sortie).toEqual({ montant: '', unite: 'ttc' });
+    expect({ ...e.dossier.commissions.entree, montant: e.dossier.commissions.entree.montant.replace(/\s/g, ' ') }).toEqual({ montant: '1 875,00', unite: 'ttc', taux: null });
+    expect(e.dossier.commissions.sortie).toEqual({ montant: '', unite: 'ttc', taux: null });
   });
   it('sans répartition (import « toute la commission à CRITERIMMO ») : champ vide, TTC par défaut, aucune mention', async () => {
     await carte({ ...importe, honorairesTtc: 7500, dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: JB.nom }, sortie: null, apporteurId: null, personnes: [] } });
@@ -854,8 +866,8 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
     expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
     expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 600,00 € HT — non déduits');
     expect(container.querySelector('[data-detail="a-renseigner"]')).toBeNull();
-    // global : JB 1 000 + la part de l'apporteur portée par nos sociétés (80 % de 2 000 HT = 1 600) ; Mylène (associée) n'est pas déduite.
-    expect(texte('[data-commissions-ht]')).toBe('2 600,00 € HT');
+    // global : JB 1 000 + l'apporteur 2 000 + l'inter-cabinet extérieur 1 600 ; MACJ (3 200) neutralisé ; Mylène (associée) n'est pas déduite.
+    expect(texte('[data-commissions-ht]')).toBe('4 600,00 € HT');
     const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
     listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties: inconnu }, lignes: [ligneC(1, JB.nom, 'entree', 1000), ligneC(2, MY.nom, 'sortie', 600)] }];
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -863,7 +875,7 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
     await cliquer('[data-vue="compromis"]');
     await cliquer('[data-tuile="commissions"]');
     expect(texte('[data-detail="a-renseigner"]')).toBe('Statut à renseigner : 600,00 € HT — non déduits');
-    expect(texte('[data-commissions-ht]')).toBe('2 600,00 € HT');
+    expect(texte('[data-commissions-ht]')).toBe('4 600,00 € HT');
   });
 });
 
@@ -879,5 +891,110 @@ describe('🔴 LOT P — sous le bouton négociateur : son statut à la date de 
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : à renseigner (à confirmer) — commission non déduite');
+  });
+});
+
+describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la rémunération (taux × la part), « Appliquer le calcul »', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const AR = { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo' as const };
+  const PT = { id: 8, nom: 'Pierre Thevenin', societe: 'macj' as const };
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // HEIDIDON, telle que la recette la porte : 4 000 TTC, Arnaud (CRITERIMMO, associé) 50 % à l'entrée, Pierre (MACJ, indépendant) 50 % à la sortie, 2 000 TTC saisis chacun.
+  const heididon: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, origine: 'import', apporteur: null, prixVente: null,
+    repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 2, negociateur: AR.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
+      { sorte: 'sortie', compteId: 8, negociateur: PT.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: AR.nom }, sortie: { id: 8, nom: PT.nom }, apporteurId: null },
+    lignes: [lc(443, AR.nom, 'entree', 2000), lc(444, PT.nom, 'sortie', 2000)] };
+  const miroir = async () => (await import('../../../../lib/transaction/interCabinet')).venteDansSociete(heididon, 'macj')!;
+  const ouvrirMacj = async () => { await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer(); };
+
+  it('CRITERIMMO : CA 4 000 TTC ; « Inter-cabinet vers MACJ » 2 000 TTC dans les commissions versées ; solde 2 000 TTC ; la répartition dit qui porte et ce qui est reversé', async () => {
+    listeCompromis = [heididon];
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-ca-ttc]')).toBe('4 000,00 € TTC');
+    expect(texte('[data-commissions-ttc]')).toBe('2 000,00 € TTC versées');
+    expect(texte('[data-solde-ttc]')).toBe('2 000,00 € TTC');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 1 666,67 € HT (2 000,00 € TTC)');
+    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 1 666,67 € HT — non déduits');
+    await deplier(38);
+    expect(texte('[data-ca-vente-compromis="criterimmo"]')).toBe('CA de la vente — CRITERIMMO (société porteuse)CRITERIMMO100 %3 333,33 € HT');
+    expect(texte('[data-reverse-compromis="macj"]')).toBe('dont reversé en inter-cabinet vers MACJMACJ50 %1 666,67 € HT');
+    // Arnaud : 2 000 saisis ; le calcul (50 % × sa part, 2 000) = 1 000 — la valeur saisie n'est pas recalculée, le calcul est proposé
+    expect(texte('[data-ecart-remuneration="entree"]')).toBe('valeur saisie — calcul proposé : 1 000,00 € TTC (50 % × 2 000,00 € TTC)Appliquer le calcul');
+    expect(posts).toEqual([]);
+    await cliquer('[data-appliquer-calcul-carte="entree"]');
+    expect(posts.at(-1)).toEqual({ action: 'commission-cote', id: 38, cote: 'entree', montant: { montant: 1000, unite: 'ttc' }, taux: 50 });
+  });
+
+  it('MACJ : la LIGNE MIROIR « HEIDIDON — inter-cabinet reçu de CRITERIMMO », 2 000 TTC en tête (jamais 4 000) ; non modifiable ; « Voir la vente d’origine »', async () => {
+    listeCompromis = [await miroir()];
+    await ouvrirMacj(); await cliquer('[data-vue="compromis"]');
+    const carte = '[data-compromis="38"]';
+    expect(container.querySelector(carte)!.getAttribute('data-miroir')).toBe('38');
+    expect(texte(`${carte} [data-carte="titre"]`)).toBe('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
+    expect([...container.querySelector(`${carte} [data-carte="montants"]`)!.children].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['2 000,00 € TTC', '1 666,67 € HT', 'inter-cabinet reçu']);
+    expect(texte(carte)).not.toContain('4 000');
+    // les tuiles : CA = sa part ; Pierre (indépendant, 2 000 saisis) déduit ; solde 0 tant que le calcul n'est pas appliqué
+    expect(texte('[data-ca-ttc]')).toBe('2 000,00 € TTC');
+    expect(texte('[data-commissions-ttc]')).toBe('2 000,00 € TTC versées');
+    expect(texte('[data-solde-ttc]')).toBe('0,00 € TTC');
+    expect(texte('[data-part-compromis="macj"]')).toBe('CA de la vente : 1 666,67 € HT · dont reversé en inter-cabinet : 0,00 € HT · dont reçu en inter-cabinet : 1 666,67 € HT');
+    await cliquer('[data-deplier="miroir-38"]');
+    expect(container.querySelector(`${carte} [data-modifier-compromis]`)).toBeNull();
+    expect(container.querySelector(`${carte} [data-acte-signe]`)).toBeNull();
+    expect(container.querySelector(`${carte} [data-annulation-compromis]`)).toBeNull();
+    expect(container.querySelector(`${carte} [data-voir-origine="38"]`)!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
+    expect(texte('[data-remuneration-calcul="sortie"]')).toBe('Calcul : 50 % × 2 000,00 € TTC (CA que la vente apporte à MACJ) = 1 000,00 € TTC');
+    expect(texte('[data-remuneration-saisie="sortie"]')).toBe('Rémunération : 2 000,00 € TTC (soit 1 666,67 € HT)');
+    expect(texte('[data-ecart-remuneration="sortie"]')).toContain('valeur saisie — calcul proposé : 1 000,00 € TTC');
+    expect(posts).toEqual([]);
+    await cliquer('[data-appliquer-calcul-carte="sortie"]');
+    // enregistrée sur la VENTE D'ORIGINE (n° 38), côté sortie : aucune donnée dupliquée
+    expect(posts.at(-1)).toEqual({ action: 'commission-cote', id: 38, cote: 'sortie', montant: { montant: 1000, unite: 'ttc' }, taux: 50 });
+  });
+
+  it('MACJ : « Modifier la rémunération » — un taux de 60 % recalcule le montant (1 200), un montant recalcule le taux ; « Valider » l’enregistre', async () => {
+    listeCompromis = [await miroir()];
+    await ouvrirMacj(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
+    await cliquer('[data-modifier-remuneration="sortie"]');
+    await saisir('[data-taux="remuneration-sortie"]', '60');
+    expect((container.querySelector('[data-champ="remuneration-sortie"]') as HTMLInputElement).value.replace(/\s/g, ' ')).toBe('1 200,00');
+    await cliquer('[data-valider-remuneration="sortie"]');
+    expect(posts.at(-1)).toMatchObject({ action: 'commission-cote', id: 38, cote: 'sortie', montant: { montant: 1200, unite: 'ttc' }, taux: 60 });
+    await cliquer('[data-modifier-remuneration="sortie"]');
+    await saisir('[data-champ="remuneration-sortie"]', '500');
+    expect((container.querySelector('[data-taux="remuneration-sortie"]') as HTMLInputElement).value).toBe('25');
+  });
+
+  it('une ligne miroir annulée (vente annulée, ou plus de part) : dans « Compromis annulés », sans « Rétablir » — elle suit la vente d’origine', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [];
+    listeAnnules = [venteDansSociete({ ...heididon, statut: 'annulee', annulation: { date: '2026-10-28', motif: 'Défaut de crédit', note: null } }, 'macj')!];
+    await ouvrirMacj(); await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-deplier="compromis-annules"]');
+    expect(texte('[data-compromis-annule="38"]')).toContain('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
+    expect(container.querySelector('[data-retablir-compromis="38"]')).toBeNull();
+    expect(container.querySelector('[data-miroir-annule="38"] [data-voir-origine="38"]')).not.toBeNull();
+  });
+
+  it('le CA global : 4 000 TTC une fois ; « Inter-cabinet entre nos sociétés : 1 666,67 € HT (neutralisé) »', async () => {
+    listeCompromis = [heididon];
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-ca-ttc]')).toBe('4 000,00 € TTC');
+    expect(texte('[data-neutralise-compromis]')).toBe('Inter-cabinet entre nos sociétés : 1 666,67 € HT (neutralisé)');
+    expect([texte('[data-part-compromis="criterimmo"]'), texte('[data-part-compromis="macj"]')]).toEqual(['CA CRITERIMMO : 3 333,33 € HT', 'CA MACJ : 1 666,67 € HT']);
+  });
+
+  it('« Voir la vente d’origine » : la carte visée s’ouvre (?vente=38)', async () => {
+    listeCompromis = [heididon];
+    window.history.replaceState(null, '', '/admin/transaction/criterimmo?vente=38');
+    await ouvrir();
+    expect(container.querySelector('[data-carte-compromis="38"]')!.getAttribute('data-replie')).toBe('ouvert');
   });
 });

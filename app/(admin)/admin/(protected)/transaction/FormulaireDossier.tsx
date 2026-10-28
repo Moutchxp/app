@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, commissionsResolues, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { BlocRepartition, commissionsResolues, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { commissionDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
@@ -44,10 +44,13 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
   const retro = v?.retroApporteur ?? (v?.repartition && v.repartition.retroApporteurTtc !== 0 ? { montant: v.repartition.retroApporteurTtc, unite: 'ttc' as const } : null);
   // LOT O (Arno) — une commission déjà enregistrée : telle quelle, jamais recalculée. Sinon, PROPOSÉE (part de ce côté × commission TTC)
   // pour un compromis neuf ou un compromis réparti ; sans répartition (import « toute la commission à … ») : vide. TTC par défaut.
+  // LOT R — le taux de rémunération enregistré (absent : 50 %, le défaut) accompagne la commission.
   const commission = (cote: 'entree' | 'sortie') => {
     const c = v === null ? null : commissionDuCote(v, cote);
-    if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite };
-    return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null };
+    const t = v?.lignes.find((l) => l.role === 'negociateur' && l.cote === cote)?.taux;
+    const taux = t == null ? {} : { taux: texteTaux(t) };
+    if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite, ...taux };
+    return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null, ...taux };
   };
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
     retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
@@ -65,8 +68,8 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
     // LOT O — une commission proposée part comme elle s'affiche (c'est « Enregistrer » qui la valide).
     // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
     ...(r.commissions != null ? { commissions: {
-      entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite },
-      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite } } } : {}) };
+      entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite, taux: r.commissions.entree.taux ?? null },
+      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null } } } : {}) };
 }
 
 export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {

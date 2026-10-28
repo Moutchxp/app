@@ -1,8 +1,8 @@
 'use client';
 
 import { ListeChoix } from '../location/ListeChoix';
-import { commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
-import { autreUnite, LIBELLE_UNITE, UNITES } from '../../../../lib/transaction/commissions';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
@@ -31,7 +31,12 @@ export interface MontantEcran { texte: string; unite: Unite;
    * LOT O — vrai : la commission n'est pas saisie, elle est PROPOSÉE (part de ce côté × commission TTC), recalculée à l'écran et convertie
    * quand l'unité change ; une frappe la rend saisie. Rien n'est écrit avant « Valider » / « Enregistrer ».
    */
-  auto?: boolean }
+  auto?: boolean;
+  /**
+   * 🔴 LOT R — le taux de rémunération (%) d'une commission de négociateur, tel que saisi ; absent ou vide : 50 %. Le montant proposé =
+   * taux × la base (le CA que la vente apporte à sa société) ; un montant saisi recalcule le taux (l'un recalcule l'autre).
+   */
+  taux?: string }
 /**
  * `parties[0]` : la ligne « Entrée du mandat », `parties[1]` : « Sortie du mandat » (toujours là) ; ensuite les parties extérieures.
  * LOT I (437) — `retroUnite` : l'unité de la rétrocession ; `commissions` : les commissions versées aux négociateurs d'entrée et de sortie
@@ -227,7 +232,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                     propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission)}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
-              {!interne && <span className="loc-muet">Hors de nos chiffres : dans le CA d’aucune société.</span>}
+              {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse (dans ses commissions versées).</span>}
             </li>
           );
         })}
@@ -242,10 +247,19 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           {motifTotal !== null && <span className="trx-alerte" role="status" data-motif-repartition>{motifTotal}</span>}
           {motifAutre !== null && <span className="trx-alerte" role="status" data-motif-repartition-autre>{motifAutre}</span>}
           {motifChoix !== null && <span className="trx-alerte" role="status" data-motif-societe-vente>{motifChoix}</span>}
+          {parties.length > 0 && (() => {
+            // 🔴 LOT R — la société PORTEUSE (négociateur d'entrée) encaisse le CA de la vente ; la part de l'autre société lui est reversée.
+            const b = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro } }, null);
+            const porteuse = b.porteuse;
+            const verse = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro } }, porteuse);
+            return <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), {eur(b.caHt)} HT
+              {sommeSocietes(verse.verseHt) + verse.exterieurHt > 0 ? ` · dont reversé en inter-cabinet : ${[...SOCIETES.filter((s) => verse.verseHt[s] > 0).map((s) => `vers ${LIBELLE_SOCIETE[s]} ${eur(verse.verseHt[s])} HT`),
+                ...(verse.exterieurHt > 0 ? [`extérieur ${eur(verse.exterieurHt)} HT`] : [])].join(' · ')}` : ' · rien de reversé en inter-cabinet'}</span>;
+          })()}
           {parties.length > 0 && (
             // LOT N — chaque part avec son % de la commission nette, comme dans le tableau de la carte.
             <span className="loc-muet" data-parts-societes>{SOCIETES.map((s) => `Part ${LIBELLE_SOCIETE[s]} : ${eur(parSociete.societe[s])} HT (${pctTexte(pcts.societe[s])})`).join(' · ')}
-              {parSociete.exterieurHt > 0 ? ` · part extérieure (hors CA) : ${eur(parSociete.exterieurHt)} HT (${pctTexte(pcts.exterieur)})` : ''}</span>
+              {parSociete.exterieurHt > 0 ? ` · part extérieure (inter-cabinet extérieur) : ${eur(parSociete.exterieurHt)} HT (${pctTexte(pcts.exterieur)})` : ''}</span>
           )}
         </li>
       </ul>
@@ -271,15 +285,22 @@ export function equivalent(m: MontantEcran): string | null {
  */
 export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose = null }: {
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
-  /** LOT O — la commission proposée (part de ce côté × commission TTC) ; montrée tant que le champ n'est pas saisi (`auto`). */
+  /**
+   * LOT O / R — la rémunération proposée (taux × la part de ce côté) ; montrée tant que le champ n'est pas saisi (`auto`). Avec elle, le
+   * champ « Taux de rémunération (%) » (l'un recalcule l'autre) et, pour une valeur saisie qui diffère du calcul, « Appliquer le calcul ».
+   */
   propose?: Proposition | null;
 }) {
   const valeur = montantEffectif(brute, propose);
   const eq = equivalent(valeur);
+  const avecTaux = propose !== undefined;
+  const pctTexte = (x: number): string => x.toLocaleString('fr-FR', { maximumFractionDigits: 4 });
   return (
     <div className="trx-montant-unite" data-montant-unite={champ}>
+      {avecTaux && <label>Taux de rémunération (%)
+        <input inputMode="decimal" value={brute.taux ?? texteTaux(TAUX_REMUNERATION_DEFAUT)} onChange={(e) => onChange(saisirTaux(brute, e.target.value))} data-taux={champ} /></label>}
       <label>{mot} ({LIBELLE_UNITE[valeur.unite]})
-        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange({ texte: e.target.value, unite: valeur.unite, auto: false })} data-champ={champ} /></label>
+        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: valeur.unite }, e.target.value, propose ?? null) : { texte: e.target.value, unite: valeur.unite, auto: false })} data-champ={champ} /></label>
       <div className="trx-unites" role="group" aria-label={`Unité : ${mot}`}>
         {UNITES.map((u) => (
           <button key={u} type="button" className="trx-unite" aria-pressed={valeur.unite === u} disabled={u === 'ht' && !avecHt}
@@ -287,8 +308,11 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
         ))}
       </div>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
-      {brute.auto === true && propose !== null && <span className="loc-muet" data-propose={champ}>
-        proposé : {propose.pct.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % de {eur(propose.baseTtc)} TTC</span>}
+      {brute.auto === true && propose != null && <span className="loc-muet" data-propose={champ}>
+        proposé : {pctTexte(propose.taux)} % de {eur(propose.baseTtc)} TTC (sa part : {pctTexte(propose.pct)} % de la commission nette)</span>}
+      {ecartCalcul(brute, propose ?? null) && propose != null && <span className="trx-ecart-calcul" data-ecart-calcul={champ}>
+        <span className="trx-alerte">valeur saisie — calcul proposé : {eur(propose.ttc)} TTC</span>
+        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...brute, auto: true })} data-appliquer-calcul={champ}>Appliquer le calcul</button></span>}
       {aide !== undefined && <span className="loc-muet">{aide}</span>}
       {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
     </div>
@@ -332,21 +356,51 @@ export function ChoixSocieteVente({ valeur, onChoisir, cle }: { valeur: Societe 
 
 // ── LOT O : la commission versée proposée ─────────────────────────────────────────────────────────────────────────────────
 
-/** La commission proposée d'un côté : sa part (en %) dans la répartition, la commission TTC du compromis, et leur produit (TTC). */
-export interface Proposition { pct: number; baseTtc: number; ttc: number }
+/**
+ * La rémunération proposée d'un côté : la part de ce côté (en % de la commission nette), sa BASE (le CA que la vente apporte à la société
+ * du négociateur, TTC), le taux de rémunération (%), et le calcul (TTC).
+ */
+export interface Proposition { pct: number; baseTtc: number; taux: number; ttc: number }
 
 /**
- * 🔴 LOT O (Arno) — LA COMMISSION VERSÉE PROPOSÉE d'un côté = la part de ce côté dans la répartition (sa ligne : en %, ou en € HT
- * ramenée en %) × la commission TTC du compromis (ex. 50 % × 7 500 € = 3 750 € TTC). null : pas de négociateur, part nulle, ou commission
- * illisible — le champ reste vide. PUR.
+ * 🔴 LOT R (Arno) — LA RÉMUNÉRATION PROPOSÉE d'un côté = taux de rémunération (50 % par défaut, modifiable) × la BASE : la part de ce côté
+ * dans la répartition (sa ligne : en %, ou en € HT ramenée en %) × la commission nette de l'apporteur, en TTC — le CA que la vente apporte
+ * à sa société (ex. Pierre : 50 % × 2 000 € = 1 000 € TTC). Remplace la proposition du lot O (100 % de la part, sur la commission
+ * entière). null : pas de négociateur, part nulle, ou commission illisible — le champ reste vide. PUR.
  */
-export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'>, cote: 'entree' | 'sortie', honorairesTtc: number): Proposition | null {
+export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'> & Partial<Pick<EtatRepartition, 'commissions'>>, cote: 'entree' | 'sortie', honorairesTtc: number): Proposition | null {
   const p = etat.parties[cote === 'entree' ? 0 : 1];
   if (p === undefined || p.compteId === null || !Number.isFinite(honorairesTtc) || honorairesTtc <= 0) return null;
   const x = nombre(p.texte);
   if (x === null) return null;
+  const netTtc = honorairesTtc - retroTtcDe(etat);
   const pct = p.mode === 'pct' ? x : pourcentageDe(x, commissionNetteHt(honorairesTtc, retroTtcDe(etat)));
-  return pct > 0 ? { pct, baseTtc: honorairesTtc, ttc: (honorairesTtc * pct) / 100 } : null;
+  const taux = tauxDe(etat.commissions?.[cote]);
+  const baseTtc = (netTtc * pct) / 100;
+  return pct > 0 ? { pct, baseTtc, taux, ttc: (baseTtc * taux) / 100 } : null;
+}
+
+/** Le taux de rémunération d'un champ (saisi, sinon 50 %). PUR. */
+export const tauxDe = (m: Pick<MontantEcran, 'taux'> | null | undefined): number => nombre(m?.taux ?? '') ?? TAUX_REMUNERATION_DEFAUT;
+/** Le texte d'un taux (« 50 », « 62,5 »). PUR. */
+export const texteTaux = (x: number): string => String(Number(x.toPrecision(12))).replace('.', ',');
+
+/** 🔴 LOT R — un montant saisi recalcule le taux (montant TTC ÷ base) ; sans base, le taux reste. PUR. */
+export function saisirMontant(m: MontantEcran, texte: string, propose: Proposition | null): MontantEcran {
+  const x = nombre(texte);
+  const ttc = x === null ? null : m.unite === 'ttc' ? x : x * TVA;
+  const t = ttc === null || propose === null ? null : tauxDuMontant(ttc, propose.baseTtc);
+  return { ...m, texte, auto: false, ...(t !== null ? { taux: texteTaux(t) } : {}) };
+}
+/** 🔴 LOT R — un taux saisi recalcule le montant : le champ redevient « proposé » (taux × base). PUR. */
+export const saisirTaux = (m: MontantEcran, taux: string): MontantEcran => ({ ...m, taux, auto: true });
+
+/** 🔴 LOT R — la valeur saisie diffère-t-elle du calcul (« valeur saisie — calcul proposé : X € ») ? PUR. */
+export function ecartCalcul(m: MontantEcran, propose: Proposition | null): boolean {
+  if (m.auto === true || propose === null) return false;
+  const x = nombre(m.texte);
+  if (x === null) return false;
+  return Math.abs((m.unite === 'ttc' ? x : x * TVA) - propose.ttc) >= 0.005;
 }
 
 const texteCentimes = (x: number): string => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -365,6 +419,7 @@ export function montantEffectif(m: MontantEcran, propose: Proposition | null): M
 export function commissionsResolues(etat: EtatRepartition, honorairesTtc: number): EtatRepartition {
   if (etat.commissions == null) return etat;
   const c = etat.commissions;
-  const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc)); return { texte: e.texte, unite: e.unite }; };
+  const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc));
+    return { texte: e.texte, unite: e.unite, ...(c[cote].taux !== undefined ? { taux: c[cote].taux } : {}) }; };
   return { ...etat, commissions: { entree: r('entree'), sortie: r('sortie') } };
 }

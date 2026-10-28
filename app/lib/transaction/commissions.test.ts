@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autreUnite, commissionDuCote, statutDeLigne, statutDePartie, enHt, enTtc, fractionSociete, montantDeLigne, partDuCote, societeDeLigne, tuilesCompromis } from './commissions';
+import { autreUnite, commissionDuCote, statutDeLigne, statutDePartie, enHt, enTtc, montantDeLigne, partDuCote, societeDeLigne, tuilesCompromis } from './commissions';
 import { caHt, payeTtcDe, type LigneVente, type Partie, type Vente } from './modele';
 
 /** TUILE « TRANSACTION », LOT I — commissions versées en HT ou en TTC, et les 4 tuiles de l'onglet « Compromis ». */
@@ -74,27 +74,33 @@ describe('les 4 tuiles de l’onglet « Compromis »', () => {
   retroApporteur: { montant: 2400, unite: 'ttc' },
   lignes: [ligne({ cote: 'entree', montantHt: 1000, montantTtc: 1200 }), ligne({ id: 2, negociateur: 'Mylène', cote: 'sortie', montantTtc: 600 })] });
 
-  it('la répartition par société est respectée : CA = part de la commission entière ; chaque négociateur à SA société ; l’apporteur au prorata', () => {
-    expect(fractionSociete(repartie, 'criterimmo')).toBe(0.5);
-    expect(fractionSociete(repartie, 'macj')).toBeCloseTo(0.3, 12);
+  it('🔴 LOT R — l’inter-cabinet : la porteuse (entrée) encaisse tout et reverse ; l’autre société a sa part ; le groupe compte une fois', () => {
     expect(societeDeLigne(repartie, repartie.lignes[1])).toBe('macj');
+    // CRITERIMMO porte (JB à l'entrée) : CA = la commission totale (10 000 HT) ; versé : apporteur 2 000, MACJ 2 400 (30 % de 8 000), extérieur 1 600, JB 1 000.
     const c = tuilesCompromis([repartie], 'criterimmo');
-    expect(c.caHt).toBe(5000);
+    expect(c.caHt).toBe(10000);
     expect(c.independantsHt).toBe(1000); // JB seul (Mylène est MACJ)
-    expect(c.apporteursHt).toBe(1000); // 50 % de 2 000 HT
-    // Le solde redonne la part nette de la répartition (4 000) moins la commission de JB.
-    expect(c.soldeHt).toBe(caHt(repartie, 'criterimmo') - 1000);
+    expect(c.apporteursHt).toBe(2000);
+    expect(c.interCabinetHt).toEqual({ criterimmo: 0, macj: 2400 });
+    expect(c.exterieurHt).toBe(1600);
+    expect(c.commissionsHt).toBe(7000);
+    // Le solde redonne la part nette de CRITERIMMO dans la répartition (4 000) moins la commission de JB.
+    expect(c.soldeHt).toBe(3000);
+    // MACJ : sa part reçue (2 400) ; Mylène, indépendante, déduite ; pas d'apporteur (la porteuse le paie, coût partagé par la commission nette).
     const m = tuilesCompromis([repartie], 'macj');
-    expect(m.caHt).toBeCloseTo(3000, 9);
+    expect(m.caHt).toBe(2400);
+    expect(m.recuHt).toBe(2400);
     expect(m.independantsHt).toBe(500);
-    expect(m.apporteursHt).toBeCloseTo(600, 9);
-    // Le CA global = la somme des deux sociétés (la part extérieure, hors CA, n'y entre pas) ; rien n'est compté deux fois.
+    expect(m.apporteursHt).toBe(0);
+    expect(m.soldeHt).toBe(1900);
+    // Le groupe : la commission une fois (10 000) ; l'inter-cabinet MACJ (2 400) neutralisé ; versé : indépendants + apporteur + extérieur.
     const g = tuilesCompromis([repartie], null);
-    expect(g.caHt).toBeCloseTo(c.caHt + m.caHt, 9);
-    expect(g.commissionsHt).toBeCloseTo(c.commissionsHt + m.commissionsHt, 9);
+    expect(g.caHt).toBe(10000);
+    expect(g.neutraliseHt).toBe(2400);
+    expect(g.commissionsHt).toBe(1500 + 2000 + 1600);
     expect(g.soldeHt).toBeCloseTo(c.soldeHt + m.soldeHt, 9);
-    expect(g.partHt.criterimmo).toBe(5000);
-    expect(g.exterieurHt).toBe(1600);
+    expect(g.caSocieteHt).toEqual({ criterimmo: 10000, macj: 2400 });
+    expect(g.caHt).toBe(g.caSocieteHt.criterimmo + g.caSocieteHt.macj - g.neutraliseHt);
   });
   it('une rétrocession saisie en HT pèse son montant HT (rien n’est converti en base)', () => {
     const v = vente({ retroApporteur: { montant: 1000, unite: 'ht' } });
