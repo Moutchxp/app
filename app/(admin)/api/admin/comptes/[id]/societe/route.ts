@@ -24,7 +24,7 @@ export async function POST(request: Request, ctx: Ctx) {
   try {
     const r = await definirSocieteCompte(Number(id), b.societe, depuis, await auteurDeLaRequete(request));
     if (r.ok) return Response.json({ ok: true, change: r.change });
-    return Response.json({ erreur: r.motif }, { status: r.motif.includes('434') ? 409 : r.motif === 'Compte introuvable.' ? 404 : 422 });
+    return Response.json({ erreur: r.motif }, { status: /migration 43[48]/.test(r.motif) ? 409 : r.motif === 'Compte introuvable.' ? 404 : 422 });
   } catch {
     return Response.json({ erreur: 'Modification impossible.' }, { status: 500 });
   }

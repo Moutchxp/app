@@ -9,10 +9,22 @@ import type { Societe } from './modele';
  *     compte par son prénom (ou « prénom nom ») quand UN SEUL compte correspond.
  */
 
-export interface PeriodeSociete { societe: Societe; depuis: string }
+/**
+ * 🔴 LOT K (Arno, 28/10/2026) — LA SOCIÉTÉ D'UN COMPTE : CRITERIMMO, MACJ, ou LES DEUX (« CRITERIMMO et MACJ ») — un collaborateur qui
+ * peut négocier pour l'une ou l'autre. Règle générique : aucun nom en dur. Pour un tel compte, la société d'une vente se CHOISIT à la
+ * saisie, côté par côté, et s'enregistre sur la vente (sa partie) ; elle ne dépend pas du compte.
+ */
+export const LES_DEUX = 'les_deux' as const;
+export type SocieteCompte = Societe | typeof LES_DEUX;
+export const estSocieteCompte = (x: unknown): x is SocieteCompte => x === 'criterimmo' || x === 'macj' || x === LES_DEUX;
+export const LIBELLE_SOCIETE_COMPTE: Record<SocieteCompte, string> = { criterimmo: 'CRITERIMMO', macj: 'MACJ', les_deux: 'CRITERIMMO et MACJ' };
+/** La société qu'une partie reçoit d'office d'un compte : la sienne ; « les deux » : aucune (à choisir pour cette vente). PUR. */
+export const societeDOffice = (s: SocieteCompte | null | undefined): Societe | null => (s === 'criterimmo' || s === 'macj' ? s : null);
+
+export interface PeriodeSociete { societe: SocieteCompte; depuis: string }
 
 /** La société d'un compte à une date (« AAAA-MM-JJ ») : la période la plus récente commencée ce jour-là ; avant la première, la première. PUR. */
-export function societeALaDate(periodes: readonly PeriodeSociete[], date: string): Societe | null {
+export function societeALaDate(periodes: readonly PeriodeSociete[], date: string): SocieteCompte | null {
   if (periodes.length === 0) return null;
   const triees = [...periodes].sort((a, b) => a.depuis.localeCompare(b.depuis));
   const commencees = triees.filter((p) => p.depuis <= date);

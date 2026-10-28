@@ -464,13 +464,14 @@ describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
     listeCompromis = [{ ...compromis, prixVente: 240000 }, importe];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41); await deplier(12);
     const intitules = (id: number) => [...container.querySelectorAll(`[data-compromis="${id}"] [data-informations-communes] dt`)].map((x) => x.textContent);
-    expect(intitules(41)).toEqual(['Taux de commission', 'Date du compromis', 'Apporteur']);
-    expect(intitules(12)).toEqual(['Libellé du fichier', 'Taux de commission', 'Date du compromis', 'Apporteur']);
+    expect(intitules(41)).toEqual(['Taux de commission', 'Dates', 'Apporteur']); // LOT K : « Dates » (compromis signé + vente définitive)
+    expect(intitules(12)).toEqual(['Libellé du fichier', 'Taux de commission', 'Dates', 'Apporteur']);
     expect(texte('[data-compromis="41"] [data-info="taux"] dd')).toBe('5,00 % du prix de vente');
     expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('calculé dès la saisie du prix de vente');
     // ce qui est en tête de carte n'est pas répété dans le corps
     const corps = texte('[data-compromis="41"] [data-informations-communes]');
-    for (const x of ['1 rue A, Puteaux', '240 000,00 €', '15/01/2027', '12 000,00 € TTC']) expect(corps).not.toContain(x);
+    // LOT K — accord d'Arno : la date butoir revient dans la case « Dates » (le reste du « zéro doublon » tient).
+    for (const x of ['1 rue A, Puteaux', '240 000,00 €', '12 000,00 € TTC']) expect(corps).not.toContain(x);
   });
   it('plus de « (prévisionnel AAAA) », ni dans l’onglet Compromis ni dans « L’année »', async () => {
     listeCompromis = [importe];
@@ -654,5 +655,90 @@ describe('🔴 LOT J — taux de commission, montant de l’apporteur, part du n
     // Import « toute la commission à CRITERIMMO », négociateur posé sans répartition : pas de pourcentage.
     await carte({ ...importe, dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: JB.nom }, sortie: null, apporteurId: null, personnes: [] } });
     expect(bouton('entree')).toBe('Négociateur : Jean-Baptiste PONS (CRITERIMMO)');
+  });
+});
+
+describe('🔴 LOT K — collaborateur des deux sociétés ; la case « Dates »', () => {
+  const CJ = { id: 9, nom: 'Cédric JULLIEN', societe: 'les_deux' as const };
+  const negos = references.negociateurs;
+  beforeEach(() => { (references as { negociateurs: unknown[] }).negociateurs = [JB, MY, AU, CJ]; });
+  afterEach(() => { (references as { negociateurs: unknown[] }).negociateurs = negos; });
+  const onglet = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+  const choisir = async (champ: string, id: number) => { await cliquer(`[data-champ="${champ}"]`); await cliquer(`[role="option"][data-option="${id}"]`); };
+  const enregistrer = () => container.querySelector('[data-enregistrer-dossier]') as HTMLButtonElement;
+  type Envoi = { dossier: { parties: { sorte: string; compteId: number | null; societe: string | null }[] } };
+
+  it('formulaire : un compte « les deux » ⇒ choix obligatoire ; sans choix, Enregistrer désactivé avec le message, saisie conservée', async () => {
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '12000');
+    await saisir('[data-personne-nom="0"]', 'DUPONT');
+    await choisir('entree', 9);
+    expect(container.querySelector('[data-choix-societe-vente="partie-0"]')).not.toBeNull();
+    expect(texte('[data-societe-partie="0"]')).toBe('société à choisir pour cette vente');
+    expect(enregistrer().disabled).toBe(true);
+    expect(texte('[data-enregistrer-bloque-societe]')).toMatch(/Cédric JULLIEN travaille pour CRITERIMMO et pour MACJ : choisissez/);
+    expect((container.querySelector('[data-personne-nom="0"]') as HTMLInputElement).value).toBe('DUPONT');
+    await cliquer('[data-choix-societe-vente="partie-0"] [data-societe-vente="macj"]');
+    expect(enregistrer().disabled).toBe(false);
+    await cliquer('[data-enregistrer-dossier]');
+    const e = posts.at(-1) as Envoi;
+    expect(e.dossier.parties.map((p) => [p.sorte, p.compteId, p.societe])).toEqual([['entree', 9, 'macj']]);
+  });
+  it('un compte à UNE société : aucune question', async () => {
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    await choisir('entree', 5);
+    expect(container.querySelector('[data-choix-societe-vente]')).toBeNull();
+    expect(texte('[data-societe-partie="0"]')).toBe('CRITERIMMO');
+  });
+  it('bouton de la carte : la société de la VENTE dans le libellé « (MACJ) (50 %) » ; sans choix, refus clair ; changer de société se renvoie', async () => {
+    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 9, negociateur: CJ.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null },
+      { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null }] },
+    dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom } } };
+    listeCompromis = [v];
+    await onglet(); await deplier(41);
+    expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Cédric JULLIEN (MACJ) (50 %)');
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(container.querySelector('[data-choix-societe-vente="carte-entree"] [data-societe-vente="macj"]')!.getAttribute('aria-pressed')).toBe('true');
+    await cliquer('[data-choix-societe-vente="carte-entree"] [data-societe-vente="criterimmo"]');
+    await cliquer('[data-valider-negociateur]');
+    const e = posts.at(-1) as Envoi;
+    expect(e.dossier.parties.map((p) => [p.compteId, p.societe])).toEqual([[9, 'criterimmo'], [7, 'macj']]);
+    // Un compromis sans lui : le choisir sans société est refusé, rien n'est envoyé.
+    act(() => { root.unmount(); }); root = createRoot(container); posts = [];
+    listeCompromis = [{ ...importe }];
+    await onglet(); await deplier(12);
+    await cliquer('[data-negociateur-carte="entree"]');
+    await cliquer('[data-liste-negociateur="entree"]');
+    await cliquer('[role="option"][data-option="9"]');
+    await cliquer('[data-valider-negociateur]');
+    expect(posts).toEqual([]);
+    expect(texte('[data-choix-negociateur="entree"] [role="alert"]')).toMatch(/travaille pour CRITERIMMO et pour MACJ : choisissez/);
+  });
+  it('le CA va à la société CHOISIE sur la vente (tuiles)', async () => {
+    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 9, negociateur: CJ.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 100, montantHt: null }] },
+    dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom }, sortie: null } };
+    listeCompromis = [v];
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-part-compromis="macj"]')).toBe('Part MACJ : 10 000,00 € HT');
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : 0,00 € HT');
+  });
+  it('« Dates » : compromis signé au-dessus, vente définitive au-dessous ; absente « à renseigner » ; dépassée en rouge', async () => {
+    listeCompromis = [compromis, { ...depasse, dateCompromis: null }];
+    await onglet(); await deplier(41); await deplier(30);
+    expect([...container.querySelectorAll('[data-compromis="41"] [data-info="dates"] dd [data-date]')].map((x) => x.textContent))
+      .toEqual(['Compromis signé le 20/10/2026', 'Vente définitive au plus tard le 15/01/2027']);
+    expect(texte('[data-compromis="30"] [data-date="compromis"]')).toBe('Compromis signé le : à renseigner');
+    const b = container.querySelector('[data-compromis="30"] [data-date="butoir"]')!;
+    expect(b.textContent).toBe('Vente définitive au plus tard le 01/10/2026 — dépassée');
+    expect(b.className).toBe('trx-depassee');
+    listeCompromis = [{ ...compromis, dossier: { ...compromis.dossier!, dateActePrevue: null } }];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await onglet(); await deplier(41);
+    expect(texte('[data-compromis="41"] [data-date="butoir"]')).toBe('Vente définitive au plus tard le : à renseigner');
   });
 });

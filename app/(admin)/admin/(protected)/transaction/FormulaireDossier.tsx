@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, etatSomme, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { BlocRepartition, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { commissionDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
@@ -91,6 +91,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const taux = tauxDuPrix(commission, nombre(champs.prixVente));
   // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
   const somme = etatSomme(repartition, commission);
+  // LOT K — un collaborateur des deux sociétés sans société choisie pour cette vente : « Enregistrer » désactivé, la saisie reste.
+  const manqueSociete = motifSocieteVente(repartition, references.negociateurs);
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
     window.addEventListener('keydown', clavier);
@@ -163,9 +165,10 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
             <div className="trx-plein trx-actions">
-              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null} data-enregistrer-dossier>Enregistrer</button>
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null || manqueSociete !== null} data-enregistrer-dossier>Enregistrer</button>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
               {somme.motif !== null && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
+              {somme.motif === null && manqueSociete !== null && <span className="trx-explication" data-enregistrer-bloque-societe>Enregistrer est désactivé : {manqueSociete}</span>}
             </div>
           </form>
           {vente !== null && <Journal entite="vente" id={vente.id} onFait={onFait} />}

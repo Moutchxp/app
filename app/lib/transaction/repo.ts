@@ -9,7 +9,7 @@ import { estSociete, TVA, type Attribution, type CaARattacher, type DossierVente
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { libelleDesPersonnes, personneExistante } from './personnes';
-import { societeALaDate, type PeriodeSociete } from './societeNegociateur';
+import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 
 export interface AuteurTx { id: number | null; libelle: string }
 export type Issue<T = undefined> = { ok: true; valeur?: T } | { ok: false; motif: string };
@@ -462,7 +462,8 @@ async function defaireEnsemble(q: RequeteTx, j: Record<string, unknown>, journal
   return { ok: true };
 }
 
-export interface NegociateurCompte { id: number; nom: string; actif: boolean; societe: Societe | null; periodes: PeriodeSociete[] }
+/** `societe` : celle d'aujourd'hui — LOT K : « les_deux » pour un collaborateur des deux sociétés (choisie vente par vente). */
+export interface NegociateurCompte { id: number; nom: string; actif: boolean; societe: SocieteCompte | null; periodes: PeriodeSociete[] }
 
 /** Les comptes (négociateurs possibles) avec leurs périodes de société ; `societe` : celle d'aujourd'hui. */
 export async function lireNegociateurs(aujourdhui: string): Promise<NegociateurCompte[]> {
@@ -478,7 +479,7 @@ export async function lireNegociateurs(aujourdhui: string): Promise<NegociateurC
 export async function lirePeriodesSociete(ids: readonly number[]): Promise<Map<number, PeriodeSociete[]>> {
   const out = new Map<number, PeriodeSociete[]>();
   if (ids.length === 0 || !(await repartitionDisponible())) return out;
-  const { rows } = await query<{ compte_id: string; societe: Societe; depuis: string }>(
+  const { rows } = await query<{ compte_id: string; societe: SocieteCompte; depuis: string }>(
     `SELECT compte_id, societe, to_char(depuis, 'YYYY-MM-DD') AS depuis FROM transaction_societe_compte
       WHERE retire_le IS NULL AND compte_id = ANY($1::bigint[]) ORDER BY depuis, id`, [[...ids]]);
   for (const r of rows) out.set(n(r.compte_id), [...(out.get(n(r.compte_id)) ?? []), { societe: r.societe, depuis: r.depuis }]);
@@ -520,10 +521,18 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   if (cs.length !== comptesIds.length) return { ok: false, motif: 'Négociateur inconnu.' };
   const periodes = await lirePeriodesSociete(comptesIds);
   const nomDe = new Map(cs.map((c) => [n(c.id), String(c.nom)]));
+  // 🔴 LOT K — un collaborateur des DEUX sociétés : la société de sa partie est celle CHOISIE pour cette vente (obligatoire) ; tout autre
+  // collaborateur garde la sienne, relue en base à la date de la vente (ce que l'écran envoie pour lui est ignoré).
+  const societeDuCompte = (id: number): SocieteCompte | null => societeALaDate(periodes.get(id) ?? [], dateVente);
+  for (const p of s.parties) {
+    if (p.sorte === 'exterieure' || p.compteId === null || societeDuCompte(p.compteId) !== LES_DEUX || p.societe != null) continue;
+    return { ok: false, motif: `${nomDe.get(p.compteId) ?? 'Ce négociateur'} travaille pour CRITERIMMO et pour MACJ : choisissez pour quelle société il travaille sur cette vente (${p.sorte === 'sortie' ? 'sortie' : 'entrée'} du mandat). Rien n’a été enregistré.` };
+  }
   const parties: Partie[] = s.parties.map((p) => (p.sorte === 'exterieure'
     ? { sorte: p.sorte, compteId: null, negociateur: null, societe: null, nom: p.nom, coordonnees: p.coordonnees, pourcentage: p.pourcentage, montantHt: p.montantHt }
     : { sorte: p.sorte, compteId: p.compteId, negociateur: p.compteId === null ? null : nomDe.get(p.compteId) ?? null,
-      societe: p.compteId === null ? null : societeALaDate(periodes.get(p.compteId) ?? [], dateVente), nom: null, coordonnees: null, pourcentage: p.pourcentage, montantHt: p.montantHt }));
+      societe: p.compteId === null ? null : societeDuCompte(p.compteId) === LES_DEUX ? p.societe ?? null : societeDOffice(societeDuCompte(p.compteId)),
+      nom: null, coordonnees: null, pourcentage: p.pourcentage, montantHt: p.montantHt }));
   // ② la répartition (somme = 100 %, sociétés connues, apporteur déduit d'abord)
   const repartie = s.entreeId !== null || s.sortieId !== null || parties.length > 0;
   if (repartie) {

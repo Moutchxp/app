@@ -3,6 +3,7 @@
 import { ListeChoix } from '../location/ListeChoix';
 import { commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, UNITES } from '../../../../lib/transaction/commissions';
+import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
 
@@ -19,7 +20,8 @@ import { eur } from './commun';
  *     la saisie reste à l'écran. Le serveur revérifie tout.
  */
 
-export interface NegociateurRef { id: number; nom: string; societe: Societe | null }
+/** LOT K — `societe` : « les_deux » pour un collaborateur des deux sociétés (la société se choisit alors vente par vente). */
+export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null }
 export interface ApporteurRef { id: number; nom: string }
 /** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
 export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
@@ -68,7 +70,7 @@ export function versModele(parties: readonly PartieEcran[]): Partie[] {
 }
 
 const ligne = (sorte: 'entree' | 'sortie', n: NegociateurRef | undefined, pct: number): PartieEcran => ({ sorte, compteId: n?.id ?? null, negociateur: n?.nom ?? null,
-  societe: n?.societe ?? null, nom: null, coordonnees: null, mode: 'pct', texte: texteNombre(pct) });
+  societe: societeDOffice(n?.societe), nom: null, coordonnees: null, mode: 'pct', texte: texteNombre(pct) });
 /** Les pourcentages par défaut des deux lignes : différents ⇒ 50/50 ; un seul ou le même ⇒ 100/0 ; aucun ⇒ 50/50 (à choisir). PUR. */
 export function defautsLignes(entreeId: number | null, sortieId: number | null): [number, number] {
   if (entreeId !== null && sortieId !== null) return entreeId === sortieId ? [100, 0] : [50, 50];
@@ -124,7 +126,7 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
   const sortieId = cote === 'sortie' ? id : etat.sortieId;
   const n = id === null ? undefined : negos.find((x) => x.id === id);
   const i = cote === 'entree' ? 0 : 1;
-  const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: n?.societe ?? null } : p));
+  const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: societeDOffice(n?.societe) } : p));
   const deux = (e: number | null, s: number | null): boolean => e !== null && s !== null && e !== s;
   // LOT I — le négociateur retiré : la commission de ce côté n'a plus de destinataire, elle est vidée (rien n'est encore enregistré).
   const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '' } } : etat.commissions;
@@ -158,8 +160,11 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
   const parSociete = partsParSociete(parties, commission, retro);
   const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro);
-  const motifAutre = autre !== null && motifTotal === null ? autre : null;
-  const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE[n.societe]}` }));
+  const motifAutre = autre !== null && motifTotal === null && motifSocieteVente(etat, negociateurs) === null ? autre : null;
+  const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[n.societe]}` }));
+  // LOT K — un collaborateur des deux sociétés : la société de SA partie se choisit pour cette vente (obligatoire).
+  const deux = (p: PartieEcran): boolean => estDesDeux(p, negociateurs);
+  const motifChoix = motifSocieteVente(etat, negociateurs);
   const choisirNego = (i: 0 | 1, v: string): void => onChange(changerNegociateur(etat, i === 0 ? 'entree' : 'sortie', v === '' ? null : Number(v), negociateurs));
   const changerPartie = (i: number, p: Partial<PartieEcran>): void => onChange({ ...etat, parties: etat.parties.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const changerPart = (i: number, mode: 'pct' | 'eur', texte: string): void => onChange({ ...etat, parties: saisirPart(etat.parties, i, mode, texte, net) });
@@ -186,7 +191,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
               <div className="trx-partie-tete">
                 <strong>{interne ? LIBELLE_PARTIE[p.sorte] : 'Partie extérieure'}</strong>
                 {interne && <span className={p.compteId !== null && p.societe === null ? 'trx-alerte' : 'loc-muet'} data-societe-partie={i}>
-                  {p.compteId === null ? 'négociateur à choisir' : p.societe === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE[p.societe]}</span>}
+                  {p.compteId === null ? 'négociateur à choisir' : p.societe === null ? (deux(p) ? 'société à choisir pour cette vente' : '⚠ société à renseigner dans Comptes') : LIBELLE_SOCIETE[p.societe]}</span>}
                 {!interne && <button type="button" className="trx-croix" aria-label="Retirer cette partie extérieure" title="Retirer cette partie extérieure"
                   onClick={() => onChange({ ...etat, parties: retirerPartie(etat.parties, i, net) })} data-retirer-exterieure>×</button>}
               </div>
@@ -202,7 +207,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                 <label>Part (%)<input inputMode="decimal" value={pctAffiche} onChange={(e) => changerPart(i, 'pct', e.target.value)} data-partie-pct={i} /></label>
                 <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPart(i, 'eur', e.target.value)} data-partie-eur={i} /></label>
               </div>
-              {interne && p.compteId !== null && p.societe === null && (
+              {interne && deux(p) && <ChoixSocieteVente valeur={p.societe} onChoisir={(s) => onChange(choisirSocietePartie(etat, i, s))} cle={`partie-${i}`} />}
+              {interne && p.compteId !== null && p.societe === null && !deux(p) && (
                 <span className="trx-alerte" role="status" data-explication-societe={i}>
                   La répartition ne peut pas affecter cette part : {p.negociateur} n’a pas de société (CRITERIMMO ou MACJ). Renseignez-la dans Comptes.</span>
               )}
@@ -227,6 +233,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           {parties.length === 0 && <span className="loc-muet" data-sans-repartition>Aucun négociateur choisi : pas de répartition, toute la commission va à {LIBELLE_SOCIETE[societeVente]}.</span>}
           {motifTotal !== null && <span className="trx-alerte" role="status" data-motif-repartition>{motifTotal}</span>}
           {motifAutre !== null && <span className="trx-alerte" role="status" data-motif-repartition-autre>{motifAutre}</span>}
+          {motifChoix !== null && <span className="trx-alerte" role="status" data-motif-societe-vente>{motifChoix}</span>}
           {parties.length > 0 && (
             <span className="loc-muet" data-parts-societes>{SOCIETES.map((s) => `Part ${LIBELLE_SOCIETE[s]} : ${eur(parSociete.societe[s])} HT`).join(' · ')}
               {parSociete.exterieurHt > 0 ? ` · part extérieure (hors CA) : ${eur(parSociete.exterieurHt)} HT` : ''}</span>
@@ -270,6 +277,41 @@ export function ChampMontantUnite({ mot, valeur, onChange, avecHt, champ, aide }
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
       {aide !== undefined && <span className="loc-muet">{aide}</span>}
       {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
+    </div>
+  );
+}
+
+// ── LOT K : un collaborateur des deux sociétés ───────────────────────────────────────────────────────────────────────────
+
+/** La partie est-elle celle d'un collaborateur « CRITERIMMO et MACJ » (sa société se choisit pour la vente) ? PUR. */
+export const estDesDeux = (p: Pick<PartieEcran, 'sorte' | 'compteId'>, negos: readonly NegociateurRef[]): boolean =>
+  p.sorte !== 'exterieure' && p.compteId !== null && negos.find((n) => n.id === p.compteId)?.societe === LES_DEUX;
+
+/** La société choisie pour cette vente sur la partie `i`. PUR. */
+export const choisirSocietePartie = (etat: EtatRepartition, i: number, societe: Societe): EtatRepartition =>
+  ({ ...etat, parties: etat.parties.map((p, j) => (j === i ? { ...p, societe } : p)) });
+
+/**
+ * 🔴 LOT K — LE CHOIX OBLIGATOIRE : null si chaque collaborateur des deux sociétés a sa société pour cette vente, sinon la phrase (le
+ * formulaire désactive « Enregistrer », la saisie reste ; le serveur refuse aussi). PUR.
+ */
+export function motifSocieteVente(etat: Pick<EtatRepartition, 'parties'>, negos: readonly NegociateurRef[]): string | null {
+  const p = etat.parties.find((x, i) => estDesDeux(x, negos) && x.societe === null && !(i === 1 && x.compteId === etat.parties[0]?.compteId && (nombre(x.texte) ?? 0) === 0));
+  return p === undefined ? null
+    : `${p.negociateur ?? 'Ce négociateur'} travaille pour CRITERIMMO et pour MACJ : choisissez pour quelle société il travaille sur cette vente (${p.sorte === 'sortie' ? 'sortie' : 'entrée'} du mandat).`;
+}
+
+/** « Pour cette vente, il travaille pour : CRITERIMMO / MACJ » — deux boutons de 44 px, le choisi enfoncé (le mot, jamais la couleur seule). */
+export function ChoixSocieteVente({ valeur, onChoisir, cle }: { valeur: Societe | null; onChoisir: (s: Societe) => void; cle: string }) {
+  return (
+    <div className="trx-societe-vente" role="group" aria-label="Pour cette vente, il travaille pour" data-choix-societe-vente={cle}>
+      <span className="trx-societe-vente-mot">Pour cette vente, il travaille pour :</span>
+      <div className="trx-unites">
+        {SOCIETES.map((s) => (
+          <button key={s} type="button" className="trx-unite" aria-pressed={valeur === s} onClick={() => onChoisir(s)} data-societe-vente={s}>{LIBELLE_SOCIETE[s]}</button>
+        ))}
+      </div>
+      {valeur === null && <span className="trx-alerte" data-societe-vente-manque>choix obligatoire</span>}
     </div>
   );
 }

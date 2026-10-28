@@ -368,3 +368,28 @@ describe('🔴 LOT I — « Annuler » les commissions versées', () => {
     expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
   });
 });
+
+describe('🔴 LOT K — collaborateur des deux sociétés : la société se choisit SUR LA VENTE', () => {
+  const dossier = (parties: unknown[]) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: null, honorairesTtc: 12000, dateCompromis: '2026-10-20',
+    dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId: 9, sortieId: 5, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const,
+    personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: null, email: null, adresse: null }], parties: parties as never, lignes: [], prixVente: null });
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY') ? { rows: [{ id: '9', nom: 'Cédric JULLIEN' }, { id: '5', nom: 'Jean-Baptiste PONS' }] } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '9', societe: 'les_deux', depuis: '2000-01-01' }, { compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' }] } : undefined);
+  const pa = (sorte: string, compteId: number, societe: string | null) => ({ sorte, compteId, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, societe });
+  beforeEach(() => { lotD.mockResolvedValue(true); });
+
+  it('sans société choisie : refus clair AVANT toute écriture', async () => {
+    reponses.push(comptes, periodes);
+    const r = await repo.enregistrerDossier(null, dossier([pa('entree', 9, null), pa('sortie', 5, null)]), '2026-10-28', A);
+    expect(r.ok ? '' : r.motif).toMatch(/Cédric JULLIEN travaille pour CRITERIMMO et pour MACJ : choisissez .* \(entrée du mandat\)/);
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+  it('la société choisie est FIGÉE sur sa partie ; un compte à une société garde la sienne (ce que l’écran envoie est ignoré)', async () => {
+    let id = 40;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    expect((await repo.enregistrerDossier(null, dossier([pa('entree', 9, 'macj'), pa('sortie', 5, 'macj')]), '2026-10-28', A)).ok).toBe(true);
+    const parties = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_partie'));
+    expect(parties.map((x) => [x.params[2], x.params[4]])).toEqual([[9, 'macj'], [5, 'criterimmo']]);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2])).toContain('repartition');
+  });
+});

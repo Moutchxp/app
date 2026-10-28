@@ -141,7 +141,8 @@ export function lireGestion(brut: unknown): Lu<GestionSaisie> {
 // ── LOT D (migration 434) : un compromis ou une vente avec son dossier et sa répartition ─────────────────────────────────────────
 
 export interface PersonneSaisie { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null }
-export interface PartieSaisie { sorte: SortePartie; compteId: number | null; nom: string | null; coordonnees: string | null; pourcentage: number | null; montantHt: number | null }
+/** LOT K — `societe` : la société CHOISIE pour cette vente (collaborateur des deux sociétés) ; pour les autres, le serveur l'ignore. */
+export interface PartieSaisie { sorte: SortePartie; compteId: number | null; nom: string | null; coordonnees: string | null; pourcentage: number | null; montantHt: number | null; societe?: Societe | null }
 export interface DossierSaisie {
   societe: Societe;
   statut: 'compromis' | 'vendue';
@@ -218,7 +219,9 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
     const pc = montant(o.pourcentage);
     const m = montant(o.montantHt);
     if (pc === undefined || m === undefined) return refus('Part illisible : un pourcentage ou un montant en chiffres.');
-    parties.push({ sorte: o.sorte as SortePartie, compteId, nom: texte(o.nom), coordonnees: texte(o.coordonnees), pourcentage: pc, montantHt: pc === null ? m : null });
+    if (o.societe != null && !estSociete(o.societe)) return refus('Société inconnue pour cette vente (CRITERIMMO ou MACJ).');
+    parties.push({ sorte: o.sorte as SortePartie, compteId, nom: texte(o.nom), coordonnees: texte(o.coordonnees), pourcentage: pc, montantHt: pc === null ? m : null,
+      societe: estSociete(o.societe) ? o.societe : null });
   }
   const lignes = lireParts(c.lignes);
   if (!lignes.ok) return lignes;

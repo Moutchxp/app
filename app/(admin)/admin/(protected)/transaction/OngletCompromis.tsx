@@ -7,7 +7,8 @@ import { commissionDuCote, partDuCote, retroApporteurDe, tuilesCompromis } from 
 import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { changerNegociateur, ChampMontantUnite, etatSomme, type EtatRepartition, type MontantEcran } from './Repartition';
+import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, motifSocieteVente, type EtatRepartition, type MontantEcran } from './Repartition';
+import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
@@ -186,7 +187,15 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                         {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
                         {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
                         {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
-                        {info('Date du compromis', date(v.dateCompromis), 'date-compromis')}
+                        {/* 🔴 LOT K (Arno) — UNE case « Dates », l'une au-dessus de l'autre : le compromis signé, puis la vente définitive au plus
+                            tard (rouge et « dépassée » si la date est passée) ; chacune « à renseigner » si absente. (Accord d'Arno : la date
+                            butoir revient ici malgré la règle « zéro doublon » du lot H.) */}
+                        {info('Dates', <span className="trx-dates">
+                          <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>
+                            {v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
+                          <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                            {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+                        </span>, 'dates')}
                         {/* LOT I — la rétrocession dans SON unité, avec son équivalent (« 500,00 € HT (soit 600,00 € TTC) »). */}
                         {/* LOT J (Arno) — sur la même ligne, à droite du nom : le montant de la rétrocession, son unité et son équivalent ;
                             sans rétrocession, « montant à renseigner ». */}
@@ -280,16 +289,32 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
   const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ht' };
   const [commission, setCommission] = useState<MontantEcran>(initiale);
-  const societe = (id: number): Societe | null => v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe
-    ?? references.negociateurs.find((n) => n.id === id)?.societe ?? null;
-  const libelleSociete = (s: Societe | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE[s]);
+  // La société affichée : celle de SA partie sur cette vente (côté de ce bouton d'abord) ; à défaut, celle de son compte.
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
+  const societeVente = (id: number): Societe | null => v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null && sortes.includes(p.sorte))?.societe
+    ?? v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe ?? null;
+  const societe = (id: number): SocieteCompte | null => societeVente(id) ?? references.negociateurs.find((n) => n.id === id)?.societe ?? null;
+  const libelleSociete = (s: SocieteCompte | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[s]);
+  // 🔴 LOT K — un collaborateur des DEUX sociétés : « Pour cette vente, il travaille pour : CRITERIMMO / MACJ », obligatoire.
+  const choisi = choix === '' ? null : Number(choix);
+  const desDeux = choisi !== null && references.negociateurs.find((n) => n.id === choisi)?.societe === LES_DEUX;
+  const societeInitiale = actuel !== null && choisi === actuel.id ? societeVente(actuel.id) : null;
+  const [societeChoisie, setSocieteChoisie] = useState<Societe | null>(societeInitiale);
   const mot = cote === 'entree' ? 'entrée' : 'sortie';
   const enregistrer = async (id: number | null): Promise<void> => {
     setMotif(null);
+    if (id !== null && desDeux && societeChoisie === null) {
+      setMotif(`${references.negociateurs.find((n) => n.id === id)?.nom ?? 'Ce négociateur'} travaille pour CRITERIMMO et pour MACJ : choisissez pour quelle société il travaille sur cette vente. Rien n’a été enregistré.`);
+      return;
+    }
     const memeCommission = commission.texte === initiale.texte && commission.unite === initiale.unite;
-    if ((actuel?.id ?? null) === id && (!avecUnite || memeCommission)) { setOuvert(false); return; }
+    const memeSociete = !desDeux || societeChoisie === societeInitiale;
+    if ((actuel?.id ?? null) === id && (!avecUnite || memeCommission) && memeSociete) { setOuvert(false); return; }
     const change = (actuel?.id ?? null) === id ? base : changerNegociateur(base, cote, id, references.negociateurs);
-    const etat: EtatRepartition = change.commissions != null && id !== null ? { ...change, commissions: { ...change.commissions, [cote]: commission } } : change;
+    const avecCommission: EtatRepartition = change.commissions != null && id !== null ? { ...change, commissions: { ...change.commissions, [cote]: commission } } : change;
+    const etat = id !== null && desDeux && societeChoisie !== null ? choisirSocietePartie(avecCommission, cote === 'entree' ? 0 : 1, societeChoisie) : avecCommission;
+    const manque = motifSocieteVente(etat, references.negociateurs);
+    if (manque !== null) { setOuvert(false); onRevoir(etat, manque); return; }
     const somme = etatSomme(etat, v.honorairesTtc);
     if (somme.motif !== null) { setOuvert(false); onRevoir(etat, `Le négociateur de ${mot} a changé : la répartition est à revoir. ${somme.motif}`); return; }
     setEnvoi(true);
@@ -309,7 +334,9 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <label>Négociateur de {mot} du mandat
             <ListeChoix options={references.negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${libelleSociete(n.societe)}` }))} valeur={choix} vide="— à choisir —"
-              libelle={`Négociateur de ${mot} du mandat`} onChange={setChoix} donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
+              libelle={`Négociateur de ${mot} du mandat`} onChange={(x) => { setChoix(x); setSocieteChoisie(actuel !== null && x === String(actuel.id) ? societeVente(actuel.id) : null); }}
+              donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
+          {desDeux && <ChoixSocieteVente valeur={societeChoisie} onChoisir={(s) => { setSocieteChoisie(s); setMotif(null); }} cle={`carte-${cote}`} />}
           {avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} />
             : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>}
           <div className="trx-actions">

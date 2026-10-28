@@ -116,3 +116,12 @@ describe('🔴 LOT J — la part de la vente du négociateur d’un côté', () 
     expect(partDuCote(v([pa('entree', 5, 100)], 5, null), 'sortie')).toBeNull();
   });
 });
+
+describe('🔴 LOT K — le CA va à la société choisie sur la vente', () => {
+  it('la partie d’un collaborateur des deux sociétés porte la société de la vente : CA, commission et solde y vont', () => {
+    const v = vente({ repartition: { retroApporteurTtc: 0, parties: [partie({ negociateur: 'Cédric', compteId: 9, societe: 'macj', pourcentage: 100 })] },
+      lignes: [ligne({ negociateur: 'Cédric', cote: 'entree', montantHt: 1000, montantTtc: 1200 })] });
+    expect(tuilesCompromis([v], 'macj')).toMatchObject({ caHt: 10000, negociateursHt: 1000, soldeHt: 9000 });
+    expect(tuilesCompromis([v], 'criterimmo')).toMatchObject({ caHt: 0, negociateursHt: 0 });
+  });
+});

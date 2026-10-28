@@ -179,6 +179,11 @@ export const CSS_TRANSACTION = `
 .trx-unite:disabled{opacity:.5;cursor:not-allowed}
 .trx-unite:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .trx-negociateur-commission{font-size:.88rem}
+/* LOT K — « Pour cette vente, il travaille pour : CRITERIMMO / MACJ » (collaborateur des deux sociétés). */
+.trx-societe-vente{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.trx-societe-vente-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+/* LOT K — la case « Dates » : les deux dates l'une au-dessus de l'autre. */
+.trx-dates{display:flex;flex-direction:column;gap:2px}
 /* LOT J — l'apporteur et le montant de sa rétrocession sur la même ligne (le montant à droite du nom ; il passe dessous si la place manque). */
 .trx-apporteur{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 16px}
 .trx-apporteur-montant{font-variant-numeric:tabular-nums}

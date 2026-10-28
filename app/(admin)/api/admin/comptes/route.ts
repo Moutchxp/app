@@ -9,8 +9,8 @@ import { envoyerInvitation, etatsInvitations, type IssueEnvoi } from '../../../.
 import { phraseEnvoi } from '../../../../lib/admin/invitation';
 /* TRANSACTION, LOT D (434) — la société (CRITERIMMO / MACJ), obligatoire à la création dès que la 434 est appliquée. */
 import { definirSocieteCompte, societesDesComptes } from '../../../../lib/admin/societeCompte';
-import { repartitionDisponible } from '../../../../lib/admin/schemaDroits';
-import { estSociete } from '../../../../lib/transaction/modele';
+import { repartitionDisponible, societeLesDeuxDisponible } from '../../../../lib/admin/schemaDroits';
+import { estSocieteCompte, LES_DEUX } from '../../../../lib/transaction/societeNegociateur';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 
@@ -31,8 +31,10 @@ export async function GET(request: Request) {
     // LOT D — la société de chaque compte (lecture à part ; sans la 434 ou en échec : non renseignée, la liste reste).
     const societes = await societesDesComptes(comptes.map((c) => Number(c.id))).catch(() => new Map());
     const societeDisponible = await repartitionDisponible().catch(() => false);
+    // LOT K — « CRITERIMMO et MACJ » enregistrable (438) ?
+    const societeLesDeux = societeDisponible && await societeLesDeuxDisponible().catch(() => false);
     // Sans la 434, la réponse reste celle d'avant (aucune clé `societe`) : l'écran ne montre alors pas la ligne « Société ».
-    return Response.json({ societeDisponible, comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null,
+    return Response.json({ societeDisponible, ...(societeDisponible ? { societeLesDeux } : {}), comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null,
       ...(societeDisponible ? { societe: societes.get(Number(c.id)) ?? null } : {}) })) });
   } catch {
     return Response.json({ erreur: 'Liste indisponible.' }, { status: 503 });
@@ -97,8 +99,12 @@ export async function POST(request: Request) {
 
   // TRANSACTION, LOT D — « Société : CRITERIMMO / MACJ », obligatoire à la création une fois la 434 appliquée (sans elle : ni exigée ni écrite).
   const avecSociete = await repartitionDisponible().catch(() => false);
-  if (avecSociete && !estSociete(b.societe)) {
-    return Response.json({ erreur: 'Choisissez la société du collaborateur : CRITERIMMO ou MACJ.', champ: 'societe' }, { status: 422 });
+  if (avecSociete && !estSocieteCompte(b.societe)) {
+    return Response.json({ erreur: 'Choisissez la société du collaborateur : CRITERIMMO, MACJ, ou CRITERIMMO et MACJ.', champ: 'societe' }, { status: 422 });
+  }
+  // LOT K — « CRITERIMMO et MACJ » avant la 438 : refusé AVANT de créer le compte (rien n'est écrit).
+  if (avecSociete && b.societe === LES_DEUX && !(await societeLesDeuxDisponible().catch(() => false))) {
+    return Response.json({ erreur: 'Mise à jour de la base à appliquer (migration 438) avant de pouvoir choisir « CRITERIMMO et MACJ ».', champ: 'societe' }, { status: 409 });
   }
 
   const motDePasseTemporaire = genererMotDePasseTemporaire();

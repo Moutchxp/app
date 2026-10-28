@@ -22,22 +22,26 @@ interface CompteVue {
   /** TRANSACTION, LOT D (434) — la société d'aujourd'hui ; null : à renseigner ; absent : réponse d'avant ce lot. */
   societe?: SocieteCompte | null;
 }
-export type SocieteCompte = 'criterimmo' | 'macj';
-export const LIBELLE_SOCIETE_COMPTE: Record<SocieteCompte, string> = { criterimmo: 'CRITERIMMO', macj: 'MACJ' };
-export interface SocieteVue { valeur: SocieteCompte | null; disponible: boolean; periodes: { societe: SocieteCompte; depuis: string; origine: 'saisie' | 'deduction'; poseLe: string; posePar: string; motif: string | null }[] }
+/** LOT K (Arno, 28/10/2026) — « les_deux » : un collaborateur qui négocie pour CRITERIMMO ET pour MACJ (la société se choisit vente par vente). */
+export type SocieteCompte = 'criterimmo' | 'macj' | 'les_deux';
+export const LIBELLE_SOCIETE_COMPTE: Record<SocieteCompte, string> = { criterimmo: 'CRITERIMMO', macj: 'MACJ', les_deux: 'CRITERIMMO et MACJ' };
+export interface SocieteVue { valeur: SocieteCompte | null; disponible: boolean; lesDeux?: boolean; periodes: { societe: SocieteCompte; depuis: string; origine: 'saisie' | 'deduction'; poseLe: string; posePar: string; motif: string | null }[] }
 export const MSG_SOCIETE_OBLIGATOIRE = 'Société obligatoire : CRITERIMMO ou MACJ.';
 
 /**
  * 🔴 TRANSACTION, LOT D (Arno, 27/10/2026) — « SOCIÉTÉ : CRITERIMMO / MACJ ». Deux boutons (●/○, `aria-pressed`), comme « Oui / Non » :
  * l'état se lit sans la couleur ; « à renseigner » écrit en toutes lettres tant que rien n'est choisi.
  */
-export function ChoixSociete({ valeur, disabled, onChoisir, idGroupe }: {
+export function ChoixSociete({ valeur, disabled, onChoisir, idGroupe, lesDeux = false }: {
   valeur: SocieteCompte | null; disabled?: boolean; onChoisir: (v: SocieteCompte) => void; idGroupe: string;
+  /** LOT K — la 438 est-elle appliquée (« CRITERIMMO et MACJ » enregistrable) ? Sans elle : le choix est montré grisé. */
+  lesDeux?: boolean;
 }) {
   return (
     <div className="cpt-ouinon" role="group" aria-labelledby={idGroupe} data-choix-societe>
-      {(['criterimmo', 'macj'] as const).map((v) => (
-        <button key={v} type="button" className="cpt-ouinon__btn" aria-pressed={valeur === v} disabled={disabled} onClick={() => onChoisir(v)} data-societe={v}>
+      {(['criterimmo', 'macj', 'les_deux'] as const).map((v) => (
+        <button key={v} type="button" className="cpt-ouinon__btn" aria-pressed={valeur === v} disabled={disabled || (v === 'les_deux' && !lesDeux)} onClick={() => onChoisir(v)} data-societe={v}
+          title={v === 'les_deux' && !lesDeux ? 'Disponible après la mise à jour de la base (migration 438)' : undefined}>
           <span className="cpt-ouinon__ind" aria-hidden="true">{valeur === v ? '●' : '○'}</span>
           {LIBELLE_SOCIETE_COMPTE[v]}
         </button>
@@ -274,7 +278,10 @@ export function DetailContenu({
       {compte.societeDetail !== undefined && (
         <div className="cpt-identite" role="group" aria-labelledby={`societe-${compte.id}`} style={{ marginTop: 8 }} data-societe-compte>
           <div className="cpt-perms-titre" id={`societe-${compte.id}`}>Société</div>
-          <ChoixSociete valeur={societeChoisie} disabled={enCours || !compte.societeDetail.disponible} onChoisir={(v) => onChoisirSociete?.(v)} idGroupe={`societe-${compte.id}`} />
+          <ChoixSociete valeur={societeChoisie} disabled={enCours || !compte.societeDetail.disponible} onChoisir={(v) => onChoisirSociete?.(v)} idGroupe={`societe-${compte.id}`}
+            lesDeux={compte.societeDetail.lesDeux === true} />
+          {/* LOT K — « CRITERIMMO et MACJ » : la société se choisit ensuite vente par vente (« Pour cette vente, il travaille pour »). */}
+          <span className="cpt-note" data-note-les-deux>« CRITERIMMO et MACJ » : pour chaque vente, on choisit pour quelle société il travaille.{compte.societeDetail.disponible && compte.societeDetail.lesDeux !== true ? ' Disponible après la mise à jour de la base (migration 438).' : ''}</span>
           {compte.societeDetail.disponible && compte.societeDetail.valeur === null && <span className="cpt-err" role="status" data-societe-a-renseigner>{MSG_SOCIETE_OBLIGATOIRE}</span>}
           {compte.societeDetail.disponible && (
             <>
@@ -592,6 +599,7 @@ export default function ComptesPage() {
   const [envoi, setEnvoi] = useState<ReponseEnvoi>(null); // LOT 5-DROITS — aucune valeur pré-cochée, à la création aussi
   const [societeCreation, setSocieteCreation] = useState<SocieteCompte | null>(null); // TRANSACTION, LOT D (434) — aucune valeur pré-cochée
   const [societeDisponible, setSocieteDisponible] = useState(false);
+  const [societeLesDeux, setSocieteLesDeux] = useState(false); // LOT K (438)
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
   const societeManque = societeDisponible && societeCreation === null;
@@ -601,7 +609,7 @@ export default function ComptesPage() {
       const res = await fetch('/api/admin/comptes');
       if (!res.ok) throw new Error();
       const body = await res.json();
-      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setErreur(null);
+      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setErreur(null);
     } catch { setErreur('Liste indisponible.'); } finally { setChargement(false); }
   }
   useEffect(() => {
@@ -611,7 +619,7 @@ export default function ComptesPage() {
         const res = await fetch('/api/admin/comptes');
         if (!res.ok) throw new Error();
         const body = await res.json();
-        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setErreur(null); }
+        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setErreur(null); }
       } catch { if (!annule) setErreur('Liste indisponible.'); } finally { if (!annule) setChargement(false); }
     })();
     return () => { annule = true; };
@@ -766,7 +774,7 @@ export default function ComptesPage() {
           </select>
           {/* TRANSACTION, LOT D (434) — « Société : CRITERIMMO / MACJ », obligatoire dès la 434 appliquée (sans elle : montrée, non exigée). */}
           <div className="cpt-perms-titre" id="societe-creation">Société</div>
-          <ChoixSociete valeur={societeCreation} disabled={!societeDisponible} onChoisir={setSocieteCreation} idGroupe="societe-creation" />
+          <ChoixSociete valeur={societeCreation} disabled={!societeDisponible} onChoisir={setSocieteCreation} idGroupe="societe-creation" lesDeux={societeLesDeux} />
           {!societeDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 434) avant de pouvoir la renseigner.</span>}
           {societeManque && <p className="cpt-err" role="status" data-societe-creation-manque>{MSG_SOCIETE_OBLIGATOIRE}</p>}
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>

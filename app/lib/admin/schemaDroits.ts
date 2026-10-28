@@ -89,6 +89,22 @@ export function uniteCommissionDisponible(): Promise<boolean> {
   return memoiser('transaction_vente_ligne.montant_ht', () => colonneExiste('transaction_vente_ligne', 'montant_ht'));
 }
 
+/**
+ * TRANSACTION, LOT K — la migration 438 (un compte « CRITERIMMO et MACJ ») est-elle appliquée ? Sans elle : le choix est montré grisé,
+ * rien ne s'écrit (la contrainte de la 434 n'accepte que CRITERIMMO ou MACJ).
+ */
+export function societeLesDeuxDisponible(): Promise<boolean> {
+  return memoiser('transaction_societe_compte.les_deux', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'transaction_societe_compte_societe_check' AND pg_get_constraintdef(oid) LIKE '%les_deux%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

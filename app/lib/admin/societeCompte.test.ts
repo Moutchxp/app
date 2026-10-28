@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * (jamais supprimée) puis remplacée. Base simulée.
  */
 const lotD = vi.fn<() => Promise<boolean>>();
-vi.mock('./schemaDroits', () => ({ repartitionDisponible: () => lotD() }));
+const lotK = vi.fn<() => Promise<boolean>>(async () => false);
+vi.mock('./schemaDroits', () => ({ repartitionDisponible: () => lotD(), societeLesDeuxDisponible: () => lotK() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let periodes: { id: string; societe: string; depuis: string }[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -19,7 +20,7 @@ const q = vi.fn(async (sql: string, params: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), withTransaction: async (fn: (x: typeof q) => unknown) => fn(q) }));
 const m = await import('./societeCompte');
 const A = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
-beforeEach(() => { appels.length = 0; periodes = []; lotD.mockResolvedValue(true); });
+beforeEach(() => { appels.length = 0; periodes = []; lotD.mockResolvedValue(true); lotK.mockResolvedValue(false); });
 
 describe('sans la migration 434', () => {
   it('lue « non disponible », sans une requête ; écrire est refusé avec le motif', async () => {
@@ -53,5 +54,20 @@ describe('avec la 434', () => {
     expect((await m.lireSocieteCompte(5, '2026-10-27')).valeur).toBe('criterimmo');
     expect((await m.lireSocieteCompte(5, '2026-11-02')).valeur).toBe('macj');
     expect((await m.societesDesComptes([5], '2026-11-02')).get(5)).toBe('macj');
+  });
+});
+
+describe('🔴 LOT K (438) — « CRITERIMMO et MACJ »', () => {
+  it('sans la 438 : refusé avec le motif, rien n’est écrit', async () => {
+    expect(await m.definirSocieteCompte(5, 'les_deux', '2026-10-28', A)).toEqual({ ok: false, motif: expect.stringMatching(/migration 438/) });
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+  it('avec la 438 : une période « les_deux », signée ; relue telle quelle (règle générique, aucun nom)', async () => {
+    lotK.mockResolvedValue(true);
+    expect(await m.definirSocieteCompte(5, 'les_deux', '2026-10-28', A)).toEqual({ ok: true, change: true });
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_societe_compte'))!.params.slice(0, 2)).toEqual([5, 'les_deux']);
+    periodes = [{ id: '1', societe: 'les_deux', depuis: '2026-10-28' }];
+    const e = await m.lireSocieteCompte(5, '2026-10-28');
+    expect([e.valeur, e.lesDeux]).toEqual(['les_deux', true]);
   });
 });
