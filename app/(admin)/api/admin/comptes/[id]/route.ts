@@ -5,6 +5,7 @@ import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
 import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
 import { lireResultatNet } from '../../../../../lib/admin/resultatNet';
 import { lireSocieteCompte } from '../../../../../lib/admin/societeCompte';
+import { lireStatutCompte } from '../../../../../lib/admin/statutCompte';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -45,6 +46,8 @@ export async function GET(request: Request, ctx: Ctx) {
       resultatNet: await lireResultatNet(c.id),
       // TRANSACTION, LOT D (434) — la société du collaborateur (CRITERIMMO / MACJ) et ses périodes datées ; sans la 434 : non disponible.
       societeDetail: await lireSocieteCompte(c.id).catch(() => ({ valeur: null, disponible: false, periodes: [] })),
+      // 🔴 LOT P (439) — le statut de la personne et l'historique de ses changements (date, avant, après, auteur).
+      statutDetail: await lireStatutCompte(c.id).catch(() => ({ valeur: null, disponible: false, historique: [] })),
     },
   });
 }

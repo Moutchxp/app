@@ -126,6 +126,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 436 : l'annulation d'un compromis (motif, date, note) (Transaction, 27/10/2026).
   // 437 : les commissions versées (négociateurs, apporteur) saisies en HT ou en TTC (Transaction, 28/10/2026).
   // 438 : un collaborateur des deux sociétés (« CRITERIMMO et MACJ », société choisie vente par vente) (Transaction, 28/10/2026).
+  // 439 : le statut de chaque personne (associé, salarié, indépendant, observateur), figé sur chaque côté de vente (Comptes, 28/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -146,7 +147,8 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '425_location_origine_proprietaire.sql', '426_location_bascule_annexes.sql', '427_location_marge_gli.sql', '428_admin_droit_resultat_net.sql',
     '429_gestion_etape_correction.sql', '430_location_rentre_occupe.sql', '431_location_bascules_octobre_conversion.sql', '432_location_negociateur_alias.sql',
     '433_transaction.sql', '434_transaction_compromis_repartition.sql', '435_transaction_prix_vente.sql', '436_transaction_annulation_compromis.sql',
-    '437_transaction_commissions_unite.sql', '438_transaction_societe_les_deux.sql'];
+    '437_transaction_commissions_unite.sql', '438_transaction_societe_les_deux.sql',
+    '439_admin_statut_compte.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -159,7 +161,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 438 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 439 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -169,14 +171,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (439)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (440)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(438\)/);
-    const renumerotee = planifier([...existants, { fichier: '439_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(439\)/);
+    const renumerotee = planifier([...existants, { fichier: '440_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['439_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['440_permis_emprise_numero_reveil.sql']);
   });
 });
 

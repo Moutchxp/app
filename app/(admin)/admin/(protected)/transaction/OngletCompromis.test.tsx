@@ -17,8 +17,9 @@ const AU = { id: 4, nom: 'Augustin Jorel', societe: null };
 const compromis: Vente = { id: 41, societe: 'criterimmo', libelle: 'DUPONT / MARTIN', honorairesTtc: 12000, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-10-20',
   apporteur: 'Julien Deblois', note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null,
   repartition: { retroApporteurTtc: 2400, parties: [
-    { sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 40, montantHt: null },
-    { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 40, montantHt: null },
+    // LOT P — JB et Mylène sont INDÉPENDANTS (leurs commissions versées entrent dans le cumul).
+    { sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
+    { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
     { sorte: 'exterieure', compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] },
   dossier: { adresseBien: '1 rue A, Puteaux', dateActePrevue: '2027-01-15', dateActe: null, entree: { id: 5, nom: JB.nom }, sortie: { id: 7, nom: MY.nom }, apporteurId: 4,
     personnes: [{ id: 3, role: 'vendeur', nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }, { id: 8, role: 'acquereur', nom: 'MARTIN', telephone: null, email: null, adresse: null }] } };
@@ -528,7 +529,7 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     expect(container.querySelector('[data-detail-commissions]')).toBeNull();
     await cliquer('[data-tuile="commissions"]');
     expect(container.querySelector('[data-tuile="commissions"]')!.getAttribute('aria-expanded')).toBe('true');
-    expect(texte('[data-detail="negociateurs"]')).toBe('Négociateurs : 1 000,00 € HT (1 200,00 € TTC)');
+    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
     expect(texte('[data-detail="apporteurs"]')).toBe('Apporteurs : 800,00 € HT (960,00 € TTC)');
   });
   it('un solde négatif s’affiche tel quel, avec le signe moins', async () => {
@@ -835,5 +836,48 @@ describe('🔴 LOT O — la commission versée PROPOSÉE (part × commission TTC
     expect(champ('[data-champ="commission-carte-entree"]')).toBe('');
     expect(presse('commission-carte-entree', 'ttc')).toBe('true');
     expect(container.querySelector('[data-propose="commission-carte-entree"]')).toBeNull();
+  });
+});
+
+describe('🔴 LOT P — le détail de « Commissions versées » : indépendants, apporteurs, et les internes à part', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const ligneC = (id: number, nego: string, cote: 'entree' | 'sortie', ht: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ht * 1.2, montantHt: ht, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  it('JB indépendant (1 000 HT) déduit ; Mylène associée (600 HT) « Internes … — non déduits » ; un statut inconnu signalé à part', async () => {
+    const parties = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: 'associe' as const } : p));
+    listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties }, lignes: [ligneC(1, JB.nom, 'entree', 1000), ligneC(2, MY.nom, 'sortie', 600)] }];
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
+    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 600,00 € HT — non déduits');
+    expect(container.querySelector('[data-detail="a-renseigner"]')).toBeNull();
+    // global : JB 1 000 + la part de l'apporteur portée par nos sociétés (80 % de 2 000 HT = 1 600) ; Mylène (associée) n'est pas déduite.
+    expect(texte('[data-commissions-ht]')).toBe('2 600,00 € HT');
+    const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
+    listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties: inconnu }, lignes: [ligneC(1, JB.nom, 'entree', 1000), ligneC(2, MY.nom, 'sortie', 600)] }];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="a-renseigner"]')).toBe('Statut à renseigner : 600,00 € HT — non déduits');
+    expect(texte('[data-commissions-ht]')).toBe('2 600,00 € HT');
+  });
+});
+
+describe('🔴 LOT P — sous le bouton négociateur : son statut à la date de la vente', () => {
+  it('figé (« Indépendant — commission déduite ») ; vente d’avant : statut actuel du compte, « à confirmer » ; inconnu : non déduite', async () => {
+    const parties = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: 'salarie' as const } : p));
+    listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties } }];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Indépendant — commission déduite');
+    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : Salarié (statut actuel du compte, à confirmer) — commission interne, non déduite');
+    const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
+    listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties: inconnu } }];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : à renseigner — commission non déduite');
   });
 });

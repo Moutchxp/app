@@ -9,7 +9,7 @@ vi.mock('../../../../lib/admin/invitationRepo', () => ({
 }));
 vi.mock('../../../../lib/db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 // TRANSACTION, LOT D — la sonde de la 434 (société obligatoire à la création) répond « absente » : les séquences de mocks restent celles d'avant.
-vi.mock('../../../../lib/admin/schemaDroits', async (importOriginal) => ({ ...(await importOriginal<object>()), repartitionDisponible: async () => false }));
+vi.mock('../../../../lib/admin/schemaDroits', async (importOriginal) => ({ ...(await importOriginal<object>()), repartitionDisponible: async () => false, statutDisponible: async () => false }));
 // Hachage déterministe (pas d'argon2 réel).
 vi.mock('../../../../lib/admin/motDePasse', () => ({ hacher: (c: string) => Promise.resolve(`HASH:${c}`) }));
 // Mot de passe temporaire figé pour l'assertion exacte.

@@ -74,7 +74,8 @@ describe('lireEtatCompte', () => {
     expect(String(sql).replace(/\s+/g, ' ')).toContain("to_jsonb(u) ->> 'session_version' AS version");
     expect(String(sql)).not.toMatch(/u\.session_version/);
     expect(params).toEqual([3]);
-    expect(e).toEqual({ actif: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true }, empreinteMdp: empreinteMotDePasse('H'), versionSession: null });
+    // LOT P — le statut lu via to_jsonb (null sans la 439 : personne n'est observateur).
+    expect(e).toEqual({ actif: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true }, empreinteMdp: empreinteMotDePasse('H'), versionSession: null, statut: null });
   });
 
   it('version présente (migration 356 appliquée) → nombre ; compte absent → null ; administrateur → tous droits', async () => {

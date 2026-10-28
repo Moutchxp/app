@@ -38,6 +38,8 @@ export interface EtatCompte {
   empreinteMdp: string;
   /** `null` tant que la migration 356 (colonne `session_version`) n'est pas appliquée. */
   versionSession: number | null;
+  /** LOT P (439) — le statut de la personne (« observateur » : lecture seule absolue) ; absent ou null : à renseigner / avant la 439. */
+  statut?: string | null;
 }
 
 /** Relit le compte (une requête, clé primaire). `null` si absent. Lève si la base est injoignable (le proxy refuse alors). */
@@ -45,7 +47,7 @@ export async function lireEtatCompte(id: number): Promise<EtatCompte | null> {
   const { rows } = await query<Record<string, unknown>>(
     `SELECT u.actif, u.role, u.mot_de_passe,
             ${MODULES.map((m) => `to_jsonb(u) ->> 'perm_${m}' AS perm_${m}`).join(', ')},
-            to_jsonb(u) ->> 'session_version' AS version
+            to_jsonb(u) ->> 'session_version' AS version, to_jsonb(u) ->> 'statut' AS statut
        FROM admin_utilisateur u WHERE u.id = $1`,
     [id],
   );
@@ -64,6 +66,8 @@ export async function lireEtatCompte(id: number): Promise<EtatCompte | null> {
     perms,
     empreinteMdp: empreinteMotDePasse(String(r.mot_de_passe ?? '')),
     versionSession: version !== null && Number.isFinite(version) ? version : null,
+    // LOT P — lu en TEXTE via to_jsonb, comme les droits : sans la 439, null (jamais une erreur SQL qui ferait tomber l'admin).
+    statut: typeof r.statut === 'string' ? r.statut : null,
   };
 }
 

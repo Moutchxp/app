@@ -1,5 +1,7 @@
 'use client';
 
+import { AIDE_STATUT, BlocStatutCompte, ChoixStatut, MSG_STATUT_OBLIGATOIRE, type StatutVue } from './StatutCompte';
+import { LIBELLE_STATUT_PERSONNE, type Statut } from '../../../../lib/admin/statut';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
 import type { Perms, RoleAdmin } from '../../../../lib/admin/session';
@@ -21,6 +23,8 @@ interface CompteVue {
   invitation?: InvitationVue | null;
   /** TRANSACTION, LOT D (434) — la société d'aujourd'hui ; null : à renseigner ; absent : réponse d'avant ce lot. */
   societe?: SocieteCompte | null;
+  /** 🔴 LOT P (439) — le statut de la personne ; null : à renseigner ; absent : avant la 439. */
+  statut?: Statut | null;
 }
 /** LOT K (Arno, 28/10/2026) — « les_deux » : un collaborateur qui négocie pour CRITERIMMO ET pour MACJ (la société se choisit vente par vente). */
 export type SocieteCompte = 'criterimmo' | 'macj' | 'les_deux';
@@ -66,6 +70,8 @@ interface DetailCompte extends CompteVue {
   resultatNet?: { valeur: boolean; disponible: boolean };
   /** TRANSACTION, LOT D (434) — la société et ses périodes datées. Absent d'une réponse d'avant ce lot. */
   societeDetail?: SocieteVue;
+  /** 🔴 LOT P (439) — le statut et l'historique de ses changements. Absent d'une réponse d'avant ce lot. */
+  statutDetail?: StatutVue;
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
@@ -201,8 +207,10 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
   onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions,
-  resultatNet = false, onChoisirResultatNet, societeChoisie = null, societeDepuis = '', onChoisirSociete, onSocieteDepuis, onEnregistrerSociete,
+  resultatNet = false, onChoisirResultatNet, societeChoisie = null, societeDepuis = '', onChoisirSociete, onSocieteDepuis, onEnregistrerSociete, onStatutEnregistre,
 }: {
+  /** 🔴 LOT P — après un changement de statut (enregistré par le bloc lui-même) : relire le compte et la liste. */
+  onStatutEnregistre?: () => void;
   /** TRANSACTION, LOT D (434) — la société choisie à l'écran, la date « à compter du », et l'enregistrement (une période datée, journalisée). */
   societeChoisie?: SocieteCompte | null;
   societeDepuis?: string;
@@ -272,6 +280,9 @@ export function DetailContenu({
           {identiteInvalide && <span className="cpt-err" role="status">Prénom et nom sont obligatoires.</span>}
         </div>
       </div>
+
+      {/* 🔴 LOT P (Arno, 28/10/2026, 439) — « STATUT » : Associé, Salarié, Indépendant, Observateur ; obligatoire, journalisé avec sa date. */}
+      {compte.statutDetail !== undefined && <BlocStatutCompte key={`${compte.id}-${compte.statutDetail.valeur ?? ''}`} compteId={compte.id} etat={compte.statutDetail} onFait={() => onStatutEnregistre?.()} />}
 
       {/* ══ TRANSACTION, LOT D (Arno, 27/10/2026, 434) — « SOCIÉTÉ : CRITERIMMO / MACJ », obligatoire, datée : un changement vaut à compter
           de sa date et ne réécrit pas le passé (une vente garde la société de son négociateur au moment de la vente). */}
@@ -523,6 +534,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       {d
         ? <DetailContenu compte={d}
             societeChoisie={societe} societeDepuis={societeDepuis} onChoisirSociete={setSociete} onSocieteDepuis={setSocieteDepuis} onEnregistrerSociete={enregistrerSociete}
+            onStatutEnregistre={() => { void recharger(); onRafraichir(); }}
             perms={perms} peutModifierPermis={peutModifierPermis} envoi={envoi} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
             idPrenom={idPrenom} idNom={idNom} onIdPrenom={setIdPrenom} onIdNom={setIdNom} onEnregistrerIdentite={enregistrerIdentite}
             onToggle={(cle) => {
@@ -600,16 +612,19 @@ export default function ComptesPage() {
   const [societeCreation, setSocieteCreation] = useState<SocieteCompte | null>(null); // TRANSACTION, LOT D (434) — aucune valeur pré-cochée
   const [societeDisponible, setSocieteDisponible] = useState(false);
   const [societeLesDeux, setSocieteLesDeux] = useState(false); // LOT K (438)
+  const [statutCreation, setStatutCreation] = useState<Statut | null>(null); // 🔴 LOT P (439) — aucune valeur pré-cochée
+  const [statutDisponible, setStatutDisponible] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
   const societeManque = societeDisponible && societeCreation === null;
+  const statutManque = statutDisponible && statutCreation === null;
 
   async function recharger() {
     try {
       const res = await fetch('/api/admin/comptes');
       if (!res.ok) throw new Error();
       const body = await res.json();
-      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setErreur(null);
+      setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setErreur(null);
     } catch { setErreur('Liste indisponible.'); } finally { setChargement(false); }
   }
   useEffect(() => {
@@ -619,7 +634,7 @@ export default function ComptesPage() {
         const res = await fetch('/api/admin/comptes');
         if (!res.ok) throw new Error();
         const body = await res.json();
-        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setErreur(null); }
+        if (!annule) { setComptes(body.comptes ?? []); setSocieteDisponible(body.societeDisponible === true); setSocieteLesDeux(body.societeLesDeux === true); setStatutDisponible(body.statutDisponible === true); setErreur(null); }
       } catch { if (!annule) setErreur('Liste indisponible.'); } finally { if (!annule) setChargement(false); }
     })();
     return () => { annule = true; };
@@ -628,15 +643,16 @@ export default function ComptesPage() {
   async function creer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation, statut: statutCreation }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({
           identifiant, motDePasse: body.motDePasseTemporaire,
           invitation: body.invitation ? { ok: body.invitation.ok === true, phrase: String(body.invitation.phrase ?? '') } : null,
         });
-        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null);
+        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null); setStatutCreation(null);
         if (body.societe && body.societe.ok === false) setErreur(String(body.societe.motif ?? 'Société non enregistrée.'));
+        if (body.statut && body.statut.ok === false) setErreur(String(body.statut.motif ?? 'Statut non enregistré.'));
         await recharger();
       } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
     } catch { setErreur('Création impossible.'); } finally { setEnCours(false); }
@@ -699,6 +715,7 @@ export default function ComptesPage() {
           <div className="cpt-nom">{c.prenom} {c.nom}</div>
           <div className="cpt-id">{c.identifiant}</div>
           {c.societe !== undefined && <div className="cpt-meta" data-societe-carte>Société : {c.societe === null ? 'à renseigner' : LIBELLE_SOCIETE_COMPTE[c.societe]}</div>}
+          {c.statut !== undefined && <div className="cpt-meta" data-statut-carte>Statut : {c.statut === null ? 'à renseigner' : LIBELLE_STATUT_PERSONNE[c.statut]}</div>}
           <div className="cpt-meta">{c.role} · créé le : {c.cree_a ? formaterDate(c.cree_a) : '—'} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
           {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
               boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
@@ -777,6 +794,12 @@ export default function ComptesPage() {
           <ChoixSociete valeur={societeCreation} disabled={!societeDisponible} onChoisir={setSocieteCreation} idGroupe="societe-creation" lesDeux={societeLesDeux} />
           {!societeDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 434) avant de pouvoir la renseigner.</span>}
           {societeManque && <p className="cpt-err" role="status" data-societe-creation-manque>{MSG_SOCIETE_OBLIGATOIRE}</p>}
+          {/* 🔴 LOT P (439) — « Statut », obligatoire dès la 439 appliquée (sans elle : montré grisé, non exigé). */}
+          <div className="cpt-perms-titre" id="statut-creation">Statut</div>
+          <ChoixStatut valeur={statutCreation} disabled={!statutDisponible} onChoisir={setStatutCreation} idGroupe="statut-creation" />
+          <span className="cpt-note">{AIDE_STATUT}</span>
+          {!statutDisponible && <span className="cpt-note">Mise à jour de la base à appliquer (migration 439) avant de pouvoir le renseigner.</span>}
+          {statutManque && <p className="cpt-err" role="status" data-statut-creation-manque>{MSG_STATUT_OBLIGATOIRE}</p>}
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
           {/* LOT 5-DROITS — même regroupement qu'au détail : une tuile par bloc, ses droits complémentaires dessous. */}
           <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
@@ -805,7 +828,7 @@ export default function ComptesPage() {
             ))}
           </div>
           {!admin && envoiSansReponse(perms, envoi) && <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>}
-          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
+          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque || statutManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
       </section>
 
@@ -813,6 +836,10 @@ export default function ComptesPage() {
 
       <section className="svv-card" style={{ marginBottom: 20 }}>
         <h2 className="cpt-h2">Comptes actifs ({actifs.length})</h2>
+        {/* 🔴 LOT P — les comptes dont le statut est « à renseigner » : la liste, en toutes lettres (rien n'est deviné). */}
+        {statutDisponible && comptes.some((c) => c.statut === null) && (
+          <p className="cpt-err" role="status" data-statuts-a-renseigner>Statut à renseigner : {comptes.filter((c) => c.statut === null).map((c) => `${c.prenom} ${c.nom}`.trim() || c.identifiant).join(', ')}.</p>
+        )}
         {chargement ? <p>Chargement…</p> : rendreGroupes(actifs, false)}
       </section>
 

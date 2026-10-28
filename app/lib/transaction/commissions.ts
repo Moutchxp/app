@@ -1,4 +1,5 @@
-import { caHt, commissionNetteHt, exterieurHt, ht, SOCIETES, TVA, type LigneVente, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
+import { caHt, commissionNetteHt, exterieurHt, ht, SOCIETES, TVA, type LigneVente, type MontantSaisi, type Partie, type Societe, type Unite, type Vente } from './modele';
+import { classeCommission, type ClasseCommission, type Statut } from '../admin/statut';
 
 export type { MontantSaisi, Unite };
 
@@ -19,8 +20,8 @@ export type { MontantSaisi, Unite };
  *   2) Chiffre d'affaires : la PART de la société dans la commission (après répartition entre sociétés), AVANT les commissions versées.
  *      Pour une vente répartie, la répartition se fait sur la commission nette de l'apporteur ; la part de la société dans la commission
  *      entière est donc sa part nette + sa quote-part de la rétrocession (même proportion). L'historique : toute la commission à sa société.
- *   3) Commissions versées : les négociateurs (chaque commission à la société du négociateur sur cette vente ; à défaut, au prorata des
- *      parts) + les apporteurs (au prorata des parts).
+ *   3) Commissions versées : les négociateurs INDÉPENDANTS (LOT P ; chaque commission à la société du négociateur sur cette vente ; à
+ *      défaut, au prorata des parts) + les apporteurs (au prorata des parts). Associés, salariés et statuts à renseigner : à part, non déduits.
  *   4) Solde net : CA HT − commissions versées HT (négatif : tel quel). Pour une vente répartie : part nette − commissions négociateurs.
  * Le CA global est la SOMME des deux sociétés (les parts extérieures, hors CA, n'y entrent pas) : rien n'est compté deux fois.
  */
@@ -92,6 +93,23 @@ export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dos
   return siennes.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : net === 0 ? 0 : ((p.montantHt ?? 0) / net) * 100), 0);
 }
 
+// ── LOT P : le statut du négociateur d'une commission ───────────────────────────────────────────────────────────────────
+
+/** Le statut qui compte pour une partie : celui FIGÉ à l'enregistrement ; à défaut, l'actuel de son compte ; sinon null (à renseigner). PUR. */
+export const statutDePartie = (p: Pick<Partie, 'statut' | 'statutCompte'>): Statut | null => p.statut ?? p.statutCompte ?? null;
+
+/**
+ * 🔴 LOT P (Arno) — LE STATUT DU NÉGOCIATEUR D'UNE COMMISSION VERSÉE : celui de SA partie sur cette vente (même règle que la société :
+ * le côté d'abord) ; sans répartition (historique, import) ou sans partie : null — « à renseigner ». PUR.
+ */
+export function statutDeLigne(v: Pick<Vente, 'repartition'>, l: Pick<LigneVente, 'negociateur' | 'cote'>): Statut | null {
+  if (v.repartition == null) return null;
+  const sortes = l.cote === 'entree' ? ['entree', 'entree_sortie'] : l.cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'sortie', 'entree_sortie'];
+  const p = v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null && sortes.includes(x.sorte))
+    ?? v.repartition.parties.find((x) => x.negociateur === l.negociateur && x.compteId !== null);
+  return p === undefined ? null : statutDePartie(p);
+}
+
 // ── Les 4 tuiles ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface TuilesCompromis {
@@ -103,8 +121,15 @@ export interface TuilesCompromis {
   /** La commission entière des compromis comptés (HT), et les parts des parties extérieures (hors CA, HT, comme la répartition les montre). */
   commissionTotaleHt: number;
   exterieurHt: number;
-  negociateursHt: number;
+  /**
+   * 🔴 LOT P (Arno) — les commissions des négociateurs, par statut : les INDÉPENDANTS seuls sont « versées » (dans le cumul, déduites du
+   * solde) ; les INTERNES (associés, salariés) et les « à renseigner » restent enregistrés et visibles, ni dans le cumul ni déduits.
+   */
+  independantsHt: number;
+  internesHt: number;
+  aRenseignerHt: number;
   apporteursHt: number;
+  /** Le cumul « Commissions versées » : indépendants + apporteurs. */
   commissionsHt: number;
   commissionsTtc: number;
   soldeHt: number;
@@ -114,21 +139,21 @@ export interface TuilesCompromis {
 type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation'>>;
 
 /** Le CA, les commissions et le solde d'une vente pour une société (null : nos deux sociétés). PUR. */
-function uneVente(v: VenteTuile, societe: Societe | null): { caHt: number; negociateursHt: number; apporteursHt: number } {
+function uneVente(v: VenteTuile, societe: Societe | null): { caHt: number; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
   const f = fractionSociete(v, societe);
   const retro = retroApporteurDe(v);
   // L'apporteur d'une vente répartie est DÉJÀ déduit de la commission nette : sa quote-part se lit sur la rétrocession comptée par la répartition.
   const retroHt = v.repartition != null ? ht(v.repartition.retroApporteurTtc) : retro === null ? 0 : enHt(retro);
-  let negociateursHt = 0;
+  const parClasse: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
   for (const l of v.lignes) {
     if (l.role !== 'negociateur') continue;
     const m = montantDeLigne(l);
     if (m === null) continue;
     const s = societeDeLigne(v, l);
     const part = societe === null ? (s === null ? f : 1) : s === null ? f : s === societe ? 1 : 0;
-    negociateursHt += enHt(m) * part;
+    parClasse[classeCommission(statutDeLigne(v, l))] += enHt(m) * part;
   }
-  return { caHt: ht(v.honorairesTtc) * f, negociateursHt, apporteursHt: retroHt * f };
+  return { caHt: ht(v.honorairesTtc) * f, parClasse, apporteursHt: retroHt * f };
 }
 
 /**
@@ -140,15 +165,17 @@ export function tuilesCompromis(ventes: readonly VenteTuile[], societe: Societe 
   const partHt = Object.fromEntries(SOCIETES.map((s) => [s, enCours.reduce((t, v) => t + uneVente(v, s).caHt, 0)])) as Record<Societe, number>;
   const sommes = enCours.map((v) => uneVente(v, societe));
   const caHtTotal = sommes.reduce((t, x) => t + x.caHt, 0);
-  const negociateursHt = sommes.reduce((t, x) => t + x.negociateursHt, 0);
+  const de = (k: ClasseCommission): number => sommes.reduce((t, x) => t + x.parClasse[k], 0);
+  const independantsHt = de('independant');
   const apporteursHt = sommes.reduce((t, x) => t + x.apporteursHt, 0);
-  const commissionsHt = negociateursHt + apporteursHt;
+  // 🔴 LOT P — n'entrent que les APPORTEURS et les INDÉPENDANTS ; le solde net ne déduit qu'eux.
+  const commissionsHt = independantsHt + apporteursHt;
   const soldeHt = caHtTotal - commissionsHt;
   return {
     nb: enCours.length, caHt: caHtTotal, caTtc: caHtTotal * TVA, partHt,
     commissionTotaleHt: enCours.reduce((t, v) => t + ht(v.honorairesTtc), 0),
     // Les parts extérieures telles que la répartition les montre (sur la commission nette de l'apporteur) — les mêmes nombres qu'avant.
     exterieurHt: enCours.reduce((t, v) => t + exterieurHt(v), 0),
-    negociateursHt, apporteursHt, commissionsHt, commissionsTtc: commissionsHt * TVA, soldeHt, soldeTtc: soldeHt * TVA,
+    independantsHt, internesHt: de('interne'), aRenseignerHt: de('a_renseigner'), apporteursHt, commissionsHt, commissionsTtc: commissionsHt * TVA, soldeHt, soldeTtc: soldeHt * TVA,
   };
 }

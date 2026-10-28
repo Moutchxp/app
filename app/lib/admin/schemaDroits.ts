@@ -105,6 +105,14 @@ export function societeLesDeuxDisponible(): Promise<boolean> {
   });
 }
 
+/**
+ * LOT P — la migration 439 (statut de chaque personne : associé, salarié, indépendant, observateur ; figé sur la partie de vente) est-elle
+ * appliquée ? Sans elle : statut « à renseigner » partout, champ grisé dans Comptes, personne n'est observateur.
+ */
+export function statutDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.statut', async () => (await colonneExiste('admin_utilisateur', 'statut')) && colonneExiste('transaction_partie', 'statut'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

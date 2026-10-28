@@ -3,12 +3,13 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estSociete, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { libelleDesPersonnes, personneExistante } from './personnes';
+import { statutLu, type Statut } from '../admin/statut';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 
 export interface AuteurTx { id: number | null; libelle: string }
@@ -102,24 +103,29 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
   }
   if (!lotD) return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? []));
   const ids = rows.map((r) => n(r.id));
+  // LOT P — le statut FIGÉ de chaque partie (439) et, pour une vente d'avant, l'ACTUEL de son compte (to_jsonb : jamais d'erreur SQL).
+  const avecStatut = await statutDisponible();
   const [{ rows: ps }, { rows: pers }] = await Promise.all([
     query<Record<string, unknown>>(
-      `SELECT vente_id, sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht
-         FROM transaction_partie WHERE retire_le IS NULL AND vente_id = ANY($1::bigint[]) ORDER BY vente_id, rang, id`, [ids]),
+      `SELECT p.vente_id, p.sorte, p.compte_id, p.negociateur_libelle, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montant_ht${avecStatut ? ', p.statut' : ''},
+              (SELECT to_jsonb(u) ->> 'statut' FROM admin_utilisateur u WHERE u.id = p.compte_id) AS statut_compte
+         FROM transaction_partie p WHERE p.retire_le IS NULL AND p.vente_id = ANY($1::bigint[]) ORDER BY p.vente_id, p.rang, p.id`, [ids]),
     query<Record<string, unknown>>(
       `SELECT l.vente_id, p.id, l.role, p.nom, p.telephone, p.email, p.adresse
          FROM transaction_vente_personne l JOIN transaction_personne p ON p.id = l.personne_id
         WHERE l.retire_le IS NULL AND l.vente_id = ANY($1::bigint[]) ORDER BY l.vente_id, l.role DESC, l.rang, l.id`, [ids]),
   ]);
   const parties = new Map<number, Partie[]>();
-  for (const p of ps) parties.set(n(p.vente_id), [...(parties.get(n(p.vente_id)) ?? []), partieDe(p)]);
+  for (const p of ps) parties.set(n(p.vente_id), [...(parties.get(n(p.vente_id)) ?? []), { ...partieDe(p), statutCompte: statutLu(p.statut_compte) }]);
   const personnes = new Map<number, PersonneVente[]>();
   for (const p of pers) personnes.set(n(p.vente_id), [...(personnes.get(n(p.vente_id)) ?? []), { id: n(p.id), role: p.role as PersonneVente['role'],
     nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse) }]);
   return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? [], { parties: parties.get(n(r.id)) ?? [], personnes: personnes.get(n(r.id)) ?? [] }));
 }
 const partieDe = (p: Record<string, unknown>): Partie => ({ sorte: p.sorte as SortePartie, compteId: nOuNull(p.compte_id), negociateur: t(p.negociateur_libelle),
-  societe: estSociete(p.societe) ? p.societe : null, nom: t(p.nom), coordonnees: t(p.coordonnees), pourcentage: nOuNull(p.pourcentage), montantHt: nOuNull(p.montant_ht) });
+  societe: estSociete(p.societe) ? p.societe : null, nom: t(p.nom), coordonnees: t(p.coordonnees), pourcentage: nOuNull(p.pourcentage), montantHt: nOuNull(p.montant_ht),
+  // LOT P — le statut figé, seulement quand la colonne est lue (439) : sans elle, la partie est celle d'avant, au bit près.
+  ...('statut' in p ? { statut: statutLu(p.statut) } : {}) });
 
 export async function lireRetrocessions(societe: Societe | null): Promise<Retrocession[]> {
   const { rows } = await query<Record<string, unknown>>(
@@ -463,16 +469,20 @@ async function defaireEnsemble(q: RequeteTx, j: Record<string, unknown>, journal
 }
 
 /** `societe` : celle d'aujourd'hui — LOT K : « les_deux » pour un collaborateur des deux sociétés (choisie vente par vente). */
-export interface NegociateurCompte { id: number; nom: string; actif: boolean; societe: SocieteCompte | null; periodes: PeriodeSociete[] }
+export interface NegociateurCompte { id: number; nom: string; actif: boolean; societe: SocieteCompte | null; periodes: PeriodeSociete[];
+  /** LOT P (439) — son statut d'aujourd'hui ; null : à renseigner (ou avant la 439). */
+  statut?: Statut | null }
 
 /** Les comptes (négociateurs possibles) avec leurs périodes de société ; `societe` : celle d'aujourd'hui. */
 export async function lireNegociateurs(aujourdhui: string): Promise<NegociateurCompte[]> {
-  const { rows } = await query<{ id: string; nom: string; actif: boolean }>(
-    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, actif FROM admin_utilisateur ORDER BY lower(nom), lower(prenom), id`);
+  // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur : il n'entre pas dans la liste (statut lu via to_jsonb : sans la 439, personne n'est exclu).
+  const { rows } = await query<{ id: string; nom: string; actif: boolean; statut: string | null }>(
+    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, actif, to_jsonb(u) ->> 'statut' AS statut
+       FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY lower(nom), lower(prenom), id`);
   const periodes = await lirePeriodesSociete(rows.map((r) => n(r.id)));
   return rows.map((r) => {
     const p = periodes.get(n(r.id)) ?? [];
-    return { id: n(r.id), nom: String(r.nom), actif: r.actif === true, societe: societeALaDate(p, aujourdhui), periodes: p };
+    return { id: n(r.id), nom: String(r.nom), actif: r.actif === true, societe: societeALaDate(p, aujourdhui), periodes: p, statut: statutLu(r.statut) };
   });
 }
 /** Les périodes de société de ces comptes (vide sans la 434). */
@@ -516,9 +526,24 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   const dateVente = s.dateActe ?? s.dateCompromis ?? aujourdhui;
   // ① les négociateurs, relus en base, avec leur société à la date de la vente
   const comptesIds = [...new Set([s.entreeId, s.sortieId, ...s.parties.map((p) => p.compteId)].filter((x): x is number => x !== null))];
-  const { rows: cs } = comptesIds.length === 0 ? { rows: [] as { id: string; nom: string }[] } : await query<{ id: string; nom: string }>(
-    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom FROM admin_utilisateur WHERE id = ANY($1::bigint[])`, [comptesIds]);
+  const { rows: cs } = comptesIds.length === 0 ? { rows: [] as { id: string; nom: string; statut?: string | null }[] } : await query<{ id: string; nom: string; statut?: string | null }>(
+    `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, to_jsonb(admin_utilisateur) ->> 'statut' AS statut
+       FROM admin_utilisateur WHERE id = ANY($1::bigint[])`, [comptesIds]);
   if (cs.length !== comptesIds.length) return { ok: false, motif: 'Négociateur inconnu.' };
+  // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur (la liste ne le propose pas ; une saisie forgée est refusée ici).
+  const observateur = cs.find((c) => c.statut === 'observateur');
+  if (observateur !== undefined) return { ok: false, motif: `${observateur.nom} est observateur (lecture seule) : il ne peut pas être négociateur. Rien n’a été enregistré.` };
+  // 🔴 LOT P — le statut est FIGÉ sur la partie : celui déjà figé sur cette vente pour ce négociateur reste (un changement de statut ultérieur
+  // ne touche pas les ventes passées) ; sinon, le statut actuel du compte.
+  const avecStatut = await statutDisponible();
+  const statutActuel = new Map(cs.map((c) => [n(c.id), statutLu(c.statut)]));
+  const statutFige = new Map<number, Statut | null>();
+  if (avecStatut && id !== null) {
+    const { rows: deja } = await query<{ compte_id: string | null; statut: string | null }>(
+      'SELECT compte_id, statut FROM transaction_partie WHERE vente_id = $1 AND retire_le IS NULL AND compte_id IS NOT NULL AND statut IS NOT NULL', [id]);
+    for (const d of deja) statutFige.set(n(d.compte_id), statutLu(d.statut));
+  }
+  const statutPour = (compteId: number): Statut | null => statutFige.get(compteId) ?? statutActuel.get(compteId) ?? null;
   const periodes = await lirePeriodesSociete(comptesIds);
   const nomDe = new Map(cs.map((c) => [n(c.id), String(c.nom)]));
   // 🔴 LOT K — un collaborateur des DEUX sociétés : la société de sa partie est celle CHOISIE pour cette vente (obligatoire) ; tout autre
@@ -532,7 +557,8 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     ? { sorte: p.sorte, compteId: null, negociateur: null, societe: null, nom: p.nom, coordonnees: p.coordonnees, pourcentage: p.pourcentage, montantHt: p.montantHt }
     : { sorte: p.sorte, compteId: p.compteId, negociateur: p.compteId === null ? null : nomDe.get(p.compteId) ?? null,
       societe: p.compteId === null ? null : societeDuCompte(p.compteId) === LES_DEUX ? p.societe ?? null : societeDOffice(societeDuCompte(p.compteId)),
-      nom: null, coordonnees: null, pourcentage: p.pourcentage, montantHt: p.montantHt }));
+      nom: null, coordonnees: null, pourcentage: p.pourcentage, montantHt: p.montantHt }))
+    .map((p) => (avecStatut ? { ...p, statut: p.compteId === null ? null : statutPour(p.compteId) } : p));
   // ② la répartition (somme = 100 %, sociétés connues, apporteur déduit d'abord)
   const repartie = s.entreeId !== null || s.sortieId !== null || parties.length > 0;
   if (repartie) {
@@ -627,15 +653,15 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     // ⑤ la répartition : l'ensemble des parties est remplacé s'il a changé (réversible)
     await remplacerEnsemble(q, 'repartition', venteId, auteur, async (avant) => {
       const { rows: a } = await q<Record<string, unknown>>(
-        'SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht FROM transaction_partie WHERE id = ANY($1::bigint[]) ORDER BY rang, id', [avant]);
+        `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht${avecStatut ? ', statut' : ''} FROM transaction_partie WHERE id = ANY($1::bigint[]) ORDER BY rang, id`, [avant]);
       return JSON.stringify(a.map(partieDe)) === JSON.stringify(repartie ? parties : []);
     }, async () => {
       const ids: number[] = [];
       for (const [i, p] of (repartie ? parties : []).entries()) {
         const { rows } = await q<{ id: string }>(
-          `INSERT INTO transaction_partie (vente_id, sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht, rang, cree_par_libelle)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-          [venteId, p.sorte, p.compteId, p.negociateur, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montantHt, i, auteur.libelle]);
+          `INSERT INTO transaction_partie (vente_id, sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht, rang, cree_par_libelle${avecStatut ? ', statut' : ''})
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11${avecStatut ? ', $12' : ''}) RETURNING id`,
+          [venteId, p.sorte, p.compteId, p.negociateur, p.societe, p.nom, p.coordonnees, p.pourcentage, p.montantHt, i, auteur.libelle, ...(avecStatut ? [p.statut ?? null] : [])]);
         ids.push(n(rows[0].id));
       }
       return ids;

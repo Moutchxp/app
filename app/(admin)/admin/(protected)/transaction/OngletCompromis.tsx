@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, partDuCote, retroApporteurDe, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { commissionDuCote, partDuCote, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
@@ -92,16 +93,19 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · parts extérieures (hors CA) : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
         <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-expanded={detail} onClick={() => setDetailEpingle((x) => !x)}
           onMouseEnter={() => setDetailSurvol(true)} onMouseLeave={() => setDetailSurvol(false)}
-          title={`Négociateurs : ${eur(tu.negociateursHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT`}>
+          title={`Indépendants : ${eur(tu.independantsHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT · Internes (associés, salariés) : ${eur(tu.internesHt)} HT — non déduits`}>
           <span className="tdb-tuile-mot">Commissions versées</span>
           <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(tu.commissionsTtc)} <small>TTC versées</small></strong>
           <span className="trx-tuile-ht" data-commissions-ht>{eur(tu.commissionsHt)} HT</span>
           {detail ? (
             <span className="trx-tuile-detail" data-detail-commissions>
-              <span data-detail="negociateurs">Négociateurs : {eur(tu.negociateursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.negociateursHt * TVA)} TTC)</span></span>
+              {/* 🔴 LOT P (Arno) — n'entrent que les INDÉPENDANTS et les APPORTEURS ; les internes et les statuts à renseigner, à part. */}
+              <span data-detail="independants">Indépendants : {eur(tu.independantsHt)} HT <span className="trx-tuile-detail-n">({eur(tu.independantsHt * TVA)} TTC)</span></span>
               <span data-detail="apporteurs">Apporteurs : {eur(tu.apporteursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.apporteursHt * TVA)} TTC)</span></span>
+              <span data-detail="internes" className="trx-tuile-detail-a-part">Internes (associés, salariés) : {eur(tu.internesHt)} HT — non déduits</span>
+              {tu.aRenseignerHt > 0 && <span data-detail="a-renseigner" className="trx-tuile-detail-a-part trx-alerte">Statut à renseigner : {eur(tu.aRenseignerHt)} HT — non déduits</span>}
             </span>
-          ) : <span className="tdb-tuile-n1">négociateurs + apporteurs — toucher pour le détail</span>}
+          ) : <span className="tdb-tuile-n1">indépendants + apporteurs — toucher pour le détail</span>}
         </button></li>
         {/* LOT L (Arno) — le Solde net : TTC en premier, en grand et en VERT (« TTC » écrit) ; HT dessous, en gris. */}
         <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
@@ -291,6 +295,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const [envoi, setEnvoi] = useState(false);
   const avecUnite = references.uniteCommission === true;
   const enregistree = commissionDuCote(v, cote);
+  const partieDuCote = actuel === null ? undefined : v.repartition?.parties.find((p) => p.compteId === actuel.id && (cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie']).includes(p.sorte));
   // LOT J — sa part de la vente dans la répartition enregistrée (relue après chaque enregistrement) ; sans répartition : rien.
   const part = partDuCote(v, cote);
   const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
@@ -346,6 +351,14 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
           {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : `Commission versée : ${eurUnite(enregistree.montant)}`}</span>
       )}
+      {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul. */}
+      {actuel !== null && partieDuCote !== undefined && (() => {
+        const st = statutDePartie(partieDuCote);
+        const classe = classeCommission(st);
+        return <span className={classe === 'a_renseigner' ? 'loc-muet trx-negociateur-commission trx-alerte' : 'loc-muet trx-negociateur-commission'} data-statut-vente={cote}>
+          Statut à la vente : {libelleStatut(st)}{partieDuCote.statut == null && st !== null ? ' (statut actuel du compte, à confirmer)' : ''}
+          {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
+      })()}
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <label>Négociateur de {mot} du mandat

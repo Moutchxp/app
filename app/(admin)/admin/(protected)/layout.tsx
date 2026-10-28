@@ -14,6 +14,8 @@ import { Sidebar } from './Sidebar';
 import { ContenuTuile } from './ContenuTuile';
 import { RevocationWatcher } from './RevocationWatcher';
 import { RoueParametresLocation } from './location/ParametresLocation';
+import { ModeObservateur } from './ModeObservateur';
+import { statutDuCompte } from '../../../lib/admin/statutCompte';
 
 /**
  * Coquille de l'admin (T1). Défense en profondeur : même si le proxy garde déjà
@@ -41,6 +43,8 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
       ? `${compte.prenom} ${compte.nom}`
       : (session.identifiant ?? 'Compte');
   const roleLbl = session.role === 'administrateur' ? 'Administrateur' : 'Collaborateur';
+  // 🔴 LOT P — un OBSERVATEUR (statut relu en base ; sans la 439 : personne) voit l'admin en lecture seule (le proxy refuse ses écritures).
+  const observateur = !secours && (await statutDuCompte(session.sub as number)) === 'observateur';
 
   return (
     <div className="svv-adm-shell">
@@ -86,7 +90,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
         </div>
         {/* Arno (22/10/2026) — `ContenuTuile` remonte le contenu quand une entrée du menu de gauche ramène à l'accueil de la tuile
             où l'on est déjà (voir son encadré). Rien d'autre ne change : même `main`, mêmes enfants. */}
-        <main className="svv-adm-main"><ContenuTuile>{children}</ContenuTuile></main>
+        <main className="svv-adm-main"><ModeObservateur actif={observateur} /><ContenuTuile>{children}</ContenuTuile></main>
       </div>
     </div>
   );

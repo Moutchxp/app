@@ -109,6 +109,12 @@ export interface Partie {
   /** La part : un pourcentage de la commission nette, OU un montant HT (exactement un des deux). */
   pourcentage: number | null;
   montantHt: number | null;
+  /**
+   * LOT P (439) — le statut du négociateur FIGÉ à l'enregistrement de la vente (absent : avant la 439 ; null : vente d'avant ou statut
+   * inconnu) — et, lu à part, le statut ACTUEL de son compte (`statutCompte`), qui sert quand rien n'a été figé.
+   */
+  statut?: 'associe' | 'salarie' | 'independant' | 'observateur' | null;
+  statutCompte?: 'associe' | 'salarie' | 'independant' | 'observateur' | null;
 }
 export interface Repartition {
   parties: Partie[];

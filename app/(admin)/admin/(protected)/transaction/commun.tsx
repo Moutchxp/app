@@ -172,6 +172,8 @@ export const CSS_TRANSACTION = `
 .trx-vert{color:var(--color-svv-green-ink)}
 .trx-rouge{color:var(--color-svv-red)}
 .trx-tuile-detail{display:flex;flex-direction:column;gap:2px;font-size:.85rem;color:var(--color-svv-ink);border-top:1px solid var(--color-svv-line);padding-top:6px;width:100%}
+.trx-tuile-detail-a-part{border-top:1px dashed var(--color-svv-line);margin-top:2px;padding-top:2px;color:var(--color-svv-muted)}
+.trx-tuile-detail-a-part.trx-alerte{color:var(--color-svv-red)}
 .trx-tuile-detail-n{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 @media (max-width:560px){ .trx-tuiles4{grid-template-columns:minmax(0,1fr)} }
 /* LOT I — un montant et son unité « HT / TTC » (deux boutons de 44 px, le choisi enfoncé). */

@@ -14,7 +14,8 @@ export function aliasNegociateurDisponible(): Promise<boolean> { return colonneE
 
 export async function lireComptesNegociateurs(): Promise<CompteNegociateur[]> {
   const { rows } = await query<{ id: string; identifiant: string; prenom: string | null; nom: string | null }>(
-    'SELECT id::text, identifiant, prenom, nom FROM admin_utilisateur ORDER BY id');
+    // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur (statut lu via to_jsonb : sans la migration 439, personne n'est exclu).
+    "SELECT id::text, identifiant, prenom, nom FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY id");
   return rows.map((r) => ({ id: Number(r.id), identifiant: r.identifiant, prenom: r.prenom, nom: r.nom }));
 }
 

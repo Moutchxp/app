@@ -10,8 +10,9 @@ const lotD = vi.fn<() => Promise<boolean>>(async () => false);
 const lotE = vi.fn<() => Promise<boolean>>(async () => false);
 const lotG = vi.fn<() => Promise<boolean>>(async () => false);
 const lotI = vi.fn<() => Promise<boolean>>(async () => false);
+const lotP = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
-  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI() }));
+  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -23,7 +24,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -391,5 +392,56 @@ describe('🔴 LOT K — collaborateur des deux sociétés : la société se cho
     const parties = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_partie'));
     expect(parties.map((x) => [x.params[2], x.params[4]])).toEqual([[9, 'macj'], [5, 'criterimmo']]);
     expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2])).toContain('repartition');
+  });
+});
+
+describe('🔴 LOT P (439) — le statut du négociateur FIGÉ sur la vente ; un observateur n’est jamais négociateur', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: null, honorairesTtc: 12000, dateCompromis: '2026-10-20',
+    dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const,
+    personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: null, email: null, adresse: null }],
+    parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
+    lignes: [], prixVente: null, ...o });
+  let statuts: Record<string, string | null> = {};
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY')
+    ? { rows: [{ id: '5', nom: 'Jean-Baptiste PONS', statut: statuts['5'] ?? null }, { id: '7', nom: 'Mylène EBERLIN', statut: statuts['7'] ?? null }] } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' }, { compte_id: '7', societe: 'criterimmo', depuis: '2000-01-01' }] } : undefined);
+  beforeEach(() => { lotD.mockResolvedValue(true); lotP.mockResolvedValue(true); statuts = { '5': 'independant', '7': 'salarie' }; });
+  const insertsParties = () => appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_partie')).map((x) => [x.params[2], x.params[11]]);
+
+  it('un compromis neuf : chaque partie porte le statut de son négociateur au moment de l’enregistrement', async () => {
+    let id = 40;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    expect((await repo.enregistrerDossier(null, dossier(), '2026-10-28', A)).ok).toBe(true);
+    expect(insertsParties()).toEqual([[5, 'independant'], [7, 'salarie']]);
+  });
+  it('un changement de statut ULTÉRIEUR ne touche pas la vente : le statut déjà figé reste (Mylène, devenue indépendante, reste « salarié »)', async () => {
+    statuts = { '5': 'independant', '7': 'independant' };
+    reponses.push(comptes, periodes,
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'X', honoraires_ttc: '12000', statut: 'compromis', annee: 2026, mois_acte: null, date_compromis: '2026-10-20',
+        apporteur: null, note: null, retire_le: null, attribution: null, repartition: true, negociateur_entree_id: '5', negociateur_sortie_id: '7' }] } : undefined),
+      (s) => (s.startsWith('SELECT compte_id, statut FROM transaction_partie') ? { rows: [{ compte_id: '5', statut: 'independant' }, { compte_id: '7', statut: 'salarie' }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '90' }] } : undefined));
+    // la répartition change (60/40) : les parties sont reposées, chacune avec son statut FIGÉ
+    expect((await repo.enregistrerDossier(41, dossier({ parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 60, montantHt: null },
+      { sorte: 'sortie', compteId: 7, nom: null, coordonnees: null, pourcentage: 40, montantHt: null }] }), '2026-10-28', A)).ok).toBe(true);
+    expect(insertsParties()).toEqual([[5, 'independant'], [7, 'salarie']]);
+  });
+  it('un observateur proposé comme négociateur (saisie forgée) : refus clair, rien n’est écrit', async () => {
+    statuts = { '5': 'independant', '7': 'observateur' };
+    reponses.push(comptes, periodes);
+    const r = await repo.enregistrerDossier(null, dossier(), '2026-10-28', A);
+    expect(r.ok ? '' : r.motif).toMatch(/Mylène EBERLIN est observateur \(lecture seule\) : il ne peut pas être négociateur/);
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+  it('la liste des négociateurs exclut les observateurs (et la lecture des parties lit le statut figé ET celui du compte)', async () => {
+    await repo.lireNegociateurs('2026-10-28');
+    expect(appels[0].sql).toContain("coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur'");
+    appels.length = 0;
+    reponses.push((s) => (s.startsWith('SELECT v.id') ? { rows: [{ id: '41', societe: 'criterimmo', libelle: 'X', honoraires_ttc: '12000', statut: 'compromis', annee: 2027, mois_acte: null,
+      date_compromis: null, apporteur: null, note: null, origine: 'saisie', source_fichier: null, source_onglet: null, source_ligne: null, double_cle: null, attribution: null, repartition: true }] } : undefined),
+    (s) => (s.startsWith('SELECT p.vente_id') ? { rows: [{ vente_id: '41', sorte: 'entree', compte_id: '5', negociateur_libelle: 'JB', societe: 'criterimmo', nom: null, coordonnees: null,
+      pourcentage: '100', montant_ht: null, statut: null, statut_compte: 'associe' }] } : undefined));
+    const [v] = await repo.lireVentes('criterimmo');
+    expect(v.repartition!.parties[0]).toMatchObject({ statut: null, statutCompte: 'associe' });
   });
 });

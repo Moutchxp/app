@@ -4,6 +4,8 @@ import { droitsDifferents, NOM_COOKIE, optionsCookie, reemettreJeton, verifierJe
 import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
 import { origineAutorisee } from './app/lib/admin/controleOrigine';
 import { ligneJournalEchec } from './app/lib/location/issueEnregistrement';
+import { ecritureRefuseeObservateur } from './app/lib/admin/observateur';
+import { MOTIF_LECTURE_SEULE } from './app/lib/admin/statut';
 
 /**
  * Garde d'accès de l'interface admin (EX-11..EX-15) + contrôle des PERMISSIONS côté serveur (M3 Lot 2e).
@@ -71,6 +73,15 @@ function permissionRequise(pathname: string): Module | null {
  * publique plus haut (elle n'atteint jamais ce bloc). Les assets du rendu (`/_next/...`) ne sont pas dans le matcher.
  */
 const CHEMINS_CHANGEMENT_MDP = new Set(['/admin/compte/mot-de-passe', '/api/admin/compte/mot-de-passe']);
+
+/**
+ * ══ 🔴 LOT P (Arno, 28/10/2026) — OBSERVATEUR : LECTURE SEULE ABSOLUE, GARDE CENTRALE UNIQUE ══════════════════════════════════
+ * Un compte au statut « observateur » (migration 439, relu EN BASE à chaque requête) voit les tuiles qu'on lui a ouvertes, mais TOUTE
+ * requête d'écriture de l'API admin (autre que GET / HEAD / OPTIONS) est refusée ICI — 403 `LECTURE_SEULE` — dans tous les modules, sans
+ * dépendre d'aucune route. Seules exceptions : la déconnexion (`/api/admin/session`, publique plus haut) et SON mot de passe (sans quoi un
+ * mot de passe à changer l'enfermerait dehors). Liste fermée, éprouvée par `proxyObservateur.test.ts` sur TOUTES les routes d'écriture.
+ */
+
 
 /**
  * Tuile « Administratif » (M3-4 Lot C) — namespace PLURIEL `/comptes`, réservé au RÔLE administrateur EN DUR
@@ -275,6 +286,11 @@ async function decider(request: NextRequest) {
       return avecJeton(NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 }));
     }
     return avecJeton(NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302));
+  }
+
+  // ═══ 🔴 LOT P — OBSERVATEUR : toute écriture de l'admin refusée, quel que soit le module (statut relu en base ci-dessus) ═══
+  if (estApi && ecritureRefuseeObservateur(etat?.statut ?? null, request.method, pathname)) {
+    return avecJeton(NextResponse.json({ erreur: 'LECTURE_SEULE', etat: 'refus', motif: MOTIF_LECTURE_SEULE }, { status: 403 }));
   }
 
   // ═══ SURFACES RÉSERVÉES AU RÔLE administrateur EN DUR ═══
