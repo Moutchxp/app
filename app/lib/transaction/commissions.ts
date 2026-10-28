@@ -75,6 +75,23 @@ export function societeDeLigne(v: Pick<Vente, 'societe' | 'repartition'>, l: Pic
   return p?.societe ?? null;
 }
 
+/**
+ * 🔴 LOT J (Arno) — LA PART DE LA VENTE du négociateur d'un côté, en % de la commission nette, lue dans la répartition enregistrée :
+ * ses parties de ce côté (entrée : « entrée » ou « entrée et sortie » ; sortie : « sortie » ou « entrée et sortie »), une part en € HT
+ * ramenée en %. Le même négociateur des deux côtés, sans partie de sortie (il porte tout à l'entrée) : 0 % côté sortie.
+ * null : pas de répartition (historique, import) ou négociateur absent de la répartition — rien n'est inventé. PUR.
+ */
+export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): number | null {
+  const r = v.repartition;
+  const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
+  if (r == null || nego === null) return null;
+  const net = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc);
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
+  const siennes = r.parties.filter((p) => p.compteId === nego.id && sortes.includes(p.sorte));
+  if (siennes.length === 0) return r.parties.some((p) => p.compteId === nego.id && p.sorte !== 'exterieure') ? 0 : null;
+  return siennes.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : net === 0 ? 0 : ((p.montantHt ?? 0) / net) * 100), 0);
+}
+
 // ── Les 4 tuiles ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface TuilesCompromis {

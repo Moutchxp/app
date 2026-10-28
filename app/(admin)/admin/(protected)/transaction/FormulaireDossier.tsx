@@ -5,6 +5,7 @@ import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/t
 import { BlocRepartition, etatSomme, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
 import { commissionDuCote } from '../../../../lib/transaction/commissions';
+import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -87,6 +88,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.
   const [adresseVerifiee, setAdresseVerifiee] = useState(true);
   const commission = nombre(champs.commission) ?? Number.NaN;
+  const taux = tauxDuPrix(commission, nombre(champs.prixVente));
   // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
   const somme = etatSomme(repartition, commission);
   useEffect(() => {
@@ -149,7 +151,9 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}
             <label>Prix de vente (€)
               <input value={champs.prixVente} onChange={champ('prixVente')} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
-              {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}</label>
+              {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}
+              {/* LOT J — le taux de commission, recalculé à chaque frappe du prix ou de la commission. */}
+              {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux de commission : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
             <label>Commission TTC
               <input value={champs.commission} onChange={champ('commission')} inputMode="decimal" required data-champ="commission" />
               <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))} HT` : 'HT = TTC ÷ 1,2'}</span></label>

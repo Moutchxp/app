@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { carteCompromis, trierCompromis } from './compromisCarte';
+import { carteCompromis, libelleTaux, TAUX_SANS_PRIX, tauxDuPrix, trierCompromis } from './compromisCarte';
 import type { Vente } from './modele';
 
 /** 🔴 LOT E — la carte compacte d'un compromis (pur) : « à renseigner », date dépassée, tri par date butoir. */
@@ -41,5 +41,15 @@ describe('la carte compacte', () => {
     expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: 240000, dossier: null }, '2026-10-27').pctPrix).toBe(5);
     expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: null, dossier: null }, '2026-10-27').pctPrix).toBeNull();
     expect(carteCompromis({ libelle: 'X', honorairesTtc: 12000, prixVente: 0, dossier: null }, '2026-10-27').pctPrix).toBeNull();
+  });
+});
+
+describe('🔴 LOT J — le taux de commission', () => {
+  it('commission TTC ÷ prix de vente ; sans prix (ou prix nul), le libellé « calculé dès la saisie du prix de vente »', () => {
+    expect(tauxDuPrix(18000, 360000)).toBe(5);
+    expect(libelleTaux(tauxDuPrix(18000, 360000))).toBe('5,00 % du prix de vente');
+    expect(tauxDuPrix(18000, null)).toBeNull();
+    expect(tauxDuPrix(18000, 0)).toBeNull();
+    expect(libelleTaux(null)).toBe(TAUX_SANS_PRIX);
   });
 });

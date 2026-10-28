@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, retroApporteurDe, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { commissionDuCote, partDuCote, retroApporteurDe, tuilesCompromis } from '../../../../lib/transaction/commissions';
 import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
-import { eur, eurUnite, posterTransaction, useTransaction } from './commun';
+import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { changerNegociateur, ChampMontantUnite, etatSomme, type EtatRepartition, type MontantEcran } from './Repartition';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
-import { A_RENSEIGNER, carteCompromis, trierCompromis } from '../../../../lib/transaction/compromisCarte';
+import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 
 /**
@@ -184,12 +184,15 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                         {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
                             négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
                         {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
-                        {info('Taux de commission', c.pctPrix === null ? A_RENSEIGNER
-                          : `${c.pctPrix.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix de vente`, 'taux')}
+                        {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
+                        {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
                         {info('Date du compromis', date(v.dateCompromis), 'date-compromis')}
                         {/* LOT I — la rétrocession dans SON unité, avec son équivalent (« 500,00 € HT (soit 600,00 € TTC) »). */}
-                        {info('Apporteur', <>{ouManque(v.apporteur)}{(() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
-                          return m === null ? '' : ` · rétrocession ${eurUnite(m)}`; })()}</>, 'apporteur')}
+                        {/* LOT J (Arno) — sur la même ligne, à droite du nom : le montant de la rétrocession, son unité et son équivalent ;
+                            sans rétrocession, « montant à renseigner ». */}
+                        {info('Apporteur', (() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
+                          return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
+                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}` : eurEtEquivalent(m)}</span></span>; })(), 'apporteur')}
                       </dl>
                       {r !== null && ps !== null ? (
                         <div data-repartition-compromis>
@@ -272,6 +275,8 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const [envoi, setEnvoi] = useState(false);
   const avecUnite = references.uniteCommission === true;
   const enregistree = commissionDuCote(v, cote);
+  // LOT J — sa part de la vente dans la répartition enregistrée (relue après chaque enregistrement) ; sans répartition : rien.
+  const part = partDuCote(v, cote);
   const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
   const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ht' };
   const [commission, setCommission] = useState<MontantEcran>(initiale);
@@ -295,7 +300,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
-        data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur' : `Négociateur : ${actuel.nom} (${libelleSociete(societe(actuel.id))})`}</button>
+        data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur' : `Négociateur : ${actuel.nom} (${libelleSociete(societe(actuel.id))})${part === null ? '' : ` (${part.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %)`}`}</button>
       {actuel !== null && avecUnite && (
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
           {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : `Commission versée : ${eurUnite(enregistree.montant)}`}</span>

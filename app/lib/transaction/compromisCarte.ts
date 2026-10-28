@@ -10,6 +10,16 @@ import { libelleDesPersonnes } from './personnes';
  */
 
 export const A_RENSEIGNER = 'à renseigner';
+/** LOT J (Arno) — le taux de commission sans prix de vente : il n'est pas « à renseigner », il se CALCULE dès que le prix est saisi. */
+export const TAUX_SANS_PRIX = 'calculé dès la saisie du prix de vente';
+
+/** LOT J — le taux de commission : commission TTC ÷ prix de vente, en % ; null sans prix (ou prix nul) ou sans commission lisible. PUR. */
+export function tauxDuPrix(commissionTtc: number, prix: number | null | undefined): number | null {
+  return prix == null || !Number.isFinite(prix) || prix <= 0 || !Number.isFinite(commissionTtc) ? null : (commissionTtc / prix) * 100;
+}
+/** LOT J — « 5,00 % du prix de vente », ou « calculé dès la saisie du prix de vente ». PUR. */
+export const libelleTaux = (pct: number | null): string =>
+  (pct === null ? TAUX_SANS_PRIX : `${pct.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix de vente`);
 
 export interface CarteCompromis {
   /**
@@ -48,7 +58,7 @@ export function carteCompromis(v: Pick<Vente, 'libelle' | 'honorairesTtc' | 'pri
   return {
     titre: sansLibelle ? `${vendeurs === '' ? `vendeurs ${A_RENSEIGNER}` : noms('vendeur').replace(/, /g, '-')} / ${acquereurs === '' ? `acquéreurs ${A_RENSEIGNER}` : acquereurs.replace(/, /g, '-')}`
       : libelle === '' ? `libellé ${A_RENSEIGNER}` : libelle,
-    pctPrix: prix === null || prix <= 0 ? null : (v.honorairesTtc / prix) * 100,
+    pctPrix: tauxDuPrix(v.honorairesTtc, prix),
     vendeurs: vendeurs === '' ? `vendeurs ${A_RENSEIGNER}` : vendeurs,
     acquereurs: acquereurs === '' ? `acquéreurs ${A_RENSEIGNER}` : acquereurs,
     adresse: adresse === '' ? `adresse ${A_RENSEIGNER}` : adresse,

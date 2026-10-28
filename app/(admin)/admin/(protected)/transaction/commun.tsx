@@ -42,6 +42,8 @@ export async function posterTransaction(corps: Record<string, unknown>): Promise
 export const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 /** LOT I — un montant avec SON unité et son équivalent : « 1 000,00 € HT (soit 1 200,00 € TTC) ». */
 export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
+/** LOT J — un montant avec son unité et, entre parenthèses, son équivalent : « 800,00 € HT (960,00 € TTC) ». */
+export const eurEtEquivalent = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`;
 export const signePct = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 export const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
@@ -177,6 +179,9 @@ export const CSS_TRANSACTION = `
 .trx-unite:disabled{opacity:.5;cursor:not-allowed}
 .trx-unite:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .trx-negociateur-commission{font-size:.88rem}
+/* LOT J — l'apporteur et le montant de sa rétrocession sur la même ligne (le montant à droite du nom ; il passe dessous si la place manque). */
+.trx-apporteur{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 16px}
+.trx-apporteur-montant{font-variant-numeric:tabular-nums}
 .trx-a-renseigner{font-style:italic}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}

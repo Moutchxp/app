@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autreUnite, commissionDuCote, enHt, enTtc, fractionSociete, montantDeLigne, societeDeLigne, tuilesCompromis } from './commissions';
+import { autreUnite, commissionDuCote, enHt, enTtc, fractionSociete, montantDeLigne, partDuCote, societeDeLigne, tuilesCompromis } from './commissions';
 import { caHt, payeTtcDe, type LigneVente, type Partie, type Vente } from './modele';
 
 /** TUILE « TRANSACTION », LOT I — commissions versées en HT ou en TTC, et les 4 tuiles de l'onglet « Compromis ». */
@@ -97,5 +97,22 @@ describe('les 4 tuiles de l’onglet « Compromis »', () => {
   it('une rétrocession saisie en HT pèse son montant HT (rien n’est converti en base)', () => {
     const v = vente({ retroApporteur: { montant: 1000, unite: 'ht' } });
     expect(tuilesCompromis([v], 'criterimmo').apporteursHt).toBe(1000);
+  });
+});
+
+describe('🔴 LOT J — la part de la vente du négociateur d’un côté', () => {
+  const pa = (sorte: Partie['sorte'], id: number | null, pct: number | null, montantHt: number | null = null) => partie({ sorte, compteId: id, pourcentage: pct, montantHt });
+  const v = (parties: Partie[], entree: number | null, sortie: number | null) => vente({ repartition: { retroApporteurTtc: 0, parties },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: entree === null ? null : { id: entree, nom: 'E' }, sortie: sortie === null ? null : { id: sortie, nom: 'S' }, apporteurId: null, personnes: [] } });
+  it('50/50, 60/40, 100 %, une part en € HT ramenée en %, le même négociateur des deux côtés', () => {
+    expect([partDuCote(v([pa('entree', 5, 50), pa('sortie', 7, 50)], 5, 7), 'entree'), partDuCote(v([pa('entree', 5, 50), pa('sortie', 7, 50)], 5, 7), 'sortie')]).toEqual([50, 50]);
+    expect(partDuCote(v([pa('entree', 5, 60), pa('sortie', 7, 40)], 5, 7), 'sortie')).toBe(40);
+    expect(partDuCote(v([pa('entree', 5, 100)], 5, null), 'entree')).toBe(100);
+    expect(partDuCote(v([pa('entree', 5, null, 2500), pa('sortie', 7, null, 7500)], 5, 7), 'entree')).toBe(25); // net 10 000 HT
+    expect([partDuCote(v([pa('entree', 5, 100)], 5, 5), 'entree'), partDuCote(v([pa('entree', 5, 100)], 5, 5), 'sortie')]).toEqual([100, 0]);
+  });
+  it('sans répartition (historique, import) ou sans négociateur : null, rien d’inventé', () => {
+    expect(partDuCote(vente({ dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'E' }, sortie: null, apporteurId: null, personnes: [] } }), 'entree')).toBeNull();
+    expect(partDuCote(v([pa('entree', 5, 100)], 5, null), 'sortie')).toBeNull();
   });
 });

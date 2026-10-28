@@ -168,7 +168,7 @@ describe('l’onglet « Compromis »', () => {
     await deplier(41);
     const fiche = texte('[data-compromis="41"]');
     for (const m of ['DUPONT', '06 12 34 56 78', 'p.dupont@exemple.fr', 'MARTIN', '1 rue A, Puteaux', '20/10/2026', '15/01/2027', '10 000,00 € HT', '12 000,00 € TTC',
-      'Jean-Baptiste PONS', 'Mylène EBERLIN', 'Julien Deblois', 'rétrocession 2 400,00 € TTC', 'Part extérieure — Agence du Parc', '1 600,00 € HT']) expect(fiche).toContain(m);
+      'Jean-Baptiste PONS', 'Mylène EBERLIN', 'Julien Deblois', '2 400,00 € TTC (2 000,00 € HT)', 'Part extérieure — Agence du Parc', '1 600,00 € HT']) expect(fiche).toContain(m);
     expect(texte('[data-part-societe-compromis="macj"]')).toBe('3 200,00 € HT');
   });
   it('« Acte signé » envoie la date de l’acte ; « Revenir en compromis » le défait', async () => {
@@ -351,10 +351,11 @@ describe('🔴 LOT G — le négociateur de chaque côté, depuis la carte', () 
     e = posts.at(-1) as Envoi;
     expect([e.dossier.entreeId, e.dossier.sortieId]).toEqual([null, 7]);
   });
-  it('choisi : « Négociateur : Prénom NOM (société) », relu identique dans « Modifier »', async () => {
+  it('choisi : « Négociateur : Prénom NOM (société) (part %) », relu identique dans « Modifier »', async () => {
     await ouvrirCarte(41);
-    expect(texte('[data-colonne="vendeur"] [data-negociateur-carte="entree"]')).toBe('Négociateur : Jean-Baptiste PONS (CRITERIMMO)');
-    expect(texte('[data-colonne="acquereur"] [data-negociateur-carte="sortie"]')).toBe('Négociateur : Mylène EBERLIN (MACJ)');
+    // LOT J — sa part de la vente entre parenthèses (40 / 40, la partie extérieure a 20 %).
+    expect(texte('[data-colonne="vendeur"] [data-negociateur-carte="entree"]')).toBe('Négociateur : Jean-Baptiste PONS (CRITERIMMO) (40 %)');
+    expect(texte('[data-colonne="acquereur"] [data-negociateur-carte="sortie"]')).toBe('Négociateur : Mylène EBERLIN (MACJ) (40 %)');
     await cliquer('[data-modifier-compromis="41"]');
     expect(texte('[data-champ="entree"]')).toContain('Jean-Baptiste PONS');
     expect(texte('[data-champ="sortie"]')).toContain('Mylène EBERLIN');
@@ -466,7 +467,7 @@ describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
     expect(intitules(41)).toEqual(['Taux de commission', 'Date du compromis', 'Apporteur']);
     expect(intitules(12)).toEqual(['Libellé du fichier', 'Taux de commission', 'Date du compromis', 'Apporteur']);
     expect(texte('[data-compromis="41"] [data-info="taux"] dd')).toBe('5,00 % du prix de vente');
-    expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('à renseigner');
+    expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('calculé dès la saisie du prix de vente');
     // ce qui est en tête de carte n'est pas répété dans le corps
     const corps = texte('[data-compromis="41"] [data-informations-communes]');
     for (const x of ['1 rue A, Puteaux', '240 000,00 €', '15/01/2027', '12 000,00 € TTC']) expect(corps).not.toContain(x);
@@ -599,5 +600,59 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     expect(envoi.action).toBe('dossier-enregistrer');
     expect(envoi.dossier.sortieId).toBe(7);
     expect(envoi.dossier.commissions).toEqual({ entree: { montant: '1000', unite: 'ht' }, sortie: { montant: '700', unite: 'ht' } });
+  });
+});
+
+describe('🔴 LOT J — taux de commission, montant de l’apporteur, part du négociateur', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const carte = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(v.id); };
+  const bouton = (cote: string) => texte(`[data-negociateur-carte="${cote}"]`);
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) => ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null });
+
+  it('taux : commission TTC ÷ prix ; sans prix, « calculé dès la saisie du prix de vente »', async () => {
+    await carte({ ...compromis, prixVente: 240000 });
+    expect(texte('[data-info="taux"] dd')).toBe('5,00 % du prix de vente');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await carte({ ...compromis, prixVente: null });
+    expect(texte('[data-info="taux"] dd')).toBe('calculé dès la saisie du prix de vente');
+  });
+  it('taux en direct dans le formulaire, au prix comme à la commission', async () => {
+    await carte({ ...compromis, prixVente: null });
+    await cliquer('[data-modifier-compromis="41"]');
+    expect(texte('[data-taux-direct]')).toBe('Taux de commission : calculé dès la saisie du prix de vente');
+    await saisir('[data-champ="prix-vente"]', '300 000');
+    expect(texte('[data-taux-direct]')).toBe('soit 4,00 % du prix');
+    await saisir('[data-champ="commission"]', '15000');
+    expect(texte('[data-taux-direct]')).toBe('soit 5,00 % du prix');
+  });
+  it('apporteur : à droite du nom, la rétrocession avec son unité et son équivalent (HT, TTC) ; sans rétrocession, « montant à renseigner »', async () => {
+    await carte({ ...compromis, retroApporteur: { montant: 800, unite: 'ht' } });
+    expect(texte('[data-info="apporteur"] [data-apporteur-nom]')).toBe('Julien Deblois');
+    expect(texte('[data-info="apporteur"] [data-apporteur-montant]')).toBe('800,00 € HT (960,00 € TTC)');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await carte({ ...compromis, retroApporteur: { montant: 960, unite: 'ttc' } });
+    expect(texte('[data-apporteur-montant]')).toBe('960,00 € TTC (800,00 € HT)');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await carte({ ...compromis, retroApporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0 } });
+    expect(texte('[data-apporteur-montant]')).toBe('montant à renseigner');
+  });
+  it('part du négociateur dans le bouton : 50/50, 60/40, 100 %, et rien sans répartition ; la commission versée reste dessous', async () => {
+    const avec = (parts: ReturnType<typeof pa>[], sortie: { id: number; nom: string } | null = { id: 7, nom: MY.nom }) =>
+      ({ ...compromis, repartition: { retroApporteurTtc: 0, parties: parts }, dossier: { ...compromis.dossier!, sortie } });
+    await carte(avec([pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'macj', 50)]));
+    expect([bouton('entree'), bouton('sortie')]).toEqual(['Négociateur : Jean-Baptiste PONS (CRITERIMMO) (50 %)', 'Négociateur : Mylène EBERLIN (MACJ) (50 %)']);
+    expect(container.querySelector('[data-commission-carte="entree"]')).not.toBeNull();
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await carte(avec([pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'macj', 40)]));
+    expect([bouton('entree'), bouton('sortie')]).toEqual(['Négociateur : Jean-Baptiste PONS (CRITERIMMO) (60 %)', 'Négociateur : Mylène EBERLIN (MACJ) (40 %)']);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await carte(avec([pa('entree', 5, JB.nom, 'criterimmo', 100)], null));
+    expect([bouton('entree'), bouton('sortie')]).toEqual(['Négociateur : Jean-Baptiste PONS (CRITERIMMO) (100 %)', '+ Ajouter un négociateur']);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    // Import « toute la commission à CRITERIMMO », négociateur posé sans répartition : pas de pourcentage.
+    await carte({ ...importe, dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: JB.nom }, sortie: null, apporteurId: null, personnes: [] } });
+    expect(bouton('entree')).toBe('Négociateur : Jean-Baptiste PONS (CRITERIMMO)');
   });
 });
