@@ -29,7 +29,11 @@ export function ChoixStatut({ valeur, disabled, onChoisir, idGroupe }: { valeur:
   );
 }
 
-const dateHeure = (x: string): string => { const d = new Date(x.replace(' ', 'T')); return Number.isNaN(d.getTime()) ? x : d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }); };
+/** « 2026-10-28 11:59:03.12+01 » (timestamptz en texte) → « 28/10/2026 11:59:03 » à Paris. */
+export const dateHeure = (x: string): string => {
+  const d = new Date(x.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+  return Number.isNaN(d.getTime()) ? x : d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+};
 const lib = (s: Statut | null): string => (s === null ? 'à renseigner' : LIBELLE_STATUT_PERSONNE[s]);
 
 /** Le bloc « Statut » du détail d'un compte : le choix, « Enregistrer le statut », et l'historique daté. Il enregistre lui-même. */

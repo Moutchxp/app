@@ -868,16 +868,16 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
 });
 
 describe('🔴 LOT P — sous le bouton négociateur : son statut à la date de la vente', () => {
-  it('figé (« Indépendant — commission déduite ») ; vente d’avant : statut actuel du compte, « à confirmer » ; inconnu : non déduite', async () => {
+  it('figé (« Indépendant — commission déduite ») ; vente d’avant : statut actuel du compte ; compte « à renseigner » : « à confirmer », non déduite', async () => {
     const parties = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: 'salarie' as const } : p));
     listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties } }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Indépendant — commission déduite');
-    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : Salarié (statut actuel du compte, à confirmer) — commission interne, non déduite');
+    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : Salarié (statut actuel du compte) — commission interne, non déduite');
     const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
     listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties: inconnu } }];
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
-    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : à renseigner — commission non déduite');
+    expect(texte('[data-statut-vente="sortie"]')).toBe('Statut à la vente : à renseigner (à confirmer) — commission non déduite');
   });
 });

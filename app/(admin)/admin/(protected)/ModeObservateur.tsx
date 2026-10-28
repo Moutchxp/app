@@ -11,7 +11,8 @@ import { MENTION_LECTURE_SEULE, MOTIF_LECTURE_SEULE } from '../../../lib/admin/s
  *   · un bandeau permanent « Lecture seule (observateur) » ;
  *   · les boutons d'ACTION (envoi d'un formulaire, et tout bouton dont le libellé commence par un verbe d'écriture : Enregistrer, Valider,
  *     Ajouter, « + … », Modifier, Saisir, Supprimer…) restent VISIBLES mais deviennent inactifs, avec la mention « lecture seule
- *     (observateur) » — les boutons de lecture (onglets, déplier, filtres, fermer) restent utilisables ;
+ *     (observateur) », lisibles (texte gris, bordure en tirets : jamais effacés par le style « désactivé » d'un bouton) — les boutons de
+ *     lecture (onglets, déplier, filtres, fermer) restent utilisables ;
  *   · toute écriture vers l'API admin partie d'un bouton oublié est arrêtée dans le navigateur avec le même motif (et le serveur la
  *     refuserait de toute façon).
  */
@@ -24,7 +25,8 @@ export function estBoutonAction(type: string | null, texte: string): boolean {
 
 const CSS = `
 .svv-lecture-seule-bandeau{margin:0 0 12px;padding:10px 14px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700}
-[data-lecture-seule]{cursor:not-allowed !important}
+[data-lecture-seule]{cursor:not-allowed !important;opacity:1 !important;color:var(--color-svv-muted) !important;background:var(--color-svv-field) !important;
+  border:1px dashed var(--color-svv-line-strong) !important;box-shadow:none !important;transform:none !important}
 [data-lecture-seule]::after{content:' · ${MENTION_LECTURE_SEULE}';font-weight:600;font-size:.78em;opacity:.85}
 `;
 

@@ -356,7 +356,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
         const st = statutDePartie(partieDuCote);
         const classe = classeCommission(st);
         return <span className={classe === 'a_renseigner' ? 'loc-muet trx-negociateur-commission trx-alerte' : 'loc-muet trx-negociateur-commission'} data-statut-vente={cote}>
-          Statut à la vente : {libelleStatut(st)}{partieDuCote.statut == null && st !== null ? ' (statut actuel du compte, à confirmer)' : ''}
+          Statut à la vente : {libelleStatut(st)}{partieDuCote.statut == null ? (st !== null ? ' (statut actuel du compte)' : ' (à confirmer)') : ''}
           {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
       })()}
       {ouvert && (

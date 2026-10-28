@@ -31,3 +31,11 @@ describe('🔴 LOT P — statut d’un compte', () => {
     expect(['independant', 'associe', 'salarie', 'observateur', null].map((s) => classeCommission(s as never))).toEqual(['independant', 'interne', 'interne', 'a_renseigner', 'a_renseigner']);
   });
 });
+
+describe('🔴 LOT P — la date d’un changement de statut (timestamptz en texte, fuseau « +01 »)', async () => {
+  const { dateHeure } = await import('../../(admin)/admin/(protected)/comptes/StatutCompte');
+  it('se lit à l’heure de Paris', () => {
+    expect(dateHeure('2026-10-28 11:59:03.12+01')).toBe('28/10/2026 11:59:03');
+    expect(dateHeure('illisible')).toBe('illisible');
+  });
+});
