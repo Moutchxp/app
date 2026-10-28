@@ -67,6 +67,13 @@ describe('l’accueil de la tuile', () => {
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
       .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj']]);
   });
+  it('LOT M — les deux cases se partagent toute la largeur (deux colonnes) ; l’accueil garde ses trois colonnes', async () => {
+    await act(async () => { root.render(createElement(AccueilVentes)); });
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil loc-cases--deux');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(AccueilTransaction)); });
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
+  });
 });
 
 describe('une société — le mois', () => {

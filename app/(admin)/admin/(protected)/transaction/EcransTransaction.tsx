@@ -51,11 +51,13 @@ const CASES_VENTES = [
   { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
 ];
 
-function Cases({ cases, libelle }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string }) {
+function Cases({ cases, libelle, deux = false }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string;
+  /** LOT M (Arno) — deux cases : une moitié de la largeur chacune (`loc-cases--deux`, la classe partagée de la Location ; 1 colonne ≤ 760 px). */
+  deux?: boolean }) {
   return (
     <div className="loc-page">
       <style>{CSS}</style>
-      <ul className="loc-cases loc-cases--accueil" aria-label={libelle}>
+      <ul className={`loc-cases loc-cases--accueil${deux ? ' loc-cases--deux' : ''}`} aria-label={libelle}>
         {cases.map((c) => (
           <li key={c.cle}><a className="loc-case" href={c.href} data-tuile-transaction={c.cle}>
             <span className="loc-case-titre">{c.titre}</span><span className="loc-case-phrase">{c.phrase}</span></a></li>
@@ -67,7 +69,7 @@ function Cases({ cases, libelle }: { cases: readonly { href: string; titre: stri
 /** L'accueil de la tuile : « Transaction », « Gestion », « CA global ». */
 export const AccueilTransaction = () => <Cases cases={CASES} libelle="Les tuiles de la Transaction" />;
 /** LOT L — « Transaction » : « CRITERIMMO » et « MACJ ». */
-export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" />;
+export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" deux />;
 
 // ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
