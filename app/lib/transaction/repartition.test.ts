@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { caHt, celluleGlobal, concerne, exterieurHt, ht, totaux, type Partie, type Vente } from './modele';
-import { partieExterieure, partiesParDefaut, partsParSociete, pourcentageDe, verifierRepartition } from './repartition';
+import { partieExterieure, partiesParDefaut, partsParSociete, pourcentageDe, pourcentagesParSociete, verifierRepartition } from './repartition';
 import { comptesDeLOnglet, deduireSocietes, ongletsDesDeuxSocietes, societeALaDate } from './societeNegociateur';
 import { cleTelephone, libelleDesPersonnes, memePersonne, personneExistante } from './personnes';
 
@@ -149,5 +149,19 @@ describe('les vendeurs et acquéreurs : jamais de doublon', () => {
   });
   it('le libellé d’une vente : « vendeurs / acquéreurs », tirets entre les personnes d’un même côté (lot F)', () => {
     expect(libelleDesPersonnes([{ role: 'acquereur', nom: 'MARTIN' }, { role: 'vendeur', nom: 'DUPONT' }, { role: 'vendeur', nom: 'DURAND' }])).toBe('DUPONT-DURAND / MARTIN');
+  });
+});
+
+describe('🔴 LOT N — pourcentagesParSociete : le % de chaque société et de la part extérieure (somme = 100 %)', () => {
+  const p = (societe: 'criterimmo' | 'macj' | null, pourcentage: number | null, montantHt: number | null = null): Partie => ({ sorte: societe === null ? 'exterieure' : 'entree',
+    compteId: societe === null ? null : 1, negociateur: societe === null ? null : 'X', societe, nom: societe === null ? 'Agence' : null, coordonnees: null, pourcentage, montantHt });
+  it('100/0, 50/50, 60/40, 40/40/20 ; une part en € HT ramenée en % ; la somme fait 100', () => {
+    expect(pourcentagesParSociete([p('criterimmo', 50), p('criterimmo', 50)], 10000)).toEqual({ societe: { criterimmo: 100, macj: 0 }, exterieur: 0 });
+    expect(pourcentagesParSociete([p('criterimmo', 50), p('macj', 50)], 10000)).toEqual({ societe: { criterimmo: 50, macj: 50 }, exterieur: 0 });
+    expect(pourcentagesParSociete([p('criterimmo', 60), p('macj', 40)], 10000)).toEqual({ societe: { criterimmo: 60, macj: 40 }, exterieur: 0 });
+    const r = pourcentagesParSociete([p('criterimmo', 40), p('macj', 40), p(null, 20)], 8000);
+    expect(r).toEqual({ societe: { criterimmo: 40, macj: 40 }, exterieur: 20 });
+    expect(r.societe.criterimmo + r.societe.macj + r.exterieur).toBe(100);
+    expect(pourcentagesParSociete([p('criterimmo', null, 2500), p('macj', null, 7500)], 10000)).toEqual({ societe: { criterimmo: 25, macj: 75 }, exterieur: 0 });
   });
 });

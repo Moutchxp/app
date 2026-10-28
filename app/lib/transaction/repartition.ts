@@ -93,6 +93,19 @@ export function partsParSociete(parties: readonly Partie[], honorairesTtc: numbe
   return { societe, exterieurHt, netHt };
 }
 
+/**
+ * 🔴 LOT N (Arno, 28/10/2026) — LA PART DE CHAQUE SOCIÉTÉ, ET LA PART EXTÉRIEURE, EN % DE LA COMMISSION NETTE (lignes « Part CRITERIMMO »,
+ * « Part MACJ », « Part extérieure » du tableau). Toutes les parts en % : la SOMME des pourcentages saisis (exacte : 60 + 40, jamais
+ * une division) ; une part en € : ramenée en % de la commission nette. Parts internes + extérieure = 100 % d'une répartition juste. PUR.
+ */
+export function pourcentagesParSociete(parties: readonly Partie[], netHt: number): { societe: Record<Societe, number>; exterieur: number } {
+  const enPct = parties.map((p, i) => (p.pourcentage !== null ? p.pourcentage : pourcentageDe(partsHt(parties, netHt)[i], netHt)));
+  const societe: Record<Societe, number> = { criterimmo: 0, macj: 0 };
+  let exterieur = 0;
+  parties.forEach((p, i) => { if (p.societe !== null) societe[p.societe] += enPct[i]; else exterieur += enPct[i]; });
+  return { societe, exterieur };
+}
+
 /** Le libellé d'une partie (« Entrée du mandat — Jean-Baptiste PONS (CRITERIMMO) », « Part extérieure — Agence X »). PUR. */
 export const libellePartie = (p: Partie): string => (p.sorte === 'exterieure' ? `Part extérieure — ${p.nom ?? ''}`
   : `${LIBELLE_PARTIE[p.sorte]} — ${p.negociateur ?? ''}${p.societe !== null ? ` (${LIBELLE_SOCIETE[p.societe]})` : ''}`);

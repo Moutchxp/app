@@ -225,7 +225,7 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     await choisir('sortie', 7);
     expect(pcts()).toEqual(['50', '50']);
     expect([texte('[data-societe-partie="0"]'), texte('[data-societe-partie="1"]')]).toEqual(['CRITERIMMO', 'MACJ']);
-    expect(texte('[data-parts-societes]')).toContain('Part CRITERIMMO : 5 000,00 € HT · Part MACJ : 5 000,00 € HT');
+    expect(texte('[data-parts-societes]')).toContain('Part CRITERIMMO : 5 000,00 € HT (50 %) · Part MACJ : 5 000,00 € HT (50 %)'); // LOT N : le % de chaque part
     await choisir('sortie', 5);
     expect(pcts()).toEqual(['100', '0']);
   });
@@ -246,7 +246,7 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie', 'exterieure']);
     await saisir('[data-partie-pct="0"]', '40'); await saisir('[data-partie-pct="1"]', '40'); await saisir('[data-partie-pct="2"]', '20');
     await saisir('[data-partie-nom]', 'Agence du Parc');
-    expect(texte('[data-parts-societes]')).toContain('part extérieure (hors CA) : 2 000,00 € HT');
+    expect(texte('[data-parts-societes]')).toContain('part extérieure (hors CA) : 2 000,00 € HT (20 %)');
     expect(container.querySelector('[data-retirer-exterieure]')!.getAttribute('aria-label')).toBe('Retirer cette partie extérieure');
     await cliquer('[data-retirer-exterieure]');
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie']);
@@ -761,5 +761,22 @@ describe('🔴 LOT L — Solde net et « + Nouveau compromis »', () => {
     expect(barre.querySelector('h3')!.textContent).toContain('Compromis en cours');
     expect(barre.querySelector('[data-nouveau-compromis]')).not.toBeNull();
     expect(barre.nextElementSibling?.matches('.tdb-tuiles') || barre.parentElement!.querySelector('.trx-barre ~ .tdb-tuiles') !== null).toBe(true);
+  });
+});
+
+describe('🔴 LOT N — la colonne « % » des lignes « Part CRITERIMMO / MACJ / extérieure »', () => {
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) => ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null });
+  const ext = { sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null };
+  const pcts = async (parties: unknown[]) => {
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 2400, parties: parties as never } }];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    return [texte('[data-pct-societe-compromis="criterimmo"]'), texte('[data-pct-societe-compromis="macj"]'), texte('[data-pct-exterieur-compromis]')];
+  };
+  it('100 / 0 (les deux négociateurs chez CRITERIMMO), 50 / 50 entre sociétés, 60 / 40, et 40 / 40 / 20 avec une part extérieure', async () => {
+    expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 4, 'Augustin Jorel', 'criterimmo', 50)])).toEqual(['100 %', '0 %', '']);
+    expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'macj', 50)])).toEqual(['50 %', '50 %', '']);
+    expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'macj', 40)])).toEqual(['60 %', '40 %', '']);
+    expect(await pcts([pa('entree', 5, JB.nom, 'criterimmo', 40), pa('sortie', 7, MY.nom, 'macj', 40), ext])).toEqual(['40 %', '40 %', '20 %']);
   });
 });

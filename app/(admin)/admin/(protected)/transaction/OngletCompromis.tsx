@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { commissionDuCote, partDuCote, retroApporteurDe, tuilesCompromis } from '../../../../lib/transaction/commissions';
-import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
+import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, motifSocieteVente, type EtatRepartition, type MontantEcran } from './Repartition';
@@ -118,6 +118,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           {liste.map((v) => {
             const r = v.repartition ?? null;
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
+            // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
+            const pcts = r === null || ps === null ? null : pourcentagesParSociete(r.parties, ps.netHt);
+            const pct = (x: number): string => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
             const c = carteCompromis(v, d.aujourdhui);
             // 🔴 LOT F — LA CARTE REPLIÉE : à gauche le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, plus discret, adresse · prix · acte au
             // plus tard ; à droite la commission TTC en grand et en vert (« TTC » écrit), le HT dessous, puis le % du prix (si le prix est connu).
@@ -215,9 +218,11 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                                 <td data-mot="%">{p.pourcentage !== null ? `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : `${(ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`}</td>
                                 <td data-mot="€ HT">{eur(p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0)}</td></tr>
                             ))}
-                            {SOCIETES.map((s) => <tr key={s} className="tdb-fort"><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td><td data-mot="%" />
+                            {SOCIETES.map((s) => <tr key={s} className="tdb-fort"><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
+                              <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
                               <td data-mot="€ HT" data-part-societe-compromis={s}>{eur(ps.societe[s])} HT</td></tr>)}
-                            {ps.exterieurHt > 0 && <tr><th scope="row">Part extérieure (hors CA)</th><td data-mot="Société">hors CA</td><td data-mot="%" /><td data-mot="€ HT">{eur(ps.exterieurHt)} HT</td></tr>}
+                            {ps.exterieurHt > 0 && <tr><th scope="row">Part extérieure (hors CA)</th><td data-mot="Société">hors CA</td>
+                              <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td><td data-mot="€ HT">{eur(ps.exterieurHt)} HT</td></tr>}
                           </tbody>
                         </table>
                         </div>

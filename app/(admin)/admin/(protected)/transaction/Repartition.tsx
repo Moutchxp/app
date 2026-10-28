@@ -4,7 +4,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
-import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
+import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
 
 /**
@@ -159,6 +159,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   // Sans aucun négociateur (rien n'est encore une partie), le total se lit sur les lignes affichées.
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
   const parSociete = partsParSociete(parties, commission, retro);
+  const pcts = pourcentagesParSociete(parties, net);
+  const pctTexte = (x: number): string => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
   const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro);
   const motifAutre = autre !== null && motifTotal === null && motifSocieteVente(etat, negociateurs) === null ? autre : null;
   const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[n.societe]}` }));
@@ -235,8 +237,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           {motifAutre !== null && <span className="trx-alerte" role="status" data-motif-repartition-autre>{motifAutre}</span>}
           {motifChoix !== null && <span className="trx-alerte" role="status" data-motif-societe-vente>{motifChoix}</span>}
           {parties.length > 0 && (
-            <span className="loc-muet" data-parts-societes>{SOCIETES.map((s) => `Part ${LIBELLE_SOCIETE[s]} : ${eur(parSociete.societe[s])} HT`).join(' · ')}
-              {parSociete.exterieurHt > 0 ? ` · part extérieure (hors CA) : ${eur(parSociete.exterieurHt)} HT` : ''}</span>
+            // LOT N — chaque part avec son % de la commission nette, comme dans le tableau de la carte.
+            <span className="loc-muet" data-parts-societes>{SOCIETES.map((s) => `Part ${LIBELLE_SOCIETE[s]} : ${eur(parSociete.societe[s])} HT (${pctTexte(pcts.societe[s])})`).join(' · ')}
+              {parSociete.exterieurHt > 0 ? ` · part extérieure (hors CA) : ${eur(parSociete.exterieurHt)} HT (${pctTexte(pcts.exterieur)})` : ''}</span>
           )}
         </li>
       </ul>
