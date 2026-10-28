@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lireGestion, lireModification, lireRetro, lireVente, montant } from './saisie';
+import { lireDossier, lireGestion, lireModification, lireRetro, lireVente, montant } from './saisie';
 
 /** TUILE « TRANSACTION » — la lecture des saisies : refus en français, montants tels que saisis (aucun arrondi). */
 describe('saisie d’une vente', () => {
@@ -45,5 +45,22 @@ describe('saisie d’une rétrocession et de la gestion du mois', () => {
     expect(montant('1 234,56 €')).toBe(1234.56);
     expect(montant('')).toBeNull();
     expect(montant('douze')).toBeUndefined();
+  });
+});
+
+describe('🔴 LOT I — lireDossier : l’unité de la rétrocession et les commissions versées', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '12 000', retroApporteurTtc: '500', ...o });
+  it('sans unité (une saisie d’avant) : TTC, comme avant ; aucune commission (rien à toucher)', () => {
+    const r = lireDossier(dossier());
+    expect(r.ok && r.valeur.retroUnite).toBe('ttc');
+    expect(r.ok && 'commissions' in r.valeur).toBe(false);
+  });
+  it('HT ou TTC par montant ; un montant vide : rien pour ce côté ; une unité inconnue ou un montant négatif : refusés', () => {
+    const r = lireDossier(dossier({ retroApporteurUnite: 'ht', commissions: { entree: { montant: '1 000', unite: 'ht' }, sortie: { montant: '', unite: 'ttc' } } }));
+    expect(r.ok && r.valeur.retroUnite).toBe('ht');
+    expect(r.ok && r.valeur.commissions).toEqual({ entree: { montant: 1000, unite: 'ht' }, sortie: null });
+    expect(lireDossier(dossier({ retroApporteurUnite: 'eur' })).ok).toBe(false);
+    expect(lireDossier(dossier({ commissions: { entree: { montant: '-5', unite: 'ht' } } })).ok).toBe(false);
+    expect(lireDossier(dossier({ commissions: { entree: { montant: '5', unite: 'HTT' } } })).ok).toBe(false);
   });
 });

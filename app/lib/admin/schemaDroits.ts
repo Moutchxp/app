@@ -81,6 +81,14 @@ export function annulationDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.annulation_motif', () => colonneExiste('transaction_vente', 'annulation_motif'));
 }
 
+/**
+ * TRANSACTION, LOT I — la migration 437 (commissions versées et rétrocession de l'apporteur saisies en HT ou en TTC) est-elle appliquée ?
+ * Sans elle : tout se saisit en TTC comme avant (« HT » grisé).
+ */
+export function uniteCommissionDisponible(): Promise<boolean> {
+  return memoiser('transaction_vente_ligne.montant_ht', () => colonneExiste('transaction_vente_ligne', 'montant_ht'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

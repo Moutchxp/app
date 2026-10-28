@@ -7,7 +7,7 @@ import {
   acteSigne, annulerCompromis, annulerGeste, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible,
 } from '../../../../lib/transaction/repo';
-import { annulationDisponible, prixVenteDisponible, repartitionDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
 import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -41,7 +41,7 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
     lireApporteurs().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
+  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {

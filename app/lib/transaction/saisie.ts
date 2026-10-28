@@ -1,4 +1,4 @@
-import { estSociete, STATUTS, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
+import { estSociete, STATUTS, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
 
 /**
  * TUILE « TRANSACTION » — la LECTURE d'une saisie venue de l'écran (vente, rétrocession, gestion du mois), avant toute écriture.
@@ -158,7 +158,15 @@ export interface DossierSaisie {
   sortieId: number | null;
   apporteurId: number | null;
   apporteurNom: string | null;
+  /** La rétrocession de l'apporteur, dans l'unité de `retroUnite` (le nom d'avant est gardé : sans unité, c'est du TTC, comme avant). */
   retroApporteurTtc: number;
+  /** LOT I (437) — l'unité de la rétrocession saisie ; absente de la saisie : 'ttc' (comme avant). */
+  retroUnite: 'ht' | 'ttc';
+  /**
+   * LOT I (437) — les commissions versées aux négociateurs d'entrée et de sortie, chacune dans SON unité ; null : rien de saisi pour ce
+   * côté. Absent (une saisie qui n'en parle pas) : les commissions enregistrées restent telles quelles.
+   */
+  commissions?: { entree: MontantSaisi | null; sortie: MontantSaisi | null };
   personnes: PersonneSaisie[];
   parties: PartieSaisie[];
   /** LOT E (435) — le prix de vente (€), facultatif. */
@@ -214,11 +222,29 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
   }
   const lignes = lireParts(c.lignes);
   if (!lignes.ok) return lignes;
+  const unite = (x: unknown): 'ht' | 'ttc' | undefined => (x === undefined || x === null || x === '' ? 'ttc' : x === 'ht' || x === 'ttc' ? x : undefined);
+  const retroUnite = unite(c.retroApporteurUnite);
+  if (retroUnite === undefined) return refus('Unité inconnue pour la rétrocession de l’apporteur (HT ou TTC).');
+  let commissions: DossierSaisie['commissions'];
+  if (c.commissions !== undefined && c.commissions !== null) {
+    const o = c.commissions as Record<string, unknown>;
+    const lus: Record<'entree' | 'sortie', MontantSaisi | null> = { entree: null, sortie: null };
+    for (const [k, mot] of [['entree', 'd’entrée'], ['sortie', 'de sortie']] as const) {
+      const x = (o[k] ?? {}) as Record<string, unknown>;
+      const m = montant(x.montant);
+      if (m === undefined || (m !== null && m < 0)) return refus(`La commission du négociateur ${mot} doit être un montant positif (ou vide).`);
+      const u = unite(x.unite);
+      if (u === undefined) return refus(`Unité inconnue pour la commission du négociateur ${mot} (HT ou TTC).`);
+      lus[k] = m === null ? null : { montant: m, unite: u };
+    }
+    commissions = lus;
+  }
   const prix = montant(c.prixVente);
   if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
   return { ok: true, valeur: { prixVente: prix, lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
     dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
-    entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, personnes, parties } };
+    entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, retroUnite,
+    ...(commissions !== undefined ? { commissions } : {}), personnes, parties } };
 }
 
 /** LOT G — l'annulation d'un compromis : « Défaut de crédit » (par défaut) ou un autre motif ÉCRIT (obligatoire), la date, une note. */

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/transaction/commissions';
 
 /** TUILE TRANSACTION — le socle des écrans : lecture de la route, envoi d'un geste, formats. Aucun calcul métier ici (`modele.ts`). */
 export const API_TRANSACTION = '/api/admin/transaction';
@@ -39,6 +40,8 @@ export async function posterTransaction(corps: Record<string, unknown>): Promise
 }
 
 export const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+/** LOT I — un montant avec SON unité et son équivalent : « 1 000,00 € HT (soit 1 200,00 € TTC) ». */
+export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`;
 export const signePct = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 export const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
@@ -152,6 +155,28 @@ export const CSS_TRANSACTION = `
 .trx-barre-actions{border-top:1px solid var(--color-svv-line);padding-top:10px}
 @media (max-width:900px){ .trx-grille{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .trx-depassee{color:var(--color-svv-red);font-weight:800}
+/* LOT I (Arno) — LES 4 TUILES de l'onglet Compromis : 4 de front, 2×2 en dessous de 1100 px (règle des tuiles), 1 colonne sur téléphone.
+   Le CA en vert (« TTC » écrit), les commissions versées en rouge (« TTC versées » écrit), le HT en gris dessous : jamais la couleur seule. */
+.trx-tuiles4 .tdb-tuile{gap:4px;cursor:default}
+.trx-tuiles4 .tdb-tuile-valeur{font-size:1.4rem}
+.trx-tuiles4 button.tdb-tuile{cursor:pointer}
+.trx-tuile-ht{font-size:.9rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-vert{color:var(--color-svv-green-ink)}
+.trx-rouge{color:var(--color-svv-red)}
+.trx-tuile-detail{display:flex;flex-direction:column;gap:2px;font-size:.85rem;color:var(--color-svv-ink);border-top:1px solid var(--color-svv-line);padding-top:6px;width:100%}
+.trx-tuile-detail-n{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
+@media (max-width:560px){ .trx-tuiles4{grid-template-columns:minmax(0,1fr)} }
+/* LOT I — un montant et son unité « HT / TTC » (deux boutons de 44 px, le choisi enfoncé). */
+.trx-montant-unite{display:flex;flex-direction:column;gap:4px;min-width:0}
+.trx-montant-unite label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-montant-unite input{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:.95rem;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%;box-sizing:border-box}
+.trx-unites{display:inline-flex;gap:0;align-self:flex-start;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
+.trx-unite{appearance:none;min-width:56px;min-height:44px;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer;padding:0 12px}
+.trx-unite + .trx-unite{border-left:1px solid var(--color-svv-line-strong)}
+.trx-unite[aria-pressed='true']{background:var(--color-svv-ink);color:var(--color-svv-surface)}
+.trx-unite:disabled{opacity:.5;cursor:not-allowed}
+.trx-unite:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.trx-negociateur-commission{font-size:.88rem}
 .trx-a-renseigner{font-style:italic}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}

@@ -20,6 +20,9 @@ export const estSociete = (x: unknown): x is Societe => x === 'criterimmo' || x 
 /** Le coefficient TTC → HT des fichiers (« /1.2 »). */
 export const TVA = 1.2;
 export const ht = (ttc: number): number => ttc / TVA;
+/** LOT I (437) — l'unité d'un montant saisi (commission versée, rétrocession de l'apporteur) : le choix est PAR MONTANT. */
+export type Unite = 'ht' | 'ttc';
+export interface MontantSaisi { montant: number; unite: Unite }
 
 export type StatutVente = 'compromis' | 'vendue' | 'annulee';
 export const STATUTS: readonly StatutVente[] = ['compromis', 'vendue', 'annulee'];
@@ -33,7 +36,12 @@ export interface LigneVente {
   id: number;
   negociateur: string;
   role: RoleLigne;
+  /** Le montant TTC — pour une ligne saisie EN HT (437), son équivalent TTC (HT × 1,2), le montant saisi restant `montantHt`. */
   montantTtc: number | null;
+  /** LOT I (437) — le montant saisi EN HT (alors la ligne est en HT) ; absent ou null : saisie en TTC. */
+  montantHt?: number | null;
+  /** LOT I (437) — la commission versée au négociateur d'entrée ou de sortie, saisie depuis le dossier ; absent ou null : ligne d'avant. */
+  cote?: 'entree' | 'sortie' | null;
   nature: 'vente' | 'compromis';
   /** La ligne compte-t-elle dans les honoraires de la vente (une part comptée par le fichier) ? */
   compte: boolean;
@@ -70,6 +78,11 @@ export interface Vente {
   repartition?: Repartition | null;
   /** LOT G (migration 436) — l'annulation d'un compromis (statut « annulee ») : sa date, son motif, sa note ; absent ou null : non annulé. */
   annulation?: { date: string | null; motif: string; note: string | null } | null;
+  /**
+   * LOT I — la rétrocession de l'apporteur saisie au dossier, dans SON unité (TTC avant la 437, HT ou TTC ensuite) ; absent ou null :
+   * aucune. Pour une vente répartie, `repartition.retroApporteurTtc` en est l'équivalent TTC.
+   */
+  retroApporteur?: MontantSaisi | null;
   /** LOT E (migration 435) — le prix de vente du bien (€), facultatif ; absent ou null : à renseigner. */
   prixVente?: number | null;
   /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */

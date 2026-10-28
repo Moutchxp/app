@@ -1,7 +1,8 @@
 'use client';
 
 import { ListeChoix } from '../location/ListeChoix';
-import { commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, type Partie, type Societe } from '../../../../lib/transaction/modele';
+import { commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { autreUnite, LIBELLE_UNITE, UNITES } from '../../../../lib/transaction/commissions';
 import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
 
@@ -22,13 +23,26 @@ export interface NegociateurRef { id: number; nom: string; societe: Societe | nu
 export interface ApporteurRef { id: number; nom: string }
 /** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
 export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
-/** `parties[0]` : la ligne « Entrée du mandat », `parties[1]` : « Sortie du mandat » (toujours là) ; ensuite les parties extérieures. */
-export interface EtatRepartition { entreeId: number | null; sortieId: number | null; apporteurId: number | null; retroTexte: string; parties: PartieEcran[] }
+/** Un montant à l'écran, tel que saisi, avec SON unité (LOT I). */
+export interface MontantEcran { texte: string; unite: Unite }
+/**
+ * `parties[0]` : la ligne « Entrée du mandat », `parties[1]` : « Sortie du mandat » (toujours là) ; ensuite les parties extérieures.
+ * LOT I (437) — `retroUnite` : l'unité de la rétrocession ; `commissions` : les commissions versées aux négociateurs d'entrée et de sortie
+ * (null : la 437 n'est pas appliquée — rien ne se saisit, rien ne s'envoie, tout reste en TTC comme avant).
+ */
+export interface EtatRepartition { entreeId: number | null; sortieId: number | null; apporteurId: number | null; retroTexte: string; retroUnite?: Unite;
+  commissions?: Record<'entree' | 'sortie', MontantEcran> | null; parties: PartieEcran[] }
 
-export const nombre = (s: string): number | null => {
+/** LOT I — la rétrocession saisie, en TTC (ce que la répartition déduit) ; vide : 0. PUR. */
+export const retroTtcDe = (etat: Pick<EtatRepartition, 'retroTexte' | 'retroUnite'>): number => {
+  const x = nombre(etat.retroTexte) ?? 0;
+  return etat.retroUnite === 'ht' ? x * TVA : x;
+};
+
+export function nombre(s: string): number | null {
   const t = s.replace(/[\s  €%]/g, '').replace(',', '.');
   return t === '' || !/^-?\d+(\.\d+)?$/.test(t) ? null : Number(t);
-};
+}
 const texteNombre = (x: number): string => String(x).replace('.', ',');
 
 /** Partie (modèle) → partie à l'écran. */
@@ -112,14 +126,16 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
   const i = cote === 'entree' ? 0 : 1;
   const garder = (): PartieEcran[] => etat.parties.map((p, j) => (j === i ? { ...p, compteId: n?.id ?? null, negociateur: n?.nom ?? null, societe: n?.societe ?? null } : p));
   const deux = (e: number | null, s: number | null): boolean => e !== null && s !== null && e !== s;
-  if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, parties: garder() };
-  return { ...etat, entreeId, sortieId, parties: partiesPour(negos, entreeId, sortieId) };
+  // LOT I — le négociateur retiré : la commission de ce côté n'a plus de destinataire, elle est vidée (rien n'est encore enregistré).
+  const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '' } } : etat.commissions;
+  if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, commissions, parties: garder() };
+  return { ...etat, entreeId, sortieId, commissions, parties: partiesPour(negos, entreeId, sortieId) };
 }
 
 /** LOT E — l'état de la somme pour le formulaire : les parties retenues et, si elle ne fait pas 100 %, la phrase (Enregistrer désactivé). PUR. */
 export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parties: Partie[]; netHt: number; motif: string | null } {
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
-  const netHt = commissionNetteHt(commission, nombre(etat.retroTexte) ?? 0);
+  const netHt = commissionNetteHt(commission, retroTtcDe(etat));
   const parties = versModele(etat.parties);
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
@@ -132,7 +148,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   societeVente: Societe;
   desactive?: boolean;
 }) {
-  const retro = nombre(etat.retroTexte) ?? 0;
+  const retro = retroTtcDe(etat);
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
   const net = commissionNetteHt(commission, retro);
   const lignesModele = etat.parties.map(versModeleUne);
@@ -156,9 +172,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           <ListeChoix options={apporteurs.map((a) => ({ id: a.id, libelle: a.nom }))} valeur={etat.apporteurId === null ? '' : String(etat.apporteurId)} vide="Aucun"
             libelle="Apporteur d’affaires" onChange={(v) => onChange({ ...etat, apporteurId: v === '' ? null : Number(v) })} donnees={{ 'data-champ': 'apporteur-annuaire' }} />
           <span className="loc-muet">L’annuaire des apporteurs de la Location.</span></label>
-        <label>Rétrocession de l’apporteur (TTC)
-          <input inputMode="decimal" value={etat.retroTexte} onChange={(e) => onChange({ ...etat, retroTexte: e.target.value })} data-champ="retro" />
-          <span className="loc-muet">Déduite avant toute répartition.</span></label>
+        <ChampMontantUnite mot="Rétrocession de l’apporteur" valeur={{ texte: etat.retroTexte, unite: etat.retroUnite ?? 'ttc' }} avecHt={etat.commissions != null}
+          onChange={(m) => onChange({ ...etat, retroTexte: m.texte, retroUnite: m.unite })} champ="retro" aide="Déduite avant toute répartition." />
       </div>
 
       <ul className="trx-journal trx-parties" data-parties>
@@ -192,6 +207,12 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   La répartition ne peut pas affecter cette part : {p.negociateur} n’a pas de société (CRITERIMMO ou MACJ). Renseignez-la dans Comptes.</span>
               )}
               {interne && p.compteId === null && (nombre(p.texte) ?? 0) !== 0 && <span className="loc-muet">Sans négociateur, cette part n’est pas comptée.</span>}
+              {/* LOT I — la commission versée au négociateur de ce côté (entrée : ligne 0, sortie : ligne 1), HT ou TTC au choix. */}
+              {interne && i < 2 && (etat.commissions != null ? (
+                p.compteId === null ? <span className="loc-muet" data-commission-sans-negociateur={i === 0 ? 'entree' : 'sortie'}>Commission versée : choisissez d’abord le négociateur.</span>
+                  : <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
+                    onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
+              ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
               {!interne && <span className="loc-muet">Hors de nos chiffres : dans le CA d’aucune société.</span>}
             </li>
           );
@@ -217,5 +238,38 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: partiesPour(negociateurs, etat.entreeId, etat.sortieId) })} data-revenir-5050>Revenir au 50/50</button>
       </p>
     </fieldset>
+  );
+}
+
+/** LOT I — le montant dans l'autre unité, pour la ligne « soit … » (vide : rien). PUR. */
+export function equivalent(m: MontantEcran): string | null {
+  const x = nombre(m.texte);
+  if (x === null) return null;
+  const a = autreUnite({ montant: x, unite: m.unite });
+  return `soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]}`;
+}
+
+/**
+ * 🔴 LOT I (Arno) — UN MONTANT AVEC SON UNITÉ « HT / TTC » AU CHOIX : le champ, deux boutons (cibles de 44 px, le bouton choisi est
+ * enfoncé et dit « HT » ou « TTC » — jamais la couleur seule), et l'équivalent dans l'autre unité dessous. Sans la 437 : « HT » grisé.
+ */
+export function ChampMontantUnite({ mot, valeur, onChange, avecHt, champ, aide }: {
+  mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
+}) {
+  const eq = equivalent(valeur);
+  return (
+    <div className="trx-montant-unite" data-montant-unite={champ}>
+      <label>{mot} ({LIBELLE_UNITE[valeur.unite]})
+        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange({ ...valeur, texte: e.target.value })} data-champ={champ} /></label>
+      <div className="trx-unites" role="group" aria-label={`Unité : ${mot}`}>
+        {UNITES.map((u) => (
+          <button key={u} type="button" className="trx-unite" aria-pressed={valeur.unite === u} disabled={u === 'ht' && !avecHt}
+            onClick={() => onChange({ ...valeur, unite: u })} data-unite={u} data-unite-de={champ}>{LIBELLE_UNITE[u]}</button>
+        ))}
+      </div>
+      {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
+      {aide !== undefined && <span className="loc-muet">{aide}</span>}
+      {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
+    </div>
   );
 }

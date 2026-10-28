@@ -159,9 +159,12 @@ describe('l’onglet « Compromis »', () => {
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     expect(texte('[data-nb-compromis]')).toBe('1');
-    expect(texte('[data-commission-en-cours]')).toBe('10 000,00 €');
-    // (12 000 − 2 400) ÷ 1,2 = 8 000 HT nets ; 40 % = 3 200
-    expect(texte('[data-part-compromis="criterimmo"]')).toBe('3 200,00 €');
+    expect(texte('[data-commission-en-cours]')).toBe('sur 10 000,00 € HT de commission · parts extérieures (hors CA) : 1 600,00 € HT');
+    // (12 000 − 2 400) ÷ 1,2 = 8 000 HT nets ; 40 % = 3 200 nets — LOT I : le CA est la part (40 %) de la commission entière, 4 000 HT,
+    // dont la quote-part de l'apporteur (800 HT) est une commission versée : le solde redonne la part nette d'avant, 3 200.
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : part de la société après répartition');
+    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+    expect(texte('[data-solde-ht]')).toBe('3 200,00 € HT');
     await deplier(41);
     const fiche = texte('[data-compromis="41"]');
     for (const m of ['DUPONT', '06 12 34 56 78', 'p.dupont@exemple.fr', 'MARTIN', '1 rue A, Puteaux', '20/10/2026', '15/01/2027', '10 000,00 € HT', '12 000,00 € TTC',
@@ -186,7 +189,7 @@ describe('l’onglet « Compromis »', () => {
     expect([...container.querySelectorAll('[role="tab"]')].slice(0, 2).map((b) => b.textContent)).toEqual(['Compromis', 'Le mois et l’année']);
     await cliquer('[data-vue="compromis"]');
     expect(container.querySelector('[data-onglet-compromis="tous"]')).not.toBeNull();
-    expect(texte('[data-part-compromis="macj"]')).toBe('3 200,00 €');
+    expect(texte('[data-part-compromis="macj"]')).toBe('Part MACJ : 4 000,00 € HT');
   });
 });
 
@@ -422,7 +425,7 @@ describe('🔴 LOT G — « Annulation »', () => {
     listeCompromis = [importe];
     await ouvrir(); await cliquer('[data-vue="compromis"]');
     expect(texte('[data-nb-compromis]')).toBe('1');
-    expect(texte('[data-commission-en-cours]')).toBe('11 666,67 €');
+    expect(texte('[data-commission-en-cours]')).toBe('sur 11 666,67 € HT de commission');
     expect(container.querySelector('[data-compromis="77"]')).toBeNull();
     expect(texte('#trx-compromis-annules .tdb-replie-mot')).toBe('Compromis annulés (1)');
     await cliquer('[data-deplier="compromis-annules"]');
@@ -485,5 +488,116 @@ describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
     await cliquer('[data-acte-signe="41"]');
     await cliquer('[data-confirmer-acte]');
     expect(posts.at(-1)).toEqual({ action: 'acte-signe', id: 41, dateActe: '2026-10-27' });
+  });
+});
+
+describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const onglet = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+  const choisir = async (champ: string, id: number) => { await cliquer(`[data-champ="${champ}"]`); await cliquer(`[role="option"][data-option="${id}"]`); };
+  const presse = (champ: string, u: string) => container.querySelector(`[data-unite-de="${champ}"][data-unite="${u}"]`)!.getAttribute('aria-pressed');
+  // 41 : 12 000 TTC ; JB (CRITERIMMO) entrée, commission 1 000 HT ; Mylène (MACJ) sortie, commission 600 TTC.
+  const avecCommissions: Vente = { ...compromis, lignes: [
+    { id: 1, negociateur: JB.nom, role: 'negociateur', montantTtc: 1200, montantHt: 1000, cote: 'entree', nature: 'compromis', compte: false, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null },
+    { id: 2, negociateur: MY.nom, role: 'negociateur', montantTtc: 600, montantHt: null, cote: 'sortie', nature: 'compromis', compte: false, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] };
+
+  it('QUATRE tuiles dans l’ordre ; le CA en vert avec « TTC », les commissions en rouge avec « TTC versées », le HT dessous', async () => {
+    listeCompromis = [avecCommissions];
+    await onglet();
+    expect([...container.querySelectorAll('[data-totaux-compromis] .tdb-tuile-mot')].map((x) => x.textContent)).toEqual(['Compromis en cours', 'Chiffre d’affaires', 'Commissions versées', 'Solde net']);
+    const ca = container.querySelector('[data-ca-ttc]')!;
+    expect(ca.className).toContain('trx-vert');
+    expect(texte('[data-ca-ttc]')).toBe('4 800,00 € TTC'); // 40 % de 10 000 HT = 4 000 HT
+    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+    const co = container.querySelector('[data-commissions-ttc]')!;
+    expect(co.className).toContain('trx-rouge');
+    // JB 1 000 HT + apporteur 40 % × 2 000 HT = 800 HT ⇒ 1 800 HT, 2 160 TTC (Mylène est MACJ)
+    expect(texte('[data-commissions-ttc]')).toBe('2 160,00 € TTC versées');
+    expect(texte('[data-commissions-ht]')).toBe('1 800,00 € HT');
+    expect(texte('[data-solde-ht]')).toBe('2 200,00 € HT');
+    expect(texte('[data-solde-ttc]')).toBe('2 640,00 € TTC');
+    expect(texte('[data-part-compromis="criterimmo"]')).toBe('Part CRITERIMMO : part de la société après répartition');
+  });
+  it('« Commissions versées » : le détail négociateurs / apporteurs au toucher (et au survol)', async () => {
+    listeCompromis = [avecCommissions];
+    await onglet();
+    expect(container.querySelector('[data-detail-commissions]')).toBeNull();
+    await cliquer('[data-tuile="commissions"]');
+    expect(container.querySelector('[data-tuile="commissions"]')!.getAttribute('aria-expanded')).toBe('true');
+    expect(texte('[data-detail="negociateurs"]')).toBe('Négociateurs : 1 000,00 € HT (1 200,00 € TTC)');
+    expect(texte('[data-detail="apporteurs"]')).toBe('Apporteurs : 800,00 € HT (960,00 € TTC)');
+  });
+  it('un solde négatif s’affiche tel quel, avec le signe moins', async () => {
+    listeCompromis = [{ ...avecCommissions, lignes: [{ ...avecCommissions.lignes[0], montantHt: 9000, montantTtc: 10800 }] }];
+    await onglet();
+    expect(texte('[data-solde-ht]')).toMatch(/^[-−]5 800,00 € HT$/);
+  });
+  it('les compromis annulés sont exclus des tuiles', async () => {
+    listeCompromis = [avecCommissions];
+    listeAnnules = [{ ...compromis, id: 77, statut: 'annulee', annulation: { date: '2026-10-20', motif: 'Défaut de crédit', note: null } }];
+    await onglet();
+    expect(texte('[data-nb-compromis]')).toBe('1');
+    expect(texte('[data-ca-ht]')).toBe('4 000,00 € HT');
+  });
+  it('nouveau compromis : la rétrocession de l’apporteur proposée en HT ; sans la 437, en TTC (HT grisé)', async () => {
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    expect(presse('retro', 'ht')).toBe('true');
+    expect(presse('retro', 'ttc')).toBe('false');
+    await cliquer('.tdb-x');
+    delete ref.uniteCommission;
+    await act(async () => { root.unmount(); }); root = createRoot(container);
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    expect(presse('retro', 'ttc')).toBe('true');
+    expect((container.querySelector('[data-unite-de="retro"][data-unite="ht"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('[data-commission-indisponible]')).not.toBeNull();
+  });
+  it('un montant déjà enregistré garde son unité d’origine (TTC) : rien n’est converti', async () => {
+    await onglet();
+    await deplier(41);
+    await cliquer('[data-modifier-compromis="41"]');
+    expect(presse('retro', 'ttc')).toBe('true');
+    expect((container.querySelector('[data-champ="retro"]') as HTMLInputElement).value).toBe('2400');
+    expect(texte('[data-equivalent="retro"]')).toBe('soit 2 000,00 € HT');
+    await cliquer('[data-enregistrer-dossier]');
+    const d = (posts.at(-1) as { dossier: Record<string, unknown> }).dossier;
+    expect([d.retroApporteurTtc, d.retroApporteurUnite]).toEqual(['2400', 'ttc']);
+  });
+  it('le formulaire : une commission par côté, chacune HT ou TTC, avec son équivalent', async () => {
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '12000');
+    expect(container.querySelector('[data-commission-sans-negociateur="entree"]')).not.toBeNull();
+    await choisir('entree', 5);
+    await choisir('sortie', 7);
+    await saisir('[data-champ="commission-entree"]', '1000');
+    expect(texte('[data-equivalent="commission-entree"]')).toBe('soit 1 200,00 € TTC');
+    await saisir('[data-champ="commission-sortie"]', '1200');
+    await cliquer('[data-unite-de="commission-sortie"][data-unite="ttc"]');
+    expect(texte('[data-equivalent="commission-sortie"]')).toBe('soit 1 000,00 € HT');
+    await saisir('[data-personne-nom="0"]', 'DUPONT');
+    await cliquer('[data-enregistrer-dossier]');
+    const d = (posts.at(-1) as { dossier: Record<string, unknown> }).dossier;
+    expect(d.commissions).toEqual({ entree: { montant: '1000', unite: 'ht' }, sortie: { montant: '1200', unite: 'ttc' } });
+    expect(d.retroApporteurUnite).toBe('ht');
+  });
+  it('depuis la carte : le bouton du négociateur saisit sa commission (HT / TTC) et l’enregistre avec lui ; dessous, la commission enregistrée', async () => {
+    listeCompromis = [avecCommissions];
+    await onglet();
+    await deplier(41);
+    expect(texte('[data-commission-carte="entree"]')).toBe('Commission versée : 1 000,00 € HT (soit 1 200,00 € TTC)');
+    expect(texte('[data-commission-carte="sortie"]')).toBe('Commission versée : 600,00 € TTC (soit 500,00 € HT)');
+    await cliquer('[data-negociateur-carte="sortie"]');
+    expect(presse('commission-carte-sortie', 'ttc')).toBe('true');
+    await saisir('[data-champ="commission-carte-sortie"]', '700');
+    await cliquer('[data-unite-de="commission-carte-sortie"][data-unite="ht"]');
+    await cliquer('[data-valider-negociateur]');
+    const envoi = posts.at(-1) as { action: string; dossier: { sortieId: number; commissions: unknown } };
+    expect(envoi.action).toBe('dossier-enregistrer');
+    expect(envoi.dossier.sortieId).toBe(7);
+    expect(envoi.dossier.commissions).toEqual({ entree: { montant: '1000', unite: 'ht' }, sortie: { montant: '700', unite: 'ht' } });
   });
 });

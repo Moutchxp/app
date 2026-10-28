@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { BlocRepartition, etatSomme, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
+import { commissionDuCote } from '../../../../lib/transaction/commissions';
 import { Journal } from './FormulaireVente';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -21,17 +22,32 @@ export interface References { lotD: boolean; negociateurs: NegociateurRef[]; app
   /** LOT E — la migration 435 (prix de vente) est-elle appliquée ? Absent : réponse d'avant ce lot (champ grisé). */
   prixVente?: boolean;
   /** LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? */
-  annulation?: boolean }
+  annulation?: boolean;
+  /** LOT I — la migration 437 (commissions versées, saisie en HT ou en TTC) est-elle appliquée ? Absent : non (tout en TTC, comme avant). */
+  uniteCommission?: boolean }
 interface PersonneEcran { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string; email: string; adresse: string }
 const personneVide = (role: PersonneEcran['role']): PersonneEcran => ({ id: null, role, nom: '', telephone: '', email: '', adresse: '' });
 const decrire = (p: PersonneRef): string => [p.nom, p.telephone, p.email].filter((x) => x !== null && x !== '').join(' — ');
 
-/** L'état de la répartition d'une vente lue (ou vide). PUR. */
-export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRef[]): EtatRepartition {
+const texteMontant = (x: number): string => String(x).replace('.', ',');
+
+/**
+ * L'état de la répartition d'une vente lue (ou vide). PUR.
+ * LOT I — `avecUnite` (437 appliquée) : la rétrocession et les commissions versées se lisent dans LEUR unité ; une saisie neuve propose
+ * « HT ». Sans la 437 : la rétrocession reste en TTC, aucune commission par côté (comme avant).
+ */
+export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRef[], avecUnite = false): EtatRepartition {
   const entreeId = v?.dossier?.entree?.id ?? null;
   const sortieId = v?.dossier?.sortie?.id ?? null;
+  // La rétrocession enregistrée (dans son unité d'origine) ; à défaut, celle d'une réponse d'avant ce lot (TTC, dans la répartition).
+  const retro = v?.retroApporteur ?? (v?.repartition && v.repartition.retroApporteurTtc !== 0 ? { montant: v.repartition.retroApporteurTtc, unite: 'ttc' as const } : null);
+  const commission = (cote: 'entree' | 'sortie') => {
+    const c = v === null ? null : commissionDuCote(v, cote);
+    return c === null ? { texte: '', unite: 'ht' as const } : { texte: texteMontant(c.montant.montant), unite: c.montant.unite };
+  };
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
-    retroTexte: v?.repartition && v.repartition.retroApporteurTtc !== 0 ? String(v.repartition.retroApporteurTtc).replace('.', ',') : '',
+    retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
+    commissions: avecUnite ? { entree: commission('entree'), sortie: commission('sortie') } : null,
     parties: v?.repartition ? lignesDe(v.repartition.parties, negos) : partiesPour(negos, entreeId, sortieId) };
 }
 
@@ -40,7 +56,11 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
   dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], r: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
   return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
-    retroApporteurTtc: r.retroTexte, personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}) };
+    retroApporteurTtc: r.retroTexte, retroApporteurUnite: r.retroUnite ?? 'ttc', personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}),
+    // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
+    ...(r.commissions != null ? { commissions: {
+      entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite },
+      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite } } } : {}) };
 }
 
 export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {
@@ -61,7 +81,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
     return ajouter !== null && lues.some((p) => p.role === ajouter) ? [...base, personneVide(ajouter)] : base;
   });
-  const [repartition, setRepartition] = useState<EtatRepartition>(() => repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs));
+  const [repartition, setRepartition] = useState<EtatRepartition>(() => repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs, references.uniteCommission === true));
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.

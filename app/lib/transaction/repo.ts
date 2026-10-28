@@ -3,9 +3,9 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible } from '../admin/schemaDroits';
-import { estSociete, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
-  type Societe, type SortePartie, type Vente } from './modele';
+import { annulationDisponible, droitTransactionDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { estSociete, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type Partie, type PersonneVente, type Retrocession,
+  type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { libelleDesPersonnes, personneExistante } from './personnes';
@@ -28,10 +28,22 @@ const premierDuMois = (annee: number, mois: number | null): string | null => (mo
 
 // ── Lectures ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * LOT I — la rétrocession de l'apporteur dans SON unité : HT si `retro_apporteur_ht` (437) est posé, sinon TTC (`retro_apporteur_ttc`,
+ * comme avant) ; null : aucune (vide ou 0).
+ */
+function retroDe(r: Record<string, unknown>): MontantSaisi | null {
+  if (r.retro_apporteur_ht != null) return n(r.retro_apporteur_ht) === 0 ? null : { montant: n(r.retro_apporteur_ht), unite: 'ht' };
+  return r.retro_apporteur_ttc == null || n(r.retro_apporteur_ttc) === 0 ? null : { montant: n(r.retro_apporteur_ttc), unite: 'ttc' };
+}
+const ttcDe = (m: MontantSaisi | null): number => (m === null ? 0 : m.unite === 'ttc' ? m.montant : m.montant * TVA);
+
 function venteDe(r: Record<string, unknown>, lignes: LigneVente[], lotD?: { parties: Partie[]; personnes: PersonneVente[] }): Vente {
+  const retro = lotD !== undefined ? retroDe(r) : null;
   const avecLotD = lotD !== undefined ? {
-    repartition: r.repartition === true ? { parties: lotD.parties, retroApporteurTtc: n(r.retro_apporteur_ttc ?? 0) } : null,
+    repartition: r.repartition === true ? { parties: lotD.parties, retroApporteurTtc: ttcDe(retro) } : null,
     dossier: dossierDe(r, lotD.personnes),
+    retroApporteur: retro,
   } : {};
   const avecAnnulation = 'annulation_motif' in r
     ? { annulation: r.annulation_motif == null ? null : { date: jour(r.annulation_date), motif: String(r.annulation_motif), note: t(r.annulation_note) } } : {};
@@ -61,6 +73,7 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
   const lotD = await repartitionDisponible();
   const avecPrix = await prixVenteDisponible();
   const avecAnnulation = await annulationDisponible();
+  const avecUnite = await uniteCommissionDisponible();
   const filtre = lotD
     ? `($1::text IS NULL OR (NOT v.repartition AND v.societe = $1)
          OR (v.repartition AND EXISTS (SELECT 1 FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL AND p.societe = $1)))`
@@ -71,18 +84,20 @@ export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
             to_char(v.date_compromis, 'YYYY-MM-DD') AS date_compromis, v.apporteur, v.note, v.origine, v.source_fichier, v.source_onglet, v.source_ligne,
             v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${avecAnnulation
               ? ", to_char(v.annulation_date, 'YYYY-MM-DD') AS annulation_date, v.annulation_motif, v.annulation_note" : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
-            to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,
+            to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,${avecUnite ? ' v.retro_apporteur_ht,' : ''}
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
        FROM transaction_vente v WHERE v.retire_le IS NULL AND ${filtre} ORDER BY v.annee, v.mois_acte NULLS LAST, v.id`, [societe]);
   const { rows: ls } = await query<Record<string, unknown>>(
-    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note
+    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note${avecUnite ? ', l.cote, l.montant_ht' : ''}
        FROM transaction_vente_ligne l JOIN transaction_vente v ON v.id = l.vente_id
       WHERE l.retire_le IS NULL AND v.retire_le IS NULL AND ${filtre} ORDER BY l.id`, [societe]);
   const parVente = new Map<number, LigneVente[]>();
   for (const l of ls) {
     const id = n(l.vente_id);
+    // LOT I — une ligne saisie EN HT (437) : `montantHt` est le montant saisi, `montantTtc` son équivalent (les totaux d'avant le lisent).
+    const enHt = nOuNull(l.montant_ht);
     parVente.set(id, [...(parVente.get(id) ?? []), { id: n(l.id), negociateur: String(l.negociateur), role: l.role as LigneVente['role'],
-      montantTtc: nOuNull(l.montant_ttc), nature: l.nature as LigneVente['nature'], compte: l.compte === true, origine: l.origine as LigneVente['origine'],
+      montantTtc: enHt !== null ? enHt * TVA : nOuNull(l.montant_ttc), ...(avecUnite ? { montantHt: enHt, cote: (l.cote ?? null) as LigneVente['cote'] } : {}), nature: l.nature as LigneVente['nature'], compte: l.compte === true, origine: l.origine as LigneVente['origine'],
       sourceFichier: t(l.source_fichier), sourceOnglet: t(l.source_onglet), sourceLigne: nOuNull(l.source_ligne), note: t(l.note) }]);
   }
   if (!lotD) return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? []));
@@ -174,7 +189,9 @@ async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   if (entite !== 'vente') return c;
   // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
   return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
-    ...((await annulationDisponible()) ? ['annulation_date', 'annulation_motif', 'annulation_note'] : [])];
+    ...((await annulationDisponible()) ? ['annulation_date', 'annulation_motif', 'annulation_note'] : []),
+    // LOT I — la rétrocession de l'apporteur saisie en HT (437).
+    ...((await uniteCommissionDisponible()) ? ['retro_apporteur_ht'] : [])];
 }
 
 /** La valeur d'une colonne comme le journal la garde (numeric en nombre, date en « AAAA-MM-JJ », instant en ISO). */
@@ -416,14 +433,19 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
 // ── LOT D (migration 434) : le dossier d'un compromis, sa répartition, « Acte signé » ─────────────────────────────────────────
 
 export const MOTIF_SANS_434 = 'Disponible après la mise à jour de la base (migration 434) : rien n’a été enregistré.';
+export const MOTIF_SANS_437 = 'Les commissions des négociateurs et la saisie en HT sont disponibles après la mise à jour de la base (migration 437) : rien n’a été enregistré.';
 
 /** Les ENSEMBLES de lignes d'une vente qu'un geste remplace en bloc (retire les anciennes, pose les nouvelles) : réversibles en bloc. */
-const ENSEMBLES: Record<string, { table: string } | undefined> = {
+const ENSEMBLES: Record<string, { table: string; filtre?: string } | undefined> = {
   repartition: { table: 'transaction_partie' },
   personnes: { table: 'transaction_vente_personne' },
+  // LOT I (437) — les commissions versées aux négociateurs d'entrée et de sortie : les SEULES lignes de vente qui portent un côté (les
+  // lignes d'avant — imports, saisies — n'en portent pas et ne sont jamais touchées).
+  commissions: { table: 'transaction_vente_ligne', filtre: 'cote IS NOT NULL' },
 };
-const idsActifs = async (q: RequeteTx, table: string, venteId: number): Promise<number[]> =>
-  (await q<{ id: string }>(`SELECT id FROM ${table} WHERE vente_id = $1 AND retire_le IS NULL ORDER BY id`, [venteId])).rows.map((r) => n(r.id));
+const filtreDe = (action: string): string => { const f = ENSEMBLES[action]?.filtre; return f === undefined ? '' : ` AND ${f}`; };
+const idsActifs = async (q: RequeteTx, table: string, venteId: number, filtre = ''): Promise<number[]> =>
+  (await q<{ id: string }>(`SELECT id FROM ${table} WHERE vente_id = $1 AND retire_le IS NULL${filtre} ORDER BY id`, [venteId])).rows.map((r) => n(r.id));
 const memesIds = (a: readonly number[], b: readonly number[]): boolean => JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y));
 
 /** Défait un geste d'ensemble : l'ensemble qu'il a posé est retiré, celui d'avant revient ; refusé si un geste plus récent l'a changé. */
@@ -432,11 +454,11 @@ async function defaireEnsemble(q: RequeteTx, j: Record<string, unknown>, journal
   const venteId = n(j.entite_id);
   const avant = ((j.avant ?? {}) as { ids?: number[] }).ids ?? [];
   const apres = ((j.apres ?? {}) as { ids?: number[] }).ids ?? [];
-  if (!memesIds(await idsActifs(q, e.table, venteId), apres)) return { ok: false, motif: 'Modifiée depuis par un autre geste : annulez d’abord le geste le plus récent.' };
+  if (!memesIds(await idsActifs(q, e.table, venteId, filtreDe(String(j.action))), apres)) return { ok: false, motif: 'Modifiée depuis par un autre geste : annulez d’abord le geste le plus récent.' };
   await q(`UPDATE ${e.table} SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[]) AND retire_le IS NULL`, [apres, auteur.libelle]);
   await q(`UPDATE ${e.table} SET retire_le = NULL, retire_par_libelle = NULL WHERE id = ANY($1::bigint[])`, [avant]);
   await journaliser(q, { entite: 'vente', id: venteId, action: String(j.action), avant: { ids: apres }, apres: { ids: avant }, annule: journalId, auteur,
-    commentaire: `Annulation du geste n° ${journalId} : ${String(j.action) === 'repartition' ? 'la répartition' : 'les personnes'} d’avant reviennent.` });
+    commentaire: `Annulation du geste n° ${journalId} : ${({ repartition: 'la répartition', personnes: 'les personnes', commissions: 'les commissions versées' } as Record<string, string>)[String(j.action)]} d’avant reviennent.` });
   return { ok: true };
 }
 
@@ -483,6 +505,13 @@ const anneeDe = (d: string | null): number | null => (d === null ? null : Number
 export async function enregistrerDossier(id: number | null, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
+  // LOT I — sans la 437, tout reste en TTC comme avant : une saisie en HT, ou une commission de négociateur par côté, est refusée (rien n'est écrit).
+  const avecUnite = await uniteCommissionDisponible();
+  const commissions = s.commissions;
+  const aDesCommissions = commissions !== undefined && (commissions.entree !== null || commissions.sortie !== null);
+  if (!avecUnite && (s.retroUnite === 'ht' || aDesCommissions)) return { ok: false, motif: MOTIF_SANS_437 };
+  // La rétrocession telle que la répartition la déduit : son équivalent TTC (rien n'est converti en base : elle s'enregistre dans son unité).
+  const retroTtc = s.retroUnite === 'ht' ? s.retroApporteurTtc * TVA : s.retroApporteurTtc;
   const dateVente = s.dateActe ?? s.dateCompromis ?? aujourdhui;
   // ① les négociateurs, relus en base, avec leur société à la date de la vente
   const comptesIds = [...new Set([s.entreeId, s.sortieId, ...s.parties.map((p) => p.compteId)].filter((x): x is number => x !== null))];
@@ -498,7 +527,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   // ② la répartition (somme = 100 %, sociétés connues, apporteur déduit d'abord)
   const repartie = s.entreeId !== null || s.sortieId !== null || parties.length > 0;
   if (repartie) {
-    const motif = verifierRepartition(parties, s.honorairesTtc, s.retroApporteurTtc);
+    const motif = verifierRepartition(parties, s.honorairesTtc, retroTtc);
     if (motif !== null) return { ok: false, motif };
   }
   // ③ l'apporteur (annuaire de la Location)
@@ -508,13 +537,23 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     if (a.length === 0) return { ok: false, motif: 'Apporteur inconnu dans l’annuaire des apporteurs.' };
     apporteurNom = String(a[0].nom);
   }
+  // LOT I — la commission d'un côté se rattache à SON négociateur : sans négociateur de ce côté, refusée.
+  if (commissions !== undefined) {
+    for (const [cote, mot] of [['entree', 'd’entrée'], ['sortie', 'de sortie']] as const) {
+      const negoId = cote === 'entree' ? s.entreeId : s.sortieId;
+      if (commissions[cote] !== null && negoId === null) return { ok: false, motif: `Choisissez le négociateur ${mot} avant de saisir sa commission.` };
+    }
+  }
   const libelle = s.libelle ?? libelleDesPersonnes(s.personnes);
   if (libelle.trim() === '') return { ok: false, motif: 'Nommez au moins un vendeur ou un acquéreur (ou le libellé de la vente).' };
   const annee = s.statut === 'vendue' ? anneeDe(s.dateActe)! : anneeDe(s.dateActePrevue) ?? anneeDe(s.dateCompromis) ?? Number(aujourdhui.slice(0, 4));
   const valeurs: Record<string, unknown> = {
     libelle, honoraires_ttc: s.honorairesTtc, statut: s.statut, annee, mois_acte: s.statut === 'vendue' ? `${s.dateActe!.slice(0, 7)}-01` : null,
     date_compromis: s.dateCompromis, apporteur: apporteurNom, note: s.note, adresse_bien: s.adresseBien, date_acte_prevue: s.dateActePrevue, date_acte: s.dateActe,
-    negociateur_entree_id: s.entreeId, negociateur_sortie_id: s.sortieId, apporteur_id: s.apporteurId, retro_apporteur_ttc: s.retroApporteurTtc, repartition: repartie,
+    negociateur_entree_id: s.entreeId, negociateur_sortie_id: s.sortieId, apporteur_id: s.apporteurId, repartition: repartie,
+    // LOT I — la rétrocession dans SON unité : en HT (437) la colonne TTC reste vide ; une rétrocession nulle s'écrit comme avant (0 TTC).
+    retro_apporteur_ttc: s.retroUnite === 'ht' && s.retroApporteurTtc !== 0 ? null : s.retroApporteurTtc,
+    ...(avecUnite ? { retro_apporteur_ht: s.retroUnite === 'ht' && s.retroApporteurTtc !== 0 ? s.retroApporteurTtc : null } : {}),
     ...((await prixVenteDisponible()) ? { prix_vente: s.prixVente } : {}),
   };
   return withTransaction(async (q) => {
@@ -592,15 +631,40 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       }
       return ids;
     }, repartie ? `Répartition : ${parties.map((p) => `${p.sorte === 'exterieure' ? p.nom : p.negociateur} ${p.pourcentage !== null ? `${p.pourcentage} %` : `${p.montantHt} € HT`}`).join(' · ')}` : 'Répartition retirée.');
+    // ⑥ LOT I (437) — les commissions versées aux négociateurs d'entrée et de sortie (la « paye du négociateur », par côté), chacune dans
+    // SON unité : l'ensemble des lignes à côté de la vente est remplacé s'il a changé (réversible) ; les lignes d'avant ne bougent pas.
+    if (commissions !== undefined && avecUnite) {
+      const voulues = (['entree', 'sortie'] as const).flatMap((cote) => {
+        const m = commissions[cote];
+        const negoId = cote === 'entree' ? s.entreeId : s.sortieId;
+        return m === null || negoId === null ? [] : [{ cote, negociateur: nomDe.get(negoId) ?? '', ttc: m.unite === 'ttc' ? m.montant : null, ht: m.unite === 'ht' ? m.montant : null }];
+      });
+      await remplacerEnsemble(q, 'commissions', venteId, auteur, async (avant) => {
+        const { rows: a } = await q<Record<string, unknown>>(
+          'SELECT cote, negociateur, montant_ttc, montant_ht FROM transaction_vente_ligne WHERE id = ANY($1::bigint[]) ORDER BY id', [avant]);
+        return JSON.stringify(a.map((x) => [x.cote, x.negociateur, nOuNull(x.montant_ttc), nOuNull(x.montant_ht)]))
+          === JSON.stringify(voulues.map((x) => [x.cote, x.negociateur, x.ttc, x.ht]));
+      }, async () => {
+        const ids: number[] = [];
+        for (const c of voulues) {
+          const { rows } = await q<{ id: string }>(
+            `INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, montant_ht, cote, nature, compte, origine, cree_par_libelle)
+             VALUES ($1, $2, 'negociateur', $3, $4, $5, $6, false, 'saisie', $7) RETURNING id`,
+            [venteId, c.negociateur, c.ttc, c.ht, c.cote, s.statut === 'compromis' ? 'compromis' : 'vente', auteur.libelle]);
+          ids.push(n(rows[0].id));
+        }
+        return ids;
+      }, voulues.length === 0 ? 'Commissions versées retirées.' : `Commissions versées : ${voulues.map((c) => `${c.cote === 'entree' ? 'entrée' : 'sortie'} ${c.negociateur} ${c.ht ?? c.ttc} € ${c.ht !== null ? 'HT' : 'TTC'}`).join(' · ')}`);
+    }
     return { ok: true, valeur: venteId };
   });
 }
 
 /** Remplace un ensemble de lignes d'une vente si `inchange` dit qu'il a changé : retire l'actuel, pose le neuf, journalise les deux listes d'ids. */
-async function remplacerEnsemble(q: RequeteTx, action: 'repartition' | 'personnes', venteId: number, auteur: AuteurTx,
+async function remplacerEnsemble(q: RequeteTx, action: 'repartition' | 'personnes' | 'commissions', venteId: number, auteur: AuteurTx,
   inchange: (avant: number[]) => Promise<boolean>, poser: () => Promise<number[]>, commentaire?: string): Promise<void> {
   const table = ENSEMBLES[action]!.table;
-  const avant = await idsActifs(q, table, venteId);
+  const avant = await idsActifs(q, table, venteId, filtreDe(action));
   if (await inchange(avant)) return;
   await q(`UPDATE ${table} SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`, [avant, auteur.libelle]);
   const apres = await poser();

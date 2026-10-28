@@ -9,8 +9,9 @@ const disponible = vi.fn<() => Promise<boolean>>();
 const lotD = vi.fn<() => Promise<boolean>>(async () => false);
 const lotE = vi.fn<() => Promise<boolean>>(async () => false);
 const lotG = vi.fn<() => Promise<boolean>>(async () => false);
+const lotI = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
-  annulationDisponible: () => lotG() }));
+  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -22,7 +23,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -121,7 +122,7 @@ describe('LOT C — attribuer une vente notée chez les deux sociétés', () => 
 
 describe('🔴 LOT D (434) — compromis, répartition, « Acte signé »', () => {
   const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: null, honorairesTtc: 12000, dateCompromis: '2026-10-20',
-    dateActePrevue: '2027-01-15', dateActe: null, adresseBien: '1 rue A, Puteaux', note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0,
+    dateActePrevue: '2027-01-15', dateActe: null, adresseBien: '1 rue A, Puteaux', note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const,
     personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: '06 12 34 56 78', email: null, adresse: null }, { id: null, role: 'acquereur' as const, nom: 'MARTIN', telephone: null, email: null, adresse: null }],
     parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
     lignes: [], prixVente: null, ...o });
@@ -227,7 +228,7 @@ describe('🔴 LOT F — compléter un compromis importé ne déplace aucun mont
         attribution: null, adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null, negociateur_sortie_id: null, apporteur_id: null, retro_apporteur_ttc: null, repartition: false }] } : undefined),
     (s) => (s.includes('RETURNING id') ? { rows: [{ id: '70' }] } : undefined));
     const r = await repo.enregistrerDossier(12, { societe: 'criterimmo', statut: 'compromis', libelle: 'HEIDIDON', honorairesTtc: 4000, dateCompromis: null, dateActePrevue: null, dateActe: null,
-      adresseBien: null, note: null, entreeId: null, sortieId: null, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, prixVente: null, lignes: [], parties: [],
+      adresseBien: null, note: null, entreeId: null, sortieId: null, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const, prixVente: null, lignes: [], parties: [],
       personnes: [{ id: null, role: 'vendeur', nom: 'DUPONT', telephone: null, email: null, adresse: null }] }, '2026-10-27', A);
     expect(r.ok).toBe(true);
     const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'));
@@ -261,5 +262,109 @@ describe('🔴 LOT G (436) — annuler un compromis, le rétablir', () => {
     reponses.push((s) => (s.includes('FOR UPDATE') ? { rows: [ligne({ statut: 'vendue' })] } : undefined));
     expect((await repo.annulerCompromis(41, { motif: 'Défaut de crédit', date: '2026-10-27', note: null }, A)).ok).toBe(false);
     expect((await repo.retablirCompromis(41, A)).ok).toBe(false);
+  });
+});
+
+describe('🔴 LOT I (437) — les commissions versées, en HT ou en TTC', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: null, honorairesTtc: 12000, dateCompromis: '2026-10-20',
+    dateActePrevue: '2027-01-15', dateActe: null, adresseBien: null, note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const,
+    personnes: [{ id: null, role: 'vendeur' as const, nom: 'DUPONT', telephone: null, email: null, adresse: null }],
+    parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }],
+    lignes: [], prixVente: null, ...o });
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY')
+    ? { rows: [{ id: '5', nom: 'Jean-Baptiste PONS' }, { id: '7', nom: 'Mylène EBERLIN' }].filter((c) => (appels.at(-1)!.params[0] as number[]).includes(Number(c.id))) } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' },
+    { compte_id: '7', societe: 'macj', depuis: '2000-01-01' }] } : undefined);
+  const ecritures = () => appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql));
+  const neuf = () => { let id = 40; reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined)); };
+
+  it('sans la 437 : une saisie en HT (rétrocession ou commission) est refusée, rien n’est écrit ; la lecture ne nomme aucune colonne neuve', async () => {
+    lotD.mockResolvedValue(true);
+    expect(await repo.enregistrerDossier(null, dossier({ retroApporteurTtc: 500, retroUnite: 'ht' }), '2026-10-27', A)).toEqual({ ok: false, motif: repo.MOTIF_SANS_437 });
+    expect(await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1000, unite: 'ttc' }, sortie: null } }), '2026-10-27', A))
+      .toEqual({ ok: false, motif: repo.MOTIF_SANS_437 });
+    expect(ecritures()).toEqual([]);
+    await repo.lireVentes('criterimmo');
+    expect(appels.map((x) => x.sql).join(' ')).not.toMatch(/l\.montant_ht|retro_apporteur_ht|l\.cote/);
+  });
+
+  it('commission d’entrée en HT, de sortie en TTC : chacune dans SON unité (une colonne, l’autre vide) ; journalisé en ensemble', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    neuf();
+    const r = await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1000, unite: 'ht' }, sortie: { montant: 1800, unite: 'ttc' } } }), '2026-10-27', A);
+    expect(r.ok).toBe(true);
+    const lignes = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_vente_ligne'));
+    // [vente, négociateur, montant_ttc, montant_ht, côté]
+    expect(lignes.map((x) => x.params.slice(1, 5))).toEqual([['Jean-Baptiste PONS', null, 1000, 'entree'], ['Mylène EBERLIN', 1800, null, 'sortie']]);
+    expect(lignes[0].sql).toContain("'negociateur'");
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => x.params[2])).toContain('commissions');
+  });
+
+  it('le MÊME négociateur facture en HT sur une vente, en TTC sur une autre : le choix suit la commission, jamais la personne', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    neuf();
+    await repo.enregistrerDossier(null, dossier({ sortieId: null, parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 100, montantHt: null }],
+      commissions: { entree: { montant: 1000, unite: 'ht' }, sortie: null } }), '2026-10-27', A);
+    neuf();
+    await repo.enregistrerDossier(null, dossier({ sortieId: null, parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 100, montantHt: null }],
+      commissions: { entree: { montant: 1200, unite: 'ttc' }, sortie: null } }), '2026-10-27', A);
+    const lignes = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_vente_ligne')).map((x) => x.params.slice(1, 4));
+    expect(lignes).toEqual([['Jean-Baptiste PONS', null, 1000], ['Jean-Baptiste PONS', 1200, null]]);
+  });
+
+  it('la rétrocession de l’apporteur en HT : `retro_apporteur_ht`, la colonne TTC vide ; la répartition déduit son équivalent TTC', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    neuf();
+    expect((await repo.enregistrerDossier(null, dossier({ retroApporteurTtc: 2000, retroUnite: 'ht' }), '2026-10-27', A)).ok).toBe(true);
+    const v = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente ('))!;
+    const cols = v.sql.slice(v.sql.indexOf('cree_par_libelle, ') + 18, v.sql.indexOf(')')).split(', ');
+    const val = (c: string) => v.params[3 + cols.indexOf(c)];
+    expect([val('retro_apporteur_ttc'), val('retro_apporteur_ht')]).toEqual([null, 2000]);
+    // 2 000 HT = 2 400 TTC > la commission ? non (12 000) ; une rétrocession HT qui la dépasse est refusée sur son équivalent TTC.
+    appels.length = 0;
+    const r = await repo.enregistrerDossier(null, dossier({ retroApporteurTtc: 10500, retroUnite: 'ht' }), '2026-10-27', A);
+    expect(r.ok ? '' : r.motif).toMatch(/dépasse la commission/);
+  });
+
+  it('une saisie qui ne parle pas des commissions (formulaire d’avant) ne touche à aucune ligne ; une commission sans négociateur est refusée', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    neuf();
+    await repo.enregistrerDossier(null, dossier(), '2026-10-27', A);
+    expect(appels.some((x) => x.sql.includes('transaction_vente_ligne'))).toBe(false);
+    appels.length = 0;
+    const r = await repo.enregistrerDossier(null, dossier({ sortieId: null, parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 100, montantHt: null }],
+      commissions: { entree: null, sortie: { montant: 500, unite: 'ht' } } }), '2026-10-27', A);
+    expect(r.ok ? '' : r.motif).toMatch(/négociateur de sortie/);
+    expect(ecritures()).toEqual([]);
+  });
+
+  it('lecture : une ligne d’avant (TTC, sans côté) reste TELLE QUELLE ; une ligne en HT garde son montant saisi et son équivalent TTC', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    reponses.push((s) => (s.startsWith('SELECT v.id') ? { rows: [{ id: '41', societe: 'macj', libelle: 'X', honoraires_ttc: '12000', statut: 'compromis', annee: 2027, mois_acte: null,
+      date_compromis: null, apporteur: null, note: null, origine: 'import', source_fichier: null, source_onglet: null, source_ligne: null, double_cle: null, attribution: null,
+      adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null, negociateur_sortie_id: null, apporteur_id: null,
+      retro_apporteur_ttc: '2400', retro_apporteur_ht: null, repartition: false }] } : undefined),
+    (s) => (s.startsWith('SELECT l.id') ? { rows: [
+      { id: '1', vente_id: '41', negociateur: 'MYLENE', role: 'negociateur', montant_ttc: '3215', nature: 'vente', compte: false, origine: 'import', cote: null, montant_ht: null },
+      { id: '2', vente_id: '41', negociateur: 'MYLENE', role: 'negociateur', montant_ttc: null, nature: 'compromis', compte: false, origine: 'saisie', cote: 'entree', montant_ht: '1000' }] } : undefined));
+    const [v] = await repo.lireVentes('macj');
+    expect(v.lignes[0]).toMatchObject({ montantTtc: 3215, montantHt: null, cote: null });
+    expect(v.lignes[1]).toMatchObject({ montantTtc: 1200, montantHt: 1000, cote: 'entree' });
+    expect(v.retroApporteur).toEqual({ montant: 2400, unite: 'ttc' });
+  });
+});
+
+describe('🔴 LOT I — « Annuler » les commissions versées', () => {
+  it('l’ensemble posé est retiré, celui d’avant revient — seulement parmi les lignes à côté (les lignes importées ne sont jamais touchées)', async () => {
+    lotD.mockResolvedValue(true); lotI.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1')
+      ? { rows: [{ id: '20', entite: 'vente', entite_id: '41', action: 'commissions', avant: { ids: [] }, apres: { ids: [8, 9] }, deja: false }] } : undefined),
+    (s) => (s.startsWith('SELECT id FROM transaction_vente_ligne WHERE vente_id') ? { rows: [{ id: '8' }, { id: '9' }] } : undefined),
+    (s) => (s.includes('RETURNING id') ? { rows: [{ id: '21' }] } : undefined));
+    expect(await repo.annulerGeste(20, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('SELECT id FROM transaction_vente_ligne'))!.sql).toContain('cote IS NOT NULL');
+    const majs = appels.filter((x) => x.sql.startsWith('UPDATE transaction_vente_ligne'));
+    expect(majs.map((x) => x.params[0])).toEqual([[8, 9], []]);
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
   });
 });

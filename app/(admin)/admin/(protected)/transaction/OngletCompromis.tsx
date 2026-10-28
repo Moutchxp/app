@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { caHt, exterieurHt, ht, LIBELLE_SOCIETE, SOCIETES, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { ht, LIBELLE_SOCIETE, SOCIETES, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { commissionDuCote, retroApporteurDe, tuilesCompromis } from '../../../../lib/transaction/commissions';
 import { libellePartie, partsParSociete } from '../../../../lib/transaction/repartition';
-import { eur, posterTransaction, useTransaction } from './commun';
+import { eur, eurUnite, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { changerNegociateur, etatSomme, type EtatRepartition } from './Repartition';
+import { changerNegociateur, ChampMontantUnite, etatSomme, type EtatRepartition, type MontantEcran } from './Repartition';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
@@ -40,15 +41,18 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const [fait, setFait] = useState<{ id: number; libelle: string } | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [historique, setHistorique] = useState<number | null>(null);
+  // LOT I — le détail de la tuile « Commissions versées » : épinglé au toucher (ou au clic), montré au survol.
+  const [detailEpingle, setDetailEpingle] = useState(false);
+  const [detailSurvol, setDetailSurvol] = useState(false);
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
   const vue: Societe | null = societe === 'tous' ? null : societe;
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   const liste = trierCompromis(d.compromis);
-  const totalHt = liste.reduce((t, v) => t + ht(v.honorairesTtc), 0);
-  const parSociete = Object.fromEntries(SOCIETES.map((s) => [s, liste.reduce((t, v) => t + caHt(v, s), 0)])) as Record<Societe, number>;
-  const exterieur = liste.reduce((t, v) => t + exterieurHt(v), 0);
+  // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
+  const tu = tuilesCompromis(liste, vue);
+  const detail = detailEpingle || detailSurvol;
   const signer = async (): Promise<void> => {
     if (acte === null) return;
     const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date });
@@ -70,17 +74,37 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
       </div>
       {!d.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Personnes, négociateurs d’entrée et de sortie et répartition : disponibles après la mise à jour de la base (migration 434).</p>}
-      <ul className="tdb-tuiles" aria-label="Les compromis en cours" data-totaux-compromis>
-        <li><div className="tdb-tuile"><span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-nb-compromis>{liste.length}</strong>
-          <span className="tdb-tuile-n1">acte non signé</span></div></li>
-        <li><div className="tdb-tuile"><span className="tdb-tuile-mot">Commission HT en cours</span><strong className="tdb-tuile-valeur" data-commission-en-cours>{eur(totalHt)}</strong>
-          <span className="tdb-tuile-n1">{eur(totalHt * 1.2)} TTC</span></div></li>
-        {SOCIETES.filter((s) => vue === null || s === vue).map((s) => (
-          <li key={s}><div className="tdb-tuile"><span className="tdb-tuile-mot">Part {LIBELLE_SOCIETE[s]} (HT)</span><strong className="tdb-tuile-valeur" data-part-compromis={s}>{eur(parSociete[s])}</strong>
-            <span className="tdb-tuile-n1">après rétrocessions et parts des autres</span></div></li>
-        ))}
-        {exterieur > 0 && <li><div className="tdb-tuile"><span className="tdb-tuile-mot">Parts extérieures (hors CA)</span><strong className="tdb-tuile-valeur">{eur(exterieur)}</strong>
-          <span className="tdb-tuile-n1">autres agences, confrères</span></div></li>}
+      {/* 🔴 LOT I (Arno) — QUATRE TUILES, dans cet ordre : le nombre ; le CA (TTC en grand, en vert, HT en gris dessous ; la part de la société
+          après répartition) ; les commissions versées (négociateurs + apporteurs : TTC en grand, en rouge, HT dessous, détail au toucher ou
+          au survol) ; le solde net (CA HT − commissions HT, négatif tel quel). Le mot accompagne toujours la couleur. */}
+      <ul className="tdb-tuiles trx-tuiles4" aria-label="Les compromis en cours" data-totaux-compromis>
+        <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
+          <span className="tdb-tuile-n1">acte non signé, hors annulés</span></div></li>
+        <li><div className="tdb-tuile" data-tuile="ca"><span className="tdb-tuile-mot">Chiffre d’affaires</span>
+          <strong className="tdb-tuile-valeur trx-vert" data-ca-ttc>{eur(tu.caTtc)} <small>TTC</small></strong>
+          <span className="trx-tuile-ht" data-ca-ht>{eur(tu.caHt)} HT</span>
+          {vue !== null
+            ? <span className="tdb-tuile-n1" data-part-compromis={vue}>Part {LIBELLE_SOCIETE[vue]} : part de la société après répartition</span>
+            : <span className="tdb-tuile-n1" data-parts-compromis>{SOCIETES.map((s) => <span key={s} className="trx-tuile-part" data-part-compromis={s}>Part {LIBELLE_SOCIETE[s]} : {eur(tu.partHt[s])} HT</span>)
+              .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</span>}
+          <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · parts extérieures (hors CA) : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
+        <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-expanded={detail} onClick={() => setDetailEpingle((x) => !x)}
+          onMouseEnter={() => setDetailSurvol(true)} onMouseLeave={() => setDetailSurvol(false)}
+          title={`Négociateurs : ${eur(tu.negociateursHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT`}>
+          <span className="tdb-tuile-mot">Commissions versées</span>
+          <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(tu.commissionsTtc)} <small>TTC versées</small></strong>
+          <span className="trx-tuile-ht" data-commissions-ht>{eur(tu.commissionsHt)} HT</span>
+          {detail ? (
+            <span className="trx-tuile-detail" data-detail-commissions>
+              <span data-detail="negociateurs">Négociateurs : {eur(tu.negociateursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.negociateursHt * TVA)} TTC)</span></span>
+              <span data-detail="apporteurs">Apporteurs : {eur(tu.apporteursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.apporteursHt * TVA)} TTC)</span></span>
+            </span>
+          ) : <span className="tdb-tuile-n1">négociateurs + apporteurs — toucher pour le détail</span>}
+        </button></li>
+        <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
+          <strong className="tdb-tuile-valeur" data-solde-ht>{eur(tu.soldeHt)} <small>HT</small></strong>
+          <span className="trx-tuile-ht" data-solde-ttc>{eur(tu.soldeTtc)} TTC</span>
+          <span className="tdb-tuile-n1">CA HT − commissions versées HT</span></div></li>
       </ul>
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
       {fait !== null && (
@@ -163,7 +187,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                         {info('Taux de commission', c.pctPrix === null ? A_RENSEIGNER
                           : `${c.pctPrix.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix de vente`, 'taux')}
                         {info('Date du compromis', date(v.dateCompromis), 'date-compromis')}
-                        {info('Apporteur', <>{ouManque(v.apporteur)}{r !== null && r.retroApporteurTtc > 0 ? ` · rétrocession ${eur(r.retroApporteurTtc)} TTC` : ''}</>)}
+                        {/* LOT I — la rétrocession dans SON unité, avec son équivalent (« 500,00 € HT (soit 600,00 € TTC) »). */}
+                        {info('Apporteur', <>{ouManque(v.apporteur)}{(() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
+                          return m === null ? '' : ` · rétrocession ${eurUnite(m)}`; })()}</>, 'apporteur')}
                       </dl>
                       {r !== null && ps !== null ? (
                         <div data-repartition-compromis>
@@ -233,6 +259,8 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id:
  * l'enregistre par le même geste que « Modifier » (journalisé, « Annuler » dans l'historique). Choisi, le bouton dit « Négociateur :
  * Prénom NOM (société) » et se rouvre pour le changer ou le retirer. La répartition suit les règles existantes ; si elle ne fait plus
  * 100 % (une partie extérieure), rien n'est enregistré : le formulaire s'ouvre pour la revoir, avec le message.
+ * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
+ * bouton, la commission enregistrée dans son unité et son équivalent.
  */
 function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }: {
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
@@ -242,14 +270,21 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const [choix, setChoix] = useState<string>(actuel === null ? '' : String(actuel.id));
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const avecUnite = references.uniteCommission === true;
+  const enregistree = commissionDuCote(v, cote);
+  const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
+  const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ht' };
+  const [commission, setCommission] = useState<MontantEcran>(initiale);
   const societe = (id: number): Societe | null => v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe
     ?? references.negociateurs.find((n) => n.id === id)?.societe ?? null;
   const libelleSociete = (s: Societe | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE[s]);
   const mot = cote === 'entree' ? 'entrée' : 'sortie';
   const enregistrer = async (id: number | null): Promise<void> => {
     setMotif(null);
-    if ((actuel?.id ?? null) === id) { setOuvert(false); return; }
-    const etat = changerNegociateur(etatRepartitionDe(v, references.negociateurs), cote, id, references.negociateurs);
+    const memeCommission = commission.texte === initiale.texte && commission.unite === initiale.unite;
+    if ((actuel?.id ?? null) === id && (!avecUnite || memeCommission)) { setOuvert(false); return; }
+    const change = (actuel?.id ?? null) === id ? base : changerNegociateur(base, cote, id, references.negociateurs);
+    const etat: EtatRepartition = change.commissions != null && id !== null ? { ...change, commissions: { ...change.commissions, [cote]: commission } } : change;
     const somme = etatSomme(etat, v.honorairesTtc);
     if (somme.motif !== null) { setOuvert(false); onRevoir(etat, `Le négociateur de ${mot} a changé : la répartition est à revoir. ${somme.motif}`); return; }
     setEnvoi(true);
@@ -261,11 +296,17 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur' : `Négociateur : ${actuel.nom} (${libelleSociete(societe(actuel.id))})`}</button>
+      {actuel !== null && avecUnite && (
+        <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
+          {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : `Commission versée : ${eurUnite(enregistree.montant)}`}</span>
+      )}
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <label>Négociateur de {mot} du mandat
             <ListeChoix options={references.negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${libelleSociete(n.societe)}` }))} valeur={choix} vide="— à choisir —"
               libelle={`Négociateur de ${mot} du mandat`} onChange={setChoix} donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
+          {avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} />
+            : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>}
           <div className="trx-actions">
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || choix === ''} onClick={() => void enregistrer(Number(choix))} data-valider-negociateur>Valider</button>
             {actuel !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void enregistrer(null)} data-retirer-negociateur>Retirer le négociateur</button>}
