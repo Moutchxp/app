@@ -102,9 +102,10 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             </span>
           ) : <span className="tdb-tuile-n1">négociateurs + apporteurs — toucher pour le détail</span>}
         </button></li>
+        {/* LOT L (Arno) — le Solde net : TTC en premier, en grand et en VERT (« TTC » écrit) ; HT dessous, en gris. */}
         <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
-          <strong className="tdb-tuile-valeur" data-solde-ht>{eur(tu.soldeHt)} <small>HT</small></strong>
-          <span className="trx-tuile-ht" data-solde-ttc>{eur(tu.soldeTtc)} TTC</span>
+          <strong className="tdb-tuile-valeur trx-vert" data-solde-ttc>{eur(tu.soldeTtc)} <small>TTC</small></strong>
+          <span className="trx-tuile-ht" data-solde-ht>{eur(tu.soldeHt)} HT</span>
           <span className="tdb-tuile-n1">CA HT − commissions versées HT</span></div></li>
       </ul>
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}

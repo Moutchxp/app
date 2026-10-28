@@ -100,6 +100,11 @@ export const CSS_TRANSACTION = `
 /* LOT H (Arno) — UN ESPACEMENT NET ET RÉGULIER (16 px) : entre les tuiles et la première carte, entre les cartes, sous la barre d'actions
    d'une carte dépliée, et avant « Compromis annulés (N) ». */
 .trx-onglet-compromis > .tdb-tuiles{margin-bottom:16px}
+/* LOT L (Arno) — « + Nouveau compromis » sur la ligne du titre, aligné à droite, et 16 px nets au-dessus des tuiles (il touchait « Solde net »). */
+.trx-onglet-compromis > .trx-barre{flex-wrap:nowrap;align-items:center;margin-bottom:16px}
+.trx-onglet-compromis > .trx-barre > h3{flex:1 1 auto;min-width:0;margin:0}
+.trx-onglet-compromis > .trx-barre > .trx-actions{flex:0 0 auto;margin-left:auto}
+.trx-onglet-compromis > .trx-barre .svv-btn{white-space:nowrap}
 .trx-onglet-compromis .trx-carte-detail{padding-bottom:6px}
 .trx-onglet-compromis .trx-carte.tdb-replie--ouvert{padding-bottom:14px}
 .trx-espace-annules{height:16px}
@@ -157,6 +162,7 @@ export const CSS_TRANSACTION = `
 .trx-barre-actions{border-top:1px solid var(--color-svv-line);padding-top:10px}
 @media (max-width:900px){ .trx-grille{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .trx-depassee{color:var(--color-svv-red);font-weight:800}
+.trx-lien{color:var(--color-svv-red);font-weight:700;display:inline-flex;align-items:center;min-height:44px}
 /* LOT I (Arno) — LES 4 TUILES de l'onglet Compromis : 4 de front, 2×2 en dessous de 1100 px (règle des tuiles), 1 colonne sur téléphone.
    Le CA en vert (« TTC » écrit), les commissions versées en rouge (« TTC versées » écrit), le HT en gris dessous : jamais la couleur seule. */
 .trx-tuiles4 .tdb-tuile{gap:4px;cursor:default}

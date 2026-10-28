@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccueilTransaction, EcranGlobal, EcranSociete } from './EcransTransaction';
+import { AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, syntheseGlobal, vueInitiale } from './EcransTransaction';
+import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele';
+import { existsSync, readFileSync } from 'node:fs';
+import { ARIANE } from './FilAriane';
 import type { DonneesSociete, LigneVente, Vente } from '../../../../lib/transaction/modele';
 
 /**
@@ -41,7 +44,10 @@ beforeEach(() => {
   donneesGlobal.ventes = donnees.ventes.map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle }));
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: null }) }; }
-    const data = String(url).includes('vue=global') ? donneesGlobal : String(url).includes('vue=journal') ? [] : donnees;
+    const data = String(url).includes('vue=global') ? donneesGlobal : String(url).includes('vue=journal') ? []
+      // LOT L — l'onglet « Compromis » (l'arrivée) lit sa propre vue.
+      : String(url).includes('vue=compromis') ? { disponible: true, aujourdhui: '2025-10-27', societe: 'macj', compromis: [], annules: [], lotD: true, negociateurs: [], apporteurs: [], personnes: [] }
+      : donnees;
     return { ok: true, status: 200, json: async () => ({ etat: 'ok', data }) };
   }) as unknown as typeof fetch;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2025-10-27T10:00:00Z'));
@@ -51,10 +57,15 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 
 describe('l’accueil de la tuile', () => {
-  it('trois cases : CRITERIMMO, MACJ, CA global', async () => {
+  it('LOT L — trois cases : « Transaction », « Gestion », « CA global »', async () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
-    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => a.getAttribute('href')))
-      .toEqual(['/admin/transaction/criterimmo', '/admin/transaction/macj', '/admin/transaction/global']);
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
+      .toEqual([['Transaction', '/admin/transaction/ventes'], ['Gestion', '/admin/transaction/gestion'], ['CA global', '/admin/transaction/global']]);
+  });
+  it('LOT L — « Transaction » : deux cases, « CRITERIMMO » et « MACJ », vers les écrans de toujours', async () => {
+    await act(async () => { root.render(createElement(AccueilVentes)); });
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
+      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj']]);
   });
 });
 
@@ -137,5 +148,82 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     expect(texte('[data-a-attribuer-global] [data-mot="Total"]')).toBe('8 333,33 €');
     expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0,00 €');
     expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
+  });
+});
+
+describe('🔴 LOT L — l’arborescence', () => {
+  const T = 'app/(admin)/admin/(protected)/transaction';
+  it('les trois niveaux existent, chacun avec « ← Retour » vers son parent et son fil d’Ariane ; le droit « Transaction » garde tout l’arbre', () => {
+    const pages: [string, string, keyof typeof ARIANE][] = [['page.tsx', '', 'accueil'], ['ventes/page.tsx', '/admin/transaction', 'ventes'],
+      ['criterimmo/page.tsx', '/admin/transaction/ventes', 'criterimmo'], ['macj/page.tsx', '/admin/transaction/ventes', 'macj'],
+      ['gestion/page.tsx', '/admin/transaction', 'gestion'], ['global/page.tsx', '/admin/transaction', 'global']];
+    for (const [f, retour, ariane] of pages) {
+      const src = readFileSync(`${T}/${f}`, 'utf8');
+      if (retour !== '') expect(src).toContain(`retour="${retour}"`);
+      expect(src).toContain(`ARIANE.${ariane}`);
+      expect(src).toContain('accesTransaction()');
+    }
+    expect(readFileSync('proxy.ts', 'utf8')).toContain("['/admin/transaction', 'transaction']");
+    expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Transaction', 'Transaction (ventes)', 'CRITERIMMO']);
+  });
+  it('les anciennes adresses restent valides : /criterimmo, /macj, /global ; une adresse du mois (?annee&mois) rouvre « Le mois »', () => {
+    for (const f of ['criterimmo', 'macj', 'global']) expect(existsSync(`${T}/${f}/page.tsx`)).toBe(true);
+    expect(vueInitiale(null, false)).toBe('compromis');
+    expect(vueInitiale(null, true)).toBe('mois');
+    expect(vueInitiale('annee', false)).toBe('annee');
+    expect(vueInitiale('compromis', true)).toBe('compromis');
+  });
+  it('une société : sans paramètre, on arrive sur « Compromis » ; « Le mois » s’écrit dans l’adresse', async () => {
+    window.history.replaceState(null, '', '/');
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+    await calmer();
+    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true');
+    await act(async () => { (container.querySelector('[data-vue="mois"]') as HTMLElement).click(); });
+    expect(new URLSearchParams(window.location.search).get('vue')).toBe('mois');
+  });
+});
+
+describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
+  it('les mêmes chiffres (mêmes données, `vue=global`) ; le même formulaire de saisie, enregistré par le même geste', async () => {
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGestion)); });
+    await calmer();
+    expect(texte('[data-gestion-honoraires="1"]')).toBe('14 127,00 €');
+    const janvier = container.querySelector('[data-mois-gestion="1"]')!;
+    expect(janvier.querySelector('[data-mot="ADHOC"]')!.textContent!.replace(/\s/g, ' ')).toBe('6 437,00 €');
+    expect(janvier.querySelector('[data-mot="Reste"]')!.textContent!.replace(/\s/g, ' ')).toBe('7 690,00 €');
+    expect(texte('[data-annee-gestion="2025"] [data-mot="Honoraires"]')).toBe('14 127,00 €');
+    await act(async () => { (container.querySelector('[data-saisir-gestion="2"]') as HTMLElement).click(); });
+    expect(container.querySelector('[data-saisie-gestion]')).not.toBeNull();
+    await act(async () => { (container.querySelector('[data-enregistrer-gestion]') as HTMLElement).click(); });
+    await calmer();
+    expect(posts.at(-1)).toMatchObject({ action: 'gestion-enregistrer', annee: 2025, mois: 2 });
+  });
+  it('le CA global garde la gestion dans ses montants (même cellule), et renvoie vers « Gestion » pour la saisie', async () => {
+    await act(async () => { root.render(createElement(EcranGlobal)); });
+    await calmer();
+    expect(texte('[data-mois-global="1"] [data-mot="Gestion"]')).toBe('14 127,00 €');
+    expect(container.querySelector('[data-lien-gestion] a')!.getAttribute('href')).toBe('/admin/transaction/gestion?annee=2025');
+  });
+});
+
+describe('🔴 LOT L — le CA global : synthèse par société, puis le global', () => {
+  it('CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = la somme des sociétés (et des ventes à attribuer)', async () => {
+    const e = { ventes: donneesGlobal.ventes, location: donneesGlobal.location, gestion: donneesGlobal.gestion };
+    const lignes = syntheseGlobal(e, 2025);
+    const de = (cle: string) => lignes.find((l) => l.cle === cle)!;
+    const c = de('criterimmo');
+    expect(c.totalHt).toBe((c.venteHt ?? 0) + (c.locationHt ?? 0) + (c.gestionHt ?? 0));
+    expect(de('macj').totalHt).toBe(de('macj').venteHt);
+    const somme = lignes.filter((l) => l.cle !== 'global').reduce((t, l) => t + l.totalHt, 0);
+    expect(de('global').totalHt).toBeCloseTo(somme, 9);
+    expect(de('global').totalHt).toBe(celluleGlobal(e, 2025, null).totalHt);
+    expect(de('global').totalN1Ht).toBe(celluleGlobal(e, 2024, null).totalHt);
+    expect(de('global').previsionnelHt).toBe(previsionnel(e, 2025).totalHt);
+    await act(async () => { root.render(createElement(EcranGlobal)); });
+    await calmer();
+    expect([...container.querySelectorAll('[data-synthese]')].map((x) => x.getAttribute('data-synthese'))).toEqual(['criterimmo', 'macj', 'global']);
+    expect(texte('[data-synthese="criterimmo"] [data-synthese-total]')).toBe('23 423,05 €');
+    expect(texte('[data-synthese="global"] [data-synthese-total]')).toBe(texte('[data-total-annee] [data-mot="Total"]'));
   });
 });

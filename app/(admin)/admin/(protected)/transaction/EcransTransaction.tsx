@@ -31,18 +31,32 @@ const SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 
 
 // ── L'accueil de la tuile ─────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 🔴 LOT L (Arno, 28/10/2026) — L'ARBORESCENCE DE LA TUILE. Accueil : « Transaction », « Gestion », « CA global ». « Transaction » ouvre
+ * « CRITERIMMO » et « MACJ » (l'écran de chaque société, arrivée sur l'onglet « Compromis »). Les adresses des écrans ne changent pas
+ * (/admin/transaction/criterimmo, /macj, /global) : seuls l'écran intermédiaire (/admin/transaction/ventes) et « Gestion »
+ * (/admin/transaction/gestion) sont nouveaux.
+ */
+export const ADRESSES_TRANSACTION = {
+  accueil: '/admin/transaction', ventes: '/admin/transaction/ventes', gestion: '/admin/transaction/gestion', global: '/admin/transaction/global',
+  criterimmo: '/admin/transaction/criterimmo', macj: '/admin/transaction/macj',
+} as const;
 const CASES = [
-  { href: '/admin/transaction/criterimmo', titre: 'Transaction CRITERIMMO', phrase: 'Les ventes et compromis de CRITERIMMO : le mois, l’année, les négociateurs, les apporteurs.', cle: 'criterimmo' },
-  { href: '/admin/transaction/macj', titre: 'Transaction MACJ', phrase: 'Les ventes et compromis de MACJ : le mois, l’année, les négociateurs, les apporteurs.', cle: 'macj' },
-  { href: '/admin/transaction/global', titre: 'CA global transaction et gestion', phrase: 'Vente CRITERIMMO et MACJ, location et gestion, mois par mois et par année, face à N−1.', cle: 'global' },
+  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction', phrase: 'Les ventes et compromis de CRITERIMMO et de MACJ : les compromis, le mois, l’année, les négociateurs, les apporteurs.', cle: 'ventes' },
+  { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', phrase: 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.', cle: 'gestion' },
+  { href: ADRESSES_TRANSACTION.global, titre: 'CA global', phrase: 'Tous les CA réunis : CRITERIMMO (vente, location, gestion), MACJ (vente), puis les deux — par mois et par année, face à N−1.', cle: 'global' },
+];
+const CASES_VENTES = [
+  { href: ADRESSES_TRANSACTION.criterimmo, titre: 'CRITERIMMO', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de CRITERIMMO.', cle: 'criterimmo' },
+  { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
 ];
 
-export function AccueilTransaction() {
+function Cases({ cases, libelle }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string }) {
   return (
     <div className="loc-page">
       <style>{CSS}</style>
-      <ul className="loc-cases loc-cases--accueil" aria-label="Les tuiles de la Transaction">
-        {CASES.map((c) => (
+      <ul className="loc-cases loc-cases--accueil" aria-label={libelle}>
+        {cases.map((c) => (
           <li key={c.cle}><a className="loc-case" href={c.href} data-tuile-transaction={c.cle}>
             <span className="loc-case-titre">{c.titre}</span><span className="loc-case-phrase">{c.phrase}</span></a></li>
         ))}
@@ -50,6 +64,10 @@ export function AccueilTransaction() {
     </div>
   );
 }
+/** L'accueil de la tuile : « Transaction », « Gestion », « CA global ». */
+export const AccueilTransaction = () => <Cases cases={CASES} libelle="Les tuiles de la Transaction" />;
+/** LOT L — « Transaction » : « CRITERIMMO » et « MACJ ». */
+export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" />;
 
 // ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -57,11 +75,18 @@ type Detail = { titre: string; ids: number[] } | null;
 const entier = (x: string | null, min: number, max: number): number | null => { const n = Number(x); return x !== null && Number.isInteger(n) && n >= min && n <= max ? n : null; };
 const moisCourt = (a: number, m: number): string => `${COURT[m - 1]} ${a}`;
 
+/** LOT L — l'onglet d'arrivée : « vue » dite ; sinon « Le mois » pour une ancienne adresse du mois ; sinon « Compromis ». PUR. */
+export function vueInitiale(vue: string | null, avecMois: boolean): 'compromis' | 'mois' | 'annee' {
+  if (vue === 'annee' || vue === 'mois' || vue === 'compromis') return vue;
+  return avecMois ? 'mois' : 'compromis';
+}
+
 export function EcranSociete({ societe }: { societe: Societe }) {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
-  // LOT D — trois onglets : « Compromis » (avant), « Le mois », « L'année » ; à l'ouverture, « Le mois » comme avant.
-  const [vue, setVue] = useState<'compromis' | 'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : parametre('vue') === 'compromis' ? 'compromis' : 'mois'));
+  // LOT D — trois onglets : « Compromis », « Le mois », « L'année ». LOT L (Arno) — à l'ouverture : « Compromis ». Une ANCIENNE adresse
+  // du mois (« ?annee=…&mois=… » sans « vue », écrite avant ce lot) rouvre toujours « Le mois » : aucun lien ne se perd.
+  const [vue, setVue] = useState<'compromis' | 'mois' | 'annee'>(() => vueInitiale(parametre('vue'), parametre('mois') !== null));
   const refs = useTransaction<References>('vue=references');
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? Number(jour.slice(5, 7)));
@@ -71,8 +96,8 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   useEffect(() => {
-    ecrireAdresse(vue === 'mois' ? { vue: null, annee: String(annee), mois: String(mois), debut: null, fin: null }
-      : vue === 'compromis' ? { vue: 'compromis', annee: null, mois: null, debut: null, fin: null }
+    ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(annee), mois: String(mois), debut: null, fin: null }
+      : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null }
       : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin) });
   }, [vue, annee, mois, debut, fin]);
 
@@ -584,7 +609,6 @@ export function EcranGlobal() {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
-  const [gestionOuverte, setGestionOuverte] = useState<number | null>(null);
   // LOT D — « Compromis » (les deux sociétés réunies) avant le CA ; à l'ouverture, le CA comme avant.
   const [onglet, setOnglet] = useState<'compromis' | 'ca'>(() => (parametre('vue') === 'compromis' ? 'compromis' : 'ca'));
   useEffect(() => { ecrireAdresse({ annee: onglet === 'ca' ? String(annee) : null, vue: onglet === 'compromis' ? 'compromis' : null }); }, [annee, onglet]);
@@ -602,7 +626,9 @@ export function EcranGlobal() {
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
   const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
     .reduce((t, v) => t + caHt(v, s), 0);
-  const gestionDe = (m: number): GestionMois | null => d.gestion.find((g) => g.annee === annee && g.mois === m) ?? null;
+  // 🔴 LOT L — LA SYNTHÈSE PAR SOCIÉTÉ, puis le global : CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = les deux
+  // (+ les ventes à attribuer, comptées une fois dans aucune société). Face à N−1, prévisionnel des compromis compris.
+  const synthese = syntheseGlobal(e, annee);
   return (
     <div className="tdb loc-page" data-ca-global>
       <style>{CSS}</style>
@@ -631,11 +657,32 @@ export function EcranGlobal() {
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}</span></div></li>
       </ul>
 
+      <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
+        <h3 id="trx-g-synthese">Synthèse {annee} par société, puis le global <small className="loc-muet">(HT)</small></h3>
+        <table className="tdb-table tdb-table--large" data-table-synthese>
+          <thead><tr><th scope="col">Société</th><th scope="col">Vente</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total {annee}</th>
+            <th scope="col">{annee - 1}</th><th scope="col">Écart</th><th scope="col">Prévisionnel</th></tr></thead>
+          <tbody>
+            {synthese.map((l) => (
+              <tr key={l.cle} className={l.cle === 'global' ? 'tdb-fort' : undefined} data-synthese={l.cle}>
+                <th scope="row">{l.libelle}</th>
+                <td data-mot="Vente">{l.venteHt === null ? '—' : eur(l.venteHt)}</td><td data-mot="Location">{manque(l.locationHt)}</td><td data-mot="Gestion">{manque(l.gestionHt)}</td>
+                <td data-mot={`Total ${annee}`} className="trx-total" data-synthese-total>{eur(l.totalHt)}</td><td data-mot={String(annee - 1)}>{eur(l.totalN1Ht)}</td>
+                <td data-mot="Écart" className={`tdb-signe tdb-signe--${sensDe(l.totalHt - l.totalN1Ht)}`}>{`${ecartEur(l.totalHt - l.totalN1Ht)} (${signePct(variation(l.totalHt, l.totalN1Ht))})`}</td>
+                <td data-mot="Prévisionnel">{l.previsionnelHt === null ? '—' : eur(l.previsionnelHt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
       <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
-        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">(HT ; la gestion se saisit mois par mois)</small></h3>
+        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">(HT)</small></h3>
+        {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
+        <p className="loc-muet" data-lien-gestion>La gestion se saisit mois par mois dans l’écran <a className="trx-lien" href={`${ADRESSES_TRANSACTION.gestion}?annee=${annee}`}>Gestion</a>.</p>
         <table className="tdb-table tdb-table--large" data-table-global>
           <thead><tr><th scope="col">Mois</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Vente MACJ</th><th scope="col">Location</th><th scope="col">Gestion</th>
-            <th scope="col">Total</th><th scope="col">{annee - 1}</th><th scope="col">Écart</th><th scope="col">Gestion du mois</th></tr></thead>
+            <th scope="col">Total</th><th scope="col">{annee - 1}</th><th scope="col">Écart</th></tr></thead>
           <tbody>
             {NOMS_MOIS.map((nom, i) => {
               const c = celluleGlobal(e, annee, i + 1);
@@ -649,29 +696,27 @@ export function EcranGlobal() {
                   <td data-mot="Total" className="trx-total">{aVenir && c.totalHt === 0 ? '—' : eur(c.totalHt)}</td>
                   <td data-mot={String(annee - 1)}>{eur(c1.totalHt)}</td>
                   <td data-mot="Écart" className={`tdb-signe tdb-signe--${sensDe(c.totalHt - c1.totalHt)}`}>{aVenir ? '—' : `${ecartEur(c.totalHt - c1.totalHt)} (${signePct(variation(c.totalHt, c1.totalHt))})`}</td>
-                  <td data-mot="Gestion du mois"><button type="button" className="trx-bouton-lien" onClick={() => setGestionOuverte(i + 1)} disabled={!d.disponible} data-saisir-gestion={i + 1}>
-                    {gestionDe(i + 1) === null ? 'Saisir' : 'Modifier'}</button></td>
                 </tr>
               );
             })}
             {A.aAttribuerHt > 0 && (
               <tr data-a-attribuer-global><th scope="row">Ventes à attribuer <small className="loc-muet">(comptées une fois, dans aucune société)</small></th>
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
-                <td data-mot="Total">{eur(A.aAttribuerHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+                <td data-mot="Total">{eur(A.aAttribuerHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
             {A.exterieurHt > 0 && (
               <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(autres agences, confrères : hors CA)</small></th>
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
-                <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">hors total</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+                <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">hors total</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
             {(ventesSansMois('criterimmo') > 0 || ventesSansMois('macj') > 0) && (
               <tr data-mois-a-confirmer><th scope="row">Mois à confirmer</th><td data-mot="Vente CRITERIMMO">{eur(ventesSansMois('criterimmo'))}</td>
                 <td data-mot="Vente MACJ">{eur(ventesSansMois('macj'))}</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
-                <td data-mot="Total">{eur(ventesSansMois('criterimmo') + ventesSansMois('macj'))}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td><td data-mot="Gestion du mois" /></tr>
+                <td data-mot="Total">{eur(ventesSansMois('criterimmo') + ventesSansMois('macj'))}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
             <tr className="tdb-fort" data-total-annee><th scope="row">Année {annee}</th><td data-mot="Vente CRITERIMMO">{eur(A.venteCriterimmoHt)}</td><td data-mot="Vente MACJ">{eur(A.venteMacjHt)}</td>
               <td data-mot="Location">{manque(A.locationHt)}</td><td data-mot="Gestion">{manque(A.gestionHt)}</td><td data-mot="Total">{eur(A.totalHt)}</td>
-              <td data-mot={String(annee - 1)}>{eur(A1.totalHt)}</td><td data-mot="Écart">{`${ecartEur(A.totalHt - A1.totalHt)} (${signePct(variation(A.totalHt, A1.totalHt))})`}</td><td data-mot="Gestion du mois" /></tr>
+              <td data-mot={String(annee - 1)}>{eur(A1.totalHt)}</td><td data-mot="Écart">{`${ecartEur(A.totalHt - A1.totalHt)} (${signePct(variation(A.totalHt, A1.totalHt))})`}</td></tr>
           </tbody>
         </table>
       </section>
@@ -698,8 +743,119 @@ export function EcranGlobal() {
       </section>
 
       </>}
-      {gestionOuverte !== null && <SaisieGestion annee={annee} mois={gestionOuverte} actuelle={gestionDe(gestionOuverte)}
-        onFermer={() => setGestionOuverte(null)} onFait={() => { setGestionOuverte(null); relire(); }} onRelire={relire} />}
+    </div>
+  );
+}
+
+/** Une ligne de la synthèse du CA global (HT) ; null : sans objet pour cette ligne (« — »). */
+export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;
+  totalHt: number; totalN1Ht: number; previsionnelHt: number | null }
+
+/**
+ * 🔴 LOT L — LA SYNTHÈSE DU CA GLOBAL : CRITERIMMO (vente + location + gestion), MACJ (vente), les ventes à attribuer (s'il y en a : une
+ * fois, dans aucune société), puis le GLOBAL = la somme des lignes au-dessus. Les cellules de `celluleGlobal`, telles quelles. PUR.
+ */
+export function syntheseGlobal(e: EntreesGlobal, annee: number): LigneSynthese[] {
+  const A = celluleGlobal(e, annee, null);
+  const A1 = celluleGlobal(e, annee - 1, null);
+  const P = previsionnel(e, annee);
+  const lignes: LigneSynthese[] = [
+    { cle: 'criterimmo', libelle: 'CRITERIMMO', venteHt: A.venteCriterimmoHt, locationHt: A.locationHt, gestionHt: A.gestionHt, totalHt: A.criterimmoHt, totalN1Ht: A1.criterimmoHt, previsionnelHt: P.criterimmoHt },
+    { cle: 'macj', libelle: 'MACJ', venteHt: A.venteMacjHt, locationHt: null, gestionHt: null, totalHt: A.macjHt, totalN1Ht: A1.macjHt, previsionnelHt: P.macjHt },
+  ];
+  if (A.aAttribuerHt > 0 || A1.aAttribuerHt > 0) lignes.push({ cle: 'a_attribuer', libelle: 'Ventes à attribuer', venteHt: A.aAttribuerHt, locationHt: null, gestionHt: null,
+    totalHt: A.aAttribuerHt, totalN1Ht: A1.aAttribuerHt, previsionnelHt: null });
+  lignes.push({ cle: 'global', libelle: 'Global (les deux sociétés)', venteHt: A.venteCriterimmoHt + A.venteMacjHt + A.aAttribuerHt, locationHt: A.locationHt, gestionHt: A.gestionHt,
+    totalHt: A.totalHt, totalN1Ht: A1.totalHt, previsionnelHt: P.totalHt });
+  return lignes;
+}
+
+// ── LOT L : la gestion (déplacée du CA global) ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 🔴 LOT L (Arno) — « GESTION » : la saisie mensuelle des honoraires du parc envoyés par le comptable (nombre de lots, honoraires HT,
+ * ADHOC, salarié, reste), DÉPLACÉE du CA global : le même formulaire (`SaisieGestion`), les mêmes données (`vue=global`, table
+ * `transaction_gestion_mois`), l'historique importé tel quel. Le mois par mois d'une année, puis l'année par année.
+ */
+export function EcranGestion() {
+  const jour = aujourdhuiParis();
+  const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
+  const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
+  const [ouvert, setOuvert] = useState<number | null>(null);
+  useEffect(() => { ecrireAdresse({ annee: String(annee) }); }, [annee]);
+  if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
+  if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
+  const d = lu.data;
+  const annees = [...new Set([Number(jour.slice(0, 4)), ...d.gestion.map((g) => g.annee)])].sort((a, b) => a - b);
+  const deLAnnee = (a: number): GestionMois[] => d.gestion.filter((g) => g.annee === a);
+  const gestionDe = (m: number): GestionMois | null => d.gestion.find((g) => g.annee === annee && g.mois === m) ?? null;
+  const somme = (gs: readonly GestionMois[], k: 'honorairesHt' | 'adhocHt' | 'salarieHt' | 'resteHt'): number | null =>
+    (gs.every((g) => g[k] === null) ? null : gs.reduce((t, g) => t + (g[k] ?? 0), 0));
+  const manque = (x: number | null): string => (x === null ? '—' : eur(x));
+  const lots = (x: number | null): string => (x === null ? '—' : x.toLocaleString('fr-FR'));
+  const N1 = somme(deLAnnee(annee - 1), 'honorairesHt');
+  const H = somme(deLAnnee(annee), 'honorairesHt');
+  return (
+    <div className="tdb loc-page" data-ecran-gestion>
+      <style>{CSS}</style>
+      {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
+      <form className="tdb-filtres" aria-label="Année" onSubmit={(x) => x.preventDefault()}>
+        <label className="tdb-champ">Année
+          <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
+            onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
+      </form>
+      <ul className="tdb-tuiles" aria-label={`La gestion — ${annee}`}>
+        <li><div className="tdb-tuile" data-tuile="gestion-honoraires"><span className="tdb-tuile-mot">Honoraires de gestion HT ({annee})</span><strong className="tdb-tuile-valeur">{manque(H)}</strong>
+          <span className="tdb-tuile-n1">{manque(N1)} en {annee - 1}{H !== null && N1 !== null ? ` (${signePct(variation(H, N1))})` : ''}</span></div></li>
+        <li><div className="tdb-tuile" data-tuile="gestion-reste"><span className="tdb-tuile-mot">Reste HT ({annee})</span><strong className="tdb-tuile-valeur">{manque(somme(deLAnnee(annee), 'resteHt'))}</strong>
+          <span className="tdb-tuile-n1">honoraires − ADHOC − salarié</span></div></li>
+      </ul>
+      <section className="tdb-section" aria-labelledby="trx-gestion-mois" data-bloc="gestion-mois">
+        <h3 id="trx-gestion-mois">{annee} mois par mois <small className="loc-muet">(HT ; envoyé chaque mois par le comptable)</small></h3>
+        <table className="tdb-table tdb-table--large" data-table-gestion>
+          <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">Salarié</th><th scope="col">Reste</th>
+            <th scope="col">Honoraires {annee - 1}</th><th scope="col">Saisie</th></tr></thead>
+          <tbody>
+            {NOMS_MOIS.map((nom, i) => {
+              const g = gestionDe(i + 1);
+              const g1 = d.gestion.find((x) => x.annee === annee - 1 && x.mois === i + 1) ?? null;
+              return (
+                <tr key={nom} data-mois-gestion={i + 1}>
+                  <th scope="row">{nom}{g?.origine === 'import' && <span className="loc-pastille" title="Repris du fichier importé"> import</span>}</th>
+                  <td data-mot="Lots">{lots(g?.nbLots ?? null)}</td><td data-mot="Honoraires" data-gestion-honoraires={i + 1}>{manque(g?.honorairesHt ?? null)}</td>
+                  <td data-mot="ADHOC">{manque(g?.adhocHt ?? null)}</td><td data-mot="Salarié">{manque(g?.salarieHt ?? null)}</td><td data-mot="Reste">{manque(g?.resteHt ?? null)}</td>
+                  <td data-mot={`Honoraires ${annee - 1}`}>{manque(g1?.honorairesHt ?? null)}</td>
+                  <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" onClick={() => setOuvert(i + 1)} disabled={!d.disponible} data-saisir-gestion={i + 1}>
+                    {g === null ? 'Saisir' : 'Modifier'}</button></td>
+                </tr>
+              );
+            })}
+            <tr className="tdb-fort" data-total-gestion><th scope="row">Année {annee}</th><td data-mot="Lots">—</td>
+              <td data-mot="Honoraires">{manque(H)}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(annee), 'adhocHt'))}</td><td data-mot="Salarié">{manque(somme(deLAnnee(annee), 'salarieHt'))}</td>
+              <td data-mot="Reste">{manque(somme(deLAnnee(annee), 'resteHt'))}</td><td data-mot={`Honoraires ${annee - 1}`}>{manque(N1)}</td><td data-mot="Saisie" /></tr>
+          </tbody>
+        </table>
+      </section>
+      <section className="tdb-section" aria-labelledby="trx-gestion-annees" data-bloc="gestion-annees">
+        <h3 id="trx-gestion-annees">Année par année <small className="loc-muet">(HT)</small></h3>
+        <table className="tdb-table tdb-table--large" data-table-gestion-annees>
+          <thead><tr><th scope="col">Année</th><th scope="col">Mois saisis</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">Salarié</th><th scope="col">Reste</th><th scope="col">Évolution</th></tr></thead>
+          <tbody>{annees.map((a, i) => {
+            const h = somme(deLAnnee(a), 'honorairesHt');
+            const p = i === 0 ? null : somme(deLAnnee(annees[i - 1]), 'honorairesHt');
+            return (
+              <tr key={a} className={a === annee ? 'tdb-fort' : undefined} data-annee-gestion={a}>
+                <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(a)}>{a}</button></th>
+                <td data-mot="Mois saisis">{deLAnnee(a).length}</td><td data-mot="Honoraires">{manque(h)}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(a), 'adhocHt'))}</td>
+                <td data-mot="Salarié">{manque(somme(deLAnnee(a), 'salarieHt'))}</td><td data-mot="Reste">{manque(somme(deLAnnee(a), 'resteHt'))}</td>
+                <td data-mot="Évolution">{h === null || p === null ? '—' : signePct(variation(h, p))}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </section>
+      {ouvert !== null && <SaisieGestion annee={annee} mois={ouvert} actuelle={gestionDe(ouvert)}
+        onFermer={() => setOuvert(null)} onFait={() => { setOuvert(null); relire(); }} onRelire={relire} />}
     </div>
   );
 }

@@ -71,10 +71,10 @@ const ouvrir = async () => {
 const deplier = async (id: number) => cliquer(`[data-deplier="compromis-${id}"]`);
 
 describe('l’onglet « Compromis »', () => {
-  it('placé AVANT « Le mois » et « L’année » ; « Le mois » reste l’onglet d’ouverture', async () => {
+  it('placé AVANT « Le mois » et « L’année » ; LOT L : on ARRIVE sur « Compromis »', async () => {
     await ouvrir();
     expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.textContent)).toEqual(['Compromis', 'Le mois', 'L’année']);
-    expect(container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true');
   });
   it('🔴 LOT F — carte repliée : à gauche le titre puis adresse · prix · acte au plus tard ; à droite TTC (vert, « TTC »), HT, % du prix', async () => {
     listeCompromis = [{ ...compromis, prixVente: 240000 }];
@@ -740,5 +740,26 @@ describe('🔴 LOT K — collaborateur des deux sociétés ; la case « Dates »
     act(() => { root.unmount(); }); root = createRoot(container);
     await onglet(); await deplier(41);
     expect(texte('[data-compromis="41"] [data-date="butoir"]')).toBe('Vente définitive au plus tard le : à renseigner');
+  });
+});
+
+describe('🔴 LOT L — Solde net et « + Nouveau compromis »', () => {
+  it('Solde net : le TTC en premier, en grand et en vert (« TTC » écrit) ; le HT dessous', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    const tuile = container.querySelector('[data-tuile="solde"]')!;
+    const ttc = tuile.querySelector('[data-solde-ttc]')!;
+    expect(ttc.tagName).toBe('STRONG');
+    expect(ttc.className).toContain('trx-vert');
+    expect(ttc.className).toContain('tdb-tuile-valeur');
+    expect(ttc.textContent!.replace(/\s/g, ' ')).toMatch(/ TTC$/);
+    expect(tuile.querySelector('[data-solde-ht]')!.className).toBe('trx-tuile-ht');
+    expect([...tuile.children].map((x) => x.getAttribute('data-solde-ttc') !== null ? 'ttc' : x.getAttribute('data-solde-ht') !== null ? 'ht' : '-')).toEqual(['-', 'ttc', 'ht', '-']);
+  });
+  it('« + Nouveau compromis » sur la ligne du titre, dans la même barre, AVANT les tuiles', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    const barre = container.querySelector('.trx-onglet-compromis > .trx-barre')!;
+    expect(barre.querySelector('h3')!.textContent).toContain('Compromis en cours');
+    expect(barre.querySelector('[data-nouveau-compromis]')).not.toBeNull();
+    expect(barre.nextElementSibling?.matches('.tdb-tuiles') || barre.parentElement!.querySelector('.trx-barre ~ .tdb-tuiles') !== null).toBe(true);
   });
 });
