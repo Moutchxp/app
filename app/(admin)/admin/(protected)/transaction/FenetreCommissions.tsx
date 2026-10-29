@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ETIQUETTE, estVersee, type AffaireCout, type CategorieCout, type DetailCommissions, type LigneCout } from '../../../../lib/transaction/detailCommissions';
+import { dossiersCa, dossiersConcernes, estCompteeCa, ETIQUETTE, estVersee, type AffaireCa, type AffaireCout, type CategorieCout, type DetailCa, type DetailCommissions,
+  type LigneCa, type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './commun';
 
@@ -11,17 +12,23 @@ import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './com
  * Ouverte par la tuile (qui ne se déploie plus) : tout ce que la tuile détaillait, et plus fin — chaque ligne, chaque affaire. Deux
  * présentations, « Par transaction » | « Par catégorie » (par défaut), le dernier choix retenu dans le navigateur. Lecture seule : un
  * observateur peut l'ouvrir. Les chiffres viennent de `detailCommissions` : le total = celui de la tuile, au centime, dans les deux modes.
+ * 🔴 LOT AN — « N dossiers concernés » sous le total ; « Par transaction » ne montre que les affaires avec au moins une commission versée (les
+ * blocs « Aucune commission versée » sont retirés, accord d'Arno). La même coque sert la fenêtre « Chiffre d'affaires » (`FenetreCa`).
  */
 
 export type ModeFenetre = 'transaction' | 'categorie';
 export const CLE_MODE_FENETRE = 'trx-commissions-versees-mode';
-const lireMode = (): ModeFenetre => {
-  try { return window.localStorage.getItem(CLE_MODE_FENETRE) === 'transaction' ? 'transaction' : 'categorie'; } catch { return 'categorie'; }
+/** 🔴 LOT AN — le choix de la fenêtre « Chiffre d'affaires », retenu séparément. */
+export const CLE_MODE_FENETRE_CA = 'trx-chiffre-affaires-mode';
+const lireMode = (cle: string): ModeFenetre => {
+  try { return window.localStorage.getItem(cle) === 'transaction' ? 'transaction' : 'categorie'; } catch { return 'categorie'; }
 };
-const ecrireMode = (m: ModeFenetre): void => {
-  try { window.localStorage.setItem(CLE_MODE_FENETRE, m); } catch { /* préférence d'affichage seulement : la fenêtre marche sans */ }
+const ecrireMode = (cle: string, m: ModeFenetre): void => {
+  try { window.localStorage.setItem(cle, m); } catch { /* préférence d'affichage seulement : la fenêtre marche sans */ }
 };
 const date = (d: string): string => d.split('-').reverse().join('/');
+/** « 1 dossier », « 3 dossiers » (+ « concerné(s) »). PUR. */
+export const motDossiers = (n: number, concernes: boolean): string => `${n} dossier${n > 1 ? 's' : ''}${concernes ? ` concerné${n > 1 ? 's' : ''}` : ''}`;
 
 /** Les deux textes d'un montant en centimes, dans l'ordre affiché (🔴 LOT AM : l'unité choisie d'abord). PUR. */
 const textes = (u: UniteAffichage, htC: number, ttcC: number): [string, string] => {
@@ -42,6 +49,62 @@ function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: num
   );
 }
 
+/**
+ * 🔴 LOT AN — LA COQUE D'UNE FENÊTRE DE DÉTAIL : titre, total (grand / petit selon « HT | TTC »), « N dossiers », le choix « Par transaction |
+ * Par catégorie » (retenu sous `cleMode`), le corps défilant, le pied ; fermeture par la croix, Échap ou un clic hors de la fenêtre.
+ */
+function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, dossiers, cleMode, corps, pied, onFermer }: {
+  titre: string; donnee: string; totalHtC: number; totalTtcC: number; sens: 'verse' | 'recu'; motTotal?: string; dossiers: string; cleMode: string;
+  corps: (mode: ModeFenetre) => ReactNode; pied: ReactNode; onFermer: () => void;
+}) {
+  const [mode, setMode] = useState<ModeFenetre>(() => lireMode(cleMode));
+  const fermer = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    fermer.current?.focus();
+    const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    window.addEventListener('keydown', touche);
+    return () => window.removeEventListener('keydown', touche);
+  }, [onFermer]);
+  const choisir = (m: ModeFenetre): void => { setMode(m); ecrireMode(cleMode, m); };
+  const totalHaut = textes(useAffichage(), totalHtC, totalTtcC);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="trx-fc-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
+      <style>{CSS_FENETRE_COMMISSIONS}</style>
+      <div className="trx-fc-modale" role="dialog" aria-modal="true" aria-labelledby={`${donnee}-titre`} {...{ [`data-${donnee}`]: '' }}>
+        <div className="trx-fc-haut">
+          <div className="trx-fc-entete">
+            <div className="trx-fc-entete-texte">
+              <h2 id={`${donnee}-titre`}>{titre}</h2>
+              <span className={`trx-fc-montant trx-fc-montant--gauche ${sens === 'verse' ? 'trx-rouge' : 'trx-vert'}`} data-fenetre-total-haut>
+                <strong>{totalHaut[0]}{motTotal === undefined ? '' : ` ${motTotal}`}</strong><span className="trx-mt-petit">({totalHaut[1]})</span></span>
+            </div>
+            <button type="button" className="trx-fc-fermer" ref={fermer} onClick={onFermer} aria-label="Fermer" data-fermer-fenetre>×</button>
+          </div>
+          <p className="trx-fc-dossiers" data-dossiers>{dossiers}</p>
+          <div className="trx-fc-modes" role="group" aria-label="Présentation">
+            <button type="button" className="trx-unite" aria-pressed={mode === 'transaction'} onClick={() => choisir('transaction')} data-mode-fenetre="transaction">Par transaction</button>
+            <button type="button" className="trx-unite" aria-pressed={mode === 'categorie'} onClick={() => choisir('categorie')} data-mode-fenetre="categorie">Par catégorie</button>
+          </div>
+        </div>
+        <div className="trx-fc-corps" data-mode-actif={mode}>{corps(mode)}</div>
+        <div className="trx-fc-pied">{pied}</div>
+      </div>
+    </div>,
+    document.querySelector('.svv-adm-root') ?? document.body,
+  );
+}
+
+/** Le nom d'une affaire : un lien qui ferme la fenêtre et déplie sa carte. */
+function lienAffaire(titres: Record<number, string>, onAller: (id: number) => void): (id: number) => ReactNode {
+  return function lien(id: number): ReactNode {
+    return <a className="trx-fc-affaire" href={`?vente=${id}`} onClick={(e) => { e.preventDefault(); onAller(id); }} data-aller-affaire={id}>{titres[id] ?? `Vente n° ${id}`}</a>;
+  };
+}
+const sousTitre = (d: string | null, recueDe: Societe | null): ReactNode => (
+  <span className={d === null ? 'trx-fc-sous trx-a-renseigner' : 'trx-fc-sous'}>{d === null ? 'Date du compromis : à renseigner' : `Compromis du ${date(d)}`}{recueDe !== null ? ` · inter-cabinet reçu de ${LIBELLE_SOCIETE[recueDe]}` : ''}</span>
+);
+
 export function FenetreCommissions({ detail, societe, autreSociete, titres, onFermer, onAller }: {
   detail: DetailCommissions;
   /** La société vue ; null : nos deux sociétés (CA global). */
@@ -54,20 +117,9 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
   /** Le nom d'une affaire : la fenêtre se ferme et sa carte se déplie. */
   onAller: (id: number) => void;
 }) {
-  const [mode, setMode] = useState<ModeFenetre>(lireMode);
-  const fermer = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    fermer.current?.focus();
-    const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
-    window.addEventListener('keydown', touche);
-    return () => window.removeEventListener('keydown', touche);
-  }, [onFermer]);
-  const choisir = (m: ModeFenetre): void => { setMode(m); ecrireMode(m); };
-  const totalHaut = textes(useAffichage(), detail.totalHtC, detail.totalTtcC);
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
-  const affaire = (id: number): ReactNode => (
-    <a className="trx-fc-affaire" href={`?vente=${id}`} onClick={(e) => { e.preventDefault(); onAller(id); }} data-aller-affaire={id}>{titres[id] ?? `Vente n° ${id}`}</a>
-  );
+  const affaire = lienAffaire(titres, onAller);
+  const concernees = dossiersConcernes(detail);
   const ligneCategorie = (l: LigneCout, i: number) => (
     <li key={i} className="trx-fc-ligne" data-ligne-cout={l.cle}>
       <span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
@@ -83,71 +135,103 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
       {c.lignes.length === 0 ? <p className="trx-fc-aucune" data-aucune={c.cle}>Aucune</p> : <ul className="trx-fc-lignes">{c.lignes.map(ligneCategorie)}</ul>}
     </section>
   );
+  // LOT AN — seules les affaires avec au moins une commission versée (leurs internes non déduits restent montrés, en gris).
   const bloc = (a: AffaireCout) => {
     const versees = a.lignes.filter((l) => estVersee(l.cle));
     const infos = a.lignes.filter((l) => !estVersee(l.cle));
     return (
       <section key={a.id} className="trx-fc-section" data-affaire={a.id} aria-label={titres[a.id] ?? a.libelle}>
         <div className="trx-fc-tete trx-fc-tete--affaire">
-          <span className="trx-fc-titre-affaire">
-            <h3>{affaire(a.id)}</h3>
-            <span className={a.dateCompromis === null ? 'trx-fc-sous trx-a-renseigner' : 'trx-fc-sous'}>{a.dateCompromis === null ? 'Date du compromis : à renseigner' : `Compromis du ${date(a.dateCompromis)}`}{a.recueDe !== null ? ` · inter-cabinet reçu de ${LIBELLE_SOCIETE[a.recueDe]}` : ''}</span>
-          </span>
+          <span className="trx-fc-titre-affaire"><h3>{affaire(a.id)}</h3>{sousTitre(a.dateCompromis, a.recueDe)}</span>
           <Montant htC={Math.round(a.commissionHt * 100)} ttcC={Math.round(a.commissionTtc * 100)} versee={false} recu donnees={{ 'data-commission-affaire': String(a.id) }} apres={<small>commission de la vente</small>} />
         </div>
-        {a.lignes.length > 0 && (
-          <ul className="trx-fc-lignes">
-            {[...versees, ...infos].map((l, i) => (
-              <li key={i} className={estVersee(l.cle) ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-ligne-cout={l.cle}>
-                <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{l.qui}</span></span>
-                <Montant htC={l.htC} ttcC={l.ttcC} versee={estVersee(l.cle)} />
-              </li>
-            ))}
-          </ul>
-        )}
-        {versees.length === 0
-          ? <p className="trx-fc-aucune" data-aucune-versee={a.id}>Aucune commission versée</p>
-          : <div className="trx-fc-sous-total"><span>Versé sur cette affaire</span><Montant htC={a.verseHtC} ttcC={a.verseTtcC} versee donnees={{ 'data-verse-affaire': String(a.id) }} /></div>}
+        <ul className="trx-fc-lignes">
+          {[...versees, ...infos].map((l, i) => (
+            <li key={i} className={estVersee(l.cle) ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-ligne-cout={l.cle}>
+              <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{l.qui}</span></span>
+              <Montant htC={l.htC} ttcC={l.ttcC} versee={estVersee(l.cle)} />
+            </li>
+          ))}
+        </ul>
+        <div className="trx-fc-sous-total"><span>Versé sur cette affaire</span><Montant htC={a.verseHtC} ttcC={a.verseTtcC} versee donnees={{ 'data-verse-affaire': String(a.id) }} /></div>
       </section>
     );
   };
-  if (typeof document === 'undefined') return null;
-  return createPortal(
-    <div className="trx-fc-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
-      <style>{CSS_FENETRE_COMMISSIONS}</style>
-      <div className="trx-fc-modale" role="dialog" aria-modal="true" aria-labelledby="trx-fc-titre" data-fenetre-commissions>
-        <div className="trx-fc-haut">
-          <div className="trx-fc-entete">
-            <div className="trx-fc-entete-texte">
-              <h2 id="trx-fc-titre">Commissions versées — {qui} — compromis en cours</h2>
-              <span className="trx-fc-montant trx-fc-montant--gauche trx-rouge" data-fenetre-total-haut><strong>{totalHaut[0]} versées</strong><span className="trx-mt-petit">({totalHaut[1]})</span></span>
-            </div>
-            <button type="button" className="trx-fc-fermer" ref={fermer} onClick={onFermer} aria-label="Fermer" data-fermer-fenetre>×</button>
-          </div>
-          <div className="trx-fc-modes" role="group" aria-label="Présentation">
-            <button type="button" className="trx-unite" aria-pressed={mode === 'transaction'} onClick={() => choisir('transaction')} data-mode-fenetre="transaction">Par transaction</button>
-            <button type="button" className="trx-unite" aria-pressed={mode === 'categorie'} onClick={() => choisir('categorie')} data-mode-fenetre="categorie">Par catégorie</button>
-          </div>
+  const mention = autreSociete && <p className="trx-fc-mention" data-detail="autre-societe">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</p>;
+  return (
+    <CoqueFenetre titre={`Commissions versées — ${qui} — compromis en cours`} donnee="fenetre-commissions" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="verse" motTotal="versées"
+      dossiers={motDossiers(concernees.length, true)} cleMode={CLE_MODE_FENETRE} onFermer={onFermer}
+      pied={<><span>Total versé</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee donnees={{ 'data-fenetre-total': '' }} /></>}
+      corps={(mode) => (mode === 'categorie' ? <>
+        {detail.versees.map((c) => section(c, false))}
+        <div className="trx-fc-a-part" data-non-deduits>
+          {detail.infos.map((c) => section(c, true))}
+          {mention}
         </div>
-        <div className="trx-fc-corps" data-mode-actif={mode}>
-          {mode === 'categorie' ? <>
-            {detail.versees.map((c) => section(c, false))}
-            <div className="trx-fc-a-part" data-non-deduits>
-              {detail.infos.map((c) => section(c, true))}
-              {autreSociete && <p className="trx-fc-mention" data-detail="autre-societe">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</p>}
-            </div>
-          </> : <>
-            {detail.affaires.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun compromis en cours.</p> : detail.affaires.map(bloc)}
-            {autreSociete && <p className="trx-fc-mention" data-detail="autre-societe">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</p>}
-          </>}
-        </div>
-        <div className="trx-fc-pied">
-          <span>Total versé</span>
-          <Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee donnees={{ 'data-fenetre-total': '' }} />
-        </div>
+      </> : <>
+        {concernees.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun dossier concerné.</p> : concernees.map(bloc)}
+        {mention}
+      </>)} />
+  );
+}
+
+/**
+ * 🔴 LOT AN (Arno) — LA FENÊTRE « CHIFFRE D'AFFAIRES » (ouverte par sa tuile, qui ne garde que le total et « Voir le détail ») : la règle
+ * exacte de la tuile, dans l'ordre comptable — les ventes portées, le reversé (montré, NON déduit : il est dans « Commissions versées »),
+ * le reçu en inter-cabinet, puis « = Chiffre d'affaires » ; ou une affaire par bloc. Le total = la tuile, au centime, dans les deux modes.
+ */
+export function FenetreCa({ detail, societe, titres, onFermer, onAller }: {
+  detail: DetailCa; societe: Societe | null; titres: Record<number, string>; onFermer: () => void; onAller: (id: number) => void;
+}) {
+  const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
+  const affaire = lienAffaire(titres, onAller);
+  const dossiers = dossiersCa(detail);
+  const u = useAffichage();
+  const sensDe = (cle: LigneCa['cle']): { versee: boolean; recu: boolean } => ({ versee: cle.startsWith('reverse-') || cle === 'exterieur', recu: estCompteeCa(cle) });
+  const section = (c: SectionCa) => (
+    <section key={c.cle} className={c.cle === 'neutralise' ? 'trx-fc-section trx-fc-section--info' : 'trx-fc-section'} data-section-ca={c.cle} aria-label={c.libelle}>
+      <div className="trx-fc-tete">
+        <h3>{c.libelle}</h3>
+        <Montant htC={c.htC} ttcC={c.ttcC} {...sensDe(c.cle)} donnees={{ 'data-sous-total-ca': c.cle }} />
       </div>
-    </div>,
-    document.querySelector('.svv-adm-root') ?? document.body,
+      {c.lignes.length === 0 ? <p className="trx-fc-aucune" data-aucune-ca={c.cle}>Aucune</p> : (
+        <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
+          <li key={i} className="trx-fc-ligne" data-ligne-ca={l.cle}>
+            <span className="trx-fc-quoi">{affaire(l.venteId)}{!estCompteeCa(l.cle) && <><span className="trx-fc-sep" aria-hidden="true"> · </span><span data-qui>{l.qui}</span></>}</span>
+            <Montant htC={l.htC} ttcC={l.ttcC} {...sensDe(l.cle)} />
+          </li>))}</ul>)}
+    </section>
+  );
+  const bloc = (a: AffaireCa) => (
+    <section key={a.id} className="trx-fc-section" data-affaire-ca={a.id} aria-label={titres[a.id] ?? a.libelle}>
+      <div className="trx-fc-tete trx-fc-tete--affaire">
+        <span className="trx-fc-titre-affaire"><h3>{affaire(a.id)}</h3>{sousTitre(a.dateCompromis, a.recueDe)}</span>
+        {a.commissionHtC !== null && a.commissionTtcC !== null
+          ? <Montant htC={a.commissionHtC} ttcC={a.commissionTtcC} versee={false} donnees={{ 'data-commission-affaire-ca': String(a.id) }} apres={<small>commission de la vente</small>} />
+          : <span className="trx-fc-montant trx-fc-info"><small>inter-cabinet reçu</small></span>}
+      </div>
+      {a.lignes.length > 0 && <ul className="trx-fc-lignes">{a.lignes.map((l, i) => (
+        <li key={i} className="trx-fc-ligne" data-ligne-ca={l.cle}>
+          <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{l.cle.startsWith('recu-') ? '+ Reçu en inter-cabinet' : l.cle === 'neutralise' ? 'Neutralisé' : '− Reversé (non déduit du CA)'}</span><span data-qui>{l.qui}</span></span>
+          <Montant htC={l.htC} ttcC={l.ttcC} {...sensDe(l.cle)} />
+        </li>))}</ul>}
+      <div className="trx-fc-sous-total"><span>CA de {qui} sur cette affaire</span><Montant htC={a.caHtC} ttcC={a.caTtcC} versee={false} recu donnees={{ 'data-ca-affaire': String(a.id) }} /></div>
+    </section>
+  );
+  const totalLigne = <><span>= Chiffre d’affaires de {qui}</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  return (
+    <CoqueFenetre titre={`Chiffre d’affaires — ${qui} — compromis en cours`} donnee="fenetre-ca" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="recu"
+      dossiers={motDossiers(dossiers.length, false)} cleMode={CLE_MODE_FENETRE_CA} onFermer={onFermer} pied={totalLigne}
+      corps={(mode) => (mode === 'categorie' ? <>
+        {detail.sections.filter((c) => c.cle !== 'neutralise').map(section)}
+        <div className="trx-fc-total-ca" data-total-ca>{totalLigne}</div>
+        {detail.sections.some((c) => c.cle === 'neutralise') && <div className="trx-fc-a-part">{detail.sections.filter((c) => c.cle === 'neutralise').map(section)}</div>}
+        {detail.parSociete !== null && (
+          <p className="trx-fc-mention" data-ca-par-societe>{(['criterimmo', 'macj'] as const).map((s) => <span key={s} data-ca-societe={s}>CA {LIBELLE_SOCIETE[s]} : {textes(u, detail.parSociete![s].htC, detail.parSociete![s].ttcC).join(' (')})</span>)
+            .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</p>)}
+      </> : <>
+        {dossiers.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun compromis en cours.</p> : dossiers.map(bloc)}
+      </>)} />
   );
 }
 
@@ -186,6 +270,8 @@ export const CSS_FENETRE_COMMISSIONS = `
 .trx-fc-section--info h3{color:var(--color-svv-muted)}
 .trx-fc-section--info h3.trx-alerte{color:var(--color-svv-red)}
 .trx-fc-mention{margin:0;color:var(--color-svv-muted);font-size:.9rem}
+.trx-fc-dossiers{margin:0;font-size:.92rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-fc-total-ca{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline;padding:10px 12px;border-top:2px solid var(--color-svv-line-strong);font-weight:800}
 .trx-fc-pied{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline;padding:12px 20px 16px;border-top:1px solid var(--color-svv-line-strong);font-weight:800}
 @media (max-width:640px){
   .trx-fc-voile{padding:0;align-items:stretch}

@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
 import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
-import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
+import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
 import { auCentime, centimesRepartition, motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { ESPACE, eur, grouperSaisie, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, pctFr, useAffichage } from './commun';
+import { texteSaisie } from '../../../../lib/transaction/format';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOTS D ET E (Arno, 27/10/2026) — LE BLOC « NÉGOCIATEURS ET RÉPARTITION », PARTAGÉ ═══════════════
@@ -30,8 +31,12 @@ export interface NegociateurRef { id: number; nom: string; societe: SocieteCompt
 export interface ApporteurRef { id: number; nom: string;
   /** 🔴 LOT AC — le libellé de l'annuaire (NOM Prénom) et le texte cherchable (nom, prénom, société, téléphones, e-mails). */
   libelle?: string; recherche?: string }
-/** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
-export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
+/**
+ * Une partie à l'écran : sa part telle que saisie (texte), en % ou en € HT (la forme enregistrée : `montantHt`).
+ * 🔴 LOT AN — `saisieTtc` : le texte tapé quand le sélecteur général est en TTC (montré tel quel) ; `texte` en porte la conversion en HT au
+ * centime (même règle de TVA et des centimes que l'affichage). Jamais enregistré.
+ */
+export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string; saisieTtc?: string }
 /** Un montant à l'écran, tel que saisi, avec SON unité (LOT I). */
 export interface MontantEcran { texte: string; unite: Unite;
   /**
@@ -216,7 +221,17 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const motifChoix = motifSocieteVente(etat, negociateurs);
   const choisirNego = (i: 0 | 1, v: string): void => onChange(changerNegociateur(etat, i === 0 ? 'entree' : 'sortie', v === '' ? null : Number(v), negociateurs));
   const changerPartie = (i: number, p: Partial<PartieEcran>): void => onChange({ ...etat, parties: etat.parties.map((x, j) => (j === i ? { ...x, ...p } : x)) });
-  const changerPart = (i: number, mode: 'pct' | 'eur', texte: string): void => onChange({ ...etat, parties: saisirPart(etat.parties, i, mode, texte, net) });
+  const changerPart = (i: number, mode: 'pct' | 'eur', texte: string): void => onChange({ ...etat, parties: saisirPart(etat.parties, i, mode, texte, net).map((p) => (p.saisieTtc === undefined ? p : { ...p, saisieTtc: undefined })) });
+  // 🔴 LOT AN — une part en € tapée en TTC (sélecteur général) : convertie en HT au centime pour la répartition ; le texte tapé reste affiché.
+  const changerPartTtc = (i: number, texte: string): void => {
+    const x = nombre(texte);
+    const ht = x === null ? texte : texteNombre(auCentime(x / TVA));
+    const lignes = saisirPart(etat.parties, i, 'eur', ht, net).map((p) => (p.saisieTtc === undefined ? p : { ...p, saisieTtc: undefined }));
+    onChange({ ...etat, parties: lignes.map((p, j) => (j === i && p.mode === 'eur' ? { ...p, saisieTtc: texte } : p)) });
+  };
+  const eurTtc = centimesRepartition(lignesModele, commission, retro, porteuseEcran, 'ttc')?.parts;
+  // 🔴 LOT AN — la case « Part (€) » en cours de frappe (tel que tapé) ; les autres, mises en forme.
+  const [eurEnSaisie, setEurEnSaisie] = useState<number | null>(null);
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
@@ -249,7 +264,10 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
         {etat.parties.map((p, i) => {
           const interne = p.sorte !== 'exterieure';
           const pctAffiche = p.mode === 'pct' ? p.texte : (Number.isFinite(parts[i]) ? texteNombre(pourcentageDe(parts[i], net)) : '');
-          const eurAffiche = p.mode === 'eur' ? p.texte : (Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i]) : '');
+          // 🔴 LOT AN — la case « Part (€) » dans l'unité du sélecteur général : en TTC, le texte tapé ou la part TTC au centime (règle du lot AH).
+          const eurAffiche = u === 'ttc'
+            ? (p.mode === 'eur' ? p.saisieTtc ?? texteDansUnite(p.texte, 'ht', 'ttc') : (eurTtc !== undefined && Number.isFinite(eurTtc[i]) ? texteCentimes(eurTtc[i]) : Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i] * TVA) : ''))
+            : (p.mode === 'eur' ? p.texte : (Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i]) : ''));
           return (
             <li key={i} className="trx-partie" data-partie={p.sorte} data-ligne-partie={i}>
               <div className="trx-partie-tete">
@@ -269,8 +287,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   <label>Coordonnées (facultatif)<input value={p.coordonnees ?? ''} onChange={(e) => changerPartie(i, { coordonnees: e.target.value })} data-partie-coordonnees /></label>
                 </>}
                 <label>Part (%)<input inputMode="decimal" value={pctAffiche} onChange={(e) => changerPart(i, 'pct', e.target.value)} data-partie-pct={i} /></label>
-                <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPart(i, 'eur', e.target.value)}
-                  onBlur={() => { if (p.mode !== 'eur') return; const g = grouperSaisie(p.texte); if (g !== p.texte) changerPartie(i, { texte: g }); }} data-partie-eur={i} /></label>
+                <label>Part (€ {MOT_UNITE[u]})<input inputMode="decimal" value={eurEnSaisie === i ? eurAffiche : grouperSaisie(eurAffiche)} onChange={(e) => (u === 'ttc' ? changerPartTtc(i, e.target.value) : changerPart(i, 'eur', e.target.value))}
+                  onFocus={() => setEurEnSaisie(i)} onBlur={() => setEurEnSaisie(null)} data-partie-eur={i} /></label>
               </div>
               {interne && deux(p) && <ChoixSocieteVente valeur={p.societe} onChoisir={(s) => onChange(choisirSocietePartie(etat, i, s))} cle={`partie-${i}`} />}
               {interne && p.compteId !== null && p.societe === null && !deux(p) && (
@@ -349,8 +367,11 @@ export function equivalent(m: MontantEcran): string | null {
 }
 
 /**
- * 🔴 LOT I (Arno) — UN MONTANT AVEC SON UNITÉ « HT / TTC » AU CHOIX : le champ, deux boutons (cibles de 44 px, le bouton choisi est
- * enfoncé et dit « HT » ou « TTC » — jamais la couleur seule), et l'équivalent dans l'autre unité dessous. Sans la 437 : « HT » grisé.
+ * 🔴 LOT I (Arno) — UN MONTANT AVEC SON UNITÉ, et l'équivalent dans l'autre unité dessous. Sans la 437 : TTC seulement.
+ * 🔴 LOT AN (Arno) — l'unité du champ est celle du sélecteur général « HT | TTC » (bloc, formulaire, panneau) : les boutons HT / TTC propres
+ * au champ sont retirés (accord d'Arno). Une valeur saisie dans l'autre unité est MONTRÉE convertie (au centime, règle de l'affichage) sans
+ * être réécrite : non retouchée, elle s'enregistre telle qu'elle était, au centime, même après plusieurs bascules. Une frappe la remplace par
+ * ce qui est tapé, dans l'unité affichée (montant + unité : la forme enregistrée ne change pas).
  */
 export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose }: {
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
@@ -362,29 +383,29 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
    */
   propose?: Proposition | null;
 }) {
-  const valeur = montantEffectif(brute, propose ?? null);
-  const eq = equivalent(valeur);
+  const choisie = useAffichage();
+  // 🔴 LOT AN — hors saisie, le montant se lit mis en forme (« 7 500 », « 1 625,50 ») ; pendant la frappe, tel que tapé. Le texte saisi
+  // (celui qui s'enregistre) ne change jamais.
+  const [enSaisie, setEnSaisie] = useState(false);
+  // Sans la 437, rien ne se saisit en HT : le champ reste en TTC.
+  const u: Unite = avecHt ? choisie : 'ttc';
   const avecTaux = propose !== undefined;
+  // Ce que le champ montre : une proposition, calculée dans l'unité affichée ; une valeur saisie, dans l'unité affichée (convertie au besoin).
+  const valeur = brute.auto === true ? montantEffectif({ ...brute, unite: u }, propose ?? null) : { ...brute, texte: texteDansUnite(brute.texte, brute.unite, u), unite: u };
+  const eq = equivalent(valeur);
   const pctTexte = (x: number): string => nombreFr(x, { maximumFractionDigits: 4 });
-  const u = useAffichage();
   return (
-    <div className="trx-montant-unite" data-montant-unite={champ}>
+    <div className="trx-montant-unite" data-montant-unite={champ} data-unite-champ={u}>
       {avecTaux && <label>Taux de rémunération (%)
         <input inputMode="decimal" value={brute.taux ?? texteTaux(TAUX_REMUNERATION_DEFAUT)} onChange={(e) => onChange(saisirTaux(brute, e.target.value))} data-taux={champ} /></label>}
-      <label>{mot} ({LIBELLE_UNITE[valeur.unite]})
-        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: valeur.unite }, e.target.value, propose ?? null) : { texte: e.target.value, unite: valeur.unite, auto: false })}
-          onBlur={() => { const g = grouperSaisie(brute.texte); if (g !== brute.texte) onChange({ ...brute, texte: g }); }} data-champ={champ} /></label>
-      <div className="trx-unites" role="group" aria-label={`Unité : ${mot}`}>
-        {UNITES.map((u) => (
-          <button key={u} type="button" className="trx-unite" aria-pressed={valeur.unite === u} disabled={u === 'ht' && !avecHt}
-            onClick={() => onChange({ ...brute, unite: u })} data-unite={u} data-unite-de={champ}>{LIBELLE_UNITE[u]}</button>
-        ))}
-      </div>
+      <label>{mot} ({LIBELLE_UNITE[u]})
+        <input inputMode="decimal" value={enSaisie ? valeur.texte : grouperSaisie(valeur.texte)} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: u }, e.target.value, propose ?? null) : { texte: e.target.value, unite: u, auto: false })}
+          onFocus={() => setEnSaisie(true)} onBlur={() => setEnSaisie(false)} data-champ={champ} /></label>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
       {brute.auto === true && propose != null && <span className="loc-muet" data-propose={champ}>
-        proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(u, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% de la commission nette)</span>}
+        proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(choisie, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% de la commission nette)</span>}
       {ecartCalcul(brute, propose ?? null) && propose != null && <span className="trx-ecart-calcul" data-ecart-calcul={champ}>
-        <span className="trx-alerte">valeur saisie — calcul proposé : {montantsTexte(u, propose.ttc / TVA, propose.ttc)}</span>
+        <span className="trx-alerte">valeur saisie — calcul proposé : {montantsTexte(choisie, propose.ttc / TVA, propose.ttc)}</span>
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...brute, auto: true })} data-appliquer-calcul={champ}>Appliquer le calcul</button></span>}
       {aide !== undefined && <span className="loc-muet">{aide}</span>}
       {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
@@ -477,7 +498,18 @@ export function ecartCalcul(m: MontantEcran, propose: Proposition | null): boole
   return Math.abs((m.unite === 'ttc' ? x : x * TVA) - propose.ttc) >= 0.005;
 }
 
-const texteCentimes = (x: number): string => nombreFr(x, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// 🔴 LOT AN — la même règle que l'affichage : au centime, sans « ,00 » (« 1 875 », « 2 708,34 »).
+const texteCentimes = (x: number): string => texteSaisie(x);
+
+/**
+ * 🔴 LOT AN — un texte saisi dans une unité, montré dans l'autre (« HT | TTC » général) : le montant au centime, même règle de TVA et des
+ * centimes que l'affichage ; illisible ou vide : tel quel. Ce n'est qu'un affichage : la valeur saisie (son texte, son unité) ne change pas. PUR.
+ */
+export function texteDansUnite(texte: string, de: Unite, vers: Unite): string {
+  if (de === vers) return texte;
+  const x = nombre(texte);
+  return x === null ? texte : texteSaisie(auCentime(vers === 'ttc' ? x * TVA : x / TVA));
+}
 
 /**
  * Ce que le champ montre (et ce qui s'enverra) : une commission saisie, telle quelle ; une commission PROPOSÉE, le montant proposé dans

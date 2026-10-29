@@ -119,3 +119,91 @@ export function detailCommissions(ventes: readonly VenteDetail[], societe: Socie
   const t = total(lignes.filter((x) => estVersee(x.cle)));
   return { totalHtC: t.htC, totalTtcC: t.ttcC, versees, infos, affaires };
 }
+
+/** 🔴 LOT AN — le nombre de dossiers concernés : les affaires qui ont au moins une commission VERSÉE (les internes seuls n'y comptent pas). PUR. */
+export const dossiersConcernes = (d: Pick<DetailCommissions, 'affaires'>): AffaireCout[] => d.affaires.filter((a) => a.lignes.some((l) => estVersee(l.cle)));
+
+// ── 🔴 LOT AN (Arno, 29/10/2026) — LE DÉTAIL DE LA TUILE « CHIFFRE D'AFFAIRES » ─────────────────────────────────────────────────────────
+//
+// La règle EXACTE de la tuile (`bilanVente`, lot R) : le CA d'une société = la commission entière des ventes qu'elle PORTE + la part REÇUE
+// en inter-cabinet (ses lignes miroir). Ce que la porteuse reverse (à l'autre société, à une agence extérieure) n'est PAS déduit du CA : il
+// est compté dans « Commissions versées » ; la fenêtre le montre à sa place dans l'ordre comptable, sans le soustraire. Nos deux sociétés
+// (CA global) : chaque vente une fois, l'inter-cabinet entre nos sociétés neutralisé. Les centimes : ceux des cartes (règle du lot AH) ; le
+// total = la somme des lignes, et la tuile affiche ce total.
+
+export type CleCa = `portee-${Societe}` | `recu-${Societe}` | `reverse-${Societe}` | 'exterieur' | 'neutralise';
+export interface LigneCa { venteId: number; cle: CleCa; qui: string; htC: number; ttcC: number }
+export interface SectionCa { cle: CleCa; libelle: string; lignes: LigneCa[]; htC: number; ttcC: number;
+  /** compte : dans le CA (vert) ; info : montré, non compté dans le CA (reversé : rouge ; neutralisé : gris). */
+  compte: boolean }
+export interface AffaireCa {
+  id: number; libelle: string; dateCompromis: string | null; recueDe: Societe | null;
+  /** La commission de la vente (vente portée ; nos deux sociétés) ; null : une ligne miroir (sa seule part est connue). */
+  commissionHtC: number | null; commissionTtcC: number | null;
+  lignes: LigneCa[];
+  /** Le CA de la société vue sur cette affaire. */
+  caHtC: number; caTtcC: number;
+}
+export interface DetailCa { totalHtC: number; totalTtcC: number; sections: SectionCa[]; affaires: AffaireCa[];
+  /** Nos deux sociétés : le CA de chacune (sa part reçue comprise), comme la tuile le disait. */
+  parSociete: Record<Societe, { htC: number; ttcC: number }> | null }
+
+export const estCompteeCa = (cle: CleCa): boolean => cle.startsWith('portee-') || cle.startsWith('recu-');
+
+/** 🔴 LOT AN — LE DÉTAIL DU « CHIFFRE D'AFFAIRES » des compromis en cours, pour une société (null : nos deux sociétés). PUR. */
+export function detailCa(ventes: readonly VenteDetail[], societe: Societe | null, statutDuLibelle?: StatutDuLibelle): DetailCa {
+  const enCours = ventes.filter((v) => v.statut === 'compromis');
+  const couts = detailCommissions(ventes, societe, statutDuLibelle);
+  const lignes: LigneCa[] = [];
+  const commissions = new Map<number, { htC: number; ttcC: number }>();
+  for (const v of enCours) {
+    const b = bilanVente(v, societe);
+    if (b.caHt !== 0) {
+      // Le CA de la vente pour cette vue : la commission entière (vente portée) ou la part reçue (ligne miroir) — HT au centime, TTC tel que la carte.
+      const htC = enCentimes(b.caHt); const ttcC = enCentimes(v.honorairesTtc);
+      if (v.miroir != null) lignes.push({ venteId: v.id, cle: `recu-${v.miroir.porteuse}`, qui: LIBELLE_SOCIETE[v.miroir.porteuse], htC, ttcC });
+      else lignes.push({ venteId: v.id, cle: `portee-${b.porteuse}`, qui: LIBELLE_SOCIETE[b.porteuse], htC, ttcC });
+    }
+    if (v.miroir == null) commissions.set(v.id, { htC: enCentimes(ht(v.honorairesTtc)), ttcC: enCentimes(v.honorairesTtc) });
+  }
+  // Le reversé (inter-cabinet versé, agences extérieures) et le neutralisé : les lignes et les centimes du détail des commissions.
+  for (const l of [...couts.versees.flatMap((c) => c.lignes), ...couts.infos.flatMap((c) => c.lignes)]) {
+    if (l.cle.startsWith('inter-cabinet-')) lignes.push({ venteId: l.venteId, cle: `reverse-${l.cle.slice('inter-cabinet-'.length) as Societe}`, qui: l.qui, htC: l.htC, ttcC: l.ttcC });
+    else if (l.cle === 'exterieur' || l.cle === 'neutralise') lignes.push({ venteId: l.venteId, cle: l.cle, qui: l.qui, htC: l.htC, ttcC: l.ttcC });
+  }
+  const section = (cle: CleCa, libelle: string): SectionCa => {
+    const l = lignes.filter((x) => x.cle === cle);
+    return { cle, libelle, lignes: l, htC: l.reduce((t, x) => t + x.htC, 0), ttcC: l.reduce((t, x) => t + x.ttcC, 0), compte: estCompteeCa(cle) };
+  };
+  const autres = societe === null ? [] : SOCIETES.filter((s) => s !== societe);
+  const sections: SectionCa[] = societe === null
+    ? [...SOCIETES.map((s) => section(`portee-${s}`, `Ventes portées par ${LIBELLE_SOCIETE[s]}`)),
+      section('exterieur', 'Reversé à des agences extérieures — compté dans « Commissions versées », non déduit du CA'),
+      section('neutralise', 'Inter-cabinet entre nos sociétés — neutralisé (compté une fois)')]
+    : [section(`portee-${societe}`, `Ventes portées par ${LIBELLE_SOCIETE[societe]}`),
+      ...autres.map((s) => section(`reverse-${s}`, `− Reversé en inter-cabinet vers ${LIBELLE_SOCIETE[s]} — compté dans « Commissions versées », non déduit du CA`)),
+      section('exterieur', '− Reversé à des agences extérieures — compté dans « Commissions versées », non déduit du CA'),
+      ...autres.map((s) => section(`recu-${s}`, `+ Reçu en inter-cabinet de ${LIBELLE_SOCIETE[s]}`))];
+  const comptees = lignes.filter((x) => estCompteeCa(x.cle));
+  const affaires: AffaireCa[] = enCours.map((v) => {
+    const l = lignes.filter((x) => x.venteId === v.id);
+    const ca = l.filter((x) => estCompteeCa(x.cle));
+    const c = commissions.get(v.id) ?? null;
+    return { id: v.id, libelle: v.libelle, dateCompromis: v.dateCompromis || null, recueDe: v.miroir?.porteuse ?? null, commissionHtC: c?.htC ?? null, commissionTtcC: c?.ttcC ?? null,
+      lignes: l.filter((x) => !estCompteeCa(x.cle) || x.cle.startsWith('recu-')), caHtC: ca.reduce((t, x) => t + x.htC, 0), caTtcC: ca.reduce((t, x) => t + x.ttcC, 0) };
+  }).sort((a, b) => {
+    const da = a.dateCompromis; const db = b.dateCompromis;
+    return da === db ? b.id - a.id : da === null ? 1 : db === null ? -1 : db.localeCompare(da);
+  });
+  const parSociete = societe !== null ? null : Object.fromEntries(SOCIETES.map((s) => {
+    const portees = lignes.filter((x) => x.cle === `portee-${s}`);
+    const recus = SOCIETES.filter((o) => o !== s).flatMap((o) => lignes.filter((x) => x.cle === 'neutralise' && enCours.find((v) => v.id === x.venteId) !== undefined && bilanVente(enCours.find((v) => v.id === x.venteId)!, null).porteuse === o));
+    const htC = portees.reduce((t, x) => t + x.htC, 0) + recus.reduce((t, x) => t + x.htC, 0);
+    const ttcC = portees.reduce((t, x) => t + x.ttcC, 0) + recus.reduce((t, x) => t + x.ttcC, 0);
+    return [s, { htC, ttcC }];
+  })) as Record<Societe, { htC: number; ttcC: number }>;
+  return { totalHtC: comptees.reduce((t, x) => t + x.htC, 0), totalTtcC: comptees.reduce((t, x) => t + x.ttcC, 0), sections, affaires, parSociete };
+}
+
+/** 🔴 LOT AN — les dossiers du CA : les affaires qui apportent un CA à la société vue. PUR. */
+export const dossiersCa = (d: Pick<DetailCa, 'affaires'>): AffaireCa[] => d.affaires.filter((a) => a.caHtC !== 0 || a.caTtcC !== 0);

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, commissionsResolues, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
-import { ESPACE, eur, grouperSaisie, posterTransactionDonnee } from './commun';
+import { BlocRepartition, commissionsResolues, texteDansUnite, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, SelecteurAffichage, useAffichage } from './commun';
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
@@ -105,6 +105,17 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.
   const [adresseVerifiee, setAdresseVerifiee] = useState(true);
   const commission = nombre(champs.commission) ?? Number.NaN;
+  // 🔴 LOT AN (Arno) — le sélecteur général « HT | TTC » décide aussi de l'unité du champ « Commission » : en HT, le texte tapé (montré tel
+  // quel) et la commission TTC qu'il donne, au centime (même règle de TVA et des centimes que l'affichage) ; non retouchée, la commission
+  // enregistrée reste telle quelle, même après plusieurs bascules.
+  const unite = useAffichage();
+  const [commissionHt, setCommissionHt] = useState<string | null>(null);
+  const commissionAffichee = unite === 'ttc' ? champs.commission : commissionHt ?? texteDansUnite(champs.commission, 'ttc', 'ht');
+  const saisirCommission = (t: string): void => {
+    if (unite === 'ttc') { setCommissionHt(null); setChamps((c) => ({ ...c, commission: t })); return; }
+    setCommissionHt(t); setChamps((c) => ({ ...c, commission: texteDansUnite(t, 'ht', 'ttc') }));
+  };
+
   const taux = tauxDuPrix(commission, nombre(champs.prixVente));
   // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
   const somme = etatSomme(repartition, commission);
@@ -117,8 +128,9 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   }, [onFermer]);
 
   const champ = (k: keyof typeof champs) => (e: { target: { value: string } }) => setChamps((c) => ({ ...c, [k]: e.target.value }));
-  // 🔴 LOT AM — à la sortie d'un champ de montant, les milliers séparés (« 7500 » → « 7 500 ») : les chiffres tapés ne changent pas.
-  const grouper = (k: 'commission' | 'prixVente') => (): void => setChamps((c) => ({ ...c, [k]: grouperSaisie(c[k]) }));
+  // 🔴 LOT AM / AN — hors saisie, un montant se lit mis en forme (« 7 500 ») ; pendant la frappe, tel que tapé ; le texte saisi ne change pas.
+  const [enSaisie, setEnSaisie] = useState<'commission' | 'prixVente' | null>(null);
+  const forme = (k: 'commission' | 'prixVente', t: string): string => (enSaisie === k ? t : grouperSaisie(t));
   const changerPersonne = (i: number, p: Partial<PersonneEcran>): void => setPersonnes((xs) => xs.map((x, j) => (j === i ? { ...x, ...p } : x)));
   /** Choisir une personne de l'annuaire (par son libellé dans la liste) : sa fiche est reprise, son id gardé (aucun doublon). */
   const choisirConnue = (i: number, texte: string): void => {
@@ -159,6 +171,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
           <style>{CSS_CHAMP_ADRESSE}</style>
           {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
           {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
+          {/* 🔴 LOT AN — le sélecteur « HT | TTC » du bloc, synchronisé : il décide des montants affichés ET des champs de montant. */}
+          <div className="trx-form-affichage" data-affichage-formulaire><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
           <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
             {blocPersonnes('vendeur', 'Vendeur(s)')}
@@ -171,13 +185,14 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}
             <label>Prix de vente (€)
-              <input value={champs.prixVente} onChange={champ('prixVente')} onBlur={grouper('prixVente')} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
+              <input value={forme('prixVente', champs.prixVente)} onChange={champ('prixVente')} onFocus={() => setEnSaisie('prixVente')} onBlur={() => setEnSaisie(null)} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
               {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}
               {/* LOT J — le taux de commission, recalculé à chaque frappe du prix ou de la commission. */}
               {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux de commission : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
-            <label>Commission TTC
-              <input value={champs.commission} onChange={champ('commission')} onBlur={grouper('commission')} inputMode="decimal" required data-champ="commission" />
-              <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))}${ESPACE}HT` : 'HT = TTC ÷ 1,2'}</span></label>
+            <label>Commission {MOT_UNITE[unite]}
+              <input value={forme('commission', commissionAffichee)} onChange={(e) => saisirCommission(e.target.value)} onFocus={() => setEnSaisie('commission')} onBlur={() => setEnSaisie(null)} inputMode="decimal" required data-champ="commission" />
+              <span className="loc-muet" data-equivalent-commission>{!Number.isFinite(commission) ? (unite === 'ttc' ? 'HT = TTC ÷ 1,2' : 'TTC = HT × 1,2')
+                : unite === 'ttc' ? `soit ${eur(ht(commission))}${ESPACE}HT` : `soit ${eur(commission)}${ESPACE}TTC`}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
             <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
               societeVente={vente?.societe ?? societe} />

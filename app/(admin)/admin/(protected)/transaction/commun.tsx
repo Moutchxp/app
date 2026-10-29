@@ -91,6 +91,15 @@ const ContexteAffichage = createContext<UniteAffichage>(UNITE_AFFICHAGE_DEFAUT);
 export const FournisseurAffichage = ContexteAffichage.Provider;
 /** L'unité affichée en grand (TTC hors d'un onglet Compromis). */
 export const useAffichage = (): UniteAffichage => useContext(ContexteAffichage);
+/** 🔴 LOT AN — le changement de l'unité, partagé : les formulaires et panneaux montrent le même sélecteur, synchronisé avec le bloc. */
+const ContexteChangerAffichage = createContext<((u: UniteAffichage) => void) | null>(null);
+export const FournisseurChangerAffichage = ContexteChangerAffichage.Provider;
+/** Le sélecteur « HT | TTC » relié à celui du bloc (rien hors d'un onglet Compromis). */
+export function SelecteurAffichage() {
+  const unite = useAffichage();
+  const changer = useContext(ContexteChangerAffichage);
+  return changer === null ? null : <BoutonAffichage unite={unite} onChange={changer} />;
+}
 
 /** Le sens d'un montant : sa couleur. */
 export type Sens = 'verse' | 'recu' | 'neutre';
@@ -197,6 +206,8 @@ export const CSS_TRANSACTION = `
 /* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » ; trop étroit : il passe au-dessus, aligné à droite. */
 .trx-onglet-compromis > .trx-barre > .trx-actions{justify-content:flex-end;align-items:center}
 .trx-affichage{flex:0 0 auto}
+/* 🔴 LOT AN — le même sélecteur en tête d'un formulaire ou d'un panneau (synchronisé avec le bloc). */
+.trx-form-affichage{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;grid-column:1/-1}
 @media (max-width:560px){
   .trx-onglet-compromis > .trx-barre{flex-wrap:wrap}
   .trx-onglet-compromis > .trx-barre > .trx-actions{flex:1 1 auto;max-width:100%}

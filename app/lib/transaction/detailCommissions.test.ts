@@ -120,3 +120,48 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
     }
   });
 });
+
+describe('🔴 LOT AN — « N dossiers concernés » et le détail du « Chiffre d’affaires »', () => {
+  const location = (porteuse: Societe = 'criterimmo', o: Partial<Vente> = {}): Vente => {
+    const autre: Societe = porteuse === 'criterimmo' ? 'macj' : 'criterimmo';
+    return vente({ societe: porteuse, apporteur: 'Gardien Dacquet', retro: 1000, retroApporteur: { montant: 1000, unite: 'ttc' },
+      parties: [partie('entree', 2, 'Arnaud Jorel', porteuse, 50, { statut: 'associe' }), partie('sortie', 8, 'Pierre Thevenin', autre, 50)], ...o });
+  };
+  it('dossiers concernés : au moins une commission VERSÉE ; une affaire aux seuls internes non déduits n’y compte pas', async () => {
+    const { dossiersConcernes } = await import('./detailCommissions');
+    const interneSeul = vente({ id: 40, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 100, { statut: 'associe' })], lignes: [ligne(9, 'Arnaud Jorel', 'entree', 600)] });
+    const sansRien = vente({ id: 41, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 100, { statut: 'associe' })] });
+    const d = detailCommissions([location(), interneSeul, sansRien], 'criterimmo');
+    expect(dossiersConcernes(d).map((a) => a.id)).toEqual([37]);
+    expect(d.infos[0].lignes.map((l) => l.venteId)).toEqual([40]); // l'interne reste montré (section grise)
+  });
+  it('CRITERIMMO porteuse : CA = la vente portée (6 250) — le reversé à MACJ (2 708,33) est montré, NON déduit ; total = tuile au centime', async () => {
+    const { detailCa, dossiersCa } = await import('./detailCommissions');
+    const v = location();
+    const d = detailCa([v], 'criterimmo');
+    expect(d.sections.map((c) => [c.cle, c.htC, c.ttcC, c.compte])).toEqual([['portee-criterimmo', 625000, 750000, true], ['reverse-macj', 270833, 325000, false], ['exterieur', 0, 0, false], ['recu-macj', 0, 0, true]]);
+    expect([d.totalHtC, d.totalTtcC]).toEqual([625000, 750000]);
+    expect(d.totalHtC).toBe(enCentimes(tuilesCompromis([v], 'criterimmo').caHt));
+    expect(dossiersCa(d).map((a) => [a.id, a.commissionHtC, a.caHtC])).toEqual([[37, 625000, 625000]]);
+  });
+  it('MACJ (ligne miroir) : CA = la part reçue de CRITERIMMO ; et dans l’autre sens (porteuse MACJ, reçu chez CRITERIMMO)', async () => {
+    const { detailCa } = await import('./detailCommissions');
+    const m = venteDansSociete(location(), 'macj')!;
+    const d = detailCa([m], 'macj');
+    expect(d.sections.map((c) => [c.cle, c.htC])).toEqual([['portee-macj', 0], ['reverse-criterimmo', 0], ['exterieur', 0], ['recu-criterimmo', 270833]]);
+    expect(d.totalHtC).toBe(enCentimes(tuilesCompromis([m], 'macj').caHt));
+    expect(d.affaires.map((a) => [a.recueDe, a.commissionHtC, a.caHtC])).toEqual([['criterimmo', null, 270833]]);
+    const inverse = venteDansSociete(location('macj'), 'criterimmo')!;
+    const c = detailCa([inverse], 'criterimmo');
+    expect(c.sections.find((x) => x.cle === 'recu-macj')!.htC).toBe(270833);
+    expect(detailCa([location('macj')], 'macj').sections.map((x) => [x.cle, x.htC])).toEqual([['portee-macj', 625000], ['reverse-criterimmo', 270833], ['exterieur', 0], ['recu-criterimmo', 0]]);
+  });
+  it('nos deux sociétés : chaque vente une fois ; l’inter-cabinet neutralisé à part ; le CA de chacune', async () => {
+    const { detailCa } = await import('./detailCommissions');
+    const a = location(); const b = { ...location('macj'), id: 38, libelle: 'HEIDIDON' };
+    const d = detailCa([a, b], null);
+    expect(d.sections.map((c) => [c.cle, c.htC, c.compte])).toEqual([['portee-criterimmo', 625000, true], ['portee-macj', 625000, true], ['exterieur', 0, false], ['neutralise', 541666, false]]);
+    expect(d.totalHtC).toBe(enCentimes(tuilesCompromis([a, b], null).caHt));
+    expect(d.parSociete).toEqual({ criterimmo: { htC: 625000 + 270833, ttcC: 750000 + 325000 }, macj: { htC: 625000 + 270833, ttcC: 750000 + 325000 } });
+  });
+});

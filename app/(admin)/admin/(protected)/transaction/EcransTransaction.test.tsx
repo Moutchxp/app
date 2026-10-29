@@ -83,7 +83,7 @@ describe('une société — le mois', () => {
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
     await calmer();
     expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('9 187,50 €');
-    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-n1')).toContain('5 000,00 € en 2024');
+    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-n1')).toContain('5 000 € en 2024');
     expect([...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['1']);
     // 11 025 − 1 200 (rétrocession du mois) − 3 215 (paye de Mylène), ÷ 1,2.
     expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
@@ -110,8 +110,8 @@ describe('une société — l’année', () => {
     await calmer();
     expect([...container.querySelectorAll('[data-annee-histoire]')].map((x) => x.getAttribute('data-annee-histoire'))).toEqual(['2024', '2025']);
     const l2025 = container.querySelector('[data-annee-histoire="2025"]')!;
-    expect(l2025.querySelector('[data-mot="CA HT"]')?.textContent?.replace(/\s/g, ' ')).toBe('27 750,00 €');
-    expect(l2025.querySelector('[data-mot="dont mois à confirmer"]')?.textContent?.replace(/\s/g, ' ')).toBe('5 000,00 €');
+    expect(l2025.querySelector('[data-mot="CA HT"]')?.textContent?.replace(/\s/g, ' ')).toBe('27 750 €');
+    expect(l2025.querySelector('[data-mot="dont mois à confirmer"]')?.textContent?.replace(/\s/g, ' ')).toBe('5 000 €');
   });
 });
 
@@ -123,7 +123,7 @@ describe('le CA global', () => {
     const cel = (mot: string): string => janvier.querySelector(`[data-mot="${mot}"]`)?.textContent?.replace(/\s/g, ' ') ?? '';
     expect(cel('Vente MACJ')).toBe('9 187,50 €');
     expect(cel('Location')).toBe('9 296,05 €');
-    expect(cel('Gestion')).toBe('14 127,00 €');
+    expect(cel('Gestion')).toBe('14 127 €');
     expect(cel('Total')).toBe('32 610,55 €');
     expect(texte('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe('20 833,33 €');
     expect(container.querySelector('[data-mois-a-confirmer]')).not.toBeNull();
@@ -142,7 +142,7 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     // LOT D — un seul bloc replié sur une ligne (triangle à gauche) ; déplié, le contenu d'avant.
     expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
     expect(container.querySelector('[data-attribuer]')).toBeNull();
-    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('0,00 €');
+    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('0 €');
     await act(async () => { (container.querySelector('[data-deplier="a-attribuer"]') as HTMLButtonElement).click(); });
     await act(async () => { (container.querySelector('[data-attribuer="criterimmo"]') as HTMLButtonElement).click(); });
     await calmer();
@@ -155,7 +155,7 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     await act(async () => { root.render(createElement(EcranGlobal)); });
     await calmer();
     expect(texte('[data-a-attribuer-global] [data-mot="Total"]')).toBe('8 333,33 €');
-    expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0,00 €');
+    expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0 €');
     expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
   });
 });
@@ -197,11 +197,11 @@ describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
     window.history.replaceState(null, '', '/?annee=2025');
     await act(async () => { root.render(createElement(EcranGestion)); });
     await calmer();
-    expect(texte('[data-gestion-honoraires="1"]')).toBe('14 127,00 €');
+    expect(texte('[data-gestion-honoraires="1"]')).toBe('14 127 €');
     const janvier = container.querySelector('[data-mois-gestion="1"]')!;
-    expect(janvier.querySelector('[data-mot="ADHOC"]')!.textContent!.replace(/\s/g, ' ')).toBe('6 437,00 €');
-    expect(janvier.querySelector('[data-mot="Reste"]')!.textContent!.replace(/\s/g, ' ')).toBe('7 690,00 €');
-    expect(texte('[data-annee-gestion="2025"] [data-mot="Honoraires"]')).toBe('14 127,00 €');
+    expect(janvier.querySelector('[data-mot="ADHOC"]')!.textContent!.replace(/\s/g, ' ')).toBe('6 437 €');
+    expect(janvier.querySelector('[data-mot="Reste"]')!.textContent!.replace(/\s/g, ' ')).toBe('7 690 €');
+    expect(texte('[data-annee-gestion="2025"] [data-mot="Honoraires"]')).toBe('14 127 €');
     await act(async () => { (container.querySelector('[data-saisir-gestion="2"]') as HTMLElement).click(); });
     expect(container.querySelector('[data-saisie-gestion]')).not.toBeNull();
     await act(async () => { (container.querySelector('[data-enregistrer-gestion]') as HTMLElement).click(); });
@@ -211,7 +211,7 @@ describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
   it('le CA global garde la gestion dans ses montants (même cellule), et renvoie vers « Gestion » pour la saisie', async () => {
     await act(async () => { root.render(createElement(EcranGlobal)); });
     await calmer();
-    expect(texte('[data-mois-global="1"] [data-mot="Gestion"]')).toBe('14 127,00 €');
+    expect(texte('[data-mois-global="1"] [data-mot="Gestion"]')).toBe('14 127 €');
     expect(container.querySelector('[data-lien-gestion] a')!.getAttribute('href')).toBe('/admin/transaction/gestion?annee=2025');
   });
 });
@@ -246,9 +246,9 @@ describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépend
       await calmer();
       // 11 025 − 1 200 (apporteur), ÷ 1,2 : la paye de Mylène (3 215) n'est plus déduite.
       expect(texte('[data-reste-agence]')).toBe('8 187,50 €');
-      expect(texte('[data-paye-deduite]')).toBe('0,00 €');
+      expect(texte('[data-paye-deduite]')).toBe('0 €');
       expect(texte('[data-internes-non-deduits]')).toBe('2 679,17 €');
-      expect(texte('[data-paye-non-deduite="1"]')).toBe('dont 3 215,00 € non déduite (interne)');
+      expect(texte('[data-paye-non-deduite="1"]')).toBe('dont 3 215 € non déduite (interne)');
       await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); });
       expect(texte('[data-statut-negociateur="MYLENE"]')).toBe('Salarié — paye interne, non déduite');
     } finally { donnees.statutsNegociateurs = avant; }
@@ -300,7 +300,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       await calmer();
       const row = '[data-table-ventes] [data-vente="38"]';
       expect(texte(`${row} th`)).toContain('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
-      expect(texte(`${row} [data-mot="Honoraires TTC"]`)).toBe('2 000,00 €');
+      expect(texte(`${row} [data-mot="Honoraires TTC"]`)).toBe('2 000 €');
       expect(texte(row)).not.toContain('4 000');
       expect(container.querySelector(`${row} [data-modifier-vente]`)).toBeNull();
       expect(container.querySelector(`${row} [data-voir-origine="38"]`)!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
@@ -324,7 +324,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       expect(texte('[data-inter-cabinet-mois]')).toBe('1 666,67 €');
       // Reste : 3 333,33 − 1 666,67 ; Pierre (MACJ) n'est pas déduit chez CRITERIMMO
       expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
-      expect(texte('[data-paye-deduite]')).toBe('0,00 €');
+      expect(texte('[data-paye-deduite]')).toBe('0 €');
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
   });
 });
