@@ -209,10 +209,11 @@ export const CSS_TRANSACTION = `
 /* 🔴 LOT AP (Arno) — LES LIGNES DE SOMME sur une trame grise très légère (sous-totaux, CA, base, reste) ; le TOTAL FINAL d'une fenêtre un cran
    plus marqué (trame plus soutenue, filet, gras) ; les lignes de détail restent sur la surface. Une variable commune, en clair et en sombre ;
    contrastes mesurés (AA ≥ 4,5:1) : clair #f3f5f7 — vert 4,9 · rouge 7,5 ; #e9edf1 — vert 4,6 · rouge 6,9 ; sombre #263140 — vert 8,3 ·
-   rouge 4,7 ; #283445 — vert 8,0 · rouge 4,5 (le rouge sombre borne la trame finale : le cran de plus passe aussi par le filet et le gras). */
-.svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1}
-.svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445}
-@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-trame:#263140;--trx-trame-finale:#283445} }
+   rouge 4,7 ; #283445 — vert 8,0 · rouge 4,5 (le rouge sombre borne la trame finale : le cran de plus passe aussi par le filet et le gras).
+   🔴 LOT AR — --trx-fond-synthese : le fond du bloc « Synthèse — ce que l'on doit », distinct des cartes d'affaires (clair #f6f8fb, sombre #161e29). */
+.svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1;--trx-fond-synthese:#f6f8fb}
+.svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29} }
 .trx-somme{background:var(--trx-trame);border-radius:8px}
 .trx-somme--finale{background:var(--trx-trame-finale);border-top:2px solid var(--color-svv-line-strong);font-weight:800}
 .trx-somme--finale strong,.trx-somme--finale > span{font-weight:800}

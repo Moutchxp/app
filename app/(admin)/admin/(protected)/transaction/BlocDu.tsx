@@ -23,13 +23,15 @@ const date = (d: string | null): string => (d === null ? 'date à renseigner' : 
 const motDossiers = (n: number): string => `${n} dossier${n > 1 ? 's' : ''}`;
 
 /** « dont ce mois : … · dont date à renseigner : … » (rien si aucune des deux). */
-function Parts({ s }: { s: SommeDu }) {
+function Parts({ s, avant = false }: { s: SommeDu; avant?: boolean }) {
   const u = useAffichage();
   const parts = [
     ...(s.moisHtC !== 0 || s.moisTtcC !== 0 ? [<span key="m" data-dont-mois>dont ce mois : {montantAffiche(u, s.moisHtC / 100, s.moisTtcC / 100)}</span>] : []),
     ...(s.sansDateHtC !== 0 || s.sansDateTtcC !== 0 ? [<span key="d" data-dont-sans-date>dont date à renseigner : {montantAffiche(u, s.sansDateHtC / 100, s.sansDateTtcC / 100)}</span>] : []),
   ];
-  return parts.length === 0 ? null : <span className="trx-du-parts">{parts.flatMap((x, i) => (i === 0 ? [x] : [<span key={`s${i}`} aria-hidden="true">{' · '}</span>, x]))}</span>;
+  if (parts.length === 0) return null;
+  const suite = parts.flatMap((x, i) => (i === 0 ? [x] : [<span key={`s${i}`} aria-hidden="true">{' · '}</span>, x]));
+  return avant ? <>{[<span key="a" aria-hidden="true">{' · '}</span>, ...suite]}</> : <span className="trx-du-parts">{suite}</span>;
 }
 
 /** Une section repliable : l'en-tête (sur la trame des sommes, lot AP) et son sous-total. */
@@ -57,32 +59,31 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
   onAller: (id: number) => void;
 }) {
   const u = useAffichage();
-  const [depliees, setDepliees] = useState<Record<string, boolean>>({});
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const lienAffaire = (id: number): ReactNode => (
     <a className="trx-du-lien" href={`?vente=${id}`} onClick={(e) => { e.preventDefault(); onAller(id); }} data-aller-affaire-du={id}>{titres[id] ?? `Vente n° ${id}`}</a>
   );
-  const affaires = (p: PersonneDu, sens: 'verse' | 'recu' | 'neutre') => (
+  // 🔴 LOT AR — niveau 3, les dossiers : TOUJOURS visibles sous l'intervenant, en petit et en gris, indentés ; l'affaire (lien qui déplie sa
+  // carte), sa date, puis le seul montant principal (l'unité du sélecteur), aligné à droite sous le cumul.
+  const affaires = (p: PersonneDu) => (
     <ul className="trx-du-affaires" data-affaires-du={p.cle}>{p.lignes.map((l: LigneDu, i) => (
       <li key={i} className="trx-du-affaire">
-        <span className="trx-du-quoi">{lienAffaire(l.venteId)}<span className={l.date === null ? 'loc-muet trx-a-renseigner' : 'loc-muet'}>{date(l.date)}</span>
-          {l.statut !== undefined && p.statuts !== undefined && p.statuts.length > 1 && <span className="loc-muet">{libelleStatut(l.statut ?? null)}</span>}</span>
-        <Montants ht={l.htC / 100} ttc={l.ttcC / 100} sens={sens} disposition="ligne" />
+        <span className="trx-du-quoi">{lienAffaire(l.venteId)}<span className={l.date === null ? 'trx-a-renseigner' : undefined}>{date(l.date)}</span>
+          {l.statut !== undefined && p.statuts !== undefined && p.statuts.length > 1 && <span>{libelleStatut(l.statut ?? null)}</span>}</span>
+        <span className="trx-du-montant-dossier" data-montant-dossier-du>{montantAffiche(u, l.htC / 100, l.ttcC / 100)}</span>
       </li>))}</ul>
   );
-  const ligne = (p: PersonneDu, sens: 'verse' | 'recu' | 'neutre', mention?: ReactNode) => {
-    const ouverte = depliees[p.cle] === true;
-    return (
-      <li key={p.cle} className="trx-du-ligne" data-ligne-du={p.cle}>
-        <button type="button" className="trx-du-personne" aria-expanded={ouverte} onClick={() => setDepliees((x) => ({ ...x, [p.cle]: !ouverte }))} data-deplier-du={p.cle}>
-          <span className="trx-du-qui"><span className="trx-du-chevron" aria-hidden="true">{ouverte ? '▾' : '▸'}</span><strong data-nom-du>{p.nom}</strong>
-            {mention}<span className="loc-muet" data-dossiers-du>{motDossiers(p.nbDossiers)}</span></span>
-          <span className="trx-du-montant"><Montants ht={p.htC / 100} ttc={p.ttcC / 100} sens={sens} donnees={{ 'data-cumul-du': p.cle }} /><Parts s={p} /></span>
-        </button>
-        {ouverte && affaires(p, sens)}
-      </li>
-    );
-  };
+  // 🔴 LOT AR — niveau 2, l'intervenant : nom (et mention), puis en petit « N dossiers · dont … » ; le cumul, chiffre dominant, à droite.
+  const ligne = (p: PersonneDu, sens: 'verse' | 'recu' | 'neutre', mention?: ReactNode) => (
+    <li key={p.cle} className="trx-du-ligne" data-ligne-du={p.cle}>
+      <div className="trx-du-personne">
+        <span className="trx-du-qui"><strong data-nom-du>{p.nom}</strong>{mention}
+          <span className="trx-du-detail"><span data-dossiers-du>{motDossiers(p.nbDossiers)}</span><Parts s={p} avant /></span></span>
+        <span className="trx-du-montant"><Montants ht={p.htC / 100} ttc={p.ttcC / 100} sens={sens} donnees={{ 'data-cumul-du': p.cle }} /></span>
+      </div>
+      {p.lignes.length > 0 && affaires(p)}
+    </li>
+  );
   const aucune = (mot: string) => <p className="trx-du-aucun" data-aucun-du>{mot}</p>;
   const somme = (ps: readonly PersonneDu[]): SommeDu => ps.reduce((t, p) => ({ htC: t.htC + p.htC, ttcC: t.ttcC + p.ttcC, moisHtC: t.moisHtC + p.moisHtC, moisTtcC: t.moisTtcC + p.moisTtcC,
     sansDateHtC: t.sansDateHtC + p.sansDateHtC, sansDateTtcC: t.sansDateTtcC + p.sansDateTtcC }), { htC: 0, ttcC: 0, moisHtC: 0, moisTtcC: 0, sansDateHtC: 0, sansDateTtcC: 0 });
@@ -102,10 +103,12 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
   return (
     <section className="trx-du" aria-labelledby="trx-du-titre" data-bloc-du={societe ?? 'tous'}>
       <style>{CSS_BLOC_DU}</style>
+      {/* 🔴 LOT AR — un vrai changement de section : grand espace, filet, un titre du niveau de « Compromis en cours », un fond à lui. */}
       <div className="trx-du-entete">
-        <h3 id="trx-du-titre">Ce que l’on doit — compromis non encore signés</h3>
+        <h3 id="trx-du-titre">Synthèse — ce que l’on doit et à qui</h3>
         <span className="loc-muet" data-dossiers-du-bloc>{motDossiers(detail.nbDossiers)}</span>
       </div>
+      <p className="trx-du-sous-titre loc-muet" data-sous-titre-du>Compromis non encore signés, quel que soit leur mois</p>
       <Section cle="negociateurs" titre="Négociateurs" somme={somme(comptabilises)} sens="verse" apresTitre={<span className="loc-muet trx-du-note">comptabilisés</span>} enfants={<>
         {detail.negociateurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.negociateurs.map((p) => ligne(p, p.classe === 'independant' ? 'verse' : 'neutre', mentionNego(p)))}</ul>}
         {autreSociete && societe !== null && <p className="trx-du-mention-autre" data-autre-societe-du>Négociateurs de {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} : rémunérés par {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} — non comptés ici</p>}
@@ -137,38 +140,50 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
 }
 
 export const CSS_BLOC_DU = `
-.trx-du{display:flex;flex-direction:column;gap:10px;margin-top:20px;padding:14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
+/* 🔴 LOT AR — un vrai changement de section : grand espace avant et après (« Compromis annulés » au même écart), un filet sur toute la largeur,
+   un fond propre au bloc (--trx-fond-synthese, clair et sombre) ; les en-têtes de catégorie sur la trame (plus soutenue ici, pour se voir
+   sur ce fond : contrastes AA mesurés au lot AP). */
+.trx-du{display:flex;flex-direction:column;gap:12px;margin:48px 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese);--trx-trame:var(--trx-trame-finale)}
 .trx-du-entete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px}
-.trx-du-entete h3{margin:0;font-size:1.05rem;font-weight:800;min-width:0;overflow-wrap:anywhere}
+.trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere}
+.trx-du-sous-titre{margin:-6px 0 0;font-size:.9rem}
 .trx-du-section{display:flex;flex-direction:column;gap:4px}
-.trx-du-tete,.trx-du-personne{appearance:none;width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;min-height:44px;padding:8px 10px;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
-.trx-du-personne{background:transparent;border-top:1px solid var(--color-svv-line);border-radius:0}
-.trx-du-tete:focus-visible,.trx-du-personne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* niveau 1 : la catégorie, en gros */
+.trx-du-tete{appearance:none;width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;min-height:44px;padding:10px 12px;border:0;font:inherit;font-size:1.08rem;color:inherit;text-align:left;cursor:pointer}
+.trx-du-tete .trx-mt-grand{font-size:1.15rem}
+.trx-du-tete:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .trx-du-titre,.trx-du-qui{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0;overflow-wrap:anywhere}
 .trx-du-chevron{color:var(--color-svv-muted);font-size:.8rem}
 .trx-du-note{font-size:.82rem;font-weight:600}
+/* niveau 2 : l'intervenant, taille normale ; le cumul domine la ligne */
+.trx-du-personne{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:start;padding:10px 12px 2px;border-top:1px solid var(--color-svv-line)}
+.trx-du-personne .trx-mt-grand{font-size:1.05rem}
 .trx-du-mention{font-size:.82rem;font-weight:700}
+.trx-du-detail{flex-basis:100%;font-size:.8rem;color:var(--color-svv-muted)}
 .trx-du-montant{display:flex;flex-direction:column;align-items:flex-end;text-align:right}
 .trx-du-parts{font-size:.78rem;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;justify-content:flex-end;gap:0 4px}
 .trx-du-corps{display:flex;flex-direction:column;gap:4px;padding:0 4px}
 .trx-du-lignes,.trx-du-affaires{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.trx-du-affaires{padding:0 0 6px 26px}
+/* niveau 3 : les dossiers, toujours visibles, en petit et en gris, indentés ; montants alignés à droite sous le cumul */
+.trx-du-affaires{padding:0 12px 8px 28px;font-size:.84rem;color:var(--color-svv-muted)}
 .trx-du-affaire{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline}
 .trx-du-quoi{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px;min-width:0;overflow-wrap:anywhere}
+.trx-du-montant-dossier{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.trx-du-lien{color:var(--color-svv-muted);font-weight:600;text-decoration:underline;display:inline-flex;align-items:center;min-height:28px;overflow-wrap:anywhere}
+.trx-du-lien:hover,.trx-du-lien:focus-visible{color:var(--color-svv-red)}
+@media (pointer:coarse){ .trx-du-lien{min-height:44px} }
 .trx-du-solde{margin:4px 0 0;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline;padding:8px 10px}
 .trx-du-solde strong{text-align:right}
 .trx-du-total{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;padding:10px;border-radius:10px}
 .trx-du-internes{margin:0;font-size:.88rem;text-align:right}
-.trx-du-lien{color:var(--color-svv-red);font-weight:700;text-decoration:underline;display:inline-flex;align-items:center;min-height:44px;overflow-wrap:anywhere}
-.trx-du-aucun{margin:0;padding:6px 10px;color:var(--color-svv-muted);font-style:italic}
-.trx-du-mention-autre{margin:0;padding:4px 10px;color:var(--color-svv-muted);font-size:.9rem}
+.trx-du-aucun{margin:0;padding:6px 12px;color:var(--color-svv-muted);font-style:italic;font-size:.85rem}
+.trx-du-mention-autre{margin:0;padding:4px 12px;color:var(--color-svv-muted);font-size:.85rem}
 /* Téléphone : une seule colonne — le nom (et sa mention) d'abord, le montant dessous, aligné à droite ; rien n'écrase le nom. */
 @media (max-width:560px){
-  .trx-du{padding:10px}
-  .trx-du-tete,.trx-du-personne,.trx-du-affaire,.trx-du-total,.trx-du-solde{grid-template-columns:minmax(0,1fr);row-gap:4px}
+  .trx-du{padding:12px 10px 10px;margin:36px 0}
+  .trx-du-tete,.trx-du-personne,.trx-du-total,.trx-du-solde{grid-template-columns:minmax(0,1fr);row-gap:4px}
   .trx-du-montant{align-items:flex-end}
-  .trx-du-affaire > .trx-mt{justify-self:end}
-  .trx-du-affaires{padding-left:12px}
+  .trx-du-affaires{padding-left:14px;padding-right:8px}
   .trx-du-solde strong{text-align:left}
 }
 `;

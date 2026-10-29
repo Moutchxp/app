@@ -2987,7 +2987,7 @@ describe('🔴 LOT AP — la trame des lignes de SOMME (présentation seule)', (
     expect(lignes.filter(([, t]) => t).map(([c]) => c)).toEqual(['commission', 'base', 'reste']);
     const { CSS_TRANSACTION } = await import('./commun');
     const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
-    for (const r of [".svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1}", ".svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445}",
+    for (const r of [".svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1;", ".svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445;",
       'tr.trx-somme-ligne > th,tr.trx-somme-ligne > td{background:var(--trx-trame)}', '.trx-somme--finale{background:var(--trx-trame-finale)']) expect(css).toContain(r);
   });
 });
@@ -3023,7 +3023,9 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     await page('criterimmo');
     const bloc = container.querySelector('[data-bloc-du="criterimmo"]')!;
     expect(bloc.compareDocumentPosition(container.querySelector('[data-liste-compromis]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-    expect(doc('#trx-du-titre')).toBe('Ce que l’on doit — compromis non encore signés');
+    // LOT AR — le titre d'une section (niveau de « Compromis en cours ») ; le périmètre dessous
+    expect(doc('#trx-du-titre')).toBe('Synthèse — ce que l’on doit et à qui');
+    expect(doc('[data-sous-titre-du]')).toBe('Compromis non encore signés, quel que soit leur mois');
     expect(doc('[data-dossiers-du-bloc]')).toBe('3 dossiers');
     expect([...container.querySelectorAll('[data-section-du]')].map((x) => x.getAttribute('data-section-du'))).toEqual(['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']);
     expect([...container.querySelectorAll('[data-replier-du]')].every((x) => x.getAttribute('aria-expanded') === 'true')).toBe(true);
@@ -3036,7 +3038,8 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     expect(doc(`${jb} [data-dossiers-du]`)).toBe('2 dossiers');
     expect(doc(`${jb} [data-mention-du]`)).toBe('Indépendant — comptabilisé dans « Commissions versées »');
     expect(doc(`${jb} [data-dont-mois]`)).toBe('dont ce mois : 1 200 € TTC');
-    await cliquer(`${jb} [data-deplier-du]`);
+    // LOT AR — les dossiers sont visibles sans clic (plus de flèche par intervenant)
+    expect(container.querySelector('[data-deplier-du]')).toBeNull();
     expect([...container.querySelectorAll(`${jb} [data-aller-affaire-du]`)].map((x) => x.textContent)).toEqual(['DUPONT / MARTIN', 'ANCIEN']);
     expect(doc('[data-autre-societe-du]')).toBe('Négociateurs de MACJ : rémunérés par MACJ — non comptés ici');
     await cliquer(`${jb} [data-aller-affaire-du="41"]`);
@@ -3073,5 +3076,66 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     expect(window.localStorage.getItem('trx-du-section-apporteurs')).toBe('fermee');
     await page('criterimmo');
     expect(container.querySelector('[data-replier-du="apporteurs"]')!.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('🔴 LOT AR — la synthèse : une section à part, les dossiers toujours visibles sous chaque intervenant', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => {
+    ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    for (const c of ['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']) window.localStorage.removeItem(`trx-du-section-${c}`);
+  });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: 'Julien Deblois', retroApporteur: { montant: 500, unite: 'ttc' },
+    repartition: { retroApporteurTtc: 500, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    lignes: [lc(2, JB.nom, 'entree', 601)] };
+  const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  const onglet = async () => { listeCompromis = [v41, v42]; await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+
+  it('sans clic, sous chaque intervenant, ses dossiers (lien, montant principal seul, sans parenthèse) ; leur somme = le cumul au centime, en TTC et en HT', async () => {
+    await onglet();
+    for (const u of ['ttc', 'ht'] as const) {
+      await cliquer(`[data-afficher="${u}"]`);
+      const lignes = [...container.querySelectorAll('[data-bloc-du] [data-ligne-du]')];
+      expect(lignes.length).toBeGreaterThan(3);
+      for (const l of lignes) {
+        const cumul = l.querySelector('[data-cumul-du] [data-montant-grand]')!.textContent!;
+        expect(cumul).toMatch(u === 'ttc' ? /\sTTC$/ : /\sHT$/);
+        const dossiers = [...l.querySelectorAll('[data-montant-dossier-du]')].map((x) => x.textContent!);
+        expect(dossiers.every((x) => !x.includes('(') && x.endsWith(u === 'ttc' ? 'TTC' : 'HT'))).toBe(true);
+        if (dossiers.length > 0) expect(dossiers.reduce((t, x) => t + centimes(x), 0)).toBe(centimes(cumul));
+      }
+    }
+    // JB : 1 200 + 601 = 1 801 TTC ; en HT 1 000 + 500,83 = 1 500,83
+    expect(texte(`[data-ligne-du="negociateur-independants|${JB.nom}"] [data-cumul-du] [data-montant-grand]`)).toBe('1 500,83 € HT');
+    expect([...container.querySelectorAll(`[data-ligne-du="negociateur-independants|${JB.nom}"] [data-montant-dossier-du]`)].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['1 000 € HT', '500,83 € HT']);
+  });
+
+  it('« dont ce mois / date à renseigner » sur la ligne du nombre de dossiers ; le lien d’un dossier déplie sa carte ; une catégorie repliée le reste', async () => {
+    await onglet();
+    const jb = `[data-ligne-du="negociateur-independants|${JB.nom}"]`;
+    expect(texte(`${jb} .trx-du-detail`)).toBe('2 dossiers · dont ce mois : 1 200 € TTC');
+    await cliquer(`${jb} [data-aller-affaire-du="42"]`);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await calmer();
+    expect(container.querySelector('[data-deplier="compromis-42"]')!.getAttribute('aria-expanded')).toBe('true');
+    await cliquer('[data-replier-du="negociateurs"]');
+    expect(container.querySelector(jb)).toBeNull();
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await onglet();
+    expect(container.querySelector('[data-replier-du="negociateurs"]')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('une section à part : après la liste, avant « Compromis annulés » ; fond propre (variable commune clair / sombre)', async () => {
+    await onglet();
+    const bloc = container.querySelector('[data-bloc-du]')!;
+    expect(bloc.compareDocumentPosition(container.querySelector('[data-liste-compromis]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    const { CSS_BLOC_DU } = await import('./BlocDu');
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_BLOC_DU.replace(/\s+/g, ' ')).toContain('margin:48px 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese)');
+    expect(CSS_TRANSACTION).toContain('--trx-fond-synthese:#f6f8fb');
+    expect(CSS_TRANSACTION).toContain('--trx-fond-synthese:#161e29');
   });
 });
