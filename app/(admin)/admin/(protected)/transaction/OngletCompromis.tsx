@@ -120,6 +120,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
               {tu.exterieurHt > 0 && <span data-detail="inter-cabinet-exterieur">Inter-cabinet extérieur : {eur(tu.exterieurHt)} HT <span className="trx-tuile-detail-n">({eur(tu.exterieurHt * TVA)} TTC)</span></span>}
               {tu.neutraliseHt > 0 && <span data-detail="inter-cabinet-neutralise" className="trx-tuile-detail-a-part">Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT — neutralisé</span>}
               <span data-detail="internes" className="trx-tuile-detail-a-part">Internes (associés, salariés) : {eur(tu.internesHt)} HT — non déduits</span>
+              {/* 🔴 LOT AA (Arno) — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule. */}
+              {vue !== null && liste.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue)) && (
+                <span data-detail="autre-societe" className="trx-tuile-detail-a-part">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</span>)}
               {tu.aRenseignerHt > 0 && <span data-detail="a-renseigner" className="trx-tuile-detail-a-part trx-alerte">Statut à renseigner : {eur(tu.aRenseignerHt)} HT — non déduits</span>}
             </span>
           ) : <span className="tdb-tuile-n1">indépendants + apporteurs + inter-cabinet — toucher pour le détail</span>}
@@ -139,7 +142,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <ul className="trx-cartes" data-liste-compromis>
           {liste.map((v) => {
             // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
-            if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} />;
+            if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
+              ouvertInitial={venteVisee === v.id} />;
             const r = v.repartition ?? null;
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
             // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
@@ -190,7 +194,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                     data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
                   {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
                       « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
-                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
+                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
                     onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
                 </section>
               );
@@ -333,10 +337,12 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id:
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null }: {
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
   /** LOT Y — le résolveur des libellés importés, celui des tuiles (la même règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
+  /** LOT AA — la société dont c'est l'onglet (null : les deux, CA global). */
+  vue?: Societe | null;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
@@ -394,6 +400,9 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   // 🔴 LOT T — les deux lignes de calcul sous le bouton (présentation seulement) : les honoraires de ce côté, puis la commission du négociateur.
   const honoraires = actuel === null ? null : honorairesDuCote(v, cote);
   const rem = actuel === null || actuelNonCommissionne ? null : remunerationDuCote(v, cote);
+  // 🔴 LOT AA — le négociateur de ce côté travaille pour l'AUTRE société que celle de cet onglet : elle seule le rémunère (sa ligne miroir).
+  const societeDuNego = actuel === null ? null : societeSurVente(v, cote, actuel.id);
+  const autreSociete = vue !== null && rem !== null && societeDuNego !== null && societeDuNego !== vue ? societeDuNego : null;
   // 🔴 LOT Y — la classe de cette commission par LA règle du cumul « Commissions versées » (`classeDeCommission`, celle des tuiles) : sa ligne
   // enregistrée ; sans ligne, le négociateur de ce côté (sa partie, figée sinon son compte ; sinon le compte rapproché de son libellé).
   const ligneCote = v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote);
@@ -415,8 +424,19 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
           : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
-      {actuel !== null && <LignesCalcul classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
-        enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
+      {actuel !== null && <LignesCalcul classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires}
+        rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
+      {/* 🔴 LOT AA (Arno) — un négociateur de l'AUTRE société : sa commission est payée et comptée chez elle seule (sa ligne miroir). Ici, un bloc
+          neutre « Rémunéré par … — sur sa part reçue en inter-cabinet », le montant pour information et « Voir chez … » ; ni liseré, ni mention
+          « comptabilisé », ni « Appliquer le calcul » : la commission se règle depuis la ligne miroir de sa société. */}
+      {actuel !== null && autreSociete !== null && (
+        <div className="trx-calcul-cote trx-calcul-autre" data-remunere-par={cote}>
+          <span><span className="trx-calcul-mot">Rémunéré par {LIBELLE_SOCIETE[autreSociete]}</span> — sur sa part reçue en inter-cabinet</span>
+          {rem !== null && <span className="loc-muet" data-montant-information={cote}>{rem.saisie !== null ? 'Commission enregistrée' : 'Commission calculée'}, pour information :{' '}
+            {rem.saisie !== null ? <HtTtc m={rem.saisie} /> : <HtTtc ttc={rem.calculTtc} />}</span>}
+          <a className="trx-lien" href={adresseOrigine(autreSociete, v.id)} data-voir-chez={autreSociete}>Voir chez {LIBELLE_SOCIETE[autreSociete]}</a>
+        </div>
+      )}
       {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
       {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
@@ -440,6 +460,9 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
               donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
           {desDeux && <ChoixSocieteVente valeur={societeChoisie} onChoisir={(s) => { setSocieteChoisie(s); setMotif(null); }} cle={`carte-${cote}`} />}
           {choisiNonCommissionne ? <span className="loc-muet" data-non-commissionne-choix={cote}>Non commissionné</span>
+            // LOT AA — pas de champ de commission ici pour un négociateur de l'autre société : elle se règle depuis sa ligne miroir.
+            : autreSociete !== null && choisi === actuel?.id ? <span className="loc-muet" data-commission-chez={cote}>Commission réglée chez {LIBELLE_SOCIETE[autreSociete]} :{' '}
+              <a className="trx-lien" href={adresseOrigine(autreSociete, v.id)}>Voir chez {LIBELLE_SOCIETE[autreSociete]}</a></span>
             : avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} propose={propose} />
             : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>}
           <div className="trx-actions">
@@ -626,8 +649,10 @@ export const adresseOrigine = (porteuse: Societe, id: number): string => `/admin
  * HT dessous) — jamais le montant de la vente ni la commission totale. Non modifiable d'ici : « Voir la vente d'origine » ; seule la
  * rémunération de son négociateur se modifie (elle s'enregistre sur la vente d'origine, sans doublon).
  */
-function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
-  statutDuLibelle?: StatutDuLibelle }) {
+function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle, ouvertInitial = false }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
+  statutDuLibelle?: StatutDuLibelle;
+  /** LOT AA — « Voir chez MACJ » depuis la carte de la porteuse (?vente=N) : la ligne miroir s'ouvre. */
+  ouvertInitial?: boolean }) {
   const m = v.miroir!;
   const c = carteCompromis(v, aujourdhui);
   const pctTexte = m.pourcentage === null ? null : `${m.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
@@ -652,7 +677,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   return (
     <li data-compromis={v.id} data-miroir={m.origineId}>
       <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte trx-carte--miroir"
-        donnees={{ 'data-carte-miroir': String(m.origineId) }}>
+        donnees={{ 'data-carte-miroir': String(m.origineId) }} ouvertInitial={ouvertInitial}>
         <div className="trx-carte-detail">
           <p data-miroir-explication>Inter-cabinet reçu de <strong>{LIBELLE_SOCIETE[m.porteuse]}</strong> (société porteuse) sur la vente « {m.libelleOrigine} » : la part de {LIBELLE_SOCIETE[v.societe]},
             {' '}{eur(v.honorairesTtc)} TTC ({eur(m.partHt)} HT){pctTexte === null ? '' : `, ${pctTexte} de la commission nette`} — c’est le CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>

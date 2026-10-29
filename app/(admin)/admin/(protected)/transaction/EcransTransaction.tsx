@@ -317,7 +317,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
               {v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
                 return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {eur(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${eur(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${eur(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })()}</td>
             <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
-            <td data-mot="Paye négo">{eur(payeTtcDe(v))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
+            <td data-mot="Paye négo">{eur(payeTtcDe(v, societe))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
               return nd > 0 ? <><br /><span className={c.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(nd)} non déduite{c.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></> : null; })()}</td>
             <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle, societe)))}</td>
             {/* 🔴 LOT R — une ligne miroir ne se modifie pas d'ici : elle suit la vente d'origine. */}

@@ -607,17 +607,18 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
     await deplier(41);
     // LOT T — la commission enregistrée diffère du calcul (40 % de 9 600 = 3 840 ; × 50 % = 1 920) : en rouge, dans son unité.
     expect(texte('[data-commission-enregistree="entree"]')).toBe('Commission enregistrée : 1 000,00 € HT (1 200,00 € TTC)');
-    expect(texte('[data-commission-enregistree="sortie"]')).toBe('Commission enregistrée : 500,00 € HT (600,00 € TTC)');
-    await cliquer('[data-negociateur-carte="sortie"]');
-    expect(presse('commission-carte-sortie', 'ttc')).toBe('true');
-    await saisir('[data-champ="commission-carte-sortie"]', '700');
-    await cliquer('[data-unite-de="commission-carte-sortie"][data-unite="ht"]');
+    // LOT AA — Mylène travaille pour MACJ : sur la carte de CRITERIMMO, elle est « Rémunérée par MACJ » (montant pour information), sans champ.
+    expect(texte('[data-montant-information="sortie"]')).toBe('Commission enregistrée, pour information : 500,00 € HT (600,00 € TTC)');
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(presse('commission-carte-entree', 'ht')).toBe('true');
+    await saisir('[data-champ="commission-carte-entree"]', '700');
+    await cliquer('[data-unite-de="commission-carte-entree"][data-unite="ttc"]');
     await cliquer('[data-valider-negociateur]');
-    const envoi = posts.at(-1) as { action: string; dossier: { sortieId: number; commissions: unknown } };
+    const envoi = posts.at(-1) as { action: string; dossier: { entreeId: number; commissions: unknown } };
     expect(envoi.action).toBe('dossier-enregistrer');
-    expect(envoi.dossier.sortieId).toBe(7);
+    expect(envoi.dossier.entreeId).toBe(5);
     const cs = envoi.dossier.commissions as Record<'entree' | 'sortie', { montant: string; unite: string }>;
-    expect([cs.entree.montant, cs.entree.unite, cs.sortie.montant, cs.sortie.unite]).toEqual(['1000', 'ht', '700', 'ht']);
+    expect([cs.entree.montant, cs.entree.unite, cs.sortie.montant, cs.sortie.unite]).toEqual(['700', 'ttc', '600', 'ttc']);
   });
 });
 
@@ -892,14 +893,15 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
 
 describe('🔴 LOT P — sous le bouton négociateur : son statut à la date de la vente', () => {
   it('figé (« Indépendant — commission déduite ») ; vente d’avant : statut actuel du compte ; compte « à renseigner » : « à confirmer », non déduite', async () => {
-    const parties = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: 'salarie' as const } : p));
+    // (Mylène dans la société de la carte : son bloc de commission s'y affiche — LOT AA)
+    const parties = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, societe: 'criterimmo' as const, statut: null, statutCompte: 'salarie' as const } : p));
     listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties } }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     // 🔴 LOT Z — la ligne « Statut à la vente » est retirée quand le bloc existe : le statut et sa précision sont dans la mention du bloc.
     expect(container.querySelector('[data-statut-vente]')).toBeNull();
     expect(texte('[data-commission-negociateur="entree"] [data-mention-commission]')).toBe('Indépendant — comptabilisé dans « Commissions versées »');
     expect(texte('[data-commission-negociateur="sortie"] [data-mention-commission]')).toBe('Salarié interne (statut actuel du compte) — non comptabilisé dans « Commissions versées »');
-    const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
+    const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, societe: 'criterimmo' as const, statut: null, statutCompte: null } : p));
     listeCompromis = [{ ...compromis, repartition: { ...compromis.repartition!, parties: inconnu } }];
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
@@ -1042,8 +1044,9 @@ describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () =
     expect(container.querySelector('[data-ecart-remuneration="entree"]')).toBeNull();
     expect(container.querySelector('[data-appliquer-calcul-carte="entree"]')).toBeNull();
     expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé — non commissionné');
-    // Pierre : 1 000 enregistrés = le calcul (50 % × 2 000) : pas de ligne rouge.
-    expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 1 666,67 € HT × 50 % = 833,33 € HT (1 000,00 € TTC) Indépendant — comptabilisé dans « Commissions versées »');
+    // Pierre (MACJ) : LOT AA — sur la carte de CRITERIMMO, « Rémunéré par MACJ », sa commission pour information ; ni liseré, ni ligne rouge.
+    expect(container.querySelector('[data-commission-negociateur="sortie"]')).toBeNull();
+    expect(texte('[data-montant-information="sortie"]')).toBe('Commission enregistrée, pour information : 833,33 € HT (1 000,00 € TTC)');
     expect(container.querySelector('[data-ecart-remuneration="sortie"]')).toBeNull();
     // sa part et le CA : inchangés ; sa commission : ni versée, ni interne
     expect(texte('[data-societe-cote="entree"]')).toBe('CRITERIMMO · 50 %');
@@ -1084,9 +1087,10 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
     montantHt: null, cote, taux, nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj' | null, pct: number) =>
     ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
+  // (LOT AA — Mylène dans la société de la carte, pour que son bloc de commission s'y affiche.)
   // L'exemple d'Arno : 7 500 TTC − 1 000 TTC d'apporteur = 6 500 TTC nets ; JB 60 % (1 950 = le calcul), Mylène 40 % au taux de 25 %, 1 625 enregistrés.
   const exemple: Vente = { ...compromis, honorairesTtc: 7500, retroApporteur: { montant: 1000, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'macj', 40)] },
+    repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
     lignes: [lc(1, JB.nom, 'entree', 1950), lc(2, MY.nom, 'sortie', 1625, 25)] };
   const carte = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(v.id); };
   type Envoi = { action: string; dossier: { parties: { sorte: string; compteId: number | null; societe: string | null; pourcentage: number | null; nom: string | null }[];
@@ -1094,7 +1098,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
 
   it('première ligne : le titre à gauche, « CRITERIMMO · 60 % » / « MACJ · 40 % » à droite ; sur téléphone le bouton passe sous le titre', async () => {
     await carte(exemple);
-    for (const [col, cote, mot, lib] of [['vendeur', 'entree', 'Vendeurs', 'CRITERIMMO · 60 %'], ['acquereur', 'sortie', 'Acquéreurs', 'MACJ · 40 %']]) {
+    for (const [col, cote, mot, lib] of [['vendeur', 'entree', 'Vendeurs', 'CRITERIMMO · 60 %'], ['acquereur', 'sortie', 'Acquéreurs', 'CRITERIMMO · 40 %']]) {
       const tete = container.querySelector(`[data-colonne="${col}"] > .trx-colonne-tete`)!;
       expect([...tete.children].map((x) => [x.tagName, x.textContent])).toEqual([['H4', mot], ['BUTTON', lib]]);
       expect(tete.querySelector(`[data-societe-cote="${cote}"]`)).not.toBeNull();
@@ -1153,8 +1157,8 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   });
 
   it('50/50, sans commission enregistrée : LOT V — le côté est CALCULÉ, il s’écrit avec la nouvelle répartition ; rien de changé : rien n’est envoyé', async () => {
-    await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'macj', 50)] }, lignes: [] });
-    expect([texte('[data-societe-cote="entree"]'), texte('[data-societe-cote="sortie"]')]).toEqual(['CRITERIMMO · 50 %', 'MACJ · 50 %']);
+    await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'criterimmo', 50)] }, lignes: [] });
+    expect([texte('[data-societe-cote="entree"]'), texte('[data-societe-cote="sortie"]')]).toEqual(['CRITERIMMO · 50 %', 'CRITERIMMO · 50 %']);
     expect(texte('[data-commission-carte="sortie"]')).toBe('Commission enregistrée : à renseigner');
     await cliquer('[data-societe-cote="sortie"]');
     await cliquer('[data-valider-repartition="sortie"]');
@@ -1204,7 +1208,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [JB, MY, AU, CJ];
     try {
-      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 9, CJ.nom, null, 60), pa('sortie', 7, MY.nom, 'macj', 40)] },
+      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 9, CJ.nom, null, 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
         dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom } }, lignes: [] });
       expect(texte('[data-societe-cote="entree"]')).toBe('Société à choisir · 60 %');
       await cliquer('[data-societe-cote="entree"]');
@@ -1213,7 +1217,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
       await cliquer('[data-reglage-repartition="entree"] [data-choix-societe-vente="partie-0"] [data-societe-vente="criterimmo"]');
       await cliquer('[data-valider-repartition="entree"]');
       const e = posts.at(-1) as Envoi;
-      expect(e.dossier.parties.map((p) => [p.compteId, p.societe])).toEqual([[9, 'criterimmo'], [7, 'macj']]);
+      expect(e.dossier.parties.map((p) => [p.compteId, p.societe])).toEqual([[9, 'criterimmo'], [7, 'criterimmo']]);
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
   });
 
@@ -1222,7 +1226,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
       await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [{ ...pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 60), statut: 'associe', commissionneCompte: false },
-        pa('sortie', 7, MY.nom, 'macj', 40)] }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [lc(1, 'Arnaud Jorel', 'entree', 2000)] });
+        pa('sortie', 7, MY.nom, 'criterimmo', 40)] }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [lc(1, 'Arnaud Jorel', 'entree', 2000)] });
       expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Arnaud Jorel · non commissionné');
       expect(texte('[data-societe-cote="entree"]')).toBe('CRITERIMMO · 60 %');
       const bloc = container.querySelector('[data-negociateur-cote="entree"]')!;
@@ -1489,7 +1493,7 @@ describe('🔴 LOT X — « Commission du négociateur » entourée d’un liser
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
-      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', { commissionneCompte: false }), pa('sortie', 7, MY.nom, 'macj')] },
+      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', { commissionneCompte: false }), pa('sortie', 7, MY.nom, 'criterimmo')] },
         dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
       expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]'), encadre('[data-honoraires-cote="entree"]')]).toEqual([true, false, false]);
@@ -1631,5 +1635,86 @@ describe('🔴 LOT Z — la mention du bloc dit le statut ; la ligne « Statut �
     const { mentionCommission } = await import('./OngletCompromis');
     expect([mentionCommission('independant'), mentionCommission('salarie'), mentionCommission('associe'), mentionCommission(null, '(à confirmer)'), mentionCommission('observateur')])
       .toEqual([`Indépendant${C}`, `Salarié interne${N}`, `Associé${N}`, `Statut à renseigner (à confirmer)${N}`, `Statut à renseigner${N}`]);
+  });
+});
+
+describe('🔴 LOT AA — un négociateur de l’autre société : « Rémunéré par … » sur la carte de la porteuse ; sa commission se règle chez elle', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id: cote === 'entree' ? 445 : 446, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', statut: 'associe' | 'independant' | 'salarie') =>
+    ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut });
+  // HEIDIDON : Arnaud (CRITERIMMO, associé, porteuse) / Pierre (MACJ, indépendant, 1 000 TTC). Le sens inverse : la porteuse est MACJ.
+  const heididon = (porteuse: 'criterimmo' | 'macj', statutAutre: 'independant' | 'salarie' = 'independant'): Vente => {
+    const autre = porteuse === 'criterimmo' ? 'macj' as const : 'criterimmo' as const;
+    return { ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+      pa('entree', 2, 'Arnaud Jorel', porteuse, 'associe'), pa('sortie', 8, 'Pierre Thevenin', autre, statutAutre)] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
+    lignes: [lc('Arnaud Jorel', 'entree', 2000), lc('Pierre Thevenin', 'sortie', 1000)] };
+  };
+  const ecran = async (societe: 'criterimmo' | 'macj', v: Vente) => {
+    listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+
+  for (const porteuse of ['criterimmo', 'macj'] as const) {
+    const autre = porteuse === 'criterimmo' ? 'macj' : 'criterimmo';
+    const AUTRE = autre.toUpperCase();
+    it(`${porteuse.toUpperCase()} porteuse : Pierre (${AUTRE}) — bloc neutre « Rémunéré par ${AUTRE} », montant pour information, « Voir chez ${AUTRE} » ; ni liseré, ni « comptabilisé », ni « Appliquer », ni champ`, async () => {
+      await ecran(porteuse, heididon(porteuse));
+      await deplier(38);
+      expect(texte('[data-remunere-par="sortie"]')).toBe(`Rémunéré par ${AUTRE} — sur sa part reçue en inter-cabinet`
+        + `Commission enregistrée, pour information : 833,33 € HT (1 000,00 € TTC)Voir chez ${AUTRE}`);
+      expect(container.querySelector('[data-remunere-par="sortie"] [data-voir-chez]')!.getAttribute('href')).toBe(`/admin/transaction/${autre}?vente=38`);
+      expect(container.querySelector('[data-remunere-par="sortie"]')!.className).not.toContain('trx-calcul-encadre');
+      expect(container.querySelector('[data-commission-negociateur="sortie"]')).toBeNull();
+      expect(container.querySelector('[data-colonne="acquereur"] [data-mention-commission]')).toBeNull();
+      expect(container.querySelector('[data-appliquer-calcul-carte="sortie"]')).toBeNull();
+      // les honoraires de ce côté restent (le CA que la vente lui apporte)
+      expect(container.querySelector('[data-honoraires-cote="sortie"]')).not.toBeNull();
+      // le panneau du négociateur : aucun champ de commission pour lui, « Voir chez … »
+      await cliquer('[data-negociateur-carte="sortie"]');
+      expect(container.querySelector('[data-champ="commission-carte-sortie"]')).toBeNull();
+      expect(texte('[data-commission-chez="sortie"]')).toBe(`Commission réglée chez ${AUTRE} : Voir chez ${AUTRE}`);
+      // Arnaud (associé de la porteuse) : son bloc, comme avant (même société : inchangé)
+      expect(container.querySelector('[data-commission-negociateur="entree"]')!.className).toContain('trx-calcul-encadre--interne');
+      // le détail de la tuile : la phrase claire
+      await cliquer('[data-tuile="commissions"]');
+      expect(texte('[data-detail="autre-societe"]')).toBe('Négociateurs de l’autre société : rémunérés par elle — non comptés ici');
+      expect(texte('[data-detail="independants"]')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
+    });
+    it(`chez ${AUTRE} (ligne miroir) : comportement actuel — liseré rouge (indépendant) ou vert (salarié), modifiable ; « Voir chez » l’ouvre`, async () => {
+      const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+      for (const [statut, classe] of [['independant', 'trx-calcul-encadre--deduite'], ['salarie', 'trx-calcul-encadre--interne']] as const) {
+        window.history.replaceState(null, '', `/admin/transaction/${autre}?vente=38`);
+        await ecran(autre, venteDansSociete(heididon(porteuse, statut), autre)!);
+        expect(container.querySelector('[data-carte-miroir="38"]')!.getAttribute('data-replie')).toBe('ouvert');
+        expect(container.querySelector('[data-commission-negociateur="sortie"]')!.className).toContain(classe);
+        expect(container.querySelector('[data-remunere-par]')).toBeNull();
+        expect(container.querySelector('[data-modifier-remuneration="sortie"]')).not.toBeNull();
+      }
+    });
+  }
+
+  it('le CA global : le bloc de commission de chacun, comme avant (le global compte chaque commission une fois)', async () => {
+    listeCompromis = [heididon('criterimmo')];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(38);
+    expect(container.querySelector('[data-remunere-par]')).toBeNull();
+    expect(container.querySelector('[data-commission-negociateur="sortie"]')!.className).toContain('trx-calcul-encadre--deduite');
+    expect(container.querySelector('[data-detail="autre-societe"]')).toBeNull();
+  });
+
+  it('même société des deux côtés : aucune phrase « autre société », aucun bloc neutre (inchangé)', async () => {
+    const v = heididon('criterimmo');
+    await ecran('criterimmo', { ...v, repartition: { ...v.repartition!, parties: v.repartition!.parties.map((p) => ({ ...p, societe: 'criterimmo' as const })) } });
+    await deplier(38);
+    expect(container.querySelector('[data-remunere-par]')).toBeNull();
+    await cliquer('[data-tuile="commissions"]');
+    expect(container.querySelector('[data-detail="autre-societe"]')).toBeNull();
   });
 });

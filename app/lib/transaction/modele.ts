@@ -376,10 +376,15 @@ export function negociateursDe(v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'r
   return n.length === 0 ? [NON_ATTRIBUE] : n;
 }
 
-/** La paye des négociateurs (TTC) : les lignes « paye du négociateur » — TOUTES (affichée telle quelle). */
-export const payeTtcDe = (v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'repartition'>>): number =>
+/**
+ * La paye des négociateurs (TTC) : les lignes « paye du négociateur » (affichée telle quelle, déduite ou non).
+ * 🔴 LOT AA (Arno) — pour une société vue, seules les commissions de SES négociateurs sur cette vente (la commission d'un négociateur de
+ * l'autre société est payée et comptée chez elle seule) ; sans société (le groupe) : toutes, une fois.
+ */
+export const payeTtcDe = (v: Pick<Vente, 'lignes'> & Partial<Pick<Vente, 'repartition' | 'societe'>>, societe: Societe | null = null): number =>
   // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ sur cette vente reste en base, ignorée de tout calcul.
-  v.lignes.reduce((s, l) => s + (l.role === 'negociateur' && l.montantTtc !== null && !commissionIgnoree(v, l) ? l.montantTtc : 0), 0);
+  v.lignes.reduce((s, l) => s + (l.role === 'negociateur' && l.montantTtc !== null && !commissionIgnoree(v, l)
+    && (societe === null || ligneDeLaSociete({ societe: v.societe ?? societe, repartition: v.repartition ?? null }, l, societe)) ? l.montantTtc : 0), 0);
 
 /**
  * 🔴 LOT Q — la paye d'une vente PAR CLASSE (TTC) : déduite (indépendants), interne (associés, salariés), à renseigner — la règle unique
@@ -590,7 +595,8 @@ export function parNegociateur(ventes: readonly Vente[], retros: readonly Retroc
   const noms = new Set<string>([...ventes.flatMap(negociateursDe), ...retros.map((r) => r.negociateur)]);
   return [...noms].map((n) => {
     const siennes = ventes.filter((v) => negociateursDe(v).includes(n));
-    const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' && !commissionIgnoree(v, l) ? l.montantTtc ?? 0 : 0), 0), 0);
+    // 🔴 LOT AA — sa paye dans la société vue seulement (un négociateur de l'autre société est payé et compté chez elle, jamais deux fois).
+    const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' && !commissionIgnoree(v, l) && ligneDeLaSociete(v, l, societe) ? l.montantTtc ?? 0 : 0), 0), 0);
     return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n, societe), 0), payeHt: ht(paye),
       retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id), statut: statutDe(n) };
   }).sort((a, b) => b.caHt - a.caHt || a.negociateur.localeCompare(b.negociateur, 'fr'));

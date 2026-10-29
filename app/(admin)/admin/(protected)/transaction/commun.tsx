@@ -223,6 +223,9 @@ export const CSS_TRANSACTION = `
 /* LOT Y (Arno) — la couleur suit la règle du cumul « Commissions versées » : ROUGE (alerte) si elle y entre (indépendant), VERT (succès) sinon ;
    la mention écrite (« déduite — dans les commissions versées » / « interne — non déduite ») accompagne toujours la couleur. */
 .trx-calcul-encadre--deduite{border-color:var(--color-svv-red)}
+/* LOT AA (Arno) — un négociateur de l'AUTRE société, sur la carte de la porteuse : un bloc NEUTRE (liseré gris), « Rémunéré par … » ; sa
+   commission est comptée chez elle seule. */
+.trx-calcul-autre{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:6px 8px}
 .trx-calcul-encadre--interne{border-color:var(--color-svv-green-ink)}
 .trx-calcul-mention{grid-column:1 / -1;font-size:.78rem;font-weight:700}
 .trx-calcul-encadre--deduite .trx-calcul-mention{color:var(--color-svv-red)}
