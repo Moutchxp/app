@@ -109,26 +109,29 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
         <span className="loc-muet" data-dossiers-du-bloc>{motDossiers(detail.nbDossiers)}</span>
       </div>
       <p className="trx-du-sous-titre loc-muet" data-sous-titre-du>Compromis non encore signés, quel que soit leur mois</p>
-      <Section cle="negociateurs" titre="Négociateurs" somme={somme(comptabilises)} sens="verse" apresTitre={<span className="loc-muet trx-du-note">comptabilisés</span>} enfants={<>
-        {detail.negociateurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.negociateurs.map((p) => ligne(p, p.classe === 'independant' ? 'verse' : 'neutre', mentionNego(p)))}</ul>}
-        {autreSociete && societe !== null && <p className="trx-du-mention-autre" data-autre-societe-du>Négociateurs de {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} : rémunérés par {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} — non comptés ici</p>}
-      </>} />
-      <Section cle="apporteurs" titre="Apporteurs d’affaires" somme={somme(detail.apporteurs)} sens="verse" enfants={
-        detail.apporteurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.apporteurs.map((p) => ligne(p, 'verse'))}</ul>} />
-      <Section cle="agences" titre="Agences extérieures" somme={somme(detail.agences)} sens="verse" enfants={
-        detail.agences.length === 0 ? aucune('Aucune') : <ul className="trx-du-lignes">{detail.agences.map((p) => ligne(p, 'verse'))}</ul>} />
-      {societe !== null && detail.reverse !== null && detail.recu !== null && detail.autre !== null ? (
-        <Section cle="inter-cabinet" titre={`Inter-cabinet ${LIBELLE_SOCIETE[societe]} ↔ ${LIBELLE_SOCIETE[detail.autre]}`} somme={null} sens="neutre" enfants={<>
-          <ul className="trx-du-lignes">
-            {ligne({ ...detail.reverse, nom: `Reversé à ${LIBELLE_SOCIETE[detail.autre]}` }, 'verse')}
-            {ligne({ ...detail.recu, nom: `Reçu de ${LIBELLE_SOCIETE[detail.autre]}` }, 'recu')}
-          </ul>
-          <p className="trx-du-solde trx-somme" data-solde-inter><span>= Solde inter-cabinet</span><strong>{solde()}</strong></p>
+      {/* 🔴 LOT AS — l'ordre : Négociateurs, Inter-cabinet, Apporteurs d'affaires, Agences extérieures ; chaque catégorie, une carte à part. */}
+      <div className="trx-du-cartes" data-cartes-du>
+        <Section cle="negociateurs" titre="Négociateurs" somme={somme(comptabilises)} sens="verse" apresTitre={<span className="loc-muet trx-du-note">comptabilisés</span>} enfants={<>
+          {detail.negociateurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.negociateurs.map((p) => ligne(p, p.classe === 'independant' ? 'verse' : 'neutre', mentionNego(p)))}</ul>}
+          {autreSociete && societe !== null && <p className="trx-du-mention-autre" data-autre-societe-du>Négociateurs de {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} : rémunérés par {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} — non comptés ici</p>}
         </>} />
-      ) : detail.neutralise !== null ? (
-        <Section cle="inter-cabinet" titre="Inter-cabinet CRITERIMMO ↔ MACJ — neutralisé (compté une fois)" somme={detail.neutralise} sens="neutre" enfants={
-          detail.neutralise.lignes.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{ligne({ ...detail.neutralise, nom: 'Entre nos sociétés' }, 'neutre')}</ul>} />
-      ) : null}
+        {societe !== null && detail.reverse !== null && detail.recu !== null && detail.autre !== null ? (
+          <Section cle="inter-cabinet" titre={`Inter-cabinet ${LIBELLE_SOCIETE[societe]} ↔ ${LIBELLE_SOCIETE[detail.autre]}`} somme={null} sens="neutre" enfants={<>
+            <ul className="trx-du-lignes">
+              {ligne({ ...detail.reverse, nom: `Reversé à ${LIBELLE_SOCIETE[detail.autre]}` }, 'verse')}
+              {ligne({ ...detail.recu, nom: `Reçu de ${LIBELLE_SOCIETE[detail.autre]}` }, 'recu')}
+            </ul>
+            <p className="trx-du-solde trx-somme" data-solde-inter><span>= Solde inter-cabinet</span><strong>{solde()}</strong></p>
+          </>} />
+        ) : detail.neutralise !== null ? (
+          <Section cle="inter-cabinet" titre="Inter-cabinet CRITERIMMO ↔ MACJ — neutralisé (compté une fois)" somme={detail.neutralise} sens="neutre" enfants={
+            detail.neutralise.lignes.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{ligne({ ...detail.neutralise, nom: 'Entre nos sociétés' }, 'neutre')}</ul>} />
+        ) : null}
+        <Section cle="apporteurs" titre="Apporteurs d’affaires" somme={somme(detail.apporteurs)} sens="verse" enfants={
+          detail.apporteurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.apporteurs.map((p) => ligne(p, 'verse'))}</ul>} />
+        <Section cle="agences" titre="Agences extérieures" somme={somme(detail.agences)} sens="verse" enfants={
+          detail.agences.length === 0 ? aucune('Aucune') : <ul className="trx-du-lignes">{detail.agences.map((p) => ligne(p, 'verse'))}</ul>} />
+      </div>
       <div className="trx-du-total trx-somme--finale" data-total-du>
         <span>Total à verser — {qui}</span>
         <span className="trx-du-montant"><Montants ht={detail.total.htC / 100} ttc={detail.total.ttcC / 100} sens="verse" donnees={{ 'data-total-a-verser': '' }} /><Parts s={detail.total} /></span>
@@ -145,18 +148,37 @@ export const CSS_BLOC_DU = `
    sur ce fond : contrastes AA mesurés au lot AP). */
 .trx-du{display:flex;flex-direction:column;gap:12px;margin:48px 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese);--trx-trame:var(--trx-trame-finale)}
 .trx-du-entete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px}
-.trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere}
+.trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere;font-size:1rem;font-weight:800}
 .trx-du-sous-titre{margin:-6px 0 0;font-size:.9rem}
-.trx-du-section{display:flex;flex-direction:column;gap:4px}
+/* 🔴 LOT AS — chaque catégorie, une CARTE posée sur le fond du bloc : surface des cartes d'affaires, bordure fine, coins arrondis, ombre plus
+   discrète, un liseré de couleur à gauche (une couleur par catégorie, --trx-lisere-*, clair et sombre ; jamais le rouge, réservé aux montants) ;
+   entre deux cartes, l'écart des cartes d'affaires (16 px). En tête, la catégorie sur la trame ; repliée, la carte ne garde que son en-tête. */
+.trx-du-cartes{display:flex;flex-direction:column;gap:16px}
+.trx-du-section{display:flex;flex-direction:column;gap:4px;overflow:hidden;border:1px solid var(--color-svv-line);border-left:5px solid var(--trx-du-lisere,var(--color-svv-line-strong));border-radius:12px;
+  background:var(--color-svv-surface-raised);box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-tip-bg) 10%, transparent)}
+.trx-du-section[data-section-du='negociateurs']{--trx-du-lisere:var(--trx-lisere-negociateurs)}
+.trx-du-section[data-section-du='inter-cabinet']{--trx-du-lisere:var(--trx-lisere-inter)}
+.trx-du-section[data-section-du='apporteurs']{--trx-du-lisere:var(--trx-lisere-apporteurs)}
+.trx-du-section[data-section-du='agences']{--trx-du-lisere:var(--trx-lisere-agences)}
+/* en sombre, la surface des cartes (#37455a) : le rouge « surélevé » de la charte (4,8:1) et un gris un cran plus clair (#b3bdc9, 5,1:1) pour tenir l'AA */
+.svv-adm-root[data-theme='dark'] .trx-du-section{--color-svv-red:var(--color-svv-red-raised);--color-svv-muted:#b3bdc9}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .trx-du-section{--color-svv-red:var(--color-svv-red-raised);--color-svv-muted:#b3bdc9} }
+.trx-du-section > .trx-du-tete{border-radius:0}
+.trx-du-section > .trx-du-corps{padding:0 4px 8px}
+.trx-du-section .trx-du-solde{margin:4px 8px 0}
 /* niveau 1 : la catégorie, en gros */
 .trx-du-tete{appearance:none;width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;min-height:44px;padding:10px 12px;border:0;font:inherit;font-size:1.08rem;color:inherit;text-align:left;cursor:pointer}
 .trx-du-tete .trx-mt-grand{font-size:1.15rem}
 .trx-du-tete:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .trx-du-titre,.trx-du-qui{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0;overflow-wrap:anywhere}
 .trx-du-chevron{color:var(--color-svv-muted);font-size:.8rem}
+/* LOT AS — l'en-tête de carte coule comme un texte : le chevron reste devant le nom quand un long titre passe à la ligne (téléphone). */
+.trx-du-tete .trx-du-titre{display:block}
+.trx-du-tete .trx-du-titre > *{margin-right:8px}
 .trx-du-note{font-size:.82rem;font-weight:600}
 /* niveau 2 : l'intervenant, taille normale ; le cumul domine la ligne */
 .trx-du-personne{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:start;padding:10px 12px 2px;border-top:1px solid var(--color-svv-line)}
+.trx-du-lignes > .trx-du-ligne:first-child > .trx-du-personne{border-top:0}
 .trx-du-personne .trx-mt-grand{font-size:1.05rem}
 .trx-du-mention{font-size:.82rem;font-weight:700}
 .trx-du-detail{flex-basis:100%;font-size:.8rem;color:var(--color-svv-muted)}

@@ -210,10 +210,11 @@ export const CSS_TRANSACTION = `
    plus marqué (trame plus soutenue, filet, gras) ; les lignes de détail restent sur la surface. Une variable commune, en clair et en sombre ;
    contrastes mesurés (AA ≥ 4,5:1) : clair #f3f5f7 — vert 4,9 · rouge 7,5 ; #e9edf1 — vert 4,6 · rouge 6,9 ; sombre #263140 — vert 8,3 ·
    rouge 4,7 ; #283445 — vert 8,0 · rouge 4,5 (le rouge sombre borne la trame finale : le cran de plus passe aussi par le filet et le gras).
-   🔴 LOT AR — --trx-fond-synthese : le fond du bloc « Synthèse — ce que l'on doit », distinct des cartes d'affaires (clair #f6f8fb, sombre #161e29). */
-.svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1;--trx-fond-synthese:#f6f8fb}
-.svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29}
-@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29} }
+   🔴 LOT AR — --trx-fond-synthese : le fond du bloc « Synthèse — ce que l'on doit », distinct des cartes d'affaires (clair #f6f8fb, sombre #161e29).
+   🔴 LOT AS — --trx-lisere-* : le liseré de chaque carte de catégorie de ce bloc (bleu, violet, ocre, sarcelle ; sobres, jamais le rouge). */
+.svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1;--trx-fond-synthese:#f6f8fb;--trx-lisere-negociateurs:#3f6fa3;--trx-lisere-inter:#7a5aa6;--trx-lisere-apporteurs:#b07d1f;--trx-lisere-agences:#2f8a84}
+.svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29;--trx-lisere-negociateurs:#79a6db;--trx-lisere-inter:#ad93d9;--trx-lisere-apporteurs:#d6a646;--trx-lisere-agences:#5fbab3}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-trame:#263140;--trx-trame-finale:#283445;--trx-fond-synthese:#161e29;--trx-lisere-negociateurs:#79a6db;--trx-lisere-inter:#ad93d9;--trx-lisere-apporteurs:#d6a646;--trx-lisere-agences:#5fbab3} }
 .trx-somme{background:var(--trx-trame);border-radius:8px}
 .trx-somme--finale{background:var(--trx-trame-finale);border-top:2px solid var(--color-svv-line-strong);font-weight:800}
 .trx-somme--finale strong,.trx-somme--finale > span{font-weight:800}

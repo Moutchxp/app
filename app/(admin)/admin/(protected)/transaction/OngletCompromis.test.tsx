@@ -3027,7 +3027,7 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     expect(doc('#trx-du-titre')).toBe('Synthèse — ce que l’on doit et à qui');
     expect(doc('[data-sous-titre-du]')).toBe('Compromis non encore signés, quel que soit leur mois');
     expect(doc('[data-dossiers-du-bloc]')).toBe('3 dossiers');
-    expect([...container.querySelectorAll('[data-section-du]')].map((x) => x.getAttribute('data-section-du'))).toEqual(['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']);
+    expect([...container.querySelectorAll('[data-section-du]')].map((x) => x.getAttribute('data-section-du'))).toEqual(['negociateurs', 'inter-cabinet', 'apporteurs', 'agences']); // LOT AS — l'ordre
     expect([...container.querySelectorAll('[data-replier-du]')].every((x) => x.getAttribute('aria-expanded') === 'true')).toBe(true);
   });
 
@@ -3076,6 +3076,100 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     expect(window.localStorage.getItem('trx-du-section-apporteurs')).toBe('fermee');
     await page('criterimmo');
     expect(container.querySelector('[data-replier-du="apporteurs"]')!.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('🔴 LOT AS — la synthèse : l’ordre des catégories, chacune une carte à part (présentation seule)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => {
+    ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    for (const c of ['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']) window.localStorage.removeItem(`trx-du-section-${c}`);
+  });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // les mêmes affaires qu'au lot AQ : 41 (JB, apporteur, agence, Mylène de MACJ), 42 (JB, mois précédent), 60 (portée par MACJ, JB à la sortie)
+  const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    lignes: [lc(2, JB.nom, 'entree', 600)] };
+  const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+      { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
+  const page = async (societe: 'criterimmo' | 'macj') => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [v41, v42, v60].map((x) => venteDansSociete(x, societe)).filter((x): x is Vente => x !== null);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  const grand = (sel: string): number => centimes(container.querySelector(`${sel} [data-montant-grand]`)!.textContent!);
+
+  it('l’ordre : Négociateurs, Inter-cabinet (avec « = Solde inter-cabinet »), Apporteurs d’affaires, Agences extérieures ; puis Total à verser et internes — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe);
+      const autre = societe === 'criterimmo' ? 'MACJ' : 'CRITERIMMO';
+      const cartes = [...container.querySelectorAll('[data-cartes-du] > [data-section-du]')];
+      expect(cartes.map((x) => x.getAttribute('data-section-du'))).toEqual(['negociateurs', 'inter-cabinet', 'apporteurs', 'agences']);
+      expect(cartes.map((x) => x.querySelector('.trx-du-titre strong')!.textContent)).toEqual(['Négociateurs', `Inter-cabinet ${societe.toUpperCase()} ↔ ${autre}`, 'Apporteurs d’affaires', 'Agences extérieures']);
+      expect(cartes[1].querySelector('[data-solde-inter]')).not.toBeNull();
+      // chaque carte : l'en-tête de catégorie (sur la trame) en tête, puis son corps
+      for (const c of cartes) expect(c.firstElementChild!.matches('.trx-du-tete.trx-somme')).toBe(true);
+      // « Négociateurs de [autre société] … » reste dans la carte des négociateurs
+      expect(cartes[0].querySelector('[data-autre-societe-du]')).not.toBeNull();
+      // Total à verser et internes, après les quatre cartes, hors d'elles
+      const bloc = container.querySelector('[data-bloc-du]')!;
+      const ordre = [...bloc.querySelectorAll('[data-cartes-du], [data-total-du], [data-internes-du]')].map((x) => x.hasAttribute('data-cartes-du') ? 'cartes' : x.hasAttribute('data-total-du') ? 'total' : 'internes');
+      expect(ordre).toEqual(['cartes', 'total', 'internes']);
+    }
+  });
+
+  it('totaux inchangés au centime, en TTC et en HT : Total à verser = tuile = négociateurs comptabilisés + reversé + apporteurs + agences — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe);
+      for (const u of ['ttc', 'ht'] as const) {
+        await cliquer(`[data-afficher="${u}"]`);
+        const total = grand('[data-total-a-verser]');
+        expect(total).toBe(centimes(texte(`[data-tuile="commissions"] [data-commissions-${u}]`)));
+        const parties = grand('[data-sous-total-du="negociateurs"]') + grand('[data-ligne-du="reverse"] [data-cumul-du]') + grand('[data-sous-total-du="apporteurs"]') + grand('[data-sous-total-du="agences"]');
+        expect(parties).toBe(total);
+      }
+    }
+    // les valeurs du lot AQ, à l'identique
+    await page('criterimmo');
+    await cliquer('[data-afficher="ttc"]');
+    expect(texte('[data-total-a-verser] [data-montant-grand]')).toBe('9 960 € TTC');
+    await cliquer('[data-afficher="ht"]');
+    expect(texte('[data-total-a-verser] [data-montant-grand]')).toBe('8 300 € HT');
+  });
+
+  it('replier une catégorie replie sa carte entière (l’en-tête reste) ; le choix est retenu', async () => {
+    await page('macj');
+    await cliquer('[data-replier-du="inter-cabinet"]');
+    const carte = container.querySelector('[data-section-du="inter-cabinet"]')!;
+    expect([...carte.children].map((x) => x.className)).toEqual(['trx-du-tete trx-somme']);
+    expect(carte.querySelector('[data-solde-inter]')).toBeNull();
+    expect(window.localStorage.getItem('trx-du-section-inter-cabinet')).toBe('fermee');
+    await page('criterimmo');
+    expect(container.querySelector('[data-replier-du="inter-cabinet"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-replier-du="negociateurs"]')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('la carte : surface, bordure fine, coins arrondis, ombre légère, liseré par catégorie (variables clair / sombre, jamais le rouge) ; titre en gras', async () => {
+    const { CSS_BLOC_DU } = await import('./BlocDu');
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_BLOC_DU.replace(/\s+/g, ' ');
+    expect(css).toContain('.trx-du-cartes{display:flex;flex-direction:column;gap:16px}');
+    expect(css).toContain('border:1px solid var(--color-svv-line);border-left:5px solid var(--trx-du-lisere');
+    expect(css).toContain('border-radius:12px; background:var(--color-svv-surface-raised);box-shadow:');
+    expect(css).toContain('.trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere;font-size:1rem;font-weight:800}');
+    for (const c of ['negociateurs', 'inter', 'apporteurs', 'agences']) {
+      expect(css).toContain(`var(--trx-lisere-${c})`);
+      // défini en clair, en sombre (thème choisi) et en sombre (thème du système)
+      expect(CSS_TRANSACTION.match(new RegExp(`--trx-lisere-${c}:#[0-9a-f]{6}`, 'g'))!.length).toBe(3);
+    }
+    expect(CSS_TRANSACTION).not.toMatch(/--trx-lisere-[a-z]+:var\(--color-svv-red/);
   });
 });
 
