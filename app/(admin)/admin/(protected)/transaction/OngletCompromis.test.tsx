@@ -1674,7 +1674,8 @@ describe('🔴 LOT AA — un négociateur de l’autre société : « Rémunér�
       expect(container.querySelector('[data-honoraires-cote="sortie"]')).not.toBeNull();
       // le panneau du négociateur : aucun champ de commission pour lui, « Voir chez … »
       await cliquer('[data-negociateur-carte="sortie"]');
-      expect(container.querySelector('[data-champ="commission-carte-sortie"]')).toBeNull();
+      // LOT AG — le champ (taux, montant) est là aussi pour lui ; la mention « Commission réglée chez … » dessous
+      expect(container.querySelector('[data-champ="commission-carte-sortie"]')).not.toBeNull();
       expect(texte('[data-commission-chez="sortie"]')).toBe(`Commission réglée chez ${AUTRE} : Voir chez ${AUTRE}`);
       expect(container.querySelector('[data-commission-chez="sortie"] a')!.getAttribute('href')).toBe(`/admin/transaction/${autre}?vente=38`);
       // Arnaud (associé de la porteuse) : son bloc, comme avant (même société : inchangé)
@@ -2054,12 +2055,90 @@ describe('🔴 LOT AF — la carte d’une ligne miroir : « Inter-cabinet reçu
     expect(container.querySelector('[data-miroir-bloc] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
     expect(texte('[data-miroir-lecture-seule]')).toBe('Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.');
     expect([texte('[data-remuneration-titre="sortie"]'), texte('[data-remuneration-negociateur="sortie"]'), texte('[data-remuneration-statut="sortie"]')])
-      .toEqual(['Négociateur de sortie', 'Pierre Thevenin (MACJ)', 'Statut à la vente : Indépendant']);
+      .toEqual(['Négociateur de sortie', 'Pierre Thevenin (MACJ) · 50 %', 'Statut à la vente : Indépendant']);
     expect(texte('[data-remuneration="sortie"] [data-remuneration-statut]')).not.toContain('commission déduite');
     // les lignes de calcul et « Modifier la rémunération » : inchangées, dans l'ordre
     const ordre = [...container.querySelector('[data-remuneration="sortie"]')!.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')));
     expect(ordre).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-remuneration-statut', 'data-honoraires-cote', 'data-commission-negociateur', 'data-commission-carte', 'data-modifier-remuneration']);
     const { CSS_TRANSACTION } = await import('./commun');
     expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-couples{grid-template-columns:minmax(0,1fr);gap:2px}');
+  });
+});
+
+describe('🔴 LOT AG — le taux d’un négociateur de l’autre société se règle aussi depuis la carte de la porteuse (une seule source)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (nego: string, cote: 'entree' | 'sortie', ttc: number, taux: number | null = null) => ({ id: cote === 'entree' ? 445 : 446, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc,
+    montantHt: null, cote, taux, nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // HEIDIDON : 4 000 TTC, Arnaud (CRITERIMMO, associé, porteuse) 50 % / Pierre (MACJ, indépendant) 50 % ; sa commission : `ttc` au taux `taux`.
+  const heididon = (ttc: number, taux: number | null, autre: 'criterimmo' | 'macj' = 'macj'): Vente => ({ ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null,
+    apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
+      { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: autre, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
+    lignes: [lc('Pierre Thevenin', 'sortie', ttc, taux)] });
+  const negos = references.negociateurs;
+  beforeEach(() => { (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo' }, { id: 8, nom: 'Pierre Thevenin', societe: 'macj' }]; });
+  afterEach(() => { (references as { negociateurs: unknown[] }).negociateurs = negos; });
+  const ecran = async (societe: 'criterimmo' | 'macj', v: Vente) => {
+    listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  const champ = (sel: string) => (container.querySelector(sel) as HTMLInputElement).value.replace(/\s/g, ' ');
+
+  it('depuis la carte de CRITERIMMO : le taux de Pierre (MACJ) à 40 % → 800,00 € en direct ; « Valider » l’enregistre sur la vente d’origine (calculée), « Commission réglée chez MACJ » dessous', async () => {
+    await ecran('criterimmo', heididon(1000, null));
+    await deplier(38);
+    await cliquer('[data-negociateur-carte="sortie"]');
+    expect(texte('[data-commission-chez="sortie"]')).toBe('Commission réglée chez MACJ : Voir chez MACJ');
+    await saisir('[data-taux="commission-carte-sortie"]', '40');
+    expect(champ('[data-champ="commission-carte-sortie"]')).toBe('800,00');
+    await cliquer('[data-valider-negociateur]');
+    const e = posts.at(-1) as { action: string; id: number; dossier: { commissions: { sortie: { montant: string; taux: string; mode: string } } } };
+    expect([e.action, e.id]).toEqual(['dossier-enregistrer', 38]);
+    expect({ ...e.dossier.commissions.sortie, montant: e.dossier.commissions.sortie.montant.replace(/\s/g, ' ') }).toEqual({ montant: '800,00', unite: 'ttc', taux: '40', mode: 'calculee' });
+  });
+
+  it('une seule source : enregistrée à 40 % (800 €), la carte de la porteuse ET la ligne miroir disent 40 % ; comptée une fois, chez MACJ seule', async () => {
+    const v = heididon(800, 40);
+    await ecran('criterimmo', v);
+    await deplier(38);
+    expect(texte('[data-negociateur-carte="sortie"]')).toBe('Négociateur : Pierre Thevenin · 40 %');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    await ecran('macj', venteDansSociete(v, 'macj')!);
+    await cliquer('[data-deplier="miroir-38"]');
+    expect(texte('[data-remuneration-negociateur="sortie"]')).toBe('Pierre Thevenin (MACJ) · 40 %');
+    expect(texte('[data-commission-negociateur="sortie"] .trx-calcul-operation')).toBe('1 666,67 € HT × 40 % =');
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 666,67 € HT (800,00 € TTC)');
+  });
+
+  it('depuis la ligne miroir : « Modifier la rémunération » à 40 % s’enregistre sur la MÊME ligne (vente d’origine n° 38, côté sortie)', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    await ecran('macj', venteDansSociete(heididon(1000, null), 'macj')!);
+    await cliquer('[data-deplier="miroir-38"]');
+    await cliquer('[data-modifier-remuneration="sortie"]');
+    await saisir('[data-taux="remuneration-sortie"]', '40');
+    await cliquer('[data-valider-remuneration="sortie"]');
+    expect(posts.at(-1)).toMatchObject({ action: 'commission-cote', id: 38, cote: 'sortie', montant: { montant: 800, unite: 'ttc' }, taux: 40, mode: 'calculee' });
+  });
+
+  it('même société : le champ, sans mention « réglée chez » (inchangé) ; non commissionné : pas de champ', async () => {
+    await ecran('criterimmo', heididon(1000, null, 'criterimmo'));
+    await deplier(38);
+    await cliquer('[data-negociateur-carte="sortie"]');
+    expect(container.querySelector('[data-champ="commission-carte-sortie"]')).not.toBeNull();
+    expect(container.querySelector('[data-commission-chez]')).toBeNull();
+    (references as { negociateurs: { id: number; commissionne?: boolean }[] }).negociateurs = (references.negociateurs as { id: number; commissionne?: boolean }[]).map((n) => (n.id === 2 ? { ...n, commissionne: false } : n));
+    const v = heididon(1000, null);
+    await ecran('criterimmo', { ...v, repartition: { ...v.repartition!, parties: v.repartition!.parties.map((p) => (p.compteId === 2 ? { ...p, commissionneCompte: false } : p)) } });
+    await deplier(38);
+    await cliquer('[data-negociateur-carte="entree"]');
+    expect(container.querySelector('[data-champ="commission-carte-entree"]')).toBeNull();
+    expect(texte('[data-non-commissionne-choix="entree"]')).toBe('Non commissionné');
   });
 });

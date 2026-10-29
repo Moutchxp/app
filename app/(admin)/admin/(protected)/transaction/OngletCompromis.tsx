@@ -491,10 +491,14 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
               donnees={{ 'data-liste-negociateur': cote }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
           {desDeux && <ChoixSocieteVente valeur={societeChoisie} onChoisir={(s) => { setSocieteChoisie(s); setMotif(null); }} cle={`carte-${cote}`} />}
           {choisiNonCommissionne ? <span className="loc-muet" data-non-commissionne-choix={cote}>Non commissionné</span>
-            // LOT AA — pas de champ de commission ici pour un négociateur de l'autre société : elle se règle depuis sa ligne miroir.
-            : autreSociete !== null && choisi === actuel?.id ? <span className="loc-muet" data-commission-chez={cote}>Commission réglée chez {LIBELLE_SOCIETE[autreSociete]} :{' '}
-              <a className="trx-lien" href={adresseOrigine(autreSociete, v.id)}>Voir chez {LIBELLE_SOCIETE[autreSociete]}</a></span>
-            : avecUnite ? <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} propose={propose} />
+            // 🔴 LOT AG (Arno) — pour TOUT négociateur commissionné, le taux et le montant se règlent ici (calcul en direct). Pour un négociateur de
+            // l'autre société, ce sont EXACTEMENT les données de sa ligne miroir (la même ligne de la vente d'origine : aucune copie) ; sa commission
+            // reste comptée chez sa société seule — la mention « Commission réglée chez … » le rappelle sous le champ.
+            : avecUnite ? <>
+              <ChampMontantUnite mot="Commission versée" valeur={commission} onChange={setCommission} avecHt champ={`commission-carte-${cote}`} propose={propose} />
+              {autreSociete !== null && choisi === actuel?.id && <span className="loc-muet" data-commission-chez={cote}>Commission réglée chez {LIBELLE_SOCIETE[autreSociete]} :{' '}
+                <a className="trx-lien" href={adresseOrigine(autreSociete, v.id)}>Voir chez {LIBELLE_SOCIETE[autreSociete]}</a></span>}
+            </>
             : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>}
           <div className="trx-actions">
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || choix === ''} onClick={() => void enregistrer(Number(choix))} data-valider-negociateur>Valider</button>
@@ -792,7 +796,8 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   // distinctes ; « commission déduite / interne » n'est plus répété ici (le liseré de la commission le dit, accord d'Arno).
   const entete = <>
     <h5 className="trx-remuneration-titre" data-remuneration-titre={cote}>Négociateur de {mot}</h5>
-    <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{negociateur}</strong> ({LIBELLE_SOCIETE[societe]})</p>
+    {/* LOT AG — son taux, comme sur le bouton de la carte de la porteuse (la même ligne : une seule valeur). */}
+    <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{negociateur}</strong> ({LIBELLE_SOCIETE[societe]}){commissionne ? ` · ${pctFr(r.taux)} %` : ' · non commissionné'}</p>
     <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
   </>;
   if (!commissionne) return (
