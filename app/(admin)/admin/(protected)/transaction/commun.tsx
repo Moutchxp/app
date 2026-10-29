@@ -220,6 +220,13 @@ export const CSS_TRANSACTION = `
 /* LOT X (Arno) — « Commission du négociateur » entourée d'un liseré rouge fin (jeton d'alerte), coins arrondis comme les autres blocs, petit
    retrait intérieur ; jamais pour un non commissionné (la ligne n'existe pas). */
 .trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;box-sizing:border-box}
+/* LOT Y (Arno) — la couleur suit la règle du cumul « Commissions versées » : ROUGE (alerte) si elle y entre (indépendant), VERT (succès) sinon ;
+   la mention écrite (« déduite — dans les commissions versées » / « interne — non déduite ») accompagne toujours la couleur. */
+.trx-calcul-encadre--deduite{border-color:var(--color-svv-red)}
+.trx-calcul-encadre--interne{border-color:var(--color-svv-green-ink)}
+.trx-calcul-mention{grid-column:1 / -1;font-size:.78rem;font-weight:700}
+.trx-calcul-encadre--deduite .trx-calcul-mention{color:var(--color-svv-red)}
+.trx-calcul-encadre--interne .trx-calcul-mention{color:var(--color-svv-green-ink)}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
   .trx-calcul-resultat{grid-row:2}

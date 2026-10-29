@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
-  type HonorairesCote, type Remuneration } from '../../../../lib/transaction/commissions';
-import { classeCommission, libelleStatut, type Statut } from '../../../../lib/admin/statut';
+import { classeDeCommission, commissionDuCote, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
+  type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
+import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, parametre, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
@@ -63,7 +63,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   const liste = trierCompromis(d.compromis);
   // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
-  const tu = tuilesCompromis(liste, vue, resolveurDe(d.statutsNegociateurs));
+  const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
+  const tu = tuilesCompromis(liste, vue, statutDuLibelle);
   const detail = detailEpingle || detailSurvol;
   const signer = async (): Promise<void> => {
     if (acte === null) return;
@@ -138,7 +139,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <ul className="trx-cartes" data-liste-compromis>
           {liste.map((v) => {
             // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
-            if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} />;
+            if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} />;
             const r = v.repartition ?? null;
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
             // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
@@ -189,7 +190,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                     data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
                   {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
                       « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
-                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
+                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
                     onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
                 </section>
               );
@@ -332,8 +333,10 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id:
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle }: {
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
+  /** LOT Y — le résolveur des libellés importés, celui des tuiles (la même règle du cumul). */
+  statutDuLibelle?: StatutDuLibelle;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
@@ -391,6 +394,10 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   // 🔴 LOT T — les deux lignes de calcul sous le bouton (présentation seulement) : les honoraires de ce côté, puis la commission du négociateur.
   const honoraires = actuel === null ? null : honorairesDuCote(v, cote);
   const rem = actuel === null || actuelNonCommissionne ? null : remunerationDuCote(v, cote);
+  // 🔴 LOT Y — la classe de cette commission par LA règle du cumul « Commissions versées » (`classeDeCommission`, celle des tuiles) : sa ligne
+  // enregistrée ; sans ligne, le négociateur de ce côté (sa partie, figée sinon son compte ; sinon le compte rapproché de son libellé).
+  const ligneCote = v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote);
+  const classe = actuel === null ? null : classeDeCommission(v, ligneCote ?? { negociateur: partieDuCote?.negociateur ?? actuel.nom, cote, statut: null }, statutDuLibelle);
   const appliquer = (r: Remuneration): void => {
     const u = r.saisie?.unite ?? 'ttc';
     setEnvoi(true);
@@ -404,7 +411,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
           : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
-      {actuel !== null && <LignesCalcul cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
+      {actuel !== null && <LignesCalcul classe={classe} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
         enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
       {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
       {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
@@ -458,14 +465,19 @@ export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSai
  * FIXE alignée à droite, le résultat HT en gras, et juste dessous le TTC entre parenthèses, en vert. Les montants ne se coupent jamais ; quand la
  * place manque (téléphone, colonne étroite), le libellé passe au-dessus et HT / TTC restent l'un sous l'autre.
  */
-function LigneCalcul({ donnees, libelle, ttc, encadre = false }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
-  /** 🔴 LOT X — la commission du négociateur : un liseré rouge fin, pour la distinguer des honoraires (le mot l'accompagne toujours). */
-  encadre?: boolean }) {
+function LigneCalcul({ donnees, libelle, ttc, encadre = null }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /**
+   * 🔴 LOTS X / Y — la commission du négociateur, encadrée d'un liseré fin : ROUGE et « déduite — dans les commissions versées » si elle entre
+   * dans ce cumul (indépendant) ; VERT et « interne — non déduite » sinon (associé, salarié, statut à renseigner). Le mot accompagne la couleur.
+   */
+  encadre?: 'deduite' | 'interne' | null }) {
   return (
-    <p className={encadre ? 'trx-calcul-cote trx-calcul-grille trx-calcul-encadre' : 'trx-calcul-cote trx-calcul-grille'} {...donnees} data-ht-ttc>
+    <p className={encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`} {...donnees}
+      data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
       <strong className="trx-calcul-resultat" data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
       <span className="trx-calcul-ttc trx-vert" data-montant-ttc>({eur(ttc)} TTC)</span>
+      {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{encadre === 'deduite' ? 'déduite — dans les commissions versées' : 'interne — non déduite'}</span></>}
     </p>
   );
 }
@@ -481,8 +493,10 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = false }: { donnees: Reco
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null }: {
   cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
+  /** 🔴 LOT Y — la classe de la commission selon la règle du cumul (`classeDeCommission`) : la couleur du liseré. */
+  classe?: ClasseCommission | null;
   /** Faux : sans la 437 (ni commission enregistrée, ni « Appliquer le calcul »). */
   enregistree: boolean; occupe: boolean; onAppliquer: (r: Remuneration) => void;
   /** Ligne miroir : « Appliquer le calcul » aussi quand rien n'est encore enregistré (comme au lot R). */
@@ -497,7 +511,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         ttc={honoraires.ttc} />
     )}
     {rem !== null && (
-      <LigneCalcul encadre donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
+      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
         ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (
@@ -592,7 +606,8 @@ export const adresseOrigine = (porteuse: Societe, id: number): string => `/admin
  * HT dessous) — jamais le montant de la vente ni la commission totale. Non modifiable d'ici : « Voir la vente d'origine » ; seule la
  * rémunération de son négociateur se modifie (elle s'enregistre sur la vente d'origine, sans doublon).
  */
-function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void }) {
+function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
+  statutDuLibelle?: StatutDuLibelle }) {
   const m = v.miroir!;
   const c = carteCompromis(v, aujourdhui);
   const pctTexte = m.pourcentage === null ? null : `${m.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
@@ -631,7 +646,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Ven
             </span></dd></div>
           </dl>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
-            : m.cotes.map((x) => <RemunerationCote key={x.cote} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
+            : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
               baseTtc={x.baseTtc} pct={m.pourcentage} porteuse={m.porteuse} honoraires={x.part === undefined || x.netTtc === undefined ? null : { netTtc: x.netTtc, part: x.part, ttc: x.baseTtc }} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
               disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
         </div>
@@ -645,7 +660,9 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Ven
  * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
  * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
  */
-export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, porteuse, honoraires = null }: {
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, porteuse, honoraires = null, statutDuLibelle }: {
+  /** LOT Y — le résolveur des libellés importés (la règle du cumul). */
+  statutDuLibelle?: StatutDuLibelle;
   venteId: number; cote: 'entree' | 'sortie'; negociateur: string; societe: Societe; statut: Statut | null; baseTtc: number; pct: number | null;
   /** 🔴 LOT T — la société porteuse (« Honoraires reçus de … ») et la base décomposée (commission nette × part de ce côté) ; absente : ligne non montrée. */
   porteuse?: Societe; honoraires?: HonorairesCote | null;
@@ -691,7 +708,8 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
       <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}
         {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</p>
       {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte, « Honoraires reçus de … » en tête. */}
-      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide />
+      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
+        classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)} />
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Rémunération du négociateur de ${mot}`}>
