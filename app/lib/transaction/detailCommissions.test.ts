@@ -197,3 +197,56 @@ describe('🔴 LOT AO — le détail du « Solde net » : CA − commissions ver
     }
   });
 });
+
+describe('🔴 LOT AQ — « Ce que l’on doit » : par personne, les mêmes lignes ; Total à verser = tuile au centime', () => {
+  const v = (id: number, o: Partial<Vente> & { parties: Partie[]; retro?: number }): Vente => vente({ id, libelle: `V${id}`, honorairesTtc: 6000, ...o });
+  const indep = (porteuse: Societe, autre: Societe, nego = 'Jean-Baptiste PONS') => [partie('entree', 5, nego, porteuse, 50), partie('sortie', 8, 'Pierre Thevenin', autre, 50)];
+  it('un négociateur sur plusieurs compromis (cumul exact) ; le mois en cours, les mois précédents, les dates à renseigner ; acte signé et annulé exclus', async () => {
+    const { detailCa, detailDu } = await import('./detailCommissions');
+    const ventes = [
+      v(1, { dateCompromis: '2026-10-20', parties: indep('criterimmo', 'criterimmo'), lignes: [ligne(1, 'Jean-Baptiste PONS', 'entree', 1200)] }),
+      v(2, { dateCompromis: '2026-08-02', parties: indep('criterimmo', 'criterimmo'), lignes: [ligne(2, 'Jean-Baptiste PONS', 'entree', 900)] }),
+      v(3, { dateCompromis: null, parties: indep('criterimmo', 'criterimmo'), lignes: [ligne(3, 'Jean-Baptiste PONS', 'entree', 300)] }),
+      v(4, { statut: 'vendue', parties: indep('criterimmo', 'criterimmo'), lignes: [ligne(4, 'Jean-Baptiste PONS', 'entree', 5000)] }),
+      v(5, { statut: 'annulee', parties: indep('criterimmo', 'criterimmo'), lignes: [ligne(5, 'Jean-Baptiste PONS', 'entree', 7000)] }),
+    ];
+    const couts = detailCommissions(ventes, 'criterimmo');
+    const d = detailDu(couts, detailCa(ventes, 'criterimmo'), ventes, 'criterimmo', '2026-10-29');
+    expect(d.nbDossiers).toBe(3);
+    const jb = d.negociateurs.find((p) => p.nom === 'Jean-Baptiste PONS')!;
+    expect([jb.classe, jb.nbDossiers, jb.ttcC, jb.moisTtcC, jb.sansDateTtcC, jb.lignes.map((l) => l.venteId)]).toEqual(['independant', 3, 240000, 120000, 30000, [1, 2, 3]]);
+    expect(jb.htC).toBe(100000 + 75000 + 25000);
+    expect([d.total.htC, d.total.ttcC]).toEqual([couts.totalHtC, couts.totalTtcC]);
+    expect(d.total.ttcC).toBe(couts.versees.reduce((t, c) => t + c.ttcC, 0));
+  });
+  it('un apporteur sur plusieurs affaires ; une agence ; les internes à part (hors total)', async () => {
+    const { detailCa, detailDu } = await import('./detailCommissions');
+    const ventes = [
+      v(1, { apporteur: 'Gardien Dacquet', retro: 600, retroApporteur: { montant: 600, unite: 'ttc' }, dateCompromis: '2026-10-01',
+        parties: [partie('entree', 5, 'Arnaud', 'criterimmo', 80, { statut: 'associe' }), partie('exterieure', null, null, null, 20, { nom: 'Agence du Parc' })], lignes: [ligne(1, 'Arnaud', 'entree', 500)] }),
+      v(2, { apporteur: 'Gardien Dacquet', retro: 1200, retroApporteur: { montant: 1200, unite: 'ttc' }, dateCompromis: '2026-09-01', parties: [partie('entree', 5, 'Arnaud', 'criterimmo', 100, { statut: 'associe' })] }),
+    ];
+    const couts = detailCommissions(ventes, 'criterimmo');
+    const d = detailDu(couts, detailCa(ventes, 'criterimmo'), ventes, 'criterimmo', '2026-10-29');
+    expect(d.apporteurs.map((p) => [p.nom, p.nbDossiers, p.ttcC, p.moisTtcC])).toEqual([['Gardien Dacquet', 2, 180000, 60000]]);
+    expect(d.agences.map((p) => [p.nom, p.nbDossiers, p.ttcC])).toEqual([['Agence du Parc', 1, 108000]]);
+    expect(d.negociateurs.map((p) => [p.nom, p.classe, p.statuts, p.ttcC])).toEqual([['Arnaud', 'interne', ['associe'], 50000]]);
+    expect(d.internes.ttcC).toBe(50000);
+    expect(d.total.ttcC).toBe(180000 + 108000);
+  });
+  it('l’inter-cabinet dans les deux sens : reversé, reçu, solde — le même montant vu de l’autre page, en HT et en TTC', async () => {
+    const { detailCa, detailDu } = await import('./detailCommissions');
+    const a = v(1, { honorairesTtc: 7500, dateCompromis: '2026-10-02', parties: indep('criterimmo', 'macj') });          // CRITERIMMO reverse 3 750 TTC à MACJ
+    const b = v(2, { societe: 'macj', honorairesTtc: 4000, dateCompromis: '2026-09-02', parties: [partie('entree', 8, 'Pierre Thevenin', 'macj', 50), partie('sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 50)] }); // MACJ reverse 2 000 TTC
+    const page = (s: Societe) => {
+      const ventes = [a, b].map((x) => venteDansSociete(x, s)).filter((x): x is Vente => x !== null);
+      return detailDu(detailCommissions(ventes, s), detailCa(ventes, s), ventes, s, '2026-10-29');
+    };
+    const c = page('criterimmo'); const m = page('macj');
+    expect([c.reverse!.ttcC, c.recu!.ttcC, c.soldeInterTtcC]).toEqual([375000, 200000, -175000]);
+    expect([m.reverse!.ttcC, m.recu!.ttcC, m.soldeInterTtcC]).toEqual([200000, 375000, 175000]);
+    expect([c.reverse!.htC, m.recu!.htC, c.recu!.htC, m.reverse!.htC]).toEqual([312500, 312500, 166667, 166667]);
+    expect(c.soldeInterHtC).toBe(-m.soldeInterHtC);
+    expect([c.reverse!.moisTtcC, c.recu!.moisTtcC]).toEqual([375000, 0]);
+  });
+});

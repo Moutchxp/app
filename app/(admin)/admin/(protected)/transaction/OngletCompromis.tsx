@@ -19,8 +19,9 @@ import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
-import { detailCa, detailCommissions, detailSolde } from '../../../../lib/transaction/detailCommissions';
+import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
+import { BlocDu } from './BlocDu';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -381,6 +382,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           })}
         </ul>
       )}
+      {/* 🔴 LOT AQ (Arno) — « Ce que l'on doit — compromis non encore signés » : les mêmes lignes que les tuiles, par personne. */}
+      <BlocDu detail={detailDu(dc, dca, liste, vue, d.aujourdhui)} societe={vue} autreSociete={autreSociete}
+        titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
       <div className="trx-espace-annules" />
       <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}

@@ -2991,3 +2991,87 @@ describe('🔴 LOT AP — la trame des lignes de SOMME (présentation seule)', (
       'tr.trx-somme-ligne > th,tr.trx-somme-ligne > td{background:var(--trx-trame)}', '.trx-somme--finale{background:var(--trx-trame-finale)']) expect(css).toContain(r);
   });
 });
+
+describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés »', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => {
+    ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    for (const c of ['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']) window.localStorage.removeItem(`trx-du-section-${c}`);
+  });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // 41 (20/10) : JB indépendant 1 200 TTC, Mylène (MACJ) 40 % → 3 840 reversés, Agence du Parc 20 %, apporteur 2 400 ; 42 (12/08, mois précédent) : JB 600 TTC.
+  // 60 : portée par MACJ (Mylène à l'entrée), JB à la sortie → CRITERIMMO reçoit 50 % de 5 000 HT.
+  const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    lignes: [lc(2, JB.nom, 'entree', 600)] };
+  const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+      { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
+  const doc = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+  const page = async (societe: 'criterimmo' | 'macj') => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [v41, v42, v60].map((x) => venteDansSociete(x, societe)).filter((x): x is Vente => x !== null);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+
+  it('sous la liste, au-dessus de « Compromis annulés » : titre, « N dossiers », quatre sections ouvertes', async () => {
+    await page('criterimmo');
+    const bloc = container.querySelector('[data-bloc-du="criterimmo"]')!;
+    expect(bloc.compareDocumentPosition(container.querySelector('[data-liste-compromis]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(doc('#trx-du-titre')).toBe('Ce que l’on doit — compromis non encore signés');
+    expect(doc('[data-dossiers-du-bloc]')).toBe('3 dossiers');
+    expect([...container.querySelectorAll('[data-section-du]')].map((x) => x.getAttribute('data-section-du'))).toEqual(['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']);
+    expect([...container.querySelectorAll('[data-replier-du]')].every((x) => x.getAttribute('aria-expanded') === 'true')).toBe(true);
+  });
+
+  it('négociateurs : JB cumule ses deux compromis (dont ce mois), indépendant comptabilisé ; dépliée, la liste de ses affaires ; l’autre société rappelée', async () => {
+    await page('criterimmo');
+    const jb = `[data-ligne-du="negociateur-independants|${JB.nom}"]`;
+    expect(doc(`${jb} [data-cumul-du]`)).toBe('1 800 € TTC(1 500 € HT)');
+    expect(doc(`${jb} [data-dossiers-du]`)).toBe('2 dossiers');
+    expect(doc(`${jb} [data-mention-du]`)).toBe('Indépendant — comptabilisé dans « Commissions versées »');
+    expect(doc(`${jb} [data-dont-mois]`)).toBe('dont ce mois : 1 200 € TTC');
+    await cliquer(`${jb} [data-deplier-du]`);
+    expect([...container.querySelectorAll(`${jb} [data-aller-affaire-du]`)].map((x) => x.textContent)).toEqual(['DUPONT / MARTIN', 'ANCIEN']);
+    expect(doc('[data-autre-societe-du]')).toBe('Négociateurs de MACJ : rémunérés par MACJ — non comptés ici');
+    await cliquer(`${jb} [data-aller-affaire-du="41"]`);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await calmer();
+    expect(container.querySelector('[data-deplier="compromis-41"]')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('apporteurs, agences, inter-cabinet (reversé, reçu, solde) ; Total à verser = tuile « Commissions versées » au centime, en TTC et en HT', async () => {
+    await page('criterimmo');
+    expect(doc('[data-ligne-du="apporteur-apporteurs|Julien Deblois"] [data-cumul-du]')).toBe('2 400 € TTC(2 000 € HT)');
+    expect(doc('[data-ligne-du="agence-exterieur|Agence du Parc"] [data-cumul-du]')).toBe('1 920 € TTC(1 600 € HT)');
+    expect(doc('[data-ligne-du="reverse"] [data-cumul-du]')).toBe('3 840 € TTC(3 200 € HT)');
+    expect(doc('[data-ligne-du="recu"] [data-cumul-du]')).toBe('3 000 € TTC(2 500 € HT)');
+    expect(doc('[data-ligne-du="recu"] [data-dont-sans-date]')).toBe('dont date à renseigner : 3 000 € TTC');
+    expect(doc('[data-solde-inter]')).toBe('= Solde inter-cabinetCRITERIMMO doit 840 € TTC à MACJ');
+    for (const u of ['ttc', 'ht'] as const) {
+      await cliquer(`[data-afficher="${u}"]`);
+      expect(texte('[data-total-a-verser] [data-montant-grand]').replace(' versées', '')).toBe(texte(`[data-tuile="commissions"] [data-commissions-${u}]`));
+    }
+    expect(doc('[data-internes-du]')).toBe('Commissions internes (non déduites) : 0 € HT');
+  });
+
+  it('MACJ : le même solde, vu dans l’autre sens', async () => {
+    await page('macj');
+    expect(doc('[data-solde-inter]')).toBe('= Solde inter-cabinetCRITERIMMO doit 840 € TTC à MACJ');
+    expect(doc('[data-ligne-du="reverse"] [data-cumul-du]')).toBe('3 000 € TTC(2 500 € HT)');
+    expect(doc('[data-ligne-du="recu"] [data-cumul-du]')).toBe('3 840 € TTC(3 200 € HT)');
+  });
+
+  it('une section se replie et le choix est retenu', async () => {
+    await page('criterimmo');
+    await cliquer('[data-replier-du="apporteurs"]');
+    expect(container.querySelector('[data-section-du="apporteurs"] .trx-du-corps')).toBeNull();
+    expect(window.localStorage.getItem('trx-du-section-apporteurs')).toBe('fermee');
+    await page('criterimmo');
+    expect(container.querySelector('[data-replier-du="apporteurs"]')!.getAttribute('aria-expanded')).toBe('false');
+  });
+});

@@ -1,6 +1,7 @@
 import { bilanVente, commissionNetteHt, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type ModeCommission, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
 import type { ClasseCommission } from '../admin/statut';
-import { classeDeCommission, commissionIgnoree, commissionneDePartie, type StatutDuLibelle } from './statutLigne';
+import { classeDeCommission, commissionIgnoree, commissionneDePartie, statutDeCommission, type StatutDuLibelle } from './statutLigne';
+import type { Statut } from '../admin/statut';
 
 export type { MontantSaisi, Unite };
 
@@ -212,8 +213,8 @@ export function apporteurVerseHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'r
  * classe (indépendant / interne / à renseigner) : ce que les tuiles additionnent, et ce que la fenêtre « Commissions versées » détaille. PUR.
  */
 export function commissionsNegociateurs(v: VenteTuile, societe: Societe | null, b: BilanVente, statutDuLibelle?: StatutDuLibelle):
-  { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; ht: number }[] {
-  const out: { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; ht: number }[] = [];
+  { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; statut: Statut | null; ht: number }[] {
+  const out: { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; statut: Statut | null; ht: number }[] = [];
   for (const l of v.lignes) {
     if (l.role !== 'negociateur') continue;
     // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ : restée en base, ignorée (ni versée, ni interne).
@@ -224,7 +225,8 @@ export function commissionsNegociateurs(v: VenteTuile, societe: Societe | null, 
     const s = societeDeLigne(v, l);
     if (societe !== null && s !== null && s !== societe) continue;
     if (societe !== null && s === null && b.caHt === 0) continue;
-    out.push({ negociateur: l.negociateur, cote: l.cote, classe: classeDeCommission(v, l, statutDuLibelle), ht: enHt(m) });
+    // 🔴 LOT AQ — le statut à la vente (montré dans « Ce que l'on doit ») ; la classe en dérive, comme avant.
+    out.push({ negociateur: l.negociateur, cote: l.cote, classe: classeDeCommission(v, l, statutDuLibelle), statut: statutDeCommission(v, l, statutDuLibelle), ht: enHt(m) });
   }
   return out;
 }

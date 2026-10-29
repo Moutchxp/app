@@ -1,6 +1,7 @@
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Societe, type Vente } from './modele';
 import { apporteurVerseHt, commissionsNegociateurs, type VenteTuile } from './commissions';
 import type { StatutDuLibelle } from './statutLigne';
+import type { Statut } from '../admin/statut';
 import { auCentime, centimesRepartition } from './repartition';
 
 /**
@@ -22,8 +23,8 @@ export type CleVersee = 'apporteurs' | `inter-cabinet-${Societe}` | 'exterieur' 
 export type CleInfo = 'internes' | 'a-renseigner' | 'neutralise';
 export type CleCout = CleVersee | CleInfo;
 
-/** Une ligne de coût, en CENTIMES (HT et TTC). */
-export interface LigneCout { venteId: number; cle: CleCout; qui: string; htC: number; ttcC: number }
+/** Une ligne de coût, en CENTIMES (HT et TTC). 🔴 LOT AQ — `statut` : celui du négociateur à la vente (ses lignes seules). */
+export interface LigneCout { venteId: number; cle: CleCout; qui: string; htC: number; ttcC: number; statut?: Statut | null }
 export interface CategorieCout { cle: CleCout; libelle: string; lignes: LigneCout[]; htC: number; ttcC: number }
 export interface AffaireCout {
   id: number; libelle: string; dateCompromis: string | null;
@@ -71,7 +72,9 @@ function negociateursDe(v: VenteDetail, s: Societe): string {
 export function detailCommissions(ventes: readonly VenteDetail[], societe: Societe | null, statutDuLibelle?: StatutDuLibelle): DetailCommissions {
   const enCours = ventes.filter((v) => v.statut === 'compromis');
   const lignes: LigneCout[] = [];
-  const ajouter = (venteId: number, cle: CleCout, qui: string, htC: number, ttcC: number): void => { if (htC !== 0 || ttcC !== 0) lignes.push({ venteId, cle, qui, htC, ttcC }); };
+  const ajouter = (venteId: number, cle: CleCout, qui: string, htC: number, ttcC: number, statut?: Statut | null): void => {
+    if (htC !== 0 || ttcC !== 0) lignes.push({ venteId, cle, qui, htC, ttcC, ...(statut !== undefined ? { statut } : {}) });
+  };
   for (const v of enCours) {
     const b = bilanVente(v, societe);
     const r = v.repartition ?? null;
@@ -91,7 +94,7 @@ export function detailCommissions(ventes: readonly VenteDetail[], societe: Socie
       });
     }
     for (const c of commissionsNegociateurs(v, societe, b, statutDuLibelle)) {
-      ajouter(v.id, c.classe === 'independant' ? 'independants' : c.classe === 'interne' ? 'internes' : 'a-renseigner', c.negociateur, ...deux(c.ht, undefined, undefined));
+      ajouter(v.id, c.classe === 'independant' ? 'independants' : c.classe === 'interne' ? 'internes' : 'a-renseigner', c.negociateur, ...deux(c.ht, undefined, undefined), c.statut);
     }
     if (b.neutraliseHt !== 0) {
       const autres = SOCIETES.filter((s) => s !== b.porteuse);
@@ -232,4 +235,75 @@ export function detailSolde(ca: DetailCa, couts: DetailCommissions): DetailSolde
     return { id: a.id, libelle: a.libelle, dateCompromis: a.dateCompromis, recueDe: a.recueDe, caHtC: a.caHtC, caTtcC: a.caTtcC, couts: versees, soldeHtC: a.caHtC - vHt, soldeTtcC: a.caTtcC - vTtc };
   });
   return { ca, couts, totalHtC: ca.totalHtC - couts.totalHtC, totalTtcC: ca.totalTtcC - couts.totalTtcC, affaires };
+}
+
+// ── 🔴 LOT AQ (Arno, 29/10/2026) — « CE QUE L'ON DOIT — COMPROMIS NON ENCORE SIGNÉS » ──────────────────────────────────────────────────
+//
+// Le même périmètre que les tuiles (compromis en cours : ni acte signé, ni annulés, quel que soit leur mois) et les MÊMES lignes au centime
+// (`detailCommissions`, `detailCa`) regroupées par personne : négociateurs, apporteurs, agences, inter-cabinet. Aucun calcul recopié : le
+// « Total à verser » EST le total de la tuile « Commissions versées ». Chaque montant dit la part des compromis du mois en cours (date du
+// compromis) et celle des affaires sans date (« date à renseigner », jamais perdues).
+
+/** Un montant en centimes, avec sa part « ce mois » et sa part « date à renseigner ». */
+export interface SommeDu { htC: number; ttcC: number; moisHtC: number; moisTtcC: number; sansDateHtC: number; sansDateTtcC: number }
+export interface LigneDu { venteId: number; date: string | null; htC: number; ttcC: number; statut?: Statut | null }
+/** Une personne (négociateur, apporteur, agence) ou un sens d'inter-cabinet : ses affaires et leur cumul. */
+export interface PersonneDu extends SommeDu { cle: string; nom: string; lignes: LigneDu[]; nbDossiers: number;
+  /** Négociateurs : la classe de ses commissions (indépendant : dans le total ; interne / à renseigner : hors total). */
+  classe?: 'independant' | 'interne' | 'a_renseigner'; statuts?: (Statut | null)[] }
+export interface DetailDu {
+  nbDossiers: number;
+  negociateurs: PersonneDu[]; apporteurs: PersonneDu[]; agences: PersonneDu[];
+  /** L'autre société (une société vue) ; null : nos deux sociétés. */
+  autre: Societe | null; reverse: PersonneDu | null; recu: PersonneDu | null;
+  /** Reçu − reversé (centimes) : positif, l'autre société doit ce montant à la société vue ; négatif, l'inverse. */
+  soldeInterHtC: number; soldeInterTtcC: number;
+  /** Nos deux sociétés : l'inter-cabinet entre elles, neutralisé. */
+  neutralise: PersonneDu | null;
+  /** = le total de la tuile « Commissions versées ». */
+  total: SommeDu; internes: SommeDu; aRenseigner: SommeDu;
+}
+
+const VIDE: SommeDu = { htC: 0, ttcC: 0, moisHtC: 0, moisTtcC: 0, sansDateHtC: 0, sansDateTtcC: 0 };
+/** La somme de lignes, avec sa part du mois (`mois` : « AAAA-MM ») et sa part sans date. PUR. */
+export function sommeDu(lignes: readonly LigneDu[], mois: string): SommeDu {
+  return lignes.reduce((t, l) => ({ htC: t.htC + l.htC, ttcC: t.ttcC + l.ttcC,
+    moisHtC: t.moisHtC + (l.date !== null && l.date.startsWith(mois) ? l.htC : 0), moisTtcC: t.moisTtcC + (l.date !== null && l.date.startsWith(mois) ? l.ttcC : 0),
+    sansDateHtC: t.sansDateHtC + (l.date === null ? l.htC : 0), sansDateTtcC: t.sansDateTtcC + (l.date === null ? l.ttcC : 0) }), { ...VIDE });
+}
+
+/** 🔴 LOT AQ — « CE QUE L'ON DOIT » des compromis en cours, pour une société (null : nos deux sociétés), au jour `aujourdhui` (AAAA-MM-JJ). PUR. */
+export function detailDu(couts: DetailCommissions, ca: DetailCa, ventes: readonly Pick<Vente, 'id' | 'statut' | 'dateCompromis'>[], societe: Societe | null, aujourdhui: string): DetailDu {
+  const mois = aujourdhui.slice(0, 7);
+  const dates = new Map(ventes.map((v) => [v.id, v.dateCompromis || null]));
+  const ligne = (l: { venteId: number; htC: number; ttcC: number; statut?: Statut | null }): LigneDu => ({ venteId: l.venteId, date: dates.get(l.venteId) ?? null, htC: l.htC, ttcC: l.ttcC,
+    ...(l.statut !== undefined ? { statut: l.statut } : {}) });
+  const tri = (a: LigneDu, b: LigneDu): number => (a.date === b.date ? b.venteId - a.venteId : a.date === null ? 1 : b.date === null ? -1 : b.date.localeCompare(a.date));
+  const personne = (cle: string, nom: string, lignes: LigneDu[], extra: Partial<PersonneDu> = {}): PersonneDu => {
+    const l = [...lignes].sort(tri);
+    return { cle, nom, lignes: l, nbDossiers: new Set(l.map((x) => x.venteId)).size, ...sommeDu(l, mois), ...extra };
+  };
+  const parQui = (cles: readonly CleCout[], prefixe: string, extra: (ls: LigneCout[]) => Partial<PersonneDu> = () => ({})): PersonneDu[] => {
+    const groupes = new Map<string, LigneCout[]>();
+    for (const c of [...couts.versees, ...couts.infos]) if (cles.includes(c.cle)) for (const l of c.lignes) groupes.set(`${c.cle}|${l.qui}`, [...(groupes.get(`${c.cle}|${l.qui}`) ?? []), l]);
+    return [...groupes.entries()].map(([k, ls]) => personne(`${prefixe}-${k}`, ls[0].qui, ls.map(ligne), extra(ls)))
+      .sort((a, b) => b.ttcC - a.ttcC || a.nom.localeCompare(b.nom));
+  };
+  const classeDe = (cle: CleCout): PersonneDu['classe'] => (cle === 'independants' ? 'independant' : cle === 'internes' ? 'interne' : 'a_renseigner');
+  const negociateurs = parQui(['independants', 'internes', 'a-renseigner'], 'negociateur', (ls) => ({ classe: classeDe(ls[0].cle), statuts: [...new Set(ls.map((l) => l.statut ?? null))] }));
+  const autre = societe === null ? null : SOCIETES.find((s) => s !== societe) ?? null;
+  const lignesDe = (cle: CleCout): LigneDu[] => [...couts.versees, ...couts.infos].filter((c) => c.cle === cle).flatMap((c) => c.lignes.map(ligne));
+  const reverse = autre === null ? null : personne('reverse', LIBELLE_SOCIETE[autre], lignesDe(`inter-cabinet-${autre}`));
+  const recu = autre === null ? null : personne('recu', LIBELLE_SOCIETE[autre], ca.sections.filter((c) => c.cle === `recu-${autre}`).flatMap((c) => c.lignes.map(ligne)));
+  const neutralise = societe !== null ? null : personne('neutralise', 'CRITERIMMO ↔ MACJ', lignesDe('neutralise'));
+  const versees = couts.versees.flatMap((c) => c.lignes.map(ligne));
+  const total = sommeDu(versees, mois);
+  return {
+    nbDossiers: ventes.filter((v) => v.statut === 'compromis').length,
+    negociateurs, apporteurs: parQui(['apporteurs'], 'apporteur'), agences: parQui(['exterieur'], 'agence'),
+    autre, reverse, recu, soldeInterHtC: (recu?.htC ?? 0) - (reverse?.htC ?? 0), soldeInterTtcC: (recu?.ttcC ?? 0) - (reverse?.ttcC ?? 0), neutralise,
+    // le total à verser : la somme exacte des lignes versées, celle de la tuile (`couts.totalHtC`) — vérifié par les tests
+    total: { ...total, htC: couts.totalHtC, ttcC: couts.totalTtcC },
+    internes: sommeDu(lignesDe('internes'), mois), aRenseigner: sommeDu(lignesDe('a-renseigner'), mois),
+  };
 }
