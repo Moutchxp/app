@@ -106,7 +106,9 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
           🔴 LOT AV — toute la ligne d'en-tête est le bouton : la flèche et le titre à gauche ; « N dossiers » et le total à verser à droite. */}
       <h3 className="trx-du-entete">
         <button type="button" className="trx-du-bascule" aria-expanded={ouvert} aria-controls="trx-du-contenu" onClick={() => setOuvert((o) => !o)} data-ouvrir-du>
-          <span className="trx-du-gauche"><span className="trx-du-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span><span id="trx-du-titre">Synthèse — ce que l’on doit et à qui</span></span>
+          <span className="trx-du-gauche"><span className="trx-du-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span><span id="trx-du-titre" className="trx-du-titre-long">Synthèse — ce que l’on doit et à qui</span>
+            {/* 🔴 LOT AW (accord d'Arno) — au téléphone seulement, sur cette ligne fermée : le titre court (le complet reste à l'ordinateur). */}
+            <span className="trx-du-titre-court" data-titre-court-du>Ce que l’on doit</span></span>
           <span className="trx-du-droite"><span className="loc-muet" data-dossiers-du-bloc>{motDossiers(detail.nbDossiers)}</span>
             <span className="trx-du-total-entete"><span className="trx-du-mot-total">Total à verser par {qui}</span>
               <Montants ht={detail.total.htC / 100} ttc={detail.total.ttcC / 100} sens="verse" disposition="ligne" donnees={{ 'data-total-entete-du': '' }} /></span></span>
@@ -164,6 +166,7 @@ export const CSS_BLOC_DU = `
 .trx-du-droite{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-end;gap:2px 16px;margin-left:auto;font-weight:400;text-align:right}
 .trx-du-total-entete{display:inline-flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-end;gap:0 8px;white-space:nowrap}
 .trx-du-mot-total{font-weight:700}
+.trx-du-titre-court{display:none}
 .trx-du-total-entete .trx-mt-grand{font-size:1.15rem}
 .trx-du-contenu{display:flex;flex-direction:column;gap:12px}
 .trx-du-sous-titre{margin:-4px 0 0;font-size:.9rem}
@@ -219,15 +222,19 @@ export const CSS_BLOC_DU = `
 .trx-du-mention-autre{margin:0;padding:4px 12px;color:var(--color-svv-muted);font-size:.85rem}
 /* Téléphone : une seule colonne — le nom (et sa mention) d'abord, le montant dessous, aligné à droite ; rien n'écrase le nom. */
 @media (max-width:560px){
-  .trx-du{padding:12px 10px 10px;margin:36px 0 0}
-  /* LOT AV — au téléphone, la ligne fermée ne tient pas en deux rangées sans rien raccourcir : trois au plus — la flèche et le titre ;
-     « N dossiers » et « Total à verser par … » ; le montant, aligné à droite (choix fait seul, rien n'est retiré). */
-  .trx-du-bascule{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;row-gap:2px;align-items:baseline;padding:2px 0}
+  .trx-du{padding:12px 8px 10px;margin:36px 0 0}
+  /* 🔴 LOT AW (accord d'Arno, téléphone seulement, cette ligne fermée seulement) — deux lignes : « Ce que l'on doit » et « N dossiers » ;
+     puis « Total à verser par … » et le montant principal seul (le petit entre parenthèses reste à l'ordinateur et dans le bloc ouvert). */
+  .trx-du-bascule{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:6px;row-gap:2px;align-items:baseline;padding:2px 0}
   .trx-du-droite,.trx-du-total-entete{display:contents}
-  .trx-du-gauche{grid-column:1/-1;gap:6px;font-size:.88rem}
-  [data-dossiers-du-bloc]{font-size:.85rem;white-space:nowrap}
-  .trx-du-mot-total{font-size:.85rem;text-align:right;min-width:0}
-  .trx-du-total-entete [data-total-entete-du]{grid-column:1/-1;justify-self:end;white-space:nowrap}
+  .trx-du-gauche{gap:6px}
+  .trx-du-titre-long{display:none}
+  .trx-du-titre-court{display:inline}
+  [data-dossiers-du-bloc]{font-size:.85rem;white-space:nowrap;text-align:right}
+  .trx-du-mot-total{font-size:.7rem;font-weight:400;min-width:0;white-space:normal}
+  .trx-du-total-entete [data-total-entete-du]{justify-self:end;white-space:nowrap}
+  .trx-du-total-entete .trx-mt-grand{font-size:.88rem}
+  .trx-du-total-entete [data-montant-petit]{display:none}
   .trx-du-tete,.trx-du-personne,.trx-du-total,.trx-du-solde{grid-template-columns:minmax(0,1fr);row-gap:4px}
   .trx-du-montant{align-items:flex-end}
   .trx-du-affaires{padding-left:14px;padding-right:8px}

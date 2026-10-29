@@ -3426,3 +3426,33 @@ describe('🔴 LOT AV — la synthèse fermée à l’arrivée, sur une ligne ; 
     expect(CSS_BLOC_DU).toContain('.trx-du-bascule:focus-visible{outline:2px solid var(--color-svv-red)');
   });
 });
+
+describe('🔴 LOT AW — téléphone : la ligne fermée en deux lignes, titre court et montant principal seul (accord d’Arno, cette ligne seulement)', () => {
+  it('le titre court est dans la ligne à côté du complet ; au téléphone seulement : titre complet et petit montant de la ligne fermée retirés, rien d’autre', async () => {
+    const { CSS_BLOC_DU } = await import('./BlocDu');
+    const css = CSS_BLOC_DU.replace(/\s+/g, ' ');
+    // ordinateur : le titre court n'est pas affiché
+    expect(css).toContain('.trx-du-titre-court{display:none}');
+    const tel = css.slice(css.indexOf('@media (max-width:560px)'));
+    expect(tel).toContain('.trx-du-titre-long{display:none}');
+    expect(tel).toContain('.trx-du-titre-court{display:inline}');
+    // le petit montant : retiré seulement dans la ligne fermée (.trx-du-total-entete), jamais dans le bloc ouvert
+    expect(tel).toContain('.trx-du-total-entete [data-montant-petit]{display:none}');
+    expect(css.match(/\[data-montant-petit\]\{display:none\}/g)!.length).toBe(1);
+    expect(css.match(/display:none/g)!.length).toBe(3);
+  });
+  it('la ligne porte les deux titres, le nombre de dossiers et le total (grand et petit) — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      listeCompromis = [compromis];
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+      await cliquer('[data-vue="compromis"]');
+      const b = container.querySelector('[data-ouvrir-du]')!;
+      expect(b.querySelector('#trx-du-titre')!.textContent).toBe('Synthèse — ce que l’on doit et à qui');
+      expect(b.querySelector('[data-titre-court-du]')!.textContent).toBe('Ce que l’on doit');
+      expect(b.querySelector('[data-dossiers-du-bloc]')).not.toBeNull();
+      expect(b.querySelector('[data-total-entete-du] [data-montant-grand]')).not.toBeNull();
+      expect(b.querySelector('[data-total-entete-du] [data-montant-petit]')).not.toBeNull();
+    }
+  });
+});
