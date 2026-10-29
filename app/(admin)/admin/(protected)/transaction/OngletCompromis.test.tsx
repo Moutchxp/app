@@ -3017,6 +3017,7 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
     await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-ouvrir-du]'); // LOT AV — la synthèse est fermée à l'arrivée
   };
 
   it('sous la liste, au-dessus de « Compromis annulés » : titre, « N dossiers », quatre sections ouvertes', async () => {
@@ -3069,13 +3070,13 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
     expect(doc('[data-ligne-du="recu"] [data-cumul-du]')).toBe('3 840 € TTC(3 200 € HT)');
   });
 
-  it('une section se replie et le choix est retenu', async () => {
+  it('une section se replie ; LOT AV : le repli n’est plus retenu — à la visite suivante, la synthèse ouverte montre tout', async () => {
     await page('criterimmo');
     await cliquer('[data-replier-du="apporteurs"]');
     expect(container.querySelector('[data-section-du="apporteurs"] .trx-du-corps')).toBeNull();
-    expect(window.localStorage.getItem('trx-du-section-apporteurs')).toBe('fermee');
+    expect(window.localStorage.getItem('trx-du-section-apporteurs')).toBeNull();
     await page('criterimmo');
-    expect(container.querySelector('[data-replier-du="apporteurs"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-replier-du="apporteurs"]')!.getAttribute('aria-expanded')).toBe('true');
   });
 });
 
@@ -3102,6 +3103,7 @@ describe('🔴 LOT AS — la synthèse : l’ordre des catégories, chacune une 
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
     await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-ouvrir-du]'); // LOT AV — la synthèse est fermée à l'arrivée
   };
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
   const grand = (sel: string): number => centimes(container.querySelector(`${sel} [data-montant-grand]`)!.textContent!);
@@ -3144,15 +3146,16 @@ describe('🔴 LOT AS — la synthèse : l’ordre des catégories, chacune une 
     expect(texte('[data-total-a-verser] [data-montant-grand]')).toBe('8 300 € HT');
   });
 
-  it('replier une catégorie replie sa carte entière (l’en-tête reste) ; le choix est retenu', async () => {
+  it('replier une catégorie replie sa carte entière (l’en-tête reste) ; LOT AV : le choix n’est plus retenu', async () => {
     await page('macj');
     await cliquer('[data-replier-du="inter-cabinet"]');
     const carte = container.querySelector('[data-section-du="inter-cabinet"]')!;
     expect([...carte.children].map((x) => x.className)).toEqual(['trx-du-tete trx-somme']);
     expect(carte.querySelector('[data-solde-inter]')).toBeNull();
-    expect(window.localStorage.getItem('trx-du-section-inter-cabinet')).toBe('fermee');
+    // LOT AV — plus retenu : à la visite suivante, la synthèse ouverte montre toutes ses cartes
+    expect(window.localStorage.getItem('trx-du-section-inter-cabinet')).toBeNull();
     await page('criterimmo');
-    expect(container.querySelector('[data-replier-du="inter-cabinet"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-replier-du="inter-cabinet"]')!.getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelector('[data-replier-du="negociateurs"]')!.getAttribute('aria-expanded')).toBe('true');
   });
 
@@ -3163,7 +3166,7 @@ describe('🔴 LOT AS — la synthèse : l’ordre des catégories, chacune une 
     expect(css).toContain('.trx-du-cartes{display:flex;flex-direction:column;gap:16px}');
     expect(css).toContain('border:1px solid var(--color-svv-line);border-left:5px solid var(--trx-du-lisere');
     expect(css).toContain('border-radius:12px; background:var(--color-svv-surface-raised);box-shadow:');
-    expect(css).toContain('.trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere;font-size:1rem;font-weight:800}');
+    expect(css).toContain('.trx-du-entete{margin:0;font-size:1rem;font-weight:800}'); // LOT AV : le h3 porte le bouton de la ligne
     for (const c of ['negociateurs', 'inter', 'apporteurs', 'agences']) {
       expect(css).toContain(`var(--trx-lisere-${c})`);
       // défini en clair, en sombre (thème choisi) et en sombre (thème du système)
@@ -3187,7 +3190,7 @@ describe('🔴 LOT AR — la synthèse : une section à part, les dossiers toujo
     repartition: { retroApporteurTtc: 500, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
     lignes: [lc(2, JB.nom, 'entree', 601)] };
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
-  const onglet = async () => { listeCompromis = [v41, v42]; await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+  const onglet = async () => { listeCompromis = [v41, v42]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-ouvrir-du]'); }; // LOT AV
 
   it('sans clic, sous chaque intervenant, ses dossiers (lien, montant principal seul, sans parenthèse) ; leur somme = le cumul au centime, en TTC et en HT', async () => {
     await onglet();
@@ -3219,7 +3222,7 @@ describe('🔴 LOT AR — la synthèse : une section à part, les dossiers toujo
     expect(container.querySelector(jb)).toBeNull();
     act(() => { root.unmount(); }); root = createRoot(container);
     await onglet();
-    expect(container.querySelector('[data-replier-du="negociateurs"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-replier-du="negociateurs"]')!.getAttribute('aria-expanded')).toBe('true'); // LOT AV : plus retenu
   });
 
   it('une section à part : après la liste, avant « Compromis annulés » ; fond propre (variable commune clair / sombre)', async () => {
@@ -3257,6 +3260,7 @@ describe('🔴 LOT AT — « Compromis annulés » : dernier bloc de la liste, a
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
     await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-ouvrir-du]'); // LOT AV — la synthèse est fermée à l'arrivée
   };
   const bloc = () => container.querySelector('[data-bloc="compromis-annules"]');
   const avant = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -3322,6 +3326,7 @@ describe('🔴 LOT AU — « Total à verser par … » : le nom de la société
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(el); }); await calmer();
     await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-ouvrir-du]'); // LOT AV — la synthèse est fermée à l'arrivée
   };
   it('CRITERIMMO, MACJ et le CA global ; le montant ne change pas', async () => {
     const { LIBELLE_SOCIETE } = await import('../../../../lib/transaction/modele');
@@ -3333,5 +3338,91 @@ describe('🔴 LOT AU — « Total à verser par … » : le nom de la société
     await rendre(createElement(EcranGlobal));
     expect(texte('[data-libelle-total-du]')).toBe('Total à verser par CRITERIMMO et MACJ');
     expect(container.querySelector('[data-total-du]')!.textContent).not.toContain('—');
+  });
+});
+
+describe('🔴 LOT AV — la synthèse fermée à l’arrivée, sur une ligne ; un clic ouvre tout, un clic referme (accord d’Arno)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+      { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
+  const page = async (societe: 'criterimmo' | 'macj') => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [v41, v60].map((x) => venteDansSociete(x, societe)).filter((x): x is Vente => x !== null);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  const bouton = () => container.querySelector('[data-ouvrir-du]') as HTMLButtonElement;
+  const ouvertes = () => [...container.querySelectorAll('[data-replier-du]')].map((x) => x.getAttribute('aria-expanded'));
+
+  it('fermé à l’arrivée, une seule ligne : la flèche et le titre ; « N dossiers » et « Total à verser par … » = tuile, en TTC et en HT — CRITERIMMO et MACJ', async () => {
+    const { LIBELLE_SOCIETE } = await import('../../../../lib/transaction/modele');
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe);
+      const b = bouton();
+      expect([b.tagName, b.type, b.getAttribute('aria-expanded'), b.closest('h3') !== null]).toEqual(['BUTTON', 'button', 'false', true]);
+      expect(b.querySelector('#trx-du-titre')!.textContent).toBe('Synthèse — ce que l’on doit et à qui');
+      expect(b.querySelector('.trx-du-chevron')!.textContent).toBe('▸');
+      expect(b.querySelector('[data-dossiers-du-bloc]')!.textContent).toMatch(/^\d+ dossiers?$/);
+      expect(b.querySelector('.trx-du-mot-total')!.textContent).toBe(`Total à verser par ${LIBELLE_SOCIETE[societe]}`);
+      // fermé : rien d'autre que la ligne
+      expect(container.querySelector('[data-cartes-du]')).toBeNull();
+      expect(container.querySelector('[data-total-du]')).toBeNull();
+      expect(container.querySelector('[data-bloc-du]')!.children.length).toBe(2); // le style et la ligne
+      for (const u of ['ttc', 'ht'] as const) {
+        await cliquer(`[data-afficher="${u}"]`);
+        const grand = b.querySelector('[data-total-entete-du] [data-montant-grand]')!;
+        expect(texte('[data-total-entete-du] [data-montant-grand]').replace(' versées', '')).toBe(texte(`[data-tuile="commissions"] [data-commissions-${u}]`));
+        expect(grand.className).toContain('trx-rouge');
+        expect(b.querySelector('[data-total-entete-du] [data-montant-petit]')!.textContent).toMatch(u === 'ttc' ? /HT\)$/ : /TTC\)$/);
+      }
+      expect(bouton().getAttribute('aria-expanded')).toBe('false');
+    }
+  });
+
+  it('un clic ouvre TOUT (les 4 cartes ouvertes, même repliées à l’ouverture précédente) ; un clic referme ; le choix n’est pas retenu — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe);
+      await cliquer('[data-ouvrir-du]');
+      expect(bouton().getAttribute('aria-expanded')).toBe('true');
+      expect(bouton().querySelector('.trx-du-chevron')!.textContent).toBe('▾');
+      expect(ouvertes()).toEqual(['true', 'true', 'true', 'true']);
+      for (const sel of ['[data-solde-inter]', '[data-total-du]', '[data-internes-du]', '[data-affaires-du]', '[data-sous-titre-du]']) expect(container.querySelector(sel)).not.toBeNull();
+      // le total du bas et celui de la ligne : le même montant
+      expect(texte('[data-total-a-verser] [data-montant-grand]')).toBe(texte('[data-total-entete-du] [data-montant-grand]'));
+      // une catégorie repliée, puis le bloc refermé et rouvert : tout est ouvert
+      await cliquer('[data-replier-du="apporteurs"]');
+      expect(ouvertes()).toEqual(['true', 'true', 'false', 'true']);
+      await cliquer('[data-ouvrir-du]');
+      expect(bouton().getAttribute('aria-expanded')).toBe('false');
+      expect(container.querySelector('[data-cartes-du]')).toBeNull();
+      await cliquer('[data-ouvrir-du]');
+      expect(ouvertes()).toEqual(['true', 'true', 'true', 'true']);
+      // visite suivante : fermé
+      await page(societe);
+      expect(bouton().getAttribute('aria-expanded')).toBe('false');
+      expect(Object.keys(window.localStorage).filter((k) => k.startsWith('trx-du'))).toEqual([]);
+    }
+  });
+
+  it('clavier : un vrai bouton, atteignable au clavier (Entrée et Espace le déclenchent), le focus visible', async () => {
+    await page('criterimmo');
+    const b = bouton();
+    b.focus();
+    expect(document.activeElement).toBe(b);
+    expect(b.tabIndex).toBe(0);
+    // Entrée / Espace sur un <button> produisent son clic (navigateur) : le geste est le même
+    await act(async () => { b.click(); }); await calmer();
+    expect(bouton().getAttribute('aria-expanded')).toBe('true');
+    expect(bouton().getAttribute('aria-controls')).toBe('trx-du-contenu');
+    expect(container.querySelector('#trx-du-contenu')).not.toBeNull();
+    const { CSS_BLOC_DU } = await import('./BlocDu');
+    expect(CSS_BLOC_DU).toContain('.trx-du-bascule:focus-visible{outline:2px solid var(--color-svv-red)');
   });
 });
