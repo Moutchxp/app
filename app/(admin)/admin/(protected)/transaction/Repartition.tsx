@@ -576,11 +576,11 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
       <thead><tr><td /><th scope="col">{MOT_UNITE[u]} ({MOT_UNITE[autre]})</th></tr></thead>
       <tbody>
-        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
+        <tr className="trx-somme-ligne" data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
         {apporteurs.length === 0
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
           : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'verse', `apporteur-${i}`)}</tr>)}
-        <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
+        <tr className="trx-resume-base-total trx-somme-ligne" data-resume="base"><th scope="row">= Base de répartition{' '}
           <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, 'neutre', 'base', baseHt)}</tr>
       </tbody>
     </table>

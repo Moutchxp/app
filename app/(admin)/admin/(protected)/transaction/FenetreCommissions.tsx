@@ -88,7 +88,7 @@ function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, doss
           </div>
         </div>
         <div className="trx-fc-corps" data-mode-actif={mode}>{corps(mode)}</div>
-        <div className="trx-fc-pied">{pied}</div>
+        <div className="trx-fc-pied trx-somme--finale" data-pied-fenetre>{pied}</div>
       </div>
     </div>,
     document.querySelector('.svv-adm-root') ?? document.body,
@@ -128,7 +128,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
   );
   const section = (c: CategorieCout, info: boolean) => (
     <section key={c.cle} className={info ? 'trx-fc-section trx-fc-section--info' : 'trx-fc-section'} data-categorie={c.cle} aria-label={c.libelle}>
-      <div className="trx-fc-tete">
+      <div className={info ? 'trx-fc-tete' : 'trx-fc-tete trx-somme'}>
         <h3 className={c.cle === 'a-renseigner' ? 'trx-alerte' : undefined}>{c.libelle}</h3>
         <Montant htC={c.htC} ttcC={c.ttcC} versee={!info} donnees={{ 'data-sous-total': c.cle }} />
       </div>
@@ -153,7 +153,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
             </li>
           ))}
         </ul>
-        <div className="trx-fc-sous-total"><span>Versé sur cette affaire</span><Montant htC={a.verseHtC} ttcC={a.verseTtcC} versee donnees={{ 'data-verse-affaire': String(a.id) }} /></div>
+        <div className="trx-fc-sous-total trx-somme"><span>Versé sur cette affaire</span><Montant htC={a.verseHtC} ttcC={a.verseTtcC} versee donnees={{ 'data-verse-affaire': String(a.id) }} /></div>
       </section>
     );
   };
@@ -194,7 +194,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
     : societe === null ? `dont ventes portées par ${LIBELLE_SOCIETE[c.cle.slice('portee-'.length) as Societe]}` : 'dont ventes portées');
   const categorie = (c: CategorieCout) => (
     <section key={c.cle} className="trx-fc-section" data-categorie-solde={c.cle} aria-label={c.libelle}>
-      <div className="trx-fc-tete">
+      <div className="trx-fc-tete trx-somme">
         <h3>− {c.libelle}</h3>
         {c.lignes.length === 0
           ? <span className="trx-fc-montant trx-fc-info" data-aucun-solde={c.cle}><span>Aucun</span><strong>{eur(0)}</strong></span>
@@ -230,7 +230,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
             <Montant htC={l.htC} ttcC={l.ttcC} versee />
           </li>))}
       </ul>
-      <div className="trx-fc-sous-total"><span>= Solde net de l’affaire</span><Montant htC={a.soldeHtC} ttcC={a.soldeTtcC} versee={false} recu donnees={{ 'data-solde-affaire': String(a.id) }} /></div>
+      <div className="trx-fc-sous-total trx-somme"><span>= Solde net de l’affaire</span><Montant htC={a.soldeHtC} ttcC={a.soldeTtcC} versee={false} recu donnees={{ 'data-solde-affaire': String(a.id) }} /></div>
     </section>
   );
   return (
@@ -240,7 +240,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
         {/* La ligne de la tuile, passée ici (lot AO) : ce que le solde mesure. */}
         <p className="trx-fc-mention" data-solde-explication>CA {MOT_UNITE[u]} − commissions versées {MOT_UNITE[u]}</p>
         <section className="trx-fc-section" data-solde-ca aria-label={`Chiffre d’affaires de ${qui}`}>
-          <div className="trx-fc-tete"><h3>Chiffre d’affaires de {qui}</h3><Montant htC={ca.totalHtC} ttcC={ca.totalTtcC} versee={false} recu donnees={{ 'data-ca-solde': '' }} /></div>
+          <div className="trx-fc-tete trx-somme"><h3>Chiffre d’affaires de {qui}</h3><Montant htC={ca.totalHtC} ttcC={ca.totalTtcC} versee={false} recu donnees={{ 'data-ca-solde': '' }} /></div>
           <ul className="trx-fc-lignes">{dont.map((c) => (
             <li key={c.cle} className="trx-fc-ligne trx-fc-info" data-solde-dont={c.cle}><span className="trx-fc-quoi">{motDont(c)}</span><Montant htC={c.htC} ttcC={c.ttcC} versee={false} /></li>))}</ul>
           {/* Nos deux sociétés : le CA de chacune, sa part reçue comprise (ce que disait la tuile « Chiffre d'affaires »). */}
@@ -249,7 +249,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
               .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))} — part reçue comprise</p>)}
         </section>
         {couts.versees.map(categorie)}
-        <div className="trx-fc-total-ca" data-total-solde>{total}</div>
+        <div className="trx-fc-total-ca trx-somme--finale" data-total-solde>{total}</div>
         <div className="trx-fc-a-part" data-non-deduits>
           {couts.infos.map(info)}
           {mention}
@@ -291,6 +291,9 @@ export const CSS_FENETRE_COMMISSIONS = `
 .trx-fc-montant--gauche{align-items:flex-start;text-align:left}
 .trx-fc-info,.trx-fc-info .trx-fc-etiquette{color:var(--color-svv-muted)}
 .trx-fc-aucune{margin:0;color:var(--color-svv-muted);font-style:italic}
+.trx-fc-tete.trx-somme{margin:-4px -6px 0;padding:6px}
+.trx-fc-sous-total.trx-somme{padding:6px;border-top:0;margin:4px -6px -4px}
+.trx-fc-total-ca.trx-somme--finale{border-radius:10px}
 .trx-fc-sous-total{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline;padding-top:6px;border-top:1px solid var(--color-svv-line-strong);font-weight:700}
 .trx-fc-a-part{display:flex;flex-direction:column;gap:12px;margin-top:4px;padding-top:12px;border-top:2px dashed var(--color-svv-line-strong)}
 .trx-fc-section--info{background:var(--color-svv-field);color:var(--color-svv-muted)}

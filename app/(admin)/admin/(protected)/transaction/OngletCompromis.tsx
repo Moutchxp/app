@@ -311,11 +311,11 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
                           <tbody>
                             {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], pct(100),
-                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort')}
+                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort trx-somme-ligne')}
                             {apporteur
                               ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
                               : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
-                            {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base')}
+                            {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
                             {r.parties.map((p, i) => (
                               <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
                                 <td data-mot="%">{pct(p.pourcentage !== null ? p.pourcentage : ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100)}</td>
@@ -348,7 +348,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                                 {cHt !== null && cTtc !== null && !exterieurSeul && exterieurs.map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
                                   montant(e.ht, cTtc.exterieurs.filter((x) => x.ht > 0)[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
                                 {cHt !== null && cTtc !== null && ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
-                                  montant(cHt.resteHt, cTtc.resteHt, { vert: true, donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
+                                  montant(cHt.resteHt, cTtc.resteHt, { vert: true, donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base trx-somme-ligne')}
                               </>;
                             })()}
                           </tbody>

@@ -206,6 +206,22 @@ export const CSS_TRANSACTION = `
 /* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » ; trop étroit : il passe au-dessus, aligné à droite. */
 .trx-onglet-compromis > .trx-barre > .trx-actions{justify-content:flex-end;align-items:center}
 .trx-affichage{flex:0 0 auto}
+/* 🔴 LOT AP (Arno) — LES LIGNES DE SOMME sur une trame grise très légère (sous-totaux, CA, base, reste) ; le TOTAL FINAL d'une fenêtre un cran
+   plus marqué (trame plus soutenue, filet, gras) ; les lignes de détail restent sur la surface. Une variable commune, en clair et en sombre ;
+   contrastes mesurés (AA ≥ 4,5:1) : clair #f3f5f7 — vert 4,9 · rouge 7,5 ; #e9edf1 — vert 4,6 · rouge 6,9 ; sombre #263140 — vert 8,3 ·
+   rouge 4,7 ; #283445 — vert 8,0 · rouge 4,5 (le rouge sombre borne la trame finale : le cran de plus passe aussi par le filet et le gras). */
+.svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1}
+.svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-trame:#263140;--trx-trame-finale:#283445} }
+.trx-somme{background:var(--trx-trame);border-radius:8px}
+.trx-somme--finale{background:var(--trx-trame-finale);border-top:2px solid var(--color-svv-line-strong);font-weight:800}
+.trx-somme--finale strong,.trx-somme--finale > span{font-weight:800}
+tr.trx-somme-ligne > th,tr.trx-somme-ligne > td{background:var(--trx-trame)}
+tr.trx-somme-ligne > :first-child{border-top-left-radius:8px;border-bottom-left-radius:8px}
+tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right-radius:8px}
+/* Les tableaux qui portent des sommes (Répartition de la carte, résumé du panneau) sur la SURFACE : les lignes de détail restent sur fond
+   blanc (sombre : la surface), même posées dans un bloc gris (Informations communes) — la trame des sommes s'y voit. */
+.trx-table-repartition,.trx-resume-base{background:var(--color-svv-surface);border-radius:10px}
 /* 🔴 LOT AN — le même sélecteur en tête d'un formulaire ou d'un panneau (synchronisé avec le bloc). */
 .trx-form-affichage{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;grid-column:1/-1}
 @media (max-width:560px){

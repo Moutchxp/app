@@ -1307,7 +1307,7 @@ describe('🔴 LOT U — la base de répartition en tête du panneau ; les parts
     expect(container.querySelector(`${r} [data-resume-ttc="apporteur-0"]`)!.className).toBe('trx-mt-petit trx-rouge'); // LOT AM : le petit, même couleur
     expect(container.querySelector(`${r} [data-resume="apporteur"] th`)!.className).not.toContain('trx-rouge');
     expect(ligne(`${r} [data-resume="base"]`)).toEqual(['= Base de répartition tous les calculs ci-dessous partent de cette base', '5 416,67 € HT (6 500 € TTC)']);
-    expect(container.querySelector(`${r} [data-resume="base"]`)!.className).toBe('trx-resume-base-total');
+    expect(container.querySelector(`${r} [data-resume="base"]`)!.className).toBe('trx-resume-base-total trx-somme-ligne'); // LOT AP : la trame des sommes
     const bloc = container.querySelector(`${r} [data-bloc-repartition]`)!;
     expect(bloc.querySelector('[data-resume-base]')!.compareDocumentPosition(bloc.querySelector('[data-parties]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // 60 / 40 de 5 416,67 HT : au centime, et la somme tombe juste
@@ -2305,7 +2305,7 @@ describe('🔴 LOT AJ — « Part X − Reversé en inter-cabinet vers X » : un
     expect([th('part-reverse-macj'), cellule('part-reverse-macj', 'Société'), cellule('part-reverse-macj', '%'), valeur('part-reverse-macj'), rouge('part-reverse-macj')])
       .toEqual(['Part MACJ − Reversé en inter-cabinet vers MACJ', 'MACJ', '50 %', '2 708,33 € HT(3 250 € TTC)', true]);
     expect([th('part-criterimmo'), valeur('part-criterimmo'), rouge('part-criterimmo')]).toEqual(['Part CRITERIMMO', '2 708,34 € HT(3 250 € TTC)', false]);
-    expect([th('reste'), valeur('reste'), container.querySelector('[data-ligne-repartition="reste"]')!.className]).toEqual(['= Reste à CRITERIMMO', '2 708,34 € HT(3 250 € TTC)', 'tdb-fort trx-ligne-base']);
+    expect([th('reste'), valeur('reste'), container.querySelector('[data-ligne-repartition="reste"]')!.className]).toEqual(['= Reste à CRITERIMMO', '2 708,34 € HT(3 250 € TTC)', 'tdb-fort trx-ligne-base trx-somme-ligne']); // LOT AP
     expect(container.querySelector('[data-ligne-repartition="part-macj"]')).toBeNull();
     expect(container.querySelector('[data-ligne-repartition="reverse-macj"]')).toBeNull();
     // les mêmes centimes : la partie de Pierre, la ligne fusionnée, la tuile
@@ -2950,5 +2950,44 @@ describe('🔴 LOT AO — tuile CA sans fenêtre ; la fenêtre « Solde net » :
     expect(doc('[data-ca-societe="macj"]')).toBe('CA MACJ : 3 840 € TTC (3 200 € HT)');
     expect(doc('[data-info-solde="neutralise"] .trx-fc-tete .trx-fc-montant')).toBe('3 840 € TTC(3 200 € HT)');
     expect(grand('[data-fenetre-solde] [data-fenetre-total]')).toBe(centimes(texte('[data-solde-ttc]')));
+  });
+});
+
+describe('🔴 LOT AP — la trame des lignes de SOMME (présentation seule)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.uniteCommission; });
+  const avec: Vente = { ...compromis, lignes: [{ id: 1, negociateur: JB.nom, role: 'negociateur', montantTtc: 1200, montantHt: 1000, cote: 'entree', nature: 'compromis', compte: false,
+    origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] };
+  const fermer = async () => { await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }); await calmer(); };
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const trame = (sel: string): string[] => [...document.querySelectorAll(sel)].map((x) => (x.classList.contains('trx-somme--finale') ? 'finale' : x.classList.contains('trx-somme') ? 'somme' : 'detail'));
+
+  it('« Solde net » et « Commissions versées », dans les deux modes : sous-totaux sur la trame, total final plus marqué, détails sans trame', async () => {
+    listeCompromis = [avec]; await ouvrir(); await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-tuile="solde"]');
+    expect(trame('[data-solde-ca] .trx-fc-tete, [data-categorie-solde] .trx-fc-tete')).toEqual(['somme', 'somme', 'somme', 'somme', 'somme']);
+    expect(trame('[data-total-solde], [data-fenetre-solde] [data-pied-fenetre]')).toEqual(['finale', 'finale']);
+    expect(trame('[data-fenetre-solde] [data-ligne-solde]').every((x) => x === 'detail')).toBe(true);
+    await cliquerDoc('[data-fenetre-solde] [data-mode-fenetre="transaction"]');
+    expect(trame('[data-affaire-solde] .trx-fc-sous-total')).toEqual(['somme']);
+    expect(trame('[data-fenetre-solde] [data-ca-affaire-solde]')).toEqual(['detail']);
+    await fermer();
+    await cliquer('[data-tuile="commissions"]');
+    expect(trame('[data-fenetre-commissions] [data-categorie]:not(.trx-fc-section--info) > .trx-fc-tete')).toEqual(['somme', 'somme', 'somme', 'somme']);
+    expect(trame('[data-fenetre-commissions] [data-pied-fenetre]')).toEqual(['finale']);
+    await cliquerDoc('[data-fenetre-commissions] [data-mode-fenetre="transaction"]');
+    expect(trame('[data-fenetre-commissions] [data-affaire] .trx-fc-sous-total')).toEqual(['somme']);
+    expect(trame('[data-fenetre-commissions] [data-ligne-cout]').every((x) => x === 'detail')).toBe(true);
+  });
+
+  it('le tableau « Répartition » : la commission de la vente, la base et le reste sur la trame ; les parties et parts non', async () => {
+    listeCompromis = [avec]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    const lignes = [...container.querySelectorAll('[data-repartition-compromis] [data-ligne-repartition]')].map((x) => [x.getAttribute('data-ligne-repartition'), x.classList.contains('trx-somme-ligne')]);
+    expect(lignes.filter(([, t]) => t).map(([c]) => c)).toEqual(['commission', 'base', 'reste']);
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    for (const r of [".svv-adm-root{--trx-trame:#f3f5f7;--trx-trame-finale:#e9edf1}", ".svv-adm-root[data-theme='dark']{--trx-trame:#263140;--trx-trame-finale:#283445}",
+      'tr.trx-somme-ligne > th,tr.trx-somme-ligne > td{background:var(--trx-trame)}', '.trx-somme--finale{background:var(--trx-trame-finale)']) expect(css).toContain(r);
   });
 });
