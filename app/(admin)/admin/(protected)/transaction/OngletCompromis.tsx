@@ -454,6 +454,21 @@ export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSai
 }
 
 /**
+ * 🔴 LOT W (Arno) — UNE LIGNE DE CALCUL sur DEUX lignes, toujours : le libellé et l'opération à gauche ; à droite, dans une colonne de largeur
+ * FIXE alignée à droite, le résultat HT en gras, et juste dessous le TTC entre parenthèses, en vert. Les montants ne se coupent jamais ; quand la
+ * place manque (téléphone, colonne étroite), le libellé passe au-dessus et HT / TTC restent l'un sous l'autre.
+ */
+function LigneCalcul({ donnees, libelle, ttc }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number }) {
+  return (
+    <p className="trx-calcul-cote trx-calcul-grille" {...donnees} data-ht-ttc>
+      <span className="trx-calcul-libelle">{libelle}</span>{' '}
+      <strong className="trx-calcul-resultat" data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
+      <span className="trx-calcul-ttc trx-vert" data-montant-ttc>({eur(ttc)} TTC)</span>
+    </p>
+  );
+}
+
+/**
  * 🔴 LOT T (Arno) — SOUS LE BOUTON DU NÉGOCIATEUR, deux lignes de calcul lisibles :
  *   · « Honoraires partie vendeur / acquéreur » (ligne miroir : « Honoraires reçus de CRITERIMMO / MACJ ») : la commission nette après apporteur
  *     × la part de ce côté = la base ;
@@ -476,12 +491,12 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
   const manuelle = rem !== null && rem.saisie !== null && rem.modeEnregistre && rem.mode === 'manuelle';
   return <>
     {honoraires !== null && (
-      <p className="trx-calcul-cote" data-honoraires-cote={cote}><span className="trx-calcul-mot">{premier}</span> : {eur(honoraires.netTtc / TVA)} HT × {pctFr(honoraires.part)} % ={' '}
-        <HtTtc ttc={honoraires.ttc} /></p>
+      <LigneCalcul donnees={{ 'data-honoraires-cote': cote }} libelle={<><span className="trx-calcul-mot">{premier}</span> : <span className="trx-calcul-operation">{eur(honoraires.netTtc / TVA)} HT × {pctFr(honoraires.part)} % =</span></>}
+        ttc={honoraires.ttc} />
     )}
     {rem !== null && (
-      <p className="trx-calcul-cote" data-commission-negociateur={cote}><span className="trx-calcul-mot">Commission du négociateur</span> : {eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % ={' '}
-        <HtTtc ttc={rem.calculTtc} /></p>
+      <LigneCalcul donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
+        ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (
       <p className="trx-calcul-cote trx-ecart-calcul" data-commission-manuelle={cote}>

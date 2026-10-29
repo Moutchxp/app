@@ -207,6 +207,21 @@ export const CSS_TRANSACTION = `
 .trx-calcul-mot{font-weight:700}
 .trx-calcul-ht{color:var(--color-svv-muted)}
 .trx-calcul-cote.trx-ecart-calcul{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+/* LOT W (Arno) — une ligne de calcul sur deux lignes : à droite, une colonne de LARGEUR FIXE (12 em, de quoi loger « (1 234 567,89 € TTC) »)
+   alignée à droite, le HT en gras puis le TTC en vert dessous ; les montants ne se coupent jamais. Colonne étroite : le libellé au-dessus. */
+.trx-negociateur-carte,.trx-remuneration{container-type:inline-size}
+.trx-calcul-grille{display:grid;grid-template-columns:minmax(0,1fr) 12em;column-gap:10px;align-items:baseline;width:100%;overflow-wrap:normal}
+.trx-calcul-libelle{grid-column:1;grid-row:1 / span 2;min-width:0;overflow-wrap:break-word}
+.trx-calcul-resultat,.trx-calcul-ttc{grid-column:2;text-align:right;white-space:nowrap}
+.trx-calcul-resultat{grid-row:1}
+.trx-calcul-ttc{grid-row:2}
+/* l'opération (« 2 468 302,45 € HT × 50 % = ») ne se coupe pas : la seule coupure possible est après le libellé (jamais un « = » seul). */
+.trx-calcul-operation{white-space:nowrap}
+@container (max-width:30rem){
+  .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
+  .trx-calcul-resultat{grid-row:2}
+  .trx-calcul-ttc{grid-row:3}
+}
 /* LOT U (Arno) — la base de répartition en tête du panneau : TTC et HT en colonnes alignées à droite, l'apporteur en rouge (signe et mot avec). */
 .trx-resume-base{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}
 .trx-resume-base th,.trx-resume-base td{padding:4px 0 4px 10px;text-align:right;white-space:nowrap;vertical-align:top}
@@ -215,13 +230,16 @@ export const CSS_TRANSACTION = `
 .trx-resume-base th.loc-muet{color:var(--color-svv-muted)}
 .trx-resume-base .trx-resume-base-total th,.trx-resume-base .trx-resume-base-total td{border-top:1px solid var(--color-svv-line-strong);font-weight:800}
 .trx-resume-base-note{display:block;font-size:.78rem;font-weight:400;color:var(--color-svv-muted)}
+.trx-resume-base td.trx-resume-montants{width:12em}
+.trx-resume-montants > span{display:block;white-space:nowrap}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
   .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .trx-colonne-tete{flex-direction:column;align-items:flex-start}
   /* LOT U — sur téléphone, le libellé sur sa ligne, TTC et HT dessous (toujours alignés à droite, en colonnes). */
-  .trx-resume-base tr{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px}
+  .trx-resume-base tr{display:grid;grid-template-columns:minmax(0,1fr) 12em;column-gap:10px}
+  .trx-resume-base tr > td,.trx-resume-base thead th{grid-column:2}
   .trx-resume-base th[scope='row']{grid-column:1/-1;padding-bottom:0}
   .trx-resume-base td:empty{display:none}
   .trx-resume-base .trx-resume-base-total th,.trx-resume-base .trx-resume-base-total td{border-top:0}

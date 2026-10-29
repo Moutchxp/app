@@ -475,16 +475,17 @@ export function montantsAffiches(lignes: readonly Pick<PartieEcran, 'mode' | 'te
 export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: number; apporteurs: readonly { nom: string | null; ttc: number }[] }) {
   const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + a.ttc, 0);
   // 🔴 LOT V (Arno) — le HT en gras d'abord, puis le TTC entre parenthèses, en vert (« TTC » écrit) ; l'apporteur : tout en rouge.
-  const montants = (ttc: number, rouge?: boolean, donnee?: string) => <>
-    <td className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(ttc / TVA)} HT</strong></td>
-    <td className={rouge ? 'trx-rouge' : 'trx-vert'} data-resume-ttc={donnee}>({eur(ttc)} TTC)</td></>;
+  // 🔴 LOT W — HT et TTC l'un sous l'autre, dans une colonne de largeur fixe alignée à droite : les montants ne se coupent jamais.
+  const montants = (ttc: number, rouge?: boolean, donnee?: string) => (
+    <td className="trx-resume-montants"><span className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(ttc / TVA)} HT</strong></span>{' '}
+      <span className={rouge ? 'trx-rouge' : 'trx-vert'} data-resume-ttc={donnee}>({eur(ttc)} TTC)</span></td>);
   return (
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
-      <thead><tr><td /><th scope="col">HT</th><th scope="col">TTC</th></tr></thead>
+      <thead><tr><td /><th scope="col">HT (TTC)</th></tr></thead>
       <tbody>
         <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, false, 'commission')}</tr>
         {apporteurs.length === 0
-          ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /><td /></tr>
+          ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
           : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, true, `apporteur-${i}`)}</tr>)}
         <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
           <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, false, 'base')}</tr>
