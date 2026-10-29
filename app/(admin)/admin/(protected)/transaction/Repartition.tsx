@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
-import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
@@ -302,16 +302,27 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
             // 🔴 LOT R — la société PORTEUSE (négociateur d'entrée) encaisse le CA de la vente ; la part de l'autre société lui est reversée.
             const b = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro } }, null);
             const porteuse = b.porteuse;
-            const verse = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro } }, porteuse);
-            return <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), {eur(b.caHt)} HT
-              {sommeSocietes(verse.verseHt) + verse.exterieurHt > 0 ? ` · dont reversé en inter-cabinet : ${[...SOCIETES.filter((s) => verse.verseHt[s] > 0).map((s) => `vers ${LIBELLE_SOCIETE[s]} ${eur(verse.verseHt[s])} HT`),
-                ...(verse.exterieurHt > 0 ? [`extérieur ${eur(verse.exterieurHt)} HT`] : [])].join(' · ')}` : ' · rien de reversé en inter-cabinet'}</span>;
+            // 🔴 LOT AJ (Arno) — les montants au centime par LA règle du lot AH (`centimesRepartition`, celle de la carte) ; à défaut (somme ≠ 100 %),
+            // l'arrondi simple d'avant. « Part X » et « reversé vers X » portaient le même montant : UNE mention « Part X − Reversé en inter-cabinet
+            // vers X », en rouge (fusion autorisée par Arno) ; idem pour l'extérieur. La part de la porteuse reste la sienne, en tête.
+            const c = centimesRepartition(parties, commission, retro, porteuse);
+            const caHt = c?.commissionHt ?? b.caHt;
+            const partDe = (s: Societe): number => c?.parSociete[s] ?? parSociete.societe[s];
+            const recoit = SOCIETES.filter((s) => s !== porteuse && partDe(s) > 0);
+            const exterieurHt = c === null ? parSociete.exterieurHt : c.exterieurs.reduce((t, e) => t + e.ht, 0);
+            const noms = c === null ? [] : c.exterieurs.filter((e) => e.ht > 0).map((e) => e.nom);
+            return <>
+              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), {eur(caHt)} HT
+                {recoit.length === 0 && exterieurHt === 0 ? ' · rien de reversé en inter-cabinet' : ''}</span>
+              <span className="loc-muet" data-parts-societes>
+                <span data-part-societe-form={porteuse}>Part {LIBELLE_SOCIETE[porteuse]} : {eur(partDe(porteuse))} HT ({pctTexte(pcts.societe[porteuse])})</span>
+                {SOCIETES.filter((s) => s !== porteuse).map((s) => recoit.includes(s)
+                  ? <span key={s} className="trx-rouge" data-part-societe-form={s} data-reverse-form={s}> · Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]} : {eur(partDe(s))} HT ({pctTexte(pcts.societe[s])})</span>
+                  : <span key={s} data-part-societe-form={s}> · Part {LIBELLE_SOCIETE[s]} : {eur(partDe(s))} HT ({pctTexte(pcts.societe[s])})</span>)}
+                {exterieurHt > 0 && <span className="trx-rouge" data-reverse-form="exterieur"> · {noms.length === 1 ? `Part ${noms[0]} − Reversé à ${noms[0]}` : `Part extérieure − Reversé à l’extérieur${noms.length > 1 ? ` (${noms.join(', ')})` : ''}`} : {eur(exterieurHt)} HT ({pctTexte(pcts.exterieur)})</span>}
+              </span>
+            </>;
           })()}
-          {parties.length > 0 && (
-            // LOT N — chaque part avec son % de la commission nette, comme dans le tableau de la carte.
-            <span className="loc-muet" data-parts-societes>{SOCIETES.map((s) => `Part ${LIBELLE_SOCIETE[s]} : ${eur(parSociete.societe[s])} HT (${pctTexte(pcts.societe[s])})`).join(' · ')}
-              {parSociete.exterieurHt > 0 ? ` · part extérieure (inter-cabinet extérieur) : ${eur(parSociete.exterieurHt)} HT (${pctTexte(pcts.exterieur)})` : ''}</span>
-          )}
         </li>
       </ul>
       <p className="trx-actions">

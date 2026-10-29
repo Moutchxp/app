@@ -283,8 +283,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                         const montant = (h: number, t: number, o: { rouge?: boolean; donnee?: Record<string, string> } = {}) => (
                           <span className={o.rouge ? 'trx-ht-ttc-pile trx-montant-repartition trx-rouge' : 'trx-ht-ttc-pile trx-montant-repartition'} {...o.donnee}>
                             <strong>{eur(h)} HT</strong><span className={o.rouge ? undefined : 'trx-vert'}>({eur(t)} TTC)</span></span>);
-                        const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string) => (
-                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%">{pctTexte}</td><td data-mot="€ HT (TTC)">{valeur}</td></tr>);
+                        const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string, pctDonnee?: Record<string, string>) => (
+                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%" {...pctDonnee}>{pctTexte}</td><td data-mot="€ HT (TTC)">{valeur}</td></tr>);
                         const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
                         return (
                         <div data-repartition-compromis>
@@ -302,21 +302,36 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                                 <td data-mot="%">{p.pourcentage !== null ? `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : `${(ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`}</td>
                                 <td data-mot="€ HT (TTC)">{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
                             ))}
-                            {SOCIETES.map((s) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
-                              <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
-                              <td data-mot="€ HT (TTC)">{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>)}
-                            {ps.exterieurHt > 0 && <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
-                              <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
-                              <td data-mot="€ HT (TTC)">{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>}
-                            {/* 🔴 LOT R / AH — la société PORTEUSE reverse la part de l'autre société et de l'extérieur (en rouge) ; il lui reste sa part. */}
-                            {cHt !== null && cTtc !== null && <>
-                              {SOCIETES.filter((s) => cHt.reverse[s] > 0).map((s) => ligne(`reverse-${s}`, <>− Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</>, LIBELLE_SOCIETE[s],
-                                pcts === null ? '' : pct(pcts.societe[s]), montant(cHt.reverse[s], cTtc.reverse[s], { rouge: true, donnee: { 'data-reverse-compromis': s } })))}
-                              {cHt.exterieurs.filter((e) => e.ht > 0).map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
-                                montant(e.ht, cTtc.exterieurs[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
-                              {ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
-                                montant(cHt.resteHt, cTtc.resteHt, { donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
-                            </>}
+                            {/* 🔴 LOT AJ (Arno) — « Part X » et « − Reversé en inter-cabinet vers X » portaient le même montant : UNE ligne
+                                « Part X − Reversé en inter-cabinet vers X », en rouge (fusion autorisée par Arno). X = la société qui REÇOIT (jamais écrit
+                                en dur). La part de la porteuse reste sa ligne ; une société sans part reçue garde sa ligne « Part » ; même principe pour
+                                une partie extérieure seule (« Part [agence] − Reversé à [agence] »). Sans centimes (somme ≠ 100 %), les lignes d'avant. */}
+                            {(() => {
+                              const recoit = (s: Societe): boolean => cHt !== null && cTtc !== null && s !== porteuse && cHt.reverse[s] > 0;
+                              const partSociete = (s: Societe) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
+                                <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
+                                <td data-mot="€ HT (TTC)">{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>;
+                              const ordre = cHt === null ? [...SOCIETES] : [porteuse, ...SOCIETES.filter((s) => s !== porteuse)];
+                              const exterieurs = cHt === null ? [] : cHt.exterieurs.filter((e) => e.ht > 0);
+                              const exterieurSeul = cHt !== null && cTtc !== null && exterieurs.length === 1;
+                              return <>
+                                {ordre.map((s) => recoit(s)
+                                  ? ligne(`part-reverse-${s}`, <>Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</>, LIBELLE_SOCIETE[s],
+                                    pcts === null ? '' : pct(pcts.societe[s]), montant(cHt!.reverse[s], cTtc!.reverse[s], { rouge: true, donnee: { 'data-part-societe-compromis': s, 'data-reverse-compromis': s } }), undefined, { 'data-pct-societe-compromis': s })
+                                  : partSociete(s))}
+                                {ps.exterieurHt > 0 && (exterieurSeul
+                                  ? ligne('part-reverse-exterieur-0', <>Part {exterieurs[0].nom} − Reversé à {exterieurs[0].nom}</>, 'extérieur', pcts === null ? '' : pct(pcts.exterieur),
+                                    montant(exterieurs[0].ht, cTtc!.exterieurs.filter((e) => e.ht > 0)[0]?.ht ?? exterieurs[0].ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': 'exterieur-0' } }), undefined, { 'data-pct-exterieur-compromis': '' })
+                                  : <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
+                                    <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
+                                    <td data-mot="€ HT (TTC)">{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>)}
+                                {/* 🔴 LOT R / AH — plusieurs parties extérieures : chacune son reversement (en rouge) sous leur part commune. */}
+                                {cHt !== null && cTtc !== null && !exterieurSeul && exterieurs.map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
+                                  montant(e.ht, cTtc.exterieurs.filter((x) => x.ht > 0)[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
+                                {cHt !== null && cTtc !== null && ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
+                                  montant(cHt.resteHt, cTtc.resteHt, { donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
+                              </>;
+                            })()}
                           </tbody>
                         </table>
                         </div>

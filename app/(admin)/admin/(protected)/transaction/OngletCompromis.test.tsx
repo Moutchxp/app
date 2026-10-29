@@ -232,7 +232,8 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     await choisir('sortie', 7);
     expect(pcts()).toEqual(['50', '50']);
     expect([texte('[data-societe-partie="0"]'), texte('[data-societe-partie="1"]')]).toEqual(['CRITERIMMO', 'MACJ']);
-    expect(texte('[data-parts-societes]')).toContain('Part CRITERIMMO : 5 000,00 € HT (50 %) · Part MACJ : 5 000,00 € HT (50 %)'); // LOT N : le % de chaque part
+    // LOT N : le % de chaque part ; 🔴 LOT AJ — la part reçue par MACJ et son reversement ne font qu'UNE mention (fusion autorisée par Arno)
+    expect(texte('[data-parts-societes]')).toContain('Part CRITERIMMO : 5 000,00 € HT (50 %) · Part MACJ − Reversé en inter-cabinet vers MACJ : 5 000,00 € HT (50 %)');
     await choisir('sortie', 5);
     expect(pcts()).toEqual(['100', '0']);
   });
@@ -253,8 +254,9 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie', 'exterieure']);
     await saisir('[data-partie-pct="0"]', '40'); await saisir('[data-partie-pct="1"]', '40'); await saisir('[data-partie-pct="2"]', '20');
     await saisir('[data-partie-nom]', 'Agence du Parc');
-    expect(texte('[data-parts-societes]')).toContain('part extérieure (inter-cabinet extérieur) : 2 000,00 € HT (20 %)');
-    expect(texte('[data-inter-cabinet-form]')).toBe('CA de la vente : CRITERIMMO (société porteuse), 10 000,00 € HT · dont reversé en inter-cabinet : vers MACJ 4 000,00 € HT · extérieur 2 000,00 € HT');
+    // 🔴 LOT AJ — « dont reversé … » et les parts ne font plus doublon : une mention par société qui reçoit, en rouge.
+    expect(texte('[data-parts-societes]')).toBe('Part CRITERIMMO : 4 000,00 € HT (40 %) · Part MACJ − Reversé en inter-cabinet vers MACJ : 4 000,00 € HT (40 %) · Part Agence du Parc − Reversé à Agence du Parc : 2 000,00 € HT (20 %)');
+    expect(texte('[data-inter-cabinet-form]')).toBe('CA de la vente : CRITERIMMO (société porteuse), 10 000,00 € HT');
     expect(container.querySelector('[data-retirer-exterieure]')!.getAttribute('aria-label')).toBe('Retirer cette partie extérieure');
     await cliquer('[data-retirer-exterieure]');
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie']);
@@ -939,9 +941,9 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 1 666,67 € HT (2 000,00 € TTC)');
     expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 1 666,67 € HT — non déduits');
     await deplier(38);
-    // LOT AH — « Commission de la vente — CA de CRITERIMMO (société porteuse) » ; « − Reversé en inter-cabinet vers MACJ », en rouge.
+    // LOT AH — « Commission de la vente — CA de CRITERIMMO (société porteuse) » ; LOT AJ — « Part MACJ − Reversé en inter-cabinet vers MACJ », en rouge.
     expect(texte('[data-ligne-repartition="commission"]')).toBe('Commission de la vente — CA de CRITERIMMO (société porteuse)CRITERIMMO100 %3 333,33 € HT(4 000,00 € TTC)');
-    expect(texte('[data-ligne-repartition="reverse-macj"]')).toBe('− Reversé en inter-cabinet vers MACJMACJ50 %1 666,67 € HT(2 000,00 € TTC)');
+    expect(texte('[data-ligne-repartition="part-reverse-macj"]')).toBe('Part MACJ − Reversé en inter-cabinet vers MACJMACJ50 %1 666,67 € HT(2 000,00 € TTC)');
     // Arnaud : 2 000 saisis ; le calcul (50 % × sa part, 2 000) = 1 000 — la valeur saisie n'est pas recalculée, le calcul est proposé
     // LOT T — les deux lignes de calcul, puis la valeur enregistrée en rouge et « Appliquer le calcul ».
     expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 3 333,33 € HT × 50 % = 1 666,67 € HT (2 000,00 € TTC)');
@@ -2160,15 +2162,16 @@ describe('🔴 LOT AH — le tableau « Répartition » en logique comptable, au
 
   it('avec apporteur, inter-cabinet : commission, − apporteur, = base, parties, parts, − reversé vers MACJ, = reste — et les mêmes centimes partout', async () => {
     await carte(vente({ apporteur: true }));
-    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'part-criterimmo', 'part-macj', 'reverse-macj', 'reste']);
+    // 🔴 LOT AJ — « Part MACJ » et « − Reversé en inter-cabinet vers MACJ » ne font plus qu'une ligne.
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'part-criterimmo', 'part-reverse-macj', 'reste']);
     expect(texte('[data-ligne-repartition="commission"] th')).toBe('Commission de la vente — CA de CRITERIMMO (société porteuse)');
     expect(valeur('commission')).toBe('6 250,00 € HT(7 500,00 € TTC)');
     expect([texte('[data-ligne-repartition="apporteur"] th'), valeur('apporteur'), rouge('apporteur')]).toEqual(['− Apporteur : Gardien Dacquet', '833,33 € HT(1 000,00 € TTC)', true]);
     expect([texte('[data-ligne-repartition="base"] th'), valeur('base')]).toEqual(['= Base de répartition (commission nette)', '5 416,67 € HT(6 500,00 € TTC)']);
     // l'incohérence d'Arno : la partie MACJ, la Part MACJ et le reversé — 2 708,33 partout ; CRITERIMMO (porteuse) absorbe le centime
-    expect([valeur('partie-1'), valeur('part-macj'), valeur('reverse-macj')]).toEqual(Array(3).fill('2 708,33 € HT(3 250,00 € TTC)'));
+    expect([valeur('partie-1'), valeur('part-reverse-macj')]).toEqual(Array(2).fill('2 708,33 € HT(3 250,00 € TTC)'));
     expect([valeur('partie-0'), valeur('part-criterimmo'), valeur('reste')]).toEqual(Array(3).fill('2 708,34 € HT(3 250,00 € TTC)'));
-    expect([rouge('reverse-macj'), rouge('reste'), rouge('base')]).toEqual([true, false, false]);
+    expect([rouge('part-reverse-macj'), rouge('reste'), rouge('base')]).toEqual([true, false, false]);
     expect(texte('[data-ligne-repartition="reste"] th')).toBe('= Reste à CRITERIMMO');
     // la phrase « Répartition — commission nette (après apporteur) » est remplacée par la ligne « = Base de répartition »
     expect(texte('[data-informations-communes]')).not.toContain('Répartition — commission nette');
@@ -2186,8 +2189,9 @@ describe('🔴 LOT AH — le tableau « Répartition » en logique comptable, au
 
   it('partie extérieure : « − Reversé à Agence du Parc » en rouge, et le reste', async () => {
     await carte(vente({ exterieure: true }));
-    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'partie-2', 'part-criterimmo', 'part-macj', 'part-exterieure', 'reverse-macj', 'reverse-exterieur-0', 'reste']);
-    expect([texte('[data-ligne-repartition="reverse-exterieur-0"] th'), valeur('reverse-exterieur-0'), rouge('reverse-exterieur-0')]).toEqual(['− Reversé à Agence du Parc', '1 250,00 € HT(1 500,00 € TTC)', true]);
+    // 🔴 LOT AJ — une partie extérieure seule : « Part Agence du Parc − Reversé à Agence du Parc », une ligne.
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'partie-2', 'part-criterimmo', 'part-reverse-macj', 'part-reverse-exterieur-0', 'reste']);
+    expect([texte('[data-ligne-repartition="part-reverse-exterieur-0"] th'), valeur('part-reverse-exterieur-0'), rouge('part-reverse-exterieur-0')]).toEqual(['Part Agence du Parc − Reversé à Agence du Parc', '1 250,00 € HT(1 500,00 € TTC)', true]);
     expect(valeur('reste')).toBe('2 500,00 € HT(3 000,00 € TTC)');
   });
 });
@@ -2229,5 +2233,75 @@ describe('🔴 LOT AI — plus de « Taux de rémunération » à côté de l’
     await cliquer('[data-enregistrer-dossier]');
     const d = (posts.at(-1) as { dossier: Record<string, unknown> }).dossier;
     expect([d.retroApporteurTtc, d.retroApporteurUnite]).toEqual(['2400', 'ttc']);
+  });
+});
+
+describe('🔴 LOT AJ — « Part X − Reversé en inter-cabinet vers X » : une ligne au lieu de deux ; le total du formulaire au centime (règle du lot AH)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) =>
+    ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
+  const agence = (nom: string, pct: number) => ({ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom, coordonnees: null, pourcentage: pct, montantHt: null });
+  const vente = (parties: unknown[]): Vente => ({ ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' },
+    repartition: { retroApporteurTtc: 1000, parties: parties as never }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' } }, lignes: [] });
+  const carte = async (v: Vente) => { listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(37); };
+  const lignes = () => [...container.querySelectorAll('[data-repartition-compromis] [data-ligne-repartition]')].map((x) => x.getAttribute('data-ligne-repartition'));
+  const th = (cle: string) => texte(`[data-ligne-repartition="${cle}"] th`);
+  const valeur = (cle: string) => texte(`[data-ligne-repartition="${cle}"] td:last-child`);
+  const rouge = (cle: string) => container.querySelector(`[data-ligne-repartition="${cle}"] .trx-montant-repartition`)!.classList.contains('trx-rouge');
+  const cellule = (cle: string, mot: string) => texte(`[data-ligne-repartition="${cle}"] td[data-mot="${mot}"]`);
+
+  it('porteuse CRITERIMMO → MACJ : « Part MACJ − Reversé en inter-cabinet vers MACJ », MACJ, 50 %, en rouge ; la Part CRITERIMMO et le Reste restent', async () => {
+    await carte(vente([pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), pa('sortie', 8, 'Pierre Thevenin', 'macj', 50)]));
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'part-criterimmo', 'part-reverse-macj', 'reste']);
+    expect([th('part-reverse-macj'), cellule('part-reverse-macj', 'Société'), cellule('part-reverse-macj', '%'), valeur('part-reverse-macj'), rouge('part-reverse-macj')])
+      .toEqual(['Part MACJ − Reversé en inter-cabinet vers MACJ', 'MACJ', '50 %', '2 708,33 € HT(3 250,00 € TTC)', true]);
+    expect([th('part-criterimmo'), valeur('part-criterimmo'), rouge('part-criterimmo')]).toEqual(['Part CRITERIMMO', '2 708,34 € HT(3 250,00 € TTC)', false]);
+    expect([th('reste'), valeur('reste'), container.querySelector('[data-ligne-repartition="reste"]')!.className]).toEqual(['= Reste à CRITERIMMO', '2 708,34 € HT(3 250,00 € TTC)', 'tdb-fort trx-ligne-base']);
+    expect(container.querySelector('[data-ligne-repartition="part-macj"]')).toBeNull();
+    expect(container.querySelector('[data-ligne-repartition="reverse-macj"]')).toBeNull();
+    // les mêmes centimes : la partie de Pierre, la ligne fusionnée, la tuile
+    expect(valeur('partie-1')).toBe(valeur('part-reverse-macj'));
+    await cliquer('[data-tuile="commissions"]');
+    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)');
+  });
+  it('porteuse MACJ → CRITERIMMO : « Part MACJ » (porteuse) en tête, puis « Part CRITERIMMO − Reversé en inter-cabinet vers CRITERIMMO », « = Reste à MACJ »', async () => {
+    await carte(vente([pa('entree', 8, 'Pierre Thevenin', 'macj', 50), pa('sortie', 2, 'Arnaud Jorel', 'criterimmo', 50)]));
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'part-macj', 'part-reverse-criterimmo', 'reste']);
+    expect([th('part-reverse-criterimmo'), cellule('part-reverse-criterimmo', 'Société'), cellule('part-reverse-criterimmo', '%'), valeur('part-reverse-criterimmo'), rouge('part-reverse-criterimmo')])
+      .toEqual(['Part CRITERIMMO − Reversé en inter-cabinet vers CRITERIMMO', 'CRITERIMMO', '50 %', '2 708,33 € HT(3 250,00 € TTC)', true]);
+    expect([th('part-macj'), valeur('part-macj'), th('reste'), valeur('reste')]).toEqual(['Part MACJ', '2 708,34 € HT(3 250,00 € TTC)', '= Reste à MACJ', '2 708,34 € HT(3 250,00 € TTC)']);
+    expect(th('commission')).toBe('Commission de la vente — CA de MACJ (société porteuse)');
+  });
+  it('même société : aucune ligne inter-cabinet ; « Part MACJ » à 0 reste ; rien n’est en rouge hors l’apporteur', async () => {
+    await carte(vente([pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), pa('sortie', 4, 'Augustin Jorel', 'criterimmo', 50)]));
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'part-criterimmo', 'part-macj', 'reste']);
+    expect(lignes().some((l) => l!.includes('reverse'))).toBe(false);
+    expect([valeur('part-macj'), valeur('reste')]).toEqual(['0,00 € HT(0,00 € TTC)', '5 416,67 € HT(6 500,00 € TTC)']);
+  });
+  it('deux parties extérieures : pas de doublon (leur part commune ≠ chaque reversement) — la part extérieure et un reversement par agence restent', async () => {
+    await carte(vente([pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 40), pa('sortie', 8, 'Pierre Thevenin', 'macj', 40), agence('Agence du Parc', 10), agence('Agence du Lac', 10)]));
+    expect(lignes()).toEqual(['commission', 'apporteur', 'base', 'partie-0', 'partie-1', 'partie-2', 'partie-3', 'part-criterimmo', 'part-reverse-macj', 'part-exterieure', 'reverse-exterieur-0', 'reverse-exterieur-1', 'reste']);
+    expect([th('reverse-exterieur-0'), th('reverse-exterieur-1')]).toEqual(['− Reversé à Agence du Parc', '− Reversé à Agence du Lac']);
+  });
+  it('les centimes s’additionnent : reste + reversements + apporteur = commission de la vente', async () => {
+    await carte(vente([pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 40), pa('sortie', 8, 'Pierre Thevenin', 'macj', 40), agence('Agence du Parc', 20)]));
+    const ht = (cle: string) => Number(texte(`[data-ligne-repartition="${cle}"] td:last-child strong`).replace(/\s/g, '').replace('€HT', '').replace(',', '.'));
+    expect(Math.round((ht('reste') + ht('part-reverse-macj') + ht('part-reverse-exterieur-0') + ht('apporteur')) * 100)).toBe(Math.round(ht('commission') * 100));
+  });
+  it('formulaire : le total au centime comme la carte (Part CRITERIMMO 2 708,34) ; une mention fusionnée en rouge pour MACJ', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '7500');
+    await cliquer('[data-champ="apporteur-annuaire"]'); await cliquer('[role="option"][data-option="4"]');
+    await cliquer('[data-unite-de="retro"][data-unite="ttc"]');
+    await saisir('[data-champ="retro"]', '1000');
+    await cliquer('[data-champ="entree"]'); await cliquer('[role="option"][data-option="5"]');
+    await cliquer('[data-champ="sortie"]'); await cliquer('[role="option"][data-option="7"]');
+    expect((container.querySelector('[data-partie-eur="0"]') as HTMLInputElement).value.replace(/\s/g, ' ')).toBe('2 708,34');
+    expect(texte('[data-part-societe-form="criterimmo"]')).toBe('Part CRITERIMMO : 2 708,34 € HT (50 %)');
+    expect(texte('[data-reverse-form="macj"]')).toBe(' · Part MACJ − Reversé en inter-cabinet vers MACJ : 2 708,33 € HT (50 %)');
+    expect(container.querySelector('[data-reverse-form="macj"]')!.className).toBe('trx-rouge');
+    expect(texte('[data-inter-cabinet-form]')).toBe('CA de la vente : CRITERIMMO (société porteuse), 6 250,00 € HT');
   });
 });
