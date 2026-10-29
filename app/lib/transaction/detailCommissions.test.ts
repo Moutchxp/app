@@ -165,3 +165,35 @@ describe('🔴 LOT AN — « N dossiers concernés » et le détail du « Chiffr
     expect(d.parSociete).toEqual({ criterimmo: { htC: 625000 + 270833, ttcC: 750000 + 325000 }, macj: { htC: 625000 + 270833, ttcC: 750000 + 325000 } });
   });
 });
+
+describe('🔴 LOT AO — le détail du « Solde net » : CA − commissions versées, les mêmes objets', () => {
+  const location = (porteuse: Societe = 'criterimmo', o: Partial<Vente> = {}): Vente => {
+    const autre: Societe = porteuse === 'criterimmo' ? 'macj' : 'criterimmo';
+    return vente({ societe: porteuse, apporteur: 'Gardien Dacquet', retro: 1000, retroApporteur: { montant: 1000, unite: 'ttc' },
+      parties: [partie('entree', 2, 'Arnaud Jorel', porteuse, 50, { statut: 'associe' }), partie('sortie', 8, 'Pierre Thevenin', autre, 50)], ...o });
+  };
+  const sans = vente({ id: 50, dateCompromis: '2026-10-25', honorairesTtc: 6000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 100, { statut: 'associe' })] });
+  it('CRITERIMMO : solde = CA − commissions, au centime ; par affaire aussi ; une affaire sans commission : solde = CA ; les catégories sont celles de « Commissions versées »', async () => {
+    const { detailCa, detailSolde } = await import('./detailCommissions');
+    const ventes = [location(), sans];
+    const ca = detailCa(ventes, 'criterimmo'); const couts = detailCommissions(ventes, 'criterimmo');
+    const d = detailSolde(ca, couts);
+    expect(d.couts).toBe(couts); // aucune copie
+    expect([d.totalHtC, d.totalTtcC]).toEqual([ca.totalHtC - couts.totalHtC, ca.totalTtcC - couts.totalTtcC]);
+    expect([ca.totalHtC, couts.totalHtC, d.totalHtC]).toEqual([1125000, 354166, 770834]);
+    expect(d.affaires.map((a) => [a.id, a.caHtC, a.couts.map((l) => l.cle), a.soldeHtC])).toEqual([[50, 500000, [], 500000], [37, 625000, ['apporteurs', 'inter-cabinet-macj'], 270834]]);
+    expect(d.affaires.reduce((t, a) => t + a.soldeHtC, 0)).toBe(d.totalHtC);
+    expect(ca.totalHtC - couts.versees.reduce((t, c) => t + c.htC, 0)).toBe(d.totalHtC);
+  });
+  it('MACJ (ligne miroir), porteuse MACJ, et nos deux sociétés : la même égalité', async () => {
+    const { detailCa, detailSolde } = await import('./detailCommissions');
+    const cas: [Vente[], Societe | null][] = [[[venteDansSociete(location(), 'macj')!], 'macj'], [[location('macj')], 'macj'], [[venteDansSociete(location('macj'), 'criterimmo')!], 'criterimmo'], [[location(), { ...location('macj'), id: 38 }], null]];
+    for (const [ventes, s] of cas) {
+      const ca = detailCa(ventes, s); const couts = detailCommissions(ventes, s);
+      const d = detailSolde(ca, couts);
+      expect(ca.totalHtC - couts.versees.reduce((t, c) => t + c.htC, 0)).toBe(d.totalHtC);
+      expect(ca.totalTtcC - couts.versees.reduce((t, c) => t + c.ttcC, 0)).toBe(d.totalTtcC);
+      expect(d.affaires.reduce((t, a) => t + a.soldeHtC, 0)).toBe(d.totalHtC);
+    }
+  });
+});

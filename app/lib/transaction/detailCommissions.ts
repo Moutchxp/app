@@ -207,3 +207,29 @@ export function detailCa(ventes: readonly VenteDetail[], societe: Societe | null
 
 /** 🔴 LOT AN — les dossiers du CA : les affaires qui apportent un CA à la société vue. PUR. */
 export const dossiersCa = (d: Pick<DetailCa, 'affaires'>): AffaireCa[] => d.affaires.filter((a) => a.caHtC !== 0 || a.caTtcC !== 0);
+
+// ── 🔴 LOT AO (Arno, 29/10/2026) — LE DÉTAIL DE LA TUILE « SOLDE NET » ───────────────────────────────────────────────────────────────────
+//
+// Le Solde net = le Chiffre d'affaires (`detailCa`) − les Commissions versées (`detailCommissions`), au centime : les MÊMES objets, aucune
+// copie de calcul — les catégories et leurs sous-totaux sont ceux de la fenêtre « Commissions versées », le CA celui de la tuile.
+
+export interface AffaireSolde {
+  id: number; libelle: string; dateCompromis: string | null; recueDe: Societe | null;
+  /** Le CA de la société vue sur cette affaire. */
+  caHtC: number; caTtcC: number;
+  /** Ses commissions VERSÉES (celles de la fenêtre « Commissions versées »). */
+  couts: LigneCout[];
+  soldeHtC: number; soldeTtcC: number;
+}
+export interface DetailSolde { ca: DetailCa; couts: DetailCommissions; totalHtC: number; totalTtcC: number; affaires: AffaireSolde[] }
+
+/** 🔴 LOT AO — LE DÉTAIL DU « SOLDE NET », à partir des deux détails déjà calculés (ceux des tuiles). PUR. */
+export function detailSolde(ca: DetailCa, couts: DetailCommissions): DetailSolde {
+  const affaires: AffaireSolde[] = dossiersCa(ca).map((a) => {
+    const c = couts.affaires.find((x) => x.id === a.id);
+    const versees = (c?.lignes ?? []).filter((l) => estVersee(l.cle));
+    const vHt = versees.reduce((t, l) => t + l.htC, 0); const vTtc = versees.reduce((t, l) => t + l.ttcC, 0);
+    return { id: a.id, libelle: a.libelle, dateCompromis: a.dateCompromis, recueDe: a.recueDe, caHtC: a.caHtC, caTtcC: a.caTtcC, couts: versees, soldeHtC: a.caHtC - vHt, soldeTtcC: a.caTtcC - vTtc };
+  });
+  return { ca, couts, totalHtC: ca.totalHtC - couts.totalHtC, totalTtcC: ca.totalTtcC - couts.totalTtcC, affaires };
+}

@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { dossiersCa, dossiersConcernes, estCompteeCa, ETIQUETTE, estVersee, type AffaireCa, type AffaireCout, type CategorieCout, type DetailCa, type DetailCommissions,
-  type LigneCa, type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
+import { dossiersConcernes, ETIQUETTE, estVersee, type AffaireCout, type AffaireSolde, type CategorieCout, type DetailCommissions, type DetailSolde,
+  type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './commun';
 
@@ -13,13 +13,13 @@ import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './com
  * présentations, « Par transaction » | « Par catégorie » (par défaut), le dernier choix retenu dans le navigateur. Lecture seule : un
  * observateur peut l'ouvrir. Les chiffres viennent de `detailCommissions` : le total = celui de la tuile, au centime, dans les deux modes.
  * 🔴 LOT AN — « N dossiers concernés » sous le total ; « Par transaction » ne montre que les affaires avec au moins une commission versée (les
- * blocs « Aucune commission versée » sont retirés, accord d'Arno). La même coque sert la fenêtre « Chiffre d'affaires » (`FenetreCa`).
+ * blocs « Aucune commission versée » sont retirés, accord d'Arno). La même coque sert la fenêtre « Solde net » (`FenetreSolde`, lot AO).
  */
 
 export type ModeFenetre = 'transaction' | 'categorie';
 export const CLE_MODE_FENETRE = 'trx-commissions-versees-mode';
-/** 🔴 LOT AN — le choix de la fenêtre « Chiffre d'affaires », retenu séparément. */
-export const CLE_MODE_FENETRE_CA = 'trx-chiffre-affaires-mode';
+/** 🔴 LOT AO — le choix de la fenêtre « Solde net », retenu séparément. */
+export const CLE_MODE_FENETRE_SOLDE = 'trx-solde-net-mode';
 const lireMode = (cle: string): ModeFenetre => {
   try { return window.localStorage.getItem(cle) === 'transaction' ? 'transaction' : 'categorie'; } catch { return 'categorie'; }
 };
@@ -176,61 +176,88 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
 }
 
 /**
- * 🔴 LOT AN (Arno) — LA FENÊTRE « CHIFFRE D'AFFAIRES » (ouverte par sa tuile, qui ne garde que le total et « Voir le détail ») : la règle
- * exacte de la tuile, dans l'ordre comptable — les ventes portées, le reversé (montré, NON déduit : il est dans « Commissions versées »),
- * le reçu en inter-cabinet, puis « = Chiffre d'affaires » ; ou une affaire par bloc. Le total = la tuile, au centime, dans les deux modes.
+ * 🔴 LOT AO (Arno) — LA FENÊTRE « SOLDE NET » (ouverte par sa tuile) : le Chiffre d'affaires (= la tuile CA), chaque catégorie de commissions
+ * versées (les MÊMES objets que la fenêtre « Commissions versées » : aucune copie de calcul), puis « = Solde net » (= la tuile) ; à part, en
+ * gris, les internes non déduits. Ou une affaire par bloc : son CA, ses commissions versées, son solde. CA − sous-totaux = solde, au centime.
+ * (La fenêtre « Chiffre d'affaires » du lot AN est retirée, accord d'Arno : son contenu utile est ici.)
  */
-export function FenetreCa({ detail, societe, titres, onFermer, onAller }: {
-  detail: DetailCa; societe: Societe | null; titres: Record<number, string>; onFermer: () => void; onAller: (id: number) => void;
+export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, onAller }: {
+  detail: DetailSolde; societe: Societe | null; autreSociete: boolean; titres: Record<number, string>; onFermer: () => void; onAller: (id: number) => void;
 }) {
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const affaire = lienAffaire(titres, onAller);
-  const dossiers = dossiersCa(detail);
+  const { ca, couts } = detail;
   const u = useAffichage();
-  const sensDe = (cle: LigneCa['cle']): { versee: boolean; recu: boolean } => ({ versee: cle.startsWith('reverse-') || cle === 'exterieur', recu: estCompteeCa(cle) });
-  const section = (c: SectionCa) => (
-    <section key={c.cle} className={c.cle === 'neutralise' ? 'trx-fc-section trx-fc-section--info' : 'trx-fc-section'} data-section-ca={c.cle} aria-label={c.libelle}>
+  // « dont ventes portées » et « dont reçu en inter-cabinet de … » : les sections du CA qui y comptent (non vides, ou la seule de la société vue).
+  const dont = ca.sections.filter((c) => c.compte && (c.lignes.length > 0 || c.cle === `portee-${societe}`));
+  const motDont = (c: SectionCa): string => (c.cle.startsWith('recu-') ? `dont reçu en inter-cabinet de ${LIBELLE_SOCIETE[c.cle.slice('recu-'.length) as Societe]}`
+    : societe === null ? `dont ventes portées par ${LIBELLE_SOCIETE[c.cle.slice('portee-'.length) as Societe]}` : 'dont ventes portées');
+  const categorie = (c: CategorieCout) => (
+    <section key={c.cle} className="trx-fc-section" data-categorie-solde={c.cle} aria-label={c.libelle}>
       <div className="trx-fc-tete">
-        <h3>{c.libelle}</h3>
-        <Montant htC={c.htC} ttcC={c.ttcC} {...sensDe(c.cle)} donnees={{ 'data-sous-total-ca': c.cle }} />
+        <h3>− {c.libelle}</h3>
+        {c.lignes.length === 0
+          ? <span className="trx-fc-montant trx-fc-info" data-aucun-solde={c.cle}><span>Aucun</span><strong>{eur(0)}</strong></span>
+          : <Montant htC={c.htC} ttcC={c.ttcC} versee donnees={{ 'data-sous-total-solde': c.cle }} />}
       </div>
-      {c.lignes.length === 0 ? <p className="trx-fc-aucune" data-aucune-ca={c.cle}>Aucune</p> : (
-        <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
-          <li key={i} className="trx-fc-ligne" data-ligne-ca={l.cle}>
-            <span className="trx-fc-quoi">{affaire(l.venteId)}{!estCompteeCa(l.cle) && <><span className="trx-fc-sep" aria-hidden="true"> · </span><span data-qui>{l.qui}</span></>}</span>
-            <Montant htC={l.htC} ttcC={l.ttcC} {...sensDe(l.cle)} />
-          </li>))}</ul>)}
+      {c.lignes.length > 0 && <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
+        <li key={i} className="trx-fc-ligne" data-ligne-solde={l.cle}>
+          <span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
+          <Montant htC={l.htC} ttcC={l.ttcC} versee />
+        </li>))}</ul>}
     </section>
   );
-  const bloc = (a: AffaireCa) => (
-    <section key={a.id} className="trx-fc-section" data-affaire-ca={a.id} aria-label={titres[a.id] ?? a.libelle}>
+  const info = (c: CategorieCout) => (
+    <section key={c.cle} className="trx-fc-section trx-fc-section--info" data-info-solde={c.cle} aria-label={c.libelle}>
+      <div className="trx-fc-tete"><h3 className={c.cle === 'a-renseigner' ? 'trx-alerte' : undefined}>{c.libelle}</h3><Montant htC={c.htC} ttcC={c.ttcC} versee={false} /></div>
+      {c.lignes.length === 0 ? <p className="trx-fc-aucune">Aucun</p> : <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
+        <li key={i} className="trx-fc-ligne"><span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
+          <Montant htC={l.htC} ttcC={l.ttcC} versee={false} /></li>))}</ul>}
+    </section>
+  );
+  const mention = autreSociete && <p className="trx-fc-mention" data-detail="autre-societe">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</p>;
+  const total = <><span>= Solde net de {qui}</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  const bloc = (a: AffaireSolde) => (
+    <section key={a.id} className="trx-fc-section" data-affaire-solde={a.id} aria-label={titres[a.id] ?? a.libelle}>
       <div className="trx-fc-tete trx-fc-tete--affaire">
         <span className="trx-fc-titre-affaire"><h3>{affaire(a.id)}</h3>{sousTitre(a.dateCompromis, a.recueDe)}</span>
-        {a.commissionHtC !== null && a.commissionTtcC !== null
-          ? <Montant htC={a.commissionHtC} ttcC={a.commissionTtcC} versee={false} donnees={{ 'data-commission-affaire-ca': String(a.id) }} apres={<small>commission de la vente</small>} />
-          : <span className="trx-fc-montant trx-fc-info"><small>inter-cabinet reçu</small></span>}
       </div>
-      {a.lignes.length > 0 && <ul className="trx-fc-lignes">{a.lignes.map((l, i) => (
-        <li key={i} className="trx-fc-ligne" data-ligne-ca={l.cle}>
-          <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{l.cle.startsWith('recu-') ? '+ Reçu en inter-cabinet' : l.cle === 'neutralise' ? 'Neutralisé' : '− Reversé (non déduit du CA)'}</span><span data-qui>{l.qui}</span></span>
-          <Montant htC={l.htC} ttcC={l.ttcC} {...sensDe(l.cle)} />
-        </li>))}</ul>}
-      <div className="trx-fc-sous-total"><span>CA de {qui} sur cette affaire</span><Montant htC={a.caHtC} ttcC={a.caTtcC} versee={false} recu donnees={{ 'data-ca-affaire': String(a.id) }} /></div>
+      <ul className="trx-fc-lignes">
+        <li className="trx-fc-ligne" data-ca-affaire-solde={a.id}><span className="trx-fc-quoi">CA de {qui} sur cette affaire</span><Montant htC={a.caHtC} ttcC={a.caTtcC} versee={false} recu /></li>
+        {a.couts.map((l, i) => (
+          <li key={i} className="trx-fc-ligne" data-ligne-solde={l.cle}>
+            <span className="trx-fc-quoi"><span className="trx-fc-etiquette trx-rouge" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{l.qui}</span></span>
+            <Montant htC={l.htC} ttcC={l.ttcC} versee />
+          </li>))}
+      </ul>
+      <div className="trx-fc-sous-total"><span>= Solde net de l’affaire</span><Montant htC={a.soldeHtC} ttcC={a.soldeTtcC} versee={false} recu donnees={{ 'data-solde-affaire': String(a.id) }} /></div>
     </section>
   );
-  const totalLigne = <><span>= Chiffre d’affaires de {qui}</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
   return (
-    <CoqueFenetre titre={`Chiffre d’affaires — ${qui} — compromis en cours`} donnee="fenetre-ca" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="recu"
-      dossiers={motDossiers(dossiers.length, false)} cleMode={CLE_MODE_FENETRE_CA} onFermer={onFermer} pied={totalLigne}
+    <CoqueFenetre titre={`Solde net — ${qui} — compromis en cours`} donnee="fenetre-solde" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="recu"
+      dossiers={motDossiers(detail.affaires.length, false)} cleMode={CLE_MODE_FENETRE_SOLDE} onFermer={onFermer} pied={total}
       corps={(mode) => (mode === 'categorie' ? <>
-        {detail.sections.filter((c) => c.cle !== 'neutralise').map(section)}
-        <div className="trx-fc-total-ca" data-total-ca>{totalLigne}</div>
-        {detail.sections.some((c) => c.cle === 'neutralise') && <div className="trx-fc-a-part">{detail.sections.filter((c) => c.cle === 'neutralise').map(section)}</div>}
-        {detail.parSociete !== null && (
-          <p className="trx-fc-mention" data-ca-par-societe>{(['criterimmo', 'macj'] as const).map((s) => <span key={s} data-ca-societe={s}>CA {LIBELLE_SOCIETE[s]} : {textes(u, detail.parSociete![s].htC, detail.parSociete![s].ttcC).join(' (')})</span>)
-            .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</p>)}
+        {/* La ligne de la tuile, passée ici (lot AO) : ce que le solde mesure. */}
+        <p className="trx-fc-mention" data-solde-explication>CA {MOT_UNITE[u]} − commissions versées {MOT_UNITE[u]}</p>
+        <section className="trx-fc-section" data-solde-ca aria-label={`Chiffre d’affaires de ${qui}`}>
+          <div className="trx-fc-tete"><h3>Chiffre d’affaires de {qui}</h3><Montant htC={ca.totalHtC} ttcC={ca.totalTtcC} versee={false} recu donnees={{ 'data-ca-solde': '' }} /></div>
+          <ul className="trx-fc-lignes">{dont.map((c) => (
+            <li key={c.cle} className="trx-fc-ligne trx-fc-info" data-solde-dont={c.cle}><span className="trx-fc-quoi">{motDont(c)}</span><Montant htC={c.htC} ttcC={c.ttcC} versee={false} /></li>))}</ul>
+          {/* Nos deux sociétés : le CA de chacune, sa part reçue comprise (ce que disait la tuile « Chiffre d'affaires »). */}
+          {ca.parSociete !== null && (
+            <p className="trx-fc-mention" data-ca-par-societe>{(['criterimmo', 'macj'] as const).map((x) => <span key={x} data-ca-societe={x}>CA {LIBELLE_SOCIETE[x]} : {textes(u, ca.parSociete![x].htC, ca.parSociete![x].ttcC).join(' (')})</span>)
+              .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))} — part reçue comprise</p>)}
+        </section>
+        {couts.versees.map(categorie)}
+        <div className="trx-fc-total-ca" data-total-solde>{total}</div>
+        <div className="trx-fc-a-part" data-non-deduits>
+          {couts.infos.map(info)}
+          {mention}
+        </div>
       </> : <>
-        {dossiers.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun compromis en cours.</p> : dossiers.map(bloc)}
+        <p className="trx-fc-mention" data-solde-explication>CA {MOT_UNITE[u]} − commissions versées {MOT_UNITE[u]}</p>
+        {detail.affaires.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun compromis en cours.</p> : detail.affaires.map(bloc)}
+        {mention}
       </>)} />
   );
 }

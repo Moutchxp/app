@@ -19,8 +19,8 @@ import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
-import { detailCa, detailCommissions } from '../../../../lib/transaction/detailCommissions';
-import { FenetreCa, FenetreCommissions } from './FenetreCommissions';
+import { detailCa, detailCommissions, detailSolde } from '../../../../lib/transaction/detailCommissions';
+import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -62,9 +62,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // 🔴 LOT AL (Arno) — la tuile « Commissions versées » ne se déploie plus : elle ouvre la fenêtre du détail.
   const [fenetre, setFenetre] = useState(false);
   const tuileCommissions = useRef<HTMLButtonElement | null>(null);
-  // 🔴 LOT AN (Arno) — la tuile « Chiffre d'affaires » aussi : elle ouvre la fenêtre de son détail.
-  const [fenetreCa, setFenetreCa] = useState(false);
-  const tuileCa = useRef<HTMLButtonElement | null>(null);
+  // 🔴 LOT AO (Arno) — la tuile « Solde net » ouvre la fenêtre de son détail (le CA, chaque commission versée, le solde).
+  const [fenetreSolde, setFenetreSolde] = useState(false);
+  const tuileSolde = useRef<HTMLButtonElement | null>(null);
   // 🔴 LOT AM (Arno) — « HT | TTC » : l'unité affichée en grand dans tout le bloc, retenue dans le navigateur (partagée CRITERIMMO / MACJ).
   const [unite, setUnite] = useAffichageRetenu();
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
@@ -87,7 +87,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const autreSociete = vue !== null && liste.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue));
   /** LOT AL — le nom d'une affaire dans la fenêtre : la fenêtre se ferme, sa carte se déplie et vient à l'écran. */
   const allerA = (id: number): void => {
-    setFenetre(false); setFenetreCa(false);
+    setFenetre(false); setFenetreSolde(false);
     setTimeout(() => {
       const b = document.querySelector<HTMLButtonElement>(`[data-deplier="compromis-${id}"], [data-deplier="miroir-${id}"]`);
       if (b !== null && b.getAttribute('aria-expanded') !== 'true') b.click();
@@ -131,14 +131,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       <ul className="tdb-tuiles trx-tuiles4" aria-label="Les compromis en cours" data-totaux-compromis>
         <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
           <span className="tdb-tuile-n1">acte non signé, hors annulés</span></div></li>
-        {/* 🔴 LOT AN (Arno) — la tuile « Chiffre d'affaires » comme « Commissions versées » (lot AL) : le titre, le total (grand / petit selon
-            « HT | TTC »), « Voir le détail » ; toute la tuile ouvre la fenêtre. Les lignes « CA de la vente … dont reversé … sur … de commission »
-            l'ont quittée (accord d'Arno) : tout leur contenu est dans la fenêtre. */}
-        <li><button type="button" className="tdb-tuile" data-tuile="ca" aria-haspopup="dialog" aria-expanded={fenetreCa} ref={tuileCa} onClick={() => setFenetreCa(true)}>
+        {/* 🔴 LOT AN / AO (Arno) — la tuile « Chiffre d'affaires » : le titre et le total (grand / petit selon « HT | TTC ») ; elle n'ouvre plus
+            de fenêtre (« Voir le détail » et la fenêtre « Chiffre d'affaires » retirés, accord d'Arno : leur contenu est dans « Solde net »). */}
+        <li><div className="tdb-tuile" data-tuile="ca">
           <span className="tdb-tuile-mot">Chiffre d’affaires</span>
           <Montants ht={dca.totalHtC / 100} ttc={dca.totalTtcC / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-ca-ht': '' }} donneesTtc={{ 'data-ca-ttc': '' }} />
-          <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-ca>Voir le détail</span>
-        </button></li>
+        </div></li>
         {/* 🔴 LOT AL (Arno) — la tuile garde le titre, le total en rouge, le HT et « Voir le détail » ; toute la tuile ouvre la fenêtre (souris,
             Entrée / Espace, toucher). Les lignes du détail et la bulle au survol l'ont quittée : tout leur contenu est dans la fenêtre. */}
         <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-haspopup="dialog" aria-expanded={fenetre} ref={tuileCommissions} onClick={() => setFenetre(true)}>
@@ -147,17 +145,20 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             donneesHt={{ 'data-commissions-ht': '' }} donneesTtc={{ 'data-commissions-ttc': '' }} />
           <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-commissions>Voir le détail</span>
         </button></li>
-        {/* LOT L (Arno) — le Solde net, en VERT ; LOT AM : l'unité choisie en grand, l'autre dessous. */}
-        <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
+        {/* LOT L (Arno) — le Solde net, en VERT ; LOT AM : l'unité choisie en grand, l'autre dessous. 🔴 LOT AO — comme « Commissions versées » :
+            le titre, le total et « Voir le détail » ; toute la tuile ouvre la fenêtre ; « CA − commissions versées » y est passée (accord d'Arno). */}
+        <li><button type="button" className="tdb-tuile" data-tuile="solde" aria-haspopup="dialog" aria-expanded={fenetreSolde} ref={tuileSolde} onClick={() => setFenetreSolde(true)}>
+          <span className="tdb-tuile-mot">Solde net</span>
           <Montants ht={soldeHtC / 100} ttc={soldeTtcC / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-solde-ht': '' }} donneesTtc={{ 'data-solde-ttc': '' }} />
-          <span className="tdb-tuile-n1" data-solde-explication>CA {MOT} − commissions versées {MOT}</span></div></li>
+          <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-solde>Voir le détail</span>
+        </button></li>
       </ul>
       {fenetre && <FenetreCommissions detail={dc} societe={vue} autreSociete={autreSociete}
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))}
         onFermer={() => { setFenetre(false); tuileCommissions.current?.focus(); }} onAller={allerA} />}
-      {fenetreCa && <FenetreCa detail={dca} societe={vue}
+      {fenetreSolde && <FenetreSolde detail={detailSolde(dca, dc)} societe={vue} autreSociete={autreSociete}
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))}
-        onFermer={() => { setFenetreCa(false); tuileCa.current?.focus(); }} onAller={allerA} />}
+        onFermer={() => { setFenetreSolde(false); tuileSolde.current?.focus(); }} onAller={allerA} />}
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
       {/* 🔴 LOT AE (Arno) — la règle de la société porteuse, dite au moment de l'enregistrement. */}
       {portee !== null && (
