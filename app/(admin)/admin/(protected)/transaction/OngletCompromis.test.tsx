@@ -3313,3 +3313,25 @@ describe('🔴 LOT AT — « Compromis annulés » : dernier bloc de la liste, a
     expect(container.querySelector('[data-compromis="41"]')).not.toBeNull();
   });
 });
+
+describe('🔴 LOT AU — « Total à verser par … » : le nom de la société de l’écran', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.uniteCommission; });
+  const rendre = async (el: ReturnType<typeof createElement>) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(el); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  it('CRITERIMMO, MACJ et le CA global ; le montant ne change pas', async () => {
+    const { LIBELLE_SOCIETE } = await import('../../../../lib/transaction/modele');
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await rendre(createElement(EcranSociete, { societe }));
+      expect(texte('[data-libelle-total-du]')).toBe(`Total à verser par ${LIBELLE_SOCIETE[societe]}`);
+      expect(texte('[data-total-a-verser] [data-montant-grand]').replace(' versées', '')).toBe(texte('[data-tuile="commissions"] [data-commissions-ttc]'));
+    }
+    await rendre(createElement(EcranGlobal));
+    expect(texte('[data-libelle-total-du]')).toBe('Total à verser par CRITERIMMO et MACJ');
+    expect(container.querySelector('[data-total-du]')!.textContent).not.toContain('—');
+  });
+});

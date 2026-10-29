@@ -59,7 +59,8 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
   onAller: (id: number) => void;
 }) {
   const u = useAffichage();
-  const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
+  // 🔴 LOT AU — le nom vient de la société de l'écran (ou des deux sur le CA global), jamais écrit en dur.
+  const qui = societe === null ? `${LIBELLE_SOCIETE.criterimmo} et ${LIBELLE_SOCIETE.macj}` : LIBELLE_SOCIETE[societe];
   const lienAffaire = (id: number): ReactNode => (
     <a className="trx-du-lien" href={`?vente=${id}`} onClick={(e) => { e.preventDefault(); onAller(id); }} data-aller-affaire-du={id}>{titres[id] ?? `Vente n° ${id}`}</a>
   );
@@ -133,7 +134,7 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
           detail.agences.length === 0 ? aucune('Aucune') : <ul className="trx-du-lignes">{detail.agences.map((p) => ligne(p, 'verse'))}</ul>} />
       </div>
       <div className="trx-du-total trx-somme--finale" data-total-du>
-        <span>Total à verser — {qui}</span>
+        <span data-libelle-total-du>Total à verser par {qui}</span>
         <span className="trx-du-montant"><Montants ht={detail.total.htC / 100} ttc={detail.total.ttcC / 100} sens="verse" donnees={{ 'data-total-a-verser': '' }} /><Parts s={detail.total} /></span>
       </div>
       <p className="trx-du-internes loc-muet" data-internes-du>Commissions internes (non déduites) : {montantAffiche(u, detail.internes.htC / 100, detail.internes.ttcC / 100)}
