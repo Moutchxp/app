@@ -90,10 +90,26 @@ export const TAUX_REMUNERATION_DEFAUT = 50;
  * inter-cabinet est la sienne). null : pas de répartition ou négociateur absent de la répartition. PUR.
  */
 export function baseRemunerationTtc(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): number | null {
-  const pct = partDuCote(v, cote);
-  if (pct === null || v.repartition == null) return null;
-  return ((v.honorairesTtc - v.repartition.retroApporteurTtc) * pct) / 100;
+  return honorairesDuCote(v, cote)?.ttc ?? null;
 }
+
+/** 🔴 LOT T — les honoraires d'un côté, décomposés pour l'écran : la commission nette de l'apporteur (TTC) × la part de ce côté (%) = la base. */
+export interface HonorairesCote { netTtc: number; part: number; ttc: number }
+
+/**
+ * 🔴 LOT T (Arno) — « Honoraires partie vendeur / acquéreur » : commission nette après apporteur × part de ce côté = la base de rémunération
+ * (la même que `baseRemunerationTtc`, qui la lit ici). null : pas de répartition ou négociateur absent de la répartition. PUR.
+ */
+export function honorairesDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): HonorairesCote | null {
+  const part = partDuCote(v, cote);
+  if (part === null || v.repartition == null) return null;
+  const netTtc = v.honorairesTtc - v.repartition.retroApporteurTtc;
+  return { netTtc, part, ttc: (netTtc * part) / 100 };
+}
+
+/** 🔴 LOT T — le taux de commissionnement du négociateur d'un côté sur cette vente (enregistré, sinon 50 %). PUR. */
+export const tauxDuCote = (v: Pick<Vente, 'lignes'>, cote: 'entree' | 'sortie'): number =>
+  v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote)?.taux ?? TAUX_REMUNERATION_DEFAUT;
 
 /** La rémunération d'un côté : la base, le taux (enregistré, sinon 50 %), le calcul (TTC), la valeur saisie et si elle en diffère. */
 export interface Remuneration { baseTtc: number; taux: number; calculTtc: number; saisie: MontantSaisi | null; ecart: boolean }

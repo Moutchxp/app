@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autreUnite, commissionDuCote, statutDeLigne, statutDePartie, enHt, enTtc, montantDeLigne, partDuCote, societeDeLigne, tuilesCompromis } from './commissions';
+import { autreUnite, baseRemunerationTtc, commissionDuCote, honorairesDuCote, remunerationDuCote, statutDeLigne, statutDePartie, enHt, enTtc, montantDeLigne, partDuCote, societeDeLigne, tauxDuCote, tuilesCompromis } from './commissions';
 import { caHt, payeTtcDe, type LigneVente, type Partie, type Vente } from './modele';
 
 /** TUILE « TRANSACTION », LOT I — commissions versées en HT ou en TTC, et les 4 tuiles de l'onglet « Compromis ». */
@@ -177,5 +177,25 @@ describe('🔴 LOT Q — une seule règle : le cumul de l’onglet Compromis et 
     expect([m.internesHt, m.payeHt, m.aRenseignerHt]).toEqual([2000, 1000, 500]);
     expect(t.soldeHt).toBe(10000 - 1000);
     expect(m.resteHt).toBe(10000 - 1000);
+  });
+});
+
+describe('🔴 LOT T — les honoraires d’un côté et le taux du négociateur (présentation : les nombres ne changent pas)', () => {
+  // L'exemple d'Arno : 7 500 TTC − 1 000 TTC d'apporteur = 6 500 ; la sortie (Mylène) à 40 %, au taux de 25 %, 1 625 enregistrés.
+  const v = vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, parties: [partie({ pourcentage: 60 }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'MY', societe: 'macj', pourcentage: 40 })] },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'JB' }, sortie: { id: 7, nom: 'MY' }, apporteurId: null, personnes: [] },
+    lignes: [ligne({ negociateur: 'MY', cote: 'sortie', montantTtc: 1625, taux: 25 })] });
+  it('« 6 500 × 40 % = 2 600 » : la base de rémunération, la même qu’avant', () => {
+    expect(honorairesDuCote(v, 'sortie')).toEqual({ netTtc: 6500, part: 40, ttc: 2600 });
+    expect(baseRemunerationTtc(v, 'sortie')).toBe(2600);
+    expect(honorairesDuCote(v, 'entree')).toEqual({ netTtc: 6500, part: 60, ttc: 3900 });
+  });
+  it('le taux : enregistré (25 %), sinon 50 % ; « 2 600 × 25 % = 650 », 1 625 enregistrés : écart', () => {
+    expect([tauxDuCote(v, 'sortie'), tauxDuCote(v, 'entree')]).toEqual([25, 50]);
+    expect(remunerationDuCote(v, 'sortie')).toMatchObject({ baseTtc: 2600, taux: 25, calculTtc: 650, ecart: true, saisie: { montant: 1625, unite: 'ttc' } });
+  });
+  it('sans répartition ou sans négociateur : rien à décomposer', () => {
+    expect(honorairesDuCote({ ...v, repartition: null }, 'sortie')).toBeNull();
+    expect(honorairesDuCote({ ...v, dossier: { ...v.dossier!, sortie: null } }, 'sortie')).toBeNull();
   });
 });

@@ -120,7 +120,8 @@ export interface Miroir {
   etat: 'active' | 'annulee';
   /** Les côtés tenus par un négociateur de cette société : leur base de rémunération (la part reçue, TTC). */
   /** LOT S — `commissionne` : faux pour un négociateur non commissionné (aucune rémunération ne se saisit ni ne compte). */
-  cotes: { cote: 'entree' | 'sortie'; negociateur: string; compteId: number | null; statut: Statut | null; baseTtc: number; commissionne?: boolean }[];
+  /** LOT T — `part` (% de ce côté) et `netTtc` (commission nette de l'apporteur) : la base décomposée pour l'écran (« Honoraires reçus de … »). */
+  cotes: { cote: 'entree' | 'sortie'; negociateur: string; compteId: number | null; statut: Statut | null; baseTtc: number; commissionne?: boolean; part?: number; netTtc?: number }[];
 }
 
 // ── LOT D : la répartition de la commission ──────────────────────────────────────────────────────────────────────────────────

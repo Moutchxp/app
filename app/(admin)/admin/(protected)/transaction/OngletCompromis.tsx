@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { bilanVente, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { commissionDuCote, commissionneDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tuilesCompromis } from '../../../../lib/transaction/commissions';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { commissionDuCote, commissionneDuCote, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
+  type HonorairesCote, type Remuneration } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type Statut } from '../../../../lib/admin/statut';
-import { libellePartie, partsParSociete, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
+import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, eurUnite, parametre, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, propositionCommission, tauxDe, texteTaux,
-  type EtatRepartition, type MontantEcran } from './Repartition';
+import { BlocRepartition, changerNegociateur, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
+  texteTaux, versModele, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
@@ -171,7 +172,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
               const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
               return (
                 <section className="trx-colonne" aria-label={mot} data-colonne={role}>
-                  <h4>{mot}</h4>
+                  {/* 🔴 LOT T (Arno) — la première ligne : le titre à gauche, à droite la société de ce côté et sa part (« CRITERIMMO · 40 % »),
+                      qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
+                  <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} />
                   {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p> : (
                     <ul className="trx-personnes" data-personnes-compromis={role}>
                       {gens.map((p) => (
@@ -301,6 +304,17 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
 
 // ── LOT G : le négociateur d'un côté, depuis la carte ────────────────────────────────────────────────────────────────────
 
+/** La société d'un compte, en clair (« ⚠ société à renseigner dans Comptes » si elle manque). */
+const libelleSociete = (s: SocieteCompte | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[s]);
+/** Un pourcentage à l'écran (« 40 », « 62,5 »). */
+const pctFr = (x: number): string => x.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+/** La société de la partie d'un négociateur sur cette vente (côté donné d'abord) ; null : aucune partie avec société. PUR. */
+function societeSurVente(v: Vente, cote: 'entree' | 'sortie', id: number): Societe | null {
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
+  return v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null && sortes.includes(p.sorte))?.societe
+    ?? v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe ?? null;
+}
+
 /** Le dossier d'un compromis tel qu'il est, prêt à renvoyer avec un seul changement (les mêmes champs que « Modifier »). */
 const champsDe = (v: Vente) => ({ libelle: v.libelle, commission: String(v.honorairesTtc), dateCompromis: v.dateCompromis ?? '', dateActePrevue: v.dossier?.dateActePrevue ?? '',
   dateActe: '', adresseBien: v.dossier?.adresseBien ?? '', note: v.note ?? '', prixVente: v.prixVente == null ? '' : String(v.prixVente) });
@@ -326,17 +340,11 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
   const avecUnite = references.uniteCommission === true;
   const enregistree = commissionDuCote(v, cote);
   const partieDuCote = actuel === null ? undefined : v.repartition?.parties.find((p) => p.compteId === actuel.id && (cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie']).includes(p.sorte));
-  // LOT J — sa part de la vente dans la répartition enregistrée (relue après chaque enregistrement) ; sans répartition : rien.
-  const part = partDuCote(v, cote);
   const base = etatRepartitionDe(v, references.negociateurs, avecUnite);
   const initiale: MontantEcran = base.commissions?.[cote] ?? { texte: '', unite: 'ttc' };
   const [commission, setCommission] = useState<MontantEcran>(initiale);
-  // La société affichée : celle de SA partie sur cette vente (côté de ce bouton d'abord) ; à défaut, celle de son compte.
-  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
-  const societeVente = (id: number): Societe | null => v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null && sortes.includes(p.sorte))?.societe
-    ?? v.repartition?.parties.find((p) => p.compteId === id && p.societe !== null)?.societe ?? null;
-  const societe = (id: number): SocieteCompte | null => societeVente(id) ?? references.negociateurs.find((n) => n.id === id)?.societe ?? null;
-  const libelleSociete = (s: SocieteCompte | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[s]);
+  // La société de SA partie sur cette vente (côté de ce bouton d'abord) — pour le choix « CRITERIMMO / MACJ » d'un collaborateur des deux.
+  const societeVente = (id: number): Societe | null => societeSurVente(v, cote, id);
   // 🔴 LOT K — un collaborateur des DEUX sociétés : « Pour cette vente, il travaille pour : CRITERIMMO / MACJ », obligatoire.
   const choisi = choix === '' ? null : Number(choix);
   const desDeux = choisi !== null && references.negociateurs.find((n) => n.id === choisi)?.societe === LES_DEUX;
@@ -376,28 +384,29 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
     setEnvoi(false);
     if (r === null) { setOuvert(false); onFait(); } else setMotif(r);
   };
+  // 🔴 LOT T — les deux lignes de calcul sous le bouton (présentation seulement) : les honoraires de ce côté, puis la commission du négociateur.
+  const honoraires = actuel === null ? null : honorairesDuCote(v, cote);
+  const rem = actuel === null || actuelNonCommissionne ? null : remunerationDuCote(v, cote);
+  const appliquer = (r: Remuneration): void => {
+    const u = r.saisie?.unite ?? 'ttc';
+    setEnvoi(true);
+    void posterTransaction({ action: 'commission-cote', id: v.id, cote, montant: { montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, taux: r.taux })
+      .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); });
+  };
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
+      {/* 🔴 LOT T (Arno) — « Négociateur : Prénom NOM · 25 % » : son TAUX DE COMMISSIONNEMENT sur cette vente (la société et la part sont dans le
+          bouton de la première ligne) ; non commissionné (lot S) : « · non commissionné ». */}
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
-        data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur' : `Négociateur : ${actuel.nom} (${libelleSociete(societe(actuel.id))})${part === null ? '' : ` (${part.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %)`}`}</button>
-      {/* 🔴 LOT S (Arno) — non commissionné : « Non commissionné » à la place de la commission (rien d'autre : ni montant, ni calcul) ; les
-          montants déjà saisis restent en base, consultables dans « Historique » (accord d'Arno pour ne plus les afficher sur la carte). */}
-      {actuel !== null && actuelNonCommissionne && <span className="loc-muet trx-negociateur-commission" data-non-commissionne={cote}>Non commissionné</span>}
-      {actuel !== null && avecUnite && !actuelNonCommissionne && (
+        data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
+          : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
+      {actuel !== null && <LignesCalcul cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
+        enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
+      {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
+      {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
           {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : `Commission versée : ${eurUnite(enregistree.montant)}`}</span>
       )}
-      {/* 🔴 LOT R — la valeur saisie n'est jamais recalculée seule : si elle diffère du calcul (taux × sa part), le calcul proposé et « Appliquer le calcul ». */}
-      {actuel !== null && avecUnite && !actuelNonCommissionne && (() => {
-        const rem = remunerationDuCote(v, cote);
-        if (rem === null || !rem.ecart || rem.saisie === null) return null;
-        const u = rem.saisie.unite;
-        return <span className="trx-negociateur-commission trx-ecart-calcul" data-ecart-remuneration={cote}>
-          <span className="trx-alerte">valeur saisie — calcul proposé : {eur(rem.calculTtc)} TTC ({rem.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % × {eur(rem.baseTtc)} TTC)</span>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible || envoi} data-appliquer-calcul-carte={cote}
-            onClick={() => { setEnvoi(true); void posterTransaction({ action: 'commission-cote', id: v.id, cote, montant: { montant: u === 'ttc' ? rem.calculTtc : rem.calculTtc / TVA, unite: u }, taux: rem.taux })
-              .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); }); }}>Appliquer le calcul</button></span>;
-      })()}
       {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul. */}
       {actuel !== null && partieDuCote !== undefined && (() => {
         const st = statutDePartie(partieDuCote);
@@ -426,6 +435,120 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir }
       )}
     </div>
   );
+}
+
+// ── 🔴 LOT T : la société et la part de chaque côté ; les lignes de calcul sous le négociateur ──────────────────────────────────
+
+/** Une commission enregistrée, dans son unité (« 1 625,00 € TTC » ; en HT, avec son équivalent TTC). */
+const montantEnregistre = (m: MontantSaisi): string => (m.unite === 'ttc' ? `${eur(m.montant)} TTC` : eurEtEquivalent(m));
+
+/**
+ * 🔴 LOT T (Arno) — SOUS LE BOUTON DU NÉGOCIATEUR, deux lignes de calcul lisibles :
+ *   · « Honoraires partie vendeur / acquéreur » (ligne miroir : « Honoraires reçus de CRITERIMMO / MACJ ») : la commission nette après apporteur
+ *     × la part de ce côté = la base (TTC, et son équivalent HT) ;
+ *   · « Commission du négociateur » : la base × son taux = la commission qui lui revient (TTC).
+ * Une commission enregistrée qui diffère du calcul : « Commission enregistrée : X » en rouge, puis « Appliquer le calcul » (geste humain,
+ * journalisé : rien n'est recalculé tout seul) ; égale : pas de ligne rouge. Non commissionné (`rem` null) : la première ligne seule.
+ * Présentation seulement : les nombres sont ceux de `honorairesDuCote` et `remuneration` (commissions.ts), inchangés.
+ */
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false }: {
+  cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
+  /** Faux : sans la 437 (ni commission enregistrée, ni « Appliquer le calcul »). */
+  enregistree: boolean; occupe: boolean; onAppliquer: (r: Remuneration) => void;
+  /** Ligne miroir : « Appliquer le calcul » aussi quand rien n'est encore enregistré (comme au lot R). */
+  appliquerSiVide?: boolean;
+}) {
+  const bouton = (r: Remuneration) => <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={() => onAppliquer(r)} data-appliquer-calcul-carte={cote}>Appliquer le calcul</button>;
+  return <>
+    {honoraires !== null && (
+      <p className="trx-calcul-cote" data-honoraires-cote={cote}><span className="trx-calcul-mot">{premier}</span> : {eur(honoraires.netTtc)} × {pctFr(honoraires.part)} % ={' '}
+        <strong>{eur(honoraires.ttc)} TTC</strong> <span className="trx-calcul-ht">({eur(honoraires.ttc / TVA)} HT)</span></p>
+    )}
+    {rem !== null && (
+      <p className="trx-calcul-cote" data-commission-negociateur={cote}><span className="trx-calcul-mot">Commission du négociateur</span> : {eur(rem.baseTtc)} × {pctFr(rem.taux)} % ={' '}
+        <strong>{eur(rem.calculTtc)} TTC</strong></p>
+    )}
+    {rem !== null && enregistree && rem.ecart && rem.saisie !== null && (
+      <p className="trx-calcul-cote trx-ecart-calcul" data-ecart-remuneration={cote}>
+        <span className="trx-alerte" data-commission-enregistree={cote}>Commission enregistrée : {montantEnregistre(rem.saisie)}</span>{bouton(rem)}</p>
+    )}
+    {rem !== null && enregistree && rem.saisie === null && (
+      <p className="trx-calcul-cote trx-ecart-calcul" data-commission-carte={cote}>
+        <span className="loc-muet trx-a-renseigner">Commission enregistrée : {A_RENSEIGNER}</span>{appliquerSiVide && bouton(rem)}</p>
+    )}
+  </>;
+}
+
+/** La part d'une ligne de répartition à l'écran, en % de la commission nette (€ HT ramenés en %) ; illisible : 0. PUR. */
+function pctLigne(p: PartieEcran | undefined, netHt: number): number {
+  const x = p === undefined ? null : nombre(p.texte);
+  if (p === undefined || x === null) return 0;
+  return p.mode === 'pct' ? x : pourcentageDe(x, netHt);
+}
+
+/** Les commissions proposées (non saisies) ne partent pas d'un réglage de la répartition : seules les commissions enregistrées repartent, telles quelles. PUR. */
+function sansProposition(e: EtatRepartition): EtatRepartition {
+  if (e.commissions == null) return e;
+  const un = (m: MontantEcran): MontantEcran => (m.auto === true ? { texte: '', unite: m.unite } : m);
+  return { ...e, commissions: { entree: un(e.commissions.entree), sortie: un(e.commissions.sortie) } };
+}
+
+/**
+ * 🔴 LOT T (Arno) — LA PREMIÈRE LIGNE D'UNE COLONNE : « Vendeurs » / « Acquéreurs » à gauche ; à droite, la société concernée par ce côté et sa
+ * part dans la répartition (« CRITERIMMO · 40 % » ; sans négociateur : « Société à définir · 50 % »). Un clic ouvre le réglage de la
+ * répartition — le bloc partagé du formulaire, parts seules : % / €, auto-compensation à deux parties, partie extérieure, et la société pour
+ * cette vente d'un collaborateur « CRITERIMMO et MACJ ». « Valider » l'enregistre par le même geste que « Modifier » (journalisé) ; les
+ * commissions enregistrées repartent telles quelles (jamais recalculées), aucune commission proposée ne s'écrit.
+ */
+function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait }: {
+  titre: string; v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void;
+}) {
+  const [etat, setEtat] = useState<EtatRepartition | null>(null);
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const base = etatRepartitionDe(v, references.negociateurs, references.uniteCommission === true);
+  const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
+  const i = cote === 'entree' ? 0 : 1;
+  const compte = actuel === null ? undefined : references.negociateurs.find((n) => n.id === actuel.id);
+  const surVente = actuel === null ? null : societeSurVente(v, cote, actuel.id);
+  const societe = actuel === null ? 'Société à définir'
+    : surVente !== null ? LIBELLE_SOCIETE[surVente]
+    : compte?.societe === LES_DEUX ? 'Société à choisir' : libelleSociete(compte?.societe ?? null);
+  const part = partDuCote(v, cote) ?? pctLigne(base.parties[i], commissionNetteHt(v.honorairesTtc, v.repartition?.retroApporteurTtc ?? 0));
+  const ouvert = etat !== null;
+  const somme = etat === null ? null : etatSomme(etat, v.honorairesTtc);
+  const bloque = etat === null ? null : motifSocieteVente(etat, references.negociateurs) ?? somme?.motif ?? null;
+  const valider = async (): Promise<void> => {
+    if (etat === null) return;
+    setMotif(null);
+    if (bloque !== null) { setMotif(`${bloque} Rien n’a été enregistré.`); return; }
+    if (JSON.stringify(versModele(etat.parties)) === JSON.stringify(versModele(base.parties))) { setEtat(null); return; }
+    setEnvoi(true);
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), sansProposition(etat)) });
+    setEnvoi(false);
+    if (r === null) { setEtat(null); onFait(); } else setMotif(r);
+  };
+  return <>
+    <div className="trx-colonne-tete">
+      <h4>{titre}</h4>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-societe-cote" onClick={() => { setMotif(null); setEtat(ouvert ? null : base); }} disabled={!disponible}
+        aria-expanded={ouvert} data-societe-cote={cote}>{societe} · {pctFr(part)} %</button>
+    </div>
+    {etat !== null && (
+      <div className="trx-choix-negociateur trx-reglage-repartition" role="group" aria-label={`Répartition de la commission — ${titre}`} data-reglage-repartition={cote}>
+        {/* Dans `.trx-form`, comme dans « Modifier » : les mêmes champs (44 px), une colonne sur téléphone. */}
+        <div className="trx-form">
+          <BlocRepartition etat={etat} onChange={(e) => { setEtat(e); setMotif(null); }} negociateurs={references.negociateurs} apporteurs={references.apporteurs}
+            honorairesTtc={v.honorairesTtc} societeVente={v.societe} seulementParts />
+        </div>
+        <div className="trx-actions">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || bloque !== null} onClick={() => void valider()} data-valider-repartition={cote}>Valider</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setEtat(null); setMotif(null); }}>Fermer</button>
+        </div>
+        {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
+      </div>
+    )}
+  </>;
 }
 
 // ── 🔴 LOT R : la ligne miroir de l'inter-cabinet, et la rémunération d'un côté ─────────────────────────────────────────────────
@@ -478,7 +601,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Ven
           </dl>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
             : m.cotes.map((x) => <RemunerationCote key={x.cote} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
-              baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
+              baseTtc={x.baseTtc} pct={m.pourcentage} porteuse={m.porteuse} honoraires={x.part === undefined || x.netTtc === undefined ? null : { netTtc: x.netTtc, part: x.part, ttc: x.baseTtc }} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
               disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
         </div>
       </BlocReplie>
@@ -491,8 +614,10 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait }: { v: Ven
  * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
  * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
  */
-export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true }: {
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, porteuse, honoraires = null }: {
   venteId: number; cote: 'entree' | 'sortie'; negociateur: string; societe: Societe; statut: Statut | null; baseTtc: number; pct: number | null;
+  /** 🔴 LOT T — la société porteuse (« Honoraires reçus de … ») et la base décomposée (commission nette × part de ce côté) ; absente : ligne non montrée. */
+  porteuse?: Societe; honoraires?: HonorairesCote | null;
   ligne: Vente['lignes'][number] | undefined; disponible: boolean; onFait: () => void;
   /** LOT S — faux : négociateur non commissionné (ni montant, ni calcul, ni « Appliquer le calcul ») ; absent : commissionné. */
   commissionne?: boolean;
@@ -512,10 +637,11 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
     setEnvoi(false);
     if (res === null) { setOuvert(false); onFait(); } else setMotif(res);
   };
-  const appliquer = (): Promise<void> => {
-    const u = r.saisie?.unite ?? 'ttc';
-    return envoyer({ montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, r.taux);
+  const appliquer = (x: Remuneration = r): Promise<void> => {
+    const u = x.saisie?.unite ?? 'ttc';
+    return envoyer({ montant: u === 'ttc' ? x.calculTtc : x.calculTtc / TVA, unite: u }, x.taux);
   };
+  const premier = porteuse === undefined ? 'Honoraires reçus' : `Honoraires reçus de ${LIBELLE_SOCIETE[porteuse]}`;
   const valider = (): Promise<void> => {
     const e = montantEffectif(champ, propose);
     const x = Number(e.texte.replace(/[\s  €]/g, '').replace(',', '.'));
@@ -524,6 +650,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   if (!commissionne) return (
     <div className="trx-remuneration" data-remuneration={cote}>
       <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}</p>
+      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={null} enregistree={false} occupe onAppliquer={() => undefined} />
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
     </div>
   );
@@ -531,14 +658,8 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
     <div className="trx-remuneration" data-remuneration={cote}>
       <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}
         {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</p>
-      <p data-remuneration-saisie={cote} className={r.saisie === null ? 'trx-a-renseigner' : undefined}>Rémunération : {r.saisie === null ? A_RENSEIGNER : eurUnite(r.saisie)}</p>
-      <p className="loc-muet" data-remuneration-calcul={cote}>Calcul : {r.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} % × {eur(r.baseTtc)} TTC (CA que la vente apporte à {LIBELLE_SOCIETE[societe]}) = {eur(r.calculTtc)} TTC</p>
-      {(r.ecart || r.saisie === null) && (
-        <p className="trx-ecart-calcul" data-ecart-remuneration={cote}>
-          {r.ecart && <span className="trx-alerte">valeur saisie — calcul proposé : {eur(r.calculTtc)} TTC</span>}
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!disponible || envoi} onClick={() => void appliquer()} data-appliquer-calcul-carte={cote}>Appliquer le calcul</button>
-        </p>
-      )}
+      {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte, « Honoraires reçus de … » en tête. */}
+      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide />
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Rémunération du négociateur de ${mot}`}>

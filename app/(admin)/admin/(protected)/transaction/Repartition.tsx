@@ -163,13 +163,19 @@ export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parti
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
 
-export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false }: {
+export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false }: {
   etat: EtatRepartition; onChange: (e: EtatRepartition) => void; negociateurs: readonly NegociateurRef[]; apporteurs: readonly ApporteurRef[];
   /** La commission TTC saisie (NaN : pas encore lisible). */
   honorairesTtc: number;
   /** La société où la vente est saisie (sans négociateur : toute la commission lui revient, comme avant). */
   societeVente: Societe;
   desactive?: boolean;
+  /**
+   * 🔴 LOT T — le réglage de la répartition ouvert depuis le bouton « CRITERIMMO · 40 % » d'une colonne de la carte : les parts seules (% / €,
+   * auto-compensation à deux parties, partie extérieure, société d'un collaborateur des deux sociétés) ; ni apporteur, ni choix du négociateur,
+   * ni commission (ils restent dans « Modifier » et sous le bouton du négociateur). Absent : le bloc complet, inchangé.
+   */
+  seulementParts?: boolean;
 }) {
   const retro = retroTtcDe(etat);
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
@@ -194,15 +200,15 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
-      <legend className="loc-muet">Apporteur et répartition de la commission</legend>
-      <div className="trx-form">
+      <legend className="loc-muet">{seulementParts ? 'Répartition de la commission' : 'Apporteur et répartition de la commission'}</legend>
+      {!seulementParts && <div className="trx-form">
         <label>Apporteur d’affaires
           <ListeChoix options={apporteurs.map((a) => ({ id: a.id, libelle: a.nom }))} valeur={etat.apporteurId === null ? '' : String(etat.apporteurId)} vide="Aucun"
             libelle="Apporteur d’affaires" onChange={(v) => onChange({ ...etat, apporteurId: v === '' ? null : Number(v) })} donnees={{ 'data-champ': 'apporteur-annuaire' }} />
           <span className="loc-muet">L’annuaire des apporteurs de la Location.</span></label>
         <ChampMontantUnite mot="Rétrocession de l’apporteur" valeur={{ texte: etat.retroTexte, unite: etat.retroUnite ?? 'ttc' }} avecHt={etat.commissions != null}
           onChange={(m) => onChange({ ...etat, retroTexte: m.texte, retroUnite: m.unite })} champ="retro" aide="Déduite avant toute répartition." />
-      </div>
+      </div>}
 
       <ul className="trx-journal trx-parties" data-parties>
         {etat.parties.map((p, i) => {
@@ -219,7 +225,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   onClick={() => onChange({ ...etat, parties: retirerPartie(etat.parties, i, net) })} data-retirer-exterieure>×</button>}
               </div>
               <div className="trx-part">
-                {interne ? (
+                {interne && seulementParts ? <span className="trx-partie-nego" data-nego-partie={i}>{p.negociateur ?? 'négociateur à choisir'}</span> : interne ? (
                   <label>Négociateur
                     <ListeChoix options={optionsNego} valeur={p.compteId === null ? '' : String(p.compteId)} vide="— à choisir —" libelle={LIBELLE_PARTIE[p.sorte]}
                       onChange={(v) => choisirNego(i === 0 ? 0 : 1, v)} donnees={{ 'data-champ': i === 0 ? 'entree' : 'sortie' }} recherche={{ placeholder: 'Rechercher un négociateur' }} /></label>
@@ -237,7 +243,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
               )}
               {interne && p.compteId === null && (nombre(p.texte) ?? 0) !== 0 && <span className="loc-muet">Sans négociateur, cette part n’est pas comptée.</span>}
               {/* LOT I — la commission versée au négociateur de ce côté (entrée : ligne 0, sortie : ligne 1), HT ou TTC au choix. */}
-              {interne && i < 2 && (etat.commissions != null ? (
+              {interne && i < 2 && !seulementParts && (etat.commissions != null ? (
                 p.compteId === null ? <span className="loc-muet" data-commission-sans-negociateur={i === 0 ? 'entree' : 'sortie'}>Commission versée : choisissez d’abord le négociateur.</span>
                   // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
                   : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>

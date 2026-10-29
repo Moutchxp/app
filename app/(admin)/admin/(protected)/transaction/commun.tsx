@@ -196,9 +196,21 @@ export const CSS_TRANSACTION = `
 .trx-apporteur{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 16px}
 .trx-apporteur-montant{font-variant-numeric:tabular-nums}
 .trx-a-renseigner{font-style:italic}
+/* LOT T (Arno) — la première ligne d'une colonne : le titre à gauche, la société et la part de ce côté à droite (sous le titre sur téléphone) ;
+   sous le négociateur, les lignes de calcul (le mot en gras, le résultat en gras, l'équivalent HT en gris). */
+.trx-colonne-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;width:100%}
+.trx-carte-detail .trx-colonne-tete h4{margin:0}
+.trx-colonne .trx-btn-societe-cote{width:auto;max-width:100%;min-height:44px;white-space:normal;text-align:center}
+.trx-reglage-repartition{width:100%;box-sizing:border-box}
+.trx-partie-nego{font-weight:700;align-self:center;overflow-wrap:anywhere}
+.trx-calcul-cote{margin:0;font-size:.88rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.trx-calcul-mot{font-weight:700}
+.trx-calcul-ht{color:var(--color-svv-muted)}
+.trx-calcul-cote.trx-ecart-calcul{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
   .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .trx-colonne-tete{flex-direction:column;align-items:flex-start}
 }
 `;

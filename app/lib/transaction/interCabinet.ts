@@ -1,6 +1,6 @@
 import { bilanVente, commissionNetteHt, LIBELLE_SOCIETE, societeDeLigne, societePorteuse, SOCIETES, TVA, type LigneVente, type Miroir, type Societe, type Vente } from './modele';
 import { commissionIgnoree, commissionneDePartie, statutDePartie } from './statutLigne';
-import { baseRemunerationTtc } from './commissions';
+import { honorairesDuCote } from './commissions';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT R (Arno, 28/10/2026) — LA LIGNE MIROIR DE L'INTER-CABINET (PUR) ══════════════════════════════════
@@ -48,9 +48,9 @@ export function ligneMiroir(v: Vente, s: Societe, partHt: number, pourcentage: n
   // Les côtés tenus par un négociateur de cette société : leur rémunération se lit (et se modifie) d'ici.
   const cotes: Miroir['cotes'] = (['entree', 'sortie'] as const).flatMap((cote) => {
     const p = partieDe(cote);
-    const base = baseRemunerationTtc(v, cote);
-    return p === undefined || p.negociateur === null || base === null ? []
-      : [{ cote, negociateur: p.negociateur, compteId: p.compteId, statut: statutDePartie(p), baseTtc: base, commissionne: commissionneDePartie(p) }];
+    const h = honorairesDuCote(v, cote);
+    return p === undefined || p.negociateur === null || h === null ? []
+      : [{ cote, negociateur: p.negociateur, compteId: p.compteId, statut: statutDePartie(p), baseTtc: h.ttc, commissionne: commissionneDePartie(p), part: h.part, netTtc: h.netTtc }];
   });
   // Ses lignes : les commissions des négociateurs de CETTE société (statut figé recopié) ; une ligne « part » par négociateur (CA porté).
   // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ n'est pas recopiée (elle reste sur la vente d'origine, ignorée).
