@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { classeDeCommission, commissionDuCote, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
+import { classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
@@ -397,7 +397,11 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   // 🔴 LOT Y — la classe de cette commission par LA règle du cumul « Commissions versées » (`classeDeCommission`, celle des tuiles) : sa ligne
   // enregistrée ; sans ligne, le négociateur de ce côté (sa partie, figée sinon son compte ; sinon le compte rapproché de son libellé).
   const ligneCote = v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote);
-  const classe = actuel === null ? null : classeDeCommission(v, ligneCote ?? { negociateur: partieDuCote?.negociateur ?? actuel.nom, cote, statut: null }, statutDuLibelle);
+  const ligneStatut = actuel === null ? null : ligneCote ?? { negociateur: partieDuCote?.negociateur ?? actuel.nom, cote, statut: null };
+  const classe = ligneStatut === null ? null : classeDeCommission(v, ligneStatut, statutDuLibelle);
+  // 🔴 LOT Z — le statut de cette commission (le même que la classe : `statutDeCommission`) et, s'il n'est pas figé sur la vente, sa précision.
+  const statutCommission = ligneStatut === null ? null : statutDeCommission(v, ligneStatut, statutDuLibelle);
+  const precision = partieDuCote !== undefined && partieDuCote.statut == null ? (statutCommission !== null ? '(statut actuel du compte)' : '(à confirmer)') : undefined;
   const appliquer = (r: Remuneration): void => {
     const u = r.saisie?.unite ?? 'ttc';
     setEnvoi(true);
@@ -411,20 +415,22 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
           : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
-      {actuel !== null && <LignesCalcul classe={classe} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
+      {actuel !== null && <LignesCalcul classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} rem={rem}
         enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
       {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
       {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
           {enregistree === null ? `Commission versée : ${A_RENSEIGNER}` : <>Commission versée : <HtTtc m={enregistree.montant} /></>}</span>
       )}
-      {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul. */}
-      {actuel !== null && partieDuCote !== undefined && (() => {
+      {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul.
+          🔴 LOT Z (accord d'Arno) — RETIRÉE quand le bloc « Commission du négociateur » existe (doublon : le statut et sa précision sont dans la
+          mention du bloc) ; gardée sans bloc — un non commissionné : « Statut à la vente : Associé — non commissionné ». */}
+      {actuel !== null && partieDuCote !== undefined && rem === null && (() => {
         const st = statutDePartie(partieDuCote);
         const classe = classeCommission(st);
         return <span className={classe === 'a_renseigner' ? 'loc-muet trx-negociateur-commission trx-alerte' : 'loc-muet trx-negociateur-commission'} data-statut-vente={cote}>
           Statut à la vente : {libelleStatut(st)}{partieDuCote.statut == null ? (st !== null ? ' (statut actuel du compte)' : ' (à confirmer)') : ''}
-          {actuelNonCommissionne ? '' : classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
+          {actuelNonCommissionne ? ' — non commissionné' : classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
       })()}
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
@@ -465,10 +471,22 @@ export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSai
  * FIXE alignée à droite, le résultat HT en gras, et juste dessous le TTC entre parenthèses, en vert. Les montants ne se coupent jamais ; quand la
  * place manque (téléphone, colonne étroite), le libellé passe au-dessus et HT / TTC restent l'un sous l'autre.
  */
-function LigneCalcul({ donnees, libelle, ttc, encadre = null }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+/**
+ * 🔴 LOT Z (Arno) — LA MENTION DU BLOC « Commission du négociateur » : le statut à la vente (« Salarié interne », « Associé », « Indépendant »,
+ * « Statut à renseigner »), sa précision s'il n'est pas figé (« (statut actuel du compte) », « (à confirmer) »), et ce que devient la commission
+ * dans « Commissions versées » — la règle du cumul (`classeCommission`, celle des tuiles). PUR.
+ */
+export function mentionCommission(statut: Statut | null, precision?: string): string {
+  const qui = statut === 'independant' ? 'Indépendant' : statut === 'salarie' ? 'Salarié interne' : statut === 'associe' ? 'Associé' : 'Statut à renseigner';
+  return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
+}
+
+function LigneCalcul({ donnees, libelle, ttc, encadre = null, mention }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** LOT Z — la mention du bloc encadré (le statut à la vente et ce que devient la commission dans « Commissions versées »). */
+  mention?: string;
   /**
-   * 🔴 LOTS X / Y — la commission du négociateur, encadrée d'un liseré fin : ROUGE et « déduite — dans les commissions versées » si elle entre
-   * dans ce cumul (indépendant) ; VERT et « interne — non déduite » sinon (associé, salarié, statut à renseigner). Le mot accompagne la couleur.
+   * 🔴 LOTS X / Y / Z — la commission du négociateur, encadrée d'un liseré fin : ROUGE si elle entre dans « Commissions versées » (indépendant),
+   * VERT sinon (associé, salarié, statut à renseigner) ; la mention écrite (`mentionCommission`) accompagne toujours la couleur.
    */
   encadre?: 'deduite' | 'interne' | null }) {
   return (
@@ -477,7 +495,7 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = null }: { donnees: Recor
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
       <strong className="trx-calcul-resultat" data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
       <span className="trx-calcul-ttc trx-vert" data-montant-ttc>({eur(ttc)} TTC)</span>
-      {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{encadre === 'deduite' ? 'déduite — dans les commissions versées' : 'interne — non déduite'}</span></>}
+      {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
     </p>
   );
 }
@@ -493,10 +511,12 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = null }: { donnees: Recor
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention }: {
   cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
   /** 🔴 LOT Y — la classe de la commission selon la règle du cumul (`classeDeCommission`) : la couleur du liseré. */
   classe?: ClasseCommission | null;
+  /** 🔴 LOT Z — la mention du bloc (`mentionCommission`). */
+  mention?: string;
   /** Faux : sans la 437 (ni commission enregistrée, ni « Appliquer le calcul »). */
   enregistree: boolean; occupe: boolean; onAppliquer: (r: Remuneration) => void;
   /** Ligne miroir : « Appliquer le calcul » aussi quand rien n'est encore enregistré (comme au lot R). */
@@ -511,7 +531,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         ttc={honoraires.ttc} />
     )}
     {rem !== null && (
-      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
+      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
         ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (
@@ -709,7 +729,8 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
         {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</p>
       {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte, « Honoraires reçus de … » en tête. */}
       <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
-        classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)} />
+        classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)}
+        mention={mentionCommission(statutDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle))} />
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Rémunération du négociateur de ${mot}`}>
