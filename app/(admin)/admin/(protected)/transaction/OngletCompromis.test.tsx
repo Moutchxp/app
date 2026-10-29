@@ -972,8 +972,8 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     expect(container.querySelector(`${carte} [data-acte-signe]`)).toBeNull();
     expect(container.querySelector(`${carte} [data-annulation-compromis]`)).toBeNull();
     expect(container.querySelector(`${carte} [data-voir-origine="38"]`)!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
-    // LOT T — « Honoraires reçus de CRITERIMMO » à la place de la première ligne.
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires reçus de CRITERIMMO : 3 333,33 € HT × 50 % = 1 666,67 € HT (2 000,00 € TTC)');
+    // LOT AK — « Honoraires reçus de CRITERIMMO » retiré de la ligne miroir (doublon du « CA de MACJ sur cette vente »), accord d'Arno.
+    expect(container.querySelector('[data-honoraires-cote="sortie"]')).toBeNull();
     expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 1 666,67 € HT × 50 % = 833,33 € HT (1 000,00 € TTC) Indépendant — comptabilisé dans « Commissions versées »');
     expect(texte('[data-commission-enregistree="sortie"]')).toBe('Commission enregistrée : 1 666,67 € HT (2 000,00 € TTC)');
     expect(posts).toEqual([]);
@@ -1463,14 +1463,14 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
   });
 
-  it('ligne miroir : « Honoraires reçus de … » et « Commission du négociateur », même disposition', async () => {
+  it('ligne miroir : « Commission du négociateur », même disposition (LOT AK : plus de « Honoraires reçus de … »)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 50),
       { ...pa('sortie', 7, MY.nom, 50), societe: 'macj' as const, statut: 'independant' as const }] }, lignes: [] };
     listeCompromis = [venteDansSociete(v, 'macj')!];
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
-    expect(structure('[data-honoraires-cote="sortie"]').map((x) => x[2])).toEqual(['Honoraires reçus de CRITERIMMO : 3 333,33 € HT × 50 % =', '1 666,67 € HT', '(2 000,00 € TTC)']);
+    expect(container.querySelector('[data-honoraires-cote="sortie"]')).toBeNull();
     expect(structure('[data-commission-negociateur="sortie"]').map((x) => x[2])).toEqual(['Commission du négociateur : 1 666,67 € HT × 50 % =', '833,33 € HT', '(1 000,00 € TTC)', 'Indépendant — comptabilisé dans « Commissions versées »']);
   });
 
@@ -1509,13 +1509,13 @@ describe('🔴 LOT X — « Commission du négociateur » entourée d’un liser
     expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;box-sizing:border-box}');
   });
 
-  it('ligne miroir : la commission encadrée, les honoraires reçus non', async () => {
+  it('ligne miroir : la commission encadrée (LOT AK : plus de ligne d’honoraires reçus)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo'), pa('sortie', 7, MY.nom, 'macj')] }, lignes: [] };
     listeCompromis = [venteDansSociete(v, 'macj')!];
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
-    expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]')]).toEqual([true, false]);
+    expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]')]).toEqual([true, null]);
   });
 });
 
@@ -1776,13 +1776,13 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
     expect(encadre('[data-honoraires-cote="sortie"]')).toBe('aucun');
   });
 
-  it('ligne miroir chez MACJ : inchangée — honoraires reçus sans liseré, la commission garde le sien', async () => {
+  it('ligne miroir chez MACJ : la commission garde son liseré (LOT AK : plus de ligne d’honoraires reçus)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     listeCompromis = [venteDansSociete(heididon('criterimmo', 'macj'), 'macj')!];
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
-    expect(encadre('[data-honoraires-cote="sortie"]')).toBe('aucun');
+    expect(container.querySelector('[data-honoraires-cote="sortie"]')).toBeNull();
     expect(encadre('[data-commission-negociateur="sortie"]')).toBe('rouge');
   });
 });
@@ -1952,13 +1952,13 @@ describe('🔴 LOT AD — les montants qui entrent dans « Commissions versées 
     expect(container.querySelector('[data-info="apporteur"] [data-apporteur-montant]')!.className).toBe('trx-apporteur-montant trx-a-renseigner');
   });
 
-  it('ligne miroir chez MACJ : les honoraires REÇUS gardent leur style ; la commission de l’indépendant de MACJ, en rouge (elle entre dans ses commissions versées)', async () => {
+  it('ligne miroir chez MACJ : la commission de l’indépendant de MACJ, en rouge (elle entre dans ses commissions versées) ; LOT AK : plus de ligne d’honoraires reçus', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     listeCompromis = [venteDansSociete(vente(), 'macj')!];
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
-    expect(style('[data-honoraires-cote="sortie"]')).toBe('normal');
+    expect(container.querySelector('[data-honoraires-cote="sortie"]')).toBeNull();
     expect(style('[data-commission-negociateur="sortie"]')).toBe('rouge');
   });
 });
@@ -2058,12 +2058,11 @@ describe('🔴 LOT AF — la carte d’une ligne miroir : « Inter-cabinet reçu
     expect(container.querySelector('[data-miroir-info="ca"] .trx-vert')!.textContent!.replace(/\s/g, ' ')).toBe('(3 200,00 € TTC)');
     expect(container.querySelector('[data-miroir-bloc] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
     expect(texte('[data-miroir-lecture-seule]')).toBe('Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.');
-    expect([texte('[data-remuneration-titre="sortie"]'), texte('[data-remuneration-negociateur="sortie"]'), texte('[data-remuneration-statut="sortie"]')])
-      .toEqual(['Négociateur de sortie', 'Pierre Thevenin (MACJ) · 50 %', 'Statut à la vente : Indépendant']);
-    expect(texte('[data-remuneration="sortie"] [data-remuneration-statut]')).not.toContain('commission déduite');
-    // les lignes de calcul et « Modifier la rémunération » : inchangées, dans l'ordre
+    // LOT AK — « Statut à la vente » et « Honoraires reçus de … » retirés de la ligne miroir (accord d'Arno) ; le statut se lit dans la mention.
+    expect([texte('[data-remuneration-titre="sortie"]'), texte('[data-remuneration-negociateur="sortie"]')]).toEqual(['Négociateur de sortie', 'Pierre Thevenin (MACJ) · 50 %']);
+    expect(container.querySelector('[data-remuneration="sortie"] [data-remuneration-statut]')).toBeNull();
     const ordre = [...container.querySelector('[data-remuneration="sortie"]')!.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')));
-    expect(ordre).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-remuneration-statut', 'data-honoraires-cote', 'data-commission-negociateur', 'data-commission-carte', 'data-modifier-remuneration']);
+    expect(ordre).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-commission-negociateur', 'data-commission-carte', 'data-modifier-remuneration']);
     const { CSS_TRANSACTION } = await import('./commun');
     expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-couples{grid-template-columns:minmax(0,1fr);gap:2px}');
   });
@@ -2303,5 +2302,68 @@ describe('🔴 LOT AJ — « Part X − Reversé en inter-cabinet vers X » : un
     expect(texte('[data-reverse-form="macj"]')).toBe(' · Part MACJ − Reversé en inter-cabinet vers MACJ : 2 708,33 € HT (50 %)');
     expect(container.querySelector('[data-reverse-form="macj"]')!.className).toBe('trx-rouge');
     expect(texte('[data-inter-cabinet-form]')).toBe('CA de la vente : CRITERIMMO (société porteuse), 6 250,00 € HT');
+  });
+});
+
+describe('🔴 LOT AK — ligne miroir, « Négociateur de sortie » : sans « Statut à la vente » ni « Honoraires reçus de … » (doublon du CA), retrait autorisé par Arno', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  // « Location ? » : 6 500 TTC, sans apporteur ; Arnaud (porteuse) 50 % à l'entrée, Pierre (l'autre société) 50 % à la sortie, taux 50 %, 1 625 TTC enregistrés.
+  const location = (porteuse: 'criterimmo' | 'macj', statut: 'independant' | 'salarie'): Vente => {
+    const autre = porteuse === 'criterimmo' ? 'macj' as const : 'criterimmo' as const;
+    return { ...compromis, id: 44, libelle: 'Location ?', societe: porteuse, honorairesTtc: 6500, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: porteuse, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
+      { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: autre, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut }] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
+    lignes: [{ id: 2, negociateur: 'Pierre Thevenin', role: 'negociateur', montantTtc: 1625, montantHt: null, cote: 'sortie', nature: 'compromis', compte: false, origine: 'saisie',
+      sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] } as Vente;
+  };
+  const miroir = async (porteuse: 'criterimmo' | 'macj', statut: 'independant' | 'salarie'): Promise<void> => {
+    const autre = porteuse === 'criterimmo' ? 'macj' : 'criterimmo';
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [venteDansSociete(location(porteuse, statut), autre)!];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: autre })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-44"]');
+  };
+  const bloc = () => [...container.querySelector('[data-remuneration="sortie"]')!.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')));
+  const tuiles = () => [texte('[data-ca-ttc]'), texte('[data-commissions-ttc]'), texte('[data-solde-ttc]')];
+
+  for (const [porteuse, A, P] of [['criterimmo', 'MACJ', 'CRITERIMMO'], ['macj', 'CRITERIMMO', 'MACJ']] as const) {
+    it(`miroir chez ${A} (porteuse ${P}), indépendant : titre, négociateur, cadre rouge et sa mention, « Modifier la rémunération » — ni statut ni honoraires reçus ; tuiles au centime`, async () => {
+      await miroir(porteuse, 'independant');
+      expect(texte('[data-miroir-info="ca"]')).toBe(`CA de ${A} sur cette vente2 708,33 € HT(3 250,00 € TTC)`);
+      expect(bloc()).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-commission-negociateur', 'data-modifier-remuneration']);
+      expect(texte('[data-remuneration-titre="sortie"]')).toBe('Négociateur de sortie');
+      expect(texte('[data-remuneration-negociateur="sortie"]')).toBe(`Pierre Thevenin (${A}) · 50 %`);
+      expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 2 708,33 € HT × 50 % = 1 354,17 € HT (1 625,00 € TTC) Indépendant — comptabilisé dans « Commissions versées »');
+      expect(container.querySelector('[data-commission-negociateur="sortie"]')!.classList.contains('trx-calcul-encadre--deduite')).toBe(true);
+      const carte = texte('[data-compromis="44"]');
+      expect(carte).not.toContain('Statut à la vente');
+      expect(carte).not.toContain('Honoraires reçus');
+      expect(container.querySelector('[data-honoraires-cote]')).toBeNull();
+      expect(texte('[data-modifier-remuneration="sortie"]')).toBe('Modifier la rémunération');
+      expect(tuiles()).toEqual(['3 250,00 € TTC', '1 625,00 € TTC versées', '1 625,00 € TTC']);
+    });
+  }
+
+  it('miroir, salarié : même retrait ; le cadre vert et sa mention restent ; la commission ne compte pas dans « Commissions versées »', async () => {
+    await miroir('criterimmo', 'salarie');
+    expect(bloc()).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-commission-negociateur', 'data-modifier-remuneration']);
+    expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 2 708,33 € HT × 50 % = 1 354,17 € HT (1 625,00 € TTC) Salarié interne — non comptabilisé dans « Commissions versées »');
+    expect(container.querySelector('[data-commission-negociateur="sortie"] .trx-vert')).not.toBeNull();
+    expect(texte('[data-compromis="44"]')).not.toContain('Statut à la vente');
+    expect(tuiles()).toEqual(['3 250,00 € TTC', '0,00 € TTC versées', '3 250,00 € TTC']);
+  });
+
+  it('la carte de la vente d’origine (porteuse) ne change pas : « Honoraires partie vendeur / acquéreur » et la mention du statut y restent', async () => {
+    listeCompromis = [location('criterimmo', 'independant')];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(44);
+    expect(texte('[data-honoraires-cote="sortie"]')).toContain('Honoraires partie acquéreur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250,00 € TTC)');
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250,00 € TTC)');
+    expect(texte('[data-commission-negociateur="entree"] [data-mention-commission]')).toBe('Associé — non comptabilisé dans « Commissions versées »');
   });
 });

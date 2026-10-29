@@ -775,7 +775,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
           <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
             : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
-              baseTtc={x.baseTtc} pct={m.pourcentage} porteuse={m.porteuse} honoraires={x.part === undefined || x.netTtc === undefined ? null : { netTtc: x.netTtc, part: x.part, ttc: x.baseTtc }} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
+              baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
               disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
         </div>
       </BlocReplie>
@@ -788,12 +788,10 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
  * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
  * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
  */
-export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, porteuse, honoraires = null, statutDuLibelle }: {
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, statutDuLibelle }: {
   /** LOT Y — le résolveur des libellés importés (la règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
   venteId: number; cote: 'entree' | 'sortie'; negociateur: string; societe: Societe; statut: Statut | null; baseTtc: number; pct: number | null;
-  /** 🔴 LOT T — la société porteuse (« Honoraires reçus de … ») et la base décomposée (commission nette × part de ce côté) ; absente : ligne non montrée. */
-  porteuse?: Societe; honoraires?: HonorairesCote | null;
   ligne: Vente['lignes'][number] | undefined; disponible: boolean; onFait: () => void;
   /** LOT S — faux : négociateur non commissionné (ni montant, ni calcul, ni « Appliquer le calcul ») ; absent : commissionné. */
   commissionne?: boolean;
@@ -817,7 +815,6 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
     const u = x.saisie?.unite ?? 'ttc';
     return envoyer({ montant: u === 'ttc' ? x.calculTtc : x.calculTtc / TVA, unite: u }, x.taux, 'calculee');
   };
-  const premier = porteuse === undefined ? 'Honoraires reçus' : `Honoraires reçus de ${LIBELLE_SOCIETE[porteuse]}`;
   const valider = (): Promise<void> => {
     const e = montantEffectif(champ, propose);
     const x = Number(e.texte.replace(/[\s  €]/g, '').replace(',', '.'));
@@ -829,20 +826,22 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
     <h5 className="trx-remuneration-titre" data-remuneration-titre={cote}>Négociateur de {mot}</h5>
     {/* LOT AG — son taux, comme sur le bouton de la carte de la porteuse (la même ligne : une seule valeur). */}
     <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{negociateur}</strong> ({LIBELLE_SOCIETE[societe]}){commissionne ? ` · ${pctFr(r.taux)} %` : ' · non commissionné'}</p>
-    <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
   </>;
+  // 🔴 LOT AK (Arno) — sur la ligne miroir, « Statut à la vente : … » et « Honoraires reçus de [porteuse] » sont retirés (retrait autorisé par
+  // Arno, ligne miroir seule) : le montant fait doublon avec « CA de [société] sur cette vente » juste au-dessus, et le statut reste lisible
+  // dans la mention du cadre « Commission du négociateur ». Un non commissionné n'a pas ce cadre : son statut y reste, seule trace qui en existe.
   if (!commissionne) return (
     <div className="trx-remuneration" data-remuneration={cote}>
       {entete}
-      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={null} enregistree={false} occupe onAppliquer={() => undefined} />
+      <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
     </div>
   );
   return (
     <div className="trx-remuneration" data-remuneration={cote}>
       {entete}
-      {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte, « Honoraires reçus de … » en tête. */}
-      <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
+      {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte ; LOT AK : sans « Honoraires reçus de … » (doublon du CA). */}
+      <LignesCalcul cote={cote} premier="" honoraires={null} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
         classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)}
         mention={mentionCommission(statutDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle))} />
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
