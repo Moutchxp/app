@@ -718,17 +718,26 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
       <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte trx-carte--miroir"
         donnees={{ 'data-carte-miroir': String(m.origineId) }} ouvertInitial={ouvertInitial}>
         <div className="trx-carte-detail">
-          <p data-miroir-explication>Inter-cabinet reçu de <strong>{LIBELLE_SOCIETE[m.porteuse]}</strong> (société porteuse) sur la vente « {m.libelleOrigine} » : la part de {LIBELLE_SOCIETE[v.societe]},
-            {' '}{eur(v.honorairesTtc)} TTC ({eur(m.partHt)} HT){pctTexte === null ? '' : `, ${pctTexte} de la commission nette`} — c’est le CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
-          <p className="loc-muet" data-miroir-lecture-seule>Ligne miroir : elle suit la vente d’origine (compromis, acte signé, annulation, répartition) et ne se modifie pas d’ici, sauf la rémunération du négociateur.
-            {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></p>
-          <dl className="trx-grille">
-            <div className="trx-info" data-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
-              <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
-              <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-                {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
-            </span></dd></div>
-          </dl>
+          {/* 🔴 LOT AF (Arno) — le bloc « Inter-cabinet reçu » en couples libellé / valeur, une information par ligne (comme les Informations
+              communes) ; puis la note, d'une ligne ; puis le bloc du négociateur. Rien n'est retiré : la phrase d'avant est dépliée en lignes. */}
+          <section className="trx-communes" aria-label="Inter-cabinet reçu" data-miroir-bloc>
+            <h4>Inter-cabinet reçu</h4>
+            <dl className="trx-couples">
+              <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
+              <div className="trx-couple" data-miroir-info="origine"><dt>Vente d’origine</dt><dd>{m.libelleOrigine}
+                {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></dd></div>
+              <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>
+                <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} de la commission nette`}</dd></div>
+              <div className="trx-couple" data-miroir-info="ca"><dt>CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente</dt>
+                <dd><span className="trx-ht-ttc-pile"><strong>{eur(m.partHt)} HT</strong><span className="trx-vert">({eur(v.honorairesTtc)} TTC)</span></span></dd></div>
+              <div className="trx-couple" data-miroir-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
+                <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
+                <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                  {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+              </span></dd></div>
+            </dl>
+          </section>
+          <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
             : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
               baseTtc={x.baseTtc} pct={m.pourcentage} porteuse={m.porteuse} honoraires={x.part === undefined || x.netTtc === undefined ? null : { netTtc: x.netTtc, part: x.part, ttc: x.baseTtc }} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
@@ -762,7 +771,6 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const mot = cote === 'entree' ? 'entrée' : 'sortie';
-  const classe = classeCommission(statut);
   const propose = { pct: pct ?? 0, baseTtc, taux: tauxDe(champ), ttc: (baseTtc * tauxDe(champ)) / 100 };
   const envoyer = async (montant: { montant: number; unite: 'ht' | 'ttc' } | null, taux: number, mode: 'calculee' | 'manuelle'): Promise<void> => {
     setEnvoi(true); setMotif(null);
@@ -780,17 +788,23 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
     const x = Number(e.texte.replace(/[\s  €]/g, '').replace(',', '.'));
     return envoyer(e.texte.trim() === '' ? null : { montant: x, unite: e.unite }, tauxDe(champ), champ.auto === true ? 'calculee' : 'manuelle');
   };
+  // 🔴 LOT AF (Arno) — « Négociateur de sortie » en titre, puis le négociateur (sa société), puis son statut à la vente — sur des lignes
+  // distinctes ; « commission déduite / interne » n'est plus répété ici (le liseré de la commission le dit, accord d'Arno).
+  const entete = <>
+    <h5 className="trx-remuneration-titre" data-remuneration-titre={cote}>Négociateur de {mot}</h5>
+    <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{negociateur}</strong> ({LIBELLE_SOCIETE[societe]})</p>
+    <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
+  </>;
   if (!commissionne) return (
     <div className="trx-remuneration" data-remuneration={cote}>
-      <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}</p>
+      {entete}
       <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={null} enregistree={false} occupe onAppliquer={() => undefined} />
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
     </div>
   );
   return (
     <div className="trx-remuneration" data-remuneration={cote}>
-      <p><strong>Négociateur de {mot} : {negociateur}</strong> ({LIBELLE_SOCIETE[societe]}) — statut à la vente : {libelleStatut(statut)}
-        {classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</p>
+      {entete}
       {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte, « Honoraires reçus de … » en tête. */}
       <LignesCalcul cote={cote} premier={premier} honoraires={honoraires} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
         classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)}

@@ -2033,3 +2033,33 @@ describe('🔴 LOT AE — à l’enregistrement, la société porteuse est dite 
     expect(texte('[data-portee-par="macj"]')).toBe('Le négociateur côté vendeurs est chez MACJ : la vente est portée par MACJ. Elle n’apparaît que chez MACJ. Voir chez MACJ');
   });
 });
+
+describe('🔴 LOT AF — la carte d’une ligne miroir : « Inter-cabinet reçu » en couples libellé / valeur, la note, le négociateur en lignes', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  it('MACJ › HEIDIDON : porteuse, vente d’origine (lien), part reçue, CA (HT puis TTC vert), dates ; note d’une ligne ; « Négociateur de sortie », Pierre (MACJ), statut — sans « commission déduite » répété', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const v: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 20, montantHt: null, statut: 'associe' },
+      { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 80, montantHt: null, statut: 'independant' }] },
+    dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null }, lignes: [] };
+    listeCompromis = [venteDansSociete(v, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
+    const couples = [...container.querySelectorAll('[data-miroir-bloc] .trx-couple')].map((c) => [c.querySelector('dt')!.textContent, c.querySelector('dd')!.textContent!.replace(/\s/g, ' ')]);
+    expect(couples).toEqual([['Société porteuse', 'CRITERIMMO'], ['Vente d’origine', 'HEIDIDON Voir la vente d’origine'], ['Part reçue', '80 % de la commission nette'],
+      ['CA de MACJ sur cette vente', '2 666,67 € HT(3 200,00 € TTC)'], ['Dates', 'Compromis signé le 20/10/2026Vente définitive au plus tard le 15/01/2027']]);
+    expect(container.querySelector('[data-miroir-info="ca"] .trx-vert')!.textContent!.replace(/\s/g, ' ')).toBe('(3 200,00 € TTC)');
+    expect(container.querySelector('[data-miroir-bloc] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
+    expect(texte('[data-miroir-lecture-seule]')).toBe('Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.');
+    expect([texte('[data-remuneration-titre="sortie"]'), texte('[data-remuneration-negociateur="sortie"]'), texte('[data-remuneration-statut="sortie"]')])
+      .toEqual(['Négociateur de sortie', 'Pierre Thevenin (MACJ)', 'Statut à la vente : Indépendant']);
+    expect(texte('[data-remuneration="sortie"] [data-remuneration-statut]')).not.toContain('commission déduite');
+    // les lignes de calcul et « Modifier la rémunération » : inchangées, dans l'ordre
+    const ordre = [...container.querySelector('[data-remuneration="sortie"]')!.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')));
+    expect(ordre).toEqual(['data-remuneration-titre', 'data-remuneration-negociateur', 'data-remuneration-statut', 'data-honoraires-cote', 'data-commission-negociateur', 'data-commission-carte', 'data-modifier-remuneration']);
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-couples{grid-template-columns:minmax(0,1fr);gap:2px}');
+  });
+});

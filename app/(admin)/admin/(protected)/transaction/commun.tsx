@@ -213,6 +213,21 @@ export const CSS_TRANSACTION = `
 .trx-nouvel-apporteur-intro{margin:0}
 .trx-homonymes{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 .trx-homonymes .svv-btn{width:auto;min-height:44px}
+/* LOT AF (Arno) — la carte d'une ligne miroir : le bloc « Inter-cabinet reçu » en couples libellé / valeur (une information par ligne, alignée ;
+   une colonne sur téléphone : le libellé au-dessus) ; la note d'une ligne ; le bloc du négociateur, titre puis lignes distinctes. */
+.trx-couples{display:grid;grid-template-columns:minmax(10rem,max-content) minmax(0,1fr);gap:8px 16px;margin:0}
+.trx-couple{display:contents}
+.trx-couple dt{font-size:.78rem;color:var(--color-svv-muted);align-self:baseline}
+.trx-couple dd{margin:0;font-weight:600;overflow-wrap:anywhere;align-self:baseline}
+.trx-ht-ttc-pile{display:flex;flex-direction:column;align-items:flex-start}
+.trx-miroir-note{margin:0;font-size:.85rem}
+.trx-remuneration{display:flex;flex-direction:column;gap:6px}
+.trx-remuneration-titre{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-remuneration-ligne{margin:0}
+@media (max-width:640px){
+  .trx-couples{grid-template-columns:minmax(0,1fr);gap:2px}
+  .trx-couple dd{margin-bottom:8px}
+}
 /* LOT T (Arno) — la première ligne d'une colonne : le titre à gauche, la société et la part de ce côté à droite (sous le titre sur téléphone) ;
    sous le négociateur, les lignes de calcul (le mot en gras, le résultat en gras, l'équivalent HT en gris). */
 .trx-colonne-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;width:100%}
