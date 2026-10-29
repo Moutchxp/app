@@ -334,15 +334,17 @@ export function equivalent(m: MontantEcran): string | null {
  * 🔴 LOT I (Arno) — UN MONTANT AVEC SON UNITÉ « HT / TTC » AU CHOIX : le champ, deux boutons (cibles de 44 px, le bouton choisi est
  * enfoncé et dit « HT » ou « TTC » — jamais la couleur seule), et l'équivalent dans l'autre unité dessous. Sans la 437 : « HT » grisé.
  */
-export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose = null }: {
+export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose }: {
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
   /**
    * LOT O / R — la rémunération proposée (taux × la part de ce côté) ; montrée tant que le champ n'est pas saisi (`auto`). Avec elle, le
    * champ « Taux de rémunération (%) » (l'un recalcule l'autre) et, pour une valeur saisie qui diffère du calcul, « Appliquer le calcul ».
+   * 🔴 LOT AI (Arno, 29/10/2026) — ABSENT (non passé) : PAS de champ taux. Le taux ne s'affiche que pour la commission d'un négociateur
+   * (qui passe toujours `propose`, même null) ; la rétrocession de l'apporteur n'en a plus (retrait autorisé par Arno). Aucun calcul ne change.
    */
   propose?: Proposition | null;
 }) {
-  const valeur = montantEffectif(brute, propose);
+  const valeur = montantEffectif(brute, propose ?? null);
   const eq = equivalent(valeur);
   const avecTaux = propose !== undefined;
   const pctTexte = (x: number): string => x.toLocaleString('fr-FR', { maximumFractionDigits: 4 });

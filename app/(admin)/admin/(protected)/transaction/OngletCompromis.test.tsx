@@ -2191,3 +2191,43 @@ describe('🔴 LOT AH — le tableau « Répartition » en logique comptable, au
     expect(valeur('reste')).toBe('2 500,00 € HT(3 000,00 € TTC)');
   });
 });
+
+describe('🔴 LOT AI — plus de « Taux de rémunération » à côté de l’apporteur : le taux ne s’affiche que pour la commission d’un négociateur', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const onglet = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+  const tauxDans = (sel: string) => [...container.querySelectorAll(`${sel} label`)].filter((l) => l.textContent!.startsWith('Taux de rémunération')).length;
+
+  it('Nouveau compromis : la rétrocession de l’apporteur n’a pas de champ taux ; son montant et son unité restent', async () => {
+    await onglet();
+    await cliquer('[data-nouveau-compromis]');
+    expect(container.querySelector('[data-montant-unite="retro"]')).not.toBeNull();
+    expect(container.querySelector('[data-taux="retro"]')).toBeNull();
+    expect(tauxDans('[data-montant-unite="retro"]')).toBe(0);
+    await cliquer('[data-unite-de="retro"][data-unite="ttc"]');
+    await saisir('[data-champ="retro"]', '1000');
+    expect(texte('[data-equivalent="retro"]')).toBe('soit 833,33 € HT');
+  });
+  it('Modifier : ni l’apporteur ni une partie extérieure n’ont de taux ; les négociateurs gardent « Taux de rémunération (%) »', async () => {
+    await onglet();
+    await deplier(41);
+    await cliquer('[data-modifier-compromis="41"]');
+    expect(container.querySelector('[data-taux="retro"]')).toBeNull();
+    expect((container.querySelector('[data-champ="retro"]') as HTMLInputElement).value).toBe('2400');
+    await cliquer('[data-ajouter-exterieure]');
+    expect(tauxDans('[data-partie="exterieure"]')).toBe(0);
+    const taux = [...container.querySelectorAll('[data-taux]')].map((x) => x.getAttribute('data-taux'));
+    expect(taux.length).toBeGreaterThan(0);
+    expect(taux.every((t) => t!.startsWith('commission-'))).toBe(true);
+    expect(tauxDans('[data-montant-unite^="commission-"]')).toBe(taux.length);
+  });
+  it('Modifier puis Enregistrer : la rétrocession repart telle quelle (aucun calcul ne change)', async () => {
+    await onglet();
+    await deplier(41);
+    await cliquer('[data-modifier-compromis="41"]');
+    await cliquer('[data-enregistrer-dossier]');
+    const d = (posts.at(-1) as { dossier: Record<string, unknown> }).dossier;
+    expect([d.retroApporteurTtc, d.retroApporteurUnite]).toEqual(['2400', 'ttc']);
+  });
+});
