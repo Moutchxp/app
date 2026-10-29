@@ -209,6 +209,19 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                       {colonne('vendeur', 'Vendeurs')}
                       {colonne('acquereur', 'Acquéreurs')}
                     </div>
+                    {/* 🔴 LOT AB (Arno) — chaque PARTIE EXTÉRIEURE : ses honoraires, versés par la société porteuse (inter-cabinet extérieur), dans ses
+                        « Commissions versées » — même liseré rouge et même mention que les honoraires versés à l'autre société. */}
+                    {r !== null && ps !== null && r.parties.some((p) => p.sorte === 'exterieure') && (
+                      <section className="trx-exterieures" aria-label="Parties extérieures" data-exterieures>
+                        {r.parties.filter((p) => p.sorte === 'exterieure').map((p, i) => {
+                          const pct = p.pourcentage ?? (ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100);
+                          const partHt = p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0;
+                          const nom = p.nom ?? 'la partie extérieure';
+                          return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre="deduite" mention={mentionVersement(nom)} ttc={partHt * TVA}
+                            libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{eur(ps.netHt)} HT × {pctFr(pct)} % =</span></>} />;
+                        })}
+                      </section>
+                    )}
                     <section className="trx-communes" aria-label="Informations communes" data-informations-communes>
                       <h4>Informations communes
                         <span className="trx-pastilles">
@@ -403,6 +416,9 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   // 🔴 LOT AA — le négociateur de ce côté travaille pour l'AUTRE société que celle de cet onglet : elle seule le rémunère (sa ligne miroir).
   const societeDuNego = actuel === null ? null : societeSurVente(v, cote, actuel.id);
   const autreSociete = vue !== null && rem !== null && societeDuNego !== null && societeDuNego !== vue ? societeDuNego : null;
+  // 🔴 LOT AB (Arno) — les honoraires de ce côté sont VERSÉS à l'autre société (inter-cabinet) : ce sont eux qui entrent dans les « Commissions
+  // versées » de la société porteuse (détail « Inter-cabinet vers … ») — même pour un négociateur non commissionné.
+  const versesVers = vue !== null && societeDuNego !== null && societeDuNego !== vue ? societeDuNego : null;
   // 🔴 LOT Y — la classe de cette commission par LA règle du cumul « Commissions versées » (`classeDeCommission`, celle des tuiles) : sa ligne
   // enregistrée ; sans ligne, le négociateur de ce côté (sa partie, figée sinon son compte ; sinon le compte rapproché de son libellé).
   const ligneCote = v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote);
@@ -424,19 +440,11 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
           : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
+      {/* 🔴 LOT AB (accord d'Arno) — un négociateur de l'autre société : plus de bloc « Rémunéré par … » sous les honoraires (il reste dans le
+          panneau du négociateur, « Commission réglée chez … ») ; ses honoraires, versés en inter-cabinet, sont encadrés de rouge. */}
       {actuel !== null && <LignesCalcul classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires}
+        honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
         rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />}
-      {/* 🔴 LOT AA (Arno) — un négociateur de l'AUTRE société : sa commission est payée et comptée chez elle seule (sa ligne miroir). Ici, un bloc
-          neutre « Rémunéré par … — sur sa part reçue en inter-cabinet », le montant pour information et « Voir chez … » ; ni liseré, ni mention
-          « comptabilisé », ni « Appliquer le calcul » : la commission se règle depuis la ligne miroir de sa société. */}
-      {actuel !== null && autreSociete !== null && (
-        <div className="trx-calcul-cote trx-calcul-autre" data-remunere-par={cote}>
-          <span><span className="trx-calcul-mot">Rémunéré par {LIBELLE_SOCIETE[autreSociete]}</span> — sur sa part reçue en inter-cabinet</span>
-          {rem !== null && <span className="loc-muet" data-montant-information={cote}>{rem.saisie !== null ? 'Commission enregistrée' : 'Commission calculée'}, pour information :{' '}
-            {rem.saisie !== null ? <HtTtc m={rem.saisie} /> : <HtTtc ttc={rem.calculTtc} />}</span>}
-          <a className="trx-lien" href={adresseOrigine(autreSociete, v.id)} data-voir-chez={autreSociete}>Voir chez {LIBELLE_SOCIETE[autreSociete]}</a>
-        </div>
-      )}
       {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
       {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
         <span className={enregistree === null ? 'loc-muet trx-negociateur-commission trx-a-renseigner' : 'trx-negociateur-commission'} data-commission-carte={cote}>
@@ -499,6 +507,9 @@ export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSai
  * « Statut à renseigner »), sa précision s'il n'est pas figé (« (statut actuel du compte) », « (à confirmer) »), et ce que devient la commission
  * dans « Commissions versées » — la règle du cumul (`classeCommission`, celle des tuiles). PUR.
  */
+/** 🔴 LOT AB (Arno) — la mention d'honoraires versés en inter-cabinet (autre société, partie extérieure). PUR. */
+export const mentionVersement = (vers: string): string => `Honoraires versés vers ${vers} — comptabilisés dans « Commissions versées »`;
+
 export function mentionCommission(statut: Statut | null, precision?: string): string {
   const qui = statut === 'independant' ? 'Indépendant' : statut === 'salarie' ? 'Salarié interne' : statut === 'associe' ? 'Associé' : 'Statut à renseigner';
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
@@ -534,8 +545,10 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = null, mention }: { donne
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null }: {
   cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
+  /** 🔴 LOT AB — les honoraires de ce côté sont versés à cette société (inter-cabinet) : liseré rouge et « Honoraires versés vers … ». */
+  honorairesVersesVers?: string | null;
   /** 🔴 LOT Y — la classe de la commission selon la règle du cumul (`classeDeCommission`) : la couleur du liseré. */
   classe?: ClasseCommission | null;
   /** 🔴 LOT Z — la mention du bloc (`mentionCommission`). */
@@ -551,7 +564,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
   return <>
     {honoraires !== null && (
       <LigneCalcul donnees={{ 'data-honoraires-cote': cote }} libelle={<><span className="trx-calcul-mot">{premier}</span> : <span className="trx-calcul-operation">{eur(honoraires.netTtc / TVA)} HT × {pctFr(honoraires.part)} % =</span></>}
-        ttc={honoraires.ttc} />
+        ttc={honoraires.ttc} encadre={honorairesVersesVers === null ? null : 'deduite'} mention={honorairesVersesVers === null ? undefined : mentionVersement(honorairesVersesVers)} />
     )}
     {rem !== null && (
       <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}

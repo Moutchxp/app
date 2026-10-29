@@ -209,7 +209,9 @@ export const CSS_TRANSACTION = `
 .trx-calcul-cote.trx-ecart-calcul{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 /* LOT W (Arno) — une ligne de calcul sur deux lignes : à droite, une colonne de LARGEUR FIXE (12 em, de quoi loger « (1 234 567,89 € TTC) »)
    alignée à droite, le HT en gras puis le TTC en vert dessous ; les montants ne se coupent jamais. Colonne étroite : le libellé au-dessus. */
-.trx-negociateur-carte,.trx-remuneration{container-type:inline-size}
+.trx-negociateur-carte,.trx-remuneration,.trx-exterieures{container-type:inline-size}
+/* LOT AB — les parties extérieures sous les colonnes : leurs honoraires versés, encadrés. */
+.trx-exterieures{display:flex;flex-direction:column;gap:8px}
 .trx-calcul-grille{display:grid;grid-template-columns:minmax(0,1fr) 12em;column-gap:10px;align-items:baseline;width:100%;overflow-wrap:normal}
 .trx-calcul-libelle{grid-column:1;grid-row:1 / span 2;min-width:0;overflow-wrap:break-word}
 .trx-calcul-resultat,.trx-calcul-ttc{grid-column:2;text-align:right;white-space:nowrap}
@@ -223,9 +225,6 @@ export const CSS_TRANSACTION = `
 /* LOT Y (Arno) — la couleur suit la règle du cumul « Commissions versées » : ROUGE (alerte) si elle y entre (indépendant), VERT (succès) sinon ;
    la mention écrite (« déduite — dans les commissions versées » / « interne — non déduite ») accompagne toujours la couleur. */
 .trx-calcul-encadre--deduite{border-color:var(--color-svv-red)}
-/* LOT AA (Arno) — un négociateur de l'AUTRE société, sur la carte de la porteuse : un bloc NEUTRE (liseré gris), « Rémunéré par … » ; sa
-   commission est comptée chez elle seule. */
-.trx-calcul-autre{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:6px 8px}
 .trx-calcul-encadre--interne{border-color:var(--color-svv-green-ink)}
 .trx-calcul-mention{grid-column:1 / -1;font-size:.78rem;font-weight:700}
 .trx-calcul-encadre--deduite .trx-calcul-mention{color:var(--color-svv-red)}
