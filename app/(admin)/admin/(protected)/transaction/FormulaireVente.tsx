@@ -105,7 +105,7 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
             <label className="trx-plein">Note
               <textarea value={note} onChange={(e) => setNote(e.target.value)} data-champ="note" /></label>
             {vente === null && references?.lotD === true && (
-              <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={honorairesNombre}
+              <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={honorairesNombre}
                 societeVente={societe} />
             )}
             {vente === null ? (

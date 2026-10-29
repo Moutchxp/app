@@ -8,9 +8,9 @@ import {
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
-import { lireApporteurs } from '../../../../lib/location/suivi/suiviRepo';
+import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
-import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
+import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -38,12 +38,16 @@ const ENTITES = ['vente', 'vente_ligne', 'retrocession', 'ca_a_rattacher', 'gest
 /** LOT D — ce que les formulaires proposent : les comptes (actifs) et leur société du jour, l'annuaire des apporteurs de la Location, les personnes. */
 async function references(aujourdhui: string): Promise<Record<string, unknown>> {
   const lotD = await repartitionDisponible();
-  const [negociateurs, apporteurs, personnes] = await Promise.all([
+  const [negociateurs, apporteurs, collegues, personnes] = await Promise.all([
     lireNegociateurs(aujourdhui),
     lireApporteurs().catch(() => []),
+    // 🔴 LOT AC — les collègues de l'interface (collègue de rattachement, compte d'un interne) pour créer un apporteur depuis la Transaction.
+    lireComptesInterface().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom })), personnes };
+  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
+    // LOT AC — la recherche (nom, prénom, société, téléphones, e-mails) et le libellé de l'annuaire (homonymes).
+    recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), collegues, personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -183,6 +187,12 @@ export async function POST(request: Request): Promise<Response> {
         // 🔴 LOT V — le mode : « calculee » (Appliquer / Revenir au calcul, taux modifié) ou « manuelle » (montant tapé) ; autre : inconnu.
         const mode = corps.mode === 'calculee' || corps.mode === 'manuelle' ? corps.mode : null;
         return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur, mode));
+      }
+      case 'apporteur-creer': {
+        // 🔴 LOT AC (Arno) — un nouvel apporteur depuis le choix de l'apporteur d'un compromis : le MÊME annuaire que la Location (`creerApporteur` :
+        // un nom déjà pris est refusé, jamais de doublon ; un externe a son collègue de rattachement), journalisé ; son taux : 0 % à partir d'aujourd'hui.
+        const r = await creerApporteur({ ...((corps.apporteur ?? {}) as Record<string, unknown>), depuis: aujourdhuiParis(), origine: 'transaction' }, auteur);
+        return r.etat === 'ok' ? json({ etat: 'ok', data: r.data ?? null }) : json({ etat: 'refus', motif: r.motif }, 422);
       }
       case 'annuler': {
         const j = Number(corps.journalId);

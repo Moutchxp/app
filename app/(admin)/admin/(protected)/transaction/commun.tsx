@@ -39,6 +39,18 @@ export async function posterTransaction(corps: Record<string, unknown>): Promise
   }
 }
 
+/** 🔴 LOT AC — le même envoi, avec la donnée rendue (ex. l'id d'un apporteur créé) : `motif` null quand c'est accepté. */
+export async function posterTransactionDonnee<T>(corps: Record<string, unknown>): Promise<{ motif: string | null; data: T | null }> {
+  try {
+    const r = await fetch(API_TRANSACTION, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    if (r.status === 401 || r.status === 403) return { motif: 'Accès refusé : droit « Transaction » requis (ou session expirée).', data: null };
+    const d = await r.json() as { etat?: string; motif?: string; message?: string; data?: T };
+    return d.etat === 'ok' ? { motif: null, data: d.data ?? null } : { motif: d.motif ?? d.message ?? 'Enregistrement refusé.', data: null };
+  } catch {
+    return { motif: 'Enregistrement impossible : le serveur n’a pas répondu.', data: null };
+  }
+}
+
 export const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 /** LOT I — un montant avec SON unité et son équivalent : « 1 000,00 € HT (soit 1 200,00 € TTC) ». */
 export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
@@ -196,6 +208,11 @@ export const CSS_TRANSACTION = `
 .trx-apporteur{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 16px}
 .trx-apporteur-montant{font-variant-numeric:tabular-nums}
 .trx-a-renseigner{font-style:italic}
+/* LOT AC (Arno) — « + Ajouter un nouvel apporteur » : la petite fenêtre sous le choix de l'apporteur ; les homonymes proposés. */
+.trx-nouvel-apporteur{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface)}
+.trx-nouvel-apporteur-intro{margin:0}
+.trx-homonymes{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.trx-homonymes .svv-btn{width:auto;min-height:44px}
 /* LOT T (Arno) — la première ligne d'une colonne : le titre à gauche, la société et la part de ce côté à droite (sous le titre sur téléphone) ;
    sous le négociateur, les lignes de calcul (le mot en gras, le résultat en gras, l'équivalent HT en gris). */
 .trx-colonne-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;width:100%}

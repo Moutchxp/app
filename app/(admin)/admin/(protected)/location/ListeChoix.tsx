@@ -35,7 +35,10 @@ export interface OptionChoix {
  * surligné ; ↑ ↓ Entrée Échap. Aucun résultat : « + Créer « texte » » (`onCreer`, la création rapide pré-remplie) et « Ouvrir
  * l'annuaire » (`onAnnuaire`). Le choix `+` de l'hôte (« + Nouvel apporteur… ») devient « + Créer « texte » » quand un texte est tapé.
  */
-export interface RechercheListe { placeholder?: string; onCreer?: (texte: string) => void; onAnnuaire?: () => void }
+export interface RechercheListe { placeholder?: string; onCreer?: (texte: string) => void; onAnnuaire?: () => void;
+  /** Arno (29/10/2026, Transaction lot AC) — le libellé du choix de création (défaut : « + Créer « texte » »). */
+  libelleCreer?: (texte: string) => string }
+const creerLibelle = (r: RechercheListe | undefined, t: string): string => r?.libelleCreer?.(t) ?? `+ Créer « ${t} »`;
 
 /**
  * ══ 🔴 Arno (25/10/2026) — LE MENU EN SURIMPRESSION, PLACÉ INTELLIGEMMENT ══════════════════════════════════════════════════════════
@@ -117,7 +120,7 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
     groupes.sort((a, b) => meilleur(b) - meilleur(a) || groupes.indexOf(a) - groupes.indexOf(b));
     const tries = groupes.flatMap((g) => notes.filter((x) => (x.c.groupe ?? '') === g).sort((a, b) => b.note - a.note || a.rang - b.rang).map((x) => x.c));
     const plus = choix.find((c) => c.id === '+');
-    return [...tries, ...(plus !== undefined && tries.length > 0 ? [{ ...plus, libelle: recherche?.onCreer ? `+ Créer « ${q.trim()} »` : plus.libelle }] : [])];
+    return [...tries, ...(plus !== undefined && tries.length > 0 ? [{ ...plus, libelle: recherche?.onCreer ? creerLibelle(recherche, q.trim()) : plus.libelle }] : [])];
   })();
   const aucun = cherche && affiches.length === 0;
   // Le champ prend le focus à l'ouverture (Safari ne le donne pas à un bouton cliqué) : le clavier et Échap vont à la liste.
@@ -245,7 +248,7 @@ export function ListeChoix({ options, valeur, onChange, vide = '— choisir —'
             <div className="lch-aucun" role="status" data-aucun-resultat>
               <p>Aucun résultat pour « {q.trim()} ».</p>
               {recherche.onCreer && <button type="button" className="lch-action" onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { const t = q.trim(); fermer(); recherche.onCreer?.(t); }} data-creer-depuis-recherche>+ Créer « {q.trim()} »</button>}
+                onClick={() => { const t = q.trim(); fermer(); recherche.onCreer?.(t); }} data-creer-depuis-recherche>{creerLibelle(recherche, q.trim())}</button>}
               {recherche.onAnnuaire && <button type="button" className="lch-action" onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { fermer(); recherche.onAnnuaire?.(); }} data-annuaire-depuis-recherche>Ouvrir l’annuaire</button>}
             </div>

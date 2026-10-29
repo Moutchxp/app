@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const { appels, etat } = vi.hoisted(() => ({
   appels: [] as { sql: string; params: unknown[] }[],
-  etat: { interne: false, rattache: true, avec419: true, compteLie: false },
+  etat: { interne: false, rattache: true, avec419: true, compteLie: false, journal: false },
 }));
 vi.mock('server-only', () => ({}));
 const query = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -20,6 +20,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.startsWith('SELECT id FROM gestion_location_apporteur WHERE lower')) return { rows: [], rowCount: 0 };
   if (s.startsWith('INSERT INTO gestion_location_apporteur (')) return { rows: [{ id: '31' }], rowCount: 1 };
   if (s.includes('is_nullable')) return { rows: [{ n: '1' }], rowCount: 1 };
+  if (s.includes("conname = 'gestion_journal_entite_chk'")) return { rows: [{ def: etat.journal ? "CHECK ((entite = ANY (ARRAY['location_apporteur'::text])))" : '' }], rowCount: 1 };
   return { rows: [], rowCount: 1 };
 });
 vi.mock('../../db/client', () => ({ query, withTransaction: async (f: (q: typeof query) => unknown) => f(query) }));
@@ -27,7 +28,7 @@ vi.mock('../sondeLocation', () => ({ colonneExisteMemo: async (_t: string, c: st
 const { creerApporteur, modifierApporteur, rattacherApporteur, ajouterRemunerationCollegue, ajouterBaremeApporteur } = await import('./suiviRepo');
 const AUTEUR = { id: 2, libelle: 'Arnaud Jorel' };
 const ecrit = () => appels.filter((a) => /^(INSERT|UPDATE)/.test(a.sql));
-beforeEach(() => { appels.length = 0; Object.assign(etat, { interne: false, rattache: true, avec419: true, compteLie: false }); });
+beforeEach(() => { appels.length = 0; Object.assign(etat, { interne: false, rattache: true, avec419: true, compteLie: false, journal: false }); });
 
 describe('🔴 création : interne lié à son compte ; externe sans collègue refusé', () => {
   it('un INTERNE : nommé d’après son compte, `compte_id` posé, type « Collaborateur », AUCUN rattachement à un collègue', async () => {
@@ -79,5 +80,18 @@ describe('🔴 modification : un externe « à rattacher » est refusé ; un int
     const ins = ecrit().find((a) => a.sql.includes('INSERT INTO gestion_location_apporteur_remuneration'))!;
     expect(ins.sql).toContain('ON CONFLICT (apporteur_id, depuis) DO NOTHING');
     expect(ins.params).toEqual([4, '2026-11-01', true, 'recurrent', 0.05, 0.1, 3, 'Arnaud Jorel']);
+  });
+});
+
+describe('🔴 Transaction, lot AC (29/10/2026) — la création d’un apporteur est JOURNALISÉE, d’où qu’elle vienne', () => {
+  it('avec le journal des apporteurs : une entrée « location_apporteur_cree » (« créé depuis la Transaction ») ; sans lui : rien de plus, la création reste', async () => {
+    etat.journal = true;
+    expect(await creerApporteur({ nom: 'Léa Dupont', type: 'partenaire', taux: '', depuis: '2026-10-29', collegueId: 5, origine: 'transaction' }, AUTEUR)).toEqual({ etat: 'ok', data: { id: 31 } });
+    const j = ecrit().find((a) => a.sql.startsWith('INSERT INTO gestion_journal'))!;
+    expect(j.sql).toContain("'location_apporteur_cree'");
+    expect(j.params.slice(0, 6)).toEqual([31, null, 'Léa Dupont', 'Apporteur « Léa Dupont » créé depuis la Transaction (choix de l’apporteur d’un compromis)', 2, 'Arnaud Jorel']);
+    appels.length = 0; etat.journal = false;
+    expect((await creerApporteur({ nom: 'Léa Dupont', type: 'partenaire', taux: '', depuis: '2026-10-29', collegueId: 5 }, AUTEUR)).etat).toBe('ok');
+    expect(ecrit().some((a) => a.sql.startsWith('INSERT INTO gestion_journal'))).toBe(false);
   });
 });

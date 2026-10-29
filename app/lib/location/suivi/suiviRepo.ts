@@ -374,6 +374,14 @@ export async function creerApporteur(brut: unknown, auteur: Auteur): Promise<Rep
       await q('INSERT INTO gestion_location_apporteur_collegue (apporteur_id, depuis, collegue_id, collegue_libelle, saisi_par_libelle) VALUES ($1, $2, $3, $4, $5)',
         [id, toujours ? null : v.depuis, v.collegueId, collegue, auteur.libelle]);
     }
+    // 🔴 Arno (29/10/2026, lot AC Transaction) — la création est JOURNALISÉE (le journal des apporteurs, s'il existe), d'où qu'elle vienne.
+    if (await journalApporteurDisponible()) {
+      const tr = await colonnesTrace({ sujet: 'apporteur', champ: 'Création' }, 7);
+      await q(
+        `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${tr.colonnes})
+         VALUES ('location_apporteur', $1, 'location_apporteur_cree', $2, $3, $4, $5, $6${tr.marques})`,
+        [id, null, nom, `Apporteur « ${nom} » créé${b.origine === 'transaction' ? ' depuis la Transaction (choix de l’apporteur d’un compromis)' : ''}`, auteur.id, auteur.libelle, ...tr.valeurs]);
+    }
     await ((await commissionGestionDisponible())
       ? q(`INSERT INTO gestion_location_apporteur_bareme (apporteur_id, depuis, taux, cout_fixe_mensuel, saisi_par_libelle, mode, taux_gestion${avec419 ? ', duree_annees' : ''})
            VALUES ($1, $2, $3, $4, $5, $6, $7${avec419 ? ', $8' : ''})`, [id, v.depuis, v.taux, 0, auteur.libelle, v.mode, v.tauxGestion, ...(avec419 ? [v.dureeAnnees] : [])])

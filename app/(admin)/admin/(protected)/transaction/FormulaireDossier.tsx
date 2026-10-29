@@ -20,6 +20,8 @@ import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 
 export interface PersonneRef { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null }
 export interface References { lotD: boolean; negociateurs: NegociateurRef[]; apporteurs: ApporteurRef[]; personnes: PersonneRef[];
+  /** 🔴 LOT AC — les comptes de l'interface (création d'un apporteur depuis le compromis) ; absent : réponse d'avant ce lot. */
+  collegues?: { id: number; libelle: string; actif?: boolean }[];
   /** LOT E — la migration 435 (prix de vente) est-elle appliquée ? Absent : réponse d'avant ce lot (champ grisé). */
   prixVente?: boolean;
   /** LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? */
@@ -173,7 +175,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
               <input value={champs.commission} onChange={champ('commission')} inputMode="decimal" required data-champ="commission" />
               <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))} HT` : 'HT = TTC ÷ 1,2'}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
-            <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} honorairesTtc={commission}
+            <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
               societeVente={vente?.societe ?? societe} />
             <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}

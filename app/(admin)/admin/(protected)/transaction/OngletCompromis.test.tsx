@@ -1781,3 +1781,104 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
     expect(encadre('[data-commission-negociateur="sortie"]')).toBe('rouge');
   });
 });
+
+describe('🔴 LOT AC — négociateurs « CRITERIMMO et MACJ » ; l’apporteur avec recherche et création', () => {
+  const ref = references as Record<string, unknown>;
+  const CJ = { id: 9, nom: 'Cédric JULLIEN', societe: 'les_deux' as const };
+  const negos = references.negociateurs;
+  const apporteurs = references.apporteurs;
+  beforeEach(() => {
+    (references as { negociateurs: unknown[] }).negociateurs = [JB, MY, AU, CJ];
+    ref.apporteurs = [{ id: 4, nom: 'Julien Deblois', libelle: 'DEBLOIS Julien', recherche: 'Julien Deblois ; Deblois ; Julien ; Foncia Puteaux' },
+      { id: 16, nom: 'Gardien Dacquet', libelle: 'DACQUET Gardien', recherche: 'Gardien Dacquet ; Century 21 Courbevoie' }];
+    ref.collegues = [{ id: 2, libelle: 'Arnaud Jorel', actif: true }, { id: 5, libelle: 'Jean-Baptiste PONS', actif: true }];
+  });
+  afterEach(() => { (references as { negociateurs: unknown[] }).negociateurs = negos; ref.apporteurs = apporteurs; delete ref.collegues; });
+  const formulaire = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-nouveau-compromis]'); await saisir('[data-champ="commission"]', '12000'); };
+  const options = () => [...container.querySelectorAll('[role="option"]')].map((o) => o.textContent!.replace(/\s/g, ' ').replace(/^✓/, '').trim());
+  const ouvrirApporteur = async () => cliquer('[data-champ="apporteur-annuaire"]');
+  // la création, simulée : la route rend l'id du nouvel apporteur (rien n'est écrit)
+  const avecCreation = (id: number) => {
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const corps = init?.method === 'POST' ? JSON.parse(String(init.body)) : null;
+      if (corps?.action === 'apporteur-creer') { posts.push(corps); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id } }) }; }
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+  };
+
+  it('Cédric (« CRITERIMMO et MACJ ») est proposé : « Cédric JULLIEN — CRITERIMMO et MACJ », et déclenche le choix de société (lot K)', async () => {
+    await formulaire();
+    await cliquer('[data-champ="entree"]');
+    expect(options()).toContain('Cédric JULLIEN — CRITERIMMO et MACJ');
+    await cliquer('[role="option"][data-option="9"]');
+    expect(container.querySelector('[data-choix-societe-vente="partie-0"]')).not.toBeNull();
+  });
+
+  it('la recherche d’apporteur : « Rechercher un apporteur », filtre en direct sur le nom, le prénom et la société ; « + Ajouter un nouvel apporteur » tout en bas', async () => {
+    await formulaire();
+    await ouvrirApporteur();
+    expect((container.querySelector('[data-recherche-liste]') as HTMLInputElement).placeholder).toBe('Rechercher un apporteur');
+    expect(options()).toEqual(['Aucun', 'Julien Deblois', 'Gardien Dacquet', '+ Ajouter un nouvel apporteur']);
+    await saisir('[data-recherche-liste]', 'century');
+    expect(options()).toEqual(['Gardien Dacquet', '+ Ajouter un nouvel apporteur « century »']);
+    await saisir('[data-recherche-liste]', 'julien');
+    expect(options()[0]).toBe('Julien Deblois');
+    await cliquer('[role="option"][data-option="4"]');
+    expect(texte('[data-champ="apporteur-annuaire"]')).toBe('Julien Deblois');
+  });
+
+  it('création depuis le BAS de la liste : la fenêtre (nom, prénom, société, téléphone, e-mail, interne / externe, collègue) ; créé, il est choisi et s’enregistre avec le compromis', async () => {
+    avecCreation(99);
+    await formulaire();
+    await ouvrirApporteur();
+    await cliquer('[role="option"][data-option="+"]');
+    for (const c of ['nom', 'prenom', 'societe', 'telephone', 'email']) expect(container.querySelector(`[data-nouvel-apporteur-champ="${c}"]`)).not.toBeNull();
+    expect(container.querySelector('[data-nouvel-apporteur-type="externe"]')!.getAttribute('aria-pressed')).toBe('true');
+    await saisir('[data-nouvel-apporteur-champ="nom"]', 'Dupont');
+    await saisir('[data-nouvel-apporteur-champ="prenom"]', 'Léa');
+    await saisir('[data-nouvel-apporteur-champ="societe"]', 'Agence du Parc');
+    await cliquer('[data-nouvel-apporteur-collegue]'); await cliquer('[role="option"][data-option="5"]');
+    await cliquer('[data-creer-apporteur-transaction]');
+    expect(posts.at(-1)).toEqual({ action: 'apporteur-creer', apporteur: { nom: 'Léa Dupont', type: 'partenaire', taux: '', interne: false, collegueId: 5, societe: 'Agence du Parc', telephone: '', email: '' } });
+    expect(container.querySelector('[data-nouvel-apporteur-transaction]')).toBeNull();
+    expect(texte('[data-champ="apporteur-annuaire"]')).toBe('Léa Dupont');
+    await saisir('[data-personne-nom="0"]', 'DUPONT');
+    await cliquer('[data-enregistrer-dossier]');
+    expect((posts.at(-1) as { dossier: { apporteurId: number } }).dossier.apporteurId).toBe(99);
+  });
+
+  it('création depuis une recherche SANS résultat : seul choix « + Ajouter un nouvel apporteur « Zorro » », le nom pré-rempli', async () => {
+    await formulaire();
+    await ouvrirApporteur();
+    await saisir('[data-recherche-liste]', 'Zorro');
+    expect(options()).toEqual([]);
+    expect(texte('[data-creer-depuis-recherche]')).toBe('+ Ajouter un nouvel apporteur « Zorro »');
+    expect(container.querySelector('[data-annuaire-depuis-recherche]')).toBeNull();
+    await cliquer('[data-creer-depuis-recherche]');
+    expect((container.querySelector('[data-nouvel-apporteur-champ="nom"]') as HTMLInputElement).value).toBe('Zorro');
+  });
+
+  it('un HOMONYME est proposé avant création (« Choisir « DEBLOIS Julien » »), le choisir le sélectionne ; rien n’est créé', async () => {
+    await formulaire();
+    await ouvrirApporteur();
+    await cliquer('[role="option"][data-option="+"]');
+    await saisir('[data-nouvel-apporteur-champ="nom"]', 'deblois');
+    await saisir('[data-nouvel-apporteur-champ="prenom"]', 'Julien');
+    expect(texte('[data-homonymes]')).toBe('Déjà dans l’annuaire : un apporteur porte ce nom.Choisir « DEBLOIS Julien »');
+    expect(texte('[data-creer-apporteur-transaction]')).toBe('Créer quand même');
+    await cliquer('[data-choisir-homonyme="4"]');
+    expect(texte('[data-champ="apporteur-annuaire"]')).toBe('Julien Deblois');
+    expect(posts.filter((p) => p.action === 'apporteur-creer')).toEqual([]);
+  });
+
+  it('homonymes : pure — prénom et nom dans un ordre ou l’autre, accents ignorés ; rien de tapé : aucun', async () => {
+    const { homonymes } = await import('./NouvelApporteur');
+    const annuaire = [{ id: 4, nom: 'Julien Deblois' }, { id: 16, nom: 'Gardien Dacquet', recherche: 'Century 21' }, { id: 7, nom: 'Hélène Dupont' }];
+    expect(homonymes('Julien', 'Deblois', annuaire).map((a) => a.id)).toEqual([4]);
+    expect(homonymes('', 'deblois julien', annuaire).map((a) => a.id)).toEqual([4]);
+    expect(homonymes('helene', 'DUPONT', annuaire).map((a) => a.id)).toEqual([7]);
+    expect(homonymes('Léa', 'Dupont', annuaire)).toEqual([]);
+    expect(homonymes('', '', annuaire)).toEqual([]);
+  });
+});

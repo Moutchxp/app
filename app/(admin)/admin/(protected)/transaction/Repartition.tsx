@@ -1,6 +1,8 @@
 'use client';
 
-import { ListeChoix } from '../location/ListeChoix';
+import { useState } from 'react';
+import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
+import { NouvelApporteur } from './NouvelApporteur';
 import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
@@ -25,7 +27,9 @@ import { eur } from './commun';
 export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null;
   /** LOT S (441) — commissionné aujourd'hui (absent : oui ; un collaborateur l'est toujours). */
   commissionne?: boolean }
-export interface ApporteurRef { id: number; nom: string }
+export interface ApporteurRef { id: number; nom: string;
+  /** 🔴 LOT AC — le libellé de l'annuaire (NOM Prénom) et le texte cherchable (nom, prénom, société, téléphones, e-mails). */
+  libelle?: string; recherche?: string }
 /** Une partie à l'écran : sa part telle que saisie (texte), en % ou en €. */
 export interface PartieEcran extends Omit<Partie, 'pourcentage' | 'montantHt'> { mode: 'pct' | 'eur'; texte: string }
 /** Un montant à l'écran, tel que saisi, avec SON unité (LOT I). */
@@ -163,7 +167,7 @@ export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parti
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
 
-export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false }: {
+export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues }: {
   etat: EtatRepartition; onChange: (e: EtatRepartition) => void; negociateurs: readonly NegociateurRef[]; apporteurs: readonly ApporteurRef[];
   /** La commission TTC saisie (NaN : pas encore lisible). */
   honorairesTtc: number;
@@ -176,7 +180,17 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
    * ni commission (ils restent dans « Modifier » et sous le bouton du négociateur). Absent : le bloc complet, inchangé.
    */
   seulementParts?: boolean;
+  /**
+   * 🔴 LOT AC — les comptes de l'interface (collègue rattaché, compte d'un interne) : avec eux, « + Ajouter un nouvel apporteur » sous la liste
+   * des apporteurs (absents : réponse d'avant ce lot, pas de création).
+   */
+  collegues?: readonly OptionChoix[];
 }) {
+  // LOT AC — les apporteurs créés ici s'ajoutent à la liste (l'annuaire est relu au prochain chargement) ; la fenêtre de création.
+  const [ajoutes, setAjoutes] = useState<ApporteurRef[]>([]);
+  const [nouveau, setNouveau] = useState<string | null>(null);
+  const annuaire = [...apporteurs, ...ajoutes.filter((a) => !apporteurs.some((x) => x.id === a.id))];
+  const creation = collegues !== undefined;
   const retro = retroTtcDe(etat);
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
   const net = commissionNetteHt(commission, retro);
@@ -205,9 +219,21 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
       <legend className="loc-muet">{seulementParts ? 'Répartition de la commission' : 'Apporteur et répartition de la commission'}</legend>
       {!seulementParts && <div className="trx-form">
         <label>Apporteur d’affaires
-          <ListeChoix options={apporteurs.map((a) => ({ id: a.id, libelle: a.nom }))} valeur={etat.apporteurId === null ? '' : String(etat.apporteurId)} vide="Aucun"
-            libelle="Apporteur d’affaires" onChange={(v) => onChange({ ...etat, apporteurId: v === '' ? null : Number(v) })} donnees={{ 'data-champ': 'apporteur-annuaire' }} />
+          {/* 🔴 LOT AC (Arno) — le sélecteur avec recherche (celui des négociateurs) : « Rechercher un apporteur » (nom, prénom, société) ; tout en
+              bas, et seul choix quand rien n'est trouvé : « + Ajouter un nouvel apporteur « texte » ». */}
+          <ListeChoix options={[...annuaire.map((a) => ({ id: a.id, libelle: a.nom, ...(a.recherche !== undefined ? { recherche: a.recherche } : {}) })),
+            ...(creation ? [{ id: '+', libelle: '+ Ajouter un nouvel apporteur' }] : [])]} valeur={etat.apporteurId === null ? '' : String(etat.apporteurId)} vide="Aucun"
+            libelle="Apporteur d’affaires" onChange={(v) => { if (v === '+') { setNouveau(''); return; } onChange({ ...etat, apporteurId: v === '' ? null : Number(v) }); }}
+            donnees={{ 'data-champ': 'apporteur-annuaire' }}
+            recherche={{ placeholder: 'Rechercher un apporteur', ...(creation ? { onCreer: (t: string) => setNouveau(t), libelleCreer: (t: string) => `+ Ajouter un nouvel apporteur « ${t} »` } : {}) }} />
           <span className="loc-muet">L’annuaire des apporteurs de la Location.</span></label>
+        {nouveau !== null && collegues !== undefined && (
+          <div className="trx-plein">
+            <NouvelApporteur texte={nouveau} annuaire={annuaire} collegues={collegues} onFermer={() => setNouveau(null)}
+              onChoisir={(id) => { setNouveau(null); onChange({ ...etat, apporteurId: id }); }}
+              onCree={(a) => { setAjoutes((x) => [...x, a]); setNouveau(null); onChange({ ...etat, apporteurId: a.id }); }} />
+          </div>
+        )}
         <ChampMontantUnite mot="Rétrocession de l’apporteur" valeur={{ texte: etat.retroTexte, unite: etat.retroUnite ?? 'ttc' }} avecHt={etat.commissions != null}
           onChange={(m) => onChange({ ...etat, retroTexte: m.texte, retroUnite: m.unite })} champ="retro" aide="Déduite avant toute répartition." />
       </div>}
