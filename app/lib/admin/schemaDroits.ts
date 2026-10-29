@@ -129,6 +129,14 @@ export function commissionneDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.commissionne', async () => (await colonneExiste('admin_utilisateur', 'commissionne')) && colonneExiste('transaction_partie', 'commissionne'));
 }
 
+/**
+ * LOT V — la migration 442 (le mode de chaque commission : calculée / saisie à la main) est-elle appliquée ? Sans elle : le mode se déduit
+ * (égale au calcul : calculée), rien ne s'écrit dans la colonne.
+ */
+export function modeCommissionDisponible(): Promise<boolean> {
+  return memoiser('transaction_vente_ligne.mode_commission', () => colonneExiste('transaction_vente_ligne', 'mode_commission'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

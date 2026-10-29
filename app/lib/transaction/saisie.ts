@@ -1,4 +1,4 @@
-import { estSociete, STATUTS, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
+import { estModeCommission, estSociete, STATUTS, type ModeCommission, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
 
 /**
  * TUILE « TRANSACTION » — la LECTURE d'une saisie venue de l'écran (vente, rétrocession, gestion du mois), avant toute écriture.
@@ -169,7 +169,12 @@ export interface DossierSaisie {
    */
   commissions?: { entree: MontantSaisi | null; sortie: MontantSaisi | null;
     /** LOT R (440) — le taux de rémunération de chaque côté (%) ; null ou absent : le défaut (50 %). */
-    taux?: { entree: number | null; sortie: number | null } };
+    taux?: { entree: number | null; sortie: number | null };
+    /**
+     * 🔴 LOT V — le mode de chaque côté : « calculee » (le serveur recalcule : honoraires du côté × taux, sur la répartition enregistrée) ou
+     * « manuelle » (le montant envoyé, tel quel) ; null ou absent (écran d'avant ce lot) : le montant envoyé, comme avant.
+     */
+    mode?: { entree: ModeCommission | null; sortie: ModeCommission | null } };
   personnes: PersonneSaisie[];
   parties: PartieSaisie[];
   /** LOT E (435) — le prix de vente (€), facultatif. */
@@ -235,6 +240,7 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
     const o = c.commissions as Record<string, unknown>;
     const lus: Record<'entree' | 'sortie', MontantSaisi | null> = { entree: null, sortie: null };
     const taux: Record<'entree' | 'sortie', number | null> = { entree: null, sortie: null };
+    const mode: Record<'entree' | 'sortie', ModeCommission | null> = { entree: null, sortie: null };
     for (const [k, mot] of [['entree', 'd’entrée'], ['sortie', 'de sortie']] as const) {
       const x = (o[k] ?? {}) as Record<string, unknown>;
       const m = montant(x.montant);
@@ -246,8 +252,10 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
       const t = montant(x.taux);
       if (t === undefined || (t !== null && t < 0)) return refus(`Le taux de rémunération du négociateur ${mot} doit être un pourcentage positif (ou vide).`);
       taux[k] = t;
+      // LOT V — le mode : « calculee » ou « manuelle » ; toute autre valeur : inconnu (le montant envoyé, comme avant).
+      mode[k] = estModeCommission(x.mode) ? x.mode : null;
     }
-    commissions = { ...lus, taux };
+    commissions = { ...lus, taux, mode };
   }
   const prix = montant(c.prixVente);
   if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');

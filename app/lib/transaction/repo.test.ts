@@ -13,8 +13,10 @@ const lotI = vi.fn<() => Promise<boolean>>(async () => false);
 const lotP = vi.fn<() => Promise<boolean>>(async () => false);
 const lotR = vi.fn<() => Promise<boolean>>(async () => false);
 const lotS = vi.fn<() => Promise<boolean>>(async () => false);
+const lotV = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
-  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR(), commissionneDisponible: () => lotS() }));
+  annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR(), commissionneDisponible: () => lotS(),
+  modeCommissionDisponible: () => lotV() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -603,5 +605,122 @@ describe('🔴 LOT S (441) — un administrateur NON COMMISSIONNÉ sur une vente
         { vente_id: '38', sorte: 'sortie', compte_id: '8', negociateur_libelle: 'Pierre Thevenin', societe: 'macj', pourcentage: '50', commissionne: null, commissionne_compte: 'collaborateur:false' }] } : undefined));
     const [v] = await repo.lireVentes(null);
     expect(v.repartition!.parties.map((p) => [p.negociateur, p.commissionne, p.commissionneCompte])).toEqual([['Arnaud Jorel', null, false], ['Pierre Thevenin', null, true]]);
+  });
+});
+
+describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une commission SAISIE À LA MAIN reste telle quelle', () => {
+  // « Location ? » : 7 500 TTC, apporteur 1 000 TTC (base 6 500 TTC) ; JB (5) à l'entrée, Mylène (7) à la sortie, taux 25 % à la sortie.
+  const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: 'Location ?', honorairesTtc: 7500, dateCompromis: '2026-10-20',
+    dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 1000, retroUnite: 'ttc' as const,
+    personnes: [], parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 70, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 30, montantHt: null }],
+    lignes: [], prixVente: null, ...o });
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY')
+    ? { rows: [{ id: '5', nom: 'Jean-Baptiste PONS', role: 'collaborateur' }, { id: '7', nom: 'Mylène EBERLIN', role: 'collaborateur' }] } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' }, { compte_id: '7', societe: 'criterimmo', depuis: '2000-01-01' }] } : undefined);
+  const lignesPosees = () => appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_vente_ligne')).map((x) => ({ nego: x.params[1], ttc: x.params[2], ht: x.params[3], cote: x.params[4], taux: x.params[7], mode: x.params[8] }));
+  beforeEach(() => { lotD.mockResolvedValue(true); lotI.mockResolvedValue(true); lotR.mockResolvedValue(true); lotV.mockResolvedValue(true); });
+
+  it('calculée : le SERVEUR calcule (honoraires du côté × taux), quoi que l’écran envoie ; le mode est enregistré', async () => {
+    let id = 70;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    const r = await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1, unite: 'ttc' }, sortie: { montant: 1, unite: 'ht' },
+      taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'calculee' } } }), '2026-10-29', A);
+    expect(r.ok).toBe(true);
+    // 6 500 × 70 % × 50 % = 2 275 TTC ; 6 500 × 30 % × 25 % = 487,50 TTC, dans l'unité choisie (HT : 406,25), sans arrondi
+    const [e, s] = lignesPosees();
+    expect([e.nego, e.ttc, e.ht, e.cote, e.taux, e.mode]).toEqual(['Jean-Baptiste PONS', 2275, null, 'entree', null, 'calculee']);
+    expect([s.ttc, s.ht, s.cote, s.taux, s.mode]).toEqual([null, 487.5 / 1.2, 'sortie', 25, 'calculee']);
+  });
+
+  it('saisie à la main : le montant tapé, tel quel ; le mode « manuelle » enregistré', async () => {
+    let id = 70;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 2275, unite: 'ttc' }, sortie: { montant: 1625, unite: 'ttc' },
+      taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'manuelle' } } }), '2026-10-29', A);
+    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.mode])).toEqual([['entree', 2275, 'calculee'], ['sortie', 1625, 'manuelle']]);
+  });
+
+  it('un écran d’avant ce lot (sans mode) : le montant envoyé, comme avant ; sans la 442 : le calcul se fait, aucune colonne neuve n’est nommée', async () => {
+    let id = 70;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1000, unite: 'ttc' }, sortie: null, taux: { entree: null, sortie: null } } }), '2026-10-29', A);
+    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.mode])).toEqual([['entree', 1000, null]]);
+    appels.length = 0; lotV.mockResolvedValue(false);
+    await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1, unite: 'ttc' }, sortie: null, taux: { entree: null, sortie: null }, mode: { entree: 'calculee', sortie: null } } }), '2026-10-29', A);
+    expect(appels.some((x) => x.sql.includes('mode_commission'))).toBe(false);
+    expect(lignesPosees().map((l) => [l.cote, l.ttc])).toEqual([['entree', 2275]]);
+  });
+
+  it('une vente existante passée de 60/40 à 70/30 : la commission calculée est recalculée et enregistrée, « recalculée suite à : changement de la répartition »', async () => {
+    reponses.push(comptes, periodes,
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'Location ?', honoraires_ttc: 7500, statut: 'compromis', annee: 2026, retire_le: null,
+        apporteur_id: null, retro_apporteur_ttc: 1000, retro_apporteur_ht: null }] } : undefined),
+      (s) => (s.startsWith('SELECT id FROM transaction_partie') ? { rows: [{ id: '90' }, { id: '91' }] } : undefined),
+      (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [
+        { sorte: 'entree', compte_id: '5', negociateur_libelle: 'Jean-Baptiste PONS', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: '60', montant_ht: null },
+        { sorte: 'sortie', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: '40', montant_ht: null }] } : undefined),
+      (s) => (s.startsWith('SELECT cote') && s.includes('FROM transaction_vente_ligne WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL')
+        ? { rows: [{ cote: 'entree', negociateur: 'Jean-Baptiste PONS', montant_ttc: '1950', montant_ht: null, taux: null, mode_commission: null },
+          { cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '650', montant_ht: null, taux: '25', mode_commission: null }] } : undefined),
+      (s) => (s.startsWith('SELECT id FROM transaction_vente_ligne') ? { rows: [{ id: '449' }, { id: '450' }] } : undefined),
+      (s) => (s.includes('FROM transaction_vente_ligne WHERE id = ANY')
+        ? { rows: [{ cote: 'entree', negociateur: 'Jean-Baptiste PONS', montant_ttc: '1950', montant_ht: null, taux: null, mode_commission: null },
+          { cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '650', montant_ht: null, taux: '25', mode_commission: null }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '95' }] } : undefined));
+    const r = await repo.enregistrerDossier(37, dossier({ commissions: { entree: { montant: 1950, unite: 'ttc' }, sortie: { montant: 650, unite: 'ttc' },
+      taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'calculee' } } }), '2026-10-29', A);
+    expect(r.ok).toBe(true);
+    // 6 500 × 70 % × 50 % = 2 275 ; 6 500 × 30 % × 25 % = 487,50 (le constat d'Arno : le calcul 487,50, plus jamais 650 resté dans le champ)
+    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.taux, l.mode])).toEqual([['entree', 2275, null, 'calculee'], ['sortie', 487.5, 25, 'calculee']]);
+    // rien n'est effacé : les lignes d'avant sont RETIRÉES (retire_le), journalisées avec la cause
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+    expect(appels.some((x) => x.sql.startsWith('UPDATE transaction_vente_ligne SET retire_le = now()') && JSON.stringify(x.params[0]) === JSON.stringify([449, 450]))).toBe(true);
+    const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
+    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commissions recalculées suite à : changement de la répartition — Commissions versées : entrée Jean-Baptiste PONS 2275 € TTC/);
+  });
+
+  it('le taux changé (Mylène 25 % → 40 %), la commission de la vente changée : les causes sont dites', async () => {
+    reponses.push(comptes, periodes,
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'Location ?', honoraires_ttc: 7000, statut: 'compromis', annee: 2026, retire_le: null,
+        apporteur_id: null, retro_apporteur_ttc: 1000, retro_apporteur_ht: null }] } : undefined),
+      (s) => (s.startsWith('SELECT id FROM transaction_partie') ? { rows: [{ id: '90' }, { id: '91' }] } : undefined),
+      (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [
+        { sorte: 'entree', compte_id: '5', negociateur_libelle: 'Jean-Baptiste PONS', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: '70', montant_ht: null },
+        { sorte: 'sortie', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: '30', montant_ht: null }] } : undefined),
+      (s) => (s.startsWith('SELECT cote') && s.includes('FROM transaction_vente_ligne WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL')
+        ? { rows: [{ cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '450', montant_ht: null, taux: '25', mode_commission: 'calculee' }] } : undefined),
+      (s) => (s.startsWith('SELECT id FROM transaction_vente_ligne') ? { rows: [{ id: '450' }] } : undefined),
+      (s) => (s.includes('FROM transaction_vente_ligne WHERE id = ANY') ? { rows: [{ cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '450', montant_ht: null, taux: '25', mode_commission: 'calculee' }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '95' }] } : undefined));
+    await repo.enregistrerDossier(37, dossier({ commissions: { entree: null, sortie: { montant: 450, unite: 'ttc' }, taux: { entree: null, sortie: 40 }, mode: { entree: null, sortie: 'calculee' } } }), '2026-10-29', A);
+    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.taux])).toEqual([['sortie', 6500 * 0.3 * 0.4, 40]]);
+    const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
+    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commission recalculée suite à : changement de la commission de la vente, changement du taux — /);
+  });
+
+  it('« Revenir au calcul » / « Appliquer le calcul » : mode « calculee » enregistré ; une saisie à la main : « manuelle »', async () => {
+    const vente = (s: string) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ statut: 'compromis', retire_le: null, negociateur_entree_id: '5', negociateur_sortie_id: '7' }] } : undefined);
+    const compte = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = $1') ? { rows: [{ nom: 'Mylène EBERLIN', role: 'collaborateur', commissionne: null }] } : undefined);
+    const avant = (s: string) => (s.includes('FROM transaction_vente_ligne') && s.includes('WHERE vente_id = $1 AND retire_le IS NULL AND cote IS NOT NULL')
+      ? { rows: [{ cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '1625', montant_ht: null, taux: '25', mode_commission: 'manuelle' }] } : undefined);
+    let ids = 0;
+    reponses.push(vente, compte, avant, (s) => (s.startsWith('SELECT id FROM transaction_vente_ligne') ? { rows: [{ id: String(450 + (ids++ > 1 ? 1 : 0)) }] } : undefined),
+      (s) => (s.includes('FROM transaction_vente_ligne WHERE id = ANY') ? { rows: [{ cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '1625', montant_ht: null, taux: '25', mode_commission: 'manuelle' }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '451' }] } : undefined));
+    await repo.enregistrerCommissionCote(37, 'sortie', { montant: 487.5, unite: 'ttc' }, 25, A, 'calculee');
+    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.mode])).toEqual([['sortie', 487.5, 'calculee']]);
+    const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
+    expect(String(journal.at(-1)?.params[5])).toMatch(/^Calcul appliqué — /);
+  });
+
+  it('lecture : le mode enregistré est lu (442) ; sans elle, aucune colonne neuve n’est nommée', async () => {
+    reponses.push((s) => (s.startsWith('SELECT l.id, l.vente_id') ? { rows: [{ id: '450', vente_id: '37', negociateur: 'Mylène EBERLIN', role: 'negociateur', montant_ttc: '1625', cote: 'sortie',
+      montant_ht: null, taux: '25', mode_commission: 'manuelle', nature: 'compromis', compte: false, origine: 'saisie' }] } : undefined),
+      (s) => (s.startsWith('SELECT v.id, v.societe') ? { rows: [{ id: '37', societe: 'criterimmo', libelle: 'Location ?', honoraires_ttc: '7500', statut: 'compromis', annee: 2026, origine: 'saisie' }] } : undefined));
+    const [v] = await repo.lireVentes(null);
+    expect(v.lignes[0]).toMatchObject({ cote: 'sortie', taux: 25, mode: 'manuelle' });
+    appels.length = 0; lotV.mockResolvedValue(false);
+    await repo.lireVentes(null);
+    expect(appels.some((x) => x.sql.includes('mode_commission'))).toBe(false);
   });
 });

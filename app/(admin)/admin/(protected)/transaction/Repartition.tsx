@@ -470,22 +470,24 @@ export function montantsAffiches(lignes: readonly Pick<PartieEcran, 'mode' | 'te
 /**
  * 🔴 LOT U (Arno) — LA BASE DE RÉPARTITION, en tête du panneau (carte et formulaire) : « Commission de la vente », une ligne « − Apporteur :
  * Nom » par apporteur (le MONTANT en rouge, le signe et le mot avec lui ; aucun : « Aucun apporteur », sans rouge), puis « = Base de
- * répartition » en gras — TTC et HT en colonnes alignées à droite. Elle se lit sur la saisie en cours : elle suit l'apporteur et la commission.
+ * répartition » en gras — HT (gras) puis TTC (vert, entre parenthèses) en colonnes alignées à droite (lot V). Elle se lit sur la saisie en cours : elle suit l'apporteur et la commission.
  */
 export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: number; apporteurs: readonly { nom: string | null; ttc: number }[] }) {
   const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + a.ttc, 0);
-  const montants = (ttc: number, classe?: string, donnee?: string) => <>
-    <td className={classe} data-resume-ttc={donnee}>{eur(ttc)}</td><td className={classe} data-resume-ht={donnee}>{eur(ttc / TVA)}</td></>;
+  // 🔴 LOT V (Arno) — le HT en gras d'abord, puis le TTC entre parenthèses, en vert (« TTC » écrit) ; l'apporteur : tout en rouge.
+  const montants = (ttc: number, rouge?: boolean, donnee?: string) => <>
+    <td className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(ttc / TVA)} HT</strong></td>
+    <td className={rouge ? 'trx-rouge' : 'trx-vert'} data-resume-ttc={donnee}>({eur(ttc)} TTC)</td></>;
   return (
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
-      <thead><tr><td /><th scope="col">TTC</th><th scope="col">HT</th></tr></thead>
+      <thead><tr><td /><th scope="col">HT</th><th scope="col">TTC</th></tr></thead>
       <tbody>
-        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, undefined, 'commission')}</tr>
+        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, false, 'commission')}</tr>
         {apporteurs.length === 0
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /><td /></tr>
-          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'trx-rouge', `apporteur-${i}`)}</tr>)}
+          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, true, `apporteur-${i}`)}</tr>)}
         <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
-          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, undefined, 'base')}</tr>
+          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, false, 'base')}</tr>
       </tbody>
     </table>
   );

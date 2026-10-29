@@ -199,3 +199,21 @@ describe('🔴 LOT T — les honoraires d’un côté et le taux du négociateur
     expect(honorairesDuCote({ ...v, dossier: { ...v.dossier!, sortie: null } }, 'sortie')).toBeNull();
   });
 });
+
+describe('🔴 LOT V — le mode d’une commission, et les tuiles qui suivent la commission recalculée', () => {
+  const v = (montantTtc: number, mode: 'calculee' | 'manuelle' | null = null) => vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, parties: [partie({ pourcentage: 70, statut: 'independant' }),
+    partie({ sorte: 'sortie', compteId: 7, negociateur: 'MY', pourcentage: 30, statut: 'independant' })] },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'JB' }, sortie: { id: 7, nom: 'MY' }, apporteurId: null, personnes: [] },
+    lignes: [ligne({ negociateur: 'MY', cote: 'sortie', montantTtc, taux: 25, mode })] });
+  it('déduit : égale au calcul → calculée ; différente → saisie à la main ; enregistré : il prime', () => {
+    expect(remunerationDuCote(v(487.5), 'sortie')).toMatchObject({ calculTtc: 487.5, mode: 'calculee', modeEnregistre: false });
+    expect(remunerationDuCote(v(650), 'sortie')).toMatchObject({ ecart: true, mode: 'manuelle', modeEnregistre: false });
+    expect(remunerationDuCote(v(487.5, 'manuelle'), 'sortie')).toMatchObject({ mode: 'manuelle', modeEnregistre: true });
+  });
+  it('les tuiles lisent la commission enregistrée : 650 → 487,50 recalculée, les commissions versées baissent d’autant', () => {
+    const avant = tuilesCompromis([v(650)], 'criterimmo');
+    const apres = tuilesCompromis([v(487.5)], 'criterimmo');
+    expect(avant.independantsHt - apres.independantsHt).toBeCloseTo((650 - 487.5) / 1.2, 9);
+    expect(apres.soldeHt - avant.soldeHt).toBeCloseTo((650 - 487.5) / 1.2, 9);
+  });
+});

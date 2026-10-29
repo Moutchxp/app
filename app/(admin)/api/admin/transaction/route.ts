@@ -180,7 +180,9 @@ export async function POST(request: Request): Promise<Response> {
         const x = m === null ? null : montant(m.montant);
         const t = montant(corps.taux);
         if (x === undefined || t === undefined || (m !== null && m.unite !== 'ht' && m.unite !== 'ttc')) return json({ etat: 'refus', motif: 'Rémunération illisible.' }, 400);
-        return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur));
+        // 🔴 LOT V — le mode : « calculee » (Appliquer / Revenir au calcul, taux modifié) ou « manuelle » (montant tapé) ; autre : inconnu.
+        const mode = corps.mode === 'calculee' || corps.mode === 'manuelle' ? corps.mode : null;
+        return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur, mode));
       }
       case 'annuler': {
         const j = Number(corps.journalId);

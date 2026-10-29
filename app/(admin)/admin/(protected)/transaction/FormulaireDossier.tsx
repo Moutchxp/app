@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { BlocRepartition, commissionsResolues, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { eur, posterTransaction } from './commun';
-import { commissionDuCote } from '../../../../lib/transaction/commissions';
+import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
@@ -49,7 +49,10 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
     const c = v === null ? null : commissionDuCote(v, cote);
     const t = v?.lignes.find((l) => l.role === 'negociateur' && l.cote === cote)?.taux;
     const taux = t == null ? {} : { taux: texteTaux(t) };
-    if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite, ...taux };
+    // 🔴 LOT V (Arno) — son MODE : « calculée » (égale au calcul, ou enregistrée comme telle) suit le calcul à l'écran et s'enregistre recalculée ;
+    // « saisie à la main » (différente du calcul, ou tapée) reste telle quelle. Non commissionné, ou sans calcul possible : telle quelle.
+    const calculee = v !== null && c !== null && remunerationDuCote(v, cote)?.mode === 'calculee';
+    if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite, ...taux, ...(calculee ? { auto: true } : {}) };
     return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null, ...taux };
   };
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
@@ -62,14 +65,16 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
 export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', champs: { libelle: string; commission: string; dateCompromis: string; dateActePrevue: string;
   dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], etat: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
   const r = commissionsResolues(etat, nombre(champs.commission) ?? Number.NaN);
+  // 🔴 LOT V — le mode de chaque côté : proposée (« auto ») = calculée, le serveur la recalcule sur ce qui s'enregistre ; tapée = à la main.
+  const modeDe = (cote: 'entree' | 'sortie'): 'calculee' | 'manuelle' => (etat.commissions?.[cote].auto === true ? 'calculee' : 'manuelle');
   return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
     retroApporteurTtc: r.retroTexte, retroApporteurUnite: r.retroUnite ?? 'ttc', personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}),
     // LOT O — une commission proposée part comme elle s'affiche (c'est « Enregistrer » qui la valide).
     // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
     ...(r.commissions != null ? { commissions: {
-      entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite, taux: r.commissions.entree.taux ?? null },
-      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null } } } : {}) };
+      entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite, taux: r.commissions.entree.taux ?? null, mode: modeDe('entree') },
+      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
 export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {

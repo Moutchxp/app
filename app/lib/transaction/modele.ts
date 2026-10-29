@@ -38,6 +38,10 @@ export const LIBELLE_STATUT: Record<StatutVente, string> = { compromis: 'Comprom
 export type RoleLigne = 'negociateur' | 'part' | 'vendeur';
 export const LIBELLE_ROLE: Record<RoleLigne, string> = { negociateur: 'paye du négociateur', part: 'part des honoraires', vendeur: 'vente de l’onglet' };
 
+/** LOT V — « calculee » : honoraires du côté × taux, suit la répartition ; « manuelle » : montant tapé à la main, conservé tel quel. */
+export type ModeCommission = 'calculee' | 'manuelle';
+export const estModeCommission = (x: unknown): x is ModeCommission => x === 'calculee' || x === 'manuelle';
+
 export interface LigneVente {
   id: number;
   negociateur: string;
@@ -50,6 +54,8 @@ export interface LigneVente {
   cote?: 'entree' | 'sortie' | null;
   /** LOT R (440) — le taux de rémunération enregistré (%) ; absent ou null : le défaut (50 %). */
   taux?: number | null;
+  /** LOT V (442) — le mode de la commission (calculée / saisie à la main) ; absent ou null : déduit (égale au calcul : calculée). */
+  mode?: ModeCommission | null;
   /**
    * LOT R — le statut du négociateur FIGÉ sur la vente d'origine, recopié sur la commission d'une LIGNE MIROIR (qui n'a pas de répartition) ;
    * absent : lu sur la partie (règle des lots P / Q).

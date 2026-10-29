@@ -1,4 +1,4 @@
-import { bilanVente, commissionNetteHt, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
+import { bilanVente, commissionNetteHt, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type ModeCommission, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
 import type { ClasseCommission } from '../admin/statut';
 import { classeDeCommission, commissionIgnoree, commissionneDePartie, type StatutDuLibelle } from './statutLigne';
 
@@ -111,8 +111,12 @@ export function honorairesDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' 
 export const tauxDuCote = (v: Pick<Vente, 'lignes'>, cote: 'entree' | 'sortie'): number =>
   v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote)?.taux ?? TAUX_REMUNERATION_DEFAUT;
 
-/** La rémunération d'un côté : la base, le taux (enregistré, sinon 50 %), le calcul (TTC), la valeur saisie et si elle en diffère. */
-export interface Remuneration { baseTtc: number; taux: number; calculTtc: number; saisie: MontantSaisi | null; ecart: boolean }
+/**
+ * La rémunération d'un côté : la base, le taux (enregistré, sinon 50 %), le calcul (TTC), la valeur saisie et si elle en diffère.
+ * 🔴 LOT V — `mode` : celui enregistré (442) ; sinon DÉDUIT — égale au calcul (ou rien d'enregistré) : calculée ; différente : saisie à la
+ * main. `modeEnregistre` : vrai seulement si le mode vient de la base (une saisie à la main d'après le lot V, et non une valeur d'avant).
+ */
+export interface Remuneration { baseTtc: number; taux: number; calculTtc: number; saisie: MontantSaisi | null; ecart: boolean; mode: ModeCommission; modeEnregistre: boolean }
 
 /** Un écart de moins d'un demi-centime n'en est pas un (affichage au centime). */
 const EPSILON = 0.005;
@@ -121,12 +125,17 @@ const EPSILON = 0.005;
  * 🔴 LOT R — LA RÉMUNÉRATION d'un côté, sur sa base : calcul = taux × base ; la valeur saisie (une commission déjà enregistrée) n'est JAMAIS
  * recalculée sans geste humain — `ecart` dit qu'elle diffère du calcul (« valeur saisie — calcul proposé : X € », « Appliquer le calcul »). PUR.
  */
-export function remuneration(baseTtc: number, ligne: Pick<LigneVente, 'montantTtc' | 'montantHt' | 'taux'> | null | undefined): Remuneration {
+export function remuneration(baseTtc: number, ligne: Pick<LigneVente, 'montantTtc' | 'montantHt' | 'taux' | 'mode'> | null | undefined): Remuneration {
   const taux = ligne?.taux ?? TAUX_REMUNERATION_DEFAUT;
   const calculTtc = (baseTtc * taux) / 100;
   const saisie = ligne == null ? null : montantDeLigne(ligne);
-  return { baseTtc, taux, calculTtc, saisie, ecart: saisie !== null && Math.abs(enTtc(saisie) - calculTtc) >= EPSILON };
+  const ecart = saisie !== null && Math.abs(enTtc(saisie) - calculTtc) >= EPSILON;
+  const enregistre = saisie !== null && ligne?.mode != null;
+  return { baseTtc, taux, calculTtc, saisie, ecart, mode: enregistre ? ligne!.mode! : ecart ? 'manuelle' : 'calculee', modeEnregistre: enregistre };
 }
+
+/** 🔴 LOT V — la commission calculée dans l'unité voulue (TTC ; HT = TTC ÷ 1,2), sans arrondi. PUR. */
+export const calculDansUnite = (calculTtc: number, unite: Unite): MontantSaisi => ({ montant: unite === 'ttc' ? calculTtc : calculTtc / TVA, unite });
 
 /**
  * 🔴 LOT S — le négociateur de ce côté est-il COMMISSIONNÉ sur cette vente (sa partie : figé, sinon son compte) ? Sans négociateur ou sans
