@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, societePorteuse, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
-import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
+import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, parametre, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -270,42 +270,58 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                             {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
                             <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}` : eurEtEquivalent(m)}</span></span>; })(), 'apporteur')}
                       </dl>
-                      {r !== null && ps !== null ? (
+                      {r !== null && ps !== null ? (() => {
+                        // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,
+                        // = la base ; les parties ; les parts par société ; − les reversements de la porteuse, = son reste. Chaque montant au centime par
+                        // LA règle unique (`centimesRepartition`) : un même montant identique partout (parties, parts, reversement, tuiles, ligne miroir),
+                        // et reste + reversements + apporteur = commission de la vente. HT en gras, TTC dessous (lot W) ; ce qui est versé, en rouge.
+                        const porteuse = societePorteuse(v);
+                        const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
+                        const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+                        const brutes = r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
+                        const repli = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })), brutes, ps.netHt);
+                        const montant = (h: number, t: number, o: { rouge?: boolean; donnee?: Record<string, string> } = {}) => (
+                          <span className={o.rouge ? 'trx-ht-ttc-pile trx-montant-repartition trx-rouge' : 'trx-ht-ttc-pile trx-montant-repartition'} {...o.donnee}>
+                            <strong>{eur(h)} HT</strong><span className={o.rouge ? undefined : 'trx-vert'}>({eur(t)} TTC)</span></span>);
+                        const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string) => (
+                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%">{pctTexte}</td><td data-mot="€ HT (TTC)">{valeur}</td></tr>);
+                        const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
+                        return (
                         <div data-repartition-compromis>
-                        <p className="loc-muet trx-repartition-titre">Répartition — commission nette (après apporteur) : {eur(ps.netHt)} HT</p>
                         <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
-                          <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col">€ HT</th></tr></thead>
+                          <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col">€ HT (TTC)</th></tr></thead>
                           <tbody>
-                            {/* 🔴 LOT V — les € HT au centime, l'écart d'arrondi sur la dernière part : la somme tombe juste (règle du lot U). */}
-                            {(() => { const affiches = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })),
-                              r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0)), ps.netHt);
-                              return r.parties.map((p, i) => (
-                              <tr key={i}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
+                            {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], '100 %',
+                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort')}
+                            {apporteur
+                              ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
+                              : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
+                            {ligne('base', '= Base de répartition (commission nette)', '', '100 %', montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base')}
+                            {r.parties.map((p, i) => (
+                              <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
                                 <td data-mot="%">{p.pourcentage !== null ? `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : `${(ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`}</td>
-                                <td data-mot="€ HT" data-part-partie-compromis={i}>{eur(affiches[i])}</td></tr>
-                            )); })()}
-                            {SOCIETES.map((s) => <tr key={s} className="tdb-fort"><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
+                                <td data-mot="€ HT (TTC)">{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
+                            ))}
+                            {SOCIETES.map((s) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
                               <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
-                              <td data-mot="€ HT" data-part-societe-compromis={s}>{eur(ps.societe[s])} HT</td></tr>)}
-                            {ps.exterieurHt > 0 && <tr><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
-                              <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td><td data-mot="€ HT">{eur(ps.exterieurHt)} HT</td></tr>}
-                            {/* 🔴 LOT R (Arno) — la société PORTEUSE encaisse le CA de la vente ; la part de l'autre société et l'extérieur lui sont reversés. */}
-                            {(() => {
-                              const b = bilanVente(v, null);
-                              const pv = bilanVente(v, b.porteuse);
-                              return <>
-                                <tr className="tdb-fort" data-ca-vente-compromis={b.porteuse}><th scope="row">CA de la vente — {LIBELLE_SOCIETE[b.porteuse]} (société porteuse)</th><td data-mot="Société">{LIBELLE_SOCIETE[b.porteuse]}</td>
-                                  <td data-mot="%">100 %</td><td data-mot="€ HT">{eur(b.caHt)} HT</td></tr>
-                                {SOCIETES.filter((s) => pv.verseHt[s] > 0).map((s) => <tr key={`ic-${s}`} data-reverse-compromis={s}><th scope="row">dont reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</th>
-                                  <td data-mot="Société">{LIBELLE_SOCIETE[s]}</td><td data-mot="%">{pcts === null ? '' : pct(pcts.societe[s])}</td><td data-mot="€ HT">{eur(pv.verseHt[s])} HT</td></tr>)}
-                                {pv.exterieurHt > 0 && <tr data-reverse-compromis="exterieur"><th scope="row">dont reversé en inter-cabinet extérieur</th><td data-mot="Société">extérieur</td>
-                                  <td data-mot="%">{pcts === null ? '' : pct(pcts.exterieur)}</td><td data-mot="€ HT">{eur(pv.exterieurHt)} HT</td></tr>}
-                              </>;
-                            })()}
+                              <td data-mot="€ HT (TTC)">{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>)}
+                            {ps.exterieurHt > 0 && <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
+                              <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
+                              <td data-mot="€ HT (TTC)">{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>}
+                            {/* 🔴 LOT R / AH — la société PORTEUSE reverse la part de l'autre société et de l'extérieur (en rouge) ; il lui reste sa part. */}
+                            {cHt !== null && cTtc !== null && <>
+                              {SOCIETES.filter((s) => cHt.reverse[s] > 0).map((s) => ligne(`reverse-${s}`, <>− Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</>, LIBELLE_SOCIETE[s],
+                                pcts === null ? '' : pct(pcts.societe[s]), montant(cHt.reverse[s], cTtc.reverse[s], { rouge: true, donnee: { 'data-reverse-compromis': s } })))}
+                              {cHt.exterieurs.filter((e) => e.ht > 0).map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
+                                montant(e.ht, cTtc.exterieurs[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
+                              {ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
+                                montant(cHt.resteHt, cTtc.resteHt, { donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
+                            </>}
                           </tbody>
                         </table>
                         </div>
-                      ) : <p className="loc-muet">Répartition : toute la commission à {LIBELLE_SOCIETE[v.societe]} (historique, avant la répartition entre parties).</p>}
+                        );
+                      })() : <p className="loc-muet">Répartition : toute la commission à {LIBELLE_SOCIETE[v.societe]} (historique, avant la répartition entre parties).</p>}
                     </section>
                     <div className="trx-actions trx-barre-actions">
                       <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>

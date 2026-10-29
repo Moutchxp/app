@@ -1,4 +1,4 @@
-import { commissionNetteHt, partsHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, type Partie, type Societe } from './modele';
+import { commissionNetteHt, ht, partsHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, SOCIETES, TVA, type Partie, type Societe } from './modele';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — LA RÉPARTITION DE LA COMMISSION : LES RÈGLES (PURES) ══════════════════
@@ -109,3 +109,64 @@ export function pourcentagesParSociete(parties: readonly Partie[], netHt: number
 /** Le libellé d'une partie (« Entrée du mandat — Jean-Baptiste PONS (CRITERIMMO) », « Part extérieure — Agence X »). PUR. */
 export const libellePartie = (p: Partie): string => (p.sorte === 'exterieure' ? `Part extérieure — ${p.nom ?? ''}`
   : `${LIBELLE_PARTIE[p.sorte]} — ${p.negociateur ?? ''}${p.societe !== null ? ` (${LIBELLE_SOCIETE[p.societe]})` : ''}`);
+
+// ── 🔴 LOT AH (Arno, 29/10/2026) : un même montant identique au centime PARTOUT ─────────────────────────────────────────────────
+
+/** Arrondi au centime (affichage). PUR. */
+export const auCentime = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) / 100;
+
+/** Les montants d'une répartition, au centime, cohérents entre eux (HT). */
+export interface CentimesRepartition {
+  porteuse: Societe;
+  /** La commission de la vente et l'apporteur, chacun au centime ; la base = leur différence. */
+  commissionHt: number; apporteurHt: number; baseHt: number;
+  /** Chaque partie (même ordre). */
+  parts: number[];
+  /** La part de chaque société (somme de ses parties). */
+  parSociete: Record<Societe, number>;
+  /** Reversé par la porteuse : à chacune de nos autres sociétés, et à chaque partie extérieure (même ordre que les parties ; 0 ailleurs). */
+  reverse: Record<Societe, number>;
+  exterieurs: { index: number; nom: string; ht: number }[];
+  /** Ce qui reste à la porteuse : commission − apporteur − reversements (= sa part). */
+  resteHt: number;
+}
+
+/**
+ * 🔴 LOT AH — LA RÈGLE UNIQUE DES CENTIMES : la commission et l'apporteur au centime, la base = leur différence ; chaque partie au centime ;
+ * la part de chaque AUTRE société = l'arrondi de sa part exacte (celle que lisent les tuiles et sa ligne miroir : le même nombre partout),
+ * l'écart reporté sur sa dernière partie ; les parties extérieures, chacune au centime ; la PORTEUSE (le reste) absorbe l'écart d'arrondi,
+ * reporté une seule fois sur sa dernière partie. Ainsi reste + reversements + apporteur = commission de la vente, au centime. Les calculs
+ * ne changent pas (aucun arrondi n'y entre) : c'est la présentation. null : la répartition ne fait pas 100 %. PUR.
+ */
+export function centimesRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number, porteuse: Societe,
+  /** « ttc » : la même règle sur les montants TTC exacts (sans repasser par le HT arrondi : jamais 3 250,01 pour 2 708,34 € HT). */
+  unite: 'ht' | 'ttc' = 'ht'): CentimesRepartition | null {
+  const net = commissionNetteHt(honorairesTtc, retroApporteurTtc);
+  const brutHt = partsHt(parties, net);
+  if (brutHt.some((x) => !Number.isFinite(x)) || Math.abs(brutHt.reduce((t, x) => t + x, 0) - net) > 1e-6) return null;
+  const brut = unite === 'ht' ? brutHt : brutHt.map((x) => x * TVA);
+  const commissionHt = auCentime(unite === 'ht' ? ht(honorairesTtc) : honorairesTtc);
+  const apporteurHt = auCentime(unite === 'ht' ? ht(retroApporteurTtc) : retroApporteurTtc);
+  const baseHt = auCentime(commissionHt - apporteurHt);
+  const parts = brut.map(auCentime);
+  const indices = (f: (p: Partie) => boolean): number[] => parties.map((p, i) => (f(p) ? i : -1)).filter((i) => i >= 0);
+  const interne = (p: Partie): boolean => p.sorte !== 'exterieure';
+  for (const s of SOCIETES) {
+    if (s === porteuse) continue;
+    const ix = indices((p) => interne(p) && p.societe === s);
+    if (ix.length === 0) continue;
+    const cible = auCentime(ix.reduce((t, i) => t + brut[i], 0));
+    const dernier = ix[ix.length - 1];
+    parts[dernier] = auCentime(cible - ix.slice(0, -1).reduce((t, i) => t + parts[i], 0));
+  }
+  const ixPorteuse = indices((p) => interne(p) && p.societe === porteuse);
+  if (ixPorteuse.length > 0) {
+    const dernier = ixPorteuse[ixPorteuse.length - 1];
+    parts[dernier] = auCentime(baseHt - parts.reduce((t, x, i) => t + (i === dernier ? 0 : x), 0));
+  }
+  const parSociete = Object.fromEntries(SOCIETES.map((s) => [s, auCentime(indices((p) => interne(p) && p.societe === s).reduce((t, i) => t + parts[i], 0))])) as Record<Societe, number>;
+  const reverse = Object.fromEntries(SOCIETES.map((s) => [s, s === porteuse ? 0 : parSociete[s]])) as Record<Societe, number>;
+  const exterieurs = indices((p) => !interne(p)).map((i) => ({ index: i, nom: parties[i].nom ?? 'partie extérieure', ht: parts[i] }));
+  const resteHt = auCentime(baseHt - SOCIETES.reduce((t, s) => t + reverse[s], 0) - exterieurs.reduce((t, e) => t + e.ht, 0));
+  return { porteuse, commissionHt, apporteurHt, baseHt, parts, parSociete, reverse, exterieurs, resteHt };
+}

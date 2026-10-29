@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
-import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
-import { motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
+import { auCentime, centimesRepartition, motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
 import { eur } from './commun';
 
 /**
@@ -197,7 +197,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const lignesModele = etat.parties.map(versModeleUne);
   const parts = partsHt(lignesModele, net);
   // LOT U — les montants des cases « Part (€ HT) » calculées, au centime, la somme juste sur la base.
-  const eurAffiches = montantsAffiches(etat.parties, parts, net);
+  // 🔴 LOT AH — la règle unique des centimes (celle du tableau de la carte) : la porteuse absorbe l'écart ; à défaut (somme ≠ 100 %), la règle du lot U.
+  const porteuseEcran = societePorteuse({ societe: societeVente, repartition: { parties: lignesModele, retroApporteurTtc: retro } });
+  const eurAffiches = centimesRepartition(lignesModele, commission, retro, porteuseEcran)?.parts ?? montantsAffiches(etat.parties, parts, net);
   const { parties, motif: motifTotal } = etatSomme(etat, honorairesTtc);
   // Sans aucun négociateur (rien n'est encore une partie), le total se lit sur les lignes affichées.
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
@@ -502,8 +504,10 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
   const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + a.ttc, 0);
   // 🔴 LOT V (Arno) — le HT en gras d'abord, puis le TTC entre parenthèses, en vert (« TTC » écrit) ; l'apporteur : tout en rouge.
   // 🔴 LOT W — HT et TTC l'un sous l'autre, dans une colonne de largeur fixe alignée à droite : les montants ne se coupent jamais.
-  const montants = (ttc: number, rouge?: boolean, donnee?: string) => (
-    <td className="trx-resume-montants"><span className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(ttc / TVA)} HT</strong></span>{' '}
+  // 🔴 LOT AH — la base HT = la commission au centime − l'apporteur au centime (la même que le tableau de la carte : tout tombe juste).
+  const baseHt = auCentime(auCentime(commissionTtc / TVA) - apporteurs.reduce((t, a) => t + auCentime(a.ttc / TVA), 0));
+  const montants = (ttc: number, rouge?: boolean, donnee?: string, htForce?: number) => (
+    <td className="trx-resume-montants"><span className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(htForce ?? ttc / TVA)} HT</strong></span>{' '}
       <span className={rouge ? 'trx-rouge' : 'trx-vert'} data-resume-ttc={donnee}>({eur(ttc)} TTC)</span></td>);
   return (
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
@@ -514,7 +518,7 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
           : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, true, `apporteur-${i}`)}</tr>)}
         <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
-          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, false, 'base')}</tr>
+          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, false, 'base', baseHt)}</tr>
       </tbody>
     </table>
   );
