@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detailCommissions, enCentimes, estVersee, type DetailCommissions } from './detailCommissions';
+import { detailCommissions, enCentimes, estVersee, ORDRE_CATEGORIES, rangCategorie, type CategorieCout, type CleCout, type DetailCommissions } from './detailCommissions';
 import { tuilesCompromis } from './commissions';
 import { venteDansSociete } from './interCabinet';
 import type { LigneVente, Partie, Societe, Vente } from './modele';
@@ -16,6 +16,8 @@ const vente = (o: Partial<Vente> & { parties: Partie[]; retro?: number }): Vente
   dateCompromis: '2026-10-20', apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [], dossier: null,
   ...o, repartition: { retroApporteurTtc: o.retro ?? 0, parties: o.parties } });
 
+/** Une catégorie par sa clé (l'ordre, lui, est vérifié à part — lot AX). */
+const cat = (d: DetailCommissions, cle: CleCout): CategorieCout => d.versees.find((c) => c.cle === cle)!;
 const sommes = (d: DetailCommissions) => ({
   categories: d.versees.reduce((t, c) => t + c.htC, 0), categoriesTtc: d.versees.reduce((t, c) => t + c.ttcC, 0),
   affaires: d.affaires.reduce((t, a) => t + a.verseHtC, 0), affairesTtc: d.affaires.reduce((t, a) => t + a.verseTtcC, 0),
@@ -39,10 +41,10 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
   it('CRITERIMMO porteuse : apporteur 833,33 + inter-cabinet vers MACJ 2 708,33 (les centimes des cartes) = 3 541,66 ; Arnaud interne à part', () => {
     const d = detailCommissions([location()], 'criterimmo');
     expect(d.versees.map((c) => [c.cle, c.libelle, c.htC, c.ttcC])).toEqual([
-      ['apporteurs', 'Apporteurs d’affaires', 83333, 100000], ['inter-cabinet-macj', 'Inter-cabinet vers MACJ', 270833, 325000],
-      ['exterieur', 'Agences extérieures', 0, 0], ['independants', 'Indépendants', 0, 0]]);
-    expect(d.versees[0].lignes.map((l) => l.qui)).toEqual(['Gardien Dacquet']);
-    expect(d.versees[1].lignes.map((l) => l.qui)).toEqual(['Pierre Thevenin']);
+      ['independants', 'Indépendants', 0, 0], ['inter-cabinet-macj', 'Inter-cabinet vers MACJ', 270833, 325000],
+      ['apporteurs', 'Apporteurs d’affaires', 83333, 100000], ['exterieur', 'Agences extérieures', 0, 0]]);
+    expect(cat(d, 'apporteurs').lignes.map((l) => l.qui)).toEqual(['Gardien Dacquet']);
+    expect(cat(d, 'inter-cabinet-macj').lignes.map((l) => l.qui)).toEqual(['Pierre Thevenin']);
     expect([d.totalHtC, d.totalTtcC]).toEqual([354166, 425000]);
     // la règle du lot AH : reste (2 708,34) + reversements + apporteur = commission (6 250,00) ; la tuile exacte : 3 541,666…
     expect(625000 - d.totalHtC).toBe(270834);
@@ -55,9 +57,9 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
     const v = vente({ societe: 'macj', parties: [partie('entree', 8, 'Pierre Thevenin', 'macj', 50), partie('sortie', 2, 'Arnaud Jorel', 'criterimmo', 50, { statut: 'associe' })],
       lignes: [ligne(2, 'Pierre Thevenin', 'entree', 1625)] });
     const d = detailCommissions([v], 'macj');
-    expect(d.versees.map((c) => c.cle)).toEqual(['apporteurs', 'inter-cabinet-criterimmo', 'exterieur', 'independants']);
-    expect(d.versees[1].lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Arnaud Jorel', 312500, 375000]]);
-    expect(d.versees[3].lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Pierre Thevenin', 135417, 162500]]);
+    expect(d.versees.map((c) => c.cle)).toEqual(['independants', 'inter-cabinet-criterimmo', 'apporteurs', 'exterieur']);
+    expect(cat(d, 'inter-cabinet-criterimmo').lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Arnaud Jorel', 312500, 375000]]);
+    expect(cat(d, 'independants').lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Pierre Thevenin', 135417, 162500]]);
     expect(d.totalHtC).toBe(enCentimes(tuilesCompromis([v], 'macj').commissionsHt));
     coherent(d);
   });
@@ -65,8 +67,8 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
   it('la ligne miroir chez MACJ : rien de versé par MACJ que son indépendant ; aucune catégorie d’inter-cabinet vers elle-même', () => {
     const m = venteDansSociete(location(), 'macj')!;
     const d = detailCommissions([m], 'macj');
-    expect(d.versees.map((c) => c.cle)).toEqual(['apporteurs', 'inter-cabinet-criterimmo', 'exterieur', 'independants']);
-    expect(d.versees.map((c) => c.htC)).toEqual([0, 0, 0, 135417]);
+    expect(d.versees.map((c) => c.cle)).toEqual(['independants', 'inter-cabinet-criterimmo', 'apporteurs', 'exterieur']);
+    expect(d.versees.map((c) => c.htC)).toEqual([135417, 0, 0, 0]);
     expect(d.affaires.map((a) => [a.recueDe, a.commissionHt])).toEqual([['criterimmo', m.miroir!.partHt]]);
     expect(d.totalHtC).toBe(enCentimes(tuilesCompromis([m], 'macj').commissionsHt));
     coherent(d);
@@ -76,11 +78,11 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
     const v = vente({ honorairesTtc: 4000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 40, { statut: 'associe' }), partie('sortie', 8, 'Pierre Thevenin', 'macj', 40),
       partie('exterieure', null, null, null, 10, { nom: 'Agence du Parc' }), partie('exterieure', null, null, null, 10, { nom: 'Agence du Lac' })] });
     const d = detailCommissions([v], 'criterimmo');
-    expect(d.versees[2].lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Agence du Parc', 33333, 40000], ['Agence du Lac', 33333, 40000]]);
-    expect(d.versees[1].htC).toBe(133333);
+    expect(cat(d, 'exterieur').lignes.map((l) => [l.qui, l.htC, l.ttcC])).toEqual([['Agence du Parc', 33333, 40000], ['Agence du Lac', 33333, 40000]]);
+    expect(cat(d, 'inter-cabinet-macj').htC).toBe(133333);
     coherent(d);
     const g = detailCommissions([v], null);
-    expect(g.versees.map((c) => c.cle)).toEqual(['apporteurs', 'exterieur', 'independants']);
+    expect(g.versees.map((c) => c.cle)).toEqual(['independants', 'apporteurs', 'exterieur']);
     expect(g.infos.map((c) => [c.cle, c.htC])).toEqual([['internes', 0], ['neutralise', 133333]]);
     coherent(g);
   });
@@ -90,7 +92,7 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
       lignes: [ligne(1, 'Arnaud Jorel', 'entree', 1200), ligne(2, 'Mylène', 'sortie', 600)] });
     const d = detailCommissions([v], 'criterimmo');
     expect(d.infos.map((c) => [c.cle, c.htC])).toEqual([['internes', 0], ['a-renseigner', 100000]]);
-    expect(d.versees[3].lignes.map((l) => [l.qui, l.htC])).toEqual([['Mylène', 50000]]);
+    expect(cat(d, 'independants').lignes.map((l) => [l.qui, l.htC])).toEqual([['Mylène', 50000]]);
     coherent(d);
   });
 
@@ -181,7 +183,7 @@ describe('🔴 LOT AO — le détail du « Solde net » : CA − commissions ver
     expect(d.couts).toBe(couts); // aucune copie
     expect([d.totalHtC, d.totalTtcC]).toEqual([ca.totalHtC - couts.totalHtC, ca.totalTtcC - couts.totalTtcC]);
     expect([ca.totalHtC, couts.totalHtC, d.totalHtC]).toEqual([1125000, 354166, 770834]);
-    expect(d.affaires.map((a) => [a.id, a.caHtC, a.couts.map((l) => l.cle), a.soldeHtC])).toEqual([[50, 500000, [], 500000], [37, 625000, ['apporteurs', 'inter-cabinet-macj'], 270834]]);
+    expect(d.affaires.map((a) => [a.id, a.caHtC, a.couts.map((l) => l.cle), a.soldeHtC])).toEqual([[50, 500000, [], 500000], [37, 625000, ['inter-cabinet-macj', 'apporteurs'], 270834]]);
     expect(d.affaires.reduce((t, a) => t + a.soldeHtC, 0)).toBe(d.totalHtC);
     expect(ca.totalHtC - couts.versees.reduce((t, c) => t + c.htC, 0)).toBe(d.totalHtC);
   });
@@ -248,5 +250,53 @@ describe('🔴 LOT AQ — « Ce que l’on doit » : par personne, les mêmes li
     expect([c.reverse!.htC, m.recu!.htC, c.recu!.htC, m.reverse!.htC]).toEqual([312500, 312500, 166667, 166667]);
     expect(c.soldeInterHtC).toBe(-m.soldeInterHtC);
     expect([c.reverse!.moisTtcC, c.recu!.moisTtcC]).toEqual([375000, 0]);
+  });
+});
+
+describe('🔴 LOT AX — l’ordre des catégories : Indépendants, Inter-cabinet, Apporteurs d’affaires, Agences extérieures (une seule constante)', () => {
+  // Une affaire qui touche les quatre catégories : CRITERIMMO porteuse, 12 000 TTC, apporteur 1 200 TTC ; Pierre (CRITERIMMO, indépendant) 40 %,
+  // Paul (MACJ, indépendant) 30 %, Agence du Parc 20 %, Arnaud (CRITERIMMO, associé) 10 %.
+  const quatre = (): Vente => vente({ honorairesTtc: 12000, apporteur: 'Gardien Dacquet', retro: 1200, retroApporteur: { montant: 1200, unite: 'ttc' },
+    parties: [partie('entree', 8, 'Pierre Thevenin', 'criterimmo', 40), partie('sortie', 9, 'Paul Martin', 'macj', 30),
+      partie('exterieure', null, null, null, 20, { nom: 'Agence du Parc' }), partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 10, { statut: 'associe' })],
+    lignes: [ligne(1, 'Pierre Thevenin', 'entree', 1800), ligne(2, 'Arnaud Jorel', 'entree', 600)] });
+  const famille = (cle: CleCout): string => (cle.startsWith('inter-cabinet-') ? 'inter-cabinet' : cle);
+
+  it('la constante : les quatre familles, dans l’ordre d’Arno ; les informations non déduites après', () => {
+    expect([...ORDRE_CATEGORIES]).toEqual(['independants', 'inter-cabinet', 'apporteurs', 'exterieur']);
+    expect(['independants', 'inter-cabinet-macj', 'inter-cabinet-criterimmo', 'apporteurs', 'exterieur', 'internes', 'a-renseigner', 'neutralise'].map((c) => rangCategorie(c as CleCout)))
+      .toEqual([0, 1, 1, 2, 3, 4, 4, 4]);
+  });
+
+  for (const s of ['criterimmo', 'macj', null] as const) {
+    it(`${s ?? 'CA global'} : par catégorie et par transaction, le même ordre ; les sous-totaux et le total (= tuile) au centime, HT et TTC`, () => {
+      const v = s === null ? quatre() : venteDansSociete(quatre(), s)!;
+      const d = detailCommissions([v], s);
+      const attendu = ORDRE_CATEGORIES.flatMap((f) => (f === 'inter-cabinet' ? (s === null ? [] : [s === 'criterimmo' ? 'inter-cabinet-macj' : 'inter-cabinet-criterimmo']) : [f]));
+      expect(d.versees.map((c) => c.cle)).toEqual(attendu);
+      // par transaction : les lignes versées de l'affaire suivent l'ordre ; les informations non déduites, après
+      const cles = d.affaires.flatMap((a) => a.lignes.map((l) => l.cle));
+      expect(cles.map(rangCategorie)).toEqual([...cles.map(rangCategorie)].sort((a, b) => a - b));
+      const familles = [...new Set(cles.filter(estVersee).map(famille))];
+      expect(familles).toEqual(ORDRE_CATEGORIES.filter((f) => familles.includes(f)));
+      // chaque ligne de catégorie se retrouve, au même centime, dans son affaire (aucun montant ne bouge, seul l'ordre change)
+      const parCategorie = d.versees.flatMap((c) => c.lignes.map((l) => `${l.cle}|${l.qui}|${l.htC}|${l.ttcC}`)).sort();
+      const parAffaire = d.affaires.flatMap((a) => a.lignes.filter((l) => estVersee(l.cle)).map((l) => `${l.cle}|${l.qui}|${l.htC}|${l.ttcC}`)).sort();
+      expect(parAffaire).toEqual(parCategorie);
+      const t = tuilesCompromis([v], s);
+      expect(d.totalHtC).toBe(enCentimes(t.commissionsHt));
+      coherent(d);
+    });
+  }
+
+  it('CRITERIMMO : les montants de chaque catégorie, au centime (HT puis TTC)', () => {
+    const d = detailCommissions([quatre()], 'criterimmo');
+    expect(d.versees.map((c) => [c.cle, c.lignes.map((l) => l.qui), c.htC, c.ttcC])).toEqual([
+      ['independants', ['Pierre Thevenin'], 150000, 180000], ['inter-cabinet-macj', ['Paul Martin'], 270000, 324000],
+      ['apporteurs', ['Gardien Dacquet'], 100000, 120000], ['exterieur', ['Agence du Parc'], 180000, 216000]]);
+    expect([d.totalHtC, d.totalTtcC]).toEqual([700000, 840000]);
+    // par transaction (les deux fenêtres) : les mêmes lignes dans le même ordre, l'interne non déduit après
+    expect(d.affaires[0].lignes.map((l) => [l.cle, l.qui])).toEqual([['independants', 'Pierre Thevenin'], ['inter-cabinet-macj', 'Paul Martin'],
+      ['apporteurs', 'Gardien Dacquet'], ['exterieur', 'Agence du Parc'], ['internes', 'Arnaud Jorel']]);
   });
 });

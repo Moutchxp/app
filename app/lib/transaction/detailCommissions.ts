@@ -52,6 +52,15 @@ export const ETIQUETTE: Record<CleCout, string> = {
 };
 export const estVersee = (cle: CleCout): cle is CleVersee => cle !== 'internes' && cle !== 'a-renseigner' && cle !== 'neutralise';
 
+/** 🔴 LOT AX (Arno) — L'ORDRE DES CATÉGORIES DE COMMISSIONS, de haut en bas, partout où elles s'affichent (les deux fenêtres, par catégorie
+ *  et par transaction ; la synthèse « Ce que l'on doit ») : la SEULE constante d'ordre, jamais réécrite ailleurs. */
+export const ORDRE_CATEGORIES = ['independants', 'inter-cabinet', 'apporteurs', 'exterieur'] as const;
+export type FamilleCategorie = (typeof ORDRE_CATEGORIES)[number];
+export const familleDe = (cle: CleVersee): FamilleCategorie => (cle.startsWith('inter-cabinet-') ? 'inter-cabinet' : cle as Exclude<CleVersee, `inter-cabinet-${Societe}`>);
+/** Le rang d'une ligne ou d'une catégorie dans cet ordre ; les informations non déduites, après les quatre. PUR. */
+export const rangCategorie = (cle: CleCout): number => (estVersee(cle) ? ORDRE_CATEGORIES.indexOf(familleDe(cle)) : ORDRE_CATEGORIES.length);
+const parRang = <T extends { cle: CleCout }>(a: T, b: T): number => rangCategorie(a.cle) - rangCategorie(b.cle);
+
 const libelleCategorie = (cle: CleCout): string =>
   cle === 'apporteurs' ? 'Apporteurs d’affaires' : cle === 'exterieur' ? 'Agences extérieures' : cle === 'independants' ? 'Indépendants'
     : cle === 'internes' ? 'Internes (associés, salariés) — non déduits' : cle === 'a-renseigner' ? 'Statut à renseigner — non déduits'
@@ -105,12 +114,14 @@ export function detailCommissions(ventes: readonly VenteDetail[], societe: Socie
   const total = (l: readonly LigneCout[]): { htC: number; ttcC: number } => ({ htC: l.reduce((t, x) => t + x.htC, 0), ttcC: l.reduce((t, x) => t + x.ttcC, 0) });
   const categorie = (cle: CleCout): CategorieCout => { const l = lignes.filter((x) => x.cle === cle); return { cle, libelle: libelleCategorie(cle), lignes: l, ...total(l) }; };
   const autres = societe === null ? [] : SOCIETES.filter((s) => s !== societe);
-  const versees = (['apporteurs', ...autres.map((s) => `inter-cabinet-${s}` as const), 'exterieur', 'independants'] as CleVersee[]).map(categorie);
+  const versees = ORDRE_CATEGORIES.flatMap((f): CleVersee[] => (f === 'inter-cabinet' ? autres.map((s) => `inter-cabinet-${s}` as const) : [f])).map(categorie);
   // Une société vue ne verse jamais d'inter-cabinet à elle-même ; une telle ligne (ne devrait pas arriver) n'est pas perdue pour autant.
-  for (const s of SOCIETES) if (!autres.includes(s) && lignes.some((x) => x.cle === `inter-cabinet-${s}`)) versees.splice(1, 0, categorie(`inter-cabinet-${s}`));
+  for (const s of SOCIETES) if (!autres.includes(s) && lignes.some((x) => x.cle === `inter-cabinet-${s}`)) versees.push(categorie(`inter-cabinet-${s}`));
+  versees.sort(parRang);
   const infos = [categorie('internes'), ...(['a-renseigner', 'neutralise'] as const).map(categorie).filter((c) => c.lignes.length > 0)];
   const affaires: AffaireCout[] = enCours.map((v) => {
-    const l = lignes.filter((x) => x.venteId === v.id);
+    // LOT AX — les lignes de l'affaire dans l'ordre des catégories (tri stable : deux indépendants gardent leur ordre).
+    const l = lignes.filter((x) => x.venteId === v.id).sort(parRang);
     const t = total(l.filter((x) => estVersee(x.cle)));
     return { id: v.id, libelle: v.libelle, dateCompromis: v.dateCompromis || null, recueDe: v.miroir?.porteuse ?? null,
       commissionHt: v.miroir != null ? v.miroir.partHt : ht(v.honorairesTtc), commissionTtc: v.honorairesTtc, lignes: l, verseHtC: t.htC, verseTtcC: t.ttcC };

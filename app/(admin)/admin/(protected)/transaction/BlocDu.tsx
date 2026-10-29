@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import type { DetailDu, LigneDu, PersonneDu, SommeDu } from '../../../../lib/transaction/detailCommissions';
+import { Fragment, useState, type ReactNode } from 'react';
+import { ORDRE_CATEGORIES, type DetailDu, type FamilleCategorie, type LigneDu, type PersonneDu, type SommeDu } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { libelleStatut } from '../../../../lib/admin/statut';
 import { montantAffiche, Montants, useAffichage } from './commun';
@@ -116,13 +116,15 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
       </h3>
       {ouvert && <div className="trx-du-contenu" id="trx-du-contenu">
       <p className="trx-du-sous-titre loc-muet" data-sous-titre-du>Compromis non encore signés, quel que soit leur mois</p>
-      {/* 🔴 LOT AS — l'ordre : Négociateurs, Inter-cabinet, Apporteurs d'affaires, Agences extérieures ; chaque catégorie, une carte à part. */}
+      {/* 🔴 LOT AS — chaque catégorie, une carte à part. 🔴 LOT AX — dans l'ordre commun (`ORDRE_CATEGORIES`) : Négociateurs (les indépendants),
+          Inter-cabinet, Apporteurs d'affaires, Agences extérieures. */}
       <div className="trx-du-cartes" data-cartes-du>
-        <Section cle="negociateurs" titre="Négociateurs" somme={somme(comptabilises)} sens="verse" apresTitre={<span className="loc-muet trx-du-note">comptabilisés</span>} enfants={<>
+        {ORDRE_CATEGORIES.map((f) => <Fragment key={f}>{({
+        independants: <Section cle="negociateurs" titre="Négociateurs" somme={somme(comptabilises)} sens="verse" apresTitre={<span className="loc-muet trx-du-note">comptabilisés</span>} enfants={<>
           {detail.negociateurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.negociateurs.map((p) => ligne(p, p.classe === 'independant' ? 'verse' : 'neutre', mentionNego(p)))}</ul>}
           {autreSociete && societe !== null && <p className="trx-du-mention-autre" data-autre-societe-du>Négociateurs de {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} : rémunérés par {LIBELLE_SOCIETE[societe === 'criterimmo' ? 'macj' : 'criterimmo']} — non comptés ici</p>}
-        </>} />
-        {societe !== null && detail.reverse !== null && detail.recu !== null && detail.autre !== null ? (
+        </>} />,
+        'inter-cabinet': societe !== null && detail.reverse !== null && detail.recu !== null && detail.autre !== null ? (
           <Section cle="inter-cabinet" titre={`Inter-cabinet ${LIBELLE_SOCIETE[societe]} ↔ ${LIBELLE_SOCIETE[detail.autre]}`} somme={null} sens="neutre" enfants={<>
             <ul className="trx-du-lignes">
               {ligne({ ...detail.reverse, nom: `Reversé à ${LIBELLE_SOCIETE[detail.autre]}` }, 'verse')}
@@ -133,11 +135,12 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
         ) : detail.neutralise !== null ? (
           <Section cle="inter-cabinet" titre="Inter-cabinet CRITERIMMO ↔ MACJ — neutralisé (compté une fois)" somme={detail.neutralise} sens="neutre" enfants={
             detail.neutralise.lignes.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{ligne({ ...detail.neutralise, nom: 'Entre nos sociétés' }, 'neutre')}</ul>} />
-        ) : null}
-        <Section cle="apporteurs" titre="Apporteurs d’affaires" somme={somme(detail.apporteurs)} sens="verse" enfants={
-          detail.apporteurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.apporteurs.map((p) => ligne(p, 'verse'))}</ul>} />
-        <Section cle="agences" titre="Agences extérieures" somme={somme(detail.agences)} sens="verse" enfants={
-          detail.agences.length === 0 ? aucune('Aucune') : <ul className="trx-du-lignes">{detail.agences.map((p) => ligne(p, 'verse'))}</ul>} />
+        ) : null,
+        apporteurs: <Section cle="apporteurs" titre="Apporteurs d’affaires" somme={somme(detail.apporteurs)} sens="verse" enfants={
+          detail.apporteurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.apporteurs.map((p) => ligne(p, 'verse'))}</ul>} />,
+        exterieur: <Section cle="agences" titre="Agences extérieures" somme={somme(detail.agences)} sens="verse" enfants={
+          detail.agences.length === 0 ? aucune('Aucune') : <ul className="trx-du-lignes">{detail.agences.map((p) => ligne(p, 'verse'))}</ul>} />,
+        } satisfies Record<FamilleCategorie, ReactNode>)[f]}</Fragment>)}
       </div>
       <div className="trx-du-total trx-somme--finale" data-total-du>
         <span data-libelle-total-du>Total à verser par {qui}</span>
