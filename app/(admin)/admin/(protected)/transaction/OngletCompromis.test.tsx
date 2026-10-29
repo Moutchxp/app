@@ -1473,3 +1473,36 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
       '@container (max-width:30rem){', '.trx-calcul-operation{white-space:nowrap}', '.trx-resume-base td.trx-resume-montants{width:12em}', '.trx-resume-montants > span{display:block;white-space:nowrap}']) expect(css).toContain(r);
   });
 });
+
+describe('🔴 LOT X — « Commission du négociateur » entourée d’un liseré rouge fin', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', o: Record<string, unknown> = {}) =>
+    ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const, ...o });
+  const encadre = (sel: string) => container.querySelector(sel)?.classList.contains('trx-calcul-encadre') ?? null;
+
+  it('chaque côté : la commission encadrée (le mot avec), les honoraires non ; non commissionné : aucun liseré (pas de ligne de commission)', async () => {
+    const negos = references.negociateurs;
+    (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
+    try {
+      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', { commissionneCompte: false }), pa('sortie', 7, MY.nom, 'macj')] },
+        dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
+      await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+      expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]'), encadre('[data-honoraires-cote="entree"]')]).toEqual([true, false, false]);
+      expect(texte('[data-commission-negociateur="sortie"] .trx-calcul-mot')).toBe('Commission du négociateur');
+      expect(container.querySelector('[data-colonne="vendeur"] .trx-calcul-encadre')).toBeNull();
+    } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;box-sizing:border-box}');
+  });
+
+  it('ligne miroir : la commission encadrée, les honoraires reçus non', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo'), pa('sortie', 7, MY.nom, 'macj')] }, lignes: [] };
+    listeCompromis = [venteDansSociete(v, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
+    expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]')]).toEqual([true, false]);
+  });
+});

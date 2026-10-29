@@ -458,9 +458,11 @@ export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSai
  * FIXE alignée à droite, le résultat HT en gras, et juste dessous le TTC entre parenthèses, en vert. Les montants ne se coupent jamais ; quand la
  * place manque (téléphone, colonne étroite), le libellé passe au-dessus et HT / TTC restent l'un sous l'autre.
  */
-function LigneCalcul({ donnees, libelle, ttc }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number }) {
+function LigneCalcul({ donnees, libelle, ttc, encadre = false }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 LOT X — la commission du négociateur : un liseré rouge fin, pour la distinguer des honoraires (le mot l'accompagne toujours). */
+  encadre?: boolean }) {
   return (
-    <p className="trx-calcul-cote trx-calcul-grille" {...donnees} data-ht-ttc>
+    <p className={encadre ? 'trx-calcul-cote trx-calcul-grille trx-calcul-encadre' : 'trx-calcul-cote trx-calcul-grille'} {...donnees} data-ht-ttc>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
       <strong className="trx-calcul-resultat" data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
       <span className="trx-calcul-ttc trx-vert" data-montant-ttc>({eur(ttc)} TTC)</span>
@@ -495,7 +497,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         ttc={honoraires.ttc} />
     )}
     {rem !== null && (
-      <LigneCalcul donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
+      <LigneCalcul encadre donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
         ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (

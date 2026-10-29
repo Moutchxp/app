@@ -217,6 +217,9 @@ export const CSS_TRANSACTION = `
 .trx-calcul-ttc{grid-row:2}
 /* l'opération (« 2 468 302,45 € HT × 50 % = ») ne se coupe pas : la seule coupure possible est après le libellé (jamais un « = » seul). */
 .trx-calcul-operation{white-space:nowrap}
+/* LOT X (Arno) — « Commission du négociateur » entourée d'un liseré rouge fin (jeton d'alerte), coins arrondis comme les autres blocs, petit
+   retrait intérieur ; jamais pour un non commissionné (la ligne n'existe pas). */
+.trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;box-sizing:border-box}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
   .trx-calcul-resultat{grid-row:2}
