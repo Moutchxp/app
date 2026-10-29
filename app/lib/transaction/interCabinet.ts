@@ -92,6 +92,16 @@ export function venteDansSociete(v: Vente, s: Societe, registre?: EntreeRegistre
   return registre != null ? ligneMiroir(v, s, registre.partHt, registre.pourcentage, 'annulee', registre.modifieLe) : null;
 }
 
+/**
+ * 🔴 LOT AE (Arno) — UNE VENTE ENREGISTRÉE DEPUIS LA PAGE `vue` MAIS PORTÉE PAR L'AUTRE SOCIÉTÉ (son négociateur d'entrée y travaille) : la
+ * porteuse, et si la page en reçoit une part (elle y apparaît en ligne miroir) ; null : portée par la page (ou sans négociateur d'entrée). PUR.
+ */
+export function ventePorteeAilleurs(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>, vue: Societe): { porteuse: Societe; recue: boolean } | null {
+  if (v.repartition == null) return null;
+  const porteuse = societePorteuse(v);
+  return porteuse === vue ? null : { porteuse, recue: bilanVente(v, vue).recuHt > 0 };
+}
+
 /** Un changement à porter au registre (journalisé) : créer, mettre à jour, annuler, rétablir. */
 export type OperationRegistre =
   | { sorte: 'creer'; societe: Societe; porteuse: Societe; partHt: number; pourcentage: number | null }

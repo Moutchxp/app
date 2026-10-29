@@ -724,3 +724,60 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     expect(appels.some((x) => x.sql.includes('mode_commission'))).toBe(false);
   });
 });
+
+describe('🔴 LOT AE — la vente est enregistrée chez la société de son négociateur d’entrée (porteuse)', () => {
+  const dossier = (entreeId: number | null, o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: 'DURAND', honorairesTtc: 6000,
+    dateCompromis: '2026-10-29', dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId, sortieId: 5, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0,
+    retroUnite: 'ttc' as const, personnes: [], lignes: [], prixVente: null,
+    parties: [...(entreeId === null ? [] : [{ sorte: 'entree' as const, compteId: entreeId, nom: null, coordonnees: null, pourcentage: 50, montantHt: null }]),
+      { sorte: 'sortie' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: entreeId === null ? 100 : 50, montantHt: null }], ...o });
+  // les comptes demandés seulement (comme la base)
+  const tous = [{ id: '5', nom: 'Jean-Baptiste PONS', role: 'collaborateur' }, { id: '7', nom: 'Mylène EBERLIN', role: 'collaborateur' }];
+  const comptes = (s: string) => (s.includes('FROM admin_utilisateur WHERE id = ANY')
+    ? { rows: tous.filter((c) => (appels.at(-1)!.params[0] as number[]).includes(Number(c.id))) } : undefined);
+  const periodes = (s: string) => (s.includes('FROM transaction_societe_compte') ? { rows: [{ compte_id: '5', societe: 'criterimmo', depuis: '2000-01-01' }, { compte_id: '7', societe: 'macj', depuis: '2000-01-01' }] } : undefined);
+  beforeEach(() => { lotD.mockResolvedValue(true); });
+
+  it('créée depuis CRITERIMMO, négociateur d’entrée chez MACJ : enregistrée MACJ ; sans négociateur d’entrée : la page (CRITERIMMO)', async () => {
+    let id = 80;
+    reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
+    expect((await repo.enregistrerDossier(null, dossier(7), '2026-10-29', A)).ok).toBe(true);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente (societe'))!.params[0]).toBe('macj');
+    appels.length = 0;
+    const r = await repo.enregistrerDossier(null, dossier(null), '2026-10-29', A);
+    expect(r.ok).toBe(true);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente (societe'))!.params[0]).toBe('criterimmo');
+  });
+
+  it('modifiée : le négociateur d’entrée passe chez MACJ → la vente bascule (colonne `societe`), journalisé « Société porteuse : CRITERIMMO → MACJ »', async () => {
+    reponses.push(comptes, periodes,
+      (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'DURAND', honoraires_ttc: 6000, statut: 'compromis', annee: 2026, retire_le: null, societe: 'criterimmo' }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '95' }] } : undefined));
+    expect((await repo.enregistrerDossier(81, dossier(7), '2026-10-29', A)).ok).toBe(true);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente SET') && x.sql.includes('societe = $'))!;
+    expect(maj.params).toContain('macj');
+    const j = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'modification')!;
+    expect(j.params[5]).toBe('Société porteuse : CRITERIMMO → MACJ (la société du négociateur d’entrée).');
+    expect(JSON.parse(String(j.params[3]))).toMatchObject({ societe: 'criterimmo' });
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+  });
+
+  it('le script : `ventesMalRangees` (lecture seule) ; `rangerPorteuse` range, journalise et resynchronise le registre ; une vente bien rangée : rien', async () => {
+    reponses.push((s) => (s.includes('JOIN LATERAL') ? { rows: [{ id: '81', libelle: 'DURAND', statut: 'compromis', societe: 'criterimmo', porteuse: 'macj', negociateur: 'Mylène EBERLIN' }] } : undefined));
+    expect(await repo.ventesMalRangees()).toEqual([{ id: 81, libelle: 'DURAND', statut: 'compromis', enregistree: 'criterimmo', porteuse: 'macj', negociateurEntree: 'Mylène EBERLIN' }]);
+    expect(appels.every((x) => x.sql.startsWith('SELECT'))).toBe(true);
+    appels.length = 0; reponses = [];
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'DURAND', statut: 'compromis', retire_le: null, societe: 'criterimmo' }] } : undefined),
+      (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [{ sorte: 'entree', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'macj', pourcentage: '50' },
+        { sorte: 'sortie', compte_id: '5', negociateur_libelle: 'Jean-Baptiste PONS', societe: 'criterimmo', pourcentage: '50' }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '96' }] } : undefined));
+    expect(await repo.rangerPorteuse(81, A)).toEqual({ ok: true, valeur: { avant: 'criterimmo', apres: 'macj' } });
+    expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente SET'))!.params).toEqual([81, 'macj']);
+    expect(String(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[5])).toMatch(/^Rangée chez sa société porteuse : CRITERIMMO → MACJ/);
+    appels.length = 0; reponses = [];
+    reponses.push((s) => (s.includes('FOR UPDATE') ? { rows: [{ libelle: 'DURAND', statut: 'compromis', retire_le: null, societe: 'macj' }] } : undefined),
+      (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [{ sorte: 'entree', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'macj', pourcentage: '100' }] } : undefined));
+    expect(await repo.rangerPorteuse(81, A)).toEqual({ ok: true, valeur: null });
+    expect(appels.some((x) => /^(INSERT|UPDATE)/.test(x.sql))).toBe(false);
+  });
+});

@@ -4,7 +4,7 @@
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
-import { estModeCommission, estSociete, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
+import { estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
@@ -230,7 +230,8 @@ async function journaliser(q: RequeteTx, e: { entite: Entite; id: number; action
 
 /** Les colonnes que chaque geste peut écrire — et donc rejouer à l'annulation. Une liste fermée : rien d'autre ne se réécrit. */
 const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> = {
-  vente: { table: 'transaction_vente', colonnes: ['libelle', 'honoraires_ttc', 'statut', 'annee', 'mois_acte', 'date_compromis', 'apporteur', 'note', 'retire_le', 'attribution'] },
+  // LOT AE — `societe` : la société PORTEUSE d'une vente répartie (son négociateur d'entrée) se range à l'enregistrement ; journalisée, réversible.
+  vente: { table: 'transaction_vente', colonnes: ['libelle', 'honoraires_ttc', 'statut', 'annee', 'mois_acte', 'date_compromis', 'apporteur', 'note', 'retire_le', 'attribution', 'societe'] },
   vente_ligne: { table: 'transaction_vente_ligne', colonnes: ['negociateur', 'role', 'montant_ttc', 'retire_le'] },
   retrocession: { table: 'transaction_retrocession', colonnes: ['vente_id', 'apporteur', 'montant_ttc', 'retire_le'] },
   ca_a_rattacher: { table: 'transaction_ca_a_rattacher', colonnes: ['retire_le'] },
@@ -683,6 +684,9 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     .map((p) => (avecCommissionne ? { ...p, commissionne: p.compteId === null ? null : commissionnePour(p.compteId) } : p));
   // ② la répartition (somme = 100 %, sociétés connues, apporteur déduit d'abord)
   const repartie = s.entreeId !== null || s.sortieId !== null || parties.length > 0;
+  // 🔴 LOT AE (Arno) — LA VENTE APPARTIENT À LA SOCIÉTÉ DU NÉGOCIATEUR D'ENTRÉE (pour un collaborateur des deux sociétés : celle choisie pour
+  // cette vente) ; la page de saisie ne compte que sans négociateur d'entrée. Chez l'autre société, sa part reçue (ligne miroir).
+  const porteuse = repartie ? parties.find((p) => (p.sorte === 'entree' || p.sorte === 'entree_sortie') && p.societe !== null)?.societe ?? null : null;
   if (repartie) {
     const motif = verifierRepartition(parties, s.honorairesTtc, retroTtc);
     if (motif !== null) return { ok: false, motif };
@@ -721,7 +725,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       const cols = Object.keys(valeurs);
       const { rows } = await q<{ id: string }>(
         `INSERT INTO transaction_vente (societe, origine, cree_par, cree_par_libelle, ${cols.join(', ')})
-         VALUES ($1, 'saisie', $2, $3, ${cols.map((_, i) => `$${i + 4}`).join(', ')}) RETURNING id`, [s.societe, auteur.id, auteur.libelle, ...cols.map((k) => valeurs[k])]);
+         VALUES ($1, 'saisie', $2, $3, ${cols.map((_, i) => `$${i + 4}`).join(', ')}) RETURNING id`, [porteuse ?? s.societe, auteur.id, auteur.libelle, ...cols.map((k) => valeurs[k])]);
       venteId = n(rows[0].id);
       for (const p of s.lignes) {
         await q(`INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, nature, compte, origine, cree_par_libelle)
@@ -738,8 +742,12 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       // (le prévisionnel d'un compromis importé reste où il était) ; sans apporteur de l'annuaire, il garde l'apporteur écrit du fichier.
       if (s.statut === 'compromis' && s.dateActePrevue === null && s.dateCompromis === null) valeurs.annee = Number(actuel.annee);
       if (s.apporteurId === null && s.apporteurNom === null && actuel.apporteur_id == null) delete valeurs.apporteur;
-      const r = await ecrire(q, 'vente', id, valeurs, true);
-      if (r !== null && Object.keys(r.apres).length > 0) await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+      // LOT AE — le négociateur d'entrée a changé de société (autre négociateur, ou société choisie pour un collaborateur des deux) : la vente
+      // bascule chez sa nouvelle porteuse (journalisé ; « Annuler » la remet) ; les lignes miroir suivent (registre, plus bas).
+      const ecrites = porteuse !== null ? { ...valeurs, societe: porteuse } : valeurs;
+      const r = await ecrire(q, 'vente', id, ecrites, true);
+      if (r !== null && Object.keys(r.apres).length > 0) await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur,
+        ...('societe' in r.apres ? { commentaire: `Société porteuse : ${LIBELLE_SOCIETE[String(r.avant.societe) as Societe] ?? r.avant.societe} → ${LIBELLE_SOCIETE[porteuse!]} (la société du négociateur d’entrée).` } : {}) });
       venteId = id;
     }
     // ④ les personnes : réutiliser une fiche connue, sinon en créer une ; l'ensemble des liens de la vente est remplacé (réversible)
@@ -843,6 +851,47 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     // 🔴 LOT R — la ligne miroir de l'autre société suit la vente (création, %, négociateur, commission, apporteur).
     await synchroniserInterCabinet(q, venteId, auteur);
     return { ok: true, valeur: venteId };
+  });
+}
+
+// ── 🔴 LOT AE : les ventes réparties enregistrées dans une autre société que leur porteuse (le script `transaction:ranger-porteuse`) ──
+
+/** Une vente répartie dont la société enregistrée n'est pas sa porteuse (la société de son négociateur d'entrée). */
+export interface VenteMalRangee { id: number; libelle: string; statut: string; enregistree: Societe; porteuse: Societe; negociateurEntree: string | null }
+
+/** Les ventes réparties (non retirées) mal rangées. Lecture seule. */
+export async function ventesMalRangees(): Promise<VenteMalRangee[]> {
+  if (!(await repartitionDisponible())) return [];
+  const { rows } = await query<{ id: string; libelle: string; statut: string; societe: string; porteuse: string; negociateur: string | null }>(
+    `SELECT v.id, v.libelle, v.statut, v.societe, p.societe AS porteuse, p.negociateur_libelle AS negociateur
+       FROM transaction_vente v
+       JOIN LATERAL (SELECT societe, negociateur_libelle FROM transaction_partie p WHERE p.vente_id = v.id AND p.retire_le IS NULL
+                       AND p.sorte IN ('entree', 'entree_sortie') AND p.societe IS NOT NULL ORDER BY p.rang, p.id LIMIT 1) p ON true
+      WHERE v.retire_le IS NULL AND v.repartition AND p.societe <> v.societe ORDER BY v.id`);
+  return rows.filter((r) => estSociete(r.societe) && estSociete(r.porteuse)).map((r) => ({ id: n(r.id), libelle: String(r.libelle), statut: String(r.statut),
+    enregistree: r.societe as Societe, porteuse: r.porteuse as Societe, negociateurEntree: t(r.negociateur) }));
+}
+
+/**
+ * Range une vente répartie chez sa porteuse (la société de son négociateur d'entrée) : la colonne `societe` réécrite, journalisée (« Annuler »
+ * la remet) ; le registre des lignes miroir suit. Une vente déjà bien rangée : rien. Jamais une suppression.
+ */
+export async function rangerPorteuse(id: number, auteur: AuteurTx): Promise<Issue<{ avant: Societe; apres: Societe } | null>> {
+  if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
+  return withTransaction(async (q) => {
+    const actuel = await lireLigne(q, 'vente', id);
+    if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+    const { rows: parties } = await q<Record<string, unknown>>(
+      `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht FROM transaction_partie WHERE vente_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [id]);
+    if (parties.length === 0) return { ok: true, valeur: null };
+    const avant = String(actuel.societe) as Societe;
+    const porteuse = societePorteuse({ societe: avant, repartition: { retroApporteurTtc: 0, parties: parties.map(partieDe) } });
+    if (porteuse === avant) return { ok: true, valeur: null };
+    const r = await ecrire(q, 'vente', id, { societe: porteuse }, true);
+    await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
+      commentaire: `Rangée chez sa société porteuse : ${LIBELLE_SOCIETE[avant]} → ${LIBELLE_SOCIETE[porteuse]} (la société du négociateur d’entrée) — transaction:ranger-porteuse.` });
+    await synchroniserInterCabinet(q, id, auteur);
+    return { ok: true, valeur: { avant, apres: porteuse } };
   });
 }
 

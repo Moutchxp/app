@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { BlocRepartition, commissionsResolues, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
-import { eur, posterTransaction } from './commun';
+import { eur, posterTransactionDonnee } from './commun';
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
@@ -82,7 +82,9 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
 export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {
   /** LOT G — une répartition déjà changée (négociateur choisi depuis la carte) à revoir, et le message qui le dit. */
   repartitionInitiale?: EtatRepartition; message?: string;
-  societe: Societe; vente: Vente | null; references: References; onFermer: () => void; onFait: () => void;
+  societe: Societe; vente: Vente | null; references: References; onFermer: () => void;
+  /** LOT AE — enregistré : l'id de la vente et la répartition enregistrée (pour dire chez quelle société la vente est portée). */
+  onFait: (enregistre?: { id: number; repartition: EtatRepartition; honorairesTtc: number }) => void;
   /** LOT F — « + Ajouter un vendeur / un acquéreur » depuis la carte : une ligne neuve de ce côté, prête à la saisie (personne connue ou neuve). */
   ajouter?: 'vendeur' | 'acquereur' | null;
 }) {
@@ -124,9 +126,9 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   };
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, champs, personnes, repartition) });
+    const r = await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, champs, personnes, repartition) });
     setEnvoi(false);
-    if (r === null) onFait(); else setMotif(r);
+    if (r.motif === null) onFait({ id: Number(r.data ?? vente?.id ?? 0), repartition, honorairesTtc: nombre(champs.commission) ?? 0 }); else setMotif(r.motif);
   };
 
   const titre = vente === null ? `Nouveau compromis — ${LIBELLE_SOCIETE[societe]}` : `${statut === 'compromis' ? 'Compromis' : 'Vente'} — ${vente.libelle}`;

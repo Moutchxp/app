@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
@@ -9,7 +10,7 @@ import { classeCommission, libelleStatut, type ClasseCommission, type Statut } f
 import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
 import { eur, eurEtEquivalent, parametre, posterTransaction, useTransaction } from './commun';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
-import { BlocRepartition, changerNegociateur, montantsAffiches, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
+import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
   texteTaux, versModele, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
@@ -45,6 +46,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const [annulation, setAnnulation] = useState<Vente | null>(null);
   const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
   const [fait, setFait] = useState<{ id: number; libelle: string } | null>(null);
+  // 🔴 LOT AE — la vente vient d'être enregistrée ici mais elle est PORTÉE par l'autre société (son négociateur d'entrée y travaille).
+  const [portee, setPortee] = useState<{ id: number; porteuse: Societe; recue: boolean } | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [historique, setHistorique] = useState<number | null>(null);
   // 🔴 LOT R — « Voir la vente d'origine » (depuis une ligne miroir) : la carte visée (?vente=N) s'ouvre et vient à l'écran.
@@ -79,6 +82,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     if (r === null) { setFait(null); relire(); }
   };
   const societeSaisie: Societe = vue ?? 'criterimmo';
+  /** LOT AE — après un enregistrement (formulaire, ou geste de la carte) : la vente est-elle portée par l'autre société ? Le dire. */
+  const signalerPorteuse = (id: number, etat: EtatRepartition, honorairesTtc: number): void => {
+    if (vue === null) return;
+    const r = ventePorteeAilleurs({ societe: vue, honorairesTtc, repartition: { parties: versModele(etat.parties), retroApporteurTtc: retroTtcDe(etat) } }, vue);
+    setPortee(r === null ? null : { id, ...r });
+  };
   return (
     <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
@@ -134,6 +143,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           <span className="tdb-tuile-n1">CA HT − commissions versées HT</span></div></li>
       </ul>
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
+      {/* 🔴 LOT AE (Arno) — la règle de la société porteuse, dite au moment de l'enregistrement. */}
+      {portee !== null && (
+        <p className="loc-alerte" role="status" data-portee-par={portee.porteuse}>Le négociateur côté vendeurs est chez {LIBELLE_SOCIETE[portee.porteuse]} : la vente est portée par
+          {' '}{LIBELLE_SOCIETE[portee.porteuse]}. {portee.recue ? 'Elle apparaît ici en inter-cabinet reçu.' : `Elle n’apparaît que chez ${LIBELLE_SOCIETE[portee.porteuse]}.`}
+          {' '}<a className="trx-lien" href={adresseOrigine(portee.porteuse, portee.id)} data-voir-chez-porteuse>Voir chez {LIBELLE_SOCIETE[portee.porteuse]}</a></p>
+      )}
       {fait !== null && (
         <p className="loc-alerte" role="status" data-acte-fait>Acte enregistré : « {fait.libelle} » est une vente encaissée au mois de l’acte.
           {' '}<button type="button" className="trx-bouton-lien" onClick={() => void revenir()} data-revenir-compromis>Revenir en compromis</button></p>
@@ -179,7 +194,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                 <section className="trx-colonne" aria-label={mot} data-colonne={role}>
                   {/* 🔴 LOT T (Arno) — la première ligne : le titre à gauche, à droite la société de ce côté et sa part (« CRITERIMMO · 40 % »),
                       qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
-                  <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} />
+                  <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
+                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} />
                   {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p> : (
                     <ul className="trx-personnes" data-personnes-compromis={role}>
                       {gens.map((p) => (
@@ -195,6 +211,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                   {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
                       « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
                   <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
+                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)}
                     onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
                 </section>
               );
@@ -321,7 +338,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       {edition !== null && <FormulaireDossier societe={edition === 'nouveau' ? societeSaisie : edition.vente.societe} vente={edition === 'nouveau' ? null : edition.vente}
         ajouter={edition === 'nouveau' ? null : edition.ajouter} repartitionInitiale={edition === 'nouveau' ? undefined : edition.repartition}
         message={edition === 'nouveau' ? undefined : edition.message}
-        references={d} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); relire(); }} />}
+        references={d} onFermer={() => setEdition(null)} onFait={(e) => { setEdition(null); if (e !== undefined) signalerPorteuse(e.id, e.repartition, e.honorairesTtc); relire(); }} />}
     </section>
   );
 }
@@ -353,12 +370,14 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id:
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre }: {
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
   /** LOT Y — le résolveur des libellés importés, celui des tuiles (la même règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
   /** LOT AA — la société dont c'est l'onglet (null : les deux, CA global). */
   vue?: Societe | null;
+  /** LOT AE — la répartition enregistrée (le négociateur d'entrée, donc la porteuse, peut avoir changé). */
+  onEnregistre?: (etat: EtatRepartition) => void;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
@@ -411,7 +430,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
     setEnvoi(true);
     const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
     setEnvoi(false);
-    if (r === null) { setOuvert(false); onFait(); } else setMotif(r);
+    if (r === null) { onEnregistre?.(etat); setOuvert(false); onFait(); } else setMotif(r);
   };
   // 🔴 LOT T — les deux lignes de calcul sous le bouton (présentation seulement) : les honoraires de ce côté, puis la commission du négociateur.
   const honoraires = actuel === null ? null : honorairesDuCote(v, cote);
@@ -606,8 +625,10 @@ function pctLigne(p: PartieEcran | undefined, netHt: number): number {
  * 🔴 LOT V — une commission calculée suit la nouvelle répartition (recalculée et enregistrée, « recalculée suite à … ») ; une commission
  * saisie à la main reste telle quelle.
  */
-function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait }: {
+function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onEnregistre }: {
   titre: string; v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void;
+  /** LOT AE — la répartition enregistrée (la société porteuse peut avoir changé : société choisie d'un collaborateur des deux). */
+  onEnregistre?: (etat: EtatRepartition) => void;
 }) {
   const [etat, setEtat] = useState<EtatRepartition | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
@@ -632,7 +653,7 @@ function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait }: {
     setEnvoi(true);
     const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
     setEnvoi(false);
-    if (r === null) { setEtat(null); onFait(); } else setMotif(r);
+    if (r === null) { onEnregistre?.(etat); setEtat(null); onFait(); } else setMotif(r);
   };
   return <>
     <div className="trx-colonne-tete">

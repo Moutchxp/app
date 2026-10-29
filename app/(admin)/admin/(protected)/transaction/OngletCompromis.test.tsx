@@ -1957,3 +1957,79 @@ describe('🔴 LOT AD — les montants qui entrent dans « Commissions versées 
     expect(style('[data-commission-negociateur="sortie"]')).toBe('rouge');
   });
 });
+
+describe('🔴 LOT AE — à l’enregistrement, la société porteuse est dite (« portée par MACJ … », « Voir chez MACJ »)', () => {
+  const CJ = { id: 9, nom: 'Cédric JULLIEN', societe: 'les_deux' as const };
+  const negos = references.negociateurs;
+  beforeEach(() => { (references as { negociateurs: unknown[] }).negociateurs = [JB, MY, AU, CJ]; });
+  afterEach(() => { (references as { negociateurs: unknown[] }).negociateurs = negos; });
+  // la route rend l'id de la vente enregistrée (rien n'est écrit)
+  const avecId = (id: number) => {
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const corps = init?.method === 'POST' ? JSON.parse(String(init.body)) : null;
+      if (corps?.action === 'dossier-enregistrer') { posts.push(corps); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: id }) }; }
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+  };
+  const choisir = async (champ: string, id: number) => { await cliquer(`[data-champ="${champ}"]`); await cliquer(`[role="option"][data-option="${id}"]`); };
+  const nouveau = async (societe: 'criterimmo' | 'macj', entree: number | null, sortie: number | null) => {
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '6000'); await saisir('[data-personne-nom="0"]', 'DURAND');
+    if (entree !== null) await choisir('entree', entree);
+    if (sortie !== null) await choisir('sortie', sortie);
+  };
+
+  it('créé dans CRITERIMMO, entrée chez MACJ (Mylène), sortie CRITERIMMO (JB) : « portée par MACJ. Elle apparaît ici en inter-cabinet reçu. » + « Voir chez MACJ »', async () => {
+    avecId(77);
+    await nouveau('criterimmo', 7, 5);
+    await cliquer('[data-enregistrer-dossier]');
+    expect(texte('[data-portee-par="macj"]')).toBe('Le négociateur côté vendeurs est chez MACJ : la vente est portée par MACJ. Elle apparaît ici en inter-cabinet reçu. Voir chez MACJ');
+    expect(container.querySelector('[data-voir-chez-porteuse]')!.getAttribute('href')).toBe('/admin/transaction/macj?vente=77');
+  });
+
+  it('sans part CRITERIMMO (Mylène seule) : « Elle n’apparaît que chez MACJ. »', async () => {
+    avecId(78);
+    await nouveau('criterimmo', 7, null);
+    await cliquer('[data-enregistrer-dossier]');
+    expect(texte('[data-portee-par="macj"]')).toBe('Le négociateur côté vendeurs est chez MACJ : la vente est portée par MACJ. Elle n’apparaît que chez MACJ. Voir chez MACJ');
+  });
+
+  it('sens inverse : créé dans MACJ, entrée CRITERIMMO (JB) → « portée par CRITERIMMO », « Voir chez CRITERIMMO »', async () => {
+    avecId(79);
+    await nouveau('macj', 5, 7);
+    await cliquer('[data-enregistrer-dossier]');
+    expect(texte('[data-portee-par="criterimmo"]')).toMatch(/^Le négociateur côté vendeurs est chez CRITERIMMO : la vente est portée par CRITERIMMO\. Elle apparaît ici en inter-cabinet reçu\./);
+    expect(container.querySelector('[data-voir-chez-porteuse]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=79');
+  });
+
+  it('Cédric à l’entrée, MACJ choisie pour la vente : portée par MACJ ; CRITERIMMO choisie : rien à dire', async () => {
+    avecId(80);
+    await nouveau('criterimmo', 9, 5);
+    await cliquer('[data-choix-societe-vente="partie-0"] [data-societe-vente="macj"]');
+    await cliquer('[data-enregistrer-dossier]');
+    expect(container.querySelector('[data-portee-par="macj"]')).not.toBeNull();
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await nouveau('criterimmo', 9, 5);
+    await cliquer('[data-choix-societe-vente="partie-0"] [data-societe-vente="criterimmo"]');
+    await cliquer('[data-enregistrer-dossier]');
+    expect(container.querySelector('[data-portee-par]')).toBeNull();
+  });
+
+  it('sans négociateur d’entrée : la page de saisie porte la vente, aucun message', async () => {
+    avecId(81);
+    await nouveau('criterimmo', null, 7);
+    await cliquer('[data-enregistrer-dossier]');
+    expect(container.querySelector('[data-portee-par]')).toBeNull();
+  });
+
+  it('modification depuis la carte : l’entrée passe à Mylène (MACJ) → le message dit la bascule', async () => {
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]].map((p) => ({ ...p, pourcentage: 50 })) } }];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    await cliquer('[data-negociateur-carte="entree"]');
+    await cliquer('[data-liste-negociateur="entree"]'); await cliquer('[role="option"][data-option="7"]');
+    await cliquer('[data-valider-negociateur]');
+    expect(texte('[data-portee-par="macj"]')).toBe('Le négociateur côté vendeurs est chez MACJ : la vente est portée par MACJ. Elle n’apparaît que chez MACJ. Voir chez MACJ');
+  });
+});
