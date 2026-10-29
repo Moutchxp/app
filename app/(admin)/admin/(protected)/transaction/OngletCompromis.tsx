@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, sommeSocietes, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
+import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
@@ -217,7 +217,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           const pct = p.pourcentage ?? (ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100);
                           const partHt = p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0;
                           const nom = p.nom ?? 'la partie extérieure';
-                          return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre="deduite" mention={mentionVersement(nom)} ttc={partHt * TVA}
+                          // LOT AD — la règle des tuiles : l'inter-cabinet extérieur versé par la société affichée (`bilanVente`).
+                          const verse = bilanVente(v, vue).exterieurHt > 0;
+                          return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre={verse ? 'deduite' : null} mention={verse ? mentionVersement(nom) : undefined} ttc={partHt * TVA}
                             libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{eur(ps.netHt)} HT × {pctFr(pct)} % =</span></>} />;
                         })}
                       </section>
@@ -248,7 +250,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                             sans rétrocession, « montant à renseigner ». */}
                         {info('Apporteur', (() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
                           return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
-                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}` : eurEtEquivalent(m)}</span></span>; })(), 'apporteur')}
+                            {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
+                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}` : eurEtEquivalent(m)}</span></span>; })(), 'apporteur')}
                       </dl>
                       {r !== null && ps !== null ? (
                         <div data-repartition-compromis>
@@ -418,7 +421,8 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   const autreSociete = vue !== null && rem !== null && societeDuNego !== null && societeDuNego !== vue ? societeDuNego : null;
   // 🔴 LOT AB (Arno) — les honoraires de ce côté sont VERSÉS à l'autre société (inter-cabinet) : ce sont eux qui entrent dans les « Commissions
   // versées » de la société porteuse (détail « Inter-cabinet vers … ») — même pour un négociateur non commissionné.
-  const versesVers = vue !== null && societeDuNego !== null && societeDuNego !== vue ? societeDuNego : null;
+  // 🔴 LOT AD — décidé par la règle des tuiles (`bilanVente` : l'inter-cabinet versé par la société affichée à celle du négociateur).
+  const versesVers = vue !== null && societeDuNego !== null && societeDuNego !== vue && bilanVente(v, vue).verseHt[societeDuNego] > 0 ? societeDuNego : null;
   // 🔴 LOT Y — la classe de cette commission par LA règle du cumul « Commissions versées » (`classeDeCommission`, celle des tuiles) : sa ligne
   // enregistrée ; sans ligne, le négociateur de ce côté (sa partie, figée sinon son compte ; sinon le compte rapproché de son libellé).
   const ligneCote = v.lignes.find((l) => l.role === 'negociateur' && l.cote === cote);
@@ -527,8 +531,9 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = null, mention }: { donne
     <p className={encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
-      <strong className="trx-calcul-resultat" data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
-      <span className="trx-calcul-ttc trx-vert" data-montant-ttc>({eur(ttc)} TTC)</span>
+      {/* 🔴 LOT AD (Arno) — un montant qui ENTRE dans les « Commissions versées » de la société affichée (liseré rouge) : HT et TTC en rouge. */}
+      <strong className={encadre === 'deduite' ? 'trx-calcul-resultat trx-rouge' : 'trx-calcul-resultat'} data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
+      <span className={encadre === 'deduite' ? 'trx-calcul-ttc trx-rouge' : 'trx-calcul-ttc trx-vert'} data-montant-ttc>({eur(ttc)} TTC)</span>
       {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
     </p>
   );

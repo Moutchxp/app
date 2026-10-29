@@ -196,12 +196,21 @@ export interface TuilesCompromis {
 
 type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation' | 'miroir'>>;
 
+/**
+ * L'APPORTEUR d'une vente dans les « Commissions versées » de la société vue (null : nos deux sociétés), HT : celui de la répartition (payé
+ * par la porteuse) ; l'historique, sa rétrocession saisie (lot I), à sa société. 🔴 LOT AD — la règle des tuiles, partagée avec l'écran
+ * (montant de l'apporteur en rouge quand il entre dans ce cumul). PUR.
+ */
+export function apporteurVerseHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'> & Partial<Pick<Vente, 'retroApporteur'>>, societe: Societe | null,
+  b: BilanVente = bilanVente(v, societe)): number {
+  const retro = retroApporteurDe(v);
+  return v.repartition != null ? b.apporteurHt : retro === null || b.caHt === 0 ? 0 : enHt(retro);
+}
+
 /** Le bilan d'une vente pour les tuiles, pour une société (null : nos deux sociétés) — la règle de l'inter-cabinet (`bilanVente`). PUR. */
 function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: StatutDuLibelle): { b: BilanVente; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
   const b = bilanVente(v, societe);
-  // L'apporteur : celui de la répartition (payé par la porteuse) ; l'historique, sa rétrocession saisie (lot I), à sa société.
-  const retro = retroApporteurDe(v);
-  const apporteursHt = v.repartition != null ? b.apporteurHt : retro === null || b.caHt === 0 ? 0 : enHt(retro);
+  const apporteursHt = apporteurVerseHt(v, societe, b);
   const parClasse: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
   for (const l of v.lignes) {
     if (l.role !== 'negociateur') continue;

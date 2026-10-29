@@ -1882,3 +1882,78 @@ describe('🔴 LOT AC — négociateurs « CRITERIMMO et MACJ » ; l’apporteur
     expect(homonymes('', '', annuaire)).toEqual([]);
   });
 });
+
+describe('🔴 LOT AD — les montants qui entrent dans « Commissions versées » de la société affichée : HT et TTC en rouge', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id: cote === 'entree' ? 445 : 446, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  type St = 'independant' | 'salarie' | 'associe';
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', statut: St, pct = 50) =>
+    ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut });
+  const vente = (o: { porteuse?: 'criterimmo' | 'macj'; autre?: 'criterimmo' | 'macj'; entree?: St; sortie?: St; exterieure?: boolean; apporteur?: boolean } = {}): Vente => {
+    const porteuse = o.porteuse ?? 'criterimmo';
+    return { ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: o.apporteur ? 'Gardien Dacquet' : null,
+      retroApporteur: o.apporteur ? { montant: 1000, unite: 'ttc' } : null,
+      repartition: { retroApporteurTtc: o.apporteur ? 1000 : 0, parties: [pa('entree', 2, 'Arnaud Jorel', porteuse, o.entree ?? 'associe', o.exterieure ? 40 : 50),
+        pa('sortie', 8, 'Pierre Thevenin', o.autre ?? (porteuse === 'criterimmo' ? 'macj' : 'criterimmo'), o.sortie ?? 'independant', o.exterieure ? 40 : 50),
+        ...(o.exterieure ? [{ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] : [])] },
+      dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: o.apporteur ? 4 : null },
+      lignes: [lc('Arnaud Jorel', 'entree', 1000), lc('Pierre Thevenin', 'sortie', 1000)] };
+  };
+  const ecran = async (societe: 'criterimmo' | 'macj', v: Vente) => {
+    listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(38);
+  };
+  /** Les classes du HT et du TTC d'une ligne de calcul : « rouge » (les deux en rouge) ou « normal » (HT noir, TTC vert). */
+  const style = (sel: string) => { const p = container.querySelector(sel); if (p === null) return null;
+    const ht = p.querySelector('[data-montant-ht]')!.className, ttc = p.querySelector('[data-montant-ttc]')!.className;
+    return ht.includes('trx-rouge') && ttc.includes('trx-rouge') && !ttc.includes('trx-vert') ? 'rouge' : !ht.includes('trx-rouge') && ttc.includes('trx-vert') ? 'normal' : `mélange (${ht} / ${ttc})`; };
+
+  for (const [porteuse, AUTRE] of [['criterimmo', 'MACJ'], ['macj', 'CRITERIMMO']] as const) {
+    it(`${porteuse.toUpperCase()} : les honoraires reversés vers ${AUTRE} en rouge ; ceux de la porteuse, normaux`, async () => {
+      await ecran(porteuse, vente({ porteuse }));
+      expect(style('[data-honoraires-cote="sortie"]')).toBe('rouge');
+      expect(texte('[data-honoraires-cote="sortie"] [data-mention-commission]')).toBe(`Honoraires versés vers ${AUTRE} — comptabilisés dans « Commissions versées »`);
+      expect(style('[data-honoraires-cote="entree"]')).toBe('normal');
+    });
+  }
+
+  it('partie extérieure : ses honoraires versés en rouge (2 666,67 € HT de base × 20 %)', async () => {
+    await ecran('criterimmo', vente({ exterieure: true }));
+    expect(style('[data-honoraires-exterieure="0"]')).toBe('rouge');
+  });
+
+  it('commission du négociateur : indépendant → rouge ; salarié et associé → normale (liseré vert) ; même société : honoraires normaux', async () => {
+    await ecran('criterimmo', vente({ autre: 'criterimmo', entree: 'independant', sortie: 'salarie' }));
+    expect(style('[data-commission-negociateur="entree"]')).toBe('rouge');
+    expect(style('[data-commission-negociateur="sortie"]')).toBe('normal');
+    expect([style('[data-honoraires-cote="entree"]'), style('[data-honoraires-cote="sortie"]')]).toEqual(['normal', 'normal']);
+    await ecran('criterimmo', vente({ autre: 'criterimmo', entree: 'associe', sortie: 'associe' }));
+    expect([style('[data-commission-negociateur="entree"]'), style('[data-commission-negociateur="sortie"]')]).toEqual(['normal', 'normal']);
+  });
+
+  it('l’apporteur (Informations communes) : « 1 000,00 € TTC (833,33 € HT) » en rouge ; le résumé du panneau : HT et TTC en rouge', async () => {
+    await ecran('criterimmo', vente({ apporteur: true }));
+    const m = container.querySelector('[data-info="apporteur"] [data-apporteur-montant]')!;
+    expect([m.textContent!.replace(/\s/g, ' '), m.className]).toEqual(['1 000,00 € TTC (833,33 € HT)', 'trx-apporteur-montant trx-rouge']);
+    await cliquer('[data-societe-cote="entree"]');
+    const r = '[data-reglage-repartition="entree"]';
+    expect([container.querySelector(`${r} [data-resume-ht="apporteur-0"]`)!.className, container.querySelector(`${r} [data-resume-ttc="apporteur-0"]`)!.className]).toEqual(['trx-rouge', 'trx-rouge']);
+    // sans apporteur : « montant à renseigner », sans rouge
+    await ecran('criterimmo', vente());
+    expect(container.querySelector('[data-info="apporteur"] [data-apporteur-montant]')!.className).toBe('trx-apporteur-montant trx-a-renseigner');
+  });
+
+  it('ligne miroir chez MACJ : les honoraires REÇUS gardent leur style ; la commission de l’indépendant de MACJ, en rouge (elle entre dans ses commissions versées)', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [venteDansSociete(vente(), 'macj')!];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
+    expect(style('[data-honoraires-cote="sortie"]')).toBe('normal');
+    expect(style('[data-commission-negociateur="sortie"]')).toBe('rouge');
+  });
+});
