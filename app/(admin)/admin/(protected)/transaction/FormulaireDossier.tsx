@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { BlocRepartition, commissionsResolues, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
-import { eur, posterTransactionDonnee } from './commun';
+import { ESPACE, eur, grouperSaisie, posterTransactionDonnee } from './commun';
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
@@ -117,6 +117,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   }, [onFermer]);
 
   const champ = (k: keyof typeof champs) => (e: { target: { value: string } }) => setChamps((c) => ({ ...c, [k]: e.target.value }));
+  // 🔴 LOT AM — à la sortie d'un champ de montant, les milliers séparés (« 7500 » → « 7 500 ») : les chiffres tapés ne changent pas.
+  const grouper = (k: 'commission' | 'prixVente') => (): void => setChamps((c) => ({ ...c, [k]: grouperSaisie(c[k]) }));
   const changerPersonne = (i: number, p: Partial<PersonneEcran>): void => setPersonnes((xs) => xs.map((x, j) => (j === i ? { ...x, ...p } : x)));
   /** Choisir une personne de l'annuaire (par son libellé dans la liste) : sa fiche est reprise, son id gardé (aucun doublon). */
   const choisirConnue = (i: number, texte: string): void => {
@@ -169,13 +171,13 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}
             <label>Prix de vente (€)
-              <input value={champs.prixVente} onChange={champ('prixVente')} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
+              <input value={champs.prixVente} onChange={champ('prixVente')} onBlur={grouper('prixVente')} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
               {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}
               {/* LOT J — le taux de commission, recalculé à chaque frappe du prix ou de la commission. */}
               {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux de commission : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
             <label>Commission TTC
-              <input value={champs.commission} onChange={champ('commission')} inputMode="decimal" required data-champ="commission" />
-              <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))} HT` : 'HT = TTC ÷ 1,2'}</span></label>
+              <input value={champs.commission} onChange={champ('commission')} onBlur={grouper('commission')} inputMode="decimal" required data-champ="commission" />
+              <span className="loc-muet">{Number.isFinite(commission) ? `soit ${eur(ht(commission))}${ESPACE}HT` : 'HT = TTC ÷ 1,2'}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
             <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
               societeVente={vente?.societe ?? societe} />

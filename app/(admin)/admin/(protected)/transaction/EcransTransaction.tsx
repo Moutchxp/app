@@ -13,7 +13,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, parametre, posterTransaction, signePct, useTransaction } from './commun';
+import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, nombreFr, parametre, posterTransaction, signePct, useTransaction } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, OngletCompromis } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -833,7 +833,7 @@ export function EcranGestion() {
   const somme = (gs: readonly GestionMois[], k: 'honorairesHt' | 'adhocHt' | 'salarieHt' | 'resteHt'): number | null =>
     (gs.every((g) => g[k] === null) ? null : gs.reduce((t, g) => t + (g[k] ?? 0), 0));
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
-  const lots = (x: number | null): string => (x === null ? '—' : x.toLocaleString('fr-FR'));
+  const lots = (x: number | null): string => (x === null ? '—' : nombreFr(x));
   const N1 = somme(deLAnnee(annee - 1), 'honorairesHt');
   const H = somme(deLAnnee(annee), 'honorairesHt');
   return (

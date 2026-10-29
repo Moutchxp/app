@@ -8,7 +8,8 @@ import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommiss
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { eur, eurEtEquivalent, parametre, posterTransaction, useTransaction } from './commun';
+import { BoutonAffichage, ESPACE, eur, FournisseurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
   texteTaux, versModele, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
@@ -61,6 +62,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // 🔴 LOT AL (Arno) — la tuile « Commissions versées » ne se déploie plus : elle ouvre la fenêtre du détail.
   const [fenetre, setFenetre] = useState(false);
   const tuileCommissions = useRef<HTMLButtonElement | null>(null);
+  // 🔴 LOT AM (Arno) — « HT | TTC » : l'unité affichée en grand dans tout le bloc, retenue dans le navigateur (partagée CRITERIMMO / MACJ).
+  const [unite, setUnite] = useAffichageRetenu();
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
@@ -105,11 +108,15 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     const r = ventePorteeAilleurs({ societe: vue, honorairesTtc, repartition: { parties: versModele(etat.parties), retroApporteurTtc: retroTtcDe(etat) } }, vue);
     setPortee(r === null ? null : { id, ...r });
   };
+  const MOT = MOT_UNITE[unite];
   return (
+    <FournisseurAffichage value={unite}>
     <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
         <h3 id="trx-compromis-titre">Compromis en cours <span className="loc-pastille">{liste.length}</span></h3>
-        {vue !== null && <div className="trx-actions"><button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
+        {/* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » (CA global : sans sélecteur, le choix retenu). */}
+        {vue !== null && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
           disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
       </div>
       {!d.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Personnes, négociateurs d’entrée et de sortie et répartition : disponibles après la mise à jour de la base (migration 434).</p>}
@@ -120,29 +127,29 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
           <span className="tdb-tuile-n1">acte non signé, hors annulés</span></div></li>
         <li><div className="tdb-tuile" data-tuile="ca"><span className="tdb-tuile-mot">Chiffre d’affaires</span>
-          <strong className="tdb-tuile-valeur trx-vert" data-ca-ttc>{eur(tu.caTtc)} <small>TTC</small></strong>
-          <span className="trx-tuile-ht" data-ca-ht>{eur(tu.caHt)} HT</span>
+          <Montants ht={tu.caHt} ttc={tu.caTtc} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-ca-ht': '' }} donneesTtc={{ 'data-ca-ttc': '' }} />
           {/* 🔴 LOT R (Arno) — « CA de la vente » + « dont reversé en inter-cabinet » (remplace « part de la société après répartition »). */}
           {vue !== null
-            ? <span className="tdb-tuile-n1" data-part-compromis={vue}>CA de la vente : {eur(tu.caHt)} HT · dont reversé en inter-cabinet : {eur(sommeSocietes(tu.interCabinetHt) + tu.exterieurHt)} HT
-              {tu.recuHt > 0 && <> · dont reçu en inter-cabinet : {eur(tu.recuHt)} HT</>}</span>
-            : <span className="tdb-tuile-n1" data-parts-compromis>{SOCIETES.map((s) => <span key={s} className="trx-tuile-part" data-part-compromis={s}>CA {LIBELLE_SOCIETE[s]} : {eur(tu.caSocieteHt[s])} HT</span>)
+            ? <span className="tdb-tuile-n1" data-part-compromis={vue}>CA de la vente : <Montants disposition="ligne" sens="recu" ht={tu.caHt} ttc={tu.caTtc} />
+              {' '}· dont reversé en inter-cabinet : <Montants disposition="ligne" sens="verse" ht={sommeSocietes(tu.interCabinetHt) + tu.exterieurHt} ttc={(sommeSocietes(tu.interCabinetHt) + tu.exterieurHt) * TVA} />
+              {tu.recuHt > 0 && <> · dont reçu en inter-cabinet : <Montants disposition="ligne" sens="recu" ht={tu.recuHt} ttc={tu.recuHt * TVA} /></>}</span>
+            : <span className="tdb-tuile-n1" data-parts-compromis>{SOCIETES.map((s) => <span key={s} className="trx-tuile-part" data-part-compromis={s}>CA {LIBELLE_SOCIETE[s]} : <Montants disposition="ligne" sens="recu" ht={tu.caSocieteHt[s]} ttc={tu.caSocieteHt[s] * TVA} /></span>)
               .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</span>}
-          {vue === null && <span className="tdb-tuile-n1" data-neutralise-compromis>Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT (neutralisé)</span>}
-          <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · dont inter-cabinet extérieur : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
+          {vue === null && <span className="tdb-tuile-n1" data-neutralise-compromis>Inter-cabinet entre nos sociétés : <Montants disposition="ligne" ht={tu.neutraliseHt} ttc={tu.neutraliseHt * TVA} /> — neutralisé</span>}
+          <span className="tdb-tuile-n1" data-commission-en-cours>sur <Montants disposition="ligne" ht={tu.commissionTotaleHt} ttc={tu.commissionTotaleHt * TVA} /> de commission
+            {tu.exterieurHt > 0 && <> · dont inter-cabinet extérieur : <Montants disposition="ligne" sens="verse" ht={tu.exterieurHt} ttc={tu.exterieurHt * TVA} /></>}</span></div></li>
         {/* 🔴 LOT AL (Arno) — la tuile garde le titre, le total en rouge, le HT et « Voir le détail » ; toute la tuile ouvre la fenêtre (souris,
             Entrée / Espace, toucher). Les lignes du détail et la bulle au survol l'ont quittée : tout leur contenu est dans la fenêtre. */}
         <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-haspopup="dialog" aria-expanded={fenetre} ref={tuileCommissions} onClick={() => setFenetre(true)}>
           <span className="tdb-tuile-mot">Commissions versées</span>
-          <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(dc.totalTtcC / 100)} <small>TTC versées</small></strong>
-          <span className="trx-tuile-ht" data-commissions-ht>{eur(dc.totalHtC / 100)} HT</span>
+          <Montants ht={dc.totalHtC / 100} ttc={dc.totalTtcC / 100} sens="verse" classe="trx-tuile-montants" suffixe={<small> versées</small>}
+            donneesHt={{ 'data-commissions-ht': '' }} donneesTtc={{ 'data-commissions-ttc': '' }} />
           <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-commissions>Voir le détail</span>
         </button></li>
-        {/* LOT L (Arno) — le Solde net : TTC en premier, en grand et en VERT (« TTC » écrit) ; HT dessous, en gris. */}
+        {/* LOT L (Arno) — le Solde net, en VERT ; LOT AM : l'unité choisie en grand, l'autre dessous. */}
         <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
-          <strong className="tdb-tuile-valeur trx-vert" data-solde-ttc>{eur(soldeTtcC / 100)} <small>TTC</small></strong>
-          <span className="trx-tuile-ht" data-solde-ht>{eur(soldeHtC / 100)} HT</span>
-          <span className="tdb-tuile-n1">CA HT − commissions versées HT</span></div></li>
+          <Montants ht={soldeHtC / 100} ttc={soldeTtcC / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-solde-ht': '' }} donneesTtc={{ 'data-solde-ttc': '' }} />
+          <span className="tdb-tuile-n1" data-solde-explication>CA {MOT} − commissions versées {MOT}</span></div></li>
       </ul>
       {fenetre && <FenetreCommissions detail={dc} societe={vue} autreSociete={autreSociete}
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))}
@@ -168,7 +175,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
             // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
             const pcts = r === null || ps === null ? null : pourcentagesParSociete(r.parties, ps.netHt);
-            const pct = (x: number): string => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
+            const pct = (x: number): string => pctFormat(x);
             const c = carteCompromis(v, d.aujourdhui);
             // 🔴 LOT F — LA CARTE REPLIÉE : à gauche le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, plus discret, adresse · prix · acte au
             // plus tard ; à droite la commission TTC en grand et en vert (« TTC » écrit), le HT dessous, puis le % du prix (si le prix est connu).
@@ -188,9 +195,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             );
             const droite = (
               <span className="trx-carte-droite" data-carte="montants">
-                <span className="trx-commission trx-commission--ttc" data-carte="commission">{eur(c.commissionTtc)} <small>TTC</small></span>
-                <span className="trx-carte-ht" data-carte="commission-ht">{eur(c.commissionHt)} HT</span>
-                {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{c.pctPrix.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix</span>}
+                <Montants ht={c.commissionHt} ttc={c.commissionTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
+                {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
               </span>
             );
             const colonne = (role: 'vendeur' | 'acquereur', mot: string) => {
@@ -242,7 +248,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           // LOT AD — la règle des tuiles : l'inter-cabinet extérieur versé par la société affichée (`bilanVente`).
                           const verse = bilanVente(v, vue).exterieurHt > 0;
                           return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre={verse ? 'deduite' : null} mention={verse ? mentionVersement(nom) : undefined} ttc={partHt * TVA}
-                            libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{eur(ps.netHt)} HT × {pctFr(pct)} % =</span></>} />;
+                            libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{montantAffiche(unite, ps.netHt, ps.netHt * TVA)} × {pctFr(pct)} % =</span></>} />;
                         })}
                       </section>
                     )}
@@ -273,39 +279,42 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                         {info('Apporteur', (() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
                           return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
                             {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
-                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}` : eurEtEquivalent(m)}</span></span>; })(), 'apporteur')}
+                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}`
+                              : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span></span>; })(), 'apporteur')}
                       </dl>
                       {r !== null && ps !== null ? (() => {
                         // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,
                         // = la base ; les parties ; les parts par société ; − les reversements de la porteuse, = son reste. Chaque montant au centime par
                         // LA règle unique (`centimesRepartition`) : un même montant identique partout (parties, parts, reversement, tuiles, ligne miroir),
-                        // et reste + reversements + apporteur = commission de la vente. HT en gras, TTC dessous (lot W) ; ce qui est versé, en rouge.
+                        // et reste + reversements + apporteur = commission de la vente. LOT AM : l'unité choisie en grand, l'autre dessous ; couleur selon le
+                        // sens (versé en rouge ; la commission de la vente et le reste, en vert ; sinon l'encre).
                         const porteuse = societePorteuse(v);
                         const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
                         const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
                         const brutes = r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
                         const repli = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })), brutes, ps.netHt);
-                        const montant = (h: number, t: number, o: { rouge?: boolean; donnee?: Record<string, string> } = {}) => (
+                        const montant = (h: number, t: number, o: { rouge?: boolean; vert?: boolean; donnee?: Record<string, string> } = {}) => (
                           <span className={o.rouge ? 'trx-ht-ttc-pile trx-montant-repartition trx-rouge' : 'trx-ht-ttc-pile trx-montant-repartition'} {...o.donnee}>
-                            <strong>{eur(h)} HT</strong><span className={o.rouge ? undefined : 'trx-vert'}>({eur(t)} TTC)</span></span>);
+                            <Montants ht={h} ttc={t} sens={o.rouge ? 'verse' : o.vert ? 'recu' : 'neutre'} /></span>);
+                        const colonneEur = `€ ${MOT} (${MOT_UNITE[unite === 'ttc' ? 'ht' : 'ttc']})`;
                         const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string, pctDonnee?: Record<string, string>) => (
-                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%" {...pctDonnee}>{pctTexte}</td><td data-mot="€ HT (TTC)">{valeur}</td></tr>);
+                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%" {...pctDonnee}>{pctTexte}</td><td data-mot={colonneEur}>{valeur}</td></tr>);
                         const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
                         return (
                         <div data-repartition-compromis>
                         <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
-                          <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col">€ HT (TTC)</th></tr></thead>
+                          <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
                           <tbody>
-                            {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], '100 %',
-                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort')}
+                            {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], pct(100),
+                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort')}
                             {apporteur
                               ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
                               : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
-                            {ligne('base', '= Base de répartition (commission nette)', '', '100 %', montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base')}
+                            {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base')}
                             {r.parties.map((p, i) => (
                               <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
-                                <td data-mot="%">{p.pourcentage !== null ? `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : `${(ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`}</td>
-                                <td data-mot="€ HT (TTC)">{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
+                                <td data-mot="%">{pct(p.pourcentage !== null ? p.pourcentage : ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100)}</td>
+                                <td data-mot={colonneEur}>{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
                             ))}
                             {/* 🔴 LOT AJ (Arno) — « Part X » et « − Reversé en inter-cabinet vers X » portaient le même montant : UNE ligne
                                 « Part X − Reversé en inter-cabinet vers X », en rouge (fusion autorisée par Arno). X = la société qui REÇOIT (jamais écrit
@@ -315,7 +324,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                               const recoit = (s: Societe): boolean => cHt !== null && cTtc !== null && s !== porteuse && cHt.reverse[s] > 0;
                               const partSociete = (s: Societe) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
                                 <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
-                                <td data-mot="€ HT (TTC)">{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>;
+                                <td data-mot={colonneEur}>{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>;
                               const ordre = cHt === null ? [...SOCIETES] : [porteuse, ...SOCIETES.filter((s) => s !== porteuse)];
                               const exterieurs = cHt === null ? [] : cHt.exterieurs.filter((e) => e.ht > 0);
                               const exterieurSeul = cHt !== null && cTtc !== null && exterieurs.length === 1;
@@ -329,12 +338,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                                     montant(exterieurs[0].ht, cTtc!.exterieurs.filter((e) => e.ht > 0)[0]?.ht ?? exterieurs[0].ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': 'exterieur-0' } }), undefined, { 'data-pct-exterieur-compromis': '' })
                                   : <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
                                     <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
-                                    <td data-mot="€ HT (TTC)">{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>)}
+                                    <td data-mot={colonneEur}>{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>)}
                                 {/* 🔴 LOT R / AH — plusieurs parties extérieures : chacune son reversement (en rouge) sous leur part commune. */}
                                 {cHt !== null && cTtc !== null && !exterieurSeul && exterieurs.map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
                                   montant(e.ht, cTtc.exterieurs.filter((x) => x.ht > 0)[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
                                 {cHt !== null && cTtc !== null && ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
-                                  montant(cHt.resteHt, cTtc.resteHt, { donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
+                                  montant(cHt.resteHt, cTtc.resteHt, { vert: true, donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base')}
                               </>;
                             })()}
                           </tbody>
@@ -376,6 +385,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         message={edition === 'nouveau' ? undefined : edition.message}
         references={d} onFermer={() => setEdition(null)} onFait={(e) => { setEdition(null); if (e !== undefined) signalerPorteuse(e.id, e.repartition, e.honorairesTtc); relire(); }} />}
     </section>
+    </FournisseurAffichage>
   );
 }
 
@@ -384,7 +394,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
 /** La société d'un compte, en clair (« ⚠ société à renseigner dans Comptes » si elle manque). */
 const libelleSociete = (s: SocieteCompte | null): string => (s === null ? '⚠ société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[s]);
 /** Un pourcentage à l'écran (« 40 », « 62,5 »). */
-const pctFr = (x: number): string => x.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+const pctFr = (x: number): string => nombreFr(x, { maximumFractionDigits: 2 });
 /** La société de la partie d'un négociateur sur cette vente (côté donné d'abord) ; null : aucune partie avec société. PUR. */
 function societeSurVente(v: Vente, cote: 'entree' | 'sortie', id: number): Societe | null {
   const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
@@ -555,9 +565,10 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
  * `alerte` : en rouge (apporteur, commission enregistrée qui diffère du calcul) — le TTC n'y prend pas le vert.
  */
 export function HtTtc({ ttc, m, alerte = false }: { ttc?: number; m?: MontantSaisi; alerte?: boolean }) {
+  // 🔴 LOT AM — l'unité choisie (« HT | TTC ») en grand, l'autre entre parenthèses ; l'alerte en rouge, sinon l'encre.
   const t = m !== undefined ? enTtc(m) : ttc ?? 0;
-  return <span className="trx-ht-ttc" data-ht-ttc><strong data-montant-ht>{eur(m !== undefined ? enHt(m) : t / TVA)} HT</strong>{' '}
-    <span className={alerte ? undefined : 'trx-vert'} data-montant-ttc>({eur(t)} TTC)</span></span>;
+  return <span className="trx-ht-ttc" data-ht-ttc><Montants disposition="ligne" sens={alerte ? 'verse' : 'neutre'} ht={m !== undefined ? enHt(m) : t / TVA} ttc={t}
+    donneesHt={{ 'data-montant-ht': '' }} donneesTtc={{ 'data-montant-ttc': '' }} /></span>;
 }
 
 /**
@@ -586,13 +597,18 @@ function LigneCalcul({ donnees, libelle, ttc, encadre = null, mention }: { donne
    * VERT sinon (associé, salarié, statut à renseigner) ; la mention écrite (`mentionCommission`) accompagne toujours la couleur.
    */
   encadre?: 'deduite' | 'interne' | null }) {
+  // 🔴 LOT AM — l'unité choisie en grand (gras), l'autre dessous entre parenthèses, de la même couleur : rouge si le montant ENTRE dans les
+  // « Commissions versées » (lot AD), l'encre sinon (le vert n'est plus attaché au TTC). Les liserés (lots X / Y / Z) ne changent pas.
+  const u = useAffichage();
+  const autre = u === 'ttc' ? 'ht' : 'ttc';
+  const valeur = (x: 'ht' | 'ttc'): number => (x === 'ttc' ? ttc : ttc / TVA);
+  const couleur = encadre === 'deduite' ? ' trx-rouge' : '';
   return (
     <p className={encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
-      {/* 🔴 LOT AD (Arno) — un montant qui ENTRE dans les « Commissions versées » de la société affichée (liseré rouge) : HT et TTC en rouge. */}
-      <strong className={encadre === 'deduite' ? 'trx-calcul-resultat trx-rouge' : 'trx-calcul-resultat'} data-montant-ht>{eur(ttc / TVA)} HT</strong>{' '}
-      <span className={encadre === 'deduite' ? 'trx-calcul-ttc trx-rouge' : 'trx-calcul-ttc trx-vert'} data-montant-ttc>({eur(ttc)} TTC)</span>
+      <strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
+      <span className={`trx-calcul-ttc trx-mt-petit${couleur}`} {...{ [`data-montant-${autre}`]: '' }}>({eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]})</span>
       {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
     </p>
   );
@@ -625,18 +641,19 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
   const bouton = (r: Remuneration, mot = 'Appliquer le calcul') => <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={() => onAppliquer(r)}
     data-appliquer-calcul-carte={cote}>{mot}</button>;
   const manuelle = rem !== null && rem.saisie !== null && rem.modeEnregistre && rem.mode === 'manuelle';
+  const u = useAffichage();
   return <>
     {honoraires !== null && (
-      <LigneCalcul donnees={{ 'data-honoraires-cote': cote }} libelle={<><span className="trx-calcul-mot">{premier}</span> : <span className="trx-calcul-operation">{eur(honoraires.netTtc / TVA)} HT × {pctFr(honoraires.part)} % =</span></>}
+      <LigneCalcul donnees={{ 'data-honoraires-cote': cote }} libelle={<><span className="trx-calcul-mot">{premier}</span> : <span className="trx-calcul-operation">{montantAffiche(u, honoraires.netTtc / TVA, honoraires.netTtc)} × {pctFr(honoraires.part)}{ESPACE}% =</span></>}
         ttc={honoraires.ttc} encadre={honorairesVersesVers === null ? null : 'deduite'} mention={honorairesVersesVers === null ? undefined : mentionVersement(honorairesVersesVers)} />
     )}
     {rem !== null && (
-      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{eur(rem.baseTtc / TVA)} HT × {pctFr(rem.taux)} % =</span></>}
+      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{montantAffiche(u, rem.baseTtc / TVA, rem.baseTtc)} × {pctFr(rem.taux)}{ESPACE}% =</span></>}
         ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (
       <p className="trx-calcul-cote trx-ecart-calcul" data-commission-manuelle={cote}>
-        <span>Commission enregistrée : <HtTtc m={rem.saisie!} /> <span className="loc-muet">— saisi à la main — calcul : {eur(rem.calculTtc / TVA)} HT ({eur(rem.calculTtc)} TTC)</span></span>
+        <span>Commission enregistrée : <HtTtc m={rem.saisie!} /> <span className="loc-muet">— saisi à la main — calcul : {montantsTexte(u, rem.calculTtc / TVA, rem.calculTtc)}</span></span>
         {bouton(rem, 'Revenir au calcul')}</p>
     )}
     {rem !== null && enregistree && !manuelle && rem.ecart && rem.saisie !== null && (
@@ -734,7 +751,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   ouvertInitial?: boolean }) {
   const m = v.miroir!;
   const c = carteCompromis(v, aujourdhui);
-  const pctTexte = m.pourcentage === null ? null : `${m.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
+  const pctTexte = m.pourcentage === null ? null : pctFormat(m.pourcentage);
   const titre = (
     <span className="trx-carte-gauche">
       <span className="trx-carte-titre" data-carte="titre">{v.libelle}</span>
@@ -748,8 +765,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   );
   const droite = (
     <span className="trx-carte-droite" data-carte="montants">
-      <span className="trx-commission trx-commission--ttc" data-carte="commission">{eur(v.honorairesTtc)} <small>TTC</small></span>
-      <span className="trx-carte-ht" data-carte="commission-ht">{eur(m.partHt)} HT</span>
+      <Montants ht={m.partHt} ttc={v.honorairesTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
       <span className="trx-carte-pct" data-carte="inter-cabinet">inter-cabinet reçu</span>
     </span>
   );
@@ -769,7 +785,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
               <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>
                 <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} de la commission nette`}</dd></div>
               <div className="trx-couple" data-miroir-info="ca"><dt>CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente</dt>
-                <dd><span className="trx-ht-ttc-pile"><strong>{eur(m.partHt)} HT</strong><span className="trx-vert">({eur(v.honorairesTtc)} TTC)</span></span></dd></div>
+                <dd><span className="trx-ht-ttc-pile"><Montants ht={m.partHt} ttc={v.honorairesTtc} sens="recu" /></span></dd></div>
               <div className="trx-couple" data-miroir-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
                 <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
                 <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
@@ -943,7 +959,7 @@ function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: r
         <ul className="trx-cartes" data-liste-annules>
           {annules.map((v) => (
             <li key={v.id} className="trx-annule" data-compromis-annule={v.id}>
-              <div className="trx-annule-tete"><strong>{v.libelle}</strong><span className="trx-carte-ht">{eur(v.honorairesTtc)} TTC · {eur(ht(v.honorairesTtc))} HT</span></div>
+              <div className="trx-annule-tete"><strong>{v.libelle}</strong><span className="trx-carte-ht"><Montants disposition="ligne" ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} /></span></div>
               <p data-annulation-detail>Annulé le {date(v.annulation?.date)} — motif : <strong>{v.annulation?.motif}</strong></p>
               {v.annulation?.note && <p className="loc-muet" data-annulation-note>Note : {v.annulation.note}</p>}
               {/* 🔴 LOT R — une ligne miroir suit la vente d'origine : elle se rétablit avec elle, depuis la société porteuse. */}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ETIQUETTE, estVersee, type AffaireCout, type CategorieCout, type DetailCommissions, type LigneCout } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
-import { eur } from './commun';
+import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './commun';
 
 /**
  * ══ 🔴 LOT AL (Arno, 29/10/2026) — LA FENÊTRE « COMMISSIONS VERSÉES » ══════════════════════════════════════════════════════════════════
@@ -23,11 +23,21 @@ const ecrireMode = (m: ModeFenetre): void => {
 };
 const date = (d: string): string => d.split('-').reverse().join('/');
 
-/** Un montant : HT en gras, TTC dessous (présentation du lot W) ; en rouge s'il est comptabilisé, en gris sinon. */
-function Montant({ htC, ttcC, versee, donnees }: { htC: number; ttcC: number; versee: boolean; donnees?: Record<string, string> }) {
+/** Les deux textes d'un montant en centimes, dans l'ordre affiché (🔴 LOT AM : l'unité choisie d'abord). PUR. */
+const textes = (u: UniteAffichage, htC: number, ttcC: number): [string, string] => {
+  const t = (x: UniteAffichage): string => `${eur((x === 'ttc' ? ttcC : htC) / 100)}${ESPACE}${MOT_UNITE[x]}`;
+  return u === 'ttc' ? [t('ttc'), t('ht')] : [t('ht'), t('ttc')];
+};
+
+/**
+ * Un montant : l'unité choisie (« HT | TTC » de l'onglet, lot AM) en gras, l'autre dessous entre parenthèses (présentation du lot W) ;
+ * en rouge s'il est comptabilisé (versé), en vert la commission d'une vente (CA), en gris sinon.
+ */
+function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: number; ttcC: number; versee: boolean; recu?: boolean; donnees?: Record<string, string>; apres?: ReactNode }) {
+  const [grand, petit] = textes(useAffichage(), htC, ttcC);
   return (
-    <span className={versee ? 'trx-fc-montant trx-rouge' : 'trx-fc-montant trx-fc-info'} {...donnees}>
-      <strong>{eur(htC / 100)} HT</strong><span>({eur(ttcC / 100)} TTC)</span>
+    <span className={versee ? 'trx-fc-montant trx-rouge' : recu ? 'trx-fc-montant trx-vert' : 'trx-fc-montant trx-fc-info'} {...donnees}>
+      <strong>{grand}</strong><span className="trx-mt-petit">({petit})</span>{apres}
     </span>
   );
 }
@@ -53,6 +63,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
     return () => window.removeEventListener('keydown', touche);
   }, [onFermer]);
   const choisir = (m: ModeFenetre): void => { setMode(m); ecrireMode(m); };
+  const totalHaut = textes(useAffichage(), detail.totalHtC, detail.totalTtcC);
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const affaire = (id: number): ReactNode => (
     <a className="trx-fc-affaire" href={`?vente=${id}`} onClick={(e) => { e.preventDefault(); onAller(id); }} data-aller-affaire={id}>{titres[id] ?? `Vente n° ${id}`}</a>
@@ -82,7 +93,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
             <h3>{affaire(a.id)}</h3>
             <span className={a.dateCompromis === null ? 'trx-fc-sous trx-a-renseigner' : 'trx-fc-sous'}>{a.dateCompromis === null ? 'Date du compromis : à renseigner' : `Compromis du ${date(a.dateCompromis)}`}{a.recueDe !== null ? ` · inter-cabinet reçu de ${LIBELLE_SOCIETE[a.recueDe]}` : ''}</span>
           </span>
-          <span className="trx-fc-montant" data-commission-affaire={a.id}><strong>{eur(a.commissionHt)} HT</strong><span>({eur(a.commissionTtc)} TTC)</span><small>commission de la vente</small></span>
+          <Montant htC={Math.round(a.commissionHt * 100)} ttcC={Math.round(a.commissionTtc * 100)} versee={false} recu donnees={{ 'data-commission-affaire': String(a.id) }} apres={<small>commission de la vente</small>} />
         </div>
         {a.lignes.length > 0 && (
           <ul className="trx-fc-lignes">
@@ -109,7 +120,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
           <div className="trx-fc-entete">
             <div className="trx-fc-entete-texte">
               <h2 id="trx-fc-titre">Commissions versées — {qui} — compromis en cours</h2>
-              <span className="trx-fc-montant trx-fc-montant--gauche trx-rouge" data-fenetre-total-haut><strong>{eur(detail.totalTtcC / 100)} TTC versées</strong><span>{eur(detail.totalHtC / 100)} HT</span></span>
+              <span className="trx-fc-montant trx-fc-montant--gauche trx-rouge" data-fenetre-total-haut><strong>{totalHaut[0]} versées</strong><span className="trx-mt-petit">({totalHaut[1]})</span></span>
             </div>
             <button type="button" className="trx-fc-fermer" ref={fermer} onClick={onFermer} aria-label="Fermer" data-fermer-fenetre>×</button>
           </div>

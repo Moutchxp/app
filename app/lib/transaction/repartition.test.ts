@@ -39,17 +39,18 @@ describe('vérifier la répartition (avant tout enregistrement)', () => {
   it('une somme ≠ 100 % est REFUSÉE, avec un message clair', () => {
     const [e, s] = partiesParDefaut(JB, MY);
     const m = verifierRepartition([pct(e, 60), pct(s, 50)], 12000, 0);
-    expect(m).toMatch(/fait 110 %/);
+    // LOT AM — le nombre et son « % » collés par une espace insécable visible (U+00A0, format unique de la tuile).
+    expect(m).toMatch(/fait 110\u00a0%/);
     expect(m).toMatch(/exactement 100 %/);
     expect(m).toMatch(/Rien n’a été enregistré/);
-    expect(verifierRepartition([pct(e, 49.9), pct(s, 50)], 12000, 0)).toMatch(/99,9 %/);
+    expect(verifierRepartition([pct(e, 49.9), pct(s, 50)], 12000, 0)).toMatch(/99,9\u00a0%/);
   });
   it('la saisie en € HT : juste au centime de la commission nette, sinon refusée', () => {
     const [e, s] = partiesParDefaut(JB, MY);
     // 12 000 TTC → 10 000 HT de commission nette : 6 000 € + 40 %
     expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, pct(s, 40)], 12000, 0)).toBeNull();
     expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, { ...s, pourcentage: null, montantHt: 4000 }], 12000, 0)).toBeNull();
-    expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, { ...s, pourcentage: null, montantHt: 3999.99 }], 12000, 0)).toMatch(/99,9999 %/);
+    expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, { ...s, pourcentage: null, montantHt: 3999.99 }], 12000, 0)).toMatch(/99,9999\u00a0%/);
     expect(pourcentageDe(6000, 10000)).toBe(60);
   });
   it('une partie extérieure (40/40/20) est juste ; sans nom, refusée', () => {

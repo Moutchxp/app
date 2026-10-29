@@ -47,7 +47,7 @@ describe('la carte compacte', () => {
 describe('🔴 LOT J — le taux de commission', () => {
   it('commission TTC ÷ prix de vente ; sans prix (ou prix nul), le libellé « calculé dès la saisie du prix de vente »', () => {
     expect(tauxDuPrix(18000, 360000)).toBe(5);
-    expect(libelleTaux(tauxDuPrix(18000, 360000))).toBe('5,00 % du prix de vente');
+    expect(libelleTaux(tauxDuPrix(18000, 360000))).toBe('5,00\u00a0% du prix de vente'); // LOT AM : espace insécable
     expect(tauxDuPrix(18000, null)).toBeNull();
     expect(tauxDuPrix(18000, 0)).toBeNull();
     expect(libelleTaux(null)).toBe(TAUX_SANS_PRIX);

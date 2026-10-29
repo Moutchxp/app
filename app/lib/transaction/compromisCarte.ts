@@ -1,4 +1,5 @@
 import { ht, type Vente } from './modele';
+import { ESPACE, nombreFr } from './format';
 import { libelleDesPersonnes } from './personnes';
 
 /**
@@ -19,7 +20,7 @@ export function tauxDuPrix(commissionTtc: number, prix: number | null | undefine
 }
 /** LOT J — « 5,00 % du prix de vente », ou « calculé dès la saisie du prix de vente ». PUR. */
 export const libelleTaux = (pct: number | null): string =>
-  (pct === null ? TAUX_SANS_PRIX : `${pct.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % du prix de vente`);
+  (pct === null ? TAUX_SANS_PRIX : `${nombreFr(pct, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${ESPACE}% du prix de vente`);
 
 export interface CarteCompromis {
   /**

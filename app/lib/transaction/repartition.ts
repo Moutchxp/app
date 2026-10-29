@@ -1,3 +1,4 @@
+import { eur, pctFr } from './format';
 import { commissionNetteHt, ht, partsHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, SOCIETES, TVA, type Partie, type Societe } from './modele';
 
 /**
@@ -46,8 +47,8 @@ export function totalRepartition(parties: readonly Partie[], netHt: number): { p
 }
 
 const centimes = (x: number): number => Math.round(x * 100);
-const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-const pct = (x: number): string => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
+// 🔴 LOT AM — le format unique des nombres de la tuile (`format.ts`).
+const pct = (x: number): string => pctFr(x);
 
 /**
  * 🔴 LA VÉRIFICATION AVANT TOUT ENREGISTREMENT : rend `null` si la répartition est juste, sinon le motif (montré tel quel). La somme

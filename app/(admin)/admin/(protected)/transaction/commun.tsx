@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/transaction/commissions';
+import { ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
+import { TVA } from '../../../../lib/transaction/modele';
 
 /** TUILE TRANSACTION — le socle des écrans : lecture de la route, envoi d'un geste, formats. Aucun calcul métier ici (`modele.ts`). */
 export const API_TRANSACTION = '/api/admin/transaction';
@@ -51,14 +53,89 @@ export async function posterTransactionDonnee<T>(corps: Record<string, unknown>)
   }
 }
 
-export const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+// 🔴 LOT AM — LE format unique des montants (milliers séparés par une espace insécable VISIBLE, U+00A0) : `lib/transaction/format.ts`.
+export { eur, nombreFr, pctFr, ESPACE, grouperSaisie } from '../../../../lib/transaction/format';
 /** LOT I — un montant avec SON unité et son équivalent : « 1 000,00 € HT (soit 1 200,00 € TTC) ». */
-export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
+export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)}${ESPACE}${LIBELLE_UNITE[m.unite]} (soit ${eur(a.montant)}${ESPACE}${LIBELLE_UNITE[a.unite]})`; };
 /** LOT J — un montant avec son unité et, entre parenthèses, son équivalent : « 800,00 € HT (960,00 € TTC) ». */
-export const eurEtEquivalent = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)} ${LIBELLE_UNITE[m.unite]} (${eur(a.montant)} ${LIBELLE_UNITE[a.unite]})`; };
-const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`;
+export const eurEtEquivalent = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)}${ESPACE}${LIBELLE_UNITE[m.unite]} (${eur(a.montant)}${ESPACE}${LIBELLE_UNITE[a.unite]})`; };
+const pct = (x: number): string => `${nombreFr(x * 100, { maximumFractionDigits: 1 })}${ESPACE}%`;
 export const signePct = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 export const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
+
+// ── 🔴 LOT AM (Arno, 29/10/2026) : LE BOUTON « HT | TTC » DE L'ONGLET COMPROMIS ─────────────────────────────────────────────────────────
+//
+// Le choix décide quel montant s'affiche EN GRAND ; l'autre suit, en petit, entre parenthèses, dessous (ou à côté), toujours dans le même
+// ordre — dans tout le bloc « Compromis en cours » (tuiles, cartes, répartition, ligne miroir, fenêtre, montants affichés des formulaires).
+// Retenu dans le navigateur (le même pour CRITERIMMO et MACJ), TTC par défaut. Les champs de SAISIE gardent leur propre unité : ce choix
+// ne change que l'affichage, jamais une valeur enregistrée. COULEURS selon le SENS du montant (plus selon HT / TTC) : rouge = versé ou
+// déduit ; vert = CA, reçu, solde ; sinon l'encre — le grand et le petit de la même couleur, le petit plus léger.
+
+export type UniteAffichage = 'ht' | 'ttc';
+export const CLE_AFFICHAGE = 'trx-affichage-montants';
+export const UNITE_AFFICHAGE_DEFAUT: UniteAffichage = 'ttc';
+export const MOT_UNITE: Record<UniteAffichage, string> = { ht: 'HT', ttc: 'TTC' };
+export function lireAffichage(): UniteAffichage {
+  try { const x = window.localStorage.getItem(CLE_AFFICHAGE); return x === 'ht' || x === 'ttc' ? x : UNITE_AFFICHAGE_DEFAUT; } catch { return UNITE_AFFICHAGE_DEFAUT; }
+}
+/** Le choix retenu, et son changement (gardé dans le navigateur ; sans stockage, l'écran marche quand même). */
+export function useAffichageRetenu(): [UniteAffichage, (u: UniteAffichage) => void] {
+  const [u, setU] = useState<UniteAffichage>(lireAffichage);
+  const changer = useCallback((x: UniteAffichage) => {
+    setU(x);
+    try { window.localStorage.setItem(CLE_AFFICHAGE, x); } catch { /* préférence d'affichage seulement */ }
+  }, []);
+  return [u, changer];
+}
+const ContexteAffichage = createContext<UniteAffichage>(UNITE_AFFICHAGE_DEFAUT);
+export const FournisseurAffichage = ContexteAffichage.Provider;
+/** L'unité affichée en grand (TTC hors d'un onglet Compromis). */
+export const useAffichage = (): UniteAffichage => useContext(ContexteAffichage);
+
+/** Le sens d'un montant : sa couleur. */
+export type Sens = 'verse' | 'recu' | 'neutre';
+export const CLASSE_SENS: Record<Sens, string> = { verse: 'trx-rouge', recu: 'trx-vert', neutre: '' };
+
+/** Un montant seul, dans l'unité affichée (« 6 500,00 € TTC ») — l'opérande d'un calcul. PUR. */
+export const montantAffiche = (u: UniteAffichage, ht: number, ttc: number): string => `${eur(u === 'ttc' ? ttc : ht)}${ESPACE}${MOT_UNITE[u]}`;
+/** Les deux montants en texte : « 7 500,00 € TTC (6 250,00 € HT) » dans l'ordre affiché. PUR. */
+export const montantsTexte = (u: UniteAffichage, ht: number, ttc: number): string =>
+  `${montantAffiche(u, ht, ttc)} (${montantAffiche(u === 'ttc' ? 'ht' : 'ttc', ht, ttc)})`;
+/** Le HT et le TTC d'un montant saisi dans son unité. PUR. */
+export const htTtcDe = (m: MontantSaisi): { ht: number; ttc: number } => (m.unite === 'ht' ? { ht: m.montant, ttc: m.montant * TVA } : { ht: m.montant / TVA, ttc: m.montant });
+
+/**
+ * 🔴 LOT AM — DEUX MONTANTS : l'unité choisie en grand, l'autre en petit entre parenthèses, dessous (`pile`, défaut) ou à côté (`ligne`).
+ * `donneesHt` / `donneesTtc` : les marques de chaque unité (où qu'elle soit affichée) ; `suffixe` : un mot après le grand (« versées »).
+ */
+export function Montants({ ht, ttc, sens = 'neutre', disposition = 'pile', suffixe, donnees, donneesHt, donneesTtc, classe }: {
+  ht: number; ttc: number; sens?: Sens; disposition?: 'pile' | 'ligne'; suffixe?: ReactNode;
+  donnees?: Record<string, string>; donneesHt?: Record<string, string>; donneesTtc?: Record<string, string>; classe?: string;
+}) {
+  const u = useAffichage();
+  const autre: UniteAffichage = u === 'ttc' ? 'ht' : 'ttc';
+  const valeur = (x: UniteAffichage): number => (x === 'ttc' ? ttc : ht);
+  const marques = (x: UniteAffichage): Record<string, string> | undefined => (x === 'ttc' ? donneesTtc : donneesHt);
+  const couleur = CLASSE_SENS[sens];
+  return (
+    <span className={`trx-mt trx-mt--${disposition}${classe ? ` ${classe}` : ''}`} data-montants={u} {...donnees}>
+      <strong className={`trx-mt-grand${couleur ? ` ${couleur}` : ''}`} data-montant-grand><span className={couleur || undefined} {...marques(u)}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</span>{suffixe}</strong>
+      {disposition === 'ligne' ? ' ' : null}<span className={`trx-mt-petit${couleur ? ` ${couleur}` : ''}`} data-montant-petit>(<span className={couleur || undefined} {...marques(autre)}>{eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]}</span>)</span>
+    </span>
+  );
+}
+
+/** 🔴 LOT AM — le sélecteur « HT | TTC » (deux boutons de 44 px, le choisi enfoncé). */
+export function BoutonAffichage({ unite, onChange }: { unite: UniteAffichage; onChange: (u: UniteAffichage) => void }) {
+  return (
+    <div className="trx-unites trx-affichage" role="group" aria-label="Montants affichés en grand" data-affichage-montants={unite}>
+      {(['ht', 'ttc'] as const).map((x) => (
+        <button key={x} type="button" className="trx-unite" aria-pressed={unite === x} onClick={() => onChange(x)} data-afficher={x}>{MOT_UNITE[x]}</button>
+      ))}
+    </div>
+  );
+}
+
 export const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 /** Les paramètres de l'adresse de la page, lus une fois (rien côté serveur : la page est rendue après lecture). */
@@ -117,6 +194,26 @@ export const CSS_TRANSACTION = `
 .trx-onglet-compromis > .trx-barre > h3{flex:1 1 auto;min-width:0;margin:0}
 .trx-onglet-compromis > .trx-barre > .trx-actions{flex:0 0 auto;margin-left:auto}
 .trx-onglet-compromis > .trx-barre .svv-btn{white-space:nowrap}
+/* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » ; trop étroit : il passe au-dessus, aligné à droite. */
+.trx-onglet-compromis > .trx-barre > .trx-actions{justify-content:flex-end;align-items:center}
+.trx-affichage{flex:0 0 auto}
+@media (max-width:560px){
+  .trx-onglet-compromis > .trx-barre{flex-wrap:wrap}
+  .trx-onglet-compromis > .trx-barre > .trx-actions{flex:1 1 auto;max-width:100%}
+}
+/* 🔴 LOT AM — DEUX MONTANTS (composant Montants) : l'unité choisie en grand, l'autre en petit entre parenthèses, de la même couleur (le petit plus léger) ;
+   dessous (pile) ou à côté (ligne) ; aucun montant ne se coupe en fin de ligne. */
+.trx-mt-grand,.trx-mt-petit{white-space:nowrap}
+.trx-mt--pile{display:inline-flex;flex-direction:column}
+.trx-mt--ligne{display:inline}
+.trx-mt-grand{font-weight:800}
+.trx-mt--ligne .trx-mt-grand{font-weight:700}
+.trx-mt-petit{font-size:.85em;font-weight:600;opacity:.8}
+.trx-tuile-montants .trx-mt-grand{font-size:1.4rem}
+.trx-tuile-montants .trx-mt-petit{font-size:.9rem}
+.trx-carte-montants{align-items:flex-end;text-align:right}
+.trx-carte-montants .trx-mt-grand{font-size:1.15rem}
+.trx-carte-montants .trx-mt-petit{font-size:.88rem}
 .trx-onglet-compromis .trx-carte-detail{padding-bottom:6px}
 .trx-onglet-compromis .trx-carte.tdb-replie--ouvert{padding-bottom:14px}
 .trx-espace-annules{height:16px}

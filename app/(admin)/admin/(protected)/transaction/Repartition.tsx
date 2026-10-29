@@ -8,7 +8,7 @@ import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNI
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
 import { auCentime, centimesRepartition, motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
-import { eur } from './commun';
+import { ESPACE, eur, grouperSaisie, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, pctFr, useAffichage } from './commun';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOTS D ET E (Arno, 27/10/2026) — LE BLOC « NÉGOCIATEURS ET RÉPARTITION », PARTAGÉ ═══════════════
@@ -205,7 +205,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
   const parSociete = partsParSociete(parties, commission, retro);
   const pcts = pourcentagesParSociete(parties, net);
-  const pctTexte = (x: number): string => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
+  const pctTexte = (x: number): string => pctFr(x);
+  // 🔴 LOT AM — l'unité affichée en grand (« HT | TTC » de l'onglet) ; les champs de saisie gardent la leur.
+  const u = useAffichage();
   const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro);
   const motifAutre = autre !== null && motifTotal === null && motifSocieteVente(etat, negociateurs) === null ? autre : null;
   const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[n.societe]}` }));
@@ -267,7 +269,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   <label>Coordonnées (facultatif)<input value={p.coordonnees ?? ''} onChange={(e) => changerPartie(i, { coordonnees: e.target.value })} data-partie-coordonnees /></label>
                 </>}
                 <label>Part (%)<input inputMode="decimal" value={pctAffiche} onChange={(e) => changerPart(i, 'pct', e.target.value)} data-partie-pct={i} /></label>
-                <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPart(i, 'eur', e.target.value)} data-partie-eur={i} /></label>
+                <label>Part (€ HT)<input inputMode="decimal" value={eurAffiche} onChange={(e) => changerPart(i, 'eur', e.target.value)}
+                  onBlur={() => { if (p.mode !== 'eur') return; const g = grouperSaisie(p.texte); if (g !== p.texte) changerPartie(i, { texte: g }); }} data-partie-eur={i} /></label>
               </div>
               {interne && deux(p) && <ChoixSocieteVente valeur={p.societe} onChoisir={(s) => onChange(choisirSocietePartie(etat, i, s))} cle={`partie-${i}`} />}
               {interne && p.compteId !== null && p.societe === null && !deux(p) && (
@@ -291,8 +294,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
         <li className="trx-partie trx-partie--total" data-total-repartition>
           <div className="trx-partie-tete">
             <strong>Total</strong>
-            <span className="trx-total" data-total-pct>{Number.isFinite(total.pourcentage) ? `${total.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : '—'}</span>
-            <span data-total-eur>{Number.isFinite(total.montantHt) ? eur(total.montantHt) : '—'} HT</span>
+            <span className="trx-total" data-total-pct>{Number.isFinite(total.pourcentage) ? pctFr(total.pourcentage) : '—'}</span>
+            <span data-total-eur>{Number.isFinite(total.montantHt) ? <Montants disposition="ligne" ht={total.montantHt} ttc={total.montantHt * TVA} /> : `—${ESPACE}${MOT_UNITE[u]}`}</span>
           </div>
           {parties.length === 0 && <span className="loc-muet" data-sans-repartition>Aucun négociateur choisi : pas de répartition, toute la commission va à {LIBELLE_SOCIETE[societeVente]}.</span>}
           {motifTotal !== null && <span className="trx-alerte" role="status" data-motif-repartition>{motifTotal}</span>}
@@ -306,20 +309,24 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
             // l'arrondi simple d'avant. « Part X » et « reversé vers X » portaient le même montant : UNE mention « Part X − Reversé en inter-cabinet
             // vers X », en rouge (fusion autorisée par Arno) ; idem pour l'extérieur. La part de la porteuse reste la sienne, en tête.
             const c = centimesRepartition(parties, commission, retro, porteuse);
+            // LOT AM — le TTC au centime par la même règle (`unite: 'ttc'`), pour l'unité affichée en grand.
+            const cT = centimesRepartition(parties, commission, retro, porteuse, 'ttc');
             const caHt = c?.commissionHt ?? b.caHt;
             const partDe = (s: Societe): number => c?.parSociete[s] ?? parSociete.societe[s];
+            const ttcDe = (s: Societe): number => cT?.parSociete[s] ?? parSociete.societe[s] * TVA;
             const recoit = SOCIETES.filter((s) => s !== porteuse && partDe(s) > 0);
             const exterieurHt = c === null ? parSociete.exterieurHt : c.exterieurs.reduce((t, e) => t + e.ht, 0);
             const noms = c === null ? [] : c.exterieurs.filter((e) => e.ht > 0).map((e) => e.nom);
+            const exterieurTtc = cT === null ? exterieurHt * TVA : cT.exterieurs.reduce((t, e) => t + e.ht, 0);
             return <>
-              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), {eur(caHt)} HT
+              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), <Montants disposition="ligne" sens="recu" ht={caHt} ttc={commission} />
                 {recoit.length === 0 && exterieurHt === 0 ? ' · rien de reversé en inter-cabinet' : ''}</span>
               <span className="loc-muet" data-parts-societes>
-                <span data-part-societe-form={porteuse}>Part {LIBELLE_SOCIETE[porteuse]} : {eur(partDe(porteuse))} HT ({pctTexte(pcts.societe[porteuse])})</span>
+                <span data-part-societe-form={porteuse}>Part {LIBELLE_SOCIETE[porteuse]} : <Montants disposition="ligne" ht={partDe(porteuse)} ttc={ttcDe(porteuse)} /> · {pctTexte(pcts.societe[porteuse])}</span>
                 {SOCIETES.filter((s) => s !== porteuse).map((s) => recoit.includes(s)
-                  ? <span key={s} className="trx-rouge" data-part-societe-form={s} data-reverse-form={s}> · Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]} : {eur(partDe(s))} HT ({pctTexte(pcts.societe[s])})</span>
-                  : <span key={s} data-part-societe-form={s}> · Part {LIBELLE_SOCIETE[s]} : {eur(partDe(s))} HT ({pctTexte(pcts.societe[s])})</span>)}
-                {exterieurHt > 0 && <span className="trx-rouge" data-reverse-form="exterieur"> · {noms.length === 1 ? `Part ${noms[0]} − Reversé à ${noms[0]}` : `Part extérieure − Reversé à l’extérieur${noms.length > 1 ? ` (${noms.join(', ')})` : ''}`} : {eur(exterieurHt)} HT ({pctTexte(pcts.exterieur)})</span>}
+                  ? <span key={s} className="trx-rouge" data-part-societe-form={s} data-reverse-form={s}> · Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]} : <Montants disposition="ligne" sens="verse" ht={partDe(s)} ttc={ttcDe(s)} /> · {pctTexte(pcts.societe[s])}</span>
+                  : <span key={s} data-part-societe-form={s}> · Part {LIBELLE_SOCIETE[s]} : <Montants disposition="ligne" ht={partDe(s)} ttc={ttcDe(s)} /> · {pctTexte(pcts.societe[s])}</span>)}
+                {exterieurHt > 0 && <span className="trx-rouge" data-reverse-form="exterieur"> · {noms.length === 1 ? `Part ${noms[0]} − Reversé à ${noms[0]}` : `Part extérieure − Reversé à l’extérieur${noms.length > 1 ? ` (${noms.join(', ')})` : ''}`} : <Montants disposition="ligne" sens="verse" ht={exterieurHt} ttc={exterieurTtc} /> · {pctTexte(pcts.exterieur)}</span>}
               </span>
             </>;
           })()}
@@ -338,7 +345,7 @@ export function equivalent(m: MontantEcran): string | null {
   const x = nombre(m.texte);
   if (x === null) return null;
   const a = autreUnite({ montant: x, unite: m.unite });
-  return `soit ${eur(a.montant)} ${LIBELLE_UNITE[a.unite]}`;
+  return `soit ${eur(a.montant)}${ESPACE}${LIBELLE_UNITE[a.unite]}`;
 }
 
 /**
@@ -358,13 +365,15 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
   const valeur = montantEffectif(brute, propose ?? null);
   const eq = equivalent(valeur);
   const avecTaux = propose !== undefined;
-  const pctTexte = (x: number): string => x.toLocaleString('fr-FR', { maximumFractionDigits: 4 });
+  const pctTexte = (x: number): string => nombreFr(x, { maximumFractionDigits: 4 });
+  const u = useAffichage();
   return (
     <div className="trx-montant-unite" data-montant-unite={champ}>
       {avecTaux && <label>Taux de rémunération (%)
         <input inputMode="decimal" value={brute.taux ?? texteTaux(TAUX_REMUNERATION_DEFAUT)} onChange={(e) => onChange(saisirTaux(brute, e.target.value))} data-taux={champ} /></label>}
       <label>{mot} ({LIBELLE_UNITE[valeur.unite]})
-        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: valeur.unite }, e.target.value, propose ?? null) : { texte: e.target.value, unite: valeur.unite, auto: false })} data-champ={champ} /></label>
+        <input inputMode="decimal" value={valeur.texte} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: valeur.unite }, e.target.value, propose ?? null) : { texte: e.target.value, unite: valeur.unite, auto: false })}
+          onBlur={() => { const g = grouperSaisie(brute.texte); if (g !== brute.texte) onChange({ ...brute, texte: g }); }} data-champ={champ} /></label>
       <div className="trx-unites" role="group" aria-label={`Unité : ${mot}`}>
         {UNITES.map((u) => (
           <button key={u} type="button" className="trx-unite" aria-pressed={valeur.unite === u} disabled={u === 'ht' && !avecHt}
@@ -373,9 +382,9 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
       </div>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
       {brute.auto === true && propose != null && <span className="loc-muet" data-propose={champ}>
-        proposé : {pctTexte(propose.taux)} % de {eur(propose.baseTtc)} TTC (sa part : {pctTexte(propose.pct)} % de la commission nette)</span>}
+        proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(u, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% de la commission nette)</span>}
       {ecartCalcul(brute, propose ?? null) && propose != null && <span className="trx-ecart-calcul" data-ecart-calcul={champ}>
-        <span className="trx-alerte">valeur saisie — calcul proposé : {eur(propose.ttc)} TTC</span>
+        <span className="trx-alerte">valeur saisie — calcul proposé : {montantsTexte(u, propose.ttc / TVA, propose.ttc)}</span>
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...brute, auto: true })} data-appliquer-calcul={champ}>Appliquer le calcul</button></span>}
       {aide !== undefined && <span className="loc-muet">{aide}</span>}
       {!avecHt && <span className="loc-muet" data-ht-indisponible={champ}>Saisie en HT : disponible après la mise à jour de la base (migration 437).</span>}
@@ -468,7 +477,7 @@ export function ecartCalcul(m: MontantEcran, propose: Proposition | null): boole
   return Math.abs((m.unite === 'ttc' ? x : x * TVA) - propose.ttc) >= 0.005;
 }
 
-const texteCentimes = (x: number): string => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const texteCentimes = (x: number): string => nombreFr(x, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
  * Ce que le champ montre (et ce qui s'enverra) : une commission saisie, telle quelle ; une commission PROPOSÉE, le montant proposé dans
@@ -519,19 +528,28 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
   // 🔴 LOT W — HT et TTC l'un sous l'autre, dans une colonne de largeur fixe alignée à droite : les montants ne se coupent jamais.
   // 🔴 LOT AH — la base HT = la commission au centime − l'apporteur au centime (la même que le tableau de la carte : tout tombe juste).
   const baseHt = auCentime(auCentime(commissionTtc / TVA) - apporteurs.reduce((t, a) => t + auCentime(a.ttc / TVA), 0));
-  const montants = (ttc: number, rouge?: boolean, donnee?: string, htForce?: number) => (
-    <td className="trx-resume-montants"><span className={rouge ? 'trx-rouge' : undefined} data-resume-ht={donnee}><strong>{eur(htForce ?? ttc / TVA)} HT</strong></span>{' '}
-      <span className={rouge ? 'trx-rouge' : 'trx-vert'} data-resume-ttc={donnee}>({eur(ttc)} TTC)</span></td>);
+  // 🔴 LOT AM — l'unité choisie (« HT | TTC ») en grand (gras), l'autre dessous entre parenthèses, de la même couleur : l'apporteur (déduit)
+  // en rouge, la commission de la vente (CA) en vert, la base à l'encre.
+  const u = useAffichage();
+  const autre = u === 'ttc' ? 'ht' : 'ttc';
+  const montants = (ttc: number, sens: 'verse' | 'recu' | 'neutre', donnee?: string, htForce?: number) => {
+    const couleur = sens === 'verse' ? 'trx-rouge' : sens === 'recu' ? 'trx-vert' : undefined;
+    const texte = (x: 'ht' | 'ttc'): string => `${eur(x === 'ttc' ? ttc : htForce ?? ttc / TVA)}${ESPACE}${MOT_UNITE[x]}`;
+    const marque = (x: 'ht' | 'ttc') => (x === 'ht' ? { 'data-resume-ht': donnee } : { 'data-resume-ttc': donnee });
+    return (
+      <td className="trx-resume-montants"><span className={couleur} {...marque(u)}><strong>{texte(u)}</strong></span>{' '}
+        <span className={couleur === undefined ? 'trx-mt-petit' : `trx-mt-petit ${couleur}`} {...marque(autre)}>({texte(autre)})</span></td>);
+  };
   return (
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
-      <thead><tr><td /><th scope="col">HT (TTC)</th></tr></thead>
+      <thead><tr><td /><th scope="col">{MOT_UNITE[u]} ({MOT_UNITE[autre]})</th></tr></thead>
       <tbody>
-        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, false, 'commission')}</tr>
+        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
         {apporteurs.length === 0
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
-          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, true, `apporteur-${i}`)}</tr>)}
+          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'verse', `apporteur-${i}`)}</tr>)}
         <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
-          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, false, 'base', baseHt)}</tr>
+          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, 'neutre', 'base', baseHt)}</tr>
       </tbody>
     </table>
   );
