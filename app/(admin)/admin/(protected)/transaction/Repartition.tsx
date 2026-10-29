@@ -1,7 +1,7 @@
 'use client';
 
 import { ListeChoix } from '../location/ListeChoix';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, partsHt, SOCIETES, sommeSocietes, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant, UNITES } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
@@ -182,6 +182,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const net = commissionNetteHt(commission, retro);
   const lignesModele = etat.parties.map(versModeleUne);
   const parts = partsHt(lignesModele, net);
+  // LOT U — les montants des cases « Part (€ HT) » calculées, au centime, la somme juste sur la base.
+  const eurAffiches = montantsAffiches(etat.parties, parts, net);
   const { parties, motif: motifTotal } = etatSomme(etat, honorairesTtc);
   // Sans aucun négociateur (rien n'est encore une partie), le total se lit sur les lignes affichées.
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
@@ -210,11 +212,14 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           onChange={(m) => onChange({ ...etat, retroTexte: m.texte, retroUnite: m.unite })} champ="retro" aide="Déduite avant toute répartition." />
       </div>}
 
+      {/* 🔴 LOT U (Arno) — en tête, la base de répartition : commission de la vente − apporteur(s) = base (TTC et HT), en direct. */}
+      <ResumeBase commissionTtc={commission} apporteurs={etat.apporteurId === null && retro === 0 ? []
+        : [{ nom: apporteurs.find((a) => a.id === etat.apporteurId)?.nom ?? null, ttc: retro }]} />
       <ul className="trx-journal trx-parties" data-parties>
         {etat.parties.map((p, i) => {
           const interne = p.sorte !== 'exterieure';
           const pctAffiche = p.mode === 'pct' ? p.texte : (Number.isFinite(parts[i]) ? texteNombre(pourcentageDe(parts[i], net)) : '');
-          const eurAffiche = p.mode === 'eur' ? p.texte : (Number.isFinite(parts[i]) ? texteNombre(parts[i]) : '');
+          const eurAffiche = p.mode === 'eur' ? p.texte : (Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i]) : '');
           return (
             <li key={i} className="trx-partie" data-partie={p.sorte} data-ligne-partie={i}>
               <div className="trx-partie-tete">
@@ -260,7 +265,6 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
             <strong>Total</strong>
             <span className="trx-total" data-total-pct>{Number.isFinite(total.pourcentage) ? `${total.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %` : '—'}</span>
             <span data-total-eur>{Number.isFinite(total.montantHt) ? eur(total.montantHt) : '—'} HT</span>
-            <span className="loc-muet">sur {eur(net)} HT de commission nette ({eur(ht(commission))} HT − rétrocession)</span>
           </div>
           {parties.length === 0 && <span className="loc-muet" data-sans-repartition>Aucun négociateur choisi : pas de répartition, toute la commission va à {LIBELLE_SOCIETE[societeVente]}.</span>}
           {motifTotal !== null && <span className="trx-alerte" role="status" data-motif-repartition>{motifTotal}</span>}
@@ -442,4 +446,47 @@ export function commissionsResolues(etat: EtatRepartition, honorairesTtc: number
   const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc));
     return { texte: e.texte, unite: e.unite, ...(c[cote].taux !== undefined ? { taux: c[cote].taux } : {}) }; };
   return { ...etat, commissions: { entree: r('entree'), sortie: r('sortie') } };
+}
+
+// ── 🔴 LOT U : la base de répartition en tête ; les parts en € au centime ────────────────────────────────────────────────────
+
+
+/**
+ * 🔴 LOT U (Arno) — LES MONTANTS AFFICHÉS des cases « Part (€ HT) » : chaque part CALCULÉE (saisie en %) arrondie au centime pour l'affichage
+ * seulement (le calcul garde sa précision) ; quand les parts font la base, l'écart d'arrondi est reporté sur la DERNIÈRE part calculée, pour
+ * que la somme affichée tombe juste au centime sur la base. Une part saisie en € garde sa saisie (comptée au centime). PUR.
+ */
+export function montantsAffiches(lignes: readonly Pick<PartieEcran, 'mode' | 'texte'>[], parts: readonly number[], netHt: number): number[] {
+  const c = (x: number): number => Math.round(x * 100) / 100;
+  const affiches = parts.map((x, i) => (lignes[i]?.mode === 'eur' ? x : c(x)));
+  const somme = parts.reduce((t, x) => t + (Number.isFinite(x) ? x : Number.NaN), 0);
+  const derniere = lignes.map((l, i) => (l.mode === 'eur' ? -1 : i)).filter((i) => i >= 0).at(-1);
+  if (derniere === undefined || !Number.isFinite(somme) || Math.abs(somme - netHt) > 1e-6) return affiches;
+  const autres = affiches.reduce((t, x, i) => t + (i === derniere ? 0 : c(x)), 0);
+  affiches[derniere] = c(c(netHt) - autres);
+  return affiches;
+}
+
+/**
+ * 🔴 LOT U (Arno) — LA BASE DE RÉPARTITION, en tête du panneau (carte et formulaire) : « Commission de la vente », une ligne « − Apporteur :
+ * Nom » par apporteur (le MONTANT en rouge, le signe et le mot avec lui ; aucun : « Aucun apporteur », sans rouge), puis « = Base de
+ * répartition » en gras — TTC et HT en colonnes alignées à droite. Elle se lit sur la saisie en cours : elle suit l'apporteur et la commission.
+ */
+export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: number; apporteurs: readonly { nom: string | null; ttc: number }[] }) {
+  const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + a.ttc, 0);
+  const montants = (ttc: number, classe?: string, donnee?: string) => <>
+    <td className={classe} data-resume-ttc={donnee}>{eur(ttc)}</td><td className={classe} data-resume-ht={donnee}>{eur(ttc / TVA)}</td></>;
+  return (
+    <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
+      <thead><tr><td /><th scope="col">TTC</th><th scope="col">HT</th></tr></thead>
+      <tbody>
+        <tr data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, undefined, 'commission')}</tr>
+        {apporteurs.length === 0
+          ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /><td /></tr>
+          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'trx-rouge', `apporteur-${i}`)}</tr>)}
+        <tr className="trx-resume-base-total" data-resume="base"><th scope="row">= Base de répartition{' '}
+          <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, undefined, 'base')}</tr>
+      </tbody>
+    </table>
+  );
 }

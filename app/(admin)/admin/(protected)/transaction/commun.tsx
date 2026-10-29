@@ -207,10 +207,24 @@ export const CSS_TRANSACTION = `
 .trx-calcul-mot{font-weight:700}
 .trx-calcul-ht{color:var(--color-svv-muted)}
 .trx-calcul-cote.trx-ecart-calcul{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+/* LOT U (Arno) — la base de répartition en tête du panneau : TTC et HT en colonnes alignées à droite, l'apporteur en rouge (signe et mot avec). */
+.trx-resume-base{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}
+.trx-resume-base th,.trx-resume-base td{padding:4px 0 4px 10px;text-align:right;white-space:nowrap;vertical-align:top}
+.trx-resume-base th[scope='row']{padding-left:0;text-align:left;white-space:normal;font-weight:600;color:var(--color-svv-ink);overflow-wrap:break-word}
+.trx-resume-base thead th{font-size:.78rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-resume-base th.loc-muet{color:var(--color-svv-muted)}
+.trx-resume-base .trx-resume-base-total th,.trx-resume-base .trx-resume-base-total td{border-top:1px solid var(--color-svv-line-strong);font-weight:800}
+.trx-resume-base-note{display:block;font-size:.78rem;font-weight:400;color:var(--color-svv-muted)}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
   .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .trx-colonne-tete{flex-direction:column;align-items:flex-start}
+  /* LOT U — sur téléphone, le libellé sur sa ligne, TTC et HT dessous (toujours alignés à droite, en colonnes). */
+  .trx-resume-base tr{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px}
+  .trx-resume-base th[scope='row']{grid-column:1/-1;padding-bottom:0}
+  .trx-resume-base td:empty{display:none}
+  .trx-resume-base .trx-resume-base-total th,.trx-resume-base .trx-resume-base-total td{border-top:0}
+  .trx-resume-base .trx-resume-base-total{border-top:1px solid var(--color-svv-line-strong);padding-top:2px}
 }
 `;

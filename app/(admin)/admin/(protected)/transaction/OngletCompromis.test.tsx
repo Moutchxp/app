@@ -215,10 +215,13 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     await nouveau();
     expect([...container.querySelectorAll('[data-ligne-partie]')].map((x) => x.getAttribute('data-partie'))).toEqual(['entree', 'sortie']);
     expect(pcts()).toEqual(['50', '50']);
-    expect([...container.querySelectorAll('[data-partie-eur]')].map((i) => (i as HTMLInputElement).value)).toEqual(['5000', '5000']);
+    // LOT U — les parts calculées au centime.
+    expect([...container.querySelectorAll('[data-partie-eur]')].map((i) => (i as HTMLInputElement).value.replace(/\s/g, ' '))).toEqual(['5 000,00', '5 000,00']);
     expect(texte('[data-societe-partie="0"]')).toBe('négociateur à choisir');
     expect(texte('[data-total-pct]')).toBe('100 %');
-    expect(texte('[data-total-repartition]')).toContain('sur 10 000,00 € HT de commission nette');
+    // LOT U — la phrase « sur … de commission nette » est remplacée par la base de répartition en tête.
+    expect(texte('[data-total-repartition]')).not.toContain('de commission nette');
+    expect(texte('[data-resume="base"] [data-resume-ht="base"]')).toBe('10 000,00 €');
     expect(container.querySelector('[data-revenir-5050]')).not.toBeNull();
     expect(enregistrer().disabled).toBe(false);
   });
@@ -237,7 +240,7 @@ describe('🔴 LOT E — la répartition, toujours visible et modifiable', () =>
     await nouveau();
     await choisir('entree', 5); await choisir('sortie', 7);
     await saisir('[data-partie-pct="0"]', '60');
-    expect((container.querySelector('[data-partie-eur="0"]') as HTMLInputElement).value).toBe('6000');
+    expect((container.querySelector('[data-partie-eur="0"]') as HTMLInputElement).value.replace(/\s/g, ' ')).toBe('6 000,00');
     await saisir('[data-partie-eur="1"]', '4000');
     expect((container.querySelector('[data-partie-pct="1"]') as HTMLInputElement).value).toBe('40');
     expect(texte('[data-total-pct]')).toBe('100 %');
@@ -1218,5 +1221,87 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
       expect([...bloc.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')))).toEqual(['data-negociateur-carte', 'data-honoraires-cote', 'data-statut-vente']);
       expect(texte('[data-colonne="vendeur"]')).not.toContain('2 000,00 € TTC');
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
+  });
+});
+
+describe('🔴 LOT U — la base de répartition en tête du panneau ; les parts en € au centime', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) =>
+    ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
+  // « Location ? » : 7 500 TTC, apporteur 1 000 TTC, 60 / 40.
+  const vente = (parts: [number, number], apporteur = true): Vente => ({ ...compromis, honorairesTtc: 7500, retroApporteur: apporteur ? { montant: 1000, unite: 'ttc' } : null,
+    apporteur: apporteur ? 'Julien Deblois' : null, repartition: { retroApporteurTtc: apporteur ? 1000 : 0, parties: [pa('entree', 5, JB.nom, 'criterimmo', parts[0]), pa('sortie', 7, MY.nom, 'macj', parts[1])] },
+    dossier: { ...compromis.dossier!, apporteurId: apporteur ? 4 : null }, lignes: [] });
+  const ligne = (sel: string) => [...container.querySelectorAll(`${sel} th, ${sel} td`)].map((x) => x.textContent!.replace(/\s/g, ' '));
+  const eurs = (r: string) => [...container.querySelectorAll(`${r} [data-partie-eur]`)].map((i) => (i as HTMLInputElement).value.replace(/\s/g, ' '));
+  const panneau = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(v.id); await cliquer('[data-societe-cote="entree"]'); };
+
+  it('avec apporteur : « Commission de la vente », « − Apporteur : Nom » (montant en rouge), « = Base de répartition » en gras ; en tête, avant les parties', async () => {
+    await panneau(vente([60, 40]));
+    const r = '[data-reglage-repartition="entree"]';
+    expect(ligne(`${r} [data-resume-base] thead`)).toEqual(['', 'TTC', 'HT']);
+    expect(ligne(`${r} [data-resume="commission"]`)).toEqual(['Commission de la vente', '7 500,00 €', '6 250,00 €']);
+    expect(ligne(`${r} [data-resume="apporteur"]`)).toEqual(['− Apporteur : Julien Deblois', '1 000,00 €', '833,33 €']);
+    expect(container.querySelector(`${r} [data-resume-ttc="apporteur-0"]`)!.className).toBe('trx-rouge');
+    expect(container.querySelector(`${r} [data-resume="apporteur"] th`)!.className).not.toContain('trx-rouge');
+    expect(ligne(`${r} [data-resume="base"]`)).toEqual(['= Base de répartition tous les calculs ci-dessous partent de cette base', '6 500,00 €', '5 416,67 €']);
+    expect(container.querySelector(`${r} [data-resume="base"]`)!.className).toBe('trx-resume-base-total');
+    const bloc = container.querySelector(`${r} [data-bloc-repartition]`)!;
+    expect(bloc.querySelector('[data-resume-base]')!.compareDocumentPosition(bloc.querySelector('[data-parties]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 60 / 40 de 5 416,67 HT : au centime, et la somme tombe juste
+    expect(eurs(r)).toEqual(['3 250,00', '2 166,67']);
+    // le bas du panneau garde le total, le CA de la vente et les parts par société ; plus la phrase « commission nette »
+    expect(texte(`${r} [data-total-repartition]`)).not.toContain('de commission nette');
+    expect(container.querySelector(`${r} [data-inter-cabinet-form]`)).not.toBeNull();
+    expect(container.querySelector(`${r} [data-parts-societes]`)).not.toBeNull();
+  });
+
+  it('sans apporteur : « Aucun apporteur » (sans rouge), la base = la commission de la vente', async () => {
+    await panneau(vente([50, 50], false));
+    const r = '[data-reglage-repartition="entree"]';
+    expect(ligne(`${r} [data-resume="aucun-apporteur"]`)).toEqual(['Aucun apporteur', '', '']);
+    expect(container.querySelector(`${r} [data-resume-base] .trx-rouge`)).toBeNull();
+    expect(ligne(`${r} [data-resume="base"]`).slice(1)).toEqual(['7 500,00 €', '6 250,00 €']);
+  });
+
+  it('50 / 50 de 5 416,67 € HT : 2 708,33 + 2 708,34 — l’écart d’arrondi sur la dernière partie, la somme juste au centime', async () => {
+    await panneau(vente([50, 50]));
+    expect(eurs('[data-reglage-repartition="entree"]')).toEqual(['2 708,33', '2 708,34']);
+    const { montantsAffiches } = await import('./Repartition');
+    const net = 6500 / 1.2;
+    const pct = (t: string) => ({ mode: 'pct' as const, texte: t });
+    const tiers = montantsAffiches([pct('33,3333'), pct('33,3333'), pct('33,3334')], [net * 0.333333, net * 0.333333, net * 0.333334], net);
+    expect(tiers.map((x) => x.toFixed(2))).toEqual(['1805.55', '1805.55', '1805.57']);
+    expect(Math.round(tiers.reduce((t, x) => t + x, 0) * 100)).toBe(Math.round(net * 100));
+    // une part SAISIE en € garde sa saisie ; l'écart va sur la dernière part calculée
+    const saisie = montantsAffiches([{ mode: 'eur', texte: '1000,005' }, pct('81,5385')], [1000.005, net - 1000.005], net);
+    expect(saisie[0]).toBe(1000.005);
+    expect(saisie[1].toFixed(2)).toBe('4416.66');
+    // une somme qui ne fait pas la base (total ≠ 100 %) : simple arrondi, rien de reporté
+    expect(montantsAffiches([pct('50'), pct('60')], [net * 0.5, net * 0.6], net).map((x) => x.toFixed(2))).toEqual(['2708.33', '3250.00']);
+  });
+
+  it('formulaire (Nouveau compromis) : le résumé se met à jour en direct quand la commission ou l’apporteur change', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-nouveau-compromis]');
+    await saisir('[data-champ="commission"]', '7500');
+    expect(ligne('[data-resume="commission"]')).toEqual(['Commission de la vente', '7 500,00 €', '6 250,00 €']);
+    expect(container.querySelector('[data-resume="aucun-apporteur"]')).not.toBeNull();
+    await cliquer('[data-champ="apporteur-annuaire"]'); await cliquer('[role="option"][data-option="4"]');
+    await cliquer('[data-unite-de="retro"][data-unite="ttc"]');
+    await saisir('[data-champ="retro"]', '1000');
+    expect(ligne('[data-resume="apporteur"]')).toEqual(['− Apporteur : Julien Deblois', '1 000,00 €', '833,33 €']);
+    expect(ligne('[data-resume="base"]').slice(1)).toEqual(['6 500,00 €', '5 416,67 €']);
+    await saisir('[data-champ="commission"]', '8500');
+    expect(ligne('[data-resume="base"]').slice(1)).toEqual(['7 500,00 €', '6 250,00 €']);
+  });
+
+  it('deux apporteurs : une ligne chacun, retranchés tous deux de la base', async () => {
+    const { ResumeBase } = await import('./Repartition');
+    await act(async () => { root.render(createElement(ResumeBase, { commissionTtc: 7500, apporteurs: [{ nom: 'Julien Deblois', ttc: 1000 }, { nom: 'Gardien Dacquet', ttc: 600 }] })); });
+    expect([...container.querySelectorAll('[data-resume="apporteur"]')].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(
+      ['− Apporteur : Julien Deblois1 000,00 €833,33 €', '− Apporteur : Gardien Dacquet600,00 €500,00 €']);
+    expect(ligne('[data-resume="base"]').slice(1)).toEqual(['5 900,00 €', '4 916,67 €']);
   });
 });
