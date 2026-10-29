@@ -143,10 +143,10 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
 }
 
 export const CSS_BLOC_DU = `
-/* 🔴 LOT AR — un vrai changement de section : grand espace avant et après (« Compromis annulés » au même écart), un filet sur toute la largeur,
+/* 🔴 LOT AR — un vrai changement de section : grand espace avant (LOT AT : la synthèse est le dernier bloc de la page, « Compromis annulés » passe au-dessus), un filet sur toute la largeur,
    un fond propre au bloc (--trx-fond-synthese, clair et sombre) ; les en-têtes de catégorie sur la trame (plus soutenue ici, pour se voir
    sur ce fond : contrastes AA mesurés au lot AP). */
-.trx-du{display:flex;flex-direction:column;gap:12px;margin:48px 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese);--trx-trame:var(--trx-trame-finale)}
+.trx-du{display:flex;flex-direction:column;gap:12px;margin:48px 0 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese);--trx-trame:var(--trx-trame-finale)}
 .trx-du-entete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px}
 .trx-du-entete h3{margin:0;min-width:0;overflow-wrap:anywhere;font-size:1rem;font-weight:800}
 .trx-du-sous-titre{margin:-6px 0 0;font-size:.9rem}
@@ -202,7 +202,7 @@ export const CSS_BLOC_DU = `
 .trx-du-mention-autre{margin:0;padding:4px 12px;color:var(--color-svv-muted);font-size:.85rem}
 /* Téléphone : une seule colonne — le nom (et sa mention) d'abord, le montant dessous, aligné à droite ; rien n'écrase le nom. */
 @media (max-width:560px){
-  .trx-du{padding:12px 10px 10px;margin:36px 0}
+  .trx-du{padding:12px 10px 10px;margin:36px 0 0}
   .trx-du-tete,.trx-du-personne,.trx-du-total,.trx-du-solde{grid-template-columns:minmax(0,1fr);row-gap:4px}
   .trx-du-montant{align-items:flex-end}
   .trx-du-affaires{padding-left:14px;padding-right:8px}

@@ -3228,8 +3228,88 @@ describe('🔴 LOT AR — la synthèse : une section à part, les dossiers toujo
     expect(bloc.compareDocumentPosition(container.querySelector('[data-liste-compromis]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     const { CSS_BLOC_DU } = await import('./BlocDu');
     const { CSS_TRANSACTION } = await import('./commun');
-    expect(CSS_BLOC_DU.replace(/\s+/g, ' ')).toContain('margin:48px 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese)');
+    expect(CSS_BLOC_DU.replace(/\s+/g, ' ')).toContain('margin:48px 0 0;padding:16px 14px 14px;border-top:2px solid var(--color-svv-line-strong);border-radius:0 0 14px 14px;background:var(--trx-fond-synthese)');
     expect(CSS_TRANSACTION).toContain('--trx-fond-synthese:#f6f8fb');
     expect(CSS_TRANSACTION).toContain('--trx-fond-synthese:#161e29');
+  });
+});
+
+describe('🔴 LOT AT — « Compromis annulés » : dernier bloc de la liste, affiché seulement s’il y en a au moins un (accord d’Arno)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => {
+    ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    for (const c of ['negociateurs', 'apporteurs', 'agences', 'inter-cabinet']) window.localStorage.removeItem(`trx-du-section-${c}`);
+  });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+      { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
+  // l'annulé de chaque société : un apporteur et une agence à lui, pour vérifier qu'il reste hors de la synthèse
+  const annule = (societe: 'criterimmo' | 'macj'): Vente => ({ ...compromis, id: 77, libelle: 'BERNARD / THOMAS', societe, apporteur: 'Apporteur Annulé', statut: 'annulee',
+    annulation: { date: '2026-10-20', motif: 'Défaut de crédit', note: null } });
+  const page = async (societe: 'criterimmo' | 'macj', annules: Vente[]) => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [v41, v60].map((x) => venteDansSociete(x, societe)).filter((x): x is Vente => x !== null);
+    listeAnnules = annules;
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  const bloc = () => container.querySelector('[data-bloc="compromis-annules"]');
+  const avant = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  const synthese = () => ({ texte: container.querySelector('[data-bloc-du]')!.textContent!, total: texte('[data-total-a-verser] [data-montant-grand]'),
+    tuiles: [texte('[data-nb-compromis]'), texte('[data-tuile="commissions"] [data-commissions-ttc]')] });
+
+  it('0 annulé : aucun bloc, aucun espace ; la synthèse est le dernier bloc de la page — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe, []);
+      expect(bloc()).toBeNull();
+      expect(container.querySelector('#trx-compromis-annules')).toBeNull();
+      expect(container.querySelector('.trx-espace-annules')).toBeNull();
+      const du = container.querySelector('[data-bloc-du]')!;
+      expect(du.nextElementSibling).toBeNull();
+    }
+  });
+
+  it('1 annulé : le bloc, replié, avec son compteur, sous la dernière carte et au-dessus de la synthèse ; hors de la synthèse et des tuiles — CRITERIMMO et MACJ', async () => {
+    for (const societe of ['criterimmo', 'macj'] as const) {
+      await page(societe, []);
+      const sans = synthese();
+      await page(societe, [annule(societe)]);
+      const b = bloc()!;
+      expect(texte('#trx-compromis-annules .tdb-replie-mot')).toBe('Compromis annulés (1)');
+      expect(container.querySelector('[data-deplier="compromis-annules"]')!.getAttribute('aria-expanded')).toBe('false');
+      // place : après la liste (et son espace de deux cartes), avant la synthèse
+      const liste = container.querySelector('[data-liste-compromis]')!;
+      const espace = container.querySelector('.trx-espace-annules')!;
+      expect(liste.nextElementSibling).toBe(espace);
+      expect(espace.nextElementSibling).toBe(b);
+      expect(avant(b, container.querySelector('[data-bloc-du]')!)).toBe(true);
+      // l'annulé n'entre ni dans la synthèse ni dans les tuiles
+      expect(synthese()).toEqual(sans);
+      expect(container.querySelector('[data-bloc-du] [data-aller-affaire-du="77"]')).toBeNull();
+      expect(container.querySelector('[data-bloc-du]')!.textContent).not.toContain('Apporteur Annulé');
+    }
+  });
+
+  it('annuler fait apparaître le bloc ; rétablir le dernier le fait disparaître', async () => {
+    await page('criterimmo', []);
+    expect(bloc()).toBeNull();
+    await deplier(41); await cliquer('[data-annulation-compromis="41"]');
+    // le serveur (simulé) : 41 passe dans les annulés
+    listeCompromis = [v60].map((x) => x); listeAnnules = [{ ...v41, statut: 'annulee', annulation: { date: '2026-10-27', motif: 'Défaut de crédit', note: null } }];
+    await act(async () => { (document.querySelector('[data-confirmer-annulation]') as HTMLElement).click(); }); await calmer();
+    expect(posts.at(-1)).toMatchObject({ action: 'compromis-annuler', id: 41 });
+    expect(texte('#trx-compromis-annules .tdb-replie-mot')).toBe('Compromis annulés (1)');
+    expect(avant(bloc()!, container.querySelector('[data-bloc-du]')!)).toBe(true);
+    await cliquer('[data-deplier="compromis-annules"]');
+    listeCompromis = [v41, v60]; listeAnnules = [];
+    await cliquer('[data-retablir-compromis="41"]');
+    expect(posts.at(-1)).toEqual({ action: 'compromis-retablir', id: 41 });
+    expect(bloc()).toBeNull();
+    expect(container.querySelector('[data-compromis="41"]')).not.toBeNull();
   });
 });

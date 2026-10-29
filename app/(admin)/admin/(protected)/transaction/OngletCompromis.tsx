@@ -382,11 +382,15 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           })}
         </ul>
       )}
+      {/* 🔴 LOT AT (Arno) — « Compromis annulés » : le dernier bloc de la LISTE, sous la dernière carte, à l'écart de deux cartes, avant la
+          synthèse ; affiché seulement s'il y a au moins un compromis annulé (accord d'Arno) — à 0, ni bloc ni espace. */}
+      {(d.annules ?? []).length > 0 && <>
+        <div className="trx-espace-annules" />
+        <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
+      </>}
       {/* 🔴 LOT AQ (Arno) — « Ce que l'on doit — compromis non encore signés » : les mêmes lignes que les tuiles, par personne. */}
       <BlocDu detail={detailDu(dc, dca, liste, vue, d.aujourdhui)} societe={vue} autreSociete={autreSociete}
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
-      <div className="trx-espace-annules" />
-      <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}
       {edition !== null && <FormulaireDossier societe={edition === 'nouveau' ? societeSaisie : edition.vente.societe} vente={edition === 'nouveau' ? null : edition.vente}
@@ -958,7 +962,7 @@ const CSS_ANNULATION = `
 .trx-annulation-champ textarea{min-height:72px;padding:8px 10px}
 `;
 
-/** LOT G — « Compromis annulés (N) », replié en bas de l'onglet : motif, date, note ; « Rétablir le compromis » (journalisé). */
+/** LOT G — « Compromis annulés (N) », replié sous la liste (LOT AT : rendu seulement s'il y en a au moins un) : motif, date, note ; « Rétablir le compromis » (journalisé). */
 function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: readonly Vente[]; disponible: boolean; onFait: () => void; onMotif: (m: string | null) => void }) {
   const retablir = async (id: number): Promise<void> => {
     const r = await posterTransaction({ action: 'compromis-retablir', id });
@@ -968,7 +972,7 @@ function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: r
   return (
     <BlocReplie id="trx-compromis-annules" section="compromis-annules" titre={<>Compromis annulés ({annules.length})</>} resume="" chevronAGauche defilement={false}
       classe="tdb-section trx-annules" donnees={{ 'data-bloc': 'compromis-annules' }}>
-      {annules.length === 0 ? <p className="loc-muet">Aucun compromis annulé.</p> : (
+      {annules.length > 0 && (
         <ul className="trx-cartes" data-liste-annules>
           {annules.map((v) => (
             <li key={v.id} className="trx-annule" data-compromis-annule={v.id}>
