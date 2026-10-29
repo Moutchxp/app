@@ -18,6 +18,8 @@ import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
+import { detailCommissions, enCentimes } from '../../../../lib/transaction/detailCommissions';
+import { FenetreCommissions } from './FenetreCommissions';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -56,9 +58,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     if (venteVisee === null || lu.etat !== 'ok') return;
     document.querySelector(`[data-compromis="${venteVisee}"]`)?.scrollIntoView?.({ block: 'start' });
   }, [venteVisee, lu.etat]);
-  // LOT I — le détail de la tuile « Commissions versées » : épinglé au toucher (ou au clic), montré au survol.
-  const [detailEpingle, setDetailEpingle] = useState(false);
-  const [detailSurvol, setDetailSurvol] = useState(false);
+  // 🔴 LOT AL (Arno) — la tuile « Commissions versées » ne se déploie plus : elle ouvre la fenêtre du détail.
+  const [fenetre, setFenetre] = useState(false);
+  const tuileCommissions = useRef<HTMLButtonElement | null>(null);
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
@@ -68,7 +70,22 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
   const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
   const tu = tuilesCompromis(liste, vue, statutDuLibelle);
-  const detail = detailEpingle || detailSurvol;
+  // 🔴 LOT AL — le détail des « Commissions versées » (la fenêtre) ; la tuile en affiche le total : la somme, au centime, des montants des
+  // cartes (règle du lot AH) — le Solde net le suit (CA − commissions versées = le « Reste à … » des cartes, au centime).
+  const dc = detailCommissions(liste, vue, statutDuLibelle);
+  const soldeHtC = enCentimes(tu.caHt) - dc.totalHtC;
+  const soldeTtcC = enCentimes(tu.caTtc) - dc.totalTtcC;
+  // LOT AA — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule (mention de la fenêtre).
+  const autreSociete = vue !== null && liste.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue));
+  /** LOT AL — le nom d'une affaire dans la fenêtre : la fenêtre se ferme, sa carte se déplie et vient à l'écran. */
+  const allerA = (id: number): void => {
+    setFenetre(false);
+    setTimeout(() => {
+      const b = document.querySelector<HTMLButtonElement>(`[data-deplier="compromis-${id}"], [data-deplier="miroir-${id}"]`);
+      if (b !== null && b.getAttribute('aria-expanded') !== 'true') b.click();
+      document.querySelector(`[data-compromis="${id}"]`)?.scrollIntoView?.({ block: 'start' });
+    }, 0);
+  };
   const signer = async (): Promise<void> => {
     if (acte === null) return;
     const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date });
@@ -113,35 +130,23 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
               .flatMap((x, i) => (i === 0 ? [x] : [<span key={`sep-${i}`} aria-hidden="true">{' · '}</span>, x]))}</span>}
           {vue === null && <span className="tdb-tuile-n1" data-neutralise-compromis>Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT (neutralisé)</span>}
           <span className="tdb-tuile-n1" data-commission-en-cours>sur {eur(tu.commissionTotaleHt)} HT de commission{tu.exterieurHt > 0 ? ` · dont inter-cabinet extérieur : ${eur(tu.exterieurHt)} HT` : ''}</span></div></li>
-        <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-expanded={detail} onClick={() => setDetailEpingle((x) => !x)}
-          onMouseEnter={() => setDetailSurvol(true)} onMouseLeave={() => setDetailSurvol(false)}
-          title={`Indépendants : ${eur(tu.independantsHt)} HT · Apporteurs : ${eur(tu.apporteursHt)} HT${SOCIETES.filter((s) => tu.interCabinetHt[s] > 0).map((s) => ` · Inter-cabinet vers ${LIBELLE_SOCIETE[s]} : ${eur(tu.interCabinetHt[s])} HT`).join('')}${tu.exterieurHt > 0 ? ` · Inter-cabinet extérieur : ${eur(tu.exterieurHt)} HT` : ''} · Internes (associés, salariés) : ${eur(tu.internesHt)} HT — non déduits`}>
+        {/* 🔴 LOT AL (Arno) — la tuile garde le titre, le total en rouge, le HT et « Voir le détail » ; toute la tuile ouvre la fenêtre (souris,
+            Entrée / Espace, toucher). Les lignes du détail et la bulle au survol l'ont quittée : tout leur contenu est dans la fenêtre. */}
+        <li><button type="button" className="tdb-tuile" data-tuile="commissions" aria-haspopup="dialog" aria-expanded={fenetre} ref={tuileCommissions} onClick={() => setFenetre(true)}>
           <span className="tdb-tuile-mot">Commissions versées</span>
-          <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(tu.commissionsTtc)} <small>TTC versées</small></strong>
-          <span className="trx-tuile-ht" data-commissions-ht>{eur(tu.commissionsHt)} HT</span>
-          {detail ? (
-            <span className="trx-tuile-detail" data-detail-commissions>
-              {/* 🔴 LOT P (Arno) — n'entrent que les INDÉPENDANTS et les APPORTEURS ; les internes et les statuts à renseigner, à part. */}
-              <span data-detail="independants">Indépendants : {eur(tu.independantsHt)} HT <span className="trx-tuile-detail-n">({eur(tu.independantsHt * TVA)} TTC)</span></span>
-              <span data-detail="apporteurs">Apporteurs : {eur(tu.apporteursHt)} HT <span className="trx-tuile-detail-n">({eur(tu.apporteursHt * TVA)} TTC)</span></span>
-              {/* 🔴 LOT R — l'inter-cabinet versé par la société porteuse (à l'autre société, à l'extérieur) ; entre nos sociétés, neutralisé au global. */}
-              {SOCIETES.filter((s) => tu.interCabinetHt[s] > 0).map((s) => <span key={s} data-detail={`inter-cabinet-${s}`}>Inter-cabinet vers {LIBELLE_SOCIETE[s]} : {eur(tu.interCabinetHt[s])} HT <span className="trx-tuile-detail-n">({eur(tu.interCabinetHt[s] * TVA)} TTC)</span></span>)}
-              {tu.exterieurHt > 0 && <span data-detail="inter-cabinet-exterieur">Inter-cabinet extérieur : {eur(tu.exterieurHt)} HT <span className="trx-tuile-detail-n">({eur(tu.exterieurHt * TVA)} TTC)</span></span>}
-              {tu.neutraliseHt > 0 && <span data-detail="inter-cabinet-neutralise" className="trx-tuile-detail-a-part">Inter-cabinet entre nos sociétés : {eur(tu.neutraliseHt)} HT — neutralisé</span>}
-              <span data-detail="internes" className="trx-tuile-detail-a-part">Internes (associés, salariés) : {eur(tu.internesHt)} HT — non déduits</span>
-              {/* 🔴 LOT AA (Arno) — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule. */}
-              {vue !== null && liste.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue)) && (
-                <span data-detail="autre-societe" className="trx-tuile-detail-a-part">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</span>)}
-              {tu.aRenseignerHt > 0 && <span data-detail="a-renseigner" className="trx-tuile-detail-a-part trx-alerte">Statut à renseigner : {eur(tu.aRenseignerHt)} HT — non déduits</span>}
-            </span>
-          ) : <span className="tdb-tuile-n1">indépendants + apporteurs + inter-cabinet — toucher pour le détail</span>}
+          <strong className="tdb-tuile-valeur trx-rouge" data-commissions-ttc>{eur(dc.totalTtcC / 100)} <small>TTC versées</small></strong>
+          <span className="trx-tuile-ht" data-commissions-ht>{eur(dc.totalHtC / 100)} HT</span>
+          <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-commissions>Voir le détail</span>
         </button></li>
         {/* LOT L (Arno) — le Solde net : TTC en premier, en grand et en VERT (« TTC » écrit) ; HT dessous, en gris. */}
         <li><div className="tdb-tuile" data-tuile="solde"><span className="tdb-tuile-mot">Solde net</span>
-          <strong className="tdb-tuile-valeur trx-vert" data-solde-ttc>{eur(tu.soldeTtc)} <small>TTC</small></strong>
-          <span className="trx-tuile-ht" data-solde-ht>{eur(tu.soldeHt)} HT</span>
+          <strong className="tdb-tuile-valeur trx-vert" data-solde-ttc>{eur(soldeTtcC / 100)} <small>TTC</small></strong>
+          <span className="trx-tuile-ht" data-solde-ht>{eur(soldeHtC / 100)} HT</span>
           <span className="tdb-tuile-n1">CA HT − commissions versées HT</span></div></li>
       </ul>
+      {fenetre && <FenetreCommissions detail={dc} societe={vue} autreSociete={autreSociete}
+        titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))}
+        onFermer={() => { setFenetre(false); tuileCommissions.current?.focus(); }} onAller={allerA} />}
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
       {/* 🔴 LOT AE (Arno) — la règle de la société porteuse, dite au moment de l'enregistrement. */}
       {portee !== null && (

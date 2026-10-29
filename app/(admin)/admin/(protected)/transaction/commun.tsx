@@ -187,6 +187,8 @@ export const CSS_TRANSACTION = `
 .trx-tuile-detail-a-part{border-top:1px dashed var(--color-svv-line);margin-top:2px;padding-top:2px;color:var(--color-svv-muted)}
 .trx-tuile-detail-a-part.trx-alerte{color:var(--color-svv-red)}
 .trx-tuile-detail-n{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
+/* 🔴 LOT AL — « Voir le détail » : la tuile « Commissions versées » ouvre sa fenêtre. */
+.trx-tuile-voir{color:var(--color-svv-red);font-weight:700;text-decoration:underline}
 @media (max-width:560px){ .trx-tuiles4{grid-template-columns:minmax(0,1fr)} }
 /* LOT I — un montant et son unité « HT / TTC » (deux boutons de 44 px, le choisi enfoncé). */
 .trx-montant-unite{display:flex;flex-direction:column;gap:4px;min-width:0}

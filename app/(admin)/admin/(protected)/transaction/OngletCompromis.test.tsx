@@ -56,9 +56,20 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-27T10:00:00Z'));
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
+// LOT AL — la présentation choisie dans la fenêtre est retenue par le navigateur : chaque test part du défaut (« Par catégorie »).
+beforeEach(() => { try { window.localStorage.removeItem('trx-commissions-versees-mode'); } catch { /* sans stockage */ } });
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+// 🔴 LOT AL — le détail des « Commissions versées » est dans la FENÊTRE (portail, hors du conteneur) : une catégorie lue
+// « Libellé : X € HT (Y € TTC) » (mode « Par catégorie », par défaut) ; `fenetre(sel)` : un texte de la fenêtre.
+const fenetre = (sel: string): string => document.querySelector(`[data-fenetre-commissions] ${sel}`)?.textContent?.replace(/\s/g, ' ') ?? '';
+const categorie = (cle: string): string => {
+  const c = document.querySelector(`[data-fenetre-commissions] [data-categorie="${cle}"]`);
+  if (c === null) return '';
+  const m = c.querySelector('[data-sous-total]')!;
+  return `${c.querySelector('h3')!.textContent} : ${m.children[0].textContent} ${m.children[1].textContent}`.replace(/\s/g, ' ');
+};
 const saisir = async (sel: string, valeur: string) => {
   const el = container.querySelector(sel) as HTMLInputElement;
   const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -537,13 +548,14 @@ describe('🔴 LOT I — commissions versées (HT / TTC) et les 4 tuiles', () =>
   it('« Commissions versées » : le détail négociateurs / apporteurs au toucher (et au survol)', async () => {
     listeCompromis = [avecCommissions];
     await onglet();
-    expect(container.querySelector('[data-detail-commissions]')).toBeNull();
+    // LOT AL — le détail n'est plus dans la tuile : « Voir le détail » ouvre la fenêtre.
+    expect(document.querySelector('[data-fenetre-commissions]')).toBeNull();
     await cliquer('[data-tuile="commissions"]');
     expect(container.querySelector('[data-tuile="commissions"]')!.getAttribute('aria-expanded')).toBe('true');
-    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
-    expect(texte('[data-detail="apporteurs"]')).toBe('Apporteurs : 2 000,00 € HT (2 400,00 € TTC)');
-    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 3 200,00 € HT (3 840,00 € TTC)');
-    expect(texte('[data-detail="inter-cabinet-exterieur"]')).toBe('Inter-cabinet extérieur : 1 600,00 € HT (1 920,00 € TTC)');
+    expect(categorie('independants')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
+    expect(categorie('apporteurs')).toBe('Apporteurs d’affaires : 2 000,00 € HT (2 400,00 € TTC)');
+    expect(categorie('inter-cabinet-macj')).toBe('Inter-cabinet vers MACJ : 3 200,00 € HT (3 840,00 € TTC)');
+    expect(categorie('exterieur')).toBe('Agences extérieures : 1 600,00 € HT (1 920,00 € TTC)');
   });
   it('un solde négatif s’affiche tel quel, avec le signe moins', async () => {
     listeCompromis = [{ ...avecCommissions, lignes: [{ ...avecCommissions.lignes[0], montantHt: 9000, montantTtc: 10800 }] }];
@@ -879,9 +891,9 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
     await cliquer('[data-vue="compromis"]');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
-    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 600,00 € HT — non déduits');
-    expect(container.querySelector('[data-detail="a-renseigner"]')).toBeNull();
+    expect(categorie('independants')).toBe('Indépendants : 1 000,00 € HT (1 200,00 € TTC)');
+    expect(categorie('internes')).toBe('Internes (associés, salariés) — non déduits : 600,00 € HT (720,00 € TTC)');
+    expect(categorie('a-renseigner')).toBe('');
     // global : JB 1 000 + l'apporteur 2 000 + l'inter-cabinet extérieur 1 600 ; MACJ (3 200) neutralisé ; Mylène (associée) n'est pas déduite.
     expect(texte('[data-commissions-ht]')).toBe('4 600,00 € HT');
     const inconnu = compromis.repartition!.parties.map((p) => (p.compteId === 7 ? { ...p, statut: null, statutCompte: null } : p));
@@ -890,7 +902,7 @@ describe('🔴 LOT P — le détail de « Commissions versées » : indépendant
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
     await cliquer('[data-vue="compromis"]');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="a-renseigner"]')).toBe('Statut à renseigner : 600,00 € HT — non déduits');
+    expect(categorie('a-renseigner')).toBe('Statut à renseigner — non déduits : 600,00 € HT (720,00 € TTC)');
     expect(texte('[data-commissions-ht]')).toBe('4 600,00 € HT');
   });
 });
@@ -938,8 +950,8 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     expect(texte('[data-commissions-ttc]')).toBe('2 000,00 € TTC versées');
     expect(texte('[data-solde-ttc]')).toBe('2 000,00 € TTC');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 1 666,67 € HT (2 000,00 € TTC)');
-    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 1 666,67 € HT — non déduits');
+    expect(categorie('inter-cabinet-macj')).toBe('Inter-cabinet vers MACJ : 1 666,67 € HT (2 000,00 € TTC)');
+    expect(categorie('internes')).toBe('Internes (associés, salariés) — non déduits : 1 666,67 € HT (2 000,00 € TTC)');
     await deplier(38);
     // LOT AH — « Commission de la vente — CA de CRITERIMMO (société porteuse) » ; LOT AJ — « Part MACJ − Reversé en inter-cabinet vers MACJ », en rouge.
     expect(texte('[data-ligne-repartition="commission"]')).toBe('Commission de la vente — CA de CRITERIMMO (société porteuse)CRITERIMMO100 %3 333,33 € HT(4 000,00 € TTC)');
@@ -1057,7 +1069,7 @@ describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () =
     expect(texte('[data-societe-cote="entree"]')).toBe('CRITERIMMO · 50 %');
     expect(texte('[data-ca-ttc]')).toBe('4 000,00 € TTC');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="internes"]')).toBe('Internes (associés, salariés) : 0,00 € HT — non déduits');
+    expect(categorie('internes')).toBe('Internes (associés, salariés) — non déduits : 0,00 € HT (0,00 € TTC)');
     // le bouton ouvert : aucun champ « Commission versée » ni taux pour lui
     await cliquer('[data-negociateur-carte="entree"]');
     expect(texte('[data-non-commissionne-choix="entree"]')).toBe('Non commissionné');
@@ -1542,7 +1554,7 @@ describe('🔴 LOT Y — la couleur du liseré suit la règle du cumul « Commis
       expect(lire('entree')).toEqual(attendu);
       // la même règle que la tuile : seul l'indépendant entre dans « Commissions versées » (JB : 2 500 € HT)
       await cliquer('[data-tuile="commissions"]');
-      expect(texte('[data-detail="independants"]')).toBe(statut === 'independant' ? 'Indépendants : 2 500,00 € HT (3 000,00 € TTC)' : 'Indépendants : 0,00 € HT (0,00 € TTC)');
+      expect(categorie('independants')).toBe(statut === 'independant' ? 'Indépendants : 2 500,00 € HT (3 000,00 € TTC)' : 'Indépendants : 0,00 € HT (0,00 € TTC)');
       // LOT Z — la ligne « Statut à la vente » est retirée (doublon) : le bloc est le dernier
       const bloc = container.querySelector('[data-negociateur-cote="entree"]')!;
       expect([...bloc.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-'))).at(-1)).toBe('data-commission-negociateur');
@@ -1686,8 +1698,8 @@ describe('🔴 LOT AA — un négociateur de l’autre société : « Rémunér�
       expect(container.querySelector('[data-commission-negociateur="entree"]')!.className).toContain('trx-calcul-encadre--interne');
       // le détail de la tuile : la phrase claire
       await cliquer('[data-tuile="commissions"]');
-      expect(texte('[data-detail="autre-societe"]')).toBe('Négociateurs de l’autre société : rémunérés par elle — non comptés ici');
-      expect(texte('[data-detail="independants"]')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
+      expect(fenetre('[data-detail="autre-societe"]')).toBe('Négociateurs de l’autre société : rémunérés par elle — non comptés ici');
+      expect(categorie('independants')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
     });
     it(`chez ${AUTRE} (ligne miroir) : comportement actuel — liseré rouge (indépendant) ou vert (salarié), modifiable ; « Voir chez » l’ouvre`, async () => {
       const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
@@ -1718,7 +1730,7 @@ describe('🔴 LOT AA — un négociateur de l’autre société : « Rémunér�
     await deplier(38);
     expect(container.querySelector('[data-remunere-par]')).toBeNull();
     await cliquer('[data-tuile="commissions"]');
-    expect(container.querySelector('[data-detail="autre-societe"]')).toBeNull();
+    expect(document.querySelector('[data-fenetre-commissions] [data-detail="autre-societe"]')).toBeNull();
   });
 });
 
@@ -1750,7 +1762,7 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
       expect(texte('[data-honoraires-cote="sortie"]')).toBe(`Honoraires partie acquéreur : 3 333,33 € HT × 50 % = 1 666,67 € HT (2 000,00 € TTC) ${versement(AUTRE)}`);
       // ce sont ces honoraires qui entrent dans les commissions versées de la porteuse
       await cliquer('[data-tuile="commissions"]');
-      expect(texte(`[data-detail="inter-cabinet-${autre}"]`)).toBe(`Inter-cabinet vers ${AUTRE} : 1 666,67 € HT (2 000,00 € TTC)`);
+      expect(categorie(`inter-cabinet-${autre}`)).toBe(`Inter-cabinet vers ${AUTRE} : 1 666,67 € HT (2 000,00 € TTC)`);
       // l'entrée (même société que l'onglet) : honoraires sans liseré ; sa commission garde le sien
       expect(encadre('[data-honoraires-cote="entree"]')).toBe('aucun');
       expect(encadre('[data-commission-negociateur="entree"]')).toBe('rouge');
@@ -1766,7 +1778,7 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
     expect(encadre('[data-honoraires-exterieure="0"]')).toBe('rouge');
     expect(texte('[data-honoraires-exterieure="0"]')).toBe(`Honoraires partie extérieure — Agence du Parc : 3 333,33 € HT × 20 % = 666,67 € HT (800,00 € TTC) ${versement('Agence du Parc')}`);
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="inter-cabinet-exterieur"]')).toBe('Inter-cabinet extérieur : 666,67 € HT (800,00 € TTC)');
+    expect(categorie('exterieur')).toBe('Agences extérieures : 666,67 € HT (800,00 € TTC)');
   });
 
   it('même société des deux côtés : aucun liseré sur les honoraires (inchangé) ; le CA global : aucun non plus (neutralisé)', async () => {
@@ -2110,14 +2122,14 @@ describe('🔴 LOT AG — le taux d’un négociateur de l’autre société se 
     await deplier(38);
     expect(texte('[data-negociateur-carte="sortie"]')).toBe('Négociateur : Pierre Thevenin · 40 %');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
+    expect(categorie('independants')).toBe('Indépendants : 0,00 € HT (0,00 € TTC)');
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     await ecran('macj', venteDansSociete(v, 'macj')!);
     await cliquer('[data-deplier="miroir-38"]');
     expect(texte('[data-remuneration-negociateur="sortie"]')).toBe('Pierre Thevenin (MACJ) · 40 %');
     expect(texte('[data-commission-negociateur="sortie"] .trx-calcul-operation')).toBe('1 666,67 € HT × 40 % =');
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="independants"]')).toBe('Indépendants : 666,67 € HT (800,00 € TTC)');
+    expect(categorie('independants')).toBe('Indépendants : 666,67 € HT (800,00 € TTC)');
   });
 
   it('depuis la ligne miroir : « Modifier la rémunération » à 40 % s’enregistre sur la MÊME ligne (vente d’origine n° 38, côté sortie)', async () => {
@@ -2176,7 +2188,7 @@ describe('🔴 LOT AH — le tableau « Répartition » en logique comptable, au
     expect(texte('[data-informations-communes]')).not.toContain('Répartition — commission nette');
     // la tuile « Inter-cabinet vers MACJ » dit le même nombre
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)');
+    expect(categorie('inter-cabinet-macj')).toBe('Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)');
   });
 
   it('sans apporteur, même société : « Aucun apporteur » 0,00, sans rouge ; rien de reversé ; le reste = la base', async () => {
@@ -2263,7 +2275,7 @@ describe('🔴 LOT AJ — « Part X − Reversé en inter-cabinet vers X » : un
     // les mêmes centimes : la partie de Pierre, la ligne fusionnée, la tuile
     expect(valeur('partie-1')).toBe(valeur('part-reverse-macj'));
     await cliquer('[data-tuile="commissions"]');
-    expect(texte('[data-detail="inter-cabinet-macj"]')).toBe('Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)');
+    expect(categorie('inter-cabinet-macj')).toBe('Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)');
   });
   it('porteuse MACJ → CRITERIMMO : « Part MACJ » (porteuse) en tête, puis « Part CRITERIMMO − Reversé en inter-cabinet vers CRITERIMMO », « = Reste à MACJ »', async () => {
     await carte(vente([pa('entree', 8, 'Pierre Thevenin', 'macj', 50), pa('sortie', 2, 'Arnaud Jorel', 'criterimmo', 50)]));
@@ -2365,5 +2377,166 @@ describe('🔴 LOT AK — ligne miroir, « Négociateur de sortie » : sans « S
     expect(texte('[data-honoraires-cote="sortie"]')).toContain('Honoraires partie acquéreur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250,00 € TTC)');
     expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250,00 € TTC)');
     expect(texte('[data-commission-negociateur="entree"] [data-mention-commission]')).toBe('Associé — non comptabilisé dans « Commissions versées »');
+  });
+});
+
+describe('🔴 LOT AL — la tuile « Commissions versées » ouvre une fenêtre : par catégorie (défaut) ou par transaction ; total = tuile au centime', () => {
+  // 41 « DUPONT / MARTIN » : 12 000 TTC, apporteur Julien Deblois 2 400 TTC ; JB (CRITERIMMO, indépendant) 40 %, 1 000 HT ; Mylène (MACJ) 40 % ;
+  // Agence du Parc 20 %. 50 « SANS FRAIS » : plus récente, Augustin (CRITERIMMO, associé) seul, sans commission saisie.
+  const avec: Vente = { ...compromis, lignes: [{ id: 1, negociateur: JB.nom, role: 'negociateur', montantTtc: 1200, montantHt: 1000, cote: 'entree', nature: 'compromis', compte: false,
+    origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] };
+  const sansFrais: Vente = { ...compromis, id: 50, libelle: 'SANS FRAIS', dateCompromis: '2026-10-25', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
+    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
+    dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: null }, lignes: [] };
+  const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  const montants = (sel: string): number[] => [...document.querySelectorAll(`[data-fenetre-commissions] ${sel}`)].map((x) => centimes(x.children[0].textContent!));
+  const ouvert = (): boolean => document.querySelector('[data-fenetre-commissions]') !== null;
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const onglet = async () => { await ouvrir(); await cliquer('[data-vue="compromis"]'); };
+
+  it('la tuile : titre, total rouge, HT, « Voir le détail » — plus de lignes ni de bulle ; un bouton (souris, Entrée / Espace, toucher)', async () => {
+    listeCompromis = [avec, sansFrais];
+    await onglet();
+    const tuile = container.querySelector('[data-tuile="commissions"]')!;
+    expect(tuile.tagName).toBe('BUTTON');
+    expect([...tuile.children].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['Commissions versées', '9 360,00 € TTC versées', '7 800,00 € HT', 'Voir le détail']);
+    expect(tuile.getAttribute('title')).toBeNull();
+    expect(tuile.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(container.querySelector('[data-detail]')).toBeNull();
+    expect(ouvert()).toBe(false);
+    await cliquer('[data-tuile="commissions"]');
+    expect(ouvert()).toBe(true);
+    expect(fenetre('h2')).toBe('Commissions versées — CRITERIMMO — compromis en cours');
+    expect(fenetre('[data-fenetre-total-haut]')).toBe('9 360,00 € TTC versées7 800,00 € HT');
+    expect(fenetre('[data-fenetre-total]')).toBe('7 800,00 € HT(9 360,00 € TTC)');
+  });
+
+  it('par catégorie (défaut) : les 4 catégories et leurs lignes, sous-totaux = total ; à part, les internes et l’autre société', async () => {
+    listeCompromis = [avec, sansFrais];
+    await onglet(); await cliquer('[data-tuile="commissions"]');
+    expect(document.querySelector('[data-mode-fenetre="categorie"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect([...document.querySelectorAll('[data-fenetre-commissions] [data-categorie]')].map((x) => x.getAttribute('data-categorie'))).toEqual(['apporteurs', 'inter-cabinet-macj', 'exterieur', 'independants', 'internes']);
+    expect(categorie('apporteurs')).toBe('Apporteurs d’affaires : 2 000,00 € HT (2 400,00 € TTC)');
+    expect(fenetre('[data-categorie="apporteurs"] [data-ligne-cout]')).toBe('Julien Deblois · DUPONT / MARTIN2 000,00 € HT(2 400,00 € TTC)');
+    expect(fenetre('[data-categorie="inter-cabinet-macj"] [data-ligne-cout]')).toBe('Mylène EBERLIN · DUPONT / MARTIN3 200,00 € HT(3 840,00 € TTC)');
+    expect(fenetre('[data-categorie="exterieur"] [data-ligne-cout]')).toBe('Agence du Parc · DUPONT / MARTIN1 600,00 € HT(1 920,00 € TTC)');
+    expect(fenetre('[data-categorie="independants"] [data-ligne-cout]')).toBe('Jean-Baptiste PONS · DUPONT / MARTIN1 000,00 € HT(1 200,00 € TTC)');
+    // sous-totaux en rouge, alignés à droite ; leur somme = le total = la tuile
+    expect(document.querySelector('[data-sous-total="apporteurs"]')!.classList.contains('trx-rouge')).toBe(true);
+    const versees = montants('[data-categorie]:not(.trx-fc-section--info) [data-sous-total]');
+    expect(versees.reduce((t, x) => t + x, 0)).toBe(centimes(texte('[data-commissions-ht]')));
+    expect(categorie('internes')).toBe('Internes (associés, salariés) — non déduits : 0,00 € HT (0,00 € TTC)');
+    expect(fenetre('[data-categorie="internes"] [data-aucune]')).toBe('Aucune');
+    expect(document.querySelector('[data-sous-total="internes"]')!.classList.contains('trx-rouge')).toBe(false);
+    expect(fenetre('[data-non-deduits] [data-detail="autre-societe"]')).toBe('Négociateurs de l’autre société : rémunérés par elle — non comptés ici');
+  });
+
+  it('par transaction : un bloc par affaire, la plus récente d’abord ; étiquettes ; « Aucune commission versée » ; le choix est retenu', async () => {
+    listeCompromis = [avec, sansFrais];
+    await onglet(); await cliquer('[data-tuile="commissions"]');
+    await cliquerDoc('[data-mode-fenetre="transaction"]');
+    expect(document.querySelector('[data-mode-fenetre="transaction"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect([...document.querySelectorAll('[data-fenetre-commissions] [data-affaire]')].map((x) => x.getAttribute('data-affaire'))).toEqual(['50', '41']);
+    expect(fenetre('[data-affaire="50"] .trx-fc-sous')).toBe('Compromis du 25/10/2026');
+    expect(fenetre('[data-commission-affaire="50"]')).toBe('5 000,00 € HT(6 000,00 € TTC)commission de la vente');
+    expect(fenetre('[data-aucune-versee="50"]')).toBe('Aucune commission versée');
+    expect([...document.querySelectorAll('[data-affaire="41"] [data-ligne-cout]')].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual([
+      'ApporteurJulien Deblois2 000,00 € HT(2 400,00 € TTC)', 'Inter-cabinetMylène EBERLIN3 200,00 € HT(3 840,00 € TTC)',
+      'Agence extérieureAgence du Parc1 600,00 € HT(1 920,00 € TTC)', 'IndépendantJean-Baptiste PONS1 000,00 € HT(1 200,00 € TTC)']);
+    expect(montants('[data-verse-affaire]').reduce((t, x) => t + x, 0)).toBe(centimes(texte('[data-commissions-ht]')));
+    expect(fenetre('[data-fenetre-total]')).toBe('7 800,00 € HT(9 360,00 € TTC)');
+    expect(window.localStorage.getItem('trx-commissions-versees-mode')).toBe('transaction');
+    // fermée puis rouverte : « Par transaction » retenu
+    await cliquerDoc('[data-fermer-fenetre]');
+    expect(ouvert()).toBe(false);
+    await cliquer('[data-tuile="commissions"]');
+    expect(document.querySelector('[data-mode-fenetre="transaction"]')!.getAttribute('aria-pressed')).toBe('true');
+    await cliquerDoc('[data-mode-fenetre="categorie"]');
+    expect(document.querySelector('[data-fenetre-commissions] [data-categorie="apporteurs"]')).not.toBeNull();
+  });
+
+  it('fermeture : Échap, clic hors de la fenêtre, croix — le focus revient sur la tuile', async () => {
+    await onglet();
+    await cliquer('[data-tuile="commissions"]');
+    expect(document.activeElement).toBe(document.querySelector('[data-fermer-fenetre]'));
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }); await calmer();
+    expect(ouvert()).toBe(false);
+    expect(document.activeElement).toBe(container.querySelector('[data-tuile="commissions"]'));
+    await cliquer('[data-tuile="commissions"]');
+    await act(async () => { document.querySelector('.trx-fc-voile')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+    expect(ouvert()).toBe(false);
+    await cliquer('[data-tuile="commissions"]');
+    await act(async () => { document.querySelector('[data-fenetre-commissions]')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+    expect(ouvert()).toBe(true);
+  });
+
+  it('le nom d’une affaire : la fenêtre se ferme et sa carte se déplie', async () => {
+    listeCompromis = [avec, sansFrais];
+    await onglet(); await cliquer('[data-tuile="commissions"]');
+    expect(container.querySelector('[data-deplier="compromis-41"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[data-aller-affaire="41"]')!.getAttribute('href')).toBe('?vente=41');
+    await cliquerDoc('[data-categorie="apporteurs"] [data-aller-affaire="41"]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await calmer();
+    expect(ouvert()).toBe(false);
+    expect(container.querySelector('[data-deplier="compromis-41"]')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('aucune affaire : 0,00 partout, chaque catégorie « Aucune » ; par transaction : « Aucun compromis en cours. »', async () => {
+    listeCompromis = [];
+    await onglet();
+    expect(texte('[data-commissions-ttc]')).toBe('0,00 € TTC versées');
+    await cliquer('[data-tuile="commissions"]');
+    expect([...document.querySelectorAll('[data-fenetre-commissions] [data-aucune]')].map((x) => x.getAttribute('data-aucune'))).toEqual(['apporteurs', 'inter-cabinet-macj', 'exterieur', 'independants', 'internes']);
+    expect(fenetre('[data-fenetre-total]')).toBe('0,00 € HT(0,00 € TTC)');
+    await cliquerDoc('[data-mode-fenetre="transaction"]');
+    expect(fenetre('[data-aucune-affaire]')).toBe('Aucun compromis en cours.');
+  });
+
+  it('MACJ : la ligne miroir — son indépendant seul ; « Inter-cabinet vers CRITERIMMO » à « Aucune » ; total = tuile', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { retroApporteurTtc: 1000, parties: [
+      { sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
+      { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
+    dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: { id: 7, nom: MY.nom } },
+    lignes: [{ id: 2, negociateur: MY.nom, role: 'negociateur', montantTtc: 1625, montantHt: null, cote: 'sortie', nature: 'compromis', compte: false, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] };
+    listeCompromis = [venteDansSociete(v, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    expect([texte('[data-commissions-ttc]'), texte('[data-commissions-ht]')]).toEqual(['1 625,00 € TTC versées', '1 354,17 € HT']);
+    await cliquer('[data-tuile="commissions"]');
+    expect(fenetre('h2')).toBe('Commissions versées — MACJ — compromis en cours');
+    expect(categorie('inter-cabinet-criterimmo')).toBe('Inter-cabinet vers CRITERIMMO : 0,00 € HT (0,00 € TTC)');
+    expect(categorie('independants')).toBe('Indépendants : 1 354,17 € HT (1 625,00 € TTC)');
+    expect(fenetre('[data-fenetre-total]')).toBe('1 354,17 € HT(1 625,00 € TTC)');
+    // et chez CRITERIMMO (porteuse) : apporteur 833,33 + reversé 2 708,33 — les centimes de la carte — font la tuile ; le solde = le reste de la carte
+    listeCompromis = [v];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await onglet();
+    expect([texte('[data-commissions-ht]'), texte('[data-solde-ht]')]).toEqual(['3 541,66 € HT', '2 708,34 € HT']);
+    await deplier(37);
+    expect(texte('[data-ligne-repartition="reste"] td:last-child')).toBe('2 708,34 € HT(3 250,00 € TTC)');
+    await cliquer('[data-tuile="commissions"]');
+    expect([categorie('apporteurs'), categorie('inter-cabinet-macj')]).toEqual(['Apporteurs d’affaires : 833,33 € HT (1 000,00 € TTC)', 'Inter-cabinet vers MACJ : 2 708,33 € HT (3 250,00 € TTC)']);
+    expect(categorie('internes')).toBe('Internes (associés, salariés) — non déduits : 0,00 € HT (0,00 € TTC)');
+    expect(fenetre('[data-fenetre-total]')).toBe('3 541,66 € HT(4 250,00 € TTC)');
+  });
+
+  it('un observateur (écriture indisponible) ouvre la fenêtre, en lecture seule ; le CA global : « CRITERIMMO et MACJ », l’inter-cabinet neutralisé à part', async () => {
+    (references as Record<string, unknown>).disponible = false;
+    try {
+      await onglet();
+      expect(container.querySelector('[data-nouveau-compromis]')!.hasAttribute('disabled')).toBe(true);
+      await cliquer('[data-tuile="commissions"]');
+      expect(ouvert()).toBe(true);
+      expect(document.querySelectorAll('[data-fenetre-commissions] input, [data-fenetre-commissions] form').length).toBe(0);
+    } finally { delete (references as Record<string, unknown>).disponible; }
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+    await cliquer('[data-tuile="commissions"]');
+    expect(fenetre('h2')).toBe('Commissions versées — CRITERIMMO et MACJ — compromis en cours');
+    expect([...document.querySelectorAll('[data-fenetre-commissions] [data-categorie]')].map((x) => x.getAttribute('data-categorie'))).toEqual(['apporteurs', 'exterieur', 'independants', 'internes', 'neutralise']);
+    expect(categorie('neutralise')).toBe('Inter-cabinet entre nos sociétés — neutralisé : 3 200,00 € HT (3 840,00 € TTC)');
+    expect(fenetre('[data-fenetre-total]').replace(/\(.*$/, '')).toBe(texte('[data-commissions-ht]'));
   });
 });

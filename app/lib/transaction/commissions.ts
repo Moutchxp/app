@@ -194,7 +194,7 @@ export interface TuilesCompromis {
   soldeTtc: number;
 }
 
-type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation' | 'miroir'>>;
+export type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation' | 'miroir'>>;
 
 /**
  * L'APPORTEUR d'une vente dans les « Commissions versées » de la société vue (null : nos deux sociétés), HT : celui de la répartition (payé
@@ -207,11 +207,13 @@ export function apporteurVerseHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'r
   return v.repartition != null ? b.apporteurHt : retro === null || b.caHt === 0 ? 0 : enHt(retro);
 }
 
-/** Le bilan d'une vente pour les tuiles, pour une société (null : nos deux sociétés) — la règle de l'inter-cabinet (`bilanVente`). PUR. */
-function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: StatutDuLibelle): { b: BilanVente; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
-  const b = bilanVente(v, societe);
-  const apporteursHt = apporteurVerseHt(v, societe, b);
-  const parClasse: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
+/**
+ * 🔴 LOT AL — LES COMMISSIONS DE NÉGOCIATEURS d'une vente comptées par la société vue (null : nos deux sociétés), une par ligne, avec leur
+ * classe (indépendant / interne / à renseigner) : ce que les tuiles additionnent, et ce que la fenêtre « Commissions versées » détaille. PUR.
+ */
+export function commissionsNegociateurs(v: VenteTuile, societe: Societe | null, b: BilanVente, statutDuLibelle?: StatutDuLibelle):
+  { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; ht: number }[] {
+  const out: { negociateur: string; cote: LigneVente['cote']; classe: ClasseCommission; ht: number }[] = [];
   for (const l of v.lignes) {
     if (l.role !== 'negociateur') continue;
     // 🔴 LOT S — la commission d'un négociateur NON COMMISSIONNÉ : restée en base, ignorée (ni versée, ni interne).
@@ -222,8 +224,17 @@ function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: Stat
     const s = societeDeLigne(v, l);
     if (societe !== null && s !== null && s !== societe) continue;
     if (societe !== null && s === null && b.caHt === 0) continue;
-    parClasse[classeDeCommission(v, l, statutDuLibelle)] += enHt(m);
+    out.push({ negociateur: l.negociateur, cote: l.cote, classe: classeDeCommission(v, l, statutDuLibelle), ht: enHt(m) });
   }
+  return out;
+}
+
+/** Le bilan d'une vente pour les tuiles, pour une société (null : nos deux sociétés) — la règle de l'inter-cabinet (`bilanVente`). PUR. */
+function uneVente(v: VenteTuile, societe: Societe | null, statutDuLibelle?: StatutDuLibelle): { b: BilanVente; parClasse: Record<ClasseCommission, number>; apporteursHt: number } {
+  const b = bilanVente(v, societe);
+  const apporteursHt = apporteurVerseHt(v, societe, b);
+  const parClasse: Record<ClasseCommission, number> = { independant: 0, interne: 0, a_renseigner: 0 };
+  for (const c of commissionsNegociateurs(v, societe, b, statutDuLibelle)) parClasse[c.classe] += c.ht;
   return { b, parClasse, apporteursHt };
 }
 
