@@ -24,7 +24,8 @@ import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
 import { ApporteurAffaire } from './ApporteurAffaire';
-import { BoutonPersonne, personneEcranDe } from './PersonnesDossier';
+import { BoutonPersonne, personneEcranDe, type PersonneEcran } from './PersonnesDossier';
+import { FenetrePersonnes } from './FenetrePersonnes';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -49,6 +50,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
   // LOT F — « + Ajouter un vendeur / un acquéreur » ouvre le formulaire du compromis sur une ligne neuve de ce côté (personne existante ou neuve).
   const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number } | 'nouveau' | null>(null);
+  // 🔴 LOT BM — la fenêtre « Vendeurs — … » / « Acquéreurs — … » : « + Ajouter … » de la carte, ou « Modifier » d'une personne (elle seule, dépliée).
+  const [fenetrePersonnes, setFenetrePersonnes] = useState<{ venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null } | null>(null);
   // LOT G — la modale « Annulation » ouverte sur un compromis.
   const [annulation, setAnnulation] = useState<Vente | null>(null);
   const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
@@ -77,12 +80,15 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const vue: Societe | null = societe === 'tous' ? null : societe;
   // 🔴 LOT BH — l'apporteur d'une affaire : le dossier tel qu'il est, avec ce seul changement, par le même geste que « Modifier » (journalisé ;
   // les commissions « calculées » suivent, celles saisies à la main restent) ; puis tout se relit (tuiles, cartes, fenêtres, synthèse).
-  const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>): Promise<string | null> => {
+  const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>, personnes: PersonneEcran[] = personnesDe(v)): Promise<string | null> => {
     const etat: EtatRepartition = { ...etatRepartitionDe(v, d.negociateurs, d.uniteCommission === true), ...change };
-    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnesDe(v), etat) });
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnes, etat) });
     if (r === null) relire();
     return r;
   };
+  // 🔴 LOT BM — une fiche validée (ou enlevée) dans la fenêtre des personnes : le dossier tel qu'il est, avec cette seule liste de personnes, par le
+  // même geste (journalisé, réversible) ; puis tout se relit.
+  const enregistrerPersonnes = (v: Vente, personnes: PersonneEcran[]): Promise<string | null> => enregistrerApporteur(v, {}, personnes);
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   const liste = trierCompromis(d.compromis);
   // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
@@ -231,7 +237,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                     : d.personneType === true ? (
                     <div className="trx-personnes-boutons" data-personnes-compromis={role}>
                       {gens.map((p) => <BoutonPersonne key={`${p.role}-${p.id}`} p={p}
-                        onModifier={d.disponible ? () => setEdition({ vente: v, ajouter: null, personneVisee: p.id }) : undefined} />)}
+                        onModifier={d.disponible ? () => setFenetrePersonnes({ venteId: v.id, role: p.role, personneVisee: p.id }) : undefined} />)}
                     </div>
                   ) : (
                     <ul className="trx-personnes" data-personnes-compromis={role}>
@@ -243,7 +249,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                       ))}
                     </ul>
                   )}
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: role })} disabled={!d.disponible}
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFenetrePersonnes({ venteId: v.id, role, personneVisee: null })} disabled={!d.disponible}
                     data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
                   {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
                       « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
@@ -420,6 +426,12 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}
+      {fenetrePersonnes !== null && (() => {
+        const v = liste.find((x) => x.id === fenetrePersonnes.venteId);
+        return v === undefined ? null : <FenetrePersonnes key={`${v.id}-${fenetrePersonnes.role}-${fenetrePersonnes.personneVisee ?? ''}`} vente={v} role={fenetrePersonnes.role}
+          personneVisee={fenetrePersonnes.personneVisee} annuaire={d.personnes} avecType={d.personneType === true}
+          onEnregistrer={(personnes) => enregistrerPersonnes(v, personnes)} onFermer={() => setFenetrePersonnes(null)} />;
+      })()}
       {edition !== null && <FormulaireDossier societe={edition === 'nouveau' ? societeSaisie : edition.vente.societe} vente={edition === 'nouveau' ? null : edition.vente}
         ajouter={edition === 'nouveau' ? null : edition.ajouter} repartitionInitiale={edition === 'nouveau' ? undefined : edition.repartition}
         message={edition === 'nouveau' ? undefined : edition.message} personneVisee={edition === 'nouveau' ? null : edition.personneVisee ?? null}

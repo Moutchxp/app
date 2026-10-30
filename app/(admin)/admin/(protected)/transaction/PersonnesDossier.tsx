@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChampAdresseBan } from '../gestion/ChampAdresseBan';
 import { libellePersonne, type Civilite, type PersonneVente, type RepresentantVente } from '../../../../lib/transaction/modele';
@@ -67,7 +67,7 @@ function ChampsParticulier({ cle, v, onChange, onNom, avecType, autoFocus }: {
     {/* 🔴 LOT BL — la mise en forme commune à la sortie du champ (nom en majuscules, prénom « Jean-Baptiste ») ; le serveur l'applique aussi. */}
     <label>Nom<input list="trx-personnes" value={v.nom} onChange={(e) => onNom(e.target.value)} onBlur={() => { if (v.nom !== formeNom(v.nom)) onChange({ nom: formeNom(v.nom) }); }}
       data-personne-nom={cle} autoFocus={autoFocus} />
-      {v.id !== null && <span className="loc-muet">fiche de l’annuaire n° {v.id}</span>}</label>
+      {v.id !== null && <span className="loc-muet trx-fiche-annuaire">fiche de l’annuaire n° {v.id}</span>}</label>
     {avecType && <label>Prénom<input value={v.prenom} onChange={(e) => onChange({ prenom: e.target.value })} onBlur={() => { if (v.prenom !== formePrenom(v.prenom)) onChange({ prenom: formePrenom(v.prenom) }); }}
       data-personne-prenom={cle} /></label>}
     <label>Téléphone<input type="tel" inputMode="tel" value={v.telephone} onChange={(e) => onChange({ telephone: e.target.value })} data-personne-telephone={cle} /></label>
@@ -89,63 +89,81 @@ export function BlocPersonnes({ role, mot, personnes, onChange, annuaire, avecTy
   /** L'indice de la ligne qui prend le focus (une ligne ajoutée depuis la carte, ou la personne visée par « Modifier ») ; null : aucune. */
   focus: number | null;
 }) {
-  const [bascule, setBascule] = useState<{ i: number; vers: PersonneEcran['type']; pertes: string[] } | null>(null);
-  const changer = (i: number, x: Partial<PersonneEcran>): void => onChange(personnes.map((p, j) => (j === i ? { ...p, ...x } : p)));
-  const changerRep = (i: number, k: number, x: Partial<RepresentantEcran>): void =>
-    changer(i, { representants: personnes[i].representants.map((r, j) => (j === k ? { ...r, ...x } : r)) });
-  /** Choisir une fiche de l'annuaire (par son libellé dans la liste) : reprise, son id gardé (aucun doublon) ; sinon, le nom tapé. */
-  const choisir = (texte: string, type: PersonneEcran['type']): Partial<PersonneEcran> => {
-    const f = annuaire.find((x) => decrire(x) === texte);
-    if (f === undefined) return { nom: texte, id: null };
-    return { id: f.id, nom: f.nom, telephone: f.telephone ?? '', email: f.email ?? '', adresse: f.adresse ?? '', civilite: f.civilite ?? '', prenom: f.prenom ?? '',
-      ...(avecType ? { type: f.type ?? type } : {}) };
-  };
-  const demanderBascule = (i: number, vers: PersonneEcran['type']): void => {
-    const pertes = pertesBascule(personnes[i], vers);
-    if (pertes.length === 0) changer(i, basculer(personnes[i], vers));
-    else setBascule({ i, vers, pertes });
-  };
   return (
     <fieldset className="trx-plein trx-parts" data-personnes={role}>
       <legend className="loc-muet">{mot}</legend>
       {personnes.map((p, i) => p.role !== role ? null : (
-        <div className="trx-part" key={i} data-personne={i} data-type-personne={p.type}>
-          {avecType && (
-            <div className="trx-unites trx-plein" role="group" aria-label="Particulier ou société">
-              {(['particulier', 'societe'] as const).map((t) => (
-                <button key={t} type="button" className="trx-unite" aria-pressed={p.type === t} onClick={() => demanderBascule(i, t)} data-choix-type={`${i}-${t}`}>
-                  {t === 'particulier' ? 'Particulier' : 'Société'}</button>
-              ))}
-            </div>
-          )}
-          {bascule !== null && bascule.i === i && (
-            <p className="loc-alerte loc-alerte--orange trx-plein" role="alertdialog" data-confirmer-bascule={i}>
-              Passer en {bascule.vers === 'societe' ? 'Société' : 'Particulier'} : {joindre(bascule.pertes)} {bascule.pertes.length > 1 || bascule.pertes[0]?.startsWith('ses') ? 'ne seront pas gardés' : 'ne sera pas gardé'}. Continuer ?
-              {' '}<button type="button" className="trx-bouton-lien" onClick={() => { changer(i, basculer(personnes[i], bascule.vers)); setBascule(null); }} data-oui-bascule>Oui, passer en {bascule.vers === 'societe' ? 'Société' : 'Particulier'}</button>
-              {' '}<button type="button" className="trx-bouton-lien" onClick={() => setBascule(null)} data-non-bascule>Annuler</button>
-            </p>
-          )}
-          {p.type === 'societe' && avecType ? <>
-            <label>Nom de la société<input list="trx-personnes" value={p.nom} onChange={(e) => changer(i, choisir(e.target.value, 'societe'))}
-              onBlur={() => { if (p.nom !== formeNom(p.nom)) changer(i, { nom: formeNom(p.nom) }); }} data-personne-nom={i} autoFocus={focus === i} />
-              {p.id !== null && <span className="loc-muet">fiche de l’annuaire n° {p.id}</span>}</label>
-            <div className="trx-plein trx-representants" data-representants={i}>
-              <span className="loc-muet">{p.representants.length === 0 ? 'Aucun représentant' : `${p.representants.length} représentant${p.representants.length > 1 ? 's' : ''}`}</span>
-              {p.representants.map((r, k) => (
-                <div className="trx-part trx-representant" key={k} data-representant={`${i}-${k}`}>
-                  <ChampsParticulier cle={`${i}-${k}`} v={r} avecType onChange={(x) => changerRep(i, k, x)}
-                    onNom={(t) => { const c = choisir(t, 'particulier'); changerRep(i, k, { id: c.id ?? null, nom: c.nom ?? t, ...(c.id != null ? { telephone: c.telephone, email: c.email, adresse: c.adresse, civilite: c.civilite, prenom: c.prenom } : {}) }); }} />
-                  <button type="button" className="trx-bouton-lien" onClick={() => changer(i, { representants: p.representants.filter((_, j) => j !== k) })} data-enlever-representant={`${i}-${k}`}>Enlever</button>
-                </div>
-              ))}
-              <button type="button" className="trx-bouton-lien" onClick={() => changer(i, { representants: [...p.representants, representantVide()] })} data-ajouter-representant={i}>+ Un représentant</button>
-            </div>
-          </> : <ChampsParticulier cle={String(i)} v={p} avecType={avecType} autoFocus={focus === i} onChange={(x) => changer(i, x)} onNom={(t) => changer(i, choisir(t, 'particulier'))} />}
+        <FichePersonne key={i} cle={i} p={p} annuaire={annuaire} avecType={avecType} autoFocus={focus === i}
+          onChange={(x) => onChange(personnes.map((y, j) => (j === i ? x : y)))}>
           <button type="button" className="trx-bouton-lien" onClick={() => onChange(personnes.filter((_, j) => j !== i))}>Enlever</button>
-        </div>
+        </FichePersonne>
       ))}
       <p><button type="button" className="trx-bouton-lien" onClick={() => onChange([...personnes, personneVide(role)])} data-ajouter-personne={role}>+ {role === 'vendeur' ? 'Un vendeur' : 'Un acquéreur'}</button></p>
     </fieldset>
+  );
+}
+
+/** Choisir une fiche de l'annuaire (par son libellé dans la liste) : reprise, son id gardé (aucun doublon) ; sinon, le nom tapé. PUR. */
+function choisirDans(annuaire: readonly PersonneRef[], avecType: boolean, texte: string, type: PersonneEcran['type']): Partial<PersonneEcran> {
+  const f = annuaire.find((x) => decrire(x) === texte);
+  if (f === undefined) return { nom: texte, id: null };
+  return { id: f.id, nom: f.nom, telephone: f.telephone ?? '', email: f.email ?? '', adresse: f.adresse ?? '', civilite: f.civilite ?? '', prenom: f.prenom ?? '',
+    ...(avecType ? { type: f.type ?? type } : {}) };
+}
+
+/**
+ * 🔴 LOT BM — UNE FICHE (un vendeur ou un acquéreur) : Particulier | Société, ses champs (ou le nom de la société et ses représentants), le
+ * lien avec l'annuaire, la mise en forme du lot BL. La même dans le formulaire complet (`BlocPersonnes`) et dans la fenêtre « Vendeurs — … » /
+ * « Acquéreurs — … » (`FenetrePersonnes`) ; `children` : les boutons de la fiche (« Enlever », « Valider »…), à sa fin.
+ */
+export function FichePersonne({ cle: i, p, onChange, annuaire, avecType, autoFocus, children }: {
+  /** Le repère de la fiche dans les attributs `data-*` (son rang dans la liste). */
+  cle: number; p: PersonneEcran; onChange: (x: PersonneEcran) => void; annuaire: readonly PersonneRef[]; avecType: boolean; autoFocus?: boolean; children?: ReactNode;
+}) {
+  const [bascule, setBascule] = useState<{ vers: PersonneEcran['type']; pertes: string[] } | null>(null);
+  const changer = (x: Partial<PersonneEcran>): void => onChange({ ...p, ...x });
+  const changerRep = (k: number, x: Partial<RepresentantEcran>): void => changer({ representants: p.representants.map((r, j) => (j === k ? { ...r, ...x } : r)) });
+  const choisir = (texte: string, type: PersonneEcran['type']): Partial<PersonneEcran> => choisirDans(annuaire, avecType, texte, type);
+  const demanderBascule = (vers: PersonneEcran['type']): void => {
+    const pertes = pertesBascule(p, vers);
+    if (pertes.length === 0) changer(basculer(p, vers));
+    else setBascule({ vers, pertes });
+  };
+  return (
+    <div className="trx-part trx-fiche" data-personne={i} data-type-personne={p.type}>
+      {avecType && (
+        <div className="trx-unites trx-plein" role="group" aria-label="Particulier ou société">
+          {(['particulier', 'societe'] as const).map((t) => (
+            <button key={t} type="button" className="trx-unite" aria-pressed={p.type === t} onClick={() => demanderBascule(t)} data-choix-type={`${i}-${t}`}>
+              {t === 'particulier' ? 'Particulier' : 'Société'}</button>
+          ))}
+        </div>
+      )}
+      {bascule !== null && (
+        <p className="loc-alerte loc-alerte--orange trx-plein" role="alertdialog" data-confirmer-bascule={i}>
+          Passer en {bascule.vers === 'societe' ? 'Société' : 'Particulier'} : {joindre(bascule.pertes)} {bascule.pertes.length > 1 || bascule.pertes[0]?.startsWith('ses') ? 'ne seront pas gardés' : 'ne sera pas gardé'}. Continuer ?
+          {' '}<button type="button" className="trx-bouton-lien" onClick={() => { changer(basculer(p, bascule.vers)); setBascule(null); }} data-oui-bascule>Oui, passer en {bascule.vers === 'societe' ? 'Société' : 'Particulier'}</button>
+          {' '}<button type="button" className="trx-bouton-lien" onClick={() => setBascule(null)} data-non-bascule>Annuler</button>
+        </p>
+      )}
+      {p.type === 'societe' && avecType ? <>
+        <label>Nom de la société<input list="trx-personnes" value={p.nom} onChange={(e) => changer(choisir(e.target.value, 'societe'))}
+          onBlur={() => { if (p.nom !== formeNom(p.nom)) changer({ nom: formeNom(p.nom) }); }} data-personne-nom={i} autoFocus={autoFocus} />
+          {p.id !== null && <span className="loc-muet trx-fiche-annuaire">fiche de l’annuaire n° {p.id}</span>}</label>
+        <div className="trx-plein trx-representants" data-representants={i}>
+          <span className="loc-muet">{p.representants.length === 0 ? 'Aucun représentant' : `${p.representants.length} représentant${p.representants.length > 1 ? 's' : ''}`}</span>
+          {p.representants.map((r, k) => (
+            <div className="trx-part trx-fiche trx-representant" key={k} data-representant={`${i}-${k}`}>
+              <ChampsParticulier cle={`${i}-${k}`} v={r} avecType onChange={(x) => changerRep(k, x)}
+                onNom={(t) => { const c = choisir(t, 'particulier'); changerRep(k, { id: c.id ?? null, nom: c.nom ?? t, ...(c.id != null ? { telephone: c.telephone, email: c.email, adresse: c.adresse, civilite: c.civilite, prenom: c.prenom } : {}) }); }} />
+              <button type="button" className="trx-bouton-lien" onClick={() => changer({ representants: p.representants.filter((_, j) => j !== k) })} data-enlever-representant={`${i}-${k}`}>Enlever</button>
+            </div>
+          ))}
+          <button type="button" className="trx-bouton-lien" onClick={() => changer({ representants: [...p.representants, representantVide()] })} data-ajouter-representant={i}>+ Un représentant</button>
+        </div>
+      </> : <ChampsParticulier cle={String(i)} v={p} avecType={avecType} autoFocus={autoFocus} onChange={(x) => changer(x)} onNom={(t) => changer(choisir(t, 'particulier'))} />}
+      {children}
+    </div>
   );
 }
 

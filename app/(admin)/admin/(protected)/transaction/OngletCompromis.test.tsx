@@ -161,7 +161,7 @@ describe('l’onglet « Compromis »', () => {
     expect(ordre).toEqual(['vendeur', 'acquereur', 'communes', 'actions']);
     expect(texte('[data-repartition-compromis]')).toContain('Part extérieure — Agence du Parc');
   });
-  it('« + Ajouter un vendeur » depuis la carte : le formulaire s’ouvre sur une ligne neuve, la personne s’ajoute aux autres', async () => {
+  it('« + Ajouter un vendeur » depuis la carte : la fenêtre des vendeurs s’ouvre sur une fiche neuve (LOT BM), la personne s’ajoute aux autres', async () => {
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     await deplier(41);
@@ -170,7 +170,7 @@ describe('l’onglet « Compromis »', () => {
     expect(neuve.getAttribute('data-personne-nom')).not.toBeNull();
     expect(neuve.value).toBe('');
     await saisir(`[data-personne-nom="${neuve.getAttribute('data-personne-nom')}"]`, 'DURANT');
-    await cliquer('[data-enregistrer-dossier]');
+    await cliquer('[data-valider-fiche="1"]');
     const envoi = posts.at(-1) as { action: string; id: number; dossier: { personnes: { id: number | null; role: string; nom: string }[] } };
     expect([envoi.action, envoi.id]).toEqual(['dossier-enregistrer', 41]);
     expect(envoi.dossier.personnes.map((p) => [p.role, p.nom, p.id])).toEqual([['vendeur', 'DUPONT', 3], ['acquereur', 'MARTIN', 8], ['vendeur', 'DURANT', null]]);
@@ -4420,7 +4420,7 @@ describe('🔴 LOT BJ — vendeurs / acquéreurs : particulier ou société ; un
     expect(bloc.compareDocumentPosition(container.querySelector('[data-colonne="vendeur"] [data-ajouter-personne-carte]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('la fenêtre de détail d’une société : type, ses 3 représentants et leurs coordonnées (liens) ; « Modifier » ouvre le formulaire sur elle ; Échap et la croix ferment', async () => {
+  it('la fenêtre de détail d’une société : type, ses 3 représentants et leurs coordonnées (liens) ; « Modifier » ouvre la fenêtre des acquéreurs sur elle (LOT BM) ; Échap et la croix ferment', async () => {
     await ecran();
     await cliquer('[data-bouton-personne="22"]');
     const f = '[data-fenetre-personne="22"]';
@@ -4438,7 +4438,7 @@ describe('🔴 LOT BJ — vendeurs / acquéreurs : particulier ou société ; un
     expect(document.querySelector('[data-fenetre-personne]')).toBeNull();
     await cliquer('[data-bouton-personne="22"]');
     await cliquerDoc('[data-modifier-personne="22"]');
-    expect(container.querySelector('[data-formulaire-dossier="41"]')).not.toBeNull();
+    expect(container.querySelector('[data-fenetre-personnes="acquereur"]')).not.toBeNull();
     const focus = document.activeElement as HTMLInputElement;
     expect([focus.getAttribute('data-personne-nom') !== null, focus.value]).toEqual([true, 'CRITERIMMO']);
   });
@@ -4566,5 +4566,187 @@ describe('🔴 LOT BL — mise en forme à la sortie du champ ; liseré gris fon
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
     expect(container.querySelector('[data-miroir-personnes] [data-bouton-personne="21"]')!.closest('.trx-communes')).not.toBeNull();
     expect(container.querySelector('[data-miroir-personnes] [data-bouton-personne="21"]')!.className).toContain('trx-btn-personne');
+  });
+});
+
+describe('🔴 LOT BM — la fenêtre épurée « Vendeurs — … » / « Acquéreurs — … » (fiche par fiche) ; le formulaire complet inchangé', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.personneType = true; ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.personneType; delete ref.uniteCommission; delete ref.disponible; });
+  const avec: Vente = { ...compromis, dossier: { ...compromis.dossier!, personnes: [
+    { id: 20, role: 'vendeur', nom: 'BERCIER', prenom: 'Mira', civilite: 'Mme', type: 'particulier', telephone: '06 11 22 33 44', email: null, adresse: null },
+    { id: 21, role: 'vendeur', nom: 'DUPONT Jean', telephone: null, email: null, adresse: null },
+    { id: 22, role: 'acquereur', nom: 'CRITERIMMO', type: 'societe', civilite: null, prenom: null, telephone: null, email: null, adresse: null, representants: [] },
+  ] as never } };
+  const ecran = async () => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = [avec];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(41);
+  };
+  const fen = (role = 'vendeur') => container.querySelector(`[data-fenetre-personnes="${role}"]`) as HTMLElement | null;
+  const sortir = async (sel: string) => { await act(async () => { container.querySelector(sel)!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); }); await calmer(); };
+  const choisirSelect = async (sel: string, valeur: string) => {
+    const el = container.querySelector(sel) as HTMLSelectElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, valeur); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  };
+  const dernierEnvoi = () => posts.filter((p) => p.action === 'dossier-enregistrer').at(-1) as { id: number; dossier: Record<string, unknown> & { personnes: Record<string, unknown>[] } };
+  const INTERDITS = ['[data-affichage-formulaire]', '[data-afficher]', '[data-champ-adresse-bien]', '[data-champ="date-compromis"]', '[data-champ="date-acte-prevue"]', '[data-champ="date-acte"]',
+    '[data-champ="prix-vente"]', '[data-champ="commission"]', '[data-champ="libelle"]', '[data-apporteur-affaire]', '[data-bloc-repartition]', 'textarea', '[data-journal]', '[data-enregistrer-dossier]'];
+  const MOTS_INTERDITS = ['Montants en', 'HT', 'TTC', 'Adresse du bien', 'Date', 'Prix', 'Commission', 'Libellé', 'Apporteur', 'Négociateur', 'Répartition', 'extérieure', 'Note', 'Historique', 'Enregistrer'];
+
+  it('« + Ajouter un vendeur » : « Vendeurs — [affaire] », les vendeurs seuls (enregistrés repliés, une fiche vierge ouverte), en bas seulement « Fermer » ; AUCUN élément interdit', async () => {
+    await ecran();
+    await cliquer('[data-colonne="vendeur"] [data-ajouter-personne-carte="vendeur"]');
+    const f = fen()!;
+    expect(f.getAttribute('role')).toBe('dialog');
+    expect(f.querySelector('h3')!.textContent).toBe('Vendeurs — DUPONT / MARTIN');
+    expect([...f.querySelectorAll('[data-fiche-repliee] [data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ Mme Mira BERCIER', '▸ DUPONT JEAN']);
+    expect([...f.querySelectorAll('[data-personne]')].map((x) => (x.querySelector('[data-personne-nom]') as HTMLInputElement).value)).toEqual(['']);
+    expect(f.querySelector('[data-valider-fiche="2"]')!.textContent).toBe('Valider');
+    for (const sel of [...INTERDITS, '[data-personnes="acquereur"]']) expect([sel, f.querySelector(sel)]).toEqual([sel, null]);
+    for (const mot of MOTS_INTERDITS) expect([mot, f.textContent!.includes(mot)]).toEqual([mot, false]);
+    expect([...f.querySelectorAll('footer button')].map((b) => b.textContent)).toEqual(['Fermer']);
+    expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
+    expect(f.querySelector('[data-ajouter-fiche="vendeur"]')!.textContent).toBe('+ Un vendeur');
+  });
+
+  it('idem « + Ajouter un acquéreur » : « Acquéreurs — [affaire] », les acquéreurs seuls ; aucun élément interdit', async () => {
+    await ecran();
+    await cliquer('[data-colonne="acquereur"] [data-ajouter-personne-carte="acquereur"]');
+    const f = fen('acquereur')!;
+    expect(f.querySelector('h3')!.textContent).toBe('Acquéreurs — DUPONT / MARTIN');
+    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ CRITERIMMO']);
+    for (const sel of [...INTERDITS, '[data-personnes="vendeur"]']) expect([sel, f.querySelector(sel)]).toEqual([sel, null]);
+    for (const mot of MOTS_INTERDITS) expect([mot, f.textContent!.includes(mot)]).toEqual([mot, false]);
+    expect(f.querySelector('[data-ajouter-fiche="acquereur"]')!.textContent).toBe('+ Un acquéreur');
+  });
+
+  it('ajouter un particulier : « Valider » enregistre cette personne (les autres et tout le dossier tels qu’enregistrés), puis la fiche se referme', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await choisirSelect('[data-civilite="2"]', 'Mme');
+    await saisir('[data-personne-nom="2"]', 'lefèvre'); await sortir('[data-personne-nom="2"]');
+    await saisir('[data-personne-prenom="2"]', 'élodie'); await sortir('[data-personne-prenom="2"]');
+    await saisir('[data-personne-telephone="2"]', '06 00 00 00 01');
+    await cliquer('[data-valider-fiche="2"]');
+    const e = dernierEnvoi();
+    expect(e.id).toBe(41);
+    expect(e.dossier.personnes.map((p) => [p.id, p.role, p.nom])).toEqual([[20, 'vendeur', 'BERCIER'], [21, 'vendeur', 'DUPONT Jean'], [22, 'acquereur', 'CRITERIMMO'], [null, 'vendeur', 'LEFÈVRE']]);
+    expect(e.dossier.personnes[3]).toMatchObject({ type: 'particulier', civilite: 'Mme', prenom: 'Élodie', telephone: '06 00 00 00 01' });
+    expect([e.dossier.libelle, e.dossier.adresseBien, e.dossier.honorairesTtc, e.dossier.dateCompromis, e.dossier.entreeId, e.dossier.sortieId, e.dossier.apporteurId])
+      .toEqual(['DUPONT / MARTIN', '1 rue A, Puteaux', '12000', '2026-10-20', 5, 7, 4]);
+    expect(fen()!.querySelector('[data-personne]')).toBeNull();
+  });
+
+  it('ajouter une société avec 2 représentants', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="acquereur"]');
+    await cliquer('[data-choix-type="1-societe"]');
+    await saisir('[data-personne-nom="1"]', 'SCI LES TILLEULS');
+    await cliquer('[data-ajouter-representant="1"]'); await cliquer('[data-ajouter-representant="1"]');
+    await saisir('[data-personne-nom="1-0"]', 'MARTIN'); await saisir('[data-personne-prenom="1-0"]', 'Paul');
+    await saisir('[data-personne-nom="1-1"]', 'DURAND'); await saisir('[data-personne-prenom="1-1"]', 'Léa');
+    expect(texte('[data-representants="1"] > span')).toBe('2 représentants');
+    await cliquer('[data-valider-fiche="1"]');
+    const p = dernierEnvoi().dossier.personnes.at(-1) as { role: string; type: string; nom: string; representants: { nom: string; prenom: string }[] };
+    expect([p.role, p.type, p.nom, p.representants.map((r) => [r.nom, r.prenom])]).toEqual(['acquereur', 'societe', 'SCI LES TILLEULS', [['MARTIN', 'Paul'], ['DURAND', 'Léa']]]);
+  });
+
+  it('fiche par fiche : déplier une fiche enregistrée et la valider n’envoie qu’elle (une fiche neuve non validée n’est pas envoyée) ; puis la neuve', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await saisir('[data-personne-nom="2"]', 'NEUVE');
+    await cliquer('[data-deplier-fiche="20"]');
+    await saisir('[data-personne-telephone="0"]', '07 77 77 77 77');
+    // la relecture qui suit l'enregistrement rend une affaire neuve (comme le serveur) : la fenêtre attend qu'elle arrive avant un autre geste
+    listeCompromis = [JSON.parse(JSON.stringify(avec)) as Vente];
+    await cliquer('[data-valider-fiche="0"]');
+    expect((container.querySelector('[data-valider-fiche="2"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(dernierEnvoi().dossier.personnes.map((p) => [p.nom, p.telephone])).toEqual([['BERCIER', '07 77 77 77 77'], ['DUPONT Jean', ''], ['CRITERIMMO', '']]);
+    expect(fen()!.querySelector('[data-fiche-repliee="20"]')).not.toBeNull();
+    expect((container.querySelector('[data-personne-nom="2"]') as HTMLInputElement).value).toBe('NEUVE');
+    listeCompromis = [JSON.parse(JSON.stringify(avec)) as Vente];
+    await cliquer('[data-valider-fiche="2"]');
+    expect(dernierEnvoi().dossier.personnes.map((p) => p.nom)).toEqual(['BERCIER', 'DUPONT Jean', 'CRITERIMMO', 'NEUVE']);
+    // un nom vide : refusé à l'écran, rien n'est envoyé
+    const n = posts.length;
+    await cliquer('[data-ajouter-fiche="vendeur"]');
+    await cliquer('[data-valider-fiche="2"]');
+    expect([posts.length, texte('[data-motif-fiche]')]).toEqual([n, 'Le nom est obligatoire. Rien n’a été enregistré.']);
+  });
+
+  it('« Enlever » demande confirmation ; « Annuler » ne fait rien ; « Oui, enlever » retire la personne de l’affaire (sa fiche reste dans l’annuaire)', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await cliquer('[data-enlever-fiche="0"]');
+    expect(texte('[data-confirmer-enlever="p20"]')).toContain('Retirer Mme Mira BERCIER de cette affaire ? Sa fiche reste dans l’annuaire.');
+    await cliquer('[data-non-enlever]');
+    expect(posts).toEqual([]);
+    await cliquer('[data-enlever-fiche="0"]');
+    await cliquer('[data-oui-enlever]');
+    expect(dernierEnvoi().dossier.personnes.map((p) => p.id)).toEqual([21, 22]);
+  });
+
+  it('fermer avec une fiche commencée non validée : « Fiche non enregistrée — fermer quand même ? » (Fermer, ×, Échap) ; vierge : se ferme sans question', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await cliquer('[data-fermer-personnes]');
+    expect(fen()).toBeNull();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await saisir('[data-personne-nom="2"]', 'MOITIÉ');
+    await cliquer('[data-fermer-personnes]');
+    expect(texte('[data-confirmer-fermeture]')).toContain('Fiche non enregistrée — fermer quand même ?');
+    await cliquer('[data-continuer-saisie]');
+    expect([fen() !== null, container.querySelector('[data-confirmer-fermeture]')]).toEqual([true, null]);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }); await calmer();
+    expect(container.querySelector('[data-confirmer-fermeture]')).not.toBeNull();
+    await cliquer('[data-fermer-quand-meme]');
+    expect([fen(), posts]).toEqual([null, []]);
+  });
+
+  it('depuis le bouton d’une personne : sa fenêtre de détail, puis « Modifier » ouvre la fenêtre réduite sur elle seule, dépliée', async () => {
+    await ecran();
+    await cliquer('[data-bouton-personne="20"]');
+    await act(async () => { (document.querySelector('[data-modifier-personne="20"]') as HTMLElement).click(); }); await calmer();
+    const f = fen()!;
+    expect(f.querySelector('h3')!.textContent).toBe('Vendeurs — DUPONT / MARTIN');
+    expect([...f.querySelectorAll('[data-personne]')].map((x) => (x.querySelector('[data-personne-nom]') as HTMLInputElement).value)).toEqual(['BERCIER']);
+    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ DUPONT JEAN']);
+    expect((document.activeElement as HTMLInputElement).getAttribute('data-personne-nom')).toBe('0');
+    expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
+  });
+
+  it('le formulaire complet de l’affaire (« Modifier ») reste tel quel : vendeurs ET acquéreurs, bien, dates, prix, commission, libellé, répartition, note, historique, « Enregistrer »', async () => {
+    await ecran();
+    await cliquer('[data-modifier-compromis="41"]');
+    const f = container.querySelector('[data-formulaire-dossier="41"]')!;
+    expect(f.querySelector('h3')!.textContent).toBe('Compromis — DUPONT / MARTIN');
+    for (const sel of [...INTERDITS.filter((x) => x !== '[data-champ="date-acte"]'), '[data-personnes="vendeur"]', '[data-personnes="acquereur"]']) expect([sel, f.querySelector(sel) !== null]).toEqual([sel, true]);
+    expect(container.querySelector('[data-fenetre-personnes]')).toBeNull();
+  });
+
+  it('observateur : « + Ajouter … » inactifs et pas de « Modifier » sur une personne ; le serveur refuse ses écritures (403, la garde centrale)', async () => {
+    ref.disponible = false;
+    await ecran();
+    expect([...container.querySelectorAll('[data-ajouter-personne-carte]')].map((b) => (b as HTMLButtonElement).disabled)).toEqual([true, true]);
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    expect(fen()).toBeNull();
+    await cliquer('[data-bouton-personne="20"]');
+    expect(document.querySelector('[data-fenetre-personne="20"] [data-modifier-personne]')).toBeNull();
+    const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
+    expect(ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction')).toBe(true);
+  });
+
+  it('alignement des fiches : champs d’une ligne à la même hauteur, « fiche de l’annuaire n° … » sous son champ ; sur téléphone un champ par ligne', async () => {
+    await ecran();
+    await cliquer('[data-ajouter-personne-carte="vendeur"]');
+    await cliquer('[data-deplier-fiche="20"]');
+    expect(container.querySelector('[data-personne="0"]')!.className).toBe('trx-part trx-fiche');
+    expect(container.querySelector('[data-personne="0"] .trx-fiche-annuaire')!.textContent).toBe('fiche de l’annuaire n° 20');
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    expect(css).toContain('.trx-part.trx-fiche{align-items:start}');
+    expect(css).toMatch(/@media \(max-width:640px\)\{[^@]*\.trx-part\.trx-fiche\{grid-template-columns:minmax\(0,1fr\)\}/);
   });
 });

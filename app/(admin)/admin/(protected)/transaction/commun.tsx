@@ -438,6 +438,22 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-ap-champ{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;color:var(--color-svv-muted)}
 .trx-ap-fenetre .trx-actions{display:flex;flex-wrap:wrap;gap:8px}
 .trx-ap-fenetre .svv-btn{min-height:44px}
+/* LOT BM — une fiche de personne (formulaire complet et fenêtre des personnes) : tous les champs d'une ligne alignés à la même hauteur ; « fiche de
+   l'annuaire n° … » sous son champ, sans décaler les autres. */
+.trx-part.trx-fiche{align-items:start}
+.trx-part.trx-fiche > .trx-bouton-lien{align-self:end}
+.trx-fiche-annuaire{font-size:.75rem;font-weight:400}
+/* LOT BM — la fenêtre « Vendeurs — … » / « Acquéreurs — … » : une fiche dépliée encadrée, une fiche repliée sur une ligne, « Fermer » en bas. */
+.trx-fenetre-personnes .trx-part.trx-fiche:not(.trx-representant){border:1px solid var(--color-svv-line-strong);border-radius:12px;padding:10px}
+.trx-fiche-actions{align-items:center}
+.trx-fiche-repliee{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;border:1px solid var(--color-svv-line);border-radius:12px;padding:0 4px 0 12px}
+.trx-fiche-libelle{appearance:none;border:0;background:transparent;font:inherit;font-weight:700;color:var(--color-svv-ink);min-height:44px;cursor:pointer;text-align:left;flex:1 1 12rem;padding:0}
+.trx-fiche-libelle:hover{text-decoration:underline}
+.trx-fiche-libelle:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-fiche-repliee > .loc-alerte,.trx-fiche-repliee > .trx-erreur{flex-basis:100%;margin-bottom:8px}
+.trx-fenetre-pied{display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--color-svv-line)}
+.trx-fenetre-pied .loc-alerte{align-self:stretch;margin:0}
+.trx-fenetre-pied .svv-btn{width:auto;min-height:44px}
 /* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){
@@ -459,6 +475,9 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
   .trx-form{grid-template-columns:minmax(0,1fr)}
   .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  /* LOT BM — sur téléphone, une fiche de personne : un champ par ligne. */
+  .trx-part.trx-fiche{grid-template-columns:minmax(0,1fr)}
+  .trx-part.trx-fiche > .trx-bouton-lien{justify-self:start}
   .trx-colonne-tete{flex-direction:column;align-items:flex-start}
   /* LOT U — sur téléphone, le libellé sur sa ligne, TTC et HT dessous (toujours alignés à droite, en colonnes). */
   .trx-resume-base tr{display:grid;grid-template-columns:minmax(0,1fr) 12em;column-gap:10px}
