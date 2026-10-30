@@ -1092,7 +1092,7 @@ describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () =
     expect(container.querySelector('[data-commission-carte="entree"]')).toBeNull();
     expect(container.querySelector('[data-ecart-remuneration="entree"]')).toBeNull();
     expect(container.querySelector('[data-appliquer-calcul-carte="entree"]')).toBeNull();
-    expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé — non commissionné');
+    expect(container.querySelector('[data-statut-vente="entree"]')).toBeNull(); // LOT BE : « Statut à la vente » retiré (accord d'Arno)
     // Pierre (MACJ) : LOTS AA / AB — sur la carte de CRITERIMMO, pas de bloc de commission ; ses honoraires, versés à MACJ, en rouge.
     expect(container.querySelector('[data-commission-negociateur="sortie"]')).toBeNull();
     expect(texte('[data-reverse-cote="sortie"] [data-mention-commission]')).toBe('Comptabilisé dans « Commissions versées »'); // LOT BA : le cadre « Reversé en inter-cabinet à MACJ »
@@ -1279,7 +1279,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
       expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Arnaud Jorel · non commissionné');
       expect(texte('[data-societe-cote="entree"]')).toBe('CRITERIMMO · 60 %');
       const bloc = container.querySelector('[data-negociateur-cote="entree"]')!;
-      expect([...bloc.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')))).toEqual(['data-negociateur-carte', 'data-ventilation', 'data-statut-vente', 'data-ventilation']); // LOT AZ / BA / BB : l'en-tête (avec l'apporteur), le statut, la part de l'agence
+      expect([...bloc.children].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-')))).toEqual(['data-negociateur-carte', 'data-ventilation', 'data-ventilation']); // LOT BE : plus de « Statut à la vente » — // LOT AZ / BA / BB : l'en-tête (avec l'apporteur), le statut, la part de l'agence
       expect(texte('[data-colonne="vendeur"]')).not.toContain('2 000 € TTC');
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
   });
@@ -1666,7 +1666,7 @@ describe('🔴 LOT Z — la mention du bloc dit le statut ; la ligne « Statut �
         pa('sortie', 7, MY.nom, { statut: 'salarie' })] }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
       expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
-      expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé — non commissionné');
+      expect(container.querySelector('[data-statut-vente="entree"]')).toBeNull(); // LOT BE : « Statut à la vente » retiré (accord d'Arno)
       expect(container.querySelector('[data-statut-vente="sortie"]')).toBeNull();
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
   });
@@ -3668,7 +3668,7 @@ describe('🔴 LOT AY — cartes « Vendeurs » / « Acquéreurs » : 100 % des 
       expect(grand('[data-honoraires-cote="entree"]')).toBe(grand('[data-part-agence="entree"]'));
       expect(grand('[data-commission-negociateur="sortie"]') + grand('[data-part-agence="sortie"]')).toBe(grand('[data-honoraires-cote="sortie"]'));
       // la carte du non commissionné garde son « Statut à la vente », puis la part de l'agence
-      expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé — non commissionné');
+      expect(container.querySelector('[data-statut-vente="entree"]')).toBeNull(); // LOT BE : « Statut à la vente » retiré (accord d'Arno)
     });
 
     it(`ligne miroir chez MACJ en ${u.toUpperCase()} : la part de l’agence de MACJ, à partir de sa part reçue`, async () => {
@@ -3975,7 +3975,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
     expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires partie acquéreur : 25 000 € TTC × 0 % = 0 € TTC (0 € HT)');
     expect(container.querySelectorAll('[data-negociateur-cote="sortie"] .trx-calcul-encadre')).toHaveLength(0);
     await ecran('criterimmo', 'ttc', [location]); await deplier(37);
-    expect(texte('[data-statut-vente="entree"]')).toBe('Statut à la vente : Associé — non commissionné');
+    expect(container.querySelector('[data-statut-vente="entree"]')).toBeNull(); // LOT BE : « Statut à la vente » retiré (accord d'Arno)
     expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
   });
 
@@ -4057,4 +4057,43 @@ describe('🔴 LOT BD — l’en-tête de chaque carte (la base) dans un cadre �
       '.trx-cadre-base{border:1.5px solid var(--trx-lisere-base);border-radius:10px;padding:6px 8px;', '.trx-ventilation{display:flex;flex-direction:column;gap:8px}',
       '.trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;']) expect(css).toContain(r);
   });
+});
+
+describe('🔴 LOT BE — « Statut à la vente : … — non commissionné » retiré partout (accord d’Arno) ; le nom reste lisible ; aucun montant ne change', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.uniteCommission; });
+  const CJ = { id: 9, nom: 'Cédric JULLIEN', societe: 'macj' as const };
+  const pa = (sorte: 'entree' | 'sortie', n: { id: number; nom: string; societe: 'criterimmo' | 'macj' }, pct: number, o: Record<string, unknown> = {}) => ({ sorte, compteId: n.id,
+    negociateur: n.nom, societe: n.societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const, ...o });
+  const vente = (statut: 'associe' | 'salarie'): Vente => ({ ...compromis, id: 70, honorairesTtc: 6000, apporteur: null, retroApporteur: null, lignes: [],
+    repartition: { retroApporteurTtc: 0, parties: [pa('entree', JB, 50, { statut, commissionne: false }), pa('sortie', CJ, 50, { statut, commissionne: false })] as never },
+    dossier: { ...compromis.dossier!, entree: { id: JB.id, nom: JB.nom }, sortie: { id: CJ.id, nom: CJ.nom } } });
+  const ecran = async (s: 'criterimmo' | 'macj', liste: Vente[]) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = liste;
+    await act(async () => { root.render(createElement(EcranSociete, { societe: s })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+
+  for (const statut of ['associe', 'salarie'] as const) {
+    it(`${statut === 'associe' ? 'associé' : 'salarié'} non commissionné : ni sur la carte (CRITERIMMO), ni sur la ligne miroir (MACJ) ; nom sur le bouton ; montants inchangés`, async () => {
+      await ecran('criterimmo', [vente(statut)]); await deplier(70);
+      expect(container.textContent).not.toContain('Statut à la vente');
+      expect(container.querySelector('[data-statut-vente]')).toBeNull();
+      expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Jean-Baptiste PONS · non commissionné');
+      expect(texte('[data-part-agence="entree"] .trx-calcul-resultat')).toBe('3 000 € TTC');
+      expect(texte('[data-part-agence="entree"] [data-mention-commission]')).toBe(statut === 'associe' ? 'Rattachée au CA de Jean-Baptiste PONS (associé)' : 'Reste dans le CA de CRITERIMMO — non reversé');
+      expect(texte('[data-reverse-cote="sortie"] .trx-calcul-resultat')).toBe('3 000 € TTC');
+      const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+      await ecran('macj', [venteDansSociete(vente(statut), 'macj')!]); await cliquer('[data-deplier="miroir-70"]');
+      expect(container.textContent).not.toContain('Statut à la vente');
+      expect(container.querySelector('[data-remuneration-statut]')).toBeNull();
+      expect(texte('[data-remuneration-negociateur="sortie"]')).toBe('Cédric JULLIEN (MACJ) · non commissionné');
+      expect(texte('[data-non-commissionne="sortie"]')).toBe('Non commissionné');
+      expect(texte('[data-remuneration="sortie"] [data-honoraires-cote]')).toBe('Honoraires reçus de CRITERIMMO 3 000 € TTC (2 500 € HT)');
+      expect(texte('[data-part-agence="sortie"] [data-mention-commission]')).toBe(statut === 'associe' ? 'Rattachée au CA de Cédric JULLIEN (associé)' : 'Reste dans le CA de MACJ — non reversé');
+      expect(texte('[data-part-agence="sortie"] .trx-calcul-resultat')).toBe('3 000 € TTC');
+    });
+  }
 });

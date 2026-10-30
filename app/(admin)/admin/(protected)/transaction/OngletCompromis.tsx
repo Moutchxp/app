@@ -547,8 +547,10 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       )}
       {/* 🔴 LOT P — son statut À LA DATE DE LA VENTE (figé ; à défaut, celui de son compte, « à confirmer ») et ce qu'il devient dans le cumul.
           🔴 LOT Z (accord d'Arno) — RETIRÉE quand le bloc « Commission du négociateur » existe (doublon : le statut et sa précision sont dans la
-          mention du bloc) ; gardée sans bloc — un non commissionné : « Statut à la vente : Associé — non commissionné ». */}
-      {actuel !== null && partieDuCote !== undefined && rem === null && (() => {
+          mention du bloc) ; gardée sans bloc — un non commissionné : « Statut à la vente : Associé — non commissionné ».
+          🔴 LOT BE (retrait autorisé par Arno) — plus pour un non commissionné : son nom est sur son bouton, un associé est nommé dans « Part de
+          l'agence » (« Rattachée au CA de … ») ; le statut figé reste en base et sert aux calculs. */}
+      {actuel !== null && partieDuCote !== undefined && rem === null && !actuelNonCommissionne && (() => {
         const st = statutDePartie(partieDuCote);
         const classe = classeCommission(st);
         return <span className={classe === 'a_renseigner' ? 'loc-muet trx-negociateur-commission trx-alerte' : 'loc-muet trx-negociateur-commission'} data-statut-vente={cote}>
@@ -979,13 +981,14 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   </>;
   // 🔴 LOT AK (Arno) — sur la ligne miroir, « Statut à la vente : … » et « Honoraires reçus de [porteuse] » sont retirés (retrait autorisé par
   // Arno, ligne miroir seule) : le montant fait doublon avec « CA de [société] sur cette vente » juste au-dessus, et le statut reste lisible
-  // dans la mention du cadre « Commission du négociateur ». Un non commissionné n'a pas ce cadre : son statut y reste, seule trace qui en existe.
+  // dans la mention du cadre « Commission du négociateur ». Un non commissionné n'a pas ce cadre : son statut y restait — 🔴 LOT BE (Arno) : retiré
+  // aussi (son nom est sur la ligne du négociateur ; un associé est nommé dans « Part de l'agence »).
   if (!commissionne) return (
     <div className="trx-remuneration" data-remuneration={cote}>
       {entete}
       {/* 🔴 LOT BA (Arno) — en tête, sans cadre : « Honoraires reçus de [porteuse] » (sa part reçue) ; les cadres dessous la totalisent. */}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
-      <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
+      {/* 🔴 LOT BE (retrait autorisé par Arno, annule le lot AK sur ce point) — plus de « Statut à la vente : … » ; le statut figé reste en base. */}
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
     </div>
