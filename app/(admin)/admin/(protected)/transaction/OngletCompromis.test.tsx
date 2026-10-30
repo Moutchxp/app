@@ -988,7 +988,7 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     expect(texte('[data-ligne-repartition="part-reverse-macj"]')).toBe('Part MACJ − Reversé en inter-cabinet vers MACJMACJ50 %1 666,67 € HT(2 000 € TTC)');
     // Arnaud : 2 000 saisis ; le calcul (50 % × sa part, 2 000) = 1 000 — la valeur saisie n'est pas recalculée, le calcul est proposé
     // LOT T — les deux lignes de calcul, puis la valeur enregistrée en rouge et « Appliquer le calcul ».
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 3 333,33 € HT × 50 % = 1 666,66 € HT (2 000 € TTC)'); // LOT BA : centimes AH
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires nets partie vendeur : 3 333,33 € HT × 50 % = 1 666,66 € HT (2 000 € TTC)'); // LOT BA : centimes AH
     // 🔴 LOT BI — Arnaud, associé : sa commission n'est pas distinguée — un seul cadre vert, tout son côté compté dans son CA
     expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
     expect(texte('[data-part-agence="entree"] [data-mention-commission]')).toBe('Comptés dans le CA de Arnaud Jorel (associé, commissionné)');
@@ -1091,7 +1091,7 @@ describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () =
   it('la carte : « · non commissionné » dans son bouton (LOT T) ; seule la ligne des honoraires — ni commission, ni calcul, ni « Appliquer le calcul » ; Pierre inchangé ; tuiles sans sa commission', async () => {
     await carte(vente(false));
     expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Arnaud Jorel · non commissionné');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 3 333,33 € HT × 50 % = 1 666,66 € HT (2 000 € TTC)'); // LOT BA : centimes AH
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires nets partie vendeur : 3 333,33 € HT × 50 % = 1 666,66 € HT (2 000 € TTC)'); // LOT BA : centimes AH
     expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
     expect(container.querySelector('[data-commission-carte="entree"]')).toBeNull();
     expect(container.querySelector('[data-ecart-remuneration="entree"]')).toBeNull();
@@ -1166,7 +1166,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   it('taux 25 %, apporteur déduit : « 6 500 × 40 % = 2 600 » puis « 2 600 × 25 % = 650 » ; enregistrée différente : 1 625 en rouge et « Appliquer le calcul »', async () => {
     await carte(exemple);
     expect(texte('[data-negociateur-carte="sortie"]')).toBe('Négociateur : Mylène EBERLIN · 25 %');
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires partie acquéreur : (6 250 € HT − 833,33 € HT) × 40 % = 2 166,67 € HT (2 600 € TTC)'); // LOT BB : (commission − apporteur) × part
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires nets partie acquéreur : (6 250 € HT − 833,33 € HT) × 40 % = 2 166,67 € HT (2 600 € TTC)'); // LOT BB : (commission − apporteur) × part
     expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 2 166,67 € HT × 25 % = 541,67 € HT (650 € TTC) Indépendant — comptabilisé dans « Commissions versées »');
     expect(texte('[data-commission-enregistree="sortie"]')).toBe('Commission enregistrée : 1 354,17 € HT (1 625 € TTC)');
     expect(container.querySelector('[data-commission-enregistree="sortie"]')!.className).toContain('trx-alerte');
@@ -1183,7 +1183,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   it('enregistrée = le calcul : pas de ligne rouge (JB : 6 500 × 60 % = 3 900 ; × 50 % = 1 950)', async () => {
     await carte(exemple);
     expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Jean-Baptiste PONS · 50 %');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (6 250 € HT − 833,33 € HT) × 60 % = 3 250 € HT (3 900 € TTC)'); // LOT BB : (commission − apporteur) × part
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires nets partie vendeur : (6 250 € HT − 833,33 € HT) × 60 % = 3 250 € HT (3 900 € TTC)'); // LOT BB : (commission − apporteur) × part
     expect(texte('[data-commission-negociateur="entree"]')).toBe('Commission du négociateur : 3 250 € HT × 50 % = 1 625 € HT (1 950 € TTC) Indépendant — comptabilisé dans « Commissions versées »');
     expect(container.querySelector('[data-ecart-remuneration="entree"]')).toBeNull();
     expect(container.querySelector('[data-colonne="vendeur"] .trx-alerte')).toBeNull();
@@ -1247,7 +1247,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   it('avec une partie extérieure (40 / 40 / 20) : chaque côté lit sa part ; la carte relue garde le tableau « Répartition » des informations communes', async () => {
     await carte(compromis);
     expect([texte('[data-societe-cote="entree"]'), texte('[data-societe-cote="sortie"]')]).toEqual(['CRITERIMMO · 40 %', 'MACJ · 40 %']);
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (10 000 € HT − 2 000 € HT) × 50 % = 4 000 € HT (4 800 € TTC)'); // LOT BB : (commission − apporteur) × part parmi nos parties (40 / 80, agence extérieure comprise)
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires nets partie vendeur : (10 000 € HT − 2 000 € HT) × 50 % = 4 000 € HT (4 800 € TTC)'); // LOT BB : (commission − apporteur) × part parmi nos parties (40 / 80, agence extérieure comprise)
     expect(container.querySelector('[data-repartition-compromis] table')).not.toBeNull();
   });
 
@@ -1443,7 +1443,7 @@ describe('🔴 LOT V — la commission du négociateur suit le calcul ; HT en gr
     expect(h.querySelector('strong')!.textContent!.replace(/\s/g, ' ')).toBe('1 625 € HT'); // LOT BB : les honoraires nets de l'apporteur
     expect(h.querySelector('.trx-calcul-ttc')!.textContent!.replace(/\s/g, ' ')).toBe('(1 950 € TTC)'); // LOT AM : l'encre (couleur selon le sens) ; LOT BB : nets de l'apporteur
     expect(h.querySelector('.trx-vert')).toBeNull();
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires partie acquéreur : (6 250 € HT − 833,33 € HT) × 30 % = 1 625 € HT (1 950 € TTC)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires nets partie acquéreur : (6 250 € HT − 833,33 € HT) × 30 % = 1 625 € HT (1 950 € TTC)');
     expect(texte('[data-commission-negociateur="sortie"]')).toBe('Commission du négociateur : 1 625 € HT × 50 % = 812,50 € HT (975 € TTC) Salarié interne — non comptabilisé dans « Commissions versées »');
     await cliquer('[data-societe-cote="entree"]');
     const r = '[data-reglage-repartition="entree"]';
@@ -1493,7 +1493,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
     listeCompromis = [{ ...compromis, honorairesTtc: 2962962.94, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 50), pa('sortie', 7, MY.nom, 50)] }, lignes: [] }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect(structure('[data-honoraires-cote="sortie"]')).toEqual([
-      ['SPAN', 'trx-calcul-libelle', 'Honoraires partie acquéreur : 2 469 135,78 € HT × 50 % ='],
+      ['SPAN', 'trx-calcul-libelle', 'Honoraires nets partie acquéreur : 2 469 135,78 € HT × 50 % ='],
       ['STRONG', 'trx-calcul-resultat', '1 234 567,89 € HT'],
       ['SPAN', 'trx-calcul-ttc trx-mt-petit', '(1 481 481,47 € TTC)']]);
     expect(structure('[data-commission-negociateur="sortie"]').map((x) => x[1])).toEqual(['trx-calcul-libelle', 'trx-calcul-resultat', 'trx-calcul-ttc trx-mt-petit', 'trx-calcul-mention']);
@@ -1510,7 +1510,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
       listeCompromis = [{ ...compromis, honorairesTtc: 120, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 50, { commissionneCompte: false }), pa('sortie', 7, MY.nom, 50)] },
         dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
-      expect(structure('[data-honoraires-cote="entree"]').map((x) => x[2])).toEqual(['Honoraires partie vendeur : 100 € HT × 50 % =', '50 € HT', '(60 € TTC)']);
+      expect(structure('[data-honoraires-cote="entree"]').map((x) => x[2])).toEqual(['Honoraires nets partie vendeur : 100 € HT × 50 % =', '50 € HT', '(60 € TTC)']);
       expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
     } finally { (references as { negociateurs: unknown[] }).negociateurs = negos; }
   });
@@ -1805,7 +1805,7 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
       // 🔴 LOT BA (Arno) — l'en-tête sans cadre (la part du CA de la partie) ; le reversé, son cadre rouge « Reversé en inter-cabinet à … » (le montant
       // de « Inter-cabinet vers … »), avec en petit la commission de Pierre (payée par l'autre société) et la part de l'agence de l'autre société.
       expect(encadre('[data-honoraires-cote="sortie"]')).toBe('aucun');
-      expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires partie acquéreur : 3 333,33 € HT × 50 % = 1 666,67 € HT (2 000 € TTC)');
+      expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires nets partie acquéreur : 3 333,33 € HT × 50 % = 1 666,67 € HT (2 000 € TTC)');
       expect(encadre('[data-reverse-cote="sortie"]')).toBe('rouge');
       expect(texte('[data-reverse-cote="sortie"]')).toBe(`Reversé en inter-cabinet à ${AUTRE} 1 666,67 € HT (2 000 € TTC) Comptabilisé dans « Commissions versées »`
         + `dont commission de Pierre Thevenin (${AUTRE}, 50 %) : 833,33 € HT — payée par ${AUTRE}dont part de l’agence ${AUTRE} : 833,34 € HT`);
@@ -2428,14 +2428,14 @@ describe('🔴 LOT AK — ligne miroir, « Négociateur de sortie » : sans « S
     expect(tuiles()).toEqual(['3 250 € TTC', '0 € TTC', '3 250 € TTC']);
   });
 
-  it('la carte de la vente d’origine (porteuse) ne change pas : « Honoraires partie vendeur / acquéreur » et la mention du statut y restent', async () => {
+  it('la carte de la vente d’origine (porteuse) ne change pas : « Honoraires nets partie vendeur / acquéreur » et la mention du statut y restent', async () => {
     listeCompromis = [location('criterimmo', 'independant')];
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await deplier(44);
     // LOT BA — centimes AH : la porteuse (l'entrée) prend l'écart
-    expect(texte('[data-honoraires-cote="sortie"]')).toContain('Honoraires partie acquéreur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250 € TTC)');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 5 416,67 € HT × 50 % = 2 708,34 € HT (3 250 € TTC)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toContain('Honoraires nets partie acquéreur : 5 416,67 € HT × 50 % = 2 708,33 € HT (3 250 € TTC)');
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires nets partie vendeur : 5 416,67 € HT × 50 % = 2 708,34 € HT (3 250 € TTC)');
     expect(texte('[data-part-agence="entree"] [data-mention-commission]')).toMatch(/^Comptés dans le CA de .* \(associé/); // LOT BI : l'associé, son côté compté dans son CA
   });
 });
@@ -2657,9 +2657,9 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
     await onglet(); await deplier(41);
     // TTC : l'opérande et le résultat en TTC ; versé (l'acquéreur MACJ, l'indépendant JB) en rouge, le reste à l'encre
     // LOT BA — l'en-tête : la commission de la vente × la part ; le reversé à MACJ, son cadre rouge
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires partie acquéreur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)'); // LOT BB
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires nets partie acquéreur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)'); // LOT BB
     expect(texte('[data-reverse-cote="sortie"] .trx-calcul-resultat')).toBe('3 840 € TTC');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)'); // LOT BB
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires nets partie vendeur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)'); // LOT BB
     expect(container.querySelector('[data-honoraires-cote="entree"] .trx-calcul-resultat')!.className).toBe('trx-calcul-resultat');
     expect(container.querySelector('[data-commission-negociateur="entree"] .trx-calcul-resultat')!.className).toContain('trx-rouge');
     expect(texte('[data-colonne-montants]')).toBe('€ TTC (HT)');
@@ -2673,7 +2673,7 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
     // le petit : même couleur que le grand
     expect(container.querySelector('[data-ligne-repartition="apporteur"] [data-montant-petit]')!.className).toBe('trx-mt-petit trx-rouge');
     await basculer('ht');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (10 000 € HT − 2 000 € HT) × 50 % = 4 000 € HT (4 800 € TTC)'); // LOT BB : (commission − apporteur) × part parmi nos parties (40 / 80, agence extérieure comprise)
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires nets partie vendeur : (10 000 € HT − 2 000 € HT) × 50 % = 4 000 € HT (4 800 € TTC)'); // LOT BB : (commission − apporteur) × part parmi nos parties (40 / 80, agence extérieure comprise)
     expect(texte('[data-colonne-montants]')).toBe('€ HT (TTC)');
     expect(ligne('reste')).toEqual(['3 200 € HT', 'trx-mt-grand trx-vert']);
     expect(texte('[data-apporteur-montant]')).toBe('2 000 € HT (2 400 € TTC)');
@@ -3623,10 +3623,10 @@ describe('🔴 LOT AY — cartes « Vendeurs » / « Acquéreurs » : 100 % des 
       const m = (ttc: string, ht: string): string => (T ? `${ttc} € TTC` : `${ht} € HT`);
       const p = (ttc: string, ht: string): string => (T ? `(${ht} € HT)` : `(${ttc} € TTC)`);
       const lus = lire();
-      // LOT AZ / BA / BB — l'en-tête (« Commission de la vente », « − Apporteur », « = Honoraires partie … » nette), la part de l'agence (vert), puis
+      // LOT AZ / BA / BB — l'en-tête (« Commission de la vente », « − Apporteur », « = Honoraires nets partie … » nette), la part de l'agence (vert), puis
       // le rouge (agence extérieure, reversé) ; plus de cadre d'apporteur ; un cadre à 0 n'est pas affiché (la part de l'agence des acquéreurs)
       const q = 'Quote-part de cette partie — comptabilisée dans « Commissions versées »';
-      const tete = (mot: string) => `= Honoraires partie ${mot} : (${m('12 000', '10 000')} − ${m('2 400', '2 000')}) × 50 % = ${m('4 800', '4 000')} ${p('4 800', '4 000')}`;
+      const tete = (mot: string) => `= Honoraires nets partie ${mot} : (${m('12 000', '10 000')} − ${m('2 400', '2 000')}) × 50 % = ${m('4 800', '4 000')} ${p('4 800', '4 000')}`;
       expect(Object.values(lus)).toEqual([
         tete('vendeur'),
         `Part de l’agence CRITERIMMO : ${m('4 800', '4 000')} − ${m('1 200', '1 000')} − ${m('960', '800')} = ${m('2 640', '2 200')} ${p('2 640', '2 200')} Reste dans le CA de CRITERIMMO — non reversé`,
@@ -3666,14 +3666,14 @@ describe('🔴 LOT AY — cartes « Vendeurs » / « Acquéreurs » : 100 % des 
       await ecran('macj', u, [fabarro]); await deplier(260);
       // LOT BA — l'en-tête de chaque carte ; HT au centime du lot AH (la porteuse prend l'écart sur sa dernière partie, la sortie)
       expect(Object.values(lire())).toEqual(u === 'ttc' ? [
-        'Honoraires partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,67 € HT)',
+        'Honoraires nets partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,67 € HT)',
         'Honoraires conservés par MACJ : 12 500 € TTC (10 416,67 € HT) Comptés dans le CA de Cédric JULLIEN (associé)',
-        'Honoraires partie acquéreur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,66 € HT)',
+        'Honoraires nets partie acquéreur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,66 € HT)',
         'Part de l’agence MACJ : 12 500 € TTC − 6 250 € TTC = 6 250 € TTC (5 208,33 € HT) Reste dans le CA de MACJ — non reversé',
       ] : [
-        'Honoraires partie vendeur : 20 833,33 € HT × 50 % = 10 416,67 € HT (12 500 € TTC)',
+        'Honoraires nets partie vendeur : 20 833,33 € HT × 50 % = 10 416,67 € HT (12 500 € TTC)',
         'Honoraires conservés par MACJ : 10 416,67 € HT (12 500 € TTC) Comptés dans le CA de Cédric JULLIEN (associé)',
-        'Honoraires partie acquéreur : 20 833,33 € HT × 50 % = 10 416,66 € HT (12 500 € TTC)',
+        'Honoraires nets partie acquéreur : 20 833,33 € HT × 50 % = 10 416,66 € HT (12 500 € TTC)',
         'Part de l’agence MACJ : 10 416,66 € HT − 5 208,33 € HT = 5 208,33 € HT (6 250 € TTC) Reste dans le CA de MACJ — non reversé',
       ]);
       // chaque carte : honoraires de la partie (ligne existante) = commission + part de l'agence, au centime
@@ -3808,7 +3808,7 @@ describe('🔴 LOT AZ — les cadres verts au-dessus des rouges ; « Revenir au 
   });
 });
 
-describe('🔴 LOT BA — chaque carte part de « Honoraires partie … » (sans cadre) et ses cadres la totalisent ; l’inter-cabinet ; le contrôle à l’écran', () => {
+describe('🔴 LOT BA — chaque carte part de « Honoraires nets partie … » (sans cadre) et ses cadres la totalisent ; l’inter-cabinet ; le contrôle à l’écran', () => {
   const ref = references as Record<string, unknown>;
   beforeEach(() => { ref.uniteCommission = true; });
   afterEach(() => { delete ref.uniteCommission; });
@@ -3851,8 +3851,8 @@ describe('🔴 LOT BA — chaque carte part de « Honoraires partie … » (sans
       const T = u === 'ttc';
       const m = (ttc: string, ht: string): string => (T ? `${ttc} € TTC` : `${ht} € HT`);
       const p = (ttc: string, ht: string): string => (T ? `(${ht} € HT)` : `(${ttc} € TTC)`);
-      expect(texte('[data-honoraires-cote="entree"]')).toBe(`Honoraires partie vendeur : ${m('25 000', '20 833,33')} × 50 % = ${m('12 500', '10 416,66')} ${p('12 500', '10 416,66')}`);
-      expect(texte('[data-honoraires-cote="sortie"]')).toBe(`Honoraires partie acquéreur : ${m('25 000', '20 833,33')} × 50 % = ${m('12 500', '10 416,67')} ${p('12 500', '10 416,67')}`);
+      expect(texte('[data-honoraires-cote="entree"]')).toBe(`Honoraires nets partie vendeur : ${m('25 000', '20 833,33')} × 50 % = ${m('12 500', '10 416,66')} ${p('12 500', '10 416,66')}`);
+      expect(texte('[data-honoraires-cote="sortie"]')).toBe(`Honoraires nets partie acquéreur : ${m('25 000', '20 833,33')} × 50 % = ${m('12 500', '10 416,67')} ${p('12 500', '10 416,67')}`);
       expect(container.querySelector('[data-honoraires-cote="sortie"]')!.className).not.toContain('trx-calcul-encadre');
       expect(texte('[data-part-agence="entree"]')).toBe(`Part de l’agence CRITERIMMO : ${m('12 500', '10 416,66')} − ${m('3 125', '2 604,17')} = ${m('9 375', '7 812,49')} ${p('9 375', '7 812,49')} Reste dans le CA de CRITERIMMO — non reversé`);
       expect(texte('[data-commission-negociateur="entree"] .trx-calcul-resultat')).toBe(m('3 125', '2 604,17'));
@@ -3901,8 +3901,8 @@ describe('🔴 LOT BA — chaque carte part de « Honoraires partie … » (sans
   it('partie à 0 % (le même négociateur porte tout, 100 / 0) : la carte de sortie à 0, sans alerte', async () => {
     const tout = v({ id: 261, libelle: 'TOUT À L’ENTRÉE', ttc: 25000, parties: [pa('entree', PT, 100)], lignes: [lt(5, PT.nom, 'entree', 12500)], e: PT, s: PT });
     await ecran('macj', 'ttc', [{ ...tout, societe: 'macj' }]); await deplier(261);
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires partie acquéreur : 25 000 € TTC × 0 % = 0 € TTC (0 € HT)');
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 25 000 € TTC × 100 % = 25 000 € TTC (20 833,33 € HT)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires nets partie acquéreur : 25 000 € TTC × 0 % = 0 € TTC (0 € HT)');
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires nets partie vendeur : 25 000 € TTC × 100 % = 25 000 € TTC (20 833,33 € HT)');
     expect(container.querySelector('[data-ventilation-incomplete]')).toBeNull();
   });
 
@@ -3956,7 +3956,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
         expect(container.querySelector(`${b} [data-entete-apporteur] .trx-calcul-resultat`)!.className).toContain('trx-rouge');
         expect(texte(`${b} [data-entete-apporteur-nom]`)).toBe('Gardien Dacquet');
         // HT : la nette (5 416,67) ne se partage pas juste en deux (2 708,333…) : le centime va à la porteuse (CRITERIMMO, l'entrée) — lot AH
-        expect(texte(`${b} [data-honoraires-cote]`)).toBe(`= Honoraires partie ${mot} : (${m('7 500', '6 250')} − ${m('1 000', '833,33')}) × 50 % = ${m('3 250', h)} ${p('3 250', h)}`);
+        expect(texte(`${b} [data-honoraires-cote]`)).toBe(`= Honoraires nets partie ${mot} : (${m('7 500', '6 250')} − ${m('1 000', '833,33')}) × 50 % = ${m('3 250', h)} ${p('3 250', h)}`);
         expect(container.querySelector(`${b} [data-honoraires-cote]`)!.className).toContain('trx-calcul-total');
         expect(container.querySelector(`${b} [data-quote-part]`)).toBeNull();
         // la ventilation = les honoraires nets de la partie, au centime
@@ -3971,9 +3971,9 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
     });
   }
 
-  it('sans apporteur : l’en-tête sur une seule ligne (FABARRO, « Honoraires partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC ») ; le cadre à 0 n’est pas affiché', async () => {
+  it('sans apporteur : l’en-tête sur une seule ligne (FABARRO, « Honoraires nets partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC ») ; le cadre à 0 n’est pas affiché', async () => {
     await ecran('criterimmo', 'ttc', [fabarro]); await deplier(260);
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,66 € HT)');
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('Honoraires nets partie vendeur : 25 000 € TTC × 50 % = 12 500 € TTC (10 416,66 € HT)');
     expect(container.querySelector('[data-entete-commission], [data-entete-apporteur]')).toBeNull();
     // acquéreurs côté CRITERIMMO : « Part de l'agence CRITERIMMO 0 € » disparaît, il ne reste que le reversé à MACJ (12 500)
     expect(container.querySelector('[data-part-agence="sortie"]')).toBeNull();
@@ -3984,7 +3984,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
   it('cadres à 0 : la carte d’une partie à 0 % n’a plus aucun cadre (ni part de l’agence 0, ni commission 0) ; « Statut à la vente » d’un non commissionné reste', async () => {
     const tout = v({ id: 261, societe: 'macj', libelle: 'TOUT À L’ENTRÉE', ttc: 25000, parties: [pa('entree', PT, 100)], lignes: [lt(5, PT.nom, 'entree', 12500), lt(6, PT.nom, 'sortie', 0)], e: PT, s: PT });
     await ecran('macj', 'ttc', [tout]); await deplier(261);
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires partie acquéreur : 25 000 € TTC × 0 % = 0 € TTC (0 € HT)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('Honoraires nets partie acquéreur : 25 000 € TTC × 0 % = 0 € TTC (0 € HT)');
     expect(container.querySelectorAll('[data-negociateur-cote="sortie"] .trx-calcul-encadre')).toHaveLength(0);
     await ecran('criterimmo', 'ttc', [location]); await deplier(37);
     expect(container.querySelector('[data-statut-vente="entree"]')).toBeNull(); // LOT BE : « Statut à la vente » retiré (accord d'Arno)
@@ -4010,7 +4010,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
     await act(async () => { root.render(createElement(VentilationPartie, { x: deux, groupe: 'tete' })); }); await calmer();
     expect([...container.querySelectorAll('[data-entete-apporteur]')].map((e) => e.textContent!.replace(/\s/g, ' '))).toEqual([
       '− Apporteur : Gardien Dacquet 500 € TTC (416,67 € HT)', '− Apporteur : Julien Deblois 500 € TTC (416,66 € HT)']); // LOT BC : une ligne par apporteur
-    expect(texte('[data-honoraires-cote]')).toBe('= Honoraires partie vendeur : (7 500 € TTC − 500 € TTC − 500 € TTC) × 50 % = 3 250 € TTC (2 708,34 € HT)');
+    expect(texte('[data-honoraires-cote]')).toBe('= Honoraires nets partie vendeur : (7 500 € TTC − 500 € TTC − 500 € TTC) × 50 % = 3 250 € TTC (2 708,34 € HT)');
   });
 });
 
@@ -4043,7 +4043,7 @@ describe('🔴 LOT BD — l’en-tête de chaque carte (la base) dans un cadre �
   const groupes = (sel: string): string[] => [...container.querySelectorAll(`${sel} .trx-cadre-base, ${sel} .trx-calcul-encadre`)]
     .map((x) => (x.classList.contains('trx-cadre-base') ? 'gris' : x.className.includes('--deduite') ? 'rouge' : 'vert'));
 
-  it('carte avec apporteur : le cadre gris contient « Commission de la vente », « − Apporteur : … » et « = Honoraires partie … » ; ordre gris, verts, rouges', async () => {
+  it('carte avec apporteur : le cadre gris contient « Commission de la vente », « − Apporteur : … » et « = Honoraires nets partie … » ; ordre gris, verts, rouges', async () => {
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     listeCompromis = [avec]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     const base = container.querySelector('[data-negociateur-cote="entree"] .trx-cadre-base')!;
@@ -4122,7 +4122,7 @@ describe('🔴 LOT BG — la ligne résultat du cadre gris ressort : trame, file
   };
   const sansApporteur: Vente = { ...compromis, id: 71, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0 } };
 
-  it('avec apporteur (41) : la ligne « = Honoraires partie … » dans le bloc résultat, avec filet, après l’apporteur ; la note dessous ; le texte de la ligne inchangé', async () => {
+  it('avec apporteur (41) : la ligne « = Honoraires nets partie … » dans le bloc résultat, avec filet, après l’apporteur ; la note dessous ; le texte de la ligne inchangé', async () => {
     await ecran('criterimmo', [compromis]); await deplier(41);
     const base = container.querySelector('[data-negociateur-cote="entree"] .trx-cadre-base')!;
     const bloc = base.querySelector('[data-base-resultat="entree"]')!;
@@ -4131,7 +4131,7 @@ describe('🔴 LOT BG — la ligne résultat du cadre gris ressort : trame, file
     expect(texte('[data-base-note="entree"]')).toBe('base des calculs ci-dessous');
     expect(base.querySelector('[data-entete-apporteur]')!.compareDocumentPosition(bloc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bloc.lastElementChild!.getAttribute('data-base-note')).toBe('entree'); // la dernière ligne du cadre gris
-    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)');
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires nets partie vendeur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)');
   });
 
   it('sans apporteur et sur la ligne miroir : le bloc résultat est seul (trame sur tout le cadre, sans filet), avec sa note', async () => {
@@ -4207,7 +4207,7 @@ describe('🔴 LOT BH — l’apporteur d’une affaire déjà créée : ajouter
     // recalculé, sans recharger : le cadre gris des deux cartes, la Répartition, les boutons
     if (container.querySelector('[data-entete-apporteur="entree"]') === null) await deplier(72);
     expect(texte('[data-entete-apporteur="entree"]')).toBe('− Apporteur : Gardien Dacquet 1 000 € TTC (833,33 € HT)');
-    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires partie acquéreur : (12 000 € TTC − 1 000 € TTC) × 50 % = 5 500 € TTC (4 583,33 € HT)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires nets partie acquéreur : (12 000 € TTC − 1 000 € TTC) × 50 % = 5 500 € TTC (4 583,33 € HT)');
     expect(texte('[data-ligne-repartition="base"] [data-montant-grand]')).toBe('11 000 € TTC');
     expect(container.querySelector(`${ligne} [data-modifier-apporteur]`)).not.toBeNull();
     expect(container.querySelector('[data-ventilation-incomplete]')).toBeNull();
@@ -4808,5 +4808,29 @@ describe('🔴 LOT BN — « Prix de vente » dans les informations communes ; l
     expect(CSS_TRANSACTION).toContain(CSS_TRIANGLE);
     expect(CSS_CONVERSATION).toContain(CSS_TRIANGLE);
     expect(CSS_TRIANGLE.replace(/\s+/g, ' ')).toContain('.svv-triangle{flex:0 0 auto;color:var(--color-svv-red);transition:transform .18s ease} .svv-triangle--ouvert{transform:rotate(90deg)} @media (prefers-reduced-motion:reduce){.svv-triangle{transition:none}}');
+  });
+});
+
+describe('🔴 LOT BO — « Honoraires nets partie vendeur / acquéreur » (avec ou sans apporteur) ; la ligne miroir garde « Honoraires reçus de … »', () => {
+  const libelle = (cote: string) => container.querySelector(`[data-honoraires-cote="${cote}"] .trx-calcul-mot`)!.textContent;
+  it('avec apporteur : « = Honoraires nets partie vendeur / acquéreur » ; sans apporteur : « Honoraires nets partie … » (un seul libellé partout)', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect([libelle('entree'), libelle('sortie')]).toEqual(['= Honoraires nets partie vendeur', '= Honoraires nets partie acquéreur']);
+    expect(container.querySelector('[data-base-note="entree"]')!.textContent).toBe('base des calculs ci-dessous');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = [{ ...compromis, apporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0 }, dossier: { ...compromis.dossier!, apporteurId: null } }];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect([libelle('entree'), libelle('sortie')]).toEqual(['Honoraires nets partie vendeur', 'Honoraires nets partie acquéreur']);
+    expect(texte('[data-honoraires-cote="entree"]')).toMatch(/^Honoraires nets partie vendeur : 12 000 € TTC × \d+ % = /);
+    expect(container.querySelector('[data-compromis="41"]')!.textContent).not.toMatch(/Honoraires partie (vendeur|acquéreur)/);
+  });
+  it('la ligne miroir : « Honoraires reçus de CRITERIMMO », inchangé', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [venteDansSociete(compromis, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
+    expect(container.querySelector('[data-honoraires-cote] .trx-calcul-mot')!.textContent).toBe('Honoraires reçus de CRITERIMMO');
+    expect(container.querySelector('li[data-compromis]')!.textContent).not.toContain('Honoraires nets partie');
   });
 });

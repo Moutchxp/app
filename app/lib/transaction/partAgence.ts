@@ -11,7 +11,7 @@ import { enCentimes } from './detailCommissions';
  * l'écran : honoraires de la partie = commissions des négociateurs de cette société + quote-part de l'apporteur et des agences extérieures
  * + inter-cabinet versé à l'autre société + PART DE L'AGENCE (ce qui reste dans le CA de la société, non reversé). Au centime, dans chaque
  * unité : la part de l'agence est le reste exact des lignes affichées.
- *   · La base : « Honoraires partie vendeur / acquéreur » tels que la carte les affiche (commission nette × part de ce côté).
+ *   · La base : « Honoraires nets partie vendeur / acquéreur » tels que la carte les affiche (commission nette × part de ce côté).
  *   · L'apporteur et les agences extérieures (payés par la porteuse, sur la commission avant répartition) : la quote-part de chaque côté est
  *     au PRORATA de sa part parmi les parties de nos sociétés (50 / 50 pour deux côtés égaux) ; leurs centimes sont ceux du lot AH
  *     (`centimesRepartition`), l'écart d'un centime reporté sur le dernier côté.
@@ -37,7 +37,7 @@ export interface VentilationCote {
   cote: 'entree' | 'sortie';
   /** La société qui garde la part de l'agence (celle de l'écran ; CA global : celle du côté). */
   societe: Societe;
-  /** « Honoraires partie … » tels que la carte les affiche. */
+  /** « Honoraires nets partie … » tels que la carte les affiche. */
   base: MontantC;
   /** La part de ce côté dans l'apporteur et les agences extérieures (% , pour l'écran). */
   pctQuote: number;
@@ -54,7 +54,7 @@ export interface VentilationCote {
   commissionVente: MontantC;
   /**
    * 🔴 LOT BB (Arno) — le(s) apporteur(s), déduits dans l'EN-TÊTE de chaque carte (« − Apporteur », son nom dessous), jamais dans sa ventilation :
-   * « = Honoraires partie … : (commission − apporteur) × part % = … » — les honoraires NETS de la partie. Vide : sans apporteur (ou ligne miroir).
+   * « = Honoraires nets partie … : (commission − apporteur) × part % = … » — les honoraires NETS de la partie. Vide : sans apporteur (ou ligne miroir).
    */
   apporteurs: { nom: string | null; m: MontantC }[];
   /** 🔴 LOT BA — la ligne miroir : la société porteuse (« Honoraires reçus de … ») ; null : une vente de la société vue. */

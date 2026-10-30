@@ -561,7 +561,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); });
   };
   const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote}
-    premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
+    premier={`Honoraires nets partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
     rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} sansCadre={ventilation?.conserve != null} />;
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
@@ -575,7 +575,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       {/* 🔴 LOT AZ (Arno) — l'ordre des cadres : les lignes sans cadre (honoraires de la partie, statut), puis les cadres VERTS (part de l'agence,
           puis commission interne), puis les ROUGES (commission d'un indépendant, apporteur, agence extérieure, honoraires versés en inter-cabinet).
           Présentation seule : mêmes lignes, mêmes montants, mêmes couleurs. */}
-      {/* 🔴 LOT BA (Arno) — avec une ventilation, l'en-tête « Honoraires partie … » est TOUJOURS la ligne sans cadre de la ventilation (la référence de
+      {/* 🔴 LOT BA (Arno) — avec une ventilation, l'en-tête « Honoraires nets partie … » est TOUJOURS la ligne sans cadre de la ventilation (la référence de
           la carte) ; l'inter-cabinet versé devient son cadre rouge « Reversé en inter-cabinet à … ». Sans ventilation (historique) : comme avant. */}
       {actuel !== null && ventilation === undefined && versesVers === null && lignes('honoraires')}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
@@ -666,7 +666,7 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
 function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
   /** 🔴 LOT BB — un montant en rouge sans cadre (« − Apporteur » de l'en-tête). */
   rouge?: boolean;
-  /** 🔴 LOT BB — une classe en plus (« = Honoraires partie … » en gras). */
+  /** 🔴 LOT BB — une classe en plus (« = Honoraires nets partie … » en gras). */
   classe?: string;
   /** 🔴 LOT BA — des lignes d'information en petit, sous la mention (hors du total de la carte). */
   apres?: ReactNode;
@@ -700,7 +700,7 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
 
 /**
  * 🔴 LOT T (Arno) — SOUS LE BOUTON DU NÉGOCIATEUR, deux lignes de calcul lisibles :
- *   · « Honoraires partie vendeur / acquéreur » (ligne miroir : « Honoraires reçus de CRITERIMMO / MACJ ») : la commission nette après apporteur
+ *   · « Honoraires nets partie vendeur / acquéreur » (ligne miroir : « Honoraires reçus de CRITERIMMO / MACJ ») : la commission nette après apporteur
  *     × la part de ce côté = la base ;
  *   · « Commission du négociateur » : la base × son taux = la commission qui lui revient.
  * 🔴 LOT V — les montants en HT (gras) puis TTC (vert) ; et selon le MODE de la commission :
@@ -781,7 +781,7 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
     <div className={groupe === 'tete' ? 'trx-ventilation trx-cadre-base' : 'trx-ventilation'} data-ventilation={x.cote} data-groupe-ventilation={groupe}>
       {/* 🔴 LOT BA — l'en-tête, sans cadre : la part du CA de cette partie, référence de la carte (les cadres dessous la totalisent au centime). */}
       {/* 🔴 LOT BB (Arno) — avec apporteur, l'en-tête est le calcul complet : « Commission de la vente », « − Apporteur » (rouge, son nom dessous en
-          petit, une ligne par apporteur), puis « = Honoraires partie … : (commission − apporteur) × part % = … » en gras. Sans apporteur : une ligne. */}
+          petit, une ligne par apporteur), puis « = Honoraires nets partie … : (commission − apporteur) × part % = … » en gras. Sans apporteur : une ligne. */}
       {groupe === 'tete' && x.recuDe === null && x.apporteurs.length > 0 && <>
         <LigneCalcul donnees={{ 'data-entete-commission': x.cote }} ttc={x.commissionVente.ttcC / 100} ht={x.commissionVente.htC / 100}
           libelle={<span className="trx-calcul-mot">Commission de la vente</span>} />
@@ -795,7 +795,7 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
       {groupe === 'tete' && <div className={`trx-calcul-base-resultat ${x.recuDe === null && x.apporteurs.length > 0 ? 'trx-calcul-base-resultat--filet' : 'trx-calcul-base-resultat--seule'}`} data-base-resultat={x.cote}>
         <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
           libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
-            : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
+            : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires nets partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
               ? `(${[x.commissionVente, ...x.apporteurs.map((a) => a.m)].map(t).join(' − ')})` : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
         <span className="trx-calcul-base-note" data-base-note={x.cote}>base des calculs ci-dessous</span>
       </div>}

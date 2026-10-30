@@ -98,7 +98,7 @@ export function baseRemunerationTtc(v: Pick<Vente, 'honorairesTtc' | 'repartitio
 export interface HonorairesCote { netTtc: number; part: number; ttc: number }
 
 /**
- * 🔴 LOT T (Arno) — « Honoraires partie vendeur / acquéreur » : commission nette après apporteur × part de ce côté = la base de rémunération
+ * 🔴 LOT T (Arno) — « Honoraires nets partie vendeur / acquéreur » : commission nette après apporteur × part de ce côté = la base de rémunération
  * (la même que `baseRemunerationTtc`, qui la lit ici). null : pas de répartition ou négociateur absent de la répartition. PUR.
  */
 export function honorairesDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): HonorairesCote | null {

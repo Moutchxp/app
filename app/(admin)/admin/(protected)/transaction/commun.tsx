@@ -459,7 +459,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-fenetre-pied{display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--color-svv-line)}
 .trx-fenetre-pied .loc-alerte{align-self:stretch;margin:0}
 .trx-fenetre-pied .svv-btn{width:auto;min-height:44px}
-/* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
+/* LOT BB — « = Honoraires nets partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
