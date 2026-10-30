@@ -113,7 +113,9 @@ describe('l’onglet « Compromis »', () => {
     await cliquer('[data-vue="compromis"]');
     const carte = '[data-compromis="41"]';
     expect(texte(`${carte} [data-carte="titre"]`)).toBe('DUPONT / MARTIN');
-    expect(texte(`${carte} [data-carte-ligne="infos"]`)).toBe('1 rue A, Puteaux · prix 240 000 € · acte au plus tard le 15/01/2027');
+    // 🔴 LOT CC — juste derrière le nom : adresse · date ; le prix est dans la fiche (Informations communes)
+    expect(texte(`${carte} [data-carte-ligne="infos"]`)).toBe('1 rue A, Puteaux · acte au plus tard le 15/01/2027');
+    expect(container.querySelector(`${carte} [data-carte="prix"]`)).toBeNull();
     const montants = container.querySelector(`${carte} [data-carte="montants"]`)!;
     expect(montants.closest('.tdb-replie-resume')).not.toBeNull(); // le bloc de droite, aligné à droite
     // LOT AM — les deux montants ensemble (l'unité choisie en grand, ici HT ; l'autre dessous), en vert (le CA), puis le % du prix.
@@ -133,15 +135,15 @@ describe('l’onglet « Compromis »', () => {
     await cliquer('[data-vue="compromis"]');
     expect(texte('[data-compromis="41"] [data-carte="titre"]')).toBe('DUPONT-DURANT / MARTIN');
     expect(container.querySelector('[data-compromis="41"] [data-carte="pct-prix"]')).toBeNull();
-    expect(texte('[data-compromis="41"] [data-carte="prix"]')).toBe('prix à renseigner');
+    expect(container.querySelector('[data-compromis="41"] [data-carte="prix"]')).toBeNull(); // LOT CC : le prix, dans la fiche
   });
   it('ce qui manque s’écrit « à renseigner » ; un compromis importé : son libellé en titre, « Aucun vendeur enregistré », « Libellé du fichier »', async () => {
     listeCompromis = [importe];
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     expect(texte('[data-compromis="12"] [data-carte="titre"]')).toBe('MARMONIER');
-    expect(texte('[data-compromis="12"] [data-carte-ligne="infos"]')).toBe('adresse à renseigner · prix à renseigner · acte au plus tard le : à renseigner');
-    expect(texte('[data-compromis="12"]')).not.toMatch(/(^|\s)—(\s|$)/);
+    expect(texte('[data-compromis="12"] [data-carte-ligne="infos"]')).toBe('adresse à renseigner · date à renseigner');
+    expect(texte('[data-compromis="12"] [data-carte-ligne="infos"]')).not.toMatch(/(^|\s)—(\s|$)/); // LOT CC : le tiret est celui des lignes de négociateur
     await deplier(12);
     expect(texte('[data-aucune-personne="vendeur"]')).toBe('Aucun vendeur enregistré');
     expect(texte('[data-aucune-personne="acquereur"]')).toBe('Aucun acquéreur enregistré');

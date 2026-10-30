@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
@@ -17,6 +17,7 @@ import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../.
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
+import { lignesCarteAffaire, type LignesCarte } from '../../../../lib/transaction/carteAffaireLignes';
 import { A_RENSEIGNER, carteCompromis, compromisDeLaVue, estVueCompromis, LIBELLE_VUE_COMPROMIS, libelleTaux, VUES_COMPROMIS, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
@@ -226,7 +227,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             return (
               <li key={v.id} data-compromis={v.id} data-depassee={c.depassee && !acteSigne ? '' : undefined} data-acte-signe-carte={acteSigne ? '' : undefined}>
                 {/* 🔴 LOT CA — LA carte d'affaire repliée, partagée avec les listes de « Le mois » (`CarteAffaire`). */}
-                <CarteAffaire v={v} aujourdhui={d.aujourdhui} etiquetteActe ouvertInitial={venteVisee === v.id}>
+                <CarteAffaire v={v} aujourdhui={d.aujourdhui} etiquetteActe ouvertInitial={venteVisee === v.id} vue={vue} statutDuLibelle={statutDuLibelle}>
                   <DetailAffaire v={v} hote={hote} />
                 </CarteAffaire>
               </li>
@@ -347,25 +348,16 @@ export interface HoteDetail {
  *   · toute la ligne déplie (triangle rouge à gauche) ; dépliée : `children` (la fiche, lot BU).
  * `etiquetteActe` (onglet « Compromis », vue « Du mois ») : l'étiquette « acte signé » à côté du titre d'une vente déjà signée.
  */
-export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, ligne3, section = 'compromis', donnees }: {
-  v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; ligne3?: ReactNode; section?: string; donnees?: Record<string, string> }) {
+export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, section = 'compromis', donnees, vue, retros, statutDuLibelle }: {
+  v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; section?: string; donnees?: Record<string, string>;
+  /** 🔴 LOT CC — la société vue (null : CA global), et ce que « Le mois » connaît en plus (rétrocessions saisies, statut des négociateurs importés). */
+  vue: Societe | null; retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle }) {
   const c = carteCompromis(v, aujourdhui);
   const acteSigne = v.statut === 'vendue';
-  const moisActe = v.mois === null ? null : `${(NOMS_MOIS[v.mois - 1] ?? '').toLowerCase()} ${v.annee}`;
   const titre = (
     <span className="trx-carte-gauche">
-      <span className="trx-carte-titre" data-carte="titre">{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</span>
-      <span className="trx-carte-infos" data-carte-ligne="infos">
-        <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
-        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-        <span data-carte="prix">{c.prix === null ? <span className="trx-a-renseigner">prix {A_RENSEIGNER}</span> : `prix ${eur(c.prix)}`}</span>
-        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-        {acteSigne ? <span data-carte="acte" className={v.dossier?.dateActe || moisActe !== null ? undefined : 'trx-a-renseigner'}>
-          {v.dossier?.dateActe ? `acte signé le ${date(v.dossier.dateActe)}` : moisActe !== null ? `acte signé en ${moisActe}` : `acte signé le : ${A_RENSEIGNER}`}</span>
-          : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
-      </span>
-      {ligne3 !== undefined && <span className="trx-carte-infos trx-carte-ligne3" data-carte-ligne="vente">{ligne3}</span>}
+      <LigneUneCarte v={v} titre={<>{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</>} aujourdhui={aujourdhui} />
+      <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle })} />
     </span>
   );
   const droite = (
@@ -379,6 +371,58 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
       donnees={donnees ?? { 'data-carte-compromis': String(v.id) }} ouvertInitial={ouvertInitial}>
       {children}
     </BlocReplie>
+  );
+}
+
+/**
+ * 🔴 LOT CC (Arno) — LA LIGNE 1 de la carte repliée : le nom de l'affaire, puis, juste derrière, en gris : l'adresse du bien · la date (« acte au
+ * plus tard le … » pour un compromis ; « acte signé le … », ou son mois, pour une vente signée) ; « adresse / date à renseigner » si absentes.
+ * Au téléphone, l'adresse et la date passent sous le nom.
+ */
+function LigneUneCarte({ v, titre, aujourdhui }: { v: Vente; titre: ReactNode; aujourdhui: string }) {
+  const c = carteCompromis(v, aujourdhui);
+  const moisActe = v.mois === null ? null : `${(NOMS_MOIS[v.mois - 1] ?? '').toLowerCase()} ${v.annee}`;
+  return (
+    <span className="trx-carte-ligne1">
+      <span className="trx-carte-titre" data-carte="titre">{titre}</span>
+      <span className="trx-carte-lieu" data-carte-ligne="infos">
+        <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
+        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
+        {v.statut === 'vendue'
+          ? <span data-carte="acte" className={v.dossier?.dateActe || moisActe !== null ? undefined : 'trx-a-renseigner'}>
+            {v.dossier?.dateActe ? `acte signé le ${date(v.dossier.dateActe)}` : moisActe !== null ? `acte signé en ${moisActe}` : `date ${A_RENSEIGNER}`}</span>
+          : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+            {c.butoir === null ? `date ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * 🔴 LOT CC (Arno) — SOUS LE NOM, UNE LIGNE PAR NÉGOCIATEUR (petite, grise), dans l'unité choisie, sans montant entre parenthèses :
+ * « [Nom] · entrée — honoraires … · com négo … · reste … » ; l'apporteur une fois (ligne d'entrée) ; l'inter-cabinet versé : « reversé à … » à la
+ * place de com négo / reste. Les montants des cadres de la fiche (`lignesCarteAffaire`).
+ */
+function LignesNegociateurs({ l }: { l: LignesCarte }) {
+  const u = useAffichage();
+  const m = (x: { htC: number; ttcC: number }): string => eur((u === 'ht' ? x.htC : x.ttcC) / 100);
+  const sep = <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>;
+  return (
+    <span className="trx-carte-negos" data-carte-negos>
+      {l.lignes.map((x, i) => (
+        <span key={x.cote ?? 'unique'} className="trx-carte-nego" data-nego-ligne={x.cote ?? 'unique'}>
+          <span data-nego-nom>{x.nom}{x.cote !== null ? ` · ${x.cote === 'entree' ? 'entrée' : 'sortie'}` : ''}</span>{' — '}
+          <span>honoraires <span data-nego-honoraires>{m(x.honoraires)}</span></span>
+          {i === 0 && l.apporteur !== null && <>{sep}<span className="trx-rouge" data-apporteur-carte>apporteur {m(l.apporteur)}</span></>}
+          {i === 0 && l.retro !== null && <>{sep}<span className="trx-rouge" data-retro-carte>rétro {m(l.retro)}</span></>}
+          {x.exterieures.map((y) => <span key={y.nom}>{sep}<span className="trx-rouge" data-nego-exterieure>{y.nom} {m(y.m)}</span></span>)}
+          {x.reverse !== null
+            ? <>{sep}<span className="trx-rouge" data-nego-reverse>reversé à {x.reverse.vers} {m(x.reverse.m)}</span></>
+            : <>{sep}<span className={x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? 'trx-rouge' : undefined}>com négo <span data-nego-com>{m(x.com)}</span></span>
+              {sep}<span className="trx-vert">reste <span data-nego-reste>{m(x.reste)}</span></span></>}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -1069,26 +1113,18 @@ export const adresseOrigine = (porteuse: Societe, id: number): string => `/admin
  * HT dessous) — jamais le montant de la vente ni la commission totale. Non modifiable d'ici : « Voir la vente d'origine » ; seule la
  * rémunération de son négociateur se modifie (elle s'enregistre sur la vente d'origine, sans doublon).
  */
-export function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle, ouvertInitial = false, ligne3, attributs }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
+export function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle, ouvertInitial = false, attributs }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
   statutDuLibelle?: StatutDuLibelle;
-  /** 🔴 LOT CA — « Le mois » : la ligne grise de la vente (comme `CarteAffaire`) et les repères de sa ligne de liste. */
-  ligne3?: ReactNode; attributs?: Record<string, string>;
+  /** 🔴 LOT CA — « Le mois » : les repères de sa ligne de liste. */
+  attributs?: Record<string, string>;
   /** LOT AA — « Voir chez MACJ » depuis la carte de la porteuse (?vente=N) : la ligne miroir s'ouvre. */
   ouvertInitial?: boolean }) {
   const m = v.miroir!;
-  const c = carteCompromis(v, aujourdhui);
-  const pctTexte = m.pourcentage === null ? null : pctFormat(m.pourcentage);
+  // 🔴 LOT CC — la ligne 1 (nom, adresse · date) et les lignes de négociateur, comme `CarteAffaire` (la part reçue est dans la fiche).
   const titre = (
     <span className="trx-carte-gauche">
-      <span className="trx-carte-titre" data-carte="titre">{v.libelle}</span>
-      <span className="trx-carte-infos" data-carte-ligne="infos">
-        <span data-carte="part-recue">part reçue{pctTexte === null ? '' : ` : ${pctTexte} de la commission nette`}</span>
-        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-        {v.statut === 'vendue' ? <span data-carte="acte">acte signé{v.dossier?.dateActe ? ` le ${date(v.dossier.dateActe)}` : v.mois !== null ? ` en ${(NOMS_MOIS[v.mois - 1] ?? '').toLowerCase()} ${v.annee}` : ''}</span>
-          : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
-      </span>
-      {ligne3 !== undefined && <span className="trx-carte-infos trx-carte-ligne3" data-carte-ligne="vente">{ligne3}</span>}
+      <LigneUneCarte v={v} titre={v.libelle} aujourdhui={aujourdhui} />
+      <LignesNegociateurs l={lignesCarteAffaire(v, v.societe, { statutDuLibelle })} />
     </span>
   );
   const droite = (

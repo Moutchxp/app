@@ -262,8 +262,13 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-onglet-compromis .trx-colonne,.trx-onglet-compromis .trx-communes,.trx-liste-affaires .trx-colonne,.trx-liste-affaires .trx-communes{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
 .trx-onglet-compromis .trx-carte-detail,.trx-liste-affaires .trx-carte-detail{border-top-color:var(--color-svv-line-strong)}
 /* LOT CA — la 3e ligne grise des cartes de « Le mois » (négociateurs, rétro, com négo, reste agence), plus petite ; les montants à leurs couleurs. */
-.trx-carte-ligne3{font-size:.8rem}
-.trx-carte-ligne3 .trx-rouge,.trx-carte-ligne3 .trx-vert{font-weight:700}
+/* LOT CC — la carte repliée : ligne 1 = le nom puis, en gris, adresse · date (au téléphone, dessous) ; puis une petite ligne grise par négociateur. */
+.trx-carte-ligne1{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;min-width:0}
+.trx-carte-lieu{font-size:.86rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.trx-carte-negos{display:flex;flex-direction:column;gap:1px;font-size:.8rem;color:var(--color-svv-muted)}
+.trx-carte-nego{overflow-wrap:anywhere}
+.trx-carte-negos .trx-rouge,.trx-carte-negos .trx-vert{font-weight:700}
+@media (max-width:760px){ .trx-carte-lieu{flex-basis:100%} }
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}

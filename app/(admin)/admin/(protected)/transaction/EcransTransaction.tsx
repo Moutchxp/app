@@ -15,7 +15,6 @@ import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
-import { entreeEtSortie } from '../../../../lib/transaction/lignesNegociateur';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -479,43 +478,21 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
 }
 
 /**
- * ══ 🔴 LOT CA (Arno, 30/10/2026) — « LES VENTES DU MOIS » / « LES COMPROMIS DU MOIS » : LES CARTES DE L'ONGLET « COMPROMIS » ══════════════════
+ * ══ 🔴 LOT CA / CC (Arno) — « LES VENTES DU MOIS » / « LES COMPROMIS DU MOIS » : LES CARTES DE L'ONGLET « COMPROMIS » ═══════════════════════════════
  * Une seule esthétique : chaque vente est LA carte d'affaire repliée de l'onglet « Compromis » (`CarteAffaire` ; `CarteMiroir` pour une ligne
- * miroir) — le tableau des lots BU / BW / BZ est remplacé (accord d'Arno ; rien n'est perdu, tout est dans la carte). Sa 3e ligne grise :
- * « Négociateur : X » (ou « Entrée : X · Sortie : Y », lot BW) · Rétro · Com négo · Reste agence (dans l'unité choisie ; rétro et com négo en
- * rouge, reste en vert), puis « reversé à … » et « dont … non déduite » quand ils existent. Un clic : la fiche (lot BU), inchangée.
+ * miroir) — le nom, adresse · date, puis une ligne par négociateur (lot CC : les montants des cadres de la fiche ; ici, en plus, les rétrocessions
+ * saisies au mois et le statut des négociateurs importés). Un clic : la fiche (lot BU), inchangée.
  */
 function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string;
   societe: Societe; statutDuLibelle?: StatutDuLibelle; fiches: { hote: HoteDetail; references: References } }) {
-  const u = useAffichage();
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
-  const MOT = MOT_UNITE[u];
-  /** Un montant TTC écrit dans l'unité choisie. */
-  const enU = (ttc: number): string => `${eur(u === 'ttc' ? ttc : ttc / TVA)}${ESPACE}${MOT}`;
-  const sep = <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>;
-  const ligne3 = (v: Vente) => {
-    const deux = entreeEtSortie(v);
-    const classes = payeParClasseTtc(v, statutDuLibelle, societe);
-    const nd = classes.interne + classes.a_renseigner;
-    const b = bilanVente(v, societe);
-    const reverses = [...SOCIETES.filter((x) => x !== societe && b.verseHt[x] > 0).map((x) => ({ vers: LIBELLE_SOCIETE[x], ht: b.verseHt[x] })),
-      ...(b.exterieurHt > 0 ? [{ vers: 'agences extérieures', ht: b.exterieurHt }] : [])];
-    return <>
-      <span data-negociateurs-vente={v.id}>{deux === null ? `Négociateur : ${negociateurEntree(v)}` : `Entrée : ${deux[0]} · Sortie : ${deux[1]}`}</span>
-      {sep}<span>Rétro <span className="trx-rouge" data-retro-vente={v.id}>{enU(b.apporteurHt * TVA + retroTtcDe(v, retros))}</span></span>
-      {sep}<span>Com négo <span className="trx-rouge" data-com-nego-vente={v.id}>{enU(payeTtcDe(v, societe))}</span></span>
-      {nd > 0 && <>{sep}<span className={classes.a_renseigner > 0 ? 'trx-alerte' : undefined} data-paye-non-deduite={v.id}>dont {enU(nd)} non déduite{classes.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></>}
-      {reverses.map((x) => <span key={x.vers}>{sep}<span data-reverse-vente={v.id}>reversé à {x.vers} {enU(x.ht * TVA)}</span></span>)}
-      {sep}<span>Reste agence <span className="trx-vert" data-reste-vente={v.id}>{enU(resteTtcDe(v, retros, statutDuLibelle, societe))}</span></span>
-    </>;
-  };
   return (
     <ul className="trx-cartes" data-cartes-ventes>
       {ventes.map((v) => (v.miroir != null
         ? <CarteMiroir key={v.id} v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire}
-          statutDuLibelle={fiches.hote.statutDuLibelle} ligne3={ligne3(v)} attributs={{ 'data-vente': String(v.id) }} />
+          statutDuLibelle={fiches.hote.statutDuLibelle} attributs={{ 'data-vente': String(v.id) }} />
         : <li key={v.id} data-vente={v.id}>
-          <CarteAffaire v={v} aujourdhui={fiches.hote.d.aujourdhui} ligne3={ligne3(v)} section="vente" donnees={{ 'data-carte-vente': String(v.id) }}>
+          <CarteAffaire v={v} aujourdhui={fiches.hote.d.aujourdhui} section="vente" donnees={{ 'data-carte-vente': String(v.id) }} vue={societe} retros={retros} statutDuLibelle={statutDuLibelle}>
             <DetailAffaire v={v} hote={fiches.hote} etiquettes />
           </CarteAffaire>
         </li>))}
