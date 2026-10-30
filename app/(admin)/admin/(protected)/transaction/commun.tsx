@@ -389,6 +389,12 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-calcul-mention{grid-column:1 / -1;font-size:.78rem;font-weight:700}
 .trx-calcul-encadre--deduite .trx-calcul-mention{color:var(--color-svv-red)}
 .trx-calcul-encadre--interne .trx-calcul-mention{color:var(--color-svv-green-ink)}
+/* LOT AY (Arno) — « Part de l'agence » : le même cadre que « Commission du négociateur », liseré VERT, montant et mention en vert. */
+.trx-calcul-encadre--agence{border-color:var(--color-svv-green-ink)}
+/* LOT AY — une opération à plusieurs termes (part de l'agence) se coupe ENTRE les termes, jamais dans un montant. */
+.trx-calcul-operation--suite{white-space:normal}
+.trx-calcul-terme{white-space:nowrap}
+.trx-calcul-encadre--agence .trx-calcul-mention{color:var(--color-svv-green-ink)}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
   .trx-calcul-resultat{grid-row:2}

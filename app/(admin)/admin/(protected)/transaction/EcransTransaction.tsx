@@ -17,6 +17,7 @@ import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, nombreFr, paramet
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, OngletCompromis } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
+import { partAgenceRattacheeHt } from '../../../../lib/transaction/partAgence';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 
 /** 🔴 LOT Q — la paye NON déduite du reste à l'agence, à part : internes (associés, salariés), puis statut à renseigner (signalé). */
@@ -258,7 +259,7 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
       resume={`${parNegociateur(ventes, retros, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
-      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe, resolveurDe(d.statutsNegociateurs))} onDetail={onDetail} periode={libMois} />
+      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe, resolveurDe(d.statutsNegociateurs))} rattache={partAgenceRattacheeHt(ventes, d.societe)} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
@@ -331,11 +332,15 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
   );
 }
 
-function TableNegociateurs({ lignes, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; onDetail: (x: Detail) => void; periode: string }) {
+/**
+ * 🔴 LOT AY (Arno) — « CA généré HT » : ses commissions (la paye) + la part de l'agence rattachée à son CA (associé : les cartes de partie de sa
+ * société sur les ventes où il est négociateur d'entrée ou de sortie). Une mesure : ni le CA de la société, ni le reste à l'agence n'en changent.
+ */
+function TableNegociateurs({ lignes, rattache, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; rattache: ReadonlyMap<string, number>; onDetail: (x: Detail) => void; periode: string }) {
   if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
   return (
     <table className="tdb-table tdb-table--large" data-table-negociateurs>
-      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">CA généré HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
       <tbody>{lignes.map((l) => (
         <tr key={l.negociateur} data-negociateur={l.negociateur}>
           <th scope="row">{l.negociateur}</th>
@@ -343,7 +348,8 @@ function TableNegociateurs({ lignes, onDetail, periode }: { lignes: ReturnType<t
           <td data-mot="Statut" data-statut-negociateur={l.negociateur} className={l.payeHt > 0 && classeCommission(l.statut) === 'a_renseigner' ? 'trx-alerte' : undefined}>{libelleStatut(l.statut)}
             {l.payeHt > 0 && <>{' — '}{classeCommission(l.statut) === 'independant' ? 'paye déduite' : classeCommission(l.statut) === 'interne' ? 'paye interne, non déduite' : 'paye non déduite'}</>}</td>
           <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${l.negociateur} — ${periode}`, ids: l.ids })} disabled={l.ids.length === 0}>{l.nbVentes}</button></td>
-          <td data-mot="CA HT porté">{eur(l.caHt)}</td><td data-mot="Paye HT">{eur(l.payeHt)}</td><td data-mot="Rétrocessions HT">{eur(l.retroHt)}</td>
+          <td data-mot="CA HT porté">{eur(l.caHt)}</td><td data-mot="Paye HT">{eur(l.payeHt)}</td>
+          <td data-mot="CA généré HT" data-ca-genere={l.negociateur}>{eur(l.payeHt + (rattache.get(l.negociateur) ?? 0))}</td><td data-mot="Rétrocessions HT">{eur(l.retroHt)}</td>
         </tr>
       ))}</tbody>
     </table>
@@ -512,7 +518,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
 
     <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA HT ${eur(sommeAffichee(negos.map((l) => l.caHt)))}`}
       donnees={{ 'data-bloc': 'negociateurs-periode' }}>
-      <TableNegociateurs lignes={negos} onDetail={onDetail} periode={libelle} />
+      <TableNegociateurs lignes={negos} rattache={partAgenceRattacheeHt(ventesP, d.societe)} onDetail={onDetail} periode={libelle} />
     </BlocReplie>
 
     <BlocReplie id="trx-apporteurs-annee" section="apporteurs" titre={<>{periode.length > 1 ? 'Apporteur des années' : 'Apporteur de l’année'} — {libelle}</>}

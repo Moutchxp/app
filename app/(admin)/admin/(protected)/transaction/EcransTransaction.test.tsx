@@ -328,3 +328,43 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
   });
 });
+
+describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA généré HT » (commissions + part de l’agence rattachée)', () => {
+  // HEIDIDON signée en janvier 2025 : CRITERIMMO (Arnaud, associé non commissionné, entrée — comme en recette) porte 4 000 TTC ; MACJ (Pierre,
+  // indépendant) reçoit 50 % et touche 1 000 TTC.
+  const parties = [
+    { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const, commissionne: false },
+    { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
+  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, parties },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
+    lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
+  const ouvrirEspace = async () => { await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); }); };
+
+  it('CRITERIMMO : Arnaud (associé) — la part de l’agence de sa carte, 1 666,67 € HT, rattachée à son CA ; le reste à l’agence ne change pas', async () => {
+    const [avant, avantS, retros] = [donnees.ventes, donnees.societe, donnees.retrocessions];
+    donnees.ventes = [heididon]; donnees.societe = 'criterimmo'; donnees.retrocessions = [];
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
+      await calmer(); await ouvrirEspace();
+      expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent))
+        .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT porté', 'Paye HT', 'CA généré HT', 'Rétrocessions HT']);
+      expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,67 €');
+      expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('0 €');
+      expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
+    } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
+  });
+
+  it('MACJ (ligne miroir) : Pierre (indépendant) — sa commission seule (833,33 € HT) ; aucune part rattachée', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const [avant, retros] = [donnees.ventes, donnees.retrocessions];
+    donnees.ventes = [venteDansSociete(heididon, 'macj')!]; donnees.retrocessions = [];
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
+      await calmer(); await ouvrirEspace();
+      expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('833,33 €');
+      expect(texte('[data-reste-agence]')).toBe('833,33 €');
+    } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
+  });
+});

@@ -20,6 +20,7 @@ import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
+import { mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
 
@@ -205,6 +206,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                 {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
               </span>
             );
+            // 🔴 LOT AY — la ventilation des honoraires de chaque partie, lue avec la société de l'écran (part de l'agence, rattachement associé).
+            const ventilation = ventilationVente(v, vue);
             const colonne = (role: 'vendeur' | 'acquereur', mot: string) => {
               const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
               return (
@@ -228,7 +231,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                   {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
                       « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
                   <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
-                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)}
+                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} ventilation={ventilation[role === 'vendeur' ? 'entree' : 'sortie']}
                     onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
                 </section>
               );
@@ -429,7 +432,7 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id:
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre, ventilation }: {
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
   /** LOT Y — le résolveur des libellés importés, celui des tuiles (la même règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
@@ -437,6 +440,8 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   vue?: Societe | null;
   /** LOT AE — la répartition enregistrée (le négociateur d'entrée, donc la porteuse, peut avoir changé). */
   onEnregistre?: (etat: EtatRepartition) => void;
+  /** 🔴 LOT AY — la ventilation des honoraires de ce côté (part de l'agence) ; absente : rien à ventiler (historique, vente d'une autre société). */
+  ventilation?: VentilationCote;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
@@ -542,6 +547,8 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
           Statut à la vente : {libelleStatut(st)}{partieDuCote.statut == null ? (st !== null ? ' (statut actuel du compte)' : ' (à confirmer)') : ''}
           {actuelNonCommissionne ? ' — non commissionné' : classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
       })()}
+      {/* 🔴 LOT AY (Arno) — sous la ou les commissions : 100 % des honoraires de la partie ventilés, jusqu'à la part de l'agence. */}
+      {ventilation !== undefined && <VentilationPartie x={ventilation} />}
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <div className="trx-form-affichage" data-affichage-panneau={`negociateur-${cote}`}><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
@@ -603,20 +610,23 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
 }
 
-function LigneCalcul({ donnees, libelle, ttc, encadre = null, mention }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 LOT AY — le HT au centime quand il ne se déduit pas du TTC (lignes de ventilation : chaque unité a ses centimes). */
+  ht?: number;
   /** LOT Z — la mention du bloc encadré (le statut à la vente et ce que devient la commission dans « Commissions versées »). */
   mention?: string;
   /**
    * 🔴 LOTS X / Y / Z — la commission du négociateur, encadrée d'un liseré fin : ROUGE si elle entre dans « Commissions versées » (indépendant),
    * VERT sinon (associé, salarié, statut à renseigner) ; la mention écrite (`mentionCommission`) accompagne toujours la couleur.
    */
-  encadre?: 'deduite' | 'interne' | null }) {
+  /** 🔴 LOT AY — « agence » : la part de l'agence, liseré VERT, montant en vert. */
+  encadre?: 'deduite' | 'interne' | 'agence' | null }) {
   // 🔴 LOT AM — l'unité choisie en grand (gras), l'autre dessous entre parenthèses, de la même couleur : rouge si le montant ENTRE dans les
   // « Commissions versées » (lot AD), l'encre sinon (le vert n'est plus attaché au TTC). Les liserés (lots X / Y / Z) ne changent pas.
   const u = useAffichage();
   const autre = u === 'ttc' ? 'ht' : 'ttc';
-  const valeur = (x: 'ht' | 'ttc'): number => (x === 'ttc' ? ttc : ttc / TVA);
-  const couleur = encadre === 'deduite' ? ' trx-rouge' : '';
+  const valeur = (x: 'ht' | 'ttc'): number => (x === 'ttc' ? ttc : htExact ?? ttc / TVA);
+  const couleur = encadre === 'deduite' ? ' trx-rouge' : encadre === 'agence' ? ' trx-vert' : '';
   return (
     <p className={encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
@@ -679,6 +689,34 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         <span className="loc-muet trx-a-renseigner">Commission enregistrée : {A_RENSEIGNER}</span>{appliquerSiVide && bouton(rem)}</p>
     )}
   </>;
+}
+
+/**
+ * 🔴 LOT AY (Arno) — LA VENTILATION D'UNE PARTIE, sous la ou les commissions : la quote-part de l'apporteur et des agences extérieures (en
+ * rouge : comptées dans « Commissions versées »), puis « Part de l'agence : honoraires de la partie − ce qui en sort = … » (liseré vert) —
+ * ce qui reste dans le CA de la société, ou rattaché au CA de son associé. Commissions + quote-parts + inter-cabinet versé + part de l'agence
+ * = honoraires de la partie, au centime, dans chaque unité (`ventilationVente`).
+ */
+function VentilationPartie({ x }: { x: VentilationCote }) {
+  const u = useAffichage();
+  const t = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
+  const mot = x.cote === 'entree' ? 'vendeur' : 'acquéreur';
+  const sorties = [...x.commissions.map((c) => c.m), ...x.quoteParts.map((q) => q.m), ...(x.versee === null ? [] : [x.versee.m])];
+  return (
+    <div className="trx-ventilation" data-ventilation={x.cote}>
+      {x.quoteParts.length > 0 && <LigneCalcul donnees={{ 'data-honoraires-partie': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100}
+        libelle={<><span className="trx-calcul-mot">Honoraires de la partie {mot}</span> <span className="trx-calcul-operation trx-calcul-operation--suite">(avant apporteur et agence extérieure) :</span></>} />}
+      {x.quoteParts.map((q, i) => (
+        <LigneCalcul key={`${q.cle}-${i}`} encadre="deduite" mention="Quote-part de cette partie — comptabilisée dans « Commissions versées »" donnees={{ 'data-quote-part': q.cle }}
+          ttc={q.m.ttcC / 100} ht={q.m.htC / 100}
+          libelle={<><span className="trx-calcul-mot">{q.cle === 'apporteur' ? 'Apporteur' : 'Agence extérieure'}{q.nom === null ? '' : ` — ${q.nom}`}</span> : <span className="trx-calcul-operation">{t(q.total)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
+      ))}
+      <LigneCalcul encadre="agence" mention={mentionPartAgence(x)} donnees={{ 'data-part-agence': x.cote }} ttc={x.agence.ttcC / 100} ht={x.agence.htC / 100}
+        libelle={<><span className="trx-calcul-mot">Part de l’agence</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
+          ? <><span className="trx-calcul-terme">{t(x.honoraires)}</span> <span className="trx-calcul-terme">− aucune commission =</span></>
+          : [x.honoraires, ...sorties].map((m, i, l) => <span key={i}>{i > 0 && ' '}<span className="trx-calcul-terme">{i > 0 && '− '}{t(m)}{i === l.length - 1 && ' ='}</span></span>)}</span></>} />
+    </div>
+  );
 }
 
 /** La part d'une ligne de répartition à l'écran, en % de la commission nette (€ HT ramenés en %) ; illisible : 0. PUR. */
@@ -766,6 +804,8 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   ouvertInitial?: boolean }) {
   const m = v.miroir!;
   const c = carteCompromis(v, aujourdhui);
+  // 🔴 LOT AY — chaque côté tenu par la société qui reçoit : sa part de l'agence, à partir de SA part reçue.
+  const ventilation = ventilationVente(v, v.societe);
   const pctTexte = m.pourcentage === null ? null : pctFormat(m.pourcentage);
   const titre = (
     <span className="trx-carte-gauche">
@@ -811,6 +851,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
           <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
             : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
+              ventilation={ventilation[x.cote]}
               baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
               disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
         </div>
@@ -824,7 +865,9 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
  * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
  * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
  */
-export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, statutDuLibelle }: {
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, statutDuLibelle, ventilation }: {
+  /** 🔴 LOT AY — la ventilation de ce côté (part de l'agence de la société qui reçoit). */
+  ventilation?: VentilationCote;
   /** LOT Y — le résolveur des libellés importés (la règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
   venteId: number; cote: 'entree' | 'sortie'; negociateur: string; societe: Societe; statut: Statut | null; baseTtc: number; pct: number | null;
@@ -871,6 +914,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
       {entete}
       <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
+      {ventilation !== undefined && <VentilationPartie x={ventilation} />}
     </div>
   );
   return (
@@ -880,6 +924,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
       <LignesCalcul cote={cote} premier="" honoraires={null} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
         classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)}
         mention={mentionCommission(statutDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle))} />
+      {ventilation !== undefined && <VentilationPartie x={ventilation} />}
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Rémunération du négociateur de ${mot}`}>
