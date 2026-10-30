@@ -349,7 +349,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-couple dd{margin:0;font-weight:600;overflow-wrap:anywhere;align-self:baseline}
 .trx-ht-ttc-pile{display:flex;flex-direction:column;align-items:flex-start}
 .trx-miroir-note{margin:0;font-size:.85rem}
-.trx-remuneration{display:flex;flex-direction:column;gap:6px}
+.trx-remuneration{display:flex;flex-direction:column;gap:8px}
 .trx-remuneration-titre{margin:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
 .trx-remuneration-ligne{margin:0}
 @media (max-width:640px){
@@ -398,6 +398,14 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT BA — les lignes « dont » d'un cadre (information, hors total de la carte) : en petit, sous la mention ; l'alerte « Ventilation incomplète ». */
 .trx-calcul-dont{grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;margin-top:2px;font-size:.78rem;color:var(--color-svv-muted)}
 .trx-ventilation-alerte{margin:0 0 8px;font-size:.82rem}
+/* LOT BD (Arno) — l'en-tête de la carte (la base : commission, − apporteur, = honoraires de la partie ; ligne miroir : honoraires reçus) dans UN cadre
+   à liseré GRIS (--trx-lisere-base, clair et sombre, distinct du vert et du rouge), même forme que les autres cadres ; puis les verts, puis les
+   rouges, au même espacement (8 px) qu'entre les blocs de la carte. */
+.svv-adm-root{--trx-lisere-base:#7b8594}
+.svv-adm-root[data-theme='dark']{--trx-lisere-base:#a3adbb}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-lisere-base:#a3adbb} }
+.trx-ventilation{display:flex;flex-direction:column;gap:8px}
+.trx-cadre-base{border:1.5px solid var(--trx-lisere-base);border-radius:10px;padding:6px 8px;box-sizing:border-box;gap:4px}
 /* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){

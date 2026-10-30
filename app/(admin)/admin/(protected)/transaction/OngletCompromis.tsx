@@ -734,7 +734,8 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
   if (groupe === 'vert' && x.agence.htC === 0 && x.agence.ttcC === 0) return null;
   const qui = LIBELLE_SOCIETE[x.societe];
   return (
-    <div className="trx-ventilation" data-ventilation={x.cote} data-groupe-ventilation={groupe}>
+    // 🔴 LOT BD — l'en-tête (la base) : un cadre à liseré gris.
+    <div className={groupe === 'tete' ? 'trx-ventilation trx-cadre-base' : 'trx-ventilation'} data-ventilation={x.cote} data-groupe-ventilation={groupe}>
       {/* 🔴 LOT BA — l'en-tête, sans cadre : la part du CA de cette partie, référence de la carte (les cadres dessous la totalisent au centime). */}
       {/* 🔴 LOT BB (Arno) — avec apporteur, l'en-tête est le calcul complet : « Commission de la vente », « − Apporteur » (rouge, son nom dessous en
           petit, une ligne par apporteur), puis « = Honoraires partie … : (commission − apporteur) × part % = … » en gras. Sans apporteur : une ligne. */}

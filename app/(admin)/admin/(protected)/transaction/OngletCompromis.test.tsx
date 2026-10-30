@@ -4019,3 +4019,42 @@ describe('🔴 LOT BC — « − Apporteur : [nom] » sur une seule ligne, le mo
       ligne.querySelector('.trx-calcul-dont')]).toEqual([true, true, null]);
   });
 });
+
+describe('🔴 LOT BD — l’en-tête de chaque carte (la base) dans un cadre à liseré gris ; puis les verts, puis les rouges', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; });
+  afterEach(() => { delete ref.uniteCommission; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // 41 : 12 000 TTC, apporteur Julien Deblois 2 400 ; JB (CRITERIMMO, indépendant) 40 %, 1 200 TTC ; Mylène (MACJ) 40 % ; Agence du Parc 20 %.
+  const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const groupes = (sel: string): string[] => [...container.querySelectorAll(`${sel} .trx-cadre-base, ${sel} .trx-calcul-encadre`)]
+    .map((x) => (x.classList.contains('trx-cadre-base') ? 'gris' : x.className.includes('--deduite') ? 'rouge' : 'vert'));
+
+  it('carte avec apporteur : le cadre gris contient « Commission de la vente », « − Apporteur : … » et « = Honoraires partie … » ; ordre gris, verts, rouges', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    listeCompromis = [avec]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    const base = container.querySelector('[data-negociateur-cote="entree"] .trx-cadre-base')!;
+    expect([...base.querySelectorAll('[data-entete-commission], [data-entete-apporteur], [data-honoraires-cote]')].map((x) => [...x.attributes].map((a) => a.name).find((n) => n.startsWith('data-entete') || n === 'data-honoraires-cote')))
+      .toEqual(['data-entete-commission', 'data-entete-apporteur', 'data-honoraires-cote']);
+    expect(base.querySelector('.trx-calcul-encadre')).toBeNull(); // les lignes de la base ne sont pas des cadres
+    expect(groupes('[data-negociateur-cote="entree"]')).toEqual(['gris', 'vert', 'rouge', 'rouge']);
+    expect(groupes('[data-negociateur-cote="sortie"]')).toEqual(['gris', 'rouge', 'rouge']);
+    // la ligne miroir : « Honoraires reçus de … » dans le cadre gris, puis le vert, puis la commission
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    listeCompromis = [venteDansSociete(avec, 'macj')!];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
+    expect(container.querySelector('[data-remuneration="sortie"] .trx-cadre-base [data-honoraires-cote]')!.textContent).toContain('Honoraires reçus de CRITERIMMO');
+    expect(groupes('[data-remuneration="sortie"]')).toEqual(['gris', 'vert', 'rouge']);
+  });
+
+  it('le gris : une variable commune, en clair et en sombre, distincte du vert et du rouge ; même forme que les autres cadres ; même espacement', async () => {
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    for (const r of ['.svv-adm-root{--trx-lisere-base:#7b8594}', ".svv-adm-root[data-theme='dark']{--trx-lisere-base:#a3adbb}", ".svv-adm-root[data-theme='system']{--trx-lisere-base:#a3adbb}",
+      '.trx-cadre-base{border:1.5px solid var(--trx-lisere-base);border-radius:10px;padding:6px 8px;', '.trx-ventilation{display:flex;flex-direction:column;gap:8px}',
+      '.trx-calcul-encadre{border:1.5px solid var(--color-svv-red);border-radius:10px;padding:6px 8px;']) expect(css).toContain(r);
+  });
+});
