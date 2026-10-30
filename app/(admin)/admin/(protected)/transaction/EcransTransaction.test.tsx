@@ -340,7 +340,7 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
     lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
   const ouvrirEspace = async () => { await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); }); };
 
-  it('CRITERIMMO : Arnaud (associé) — la part de l’agence de sa carte, 1 666,67 € HT, rattachée à son CA ; le reste à l’agence ne change pas', async () => {
+  it('CRITERIMMO : Arnaud (associé) — la part de l’agence de sa carte, 1 666,66 € HT (centimes du lot AH), rattachée à son CA ; le reste à l’agence ne change pas', async () => {
     const [avant, avantS, retros] = [donnees.ventes, donnees.societe, donnees.retrocessions];
     donnees.ventes = [heididon]; donnees.societe = 'criterimmo'; donnees.retrocessions = [];
     try {
@@ -349,7 +349,7 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
       await calmer(); await ouvrirEspace();
       expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent))
         .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT porté', 'Paye HT', 'CA généré HT', 'Rétrocessions HT']);
-      expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,67 €');
+      expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,66 €'); // LOT BA : la part de l'entrée au centime du lot AH (celle de la Répartition)
       expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('0 €');
       expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }

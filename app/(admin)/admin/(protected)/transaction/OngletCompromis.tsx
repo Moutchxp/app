@@ -20,7 +20,7 @@ import { BlocReplie } from '../location/BlocReplie';
 import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
-import { mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
+import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
 
@@ -242,6 +242,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                 <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte"
                   donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
                   <div className="trx-carte-detail">
+                    <AlerteVentilation v={v} vue={vue} />
                     <div className="trx-colonnes">
                       {colonne('vendeur', 'Vendeurs')}
                       {colonne('acquereur', 'Acquéreurs')}
@@ -522,7 +523,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   };
   const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote}
     premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
-    rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} />;
+    rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} />;
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       {/* 🔴 LOT T (Arno) — « Négociateur : Prénom NOM · 25 % » : son TAUX DE COMMISSIONNEMENT sur cette vente (la société et la part sont dans le
@@ -535,7 +536,9 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       {/* 🔴 LOT AZ (Arno) — l'ordre des cadres : les lignes sans cadre (honoraires de la partie, statut), puis les cadres VERTS (part de l'agence,
           puis commission interne), puis les ROUGES (commission d'un indépendant, apporteur, agence extérieure, honoraires versés en inter-cabinet).
           Présentation seule : mêmes lignes, mêmes montants, mêmes couleurs. */}
-      {actuel !== null && versesVers === null && lignes('honoraires')}
+      {/* 🔴 LOT BA (Arno) — avec une ventilation, l'en-tête « Honoraires partie … » est TOUJOURS la ligne sans cadre de la ventilation (la référence de
+          la carte) ; l'inter-cabinet versé devient son cadre rouge « Reversé en inter-cabinet à … ». Sans ventilation (historique) : comme avant. */}
+      {actuel !== null && ventilation === undefined && versesVers === null && lignes('honoraires')}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
       {/* Sans répartition (historique, import « toute la commission à … ») : aucun calcul possible — la commission versée, comme avant. */}
       {actuel !== null && avecUnite && !actuelNonCommissionne && honoraires === null && (
@@ -557,7 +560,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
       {actuel !== null && classe !== 'independant' && lignes('commission')}
       {actuel !== null && classe === 'independant' && lignes('commission')}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="rouge" />}
-      {actuel !== null && versesVers !== null && lignes('honoraires')}
+      {actuel !== null && ventilation === undefined && versesVers !== null && lignes('honoraires')}
       {ouvert && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <div className="trx-form-affichage" data-affichage-panneau={`negociateur-${cote}`}><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
@@ -619,7 +622,9 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
 }
 
-function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 LOT BA — des lignes d'information en petit, sous la mention (hors du total de la carte). */
+  apres?: ReactNode;
   /** 🔴 LOT AY — le HT au centime quand il ne se déduit pas du TTC (lignes de ventilation : chaque unité a ses centimes). */
   ht?: number;
   /** LOT Z — la mention du bloc encadré (le statut à la vente et ce que devient la commission dans « Commissions versées »). */
@@ -643,6 +648,7 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
       <strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
       <span className={`trx-calcul-ttc trx-mt-petit${couleur}`} {...{ [`data-montant-${autre}`]: '' }}>({eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]})</span>
       {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
+      {apres !== undefined && <span className="trx-calcul-dont">{apres}</span>}
     </p>
   );
 }
@@ -658,7 +664,9 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout' }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout', baseAffichee }: {
+  /** 🔴 LOT BA — la base montrée dans l'opération de la commission : celle de l'en-tête de la carte (centimes du lot AH) ; la commission ne change pas. */
+  baseAffichee?: MontantC;
   cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
   /** 🔴 LOT AZ — une partie seulement (la carte place les honoraires et la commission selon l'ordre vert / rouge) ; défaut : tout. */
   montrer?: 'tout' | 'honoraires' | 'commission';
@@ -677,7 +685,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
     data-appliquer-calcul-carte={cote}>{mot}</button>;
   const manuelle = rem !== null && rem.saisie !== null && rem.modeEnregistre && rem.mode === 'manuelle';
   const u = useAffichage();
-  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers }}
+  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers, baseAffichee }}
     honoraires={montrer === 'honoraires' ? honoraires : null} rem={montrer === 'commission' ? rem : null} />;
   return <>
     {honoraires !== null && (
@@ -685,7 +693,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         ttc={honoraires.ttc} encadre={honorairesVersesVers === null ? null : 'deduite'} mention={honorairesVersesVers === null ? undefined : mentionVersement(honorairesVersesVers)} />
     )}
     {rem !== null && (
-      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{montantAffiche(u, rem.baseTtc / TVA, rem.baseTtc)} × {pctFr(rem.taux)}{ESPACE}% =</span></>}
+      <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{baseAffichee !== undefined ? montantAffiche(u, baseAffichee.htC / 100, baseAffichee.ttcC / 100) : montantAffiche(u, rem.baseTtc / TVA, rem.baseTtc)} × {pctFr(rem.taux)}{ESPACE}% =</span></>}
         ttc={rem.calculTtc} />
     )}
     {rem !== null && enregistree && manuelle && (
@@ -717,22 +725,50 @@ function VentilationPartie({ x, groupe }: { x: VentilationCote;
   const t = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
   const mot = x.cote === 'entree' ? 'vendeur' : 'acquéreur';
   const sorties = [...x.commissions.map((c) => c.m), ...x.quoteParts.map((q) => q.m), ...(x.versee === null ? [] : [x.versee.m])];
-  if (groupe === 'tete' ? x.quoteParts.length === 0 : groupe === 'rouge' && x.quoteParts.length === 0) return null;
+  if (groupe === 'rouge' && x.quoteParts.length === 0 && x.versee === null) return null;
+  const qui = LIBELLE_SOCIETE[x.societe];
   return (
     <div className="trx-ventilation" data-ventilation={x.cote} data-groupe-ventilation={groupe}>
-      {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-partie': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100}
-        libelle={<><span className="trx-calcul-mot">Honoraires de la partie {mot}</span> <span className="trx-calcul-operation trx-calcul-operation--suite">(avant apporteur et agence extérieure) :</span></>} />}
+      {/* 🔴 LOT BA — l'en-tête, sans cadre : la part du CA de cette partie, référence de la carte (les cadres dessous la totalisent au centime). */}
+      {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100}
+        libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
+          : <><span className="trx-calcul-mot">Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />}
       {groupe === 'rouge' && x.quoteParts.map((q, i) => (
         <LigneCalcul key={`${q.cle}-${i}`} encadre="deduite" mention="Quote-part de cette partie — comptabilisée dans « Commissions versées »" donnees={{ 'data-quote-part': q.cle }}
           ttc={q.m.ttcC / 100} ht={q.m.htC / 100}
           libelle={<><span className="trx-calcul-mot">{q.cle === 'apporteur' ? 'Apporteur' : 'Agence extérieure'}{q.nom === null ? '' : ` — ${q.nom}`}</span> : <span className="trx-calcul-operation">{t(q.total)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
       ))}
+      {/* 🔴 LOT BA (Arno) — l'inter-cabinet versé : le même montant que la Répartition et la fenêtre « Commissions versées » ; à titre d'information,
+          en petit (hors du total de la carte), la commission du négociateur (payée par l'autre société) et la part de l'agence de l'autre société. */}
+      {groupe === 'rouge' && x.versee !== null && (() => {
+        const w = x.versee;
+        const autre = LIBELLE_SOCIETE[w.vers];
+        return <LigneCalcul encadre="deduite" mention="Comptabilisé dans « Commissions versées »" donnees={{ 'data-reverse-cote': x.cote }} ttc={w.m.ttcC / 100} ht={w.m.htC / 100}
+          libelle={<span className="trx-calcul-mot">Reversé en inter-cabinet à {autre}</span>}
+          apres={<>
+            {w.negociateur !== null && <span className="trx-calcul-dont-ligne" data-dont-commission={x.cote}>{w.commission === null
+              ? `dont commission de ${w.negociateur} (${autre}) : aucune — non commissionné`
+              : `dont commission de ${w.negociateur} (${autre}${w.taux === null ? '' : `, ${pctFr(w.taux)} %`}) : ${t(w.commission)} — payée par ${autre}`}</span>}
+            <span className="trx-calcul-dont-ligne" data-dont-agence={x.cote}>dont part de l’agence {autre} : {t(w.agenceAutre)}</span>
+          </>} />;
+      })()}
       {groupe === 'vert' && <LigneCalcul encadre="agence" mention={mentionPartAgence(x)} donnees={{ 'data-part-agence': x.cote }} ttc={x.agence.ttcC / 100} ht={x.agence.htC / 100}
-        libelle={<><span className="trx-calcul-mot">Part de l’agence</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
+        libelle={<><span className="trx-calcul-mot">Part de l’agence {qui}</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
           ? <><span className="trx-calcul-terme">{t(x.honoraires)}</span> <span className="trx-calcul-terme">− aucune commission =</span></>
           : [x.honoraires, ...sorties].map((m, i, l) => <span key={i}>{i > 0 && ' '}<span className="trx-calcul-terme">{i > 0 && '− '}{t(m)}{i === l.length - 1 && ' ='}</span></span>)}</span></>} />}
     </div>
   );
+}
+
+/**
+ * 🔴 LOT BA (Arno) — LE CONTRÔLE PERMANENT, à l'écran : une affaire dont les cartes ne totalisent pas la commission de la vente (ou la part
+ * reçue) — des données incomplètes — porte une petite alerte discrète ; aucune quand tout tombe juste (`controleVentilation`).
+ */
+function AlerteVentilation({ v, vue }: { v: Vente; vue: Societe | null }) {
+  const u = useAffichage();
+  const c = controleVentilation(v, vue);
+  if (c === null || (c.ecart.htC === 0 && c.ecart.ttcC === 0)) return null;
+  return <p className="trx-alerte trx-ventilation-alerte" role="status" data-ventilation-incomplete>Ventilation incomplète : {montantAffiche(u, c.ecart.htC / 100, c.ecart.ttcC / 100)} non affectés</p>;
 }
 
 /** La part d'une ligne de répartition à l'écran, en % de la commission nette (€ HT ramenés en %) ; illisible : 0. PUR. */
@@ -864,6 +900,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
               </span></dd></div>
             </dl>
           </section>
+          <AlerteVentilation v={v} vue={v.societe} />
           <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
             : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
@@ -928,6 +965,8 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   if (!commissionne) return (
     <div className="trx-remuneration" data-remuneration={cote}>
       {entete}
+      {/* 🔴 LOT BA (Arno) — en tête, sans cadre : « Honoraires reçus de [porteuse] » (sa part reçue) ; les cadres dessous la totalisent. */}
+      {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
       <p className="trx-remuneration-ligne loc-muet" data-remuneration-statut={cote}>Statut à la vente : {libelleStatut(statut)}</p>
       <p className="loc-muet" data-non-commissionne={cote}>Non commissionné</p>
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
@@ -936,7 +975,9 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   return (
     <div className="trx-remuneration" data-remuneration={cote}>
       {entete}
-      {/* 🔴 LOT AZ — le cadre VERT (part de l'agence) au-dessus de la commission (verte si interne, rouge si indépendant). */}
+      {/* 🔴 LOT BA — en tête, sans cadre : « Honoraires reçus de [porteuse] ». LOT AZ — le cadre VERT (part de l'agence) au-dessus de la
+          commission (verte si interne, rouge si indépendant). */}
+      {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
       {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte ; LOT AK : sans « Honoraires reçus de … » (doublon du CA). */}
       <LignesCalcul cote={cote} premier="" honoraires={null} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide

@@ -395,6 +395,9 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-calcul-operation--suite{white-space:normal}
 .trx-calcul-terme{white-space:nowrap}
 .trx-calcul-encadre--agence .trx-calcul-mention{color:var(--color-svv-green-ink)}
+/* LOT BA — les lignes « dont » d'un cadre (information, hors total de la carte) : en petit, sous la mention ; l'alerte « Ventilation incomplète ». */
+.trx-calcul-dont{grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;margin-top:2px;font-size:.78rem;color:var(--color-svv-muted)}
+.trx-ventilation-alerte{margin:0 0 8px;font-size:.82rem}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
   .trx-calcul-resultat{grid-row:2}

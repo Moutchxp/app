@@ -1,5 +1,5 @@
-import { bilanVente, LIBELLE_SOCIETE, societePorteuse, TVA, type Societe, type Vente } from './modele';
-import { enHt, enTtc, honorairesDuCote, remuneration, remunerationDuCote } from './commissions';
+import { bilanVente, commissionNetteHt, LIBELLE_SOCIETE, societePorteuse, TVA, type Societe, type Vente } from './modele';
+import { enHt, enTtc, remuneration, remunerationDuCote } from './commissions';
 import { statutDePartie } from './statutLigne';
 import { centimesRepartition } from './repartition';
 import { enCentimes } from './detailCommissions';
@@ -38,8 +38,15 @@ export interface VentilationCote {
   /** Les honoraires de la partie : base + quote-parts (= base sans apporteur ni agence extérieure). */
   honoraires: MontantC;
   commissions: CommissionCote[];
-  /** L'inter-cabinet versé à l'autre société sur ce côté (vue de la porteuse). */
-  versee: { vers: Societe; m: MontantC } | null;
+  /**
+   * L'inter-cabinet versé à l'autre société sur ce côté (vue de la porteuse). 🔴 LOT BA — à titre d'information (hors total de la carte) : la
+   * commission de son négociateur, payée par l'autre société (null : non commissionné), et la part de l'agence de l'autre société.
+   */
+  versee: { vers: Societe; m: MontantC; negociateur: string | null; taux: number | null; commission: MontantC | null; agenceAutre: MontantC } | null;
+  /** 🔴 LOT BA — la commission de la vente (porteuse, CA global) : l'en-tête « Honoraires partie … : commission × part % = … ». */
+  commissionVente: MontantC;
+  /** 🔴 LOT BA — la ligne miroir : la société porteuse (« Honoraires reçus de … ») ; null : une vente de la société vue. */
+  recuDe: Societe | null;
   agence: MontantC;
   /** Vide : la part reste dans le CA de la société ; sinon, rattachée au CA de ces associés. */
   associes: RattachementAssocie[];
@@ -95,7 +102,10 @@ const rattacher = (agence: MontantC, noms: readonly string[]): RattachementAssoc
 
 /**
  * 🔴 LOT AY — LA VENTILATION DES CARTES DE PARTIE d'une vente, lue avec la société de l'écran (`vue` ; null : CA global). Une vente portée
- * par l'autre société : rien (c'est sa ligne miroir qui se lit ici). Sans répartition (historique) : rien — aucune part n'est inventée. PUR.
+ * par l'autre société : rien (c'est sa ligne miroir qui se lit ici). Sans répartition (historique) : rien — aucune part n'est inventée.
+ * 🔴 LOT BA (Arno) — les honoraires de chaque partie = sa part au centime du lot AH (`centimesRepartition` : les MÊMES montants que la
+ * Répartition, la fenêtre « Commissions versées » et la ligne miroir) + sa quote-part de l'apporteur et des agences extérieures : les deux
+ * cartes font la commission de la vente, au centime (`controleVentilation`). PUR.
  */
 export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<'entree' | 'sortie', VentilationCote>> {
   if (v.miroir != null) return ventilationMiroir(v);
@@ -103,59 +113,59 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
   if (r == null) return {};
   const porteuse = societePorteuse(v);
   if (vue !== null && vue !== porteuse) return {};
-  // Chaque côté : sa part (%), sa société, son négociateur.
+  const netHt = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc);
+  const pctDe = (i: number): number => { const p = r.parties[i]; return p.pourcentage !== null ? p.pourcentage : netHt === 0 ? 0 : ((p.montantHt ?? 0) / netHt) * 100; };
+  const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
+  const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+  const ah = cHt !== null && cTtc !== null;
+  // Chaque côté : ses parties (une partie n'est comptée qu'une fois, même « entrée et sortie »), sa part (%), sa société, son négociateur.
+  const prises = new Set<number>();
   const cotes = (['entree', 'sortie'] as const).flatMap((cote) => {
     const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
     const sortes = SORTES[cote] as readonly string[];
-    const parties = nego !== null ? r.parties.filter((p) => p.compteId === nego.id && sortes.includes(p.sorte)) : r.parties.filter((p) => p.compteId === null && p.sorte === cote);
-    const h = nego !== null ? honorairesDuCote(v, cote) : (() => {
-      if (parties.length === 0) return null;
-      const netTtc = v.honorairesTtc - r.retroApporteurTtc;
-      const netHt = netTtc / TVA;
-      const part = parties.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : netHt === 0 ? 0 : ((p.montantHt ?? 0) / netHt) * 100), 0);
-      return { netTtc, part, ttc: (netTtc * part) / 100 };
-    })();
-    if (h === null) return [];
-    const societe = parties.find((p) => p.societe !== null)?.societe ?? (nego !== null ? r.parties.find((p) => p.compteId === nego.id && p.societe !== null)?.societe : undefined) ?? porteuse;
-    return [{ cote, nego, h, societe }];
+    const ix = r.parties.map((p, i) => ({ p, i })).filter(({ p, i }) => !prises.has(i)
+      && (nego !== null ? p.compteId === nego.id && sortes.includes(p.sorte) : p.compteId === null && p.sorte === cote)).map(({ i }) => i);
+    ix.forEach((i) => prises.add(i));
+    // Le même négociateur porte tout de l'autre côté : ce côté existe, à 0 %.
+    if (ix.length === 0 && !(nego !== null && r.parties.some((p) => p.compteId === nego.id && p.sorte !== 'exterieure'))) return [];
+    const part = ix.reduce((t, i) => t + pctDe(i), 0);
+    const base: MontantC = ah ? { htC: Math.round(ix.reduce((t, i) => t + cHt!.parts[i], 0) * 100), ttcC: Math.round(ix.reduce((t, i) => t + cTtc!.parts[i], 0) * 100) }
+      : depuisTtc((netHt * TVA * part) / 100);
+    const societe = ix.map((i) => r.parties[i].societe).find((x) => x !== null) ?? (nego !== null ? r.parties.find((p) => p.compteId === nego.id && p.societe !== null)?.societe : undefined) ?? porteuse;
+    return [{ cote, nego, part, base, societe }];
   });
   // Les quote-parts de l'apporteur et des agences extérieures (vue de la porteuse ou CA global : c'est elle qui les paie), au prorata.
-  const internes = r.parties.filter((p) => p.sorte !== 'exterieure');
-  const netHt = (v.honorairesTtc - r.retroApporteurTtc) / TVA;
-  const pctInternes = internes.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : netHt === 0 ? 0 : ((p.montantHt ?? 0) / netHt) * 100), 0);
-  const poids = cotes.map((c) => c.h.part);
-  const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
-  const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+  const pctInternes = r.parties.reduce((t, p, i) => t + (p.sorte === 'exterieure' ? 0 : pctDe(i)), 0);
+  const poids = cotes.map((c) => c.part);
   const aRepartir: { cle: QuotePart['cle']; nom: string | null; total: MontantC }[] = [];
   if (r.retroApporteurTtc !== 0) aRepartir.push({ cle: 'apporteur', nom: v.apporteur?.trim() || null,
-    total: cHt !== null && cTtc !== null ? { htC: Math.round(cHt.apporteurHt * 100), ttcC: Math.round(cTtc.apporteurHt * 100) } : depuisTtc(r.retroApporteurTtc) });
+    total: ah ? { htC: Math.round(cHt!.apporteurHt * 100), ttcC: Math.round(cTtc!.apporteurHt * 100) } : depuisTtc(r.retroApporteurTtc) });
   r.parties.forEach((p, i) => {
     if (p.sorte !== 'exterieure') return;
-    const exactHt = p.pourcentage !== null ? (netHt * p.pourcentage) / 100 : p.montantHt ?? 0;
-    const total = cHt !== null && cTtc !== null ? { htC: Math.round(cHt.parts[i] * 100), ttcC: Math.round(cTtc.parts[i] * 100) } : depuisTtc(exactHt * TVA);
+    const total = ah ? { htC: Math.round(cHt!.parts[i] * 100), ttcC: Math.round(cTtc!.parts[i] * 100) } : depuisTtc((netHt * pctDe(i) * TVA) / 100);
     if (total.htC !== 0 || total.ttcC !== 0) aRepartir.push({ cle: 'exterieure', nom: p.nom?.trim() || null, total });
   });
   // La part de chaque côté : son poids parmi nos parties ; deux côtés qui font 100 % des parties de nos sociétés se partagent tout (écart
   // d'un centime sur le dernier) ; sinon (une partie de nos sociétés hors des deux côtés), chacun sa part arrondie.
-  const toutes = Math.abs(poids.reduce((t, x) => t + x, 0) - pctInternes) < 1e-9;
+  const toutes = Math.abs(poids.reduce((t, x) => t + x, 0) - pctInternes) < 1e-9 && pctInternes > 0;
   const quotes = aRepartir.map((q) => (toutes ? auProrata(q.total, poids)
     : poids.map((p) => (pctInternes === 0 ? RIEN : { htC: Math.round((q.total.htC * p) / pctInternes), ttcC: Math.round((q.total.ttcC * p) / pctInternes) }))));
+  const commissionVente: MontantC = ah ? { htC: Math.round(cHt!.commissionHt * 100), ttcC: Math.round(cTtc!.commissionHt * 100) } : depuisTtc(v.honorairesTtc);
   const out: Partial<Record<'entree' | 'sortie', VentilationCote>> = {};
   cotes.forEach((c, i) => {
-    const base = depuisTtc(c.h.ttc);
     const quoteParts: QuotePart[] = aRepartir.map((q, k) => ({ ...q, m: quotes[k][i] })).filter((q) => q.m.htC !== 0 || q.m.ttcC !== 0);
-    const honoraires = quoteParts.reduce((t, q) => plus(t, q.m), base);
+    const honoraires = quoteParts.reduce((t, q) => plus(t, q.m), c.base);
     const garde = vue ?? c.societe;
-    // L'inter-cabinet : ce côté travaille pour l'autre société — la porteuse lui verse ses honoraires (règle des tuiles : `bilanVente`).
-    const versee = vue !== null && c.societe !== vue && bilanVente(v, vue).verseHt[c.societe] > 0 ? { vers: c.societe, m: base } : null;
-    const commissions: CommissionCote[] = [];
-    if (versee === null && c.nego !== null) {
-      const m = commissionDe(remunerationDuCote(v, c.cote));
-      if (m !== null) commissions.push({ negociateur: c.nego.nom, m });
-    }
-    const agence = commissions.reduce((t, x) => moins(t, x.m), versee === null ? base : moins(base, versee.m));
-    out[c.cote] = { cote: c.cote, societe: garde, base, pctQuote: pctInternes === 0 ? 0 : (c.h.part / pctInternes) * 100, quoteParts, honoraires, commissions, versee, agence,
-      associes: rattacher(agence, associesDe(v, garde)) };
+    const rem = c.nego === null ? null : remunerationDuCote(v, c.cote);
+    const commission = commissionDe(rem);
+    // L'inter-cabinet : ce côté travaille pour l'autre société — la porteuse lui verse ses honoraires (règle des tuiles : `bilanVente`) ; la
+    // commission de son négociateur est payée par l'autre société (à titre d'information).
+    const versee = vue !== null && c.societe !== vue && bilanVente(v, vue).verseHt[c.societe] > 0
+      ? { vers: c.societe, m: c.base, negociateur: c.nego?.nom ?? null, taux: rem?.taux ?? null, commission, agenceAutre: commission === null ? c.base : moins(c.base, commission) } : null;
+    const commissions: CommissionCote[] = versee === null && c.nego !== null && commission !== null ? [{ negociateur: c.nego.nom, m: commission }] : [];
+    const agence = commissions.reduce((t, x) => moins(t, x.m), versee === null ? c.base : moins(c.base, versee.m));
+    out[c.cote] = { cote: c.cote, societe: garde, base: c.base, pctQuote: pctInternes === 0 ? 0 : (c.part / pctInternes) * 100, quoteParts, honoraires, commissions, versee, agence,
+      associes: rattacher(agence, associesDe(v, garde)), commissionVente, recuDe: null };
   });
   return out;
 }
@@ -172,9 +182,36 @@ function ventilationMiroir(v: Vente): Partial<Record<'entree' | 'sortie', Ventil
     const c = x.commissionne === false ? null : commissionDe(remuneration(x.baseTtc, ligne));
     const commissions = c === null ? [] : [{ negociateur: x.negociateur, m: c }];
     const agence = commissions.reduce((t, k) => moins(t, k.m), base);
-    out[x.cote] = { cote: x.cote, societe: s, base, pctQuote: 100, quoteParts: [], honoraires: base, commissions, versee: null, agence, associes: rattacher(agence, associes) };
+    out[x.cote] = { cote: x.cote, societe: s, base, pctQuote: 100, quoteParts: [], honoraires: base, commissions, versee: null, agence, associes: rattacher(agence, associes),
+      commissionVente: depuisTtc(v.honorairesTtc), recuDe: m.porteuse };
   }
   return out;
+}
+
+/** 🔴 LOT BA — le contrôle de la ventilation d'une affaire : attendu, ventilé (la somme des cadres des cartes), écart (attendu − ventilé). */
+export interface ControleVentilation { attendu: MontantC; ventile: MontantC; ecart: MontantC }
+
+/**
+ * 🔴 LOT BA (Arno) — LE CONTRÔLE PERMANENT : la somme de TOUS les cadres des cartes de partie (vert + rouge : commissions, quote-parts,
+ * inter-cabinet versé, parts de l'agence ; jamais les lignes « dont » d'information) = la commission de la vente (porteuse, CA global) ou la
+ * part reçue (ligne miroir), au centime, en HT et en TTC. null : rien à contrôler (historique sans répartition, vente lue chez l'autre
+ * société). Un écart = des données incomplètes (une partie qui n'est ni l'entrée ni la sortie, une répartition qui ne fait pas 100 %). PUR.
+ */
+export function controleVentilation(v: Vente, vue: Societe | null): ControleVentilation | null {
+  const vt = ventilationVente(v, vue);
+  const cartes = Object.values(vt).filter((x): x is VentilationCote => x !== undefined);
+  if (v.miroir == null && (v.repartition == null || (vue !== null && vue !== societePorteuse(v)))) return null;
+  const ventile = cartes.reduce((t, c) => [...c.commissions.map((x) => x.m), ...c.quoteParts.map((x) => x.m), ...(c.versee === null ? [] : [c.versee.m]), c.agence].reduce(plus, t), RIEN);
+  const attendu = v.miroir != null ? { htC: enCentimes(v.miroir.partHt), ttcC: enCentimes(v.honorairesTtc) } : cartes[0]?.commissionVente ?? commissionDeVente(v);
+  return { attendu, ventile, ecart: moins(attendu, ventile) };
+}
+
+/** La commission de la vente au centime (règle du lot AH ; à défaut, l'arrondi simple). PUR. */
+function commissionDeVente(v: Vente): MontantC {
+  const r = v.repartition;
+  const c = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v));
+  const t = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v), 'ttc');
+  return c !== null && t !== null ? { htC: Math.round(c.commissionHt * 100), ttcC: Math.round(t.commissionHt * 100) } : depuisTtc(v.honorairesTtc);
 }
 
 /** La mention de la part de l'agence (le rattachement, ou ce qu'elle devient). PUR. */

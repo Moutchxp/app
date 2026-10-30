@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mentionPartAgence, partAgenceRattacheeHt, partsEgales, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
+import { controleVentilation, mentionPartAgence, partAgenceRattacheeHt, partsEgales, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
 import { tuilesCompromis } from './commissions';
 import { detailCa, detailCommissions, detailDu } from './detailCommissions';
 import { venteDansSociete } from './interCabinet';
@@ -43,8 +43,9 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
     expect(mentionPartAgence(vt.entree!)).toBe('Rattachée au CA de Cédric JULLIEN (associé)');
     expect([ttc(vt.sortie!.honoraires), vt.sortie!.commissions.map((c) => [c.negociateur, ttc(c.m)]), ttc(vt.sortie!.agence)]).toEqual([12500, [['Pierre Thevenin', 6250]], 6250]);
     expect(mentionPartAgence(vt.sortie!)).toBe('Rattachée au CA de Cédric JULLIEN (associé)');
-    // HT : 10 416,67 = 5 208,33 + 5 208,34 (la part de l'agence, reste exact)
-    expect([ht(vt.sortie!.honoraires), ht(vt.sortie!.commissions[0].m), ht(vt.sortie!.agence)]).toEqual([10416.67, 5208.33, 5208.34]);
+    // HT, centimes du lot AH (ceux de la Répartition) : 10 416,67 (entrée) + 10 416,66 (sortie, la porteuse prend l'écart) = 20 833,33 ;
+    // sortie : 5 208,33 + 5 208,33 (la part de l'agence, reste exact)
+    expect([ht(vt.entree!.honoraires), ht(vt.sortie!.honoraires), ht(vt.sortie!.commissions[0].m), ht(vt.sortie!.agence)]).toEqual([10416.67, 10416.66, 5208.33, 5208.33]);
     complet(vt);
   });
 
@@ -156,7 +157,7 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
 
   it('CA généré : la part de l’agence rattachée à chaque associé, en HT (les annulées n’y comptent pas)', () => {
     const r = partAgenceRattacheeHt([fabarro(), { ...fabarro(), id: 261, statut: 'annulee' }], 'macj');
-    expect([...r]).toEqual([['Cédric JULLIEN', 10416.67 + 5208.34]]);
+    expect([...r]).toEqual([['Cédric JULLIEN', 10416.67 + 5208.33]]);
   });
 
   it('aucune tuile, aucune fenêtre ni synthèse ne change : elles ne lisent pas la part de l’agence (mêmes chiffres qu’avant le lot)', () => {
@@ -166,5 +167,69 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
     const couts = detailCommissions(vs, 'macj');
     expect([couts.totalHtC, couts.totalTtcC]).toEqual([0, 0]);
     expect(detailDu(couts, detailCa(vs, 'macj'), vs, 'macj', '2026-10-30').total.htC).toBe(0);
+  });
+});
+
+describe('🔴 LOT BA — l’en-tête de chaque carte, l’inter-cabinet vu de la porteuse et de la ligne miroir, le contrôle permanent', () => {
+  const lt = (id: number, negociateur: string, cote: 'entree' | 'sortie', ttc: number, taux: number): LigneVente => ({ ...ligne(id, negociateur, cote, ttc), taux });
+  // FABARRO tel qu'Arno l'a laissé : CRITERIMMO porteuse, 25 000 TTC ; JB PONS (CRITERIMMO, salarié, 25 %) vendeurs ; Pierre Thevenin (MACJ, indépendant, 60 %) acquéreurs.
+  const fab = (): Vente => vente({ id: 260, societe: 'criterimmo', honorairesTtc: 25000,
+    parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50, { statut: 'salarie' }), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)],
+    lignes: [lt(1, 'Jean-Baptiste PONS', 'entree', 3125, 25), lt(2, 'Pierre Thevenin', 'sortie', 7500, 60)] });
+  const juste = (v: Vente, vue: Societe | null): void => {
+    const c = controleVentilation(v, vue)!;
+    expect(c.ecart).toEqual({ htC: 0, ttcC: 0 });
+    expect(c.ventile).toEqual(c.attendu);
+  };
+
+  it('FABARRO, page CRITERIMMO : vendeurs 9 375 + 3 125 = 12 500 ; acquéreurs : part de l’agence 0 + reversé 12 500 (dont Pierre 7 500, payée par MACJ, et part de l’agence MACJ 5 000, hors total)', () => {
+    const vt = ventilationVente(fab(), 'criterimmo');
+    expect([ttc(vt.entree!.honoraires), ttc(vt.entree!.agence), ttc(vt.entree!.commissions[0].m)]).toEqual([12500, 9375, 3125]);
+    const w = vt.sortie!.versee!;
+    expect([ttc(vt.sortie!.honoraires), ttc(vt.sortie!.agence), w.vers, ttc(w.m), w.negociateur, w.taux, ttc(w.commission!), ttc(w.agenceAutre)])
+      .toEqual([12500, 0, 'macj', 12500, 'Pierre Thevenin', 60, 7500, 5000]);
+    expect(vt.sortie!.commissions).toEqual([]); // la commission de Pierre n'est pas un cadre de la carte de CRITERIMMO (elle est « dont »)
+    // l'en-tête : la commission de la vente × la part ; HT au centime du lot AH (la porteuse, l'entrée, prend l'écart)
+    expect([vt.entree!.commissionVente, vt.entree!.pctQuote, ht(vt.entree!.honoraires), ht(vt.sortie!.honoraires)]).toEqual([{ htC: 2083333, ttcC: 2500000 }, 50, 10416.66, 10416.67]);
+    // le reversé = le montant de la fenêtre « Commissions versées » (Inter-cabinet vers MACJ)
+    const couts = detailCommissions([fab()], 'criterimmo');
+    expect(couts.versees.find((c) => c.cle === 'inter-cabinet-macj')!.htC).toBe(w.m.htC);
+    complet(vt); juste(fab(), 'criterimmo');
+  });
+
+  it('FABARRO, ligne miroir MACJ : « Honoraires reçus de CRITERIMMO » 12 500 = part de l’agence MACJ 5 000 + commission de Pierre 7 500', () => {
+    const m = venteDansSociete(fab(), 'macj')!;
+    const vm = ventilationVente(m, 'macj');
+    expect([vm.sortie!.recuDe, ttc(vm.sortie!.honoraires), ttc(vm.sortie!.agence), ttc(vm.sortie!.commissions[0].m)]).toEqual(['criterimmo', 12500, 5000, 7500]);
+    juste(m, 'macj');
+  });
+
+  it('le contrôle tombe juste, au centime (HT et TTC), sur les cas types — et ne contrôle pas ce qui n’a pas de répartition', () => {
+    const cas: [Vente, Societe | null][] = [
+      [fab(), 'criterimmo'], [fab(), null],
+      // inter-cabinet dans l'autre sens : MACJ porteuse, JB (CRITERIMMO) acquéreurs
+      [vente({ honorairesTtc: 9000.01, parties: [partie('entree', 7, 'Mylène EBERLIN', 'macj', 37.5), partie('sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 62.5)] }), 'macj'],
+      // apporteur + agence extérieure + indépendant
+      [vente({ id: 41, societe: 'criterimmo', honorairesTtc: 12000, retro: 2400, apporteur: 'Julien Deblois', parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 40),
+        partie('sortie', 7, 'Mylène EBERLIN', 'macj', 40), partie('exterieure', null, null, null, 20, { nom: 'Agence du Parc' })] }), 'criterimmo'],
+      // associé non commissionné, salarié, apporteur, centimes impairs
+      [vente({ id: 37, societe: 'criterimmo', honorairesTtc: 7500, retro: 1000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50, { statut: 'associe', commissionne: false }),
+        partie('sortie', 3, 'Mylène', 'criterimmo', 50, { statut: 'salarie' })] }), 'criterimmo'],
+      // partie à 0 % : le même négociateur porte tout (100 / 0), puis 50 / 50
+      [vente({ parties: [partie('entree', 8, 'Pierre Thevenin', 'macj', 100)], dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 8, nom: 'Pierre Thevenin' },
+        sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] } }), 'macj'],
+      [vente({ parties: [partie('entree', 8, 'Pierre Thevenin', 'macj', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] }), 'macj'],
+    ];
+    for (const [v, vue] of cas) juste(v, vue);
+    const zero = ventilationVente(cas[5][0], 'macj');
+    expect([ttc(zero.entree!.honoraires), ttc(zero.sortie!.honoraires), zero.sortie!.pctQuote]).toEqual([25000, 0, 0]);
+    expect(controleVentilation({ ...fab(), repartition: null }, 'criterimmo')).toBeNull();
+    expect(controleVentilation(fab(), 'macj')).toBeNull(); // la vente d'origine ne se lit pas chez MACJ (sa ligne miroir, oui)
+  });
+
+  it('données incomplètes : une partie de nos sociétés qui n’est ni l’entrée ni la sortie → l’écart, exactement sa part', () => {
+    const v = vente({ honorairesTtc: 12000, parties: [partie('entree', 7, 'Mylène EBERLIN', 'macj', 40), partie('sortie', 8, 'Pierre Thevenin', 'macj', 40), partie('sortie', 4, 'Augustin Jorel', 'macj', 20)] });
+    const c = controleVentilation(v, 'macj')!;
+    expect([c.ecart.ttcC, c.ecart.htC]).toEqual([240000, 200000]);
   });
 });
