@@ -7,7 +7,7 @@ import {
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
-  aDesCompromisDates, caHtParMoisMode, compromisDuMois, compromisSansDate, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
+  aDesCompromisDates, caHtParMoisMode, compromisDuMode, compromisSansDate, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
 import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
 import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
@@ -163,7 +163,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
         {vue === 'mois' && <div className="tdb-champ trx-champ-mode"><span id="trx-mode-mot">Compter</span>
           <div className="trx-unites trx-modes" role="group" aria-labelledby="trx-mode-mot" data-filtre="mode">
             {MODES_MOIS.map((m) => <button key={m} type="button" className="trx-unite" aria-pressed={mode === m} onClick={() => setMode(m)} data-mode-mois={m}>{LIBELLE_MODE[m]}</button>)}
-          </div></div>}
+          </div>
+          {/* 🔴 LOT BT — la règle du mode combiné, dite sous le sélecteur. */}
+          <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.</small></div>}
       </form>
 
       {vue === 'mois'
@@ -230,7 +232,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const ventes = ventesDuMois(d.ventes, annee, mois);
-  const compDuMois = compromisDuMois(d.ventes, annee, mois);
+  // 🔴 LOT BT — « vendu + compromis » : seulement les compromis pas encore passés en acte (une affaire signée est déjà dans les ventes).
+  const compDuMois = compromisDuMode(d.ventes, annee, mois, mode);
   const listeMode = mode === 'vendu' ? ventes : mode === 'compromis' ? compDuMois : [...ventes, ...compDuMois];
   const retros = retrosDuMois(d.retrocessions, annee, mois);
   const retrosMode = mode === 'compromis' ? [] : retros;
@@ -238,7 +241,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const sansDate = mode === 'vendu' ? [] : compromisSansDate(d.ventes, annee);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => x.annee === annee && x.mois === mois);
-  const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...(mode === 'vendu' ? [] : compromisDuMois(d.ventes, annee, k))].map((v) => v.id);
+  const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode)].map((v) => v.id);
   /** L'encart d'un mois (ou de son cumul) : l'année et N−1 ; « Vendu + compromis » : le vendu, les compromis, puis le total. */
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
   const info = (k: number, cumule: boolean): InfoBarre => {
@@ -317,7 +320,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </section>}
     {mode !== 'vendu' && <section className="tdb-section" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
-      <h3 id="trx-compromis-mois">Les compromis du mois — {libMois} <small className="loc-muet">(date du compromis)</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
+      <h3 id="trx-compromis-mois">{mode === 'tous' ? 'Les compromis en cours du mois' : 'Les compromis du mois'} — {libMois} <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
       <TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </section>}
 

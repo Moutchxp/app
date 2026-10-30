@@ -464,6 +464,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-champ-mode{display:flex;flex-direction:column;gap:4px;min-width:max-content}
 .trx-modes{flex-wrap:nowrap}
 .trx-modes .trx-unite{white-space:nowrap}
+.trx-mode-regle{display:block;max-width:34rem;font-size:.75rem;font-weight:400;white-space:normal}
+@media (max-width:760px){ .trx-champ-mode{grid-column:1/-1} }
 @media (max-width:420px){ .trx-champ-mode{min-width:0} .trx-modes .trx-unite{padding:0 8px;min-width:0} }
 .tdb-barre.tdb-barre--haut{opacity:.42}
 .tdb-barre-n1.tdb-barre--haut{opacity:.5}

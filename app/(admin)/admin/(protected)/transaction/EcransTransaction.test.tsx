@@ -397,11 +397,14 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(M.compromisSansDate(v, 2025).map((x) => x.id)).toEqual([3, 14]);
     const vendu = M.caHtParMois(v, 2025, 'macj'); const comp = M.caHtCompromisParMois(v, 2025, 'macj'); const tous = M.caHtParMoisMode(v, 2025, 'macj', 'tous');
     expect(M.caHtParMoisMode(v, 2025, 'macj', 'vendu')).toEqual(vendu);
-    for (let i = 0; i < 12; i++) expect(tous[i]).toBe(vendu[i] + comp[i]);
-    expect([comp[0], vendu[0], vendu[2]]).toEqual([9600 / 1.2, 11025 / 1.2, 3600 / 1.2]);
-    expect(M.nombreParMoisMode(v, 2025, 'tous').slice(0, 3)).toEqual([3, 1, 1]);
+    // 🔴 LOT BT — « tous » = vendu + compromis EN COURS seulement (la 12, passée en acte en mars, n'y compte qu'en mars, dans le vendu).
+    const enCours = Array.from({ length: 12 }, (_, i) => M.compromisEnCoursDuMois(v, 2025, i + 1).reduce((t, x) => t + M.caHt(x, 'macj'), 0));
+    for (let i = 0; i < 12; i++) expect(tous[i]).toBe(vendu[i] + enCours[i]);
+    expect([comp[0], enCours[0], vendu[0], vendu[2]]).toEqual([9600 / 1.2, 6000 / 1.2, 11025 / 1.2, 3600 / 1.2]);
+    expect(M.nombreParMoisMode(v, 2025, 'tous').slice(0, 3)).toEqual([2, 1, 1]);
     const d = { ...donnees, ventes: v };
-    const T = M.totauxMoisMode(d, 2025, 1, 'tous'); const Tv = M.totauxMois(d, 2025, 1); const Tc = M.totauxMoisMode(d, 2025, 1, 'compromis');
+    const T = M.totauxMoisMode(d, 2025, 1, 'tous'); const Tv = M.totauxMois(d, 2025, 1);
+    const Tc = M.totaux(M.compromisEnCoursDuMois(v, 2025, 1), [], 'macj', undefined);
     expect([T.caHt, T.nbVentes, T.resteHt]).toEqual([Tv.caHt + Tc.caHt, Tv.nbVentes + Tc.nbVentes, Tv.resteHt + Tc.resteHt]);
     expect(M.totauxMoisMode(d, 2025, 1, 'vendu')).toEqual(Tv);
   });
@@ -431,17 +434,18 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(new URLSearchParams(window.location.search).get('mode')).toBe('compromis');
   });
 
-  it('« Vendu + compromis » : la somme au centime ; les deux listes ; la barre empilée (vendu en bas, compromis au-dessus, N−1 hachurée empilée) ; l’encart : vendu, compromis, total', async () => {
+  it('« Vendu + compromis » : la somme au centime (compromis EN COURS seulement, LOT BT) ; les deux listes ; la barre empilée ; l’encart : vendu, compromis, total', async () => {
     await ouvrir();
     await cliquer('[data-mode-mois="tous"]');
-    expect(tuile('ca-mois')).toEqual(['CA HT vendu + compromis — janvier', '17 187,50 €', '6 000 € en 2024 (+186,5 %)']);
-    expect(tuile('ventes-mois')[1]).toBe('3');
+    // janvier 2025 : la vente 1 (9 187,50) + le compromis en cours 11 (5 000) ; la 12, signée en mars, n'y est plus. 2024 : la vente 5 (5 000) seule.
+    expect(tuile('ca-mois')).toEqual(['CA HT vendu + compromis — janvier', '14 187,50 €', '5 000 € en 2024 (+183,8 %)']);
+    expect(tuile('ventes-mois')[1]).toBe('2');
     expect([container.querySelector('[data-bloc="ventes-mois"]') !== null, container.querySelector('[data-bloc="compromis-du-mois"]') !== null]).toEqual([true, true]);
     const janv = container.querySelector('[data-barre-mois="1"]')!;
     expect([...janv.querySelectorAll('[data-barre-empilee] [data-empile]')].map((r) => [r.getAttribute('data-empile'), Number(r.getAttribute('data-valeur-part')).toFixed(2)]))
-      .toEqual([['bas', '5000.00'], ['haut', '1000.00'], ['bas', '9187.50'], ['haut', '8000.00']]); // N−1 (hachurée) dessinée d'abord, comme avant
+      .toEqual([['bas', '5000.00'], ['haut', '0.00'], ['bas', '9187.50'], ['haut', '5000.00']]); // N−1 (hachurée) dessinée d'abord, comme avant
     expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent!.replace(/\s/g, ' ')))
-      .toEqual(['Vendu9 187,50 €', 'Compromis8 000,00 €', 'Total HT17 187,50 €', 'Ventes + compromis3']);
+      .toEqual(['Vendu9 187,50 €', 'Compromis5 000,00 €', 'Total HT14 187,50 €', 'Ventes + compromis2']);
     expect(container.querySelector('[data-legende-empile]')).not.toBeNull();
   });
 
@@ -458,7 +462,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(new URLSearchParams(window.location.search).get('mesure')).toBe('nombre');
     await cliquer('[data-mode-mois="tous"]');
     expect(onglets()).toEqual(['CA', 'Nombre']);
-    expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent)).toEqual(['Vendu1', 'Compromis2', 'Total3']);
+    expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent)).toEqual(['Vendu1', 'Compromis1', 'Total2']); // LOT BT : la 12, signée, n'est plus qu'en vendu (mars)
     await cliquer('[data-cumul-bouton]');
     expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
   });
@@ -508,5 +512,46 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(src).toContain('{b.valeur !== null && (b.empile !== undefined');
     const L = await import('../location/TableauBordSuivi');
     expect(L.MESURES_MOIS.map((x) => x.mot)).toEqual(['CA', 'Baux', 'Gestion']);
+  });
+});
+
+describe('🔴 LOT BT — « Vendu + compromis » : une affaire n’est jamais comptée deux fois', () => {
+  const v = (id: number, o: Partial<Vente>) => vente(id, { societe: 'macj', ...o });
+  // Une affaire : compromis en octobre 2025, acte en décembre 2025 ; un compromis en cours d'octobre 2025 ; les mêmes en 2024.
+  const ventes = [
+    v(21, { libelle: 'OCT PUIS DÉC', honorairesTtc: 12000, statut: 'vendue', annee: 2025, mois: 12, dateCompromis: '2025-10-08' }),
+    v(22, { libelle: 'EN COURS OCT', honorairesTtc: 6000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-10-15' }),
+    v(23, { libelle: 'N-1 OCT PUIS DÉC', honorairesTtc: 2400, statut: 'vendue', annee: 2024, mois: 12, dateCompromis: '2024-10-02' }),
+    v(24, { libelle: 'N-1 EN COURS OCT', honorairesTtc: 1200, statut: 'compromis', annee: 2024, mois: null, dateCompromis: '2024-10-20' }),
+    v(25, { libelle: 'ANNULÉ OCT', honorairesTtc: 9000, statut: 'annulee', annee: 2025, mois: null, dateCompromis: '2025-10-01' }),
+  ];
+  it('combiné : l’affaire signée seulement en décembre (vendu), le compromis en cours en octobre ; idem en N−1', async () => {
+    const M = await import('../../../../lib/transaction/modele');
+    const tous = M.caHtParMoisMode(ventes, 2025, 'macj', 'tous');
+    expect([tous[9], tous[11]]).toEqual([6000 / 1.2, 12000 / 1.2]);
+    expect(M.nombreParMoisMode(ventes, 2025, 'tous').reduce((a, b) => a + b, 0)).toBe(2);
+    const n1 = M.caHtParMoisMode(ventes, 2024, 'macj', 'tous');
+    expect([n1[9], n1[11]]).toEqual([1200 / 1.2, 2400 / 1.2]);
+    const ids = Array.from({ length: 12 }, (_, i) => [...M.ventesDuMois(ventes, 2025, i + 1), ...M.compromisDuMode(ventes, 2025, i + 1, 'tous')].map((x) => x.id)).flat();
+    expect(ids.sort()).toEqual([21, 22]);
+  });
+  it('le mode « Compromis » ne change pas (l’affaire signée compte au mois de son compromis) ; le mode « Vendu » non plus, au centime', async () => {
+    const M = await import('../../../../lib/transaction/modele');
+    expect(M.caHtParMoisMode(ventes, 2025, 'macj', 'compromis')[9]).toBe(18000 / 1.2);
+    expect(M.compromisDuMode(ventes, 2025, 10, 'compromis').map((x) => x.id)).toEqual([21, 22]);
+    expect(M.caHtParMoisMode(ventes, 2025, 'macj', 'vendu')).toEqual(M.caHtParMois(ventes, 2025, 'macj'));
+    const d = { ...donnees, ventes, retrocessions: [] };
+    expect(M.totauxMoisMode(d, 2025, 12, 'vendu')).toEqual(M.totauxMois(d, 2025, 12));
+  });
+  it('l’écran : la règle dite sous le sélecteur ; « Les compromis en cours du mois » en mode combiné', async () => {
+    const avant = donnees.ventes; donnees.ventes = ventes;
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=10&mode=tous');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+      expect(texte('[data-regle-mode]')).toBe('Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.');
+      expect(texte('#trx-compromis-mois')).toContain('Les compromis en cours du mois — octobre 2025');
+      expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['22']);
+      expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('5 000 €');
+    } finally { donnees.ventes = avant; }
   });
 });

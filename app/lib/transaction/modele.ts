@@ -557,8 +557,10 @@ export const caHtParMois = (ventes: readonly Vente[], annee: number, societe: So
 
 // ── 🔴 LOT BS (Arno, 30/10/2026) — « LE MOIS » EN TROIS MODES : vendu, compromis, vendu + compromis ─────────────────────────────────────────
 // Le mode change CE QU'ON ADDITIONNE, jamais COMMENT : chaque vente se compte par les mêmes fonctions (`caHt`, `totaux` : société porteuse,
-// inter-cabinet, double à attribuer) ; « vendu + compromis » est la SOMME des deux, au centime (une vente dont le compromis et l'acte tombent le
-// même mois y compte deux fois : une fois à chaque date).
+// inter-cabinet, double à attribuer).
+// 🔴 LOT BT (règle d'Arno : une vente n'est JAMAIS comptée deux fois) — « vendu + compromis » = les actes signés (date de l'acte) + les compromis
+// PAS ENCORE passés en acte (date du compromis) : une affaire signée n'y figure qu'une fois, dans le vendu. Le mode « compromis » seul garde
+// tous les compromis à leur date, y compris ceux passés en acte depuis (l'activité de signature de compromis).
 
 export type ModeMois = 'vendu' | 'compromis' | 'tous';
 export const MODES_MOIS: readonly ModeMois[] = ['vendu', 'compromis', 'tous'];
@@ -576,6 +578,13 @@ export const compromisDuMois = (ventes: readonly Vente[], annee: number, mois: n
 /** Les compromis EN COURS sans date de compromis, rattachés à l'année : comptés à part, placés dans aucun mois. PUR. */
 export const compromisSansDate = (ventes: readonly Vente[], annee: number): Vente[] =>
   ventes.filter((v) => estCompromis(v) && (v.dateCompromis ?? null) === null && v.annee === annee && compteDansSociete(v));
+/** 🔴 LOT BT — les compromis d'un mois PAS ENCORE passés en acte (en cours, non annulés), à la date du compromis : la part « compromis » du
+ *  mode « vendu + compromis » (une affaire signée y est déjà dans le vendu). PUR. */
+export const compromisEnCoursDuMois = (ventes: readonly Vente[], annee: number, mois: number | null): Vente[] =>
+  compromisDuMois(ventes, annee, mois).filter(estCompromis);
+/** Les compromis de la part « compromis » selon le mode : tous (mode « compromis »), ou seulement ceux en cours (« vendu + compromis »). PUR. */
+export const compromisDuMode = (ventes: readonly Vente[], annee: number, mois: number | null, mode: ModeMois): Vente[] =>
+  mode === 'tous' ? compromisEnCoursDuMois(ventes, annee, mois) : mode === 'compromis' ? compromisDuMois(ventes, annee, mois) : [];
 /** Le CA HT des compromis de chaque mois (12 valeurs), à la date du compromis. PUR. */
 export const caHtCompromisParMois = (ventes: readonly Vente[], annee: number, societe: Societe | null = null): number[] =>
   Array.from({ length: 12 }, (_, i) => compromisDuMois(ventes, annee, i + 1).reduce((s, v) => s + caHt(v, societe), 0));
@@ -595,20 +604,20 @@ export function additionnerTotaux(a: Totaux, b: Totaux): Totaux {
 export function totauxMoisMode(d: DonneesTotaux, annee: number, mois: number, mode: ModeMois): Totaux {
   const vendu = totauxMois(d, annee, mois);
   if (mode === 'vendu') return vendu;
-  const comp = totaux(compromisDuMois(d.ventes, annee, mois), [], d.societe ?? null, resolveurDe(d.statutsNegociateurs));
+  const comp = totaux(compromisDuMode(d.ventes, annee, mois, mode), [], d.societe ?? null, resolveurDe(d.statutsNegociateurs));
   return mode === 'compromis' ? comp : additionnerTotaux(vendu, comp);
 }
 /** Le CA HT de chaque mois selon le mode (vendu : `caHtParMois`, à l'identique). PUR. */
 export function caHtParMoisMode(ventes: readonly Vente[], annee: number, societe: Societe | null, mode: ModeMois): number[] {
   const vendu = caHtParMois(ventes, annee, societe);
   if (mode === 'vendu') return vendu;
-  const comp = caHtCompromisParMois(ventes, annee, societe);
+  const comp = Array.from({ length: 12 }, (_, i) => compromisDuMode(ventes, annee, i + 1, mode).reduce((s, v) => s + caHt(v, societe), 0));
   return mode === 'compromis' ? comp : vendu.map((x, i) => x + comp[i]);
 }
 /** Le nombre de chaque mois selon le mode (ventes signées, compromis, ou les deux). PUR. */
 export function nombreParMoisMode(ventes: readonly Vente[], annee: number, mode: ModeMois): number[] {
   return Array.from({ length: 12 }, (_, i) => (mode === 'compromis' ? 0 : ventesDuMois(ventes, annee, i + 1).length)
-    + (mode === 'vendu' ? 0 : compromisDuMois(ventes, annee, i + 1).length));
+    + compromisDuMode(ventes, annee, i + 1, mode).length);
 }
 
 /** Les années présentes (ventes, compromis, rétrocessions), croissantes. PUR. */
