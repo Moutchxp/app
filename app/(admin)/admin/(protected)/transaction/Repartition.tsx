@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
 import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
@@ -55,6 +55,10 @@ export interface MontantEcran { texte: string; unite: Unite;
  * (null : la 437 n'est pas appliquée — rien ne se saisit, rien ne s'envoie, tout reste en TTC comme avant).
  */
 export interface EtatRepartition { entreeId: number | null; sortieId: number | null; apporteurId: number | null; retroTexte: string; retroUnite?: Unite;
+  /** 🔴 LOT BH — l'apporteur écrit hors annuaire (import) gardé tel quel ; null ou absent : aucun (ou celui de l'annuaire). */
+  apporteurNom?: string | null;
+  /** 🔴 LOT BH — « Supprimer » : le lien apporteur ↔ affaire est retiré (même un nom écrit hors annuaire). */
+  retirerApporteur?: boolean;
   commissions?: Record<'entree' | 'sortie', MontantEcran> | null; parties: PartieEcran[] }
 
 /** LOT I — la rétrocession saisie, en TTC (ce que la répartition déduit) ; vide : 0. PUR. */
@@ -192,7 +196,10 @@ export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parti
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
 
-export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues }: {
+export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues, apporteurEnLigne }: {
+  /** 🔴 LOT BH — une affaire DÉJÀ créée (« Modifier ») : la ligne de l'apporteur et ses boutons (le composant des Informations communes), au-dessus
+   *  du sélecteur et du champ de la création, qui restent (aucun retrait sans l'accord d'Arno pour eux) : tous écrivent le même état. */
+  apporteurEnLigne?: ReactNode;
   etat: EtatRepartition; onChange: (e: EtatRepartition) => void; negociateurs: readonly NegociateurRef[]; apporteurs: readonly ApporteurRef[];
   /** La commission TTC saisie (NaN : pas encore lisible). */
   honorairesTtc: number;
@@ -256,6 +263,8 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
       <legend className="loc-muet">{seulementParts ? 'Répartition de la commission' : 'Apporteur et répartition de la commission'}</legend>
+      {!seulementParts && apporteurEnLigne !== undefined && <div className="trx-form"><div className="trx-plein" data-apporteur-formulaire>
+        <span className="loc-muet">Apporteur d’affaires</span> {apporteurEnLigne}</div></div>}
       {!seulementParts && <div className="trx-form">
         <label>Apporteur d’affaires
           {/* 🔴 LOT AC (Arno) — le sélecteur avec recherche (celui des négociateurs) : « Rechercher un apporteur » (nom, prénom, société) ; tout en

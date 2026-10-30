@@ -781,3 +781,27 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
     expect(appels.some((x) => /^(INSERT|UPDATE)/.test(x.sql))).toBe(false);
   });
 });
+
+describe('🔴 LOT BH — « Supprimer » l’apporteur d’une affaire : le lien est retiré, même un nom écrit d’import (journalisé)', () => {
+  it('retirerApporteur : l’apporteur (nom écrit, sans fiche) et sa rétrocession sont effacés de la vente ; la modification est journalisée (avant → après)', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE')
+      ? { rows: [{ libelle: 'HEIDIDON', honoraires_ttc: '4000', statut: 'compromis', annee: 2026, mois_acte: null, date_compromis: '2026-10-20', apporteur: 'Gardien Dacquet', note: null, retire_le: null,
+        attribution: null, adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null, negociateur_sortie_id: null, apporteur_id: null, retro_apporteur_ttc: '500', repartition: false }] } : undefined),
+    (s) => (s.includes('RETURNING id') ? { rows: [{ id: '71' }] } : undefined));
+    const r = await repo.enregistrerDossier(12, { societe: 'criterimmo', statut: 'compromis', libelle: 'HEIDIDON', honorairesTtc: 4000, dateCompromis: '2026-10-20', dateActePrevue: null, dateActe: null,
+      adresseBien: null, note: null, entreeId: null, sortieId: null, apporteurId: null, apporteurNom: null, retirerApporteur: true, retroApporteurTtc: 0, retroUnite: 'ttc' as const, prixVente: null, lignes: [], parties: [],
+      personnes: [{ id: null, role: 'vendeur', nom: 'DUPONT', telephone: null, email: null, adresse: null }] }, '2026-10-27', A);
+    expect(r.ok).toBe(true);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente'))!;
+    expect(maj.sql.replace(/\s+/g, ' ')).toContain('apporteur =');
+    const cols = maj.sql.replace(/\s+/g, ' ').match(/SET (.*) WHERE/)![1].split(',').map((c) => c.trim().split(' =')[0]);
+    expect(maj.params[cols.indexOf('apporteur') + 1]).toBeNull();
+    expect(maj.params[cols.indexOf('retro_apporteur_ttc') + 1]).toBe(0);
+    const j = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!;
+    expect(j.params[2]).toBe('modification');
+    expect(JSON.parse(String(j.params[3]))).toMatchObject({ apporteur: 'Gardien Dacquet' });
+    expect(JSON.parse(String(j.params[4]))).toMatchObject({ apporteur: null });
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+  });
+});

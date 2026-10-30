@@ -741,7 +741,8 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       // LOT F — compléter un compromis (personnes, prix…) ne change aucun montant de place : sans date pour la fixer, il garde SON année
       // (le prévisionnel d'un compromis importé reste où il était) ; sans apporteur de l'annuaire, il garde l'apporteur écrit du fichier.
       if (s.statut === 'compromis' && s.dateActePrevue === null && s.dateCompromis === null) valeurs.annee = Number(actuel.annee);
-      if (s.apporteurId === null && s.apporteurNom === null && actuel.apporteur_id == null) delete valeurs.apporteur;
+      // 🔴 LOT BH — sauf « Supprimer » : le lien apporteur ↔ affaire est retiré, même un nom écrit (la fiche reste dans l'annuaire).
+      if (s.retirerApporteur !== true && s.apporteurId === null && s.apporteurNom === null && actuel.apporteur_id == null) delete valeurs.apporteur;
       // LOT AE — le négociateur d'entrée a changé de société (autre négociateur, ou société choisie pour un collaborateur des deux) : la vente
       // bascule chez sa nouvelle porteuse (journalisé ; « Annuler » la remet) ; les lignes miroir suivent (registre, plus bas).
       const ecrites = porteuse !== null ? { ...valeurs, societe: porteuse } : valeurs;

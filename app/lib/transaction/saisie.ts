@@ -159,6 +159,8 @@ export interface DossierSaisie {
   sortieId: number | null;
   apporteurId: number | null;
   apporteurNom: string | null;
+  /** 🔴 LOT BH — « Supprimer » l'apporteur d'une affaire existante : le lien est retiré (nom, fiche, rétrocession), même un nom écrit d'import. */
+  retirerApporteur?: boolean;
   /** La rétrocession de l'apporteur, dans l'unité de `retroUnite` (le nom d'avant est gardé : sans unité, c'est du TTC, comme avant). */
   retroApporteurTtc: number;
   /** LOT I (437) — l'unité de la rétrocession saisie ; absente de la saisie : 'ttc' (comme avant). */
@@ -261,7 +263,8 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
   if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
   return { ok: true, valeur: { prixVente: prix, lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
     dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
-    entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: ids.apporteurId, apporteurNom: texte(c.apporteurNom), retroApporteurTtc: r ?? 0, retroUnite,
+    entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: c.retirerApporteur === true ? null : ids.apporteurId, apporteurNom: c.retirerApporteur === true ? null : texte(c.apporteurNom),
+    retroApporteurTtc: c.retirerApporteur === true ? 0 : r ?? 0, retroUnite, ...(c.retirerApporteur === true ? { retirerApporteur: true } : {}),
     ...(commissions !== undefined ? { commissions } : {}), personnes, parties } };
 }
 

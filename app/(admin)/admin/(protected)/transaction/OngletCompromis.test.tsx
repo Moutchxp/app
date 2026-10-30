@@ -4142,3 +4142,165 @@ describe('🔴 LOT BG — la ligne résultat du cadre gris ressort : trame, file
       '.trx-calcul-base-note{font-size:.75rem;color:var(--color-svv-muted)}', '.trx-calcul-cote{margin:0;font-size:.88rem;']) expect(css).toContain(r);
   });
 });
+
+describe('🔴 LOT BH — l’apporteur d’une affaire déjà créée : ajouter, modifier, changer, créer, retirer (Informations communes et « Modifier »)', () => {
+  const ref = references as Record<string, unknown>;
+  const apporteurs = ref.apporteurs;
+  beforeEach(() => {
+    ref.uniteCommission = true;
+    ref.apporteurs = [{ id: 4, nom: 'Julien Deblois' }, { id: 16, nom: 'Gardien Dacquet' }];
+    ref.collegues = [{ id: 2, libelle: 'Arnaud Jorel', actif: true }, { id: 5, libelle: 'Jean-Baptiste PONS', actif: true }];
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+  });
+  afterEach(() => { delete ref.uniteCommission; ref.apporteurs = apporteurs; delete ref.collegues; delete ref.disponible; });
+  const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
+    nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  // 41 : apporteur Julien Deblois (annuaire n° 4), 2 400 TTC ; JB (CRITERIMMO, indépendant) avec 1 200 TTC SAISIS À LA MAIN (le calcul en diffère).
+  const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
+  const sans: Vente = { ...compromis, id: 72, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0 },
+    dossier: { ...compromis.dossier!, apporteurId: null } };
+  const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const saisirDoc = async (sel: string, valeur: string) => {
+    const el = document.querySelector(sel) as HTMLInputElement;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { set.call(el, valeur); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const ecran = async (liste: Vente[], id: number) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = liste;
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(id);
+  };
+  const envoi = () => (posts.filter((p) => p.action === 'dossier-enregistrer').at(-1) as { id: number; dossier: Record<string, unknown> } | undefined);
+  const choisir = async (id: number | '+') => { await cliquerDoc('[data-champ="apporteur-fenetre-annuaire"]'); await cliquerDoc(`[role="option"][data-option="${id}"]`); };
+
+  it('sans apporteur : « + Ajouter un apporteur » (ni Modifier ni Supprimer) ; la fenêtre : l’annuaire et le montant ; « Valider » enregistre (dossier, journalisé) et tout se relit', async () => {
+    await ecran([sans], 72);
+    const ligne = '[data-info="apporteur"]';
+    expect(container.querySelector(`${ligne} [data-ajouter-apporteur]`)).not.toBeNull();
+    expect(container.querySelector(`${ligne} [data-modifier-apporteur], ${ligne} [data-supprimer-apporteur]`)).toBeNull();
+    await cliquer(`${ligne} [data-ajouter-apporteur]`);
+    expect(document.querySelector('[data-fenetre-apporteur="choix"]')!.getAttribute('role')).toBe('dialog');
+    expect(doc('.trx-ap-titre')).toBe('Ajouter un apporteur');
+    await choisir(16);
+    await saisirDoc('[data-champ="apporteur-fenetre"]', '1000');
+    // ce que le serveur relira après l'enregistrement (simulé : rien n'est écrit)
+    listeCompromis = [{ ...sans, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { ...sans.repartition!, retroApporteurTtc: 1000 },
+      dossier: { ...sans.dossier!, apporteurId: 16 } }];
+    await cliquerDoc('[data-valider-apporteur]');
+    const e = envoi()!;
+    expect([e.id, e.dossier.apporteurId, e.dossier.retroApporteurTtc, e.dossier.retroApporteurUnite, e.dossier.retirerApporteur]).toEqual([72, 16, '1000', 'ttc', undefined]);
+    expect(document.querySelector('[data-fenetre-apporteur]')).toBeNull();
+    // recalculé, sans recharger : le cadre gris des deux cartes, la Répartition, les boutons
+    if (container.querySelector('[data-entete-apporteur="entree"]') === null) await deplier(72);
+    expect(texte('[data-entete-apporteur="entree"]')).toBe('− Apporteur : Gardien Dacquet 1 000 € TTC (833,33 € HT)');
+    expect(texte('[data-honoraires-cote="sortie"]')).toBe('= Honoraires partie acquéreur : (12 000 € TTC − 1 000 € TTC) × 50 % = 5 500 € TTC (4 583,33 € HT)');
+    expect(texte('[data-ligne-repartition="base"] [data-montant-grand]')).toBe('11 000 € TTC');
+    expect(container.querySelector(`${ligne} [data-modifier-apporteur]`)).not.toBeNull();
+    expect(container.querySelector('[data-ventilation-incomplete]')).toBeNull();
+    // les tuiles : CA − commissions versées = solde, au centime
+    const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+    const grand = (t: string): number => centimes(container.querySelector(`[data-tuile="${t}"]`)!.children[1].children[0].textContent!);
+    expect(grand('ca') - grand('commissions')).toBe(grand('solde'));
+  });
+
+  it('un montant vide ou nul est refusé (message clair, rien n’est envoyé) ; « Annuler » ferme sans rien changer', async () => {
+    await ecran([sans], 72);
+    await cliquer('[data-info="apporteur"] [data-ajouter-apporteur]');
+    await cliquerDoc('[data-valider-apporteur]');
+    expect(doc('[data-motif-apporteur]')).toBe('Choisissez l’apporteur dans l’annuaire (ou créez-le). Rien n’a été enregistré.');
+    await choisir(16);
+    await saisirDoc('[data-champ="apporteur-fenetre"]', '0');
+    await cliquerDoc('[data-valider-apporteur]');
+    expect(doc('[data-motif-apporteur]')).toBe('Le montant de la commission de l’apporteur doit être supérieur à 0. Pour retirer l’apporteur de cette affaire, utilisez « Supprimer ».');
+    expect(envoi()).toBeUndefined();
+    await cliquerDoc('[data-annuler-apporteur]');
+    expect(document.querySelector('[data-fenetre-apporteur]')).toBeNull();
+    expect(envoi()).toBeUndefined();
+  });
+
+  it('avec apporteur : « Modifier » (montant, puis autre apporteur) ; la commission saisie à la main n’est pas recalculée (elle part « manuelle »)', async () => {
+    await ecran([avec], 41);
+    expect(texte('[data-info="apporteur"]')).toContain('Julien Deblois2 400 € TTC (2 000 € HT)');
+    await cliquer('[data-info="apporteur"] [data-modifier-apporteur]');
+    expect(doc('.trx-ap-titre')).toBe('Modifier l’apporteur');
+    expect((document.querySelector('[data-champ="apporteur-fenetre"]') as HTMLInputElement).value.replace(/\s/g, ' ')).toBe('2 400');
+    await saisirDoc('[data-champ="apporteur-fenetre"]', '3000');
+    await cliquerDoc('[data-valider-apporteur]');
+    let e = envoi()!;
+    expect([e.dossier.apporteurId, e.dossier.retroApporteurTtc, e.dossier.retroApporteurUnite]).toEqual([4, '3000', 'ttc']);
+    expect((e.dossier.commissions as { entree: { montant: string; mode: string } }).entree).toMatchObject({ montant: '1200', mode: 'manuelle' });
+    await cliquer('[data-info="apporteur"] [data-modifier-apporteur]');
+    await choisir(16);
+    await cliquerDoc('[data-valider-apporteur]');
+    e = envoi()!;
+    expect([e.dossier.apporteurId, e.dossier.retroApporteurTtc]).toEqual([16, '2400']);
+  });
+
+  it('créer un nouvel apporteur depuis la fenêtre (comme à la création) : créé, il est choisi, et « Valider » l’enregistre sur l’affaire', async () => {
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const corps = init?.method === 'POST' ? JSON.parse(String(init.body)) : null;
+      if (corps?.action === 'apporteur-creer') { posts.push(corps); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id: 99 } }) }; }
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+    try {
+      await ecran([sans], 72);
+      await cliquer('[data-info="apporteur"] [data-ajouter-apporteur]');
+      await choisir('+');
+      await saisirDoc('[data-nouvel-apporteur-champ="nom"]', 'Dupont');
+      await saisirDoc('[data-nouvel-apporteur-champ="prenom"]', 'Léa');
+      await cliquerDoc('[data-nouvel-apporteur-collegue]'); await cliquerDoc('[role="option"][data-option="5"]');
+      await cliquerDoc('[data-creer-apporteur-transaction]');
+      expect(posts.find((p) => p.action === 'apporteur-creer')).toMatchObject({ apporteur: { nom: 'Léa Dupont', collegueId: 5 } });
+      expect(doc('[data-champ="apporteur-fenetre-annuaire"]')).toBe('Léa Dupont');
+      await saisirDoc('[data-champ="apporteur-fenetre"]', '500');
+      await cliquerDoc('[data-valider-apporteur]');
+      expect([envoi()!.dossier.apporteurId, envoi()!.dossier.retroApporteurTtc]).toEqual([99, '500']);
+    } finally { globalThis.fetch = avant; }
+  });
+
+  for (const u of ['ttc', 'ht'] as const) {
+    it(`« Supprimer » (${u.toUpperCase()}) : la confirmation dit qui et combien ; « Annuler » ne fait rien ; « Oui, retirer » retire le seul lien (retirerApporteur)`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ecran([avec], 41);
+      await cliquer('[data-info="apporteur"] [data-supprimer-apporteur]');
+      expect(doc('[data-question-retrait]')).toBe(`Retirer Julien Deblois de cette affaire ? Sa commission de ${u === 'ttc' ? '2 400 € TTC' : '2 000 € HT'} ne sera plus déduite.`);
+      await cliquerDoc('[data-annuler-apporteur]');
+      expect([document.querySelector('[data-fenetre-apporteur]'), envoi()]).toEqual([null, undefined]);
+      await cliquer('[data-info="apporteur"] [data-supprimer-apporteur]');
+      await cliquerDoc('[data-confirmer-retrait-apporteur]');
+      const e = envoi()!;
+      expect([e.dossier.apporteurId, e.dossier.retroApporteurTtc, e.dossier.retirerApporteur, e.dossier.apporteurNom]).toEqual([null, '', true, undefined]);
+    });
+  }
+
+  it('le formulaire « Modifier » : le même composant (ligne, Modifier / Supprimer) ; « Supprimer » change le formulaire, « Enregistrer » l’écrit', async () => {
+    await ecran([avec], 41);
+    await cliquer('[data-modifier-compromis="41"]');
+    expect(texte('[data-apporteur-formulaire] [data-apporteur-affiche]')).toBe('Julien Deblois2 400 € TTC (2 000 € HT)');
+    await cliquer('[data-apporteur-formulaire] [data-supprimer-apporteur]');
+    await cliquerDoc('[data-confirmer-retrait-apporteur]');
+    expect(envoi()).toBeUndefined(); // rien d'écrit avant « Enregistrer »
+    expect(texte('[data-apporteur-formulaire] [data-apporteur-affiche]')).toBe('Aucun apporteur');
+    await cliquer('[data-enregistrer-dossier]');
+    expect([envoi()!.dossier.apporteurId, envoi()!.dossier.retirerApporteur]).toEqual([null, true]);
+  });
+
+  it('un observateur ne voit aucun bouton (et le serveur refuse ses écritures : 403, la garde centrale) ; la ligne miroir n’a pas ces boutons', async () => {
+    ref.disponible = false;
+    await ecran([avec], 41);
+    expect(container.querySelector('[data-ajouter-apporteur], [data-modifier-apporteur], [data-supprimer-apporteur]')).toBeNull();
+    expect(texte('[data-info="apporteur"]')).toContain('Julien Deblois');
+    const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
+    expect(ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction')).toBe(true);
+    delete ref.disponible;
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = [venteDansSociete(avec, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
+    expect(container.querySelector('[data-ajouter-apporteur], [data-modifier-apporteur], [data-supprimer-apporteur]')).toBeNull();
+  });
+});

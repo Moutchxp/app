@@ -7,6 +7,7 @@ import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, Selecte
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
+import { ApporteurAffaire } from './ApporteurAffaire';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 
@@ -57,7 +58,7 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
     if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite, ...taux, ...(calculee ? { auto: true } : {}) };
     return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null, ...taux };
   };
-  return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
+  return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null, apporteurNom: v?.dossier?.apporteurId == null ? v?.apporteur ?? null : null,
     retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
     commissions: avecUnite ? { entree: commission('entree'), sortie: commission('sortie') } : null,
     parties: v?.repartition ? avecSortieDuMeme(lignesDe(v.repartition.parties, negos), negos, entreeId, sortieId) : partiesPour(negos, entreeId, sortieId) };
@@ -84,6 +85,9 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
   return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
     retroApporteurTtc: r.retroTexte, retroApporteurUnite: r.retroUnite ?? 'ttc', personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}),
+    // 🔴 LOT BH — l'apporteur écrit hors annuaire, gardé ; « Supprimer » : le lien est retiré.
+    ...(etat.apporteurId === null && (etat.apporteurNom ?? '') !== '' && etat.retirerApporteur !== true ? { apporteurNom: etat.apporteurNom } : {}),
+    ...(etat.retirerApporteur === true ? { retirerApporteur: true } : {}),
     // LOT O — une commission proposée part comme elle s'affiche (c'est « Enregistrer » qui la valide).
     // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
     ...(r.commissions != null ? { commissions: {
@@ -207,7 +211,15 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
                 : unite === 'ttc' ? `soit ${eur(ht(commission))}${ESPACE}HT` : `soit ${eur(commission)}${ESPACE}TTC`}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
             <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
-              societeVente={vente?.societe ?? societe} />
+              societeVente={vente?.societe ?? societe}
+              // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
+              // « Enregistrer » l'écrit (journalisé).
+              apporteurEnLigne={vente === null ? undefined : <ApporteurAffaire affichage annuaire={references.apporteurs} collegues={references.collegues} modifiable={references.lotD}
+                avecUnite={repartition.commissions != null}
+                actuel={{ id: repartition.apporteurId, nom: repartition.apporteurId === null ? repartition.apporteurNom ?? null : references.apporteurs.find((a) => a.id === repartition.apporteurId)?.nom ?? null,
+                  montant: (() => { const x = nombre(repartition.retroTexte); return x === null || x === 0 ? null : { montant: x, unite: repartition.retroUnite ?? 'ttc' }; })() }}
+                onValider={(c) => { setRepartition({ ...repartition, apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false }); return null; }}
+                onRetirer={() => { setRepartition({ ...repartition, apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true }); return null; }} />} />
             <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
             <div className="trx-plein trx-actions">

@@ -23,6 +23,7 @@ import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../
 import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
+import { ApporteurAffaire } from './ApporteurAffaire';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -73,6 +74,14 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
   const vue: Societe | null = societe === 'tous' ? null : societe;
+  // 🔴 LOT BH — l'apporteur d'une affaire : le dossier tel qu'il est, avec ce seul changement, par le même geste que « Modifier » (journalisé ;
+  // les commissions « calculées » suivent, celles saisies à la main restent) ; puis tout se relit (tuiles, cartes, fenêtres, synthèse).
+  const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>): Promise<string | null> => {
+    const etat: EtatRepartition = { ...etatRepartitionDe(v, d.negociateurs, d.uniteCommission === true), ...change };
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnesDe(v), etat) });
+    if (r === null) relire();
+    return r;
+  };
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   const liste = trierCompromis(d.compromis);
   // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
@@ -290,7 +299,13 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
                             {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
                             <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}`
-                              : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span></span>; })(), 'apporteur')}
+                              : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span>
+                            {/* 🔴 LOT BH (Arno) — ajouter, modifier ou retirer l'apporteur de l'affaire ; chaque geste s'enregistre aussitôt (journalisé) et
+                                tout se recalcule (relecture, sans recharger la page). Un observateur ne voit pas ces boutons. */}
+                            <ApporteurAffaire actuel={{ id: v.dossier?.apporteurId ?? null, nom: v.apporteur ?? null, montant: m }} annuaire={d.apporteurs} collegues={d.collegues}
+                              modifiable={d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
+                              onValider={(c) => enregistrerApporteur(v, { apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false })}
+                              onRetirer={() => enregistrerApporteur(v, { apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true })} /></span>; })(), 'apporteur')}
                       </dl>
                       {r !== null && ps !== null ? (() => {
                         // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,

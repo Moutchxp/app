@@ -91,3 +91,12 @@ describe('🔴 LOT V — le mode de chaque commission', () => {
     expect(x.ok && x.valeur.commissions?.mode).toEqual({ entree: null, sortie: null });
   });
 });
+
+describe('🔴 LOT BH — lireDossier : « Supprimer » l’apporteur', () => {
+  it('retirerApporteur : ni fiche, ni nom, ni rétrocession (même si l’écran en envoyait) ; absent : comme avant', () => {
+    const r = lireDossier({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '4000', apporteurId: 16, apporteurNom: 'Gardien Dacquet', retroApporteurTtc: '500', retirerApporteur: true });
+    expect(r.ok && [r.valeur.apporteurId, r.valeur.apporteurNom, r.valeur.retroApporteurTtc, r.valeur.retirerApporteur]).toEqual([null, null, 0, true]);
+    const s = lireDossier({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '4000', apporteurNom: 'Gardien Dacquet', retroApporteurTtc: '500' });
+    expect(s.ok && [s.valeur.apporteurNom, s.valeur.retroApporteurTtc, 'retirerApporteur' in s.valeur]).toEqual(['Gardien Dacquet', 500, false]);
+  });
+});

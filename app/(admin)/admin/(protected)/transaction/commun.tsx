@@ -415,6 +415,16 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-calcul-base-resultat .trx-calcul-libelle{font-weight:700}
 .trx-calcul-base-resultat .trx-calcul-resultat{font-size:1.15rem;font-weight:800}
 .trx-calcul-base-note{font-size:.75rem;color:var(--color-svv-muted)}
+/* LOT BH — l'apporteur d'une affaire : les boutons de la ligne et sa petite fenêtre (au-dessus de la page ; une colonne ; 44 px au toucher). */
+.trx-apporteur-affaire{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.trx-ap-voile{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.trx-ap-fenetre{box-sizing:border-box;width:min(520px, 100%);max-height:calc(100dvh - 32px);overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px;
+  background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:14px;box-shadow:0 12px 40px color-mix(in srgb, var(--color-svv-ink) 28%, transparent);font-size:.92rem}
+.trx-ap-titre{margin:0;font-size:1.05rem;font-weight:800}
+.trx-ap-fenetre p{margin:0}
+.trx-ap-champ{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;color:var(--color-svv-muted)}
+.trx-ap-fenetre .trx-actions{display:flex;flex-wrap:wrap;gap:8px}
+.trx-ap-fenetre .svv-btn{min-height:44px}
 /* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){
