@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ConversionMandat } from './ConversionMandat';
 
 /**
- * 🔴 Arno (26/10/2026, décision C, 431) — « Convertir en « Mandat de gestion seul » » dans le panneau d'une ligne du Suivi du mois :
+ * 🔴 LOT LS2 — le bouton « Convertir » est retiré (accord d'Arno) ; reste, pour une ligne DÉJÀ convertie, sa mention et « Annuler la conversion ».
+ * Avant : 🔴 Arno (26/10/2026, décision C, 431) — « Convertir en « Mandat de gestion seul » » dans le panneau d'une ligne du Suivi du mois :
  * date du mandat proposée (celle du mandat du propriétaire), confirmation avant d'écrire ; une ligne convertie dit d'où elle vient et
  * propose « Annuler la conversion » (confirmée) ; sans la 431 : « disponible après la mise à jour », rien n'est envoyé. Serveur simulé.
  */
@@ -30,30 +31,24 @@ const monter = async (a: Parameters<typeof ConversionMandat>[0]['a'], onFini = v
   return onFini;
 };
 
-describe('convertir une ligne « Bail »', () => {
-  it('le bouton, puis la date du mandat proposée et l’explication ; « Convertir » envoie la conversion et relit', async () => {
-    const relu = await monter({ id: 837, type: 'bail', conversion: null });
-    expect(container.querySelector('[data-convertir-mandat="837"]')?.textContent).toBe('Convertir en « Mandat de gestion seul »');
-    await clic('[data-convertir-mandat="837"]');
-    expect((container.querySelector('[data-date-conversion="837"]') as HTMLInputElement).value).toBe('2026-10-20');
-    expect(container.textContent).toContain('sort de « Baux signés » et du CA location');
-    expect(posts.filter((p) => p.action === 'convertir-mandat-seul')).toEqual([]);
-    await clic('[data-confirmer-conversion="837"]');
-    expect(posts.at(-1)).toEqual({ action: 'convertir-mandat-seul', id: 837, dateMandat: '2026-10-20' });
-    expect(relu).toHaveBeenCalled();
-  });
-  it('sans la migration 431 : « disponible après la mise à jour », rien n’est converti', async () => {
-    disponible = false;
+describe('🔴 LOT LS2 (retrait autorisé par Arno) — plus de « Convertir en « Mandat de gestion seul » »', () => {
+  it('une ligne « Bail » non convertie : aucun bouton, rien de rendu, aucun appel', async () => {
     await monter({ id: 837, type: 'bail', conversion: null });
-    await clic('[data-convertir-mandat="837"]');
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Disponible après la mise à jour de la base (migration 431).');
-    expect(posts.map((p) => p.action)).toEqual(['proposer-conversion']);
+    expect([container.querySelector('[data-convertir-mandat]'), container.querySelector('[data-conversion]'), container.textContent]).toEqual([null, null, '']);
+    expect(posts).toEqual([]);
   });
-  it('rien sur une ligne qui n’est pas un « Bail » (avenant, mandat seul d’origine) ni sur une ligne reprise sans identifiant', async () => {
+  it('rien non plus sur un avenant, ni sur une ligne reprise sans identifiant', async () => {
     await monter({ id: 12, type: 'avenant', conversion: null });
     expect(container.querySelector('[data-conversion]')).toBeNull();
     await monter({ id: '2026-09#3', type: 'bail', conversion: null });
     expect(container.querySelector('[data-conversion]')).toBeNull();
+  });
+  it('le code d’appel est retiré de l’écran et de la route (« proposer-conversion », « convertir-mandat-seul ») ; « annuler-conversion » reste', async () => {
+    const { readFileSync } = await import('node:fs');
+    const ecran = readFileSync('app/(admin)/admin/(protected)/location/ConversionMandat.tsx', 'utf8');
+    const route = readFileSync('app/(admin)/api/admin/location/suivi/route.ts', 'utf8');
+    for (const x of ["'proposer-conversion'", "'convertir-mandat-seul'", 'data-convertir-mandat']) expect([x, ecran.includes(x) || route.includes(`case ${x}`)]).toEqual([x, false]);
+    expect(route).toContain("case 'annuler-conversion': {");
   });
 });
 
@@ -67,5 +62,18 @@ describe('une ligne convertie : d’où elle vient, et « Annuler la conversion 
     await clic('[data-confirmer-annulation="837"]');
     expect(posts).toEqual([{ action: 'annuler-conversion', id: 837 }]);
     expect(relu).toHaveBeenCalled();
+  });
+});
+
+describe('🔴 LOT LS2 — le reste de la ligne dépliée ne change pas', () => {
+  it('« Dossier de location », « Modifier », « Fiche locataire », « Fiche du bien », la mention d’une ligne convertie, « Supprimer » ; l’étiquette « Gestion seule »', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx', 'utf8');
+    const reperes = ['data-dossier-location={id}>Dossier de location', "{edition === a.id ? 'Fermer' : 'Modifier'}", "'Fiche locataire'", "'Fiche du bien'",
+      '<ConversionMandat a={a} onFini={onRelire} />', '<SupprimerLocation id={a.id} onFini={onRelire} />'];
+    const pos = reperes.map((r) => src.indexOf(r));
+    expect(pos.every((p) => p > 0)).toBe(true);
+    expect([...pos].sort((x, y) => x - y)).toEqual(pos);
+    expect(src).toContain("{a.type !== 'bail' && <span className=\"loc-pastille\">{a.type === 'avenant' ? 'Avenant' : 'Gestion seule'}</span>}");
   });
 });

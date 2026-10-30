@@ -18,7 +18,7 @@ import { lireOrigineActivite, origineProprietaireDisponible } from '../../../../
 import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../../lib/location/suivi/origineConsequencesRepo';
 import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
 import { detacherNegociateur, rattacherNegociateur } from '../../../../../lib/location/suivi/negociateurIdentiteRepo';
-import { annulerConversion, conversionDisponible, convertirEnMandatSeul, dateMandatProposee } from '../../../../../lib/location/suivi/conversionMandatRepo';
+import { annulerConversion } from '../../../../../lib/location/suivi/conversionMandatRepo';
 import { lirePlanSuppression, supprimerLocation } from '../../../../../lib/location/suivi/suppressionLocationRepo';
 
 /**
@@ -169,8 +169,8 @@ export async function POST(request: Request): Promise<Response> {
           () => enregistrerOrigineActivite(Number(corps.id), corps.origine, corps.empreinte, auteur, admin));
         return json(r, r.etat === 'conflit' ? 409 : 200);
       }
-      // 🔴 Arno (26/10/2026, décision C, 431) — « Convertir en « Mandat de gestion seul » » (locataire en place) et son annulation ; la date du
-      // mandat proposée (celle du mandat de gestion du propriétaire) et la disponibilité, en lecture.
+      // 🔴 Arno (26/10/2026, décision C, 431) — « Annuler la conversion » d'une ligne déjà convertie en « Mandat de gestion seul ». 🔴 LOT LS2 (retrait
+      // autorisé par Arno) : le bouton « Convertir » est retiré ; « proposer-conversion » et « convertir-mandat-seul » n'avaient que lui : retirées.
       // 🔴 Arno (26/10/2026) — « Négociateurs à rapprocher » : rattacher un libellé à un compte, ou le détacher (administrateurs ; réversible, journalisé).
       case 'rattacher-negociateur': return json(await rattacherNegociateur(corps.libelle, corps.compteId, auteur));
       case 'detacher-negociateur': return json(await detacherNegociateur(corps.libelle, auteur));
@@ -179,16 +179,6 @@ export async function POST(request: Request): Promise<Response> {
       case 'supprimer-location': {
         const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' }, () => supprimerLocation(corps.id, auteur));
         return json(r, r.etat === 'inconnu' ? 404 : 200);
-      }
-      case 'proposer-conversion': {
-        const id = Number(corps.id);
-        if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
-        return json({ etat: 'ok', data: { disponible: await conversionDisponible(), dateProposee: await dateMandatProposee(id) } });
-      }
-      case 'convertir-mandat-seul': {
-        const id = Number(corps.id);
-        if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
-        return json(await convertirEnMandatSeul(id, typeof corps.dateMandat === 'string' ? corps.dateMandat : '', auteur));
       }
       case 'annuler-conversion': {
         const id = Number(corps.id);

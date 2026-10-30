@@ -1,4 +1,4 @@
-import { query, withTransaction, type RequeteTx } from '../../db/client';
+import { withTransaction, type RequeteTx } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import type { Auteur } from '../../gestion/gestes';
 import type { Issue } from '../locationRepo';
@@ -49,7 +49,8 @@ export async function convertirDans(q: RequeteTx, id: number, dateMandat: string
   return { fait };
 }
 
-/** « Convertir en « Mandat de gestion seul » » (Suivi du mois). */
+/** « Convertir en « Mandat de gestion seul » » — 🔴 LOT LS2 : plus appelée par l'écran (bouton retiré) ; gardée pour les scripts et les itests qui
+ *  préparent une ligne convertie (`suiviLocataire.itest.ts`, `decisionsOctobre.itest.ts`). */
 export async function convertirEnMandatSeul(id: number, dateMandat: string, auteur: Auteur): Promise<Issue<{ phrase: string }>> {
   if (!(await conversionDisponible())) return { etat: 'sans_schema' };
   const r = await withTransaction((q) => convertirDans(q, id, dateMandat, auteur));
@@ -83,13 +84,4 @@ export async function annulerConversion(id: number, auteur: Auteur): Promise<Iss
     if ((e as { code?: string })?.code === '23505') return { etat: 'refus', motif: 'Un autre « Bail » existe déjà pour ce bail : la conversion ne peut pas être annulée.' };
     throw e;
   }
-}
-
-/** La date du mandat à proposer : celle du mandat de gestion du propriétaire du bien de la ligne, s'il est saisi. LECTURE SEULE. */
-export async function dateMandatProposee(id: number): Promise<string | null> {
-  if (!(await colonneExisteMemo('gestion_annuaire_proprietaire', 'mandat_gestion_signe_le'))) return null;
-  const r = (await query<{ d: string | null }>(
-    `SELECT p.mandat_gestion_signe_le::text AS d FROM gestion_location_activite a
-       JOIN gestion_annuaire_lot l ON l.id = a.lot_id JOIN gestion_annuaire_proprietaire p ON p.id = l.proprietaire_id WHERE a.id = $1`, [id])).rows[0];
-  return r?.d ?? null;
 }
