@@ -555,3 +555,136 @@ describe('🔴 LOT BT — « Vendu + compromis » : une affaire n’est jamais c
     } finally { donnees.ventes = avant; }
   });
 });
+
+describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche de l’onglet Compromis ; colonne « Négociateur » (entrée)', () => {
+  const parties = [
+    { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
+    { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
+  const complete = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
+    repartition: { retroApporteurTtc: 0, parties }, prixVente: 160000, dateCompromis: '2024-12-10',
+    dossier: { adresseBien: '1 rue A, Puteaux', dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null,
+      personnes: [{ id: 3, role: 'vendeur', nom: 'DUPONT', telephone: null, email: null, adresse: null }] } });
+  const refs = { lotD: true, negociateurs: [{ id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo' }, { id: 8, nom: 'Pierre Thevenin', societe: 'macj' }], apporteurs: [], personnes: [], uniteCommission: true, annulation: true };
+  let refsDispo: boolean;
+  let lectures: number;
+  const ouvrirMois = async (ventes: Vente[], societe: 'criterimmo' | 'macj' = 'criterimmo', adresse = '/?vue=mois&annee=2025&mois=1') => {
+    const avant = { ventes: donnees.ventes, societe: donnees.societe, retros: donnees.retrocessions };
+    donnees.ventes = ventes; donnees.societe = societe; donnees.retrocessions = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: null }) }; }
+      const u = String(url);
+      if (u.includes('vue=societe')) lectures += 1;
+      const data = u.includes('vue=references') ? { disponible: refsDispo, ...refs } : u.includes('vue=journal') ? [] : { ...donnees, disponible: refsDispo };
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data }) };
+    }) as unknown as typeof fetch;
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', adresse);
+    await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+    return () => { donnees.ventes = avant.ventes; donnees.societe = avant.societe; donnees.retrocessions = avant.retros; };
+  };
+  beforeEach(() => { refsDispo = true; lectures = 0; window.localStorage.setItem('trx-affichage-montants', 'ttc'); try { window.localStorage.removeItem('trx-mois-mode'); } catch { /* */ } });
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+
+  it('replié : la colonne « Négociateur » (l’entrée seule ; un import sans entrée : le nom importé), le triangle rouge partagé à gauche ; aucun montant ne change', async () => {
+    const fin = await ouvrirMois([complete, donnees.ventes[0]]);
+    try {
+      expect([...container.querySelectorAll('[data-bloc="ventes-mois"] thead th')].map((x) => x.textContent)[1]).toBe('Négociateur');
+      expect(texte('[data-vente="38"] [data-negociateur-entree]')).toBe('Arnaud Jorel');
+      expect(texte('[data-vente="1"] [data-negociateur-entree]')).toBe('MYLENE, CEDRIC');
+      const b = container.querySelector('[data-deplier-vente="38"]')!;
+      expect([b.getAttribute('aria-expanded'), b.querySelector('svg[data-triangle]')?.getAttribute('data-triangle')]).toEqual(['false', 'replie']);
+      const ca = texte('[data-tuile="ca-mois"] .tdb-tuile-valeur');
+      await cliquer('[data-deplier-vente="38"]');
+      expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe(ca);
+    } finally { fin(); }
+  });
+
+  it('déplier (triangle ou ligne) / replier ; plusieurs à la fois ; la fiche est celle de l’onglet Compromis (Vendeurs | Acquéreurs, informations communes, répartition, actions)', async () => {
+    const fin = await ouvrirMois([complete, donnees.ventes[0]]);
+    try {
+      await cliquer('[data-deplier-vente="38"]');
+      const f = '[data-fiche-vente="38"]';
+      expect(container.querySelector('[data-deplier-vente="38"]')!.getAttribute('aria-expanded')).toBe('true');
+      expect([...container.querySelectorAll(`${f} [data-colonne]`)].map((x) => x.getAttribute('data-colonne'))).toEqual(['vendeur', 'acquereur']);
+      for (const sel of ['[data-informations-communes]', '[data-repartition-compromis]', '[data-modifier-compromis="38"]', '[data-base-resultat="entree"]'])
+        expect([sel, container.querySelector(`${f} ${sel}`) !== null]).toEqual([sel, true]);
+      expect(texte(`${f} [data-honoraires-cote="entree"] .trx-calcul-mot`)).toBe('Honoraires nets partie vendeur');
+      expect(texte(`${f} [data-info="prix"] dd`)).toBe('160 000 €');
+      // vendue : ni « Acte signé » ni « Annulation »
+      expect([container.querySelector(`${f} [data-acte-signe]`), container.querySelector(`${f} [data-annulation-compromis]`)]).toEqual([null, null]);
+      // un clic sur la LIGNE (hors boutons) ouvre la seconde : deux à la fois
+      await act(async () => { (container.querySelector('[data-vente="1"] [data-mot="Honoraires TTC"]') as HTMLElement).click(); }); await calmer();
+      expect([...container.querySelectorAll('[data-fiche-vente]')].map((x) => x.getAttribute('data-fiche-vente'))).toEqual(['38', '1']);
+      await cliquer('[data-deplier-vente="38"]');
+      expect([...container.querySelectorAll('[data-fiche-vente]')].map((x) => x.getAttribute('data-fiche-vente'))).toEqual(['1']);
+      const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
+      expect(src).toContain('<DetailAffaire v={v} hote={hote} />');
+    } finally { fin(); }
+  });
+
+  it('une vente importée incomplète : la fiche s’ouvre sans erreur, « à renseigner » ; l’étiquette « import » et la source restent sur la ligne', async () => {
+    const fin = await ouvrirMois([donnees.ventes[0]]);
+    try {
+      await cliquer('[data-deplier-vente="1"]');
+      expect(texte('[data-vente="1"] th')).toContain('import');
+      expect(texte('[data-vente="1"] th')).toContain('TABLEAU DE BORD MACJ 2025.xlsx › MYLENE › ligne 1');
+      expect(texte('[data-fiche-vente="1"]')).toContain('à renseigner');
+      expect(container.querySelector('[data-fiche-vente="1"] [data-colonne="vendeur"]')).not.toBeNull();
+    } finally { fin(); }
+  });
+
+  it('inter-cabinet : la ligne miroir de MACJ se déplie sur la fiche miroir (part reçue, vente d’origine)', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const fin = await ouvrirMois([venteDansSociete(complete, 'macj')!], 'macj');
+    try {
+      expect(texte('[data-vente="38"] [data-negociateur-entree]')).toBe('Arnaud Jorel');
+      await cliquer('[data-deplier-vente="38"]');
+      expect(container.querySelector('[data-fiche-vente="38"] [data-miroir-bloc]')).not.toBeNull();
+      expect(container.querySelector('[data-fiche-vente="38"] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
+    } finally { fin(); }
+  });
+
+  it('mode « Compromis » et « Vendu + compromis » : les compromis du mois se déplient aussi, avec « Acte signé »', async () => {
+    const comp = { ...complete, id: 40, statut: 'compromis' as const, mois: null, dateCompromis: '2025-01-12' };
+    const fin = await ouvrirMois([complete, comp], 'criterimmo', '/?vue=mois&annee=2025&mois=1&mode=tous');
+    try {
+      await cliquer('[data-bloc="compromis-du-mois"] [data-deplier-vente="40"]');
+      expect(container.querySelector('[data-fiche-vente="40"] [data-acte-signe="40"]')).not.toBeNull();
+      expect(texte('[data-bloc="compromis-du-mois"] thead')).toContain('Négociateur');
+    } finally { fin(); }
+  });
+
+  it('HT et TTC : la fiche suit l’unité retenue (sélecteur de l’onglet Compromis)', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    const fin = await ouvrirMois([complete]);
+    try {
+      await cliquer('[data-deplier-vente="38"]');
+      expect(texte('[data-fiche-vente="38"] [data-honoraires-cote="entree"]')).toContain('€ HT');
+      expect(texte('[data-fiche-vente="38"] [data-honoraires-cote="entree"]').indexOf('HT')).toBeLessThan(texte('[data-fiche-vente="38"] [data-honoraires-cote="entree"]').indexOf('TTC'));
+    } finally { fin(); }
+  });
+
+  it('une modification faite dans la fiche relit l’écran (ligne, tuiles, graphique, résultat) sans recharger', async () => {
+    const fin = await ouvrirMois([complete]);
+    try {
+      await cliquer('[data-deplier-vente="38"]');
+      await cliquer('[data-fiche-vente="38"] [data-modifier-compromis="38"]');
+      expect(container.querySelector('[data-formulaire-dossier="38"]')).not.toBeNull();
+      const avant = lectures;
+      await cliquer('[data-enregistrer-dossier]');
+      expect(posts.some((p) => (p as { action?: string }).action === 'dossier-enregistrer')).toBe(true);
+      expect(lectures).toBeGreaterThan(avant);
+    } finally { fin(); }
+  });
+
+  it('observateur : la fiche se lit, ses gestes d’écriture sont inactifs, et le serveur refuse (403, garde centrale)', async () => {
+    refsDispo = false;
+    const fin = await ouvrirMois([complete]);
+    try {
+      await cliquer('[data-deplier-vente="38"]');
+      expect((container.querySelector('[data-fiche-vente="38"] [data-modifier-compromis="38"]') as HTMLButtonElement).disabled).toBe(true);
+      const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
+      expect(ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction')).toBe(true);
+    } finally { fin(); }
+  });
+});

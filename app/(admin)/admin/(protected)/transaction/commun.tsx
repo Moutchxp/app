@@ -474,6 +474,15 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-legende-empile{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:6px 0 0;font-size:.85rem}
 .trx-pastille-empile{display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--color-svv-red)}
 .trx-pastille-empile--haut{opacity:.42}
+/* LOT BU — « Le mois » : une vente se deplie sur la fiche de l'onglet Compromis (toute la ligne, ou le triangle rouge partage ; Entree, Espace) ;
+   la fiche occupe toute la largeur du tableau, sous sa ligne. */
+.trx-ligne-depliable{cursor:pointer}
+.trx-ligne-depliable--ouverte > th,.trx-ligne-depliable--ouverte > td{border-bottom-color:transparent}
+.trx-deplier-vente{appearance:none;border:0;background:transparent;font:inherit;font-weight:inherit;color:inherit;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0;text-align:left;cursor:pointer;border-radius:8px}
+.trx-deplier-vente:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-ligne-fiche > td{padding:4px 0 18px;text-align:left;white-space:normal}
+.trx-ligne-fiche .trx-carte-detail{display:flex;flex-direction:column;gap:12px}
+@media (max-width:760px){ .trx-ligne-fiche > td{display:block;padding:4px 0 14px} .trx-ligne-fiche > td::before{content:none} }
 /* LOT BB — « = Honoraires nets partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){

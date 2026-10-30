@@ -81,8 +81,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // 🔴 LOT BH — l'apporteur d'une affaire : le dossier tel qu'il est, avec ce seul changement, par le même geste que « Modifier » (journalisé ;
   // les commissions « calculées » suivent, celles saisies à la main restent) ; puis tout se relit (tuiles, cartes, fenêtres, synthèse).
   const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>, personnes: PersonneEcran[] = personnesDe(v)): Promise<string | null> => {
-    const etat: EtatRepartition = { ...etatRepartitionDe(v, d.negociateurs, d.uniteCommission === true), ...change };
-    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnes, etat) });
+    const r = await enregistrerDossierAvec(v, d, change, personnes);
     if (r === null) relire();
     return r;
   };
@@ -131,7 +130,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     const r = ventePorteeAilleurs({ societe: vue, honorairesTtc, repartition: { parties: versModele(etat.parties), retroApporteurTtc: retroTtcDe(etat) } }, vue);
     setPortee(r === null ? null : { id, ...r });
   };
-  const MOT = MOT_UNITE[unite];
+  // 🔴 LOT BU — ce que la fiche partagée d'une affaire (`DetailAffaire`) reçoit de l'onglet : ses états de toujours, inchangés.
+  const hote: HoteDetail = { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur: (v, change) => enregistrerApporteur(v, change),
+    ouvrirEdition: (x) => setEdition(x), ouvrirPersonnes: setFenetrePersonnes, acte, setActe, signer, historique, setHistorique, ouvrirAnnulation: setAnnulation };
   return (
     <FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}>
     <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
@@ -194,11 +195,6 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
             if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
               ouvertInitial={venteVisee === v.id} />;
-            const r = v.repartition ?? null;
-            const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
-            // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
-            const pcts = r === null || ps === null ? null : pourcentagesParSociete(r.parties, ps.netHt);
-            const pct = (x: number): string => pctFormat(x);
             const c = carteCompromis(v, d.aujourdhui);
             // 🔴 LOT F — LA CARTE REPLIÉE : à gauche le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, plus discret, adresse · prix · acte au
             // plus tard ; à droite la commission TTC en grand et en vert (« TTC » écrit), le HT dessous, puis le % du prix (si le prix est connu).
@@ -222,196 +218,11 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                 {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
               </span>
             );
-            // 🔴 LOT AY — la ventilation des honoraires de chaque partie, lue avec la société de l'écran (part de l'agence, rattachement associé).
-            const ventilation = ventilationVente(v, vue);
-            const colonne = (role: 'vendeur' | 'acquereur', mot: string) => {
-              const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
-              return (
-                <section className="trx-colonne" aria-label={mot} data-colonne={role}>
-                  {/* 🔴 LOT T (Arno) — la première ligne : le titre à gauche, à droite la société de ce côté et sa part (« CRITERIMMO · 40 % »),
-                      qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
-                  <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
-                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} />
-                  {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p>
-                    // 🔴 LOT BJ (retrait autorisé par Arno : plus de coordonnées en clair) — un bouton par personne, sa fenêtre de détail ; sans la 443 : la liste d'avant.
-                    : d.personneType === true ? (
-                    <div className="trx-personnes-boutons" data-personnes-compromis={role}>
-                      {gens.map((p) => <BoutonPersonne key={`${p.role}-${p.id}`} p={p}
-                        onModifier={d.disponible ? () => setFenetrePersonnes({ venteId: v.id, role: p.role, personneVisee: p.id }) : undefined} />)}
-                    </div>
-                  ) : (
-                    <ul className="trx-personnes" data-personnes-compromis={role}>
-                      {gens.map((p) => (
-                        <li key={`${p.role}-${p.id}`}><strong>{p.nom}</strong>
-                          <span>{p.telephone ? <a href={`tel:${p.telephone.replace(/\s/g, '')}`}>{p.telephone}</a> : <span className="trx-a-renseigner">téléphone {A_RENSEIGNER}</span>}</span>
-                          <span>{p.email ? <a href={`mailto:${p.email}`}>{p.email}</a> : <span className="trx-a-renseigner">e-mail {A_RENSEIGNER}</span>}</span>
-                          <span>{p.adresse ?? <span className="trx-a-renseigner">adresse {A_RENSEIGNER}</span>}</span></li>
-                      ))}
-                    </ul>
-                  )}
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFenetrePersonnes({ venteId: v.id, role, personneVisee: null })} disabled={!d.disponible}
-                    data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
-                  {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
-                      « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
-                  <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
-                    onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} ventilation={ventilation[role === 'vendeur' ? 'entree' : 'sortie']}
-                    onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
-                </section>
-              );
-            };
-            const info = (mot: string, valeur: ReactNode, cle?: string) => <div className="trx-info" data-info={cle}><dt>{mot}</dt><dd>{valeur}</dd></div>;
             return (
               <li key={v.id} data-compromis={v.id} data-depassee={c.depassee ? '' : undefined}>
                 <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte"
                   donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
-                  <div className="trx-carte-detail">
-                    <AlerteVentilation v={v} vue={vue} />
-                    <div className="trx-colonnes">
-                      {colonne('vendeur', 'Vendeurs')}
-                      {colonne('acquereur', 'Acquéreurs')}
-                    </div>
-                    {/* 🔴 LOT AB (Arno) — chaque PARTIE EXTÉRIEURE : ses honoraires, versés par la société porteuse (inter-cabinet extérieur), dans ses
-                        « Commissions versées » — même liseré rouge et même mention que les honoraires versés à l'autre société. */}
-                    {r !== null && ps !== null && r.parties.some((p) => p.sorte === 'exterieure') && (
-                      <section className="trx-exterieures" aria-label="Parties extérieures" data-exterieures>
-                        {r.parties.filter((p) => p.sorte === 'exterieure').map((p, i) => {
-                          const pct = p.pourcentage ?? (ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100);
-                          const partHt = p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0;
-                          const nom = p.nom ?? 'la partie extérieure';
-                          // LOT AD — la règle des tuiles : l'inter-cabinet extérieur versé par la société affichée (`bilanVente`).
-                          const verse = bilanVente(v, vue).exterieurHt > 0;
-                          return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre={verse ? 'deduite' : null} mention={verse ? mentionVersement(nom) : undefined} ttc={partHt * TVA}
-                            libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{montantAffiche(unite, ps.netHt, ps.netHt * TVA)} × {pctFr(pct)} % =</span></>} />;
-                        })}
-                      </section>
-                    )}
-                    <section className="trx-communes" aria-label="Informations communes" data-informations-communes>
-                      <h4>Informations communes
-                        <span className="trx-pastilles">
-                          {societe === 'tous' && r === null && <span className="loc-pastille">{LIBELLE_SOCIETE[v.societe]}</span>}
-                          {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
-                        </span></h4>
-                      <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
-                        {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
-                            négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
-                        {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
-                        {/* 🔴 LOT BN (Arno) — le prix de vente, sur la première ligne, avant le taux de commission (« 240 000 € » ; sans prix : « à renseigner »).
-                            Avec le libellé du fichier, la grille passe à 4 colonnes (grand écran) : « Dates » reste sur la première ligne. */}
-                        {info('Prix de vente', c.prix === null ? <span className="trx-a-renseigner">{A_RENSEIGNER}</span> : eur(c.prix), 'prix')}
-                        {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
-                        {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
-                        {/* 🔴 LOT K (Arno) — UNE case « Dates », l'une au-dessus de l'autre : le compromis signé, puis la vente définitive au plus
-                            tard (rouge et « dépassée » si la date est passée) ; chacune « à renseigner » si absente. (Accord d'Arno : la date
-                            butoir revient ici malgré la règle « zéro doublon » du lot H.) */}
-                        {info('Dates', <span className="trx-dates">
-                          <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>
-                            {v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
-                          <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-                            {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
-                        </span>, 'dates')}
-                        {/* LOT I — la rétrocession dans SON unité, avec son équivalent (« 500,00 € HT (soit 600,00 € TTC) »). */}
-                        {/* LOT J (Arno) — sur la même ligne, à droite du nom : le montant de la rétrocession, son unité et son équivalent ;
-                            sans rétrocession, « montant à renseigner ». */}
-                        {info('Apporteur', (() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
-                          return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
-                            {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
-                            <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}`
-                              : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span>
-                            {/* 🔴 LOT BH (Arno) — ajouter, modifier ou retirer l'apporteur de l'affaire ; chaque geste s'enregistre aussitôt (journalisé) et
-                                tout se recalcule (relecture, sans recharger la page). Un observateur ne voit pas ces boutons. */}
-                            <ApporteurAffaire actuel={{ id: v.dossier?.apporteurId ?? null, nom: v.apporteur ?? null, montant: m }} annuaire={d.apporteurs} collegues={d.collegues}
-                              modifiable={d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
-                              onValider={(c) => enregistrerApporteur(v, { apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false })}
-                              onRetirer={() => enregistrerApporteur(v, { apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true })} /></span>; })(), 'apporteur')}
-                      </dl>
-                      {r !== null && ps !== null ? (() => {
-                        // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,
-                        // = la base ; les parties ; les parts par société ; − les reversements de la porteuse, = son reste. Chaque montant au centime par
-                        // LA règle unique (`centimesRepartition`) : un même montant identique partout (parties, parts, reversement, tuiles, ligne miroir),
-                        // et reste + reversements + apporteur = commission de la vente. LOT AM : l'unité choisie en grand, l'autre dessous ; couleur selon le
-                        // sens (versé en rouge ; la commission de la vente et le reste, en vert ; sinon l'encre).
-                        const porteuse = societePorteuse(v);
-                        const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
-                        const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
-                        const brutes = r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
-                        const repli = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })), brutes, ps.netHt);
-                        const montant = (h: number, t: number, o: { rouge?: boolean; vert?: boolean; donnee?: Record<string, string> } = {}) => (
-                          <span className={o.rouge ? 'trx-ht-ttc-pile trx-montant-repartition trx-rouge' : 'trx-ht-ttc-pile trx-montant-repartition'} {...o.donnee}>
-                            <Montants ht={h} ttc={t} sens={o.rouge ? 'verse' : o.vert ? 'recu' : 'neutre'} /></span>);
-                        const colonneEur = `€ ${MOT} (${MOT_UNITE[unite === 'ttc' ? 'ht' : 'ttc']})`;
-                        const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string, pctDonnee?: Record<string, string>) => (
-                          <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%" {...pctDonnee}>{pctTexte}</td><td data-mot={colonneEur}>{valeur}</td></tr>);
-                        const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
-                        return (
-                        <div data-repartition-compromis>
-                        <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
-                          <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
-                          <tbody>
-                            {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], pct(100),
-                              montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort trx-somme-ligne')}
-                            {apporteur
-                              ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
-                              : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
-                            {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
-                            {r.parties.map((p, i) => (
-                              <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
-                                <td data-mot="%">{pct(p.pourcentage !== null ? p.pourcentage : ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100)}</td>
-                                <td data-mot={colonneEur}>{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
-                            ))}
-                            {/* 🔴 LOT AJ (Arno) — « Part X » et « − Reversé en inter-cabinet vers X » portaient le même montant : UNE ligne
-                                « Part X − Reversé en inter-cabinet vers X », en rouge (fusion autorisée par Arno). X = la société qui REÇOIT (jamais écrit
-                                en dur). La part de la porteuse reste sa ligne ; une société sans part reçue garde sa ligne « Part » ; même principe pour
-                                une partie extérieure seule (« Part [agence] − Reversé à [agence] »). Sans centimes (somme ≠ 100 %), les lignes d'avant. */}
-                            {(() => {
-                              const recoit = (s: Societe): boolean => cHt !== null && cTtc !== null && s !== porteuse && cHt.reverse[s] > 0;
-                              const partSociete = (s: Societe) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
-                                <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
-                                <td data-mot={colonneEur}>{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>;
-                              const ordre = cHt === null ? [...SOCIETES] : [porteuse, ...SOCIETES.filter((s) => s !== porteuse)];
-                              const exterieurs = cHt === null ? [] : cHt.exterieurs.filter((e) => e.ht > 0);
-                              const exterieurSeul = cHt !== null && cTtc !== null && exterieurs.length === 1;
-                              return <>
-                                {ordre.map((s) => recoit(s)
-                                  ? ligne(`part-reverse-${s}`, <>Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</>, LIBELLE_SOCIETE[s],
-                                    pcts === null ? '' : pct(pcts.societe[s]), montant(cHt!.reverse[s], cTtc!.reverse[s], { rouge: true, donnee: { 'data-part-societe-compromis': s, 'data-reverse-compromis': s } }), undefined, { 'data-pct-societe-compromis': s })
-                                  : partSociete(s))}
-                                {ps.exterieurHt > 0 && (exterieurSeul
-                                  ? ligne('part-reverse-exterieur-0', <>Part {exterieurs[0].nom} − Reversé à {exterieurs[0].nom}</>, 'extérieur', pcts === null ? '' : pct(pcts.exterieur),
-                                    montant(exterieurs[0].ht, cTtc!.exterieurs.filter((e) => e.ht > 0)[0]?.ht ?? exterieurs[0].ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': 'exterieur-0' } }), undefined, { 'data-pct-exterieur-compromis': '' })
-                                  : <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
-                                    <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
-                                    <td data-mot={colonneEur}>{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>)}
-                                {/* 🔴 LOT R / AH — plusieurs parties extérieures : chacune son reversement (en rouge) sous leur part commune. */}
-                                {cHt !== null && cTtc !== null && !exterieurSeul && exterieurs.map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
-                                  montant(e.ht, cTtc.exterieurs.filter((x) => x.ht > 0)[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
-                                {cHt !== null && cTtc !== null && ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
-                                  montant(cHt.resteHt, cTtc.resteHt, { vert: true, donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base trx-somme-ligne')}
-                              </>;
-                            })()}
-                          </tbody>
-                        </table>
-                        </div>
-                        );
-                      })() : <p className="loc-muet">Répartition : toute la commission à {LIBELLE_SOCIETE[v.societe]} (historique, avant la répartition entre parties).</p>}
-                    </section>
-                    <div className="trx-actions trx-barre-actions">
-                      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>
-                      <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setActe({ id: v.id, date: d.aujourdhui })} disabled={!d.disponible} data-acte-signe={v.id}>Acte signé</button>
-                      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setHistorique(historique === v.id ? null : v.id)}>{historique === v.id ? 'Masquer l’historique' : 'Historique'}</button>
-                      {/* LOT G — « Annulation », à droite, contour et texte rouges : le mot accompagne la couleur. */}
-                      <button type="button" className="trx-btn-annulation" onClick={() => setAnnulation(v)} disabled={!d.disponible || d.annulation !== true}
-                        title={d.annulation === true ? undefined : 'Disponible après la mise à jour de la base (migration 436)'} data-annulation-compromis={v.id}>Annulation</button>
-                      {d.annulation !== true && <span className="loc-muet trx-annulation-note" data-annulation-indisponible>Annulation : disponible après la mise à jour (migration 436).</span>}
-                    </div>
-                    {acte?.id === v.id && (
-                      <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void signer(); }} data-form-acte={v.id}>
-                        <label>Date de l’acte (son mois est le mois du CA)<input type="date" value={acte.date} onChange={(e) => setActe({ id: v.id, date: e.target.value })} required data-date-acte /></label>
-                        <div className="trx-actions"><button type="submit" className="svv-btn svv-btn-primary gst-btn" data-confirmer-acte>Confirmer l’acte</button>
-                          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setActe(null)}>Abandonner</button></div>
-                      </form>
-                    )}
-                    {historique === v.id && <Journal entite="vente" id={v.id} onFait={relire} />}
-                  </div>
+                  <DetailAffaire v={v} hote={hote} />
                 </BlocReplie>
               </li>
             );
@@ -441,6 +252,285 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         references={d} onFermer={() => setEdition(null)} onFait={(e) => { setEdition(null); if (e !== undefined) signalerPorteuse(e.id, e.repartition, e.honorairesTtc); relire(); }} />}
     </section>
     </FournisseurChangerAffichage></FournisseurAffichage>
+  );
+}
+
+/**
+ * 🔴 LOT BH / BM / BU — le dossier d'une affaire TEL QU'IL EST, avec un seul changement (l'apporteur, ou la liste des personnes), par le geste de
+ * « Modifier » (`dossier-enregistrer` : journalisé ; les commissions « calculées » suivent, celles saisies à la main restent). Rend le motif d'un
+ * refus, ou null. Partagé par l'onglet « Compromis » et l'hôte des fiches de « Le mois ».
+ */
+export async function enregistrerDossierAvec(v: Vente, d: Pick<References, 'negociateurs' | 'uniteCommission'>, change: Partial<EtatRepartition>,
+  personnes: PersonneEcran[] = personnesDe(v)): Promise<string | null> {
+  const etat: EtatRepartition = { ...etatRepartitionDe(v, d.negociateurs, d.uniteCommission === true), ...change };
+  return posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnes, etat) });
+}
+
+/**
+ * 🔴 LOT BU — L'HÔTE DES FICHES D'AFFAIRE hors de l'onglet « Compromis » (les listes de « Le mois ») : les mêmes états et les MÊMES fenêtres que
+ * l'onglet (formulaire « Modifier », fenêtre des personnes, « Acte signé », « Historique », « Annulation »), rendus par `fenetres`. Chaque
+ * enregistrement relit l'écran (`relire`) : la ligne, les tuiles, le graphique et le résultat de l'agence suivent, sans recharger.
+ */
+export function useHoteAffaires({ d, vue, societe, statutDuLibelle, relire, ventes }: { d: HoteDetail['d']; vue: Societe | null; societe: Societe | 'tous';
+  statutDuLibelle: StatutDuLibelle | undefined; relire: () => void; ventes: readonly Vente[] }): { hote: HoteDetail; fenetres: ReactNode } {
+  const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number } | null>(null);
+  const [fenetrePersonnes, setFenetrePersonnes] = useState<{ venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null } | null>(null);
+  const [annulation, setAnnulation] = useState<Vente | null>(null);
+  const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
+  const [historique, setHistorique] = useState<number | null>(null);
+  const [motif, setMotif] = useState<string | null>(null);
+  const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>, personnes?: PersonneEcran[]): Promise<string | null> => {
+    const r = await enregistrerDossierAvec(v, d, change, personnes);
+    if (r === null) relire();
+    return r;
+  };
+  const signer = async (): Promise<void> => {
+    if (acte === null) return;
+    const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date });
+    setMotif(r);
+    if (r === null) { setActe(null); relire(); }
+  };
+  const hote: HoteDetail = { d, vue, societe, statutDuLibelle, relire, signalerPorteuse: () => {}, enregistrerApporteur: (v, change) => enregistrerApporteur(v, change),
+    ouvrirEdition: setEdition, ouvrirPersonnes: setFenetrePersonnes, acte, setActe, signer, historique, setHistorique, ouvrirAnnulation: setAnnulation };
+  const vp = fenetrePersonnes === null ? undefined : ventes.find((x) => x.id === fenetrePersonnes.venteId);
+  const fenetres = <>
+    {motif !== null && <p className="trx-erreur" role="alert" data-motif-hote>{motif}</p>}
+    {fenetrePersonnes !== null && vp !== undefined && <FenetrePersonnes key={`${vp.id}-${fenetrePersonnes.role}-${fenetrePersonnes.personneVisee ?? ''}`} vente={vp} role={fenetrePersonnes.role}
+      personneVisee={fenetrePersonnes.personneVisee} annuaire={d.personnes} avecType={d.personneType === true}
+      onEnregistrer={(personnes) => enregistrerApporteur(vp, {}, personnes)} onFermer={() => setFenetrePersonnes(null)} />}
+    {edition !== null && <FormulaireDossier societe={edition.vente.societe} vente={edition.vente} ajouter={edition.ajouter} repartitionInitiale={edition.repartition}
+      message={edition.message} personneVisee={edition.personneVisee ?? null} references={d} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); relire(); }} />}
+    {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)} onFait={() => { setAnnulation(null); relire(); }} />}
+  </>;
+  return { hote, fenetres };
+}
+
+// ── 🔴 LOT BU : LA FICHE D'UNE AFFAIRE, partagée (onglet « Compromis », listes de « Le mois ») ─────────────────────────────────────────────
+
+/**
+ * 🔴 LOT BU (Arno, 30/10/2026) — CE QUE L'HÔTE FOURNIT À LA FICHE D'UNE AFFAIRE : les données de référence, la société vue, et les gestes qui
+ * ouvrent ses fenêtres (formulaire « Modifier », fenêtre des personnes, « Acte signé », « Historique », « Annulation »). L'onglet « Compromis »
+ * passe ses propres états (rien ne change chez lui) ; « Le mois » passe les siens et accueille les mêmes fenêtres.
+ */
+export interface HoteDetail {
+  d: References & { disponible: boolean; aujourdhui: string; annulation?: boolean };
+  vue: Societe | null; societe: Societe | 'tous';
+  statutDuLibelle: StatutDuLibelle | undefined; relire: () => void;
+  signalerPorteuse: (id: number, etat: EtatRepartition, honorairesTtc: number) => void;
+  enregistrerApporteur: (v: Vente, change: Partial<EtatRepartition>) => Promise<string | null>;
+  ouvrirEdition: (x: { vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number }) => void;
+  ouvrirPersonnes: (x: { venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null }) => void;
+  acte: { id: number; date: string } | null; setActe: (x: { id: number; date: string } | null) => void; signer: () => Promise<void>;
+  historique: number | null; setHistorique: (x: number | null) => void;
+  ouvrirAnnulation: (v: Vente) => void;
+}
+
+/**
+ * 🔴 LOT BU — LA FICHE DÉPLIÉE D'UNE AFFAIRE (le contenu de la carte de l'onglet « Compromis ») : Vendeurs | Acquéreurs (personnes, négociateurs,
+ * cadre gris des honoraires nets, cadres verts / rouges), les informations communes, la répartition, la barre d'actions. UN SEUL composant :
+ * l'onglet « Compromis » et les listes de « Le mois » le rendent tel quel ; il suit le sélecteur « HT | TTC » de son hôte.
+ */
+export function DetailAffaire({ v, hote }: { v: Vente; hote: HoteDetail }) {
+  const { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur, acte, setActe, signer, historique, setHistorique } = hote;
+  const setEdition = hote.ouvrirEdition;
+  const setFenetrePersonnes = hote.ouvrirPersonnes;
+  const setAnnulation = hote.ouvrirAnnulation;
+  const unite = useAffichage();
+  const MOT = MOT_UNITE[unite];
+  const r = v.repartition ?? null;
+  const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
+  // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
+  const pcts = r === null || ps === null ? null : pourcentagesParSociete(r.parties, ps.netHt);
+  const pct = (x: number): string => pctFormat(x);
+  const c = carteCompromis(v, d.aujourdhui);
+  // 🔴 LOT AY — la ventilation des honoraires de chaque partie, lue avec la société de l'écran (part de l'agence, rattachement associé).
+  const ventilation = ventilationVente(v, vue);
+  const colonne = (role: 'vendeur' | 'acquereur', mot: string) => {
+    const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
+    return (
+      <section className="trx-colonne" aria-label={mot} data-colonne={role}>
+        {/* 🔴 LOT T (Arno) — la première ligne : le titre à gauche, à droite la société de ce côté et sa part (« CRITERIMMO · 40 % »),
+            qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
+        <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
+          onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} />
+        {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p>
+          // 🔴 LOT BJ (retrait autorisé par Arno : plus de coordonnées en clair) — un bouton par personne, sa fenêtre de détail ; sans la 443 : la liste d'avant.
+          : d.personneType === true ? (
+          <div className="trx-personnes-boutons" data-personnes-compromis={role}>
+            {gens.map((p) => <BoutonPersonne key={`${p.role}-${p.id}`} p={p}
+              onModifier={d.disponible ? () => setFenetrePersonnes({ venteId: v.id, role: p.role, personneVisee: p.id }) : undefined} />)}
+          </div>
+        ) : (
+          <ul className="trx-personnes" data-personnes-compromis={role}>
+            {gens.map((p) => (
+              <li key={`${p.role}-${p.id}`}><strong>{p.nom}</strong>
+                <span>{p.telephone ? <a href={`tel:${p.telephone.replace(/\s/g, '')}`}>{p.telephone}</a> : <span className="trx-a-renseigner">téléphone {A_RENSEIGNER}</span>}</span>
+                <span>{p.email ? <a href={`mailto:${p.email}`}>{p.email}</a> : <span className="trx-a-renseigner">e-mail {A_RENSEIGNER}</span>}</span>
+                <span>{p.adresse ?? <span className="trx-a-renseigner">adresse {A_RENSEIGNER}</span>}</span></li>
+            ))}
+          </ul>
+        )}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFenetrePersonnes({ venteId: v.id, role, personneVisee: null })} disabled={!d.disponible}
+          data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
+        {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
+            « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
+        <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
+          onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} ventilation={ventilation[role === 'vendeur' ? 'entree' : 'sortie']}
+          onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
+      </section>
+    );
+  };
+  const info = (mot: string, valeur: ReactNode, cle?: string) => <div className="trx-info" data-info={cle}><dt>{mot}</dt><dd>{valeur}</dd></div>;
+  return (
+    <div className="trx-carte-detail">
+      <AlerteVentilation v={v} vue={vue} />
+      <div className="trx-colonnes">
+        {colonne('vendeur', 'Vendeurs')}
+        {colonne('acquereur', 'Acquéreurs')}
+      </div>
+      {/* 🔴 LOT AB (Arno) — chaque PARTIE EXTÉRIEURE : ses honoraires, versés par la société porteuse (inter-cabinet extérieur), dans ses
+          « Commissions versées » — même liseré rouge et même mention que les honoraires versés à l'autre société. */}
+      {r !== null && ps !== null && r.parties.some((p) => p.sorte === 'exterieure') && (
+        <section className="trx-exterieures" aria-label="Parties extérieures" data-exterieures>
+          {r.parties.filter((p) => p.sorte === 'exterieure').map((p, i) => {
+            const pct = p.pourcentage ?? (ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100);
+            const partHt = p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0;
+            const nom = p.nom ?? 'la partie extérieure';
+            // LOT AD — la règle des tuiles : l'inter-cabinet extérieur versé par la société affichée (`bilanVente`).
+            const verse = bilanVente(v, vue).exterieurHt > 0;
+            return <LigneCalcul key={i} donnees={{ 'data-honoraires-exterieure': String(i) }} encadre={verse ? 'deduite' : null} mention={verse ? mentionVersement(nom) : undefined} ttc={partHt * TVA}
+              libelle={<><span className="trx-calcul-mot">Honoraires partie extérieure — {nom}</span> : <span className="trx-calcul-operation">{montantAffiche(unite, ps.netHt, ps.netHt * TVA)} × {pctFr(pct)} % =</span></>} />;
+          })}
+        </section>
+      )}
+      <section className="trx-communes" aria-label="Informations communes" data-informations-communes>
+        <h4>Informations communes
+          <span className="trx-pastilles">
+            {societe === 'tous' && r === null && <span className="loc-pastille">{LIBELLE_SOCIETE[v.societe]}</span>}
+            {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
+          </span></h4>
+        <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
+          {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
+              négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
+          {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
+          {/* 🔴 LOT BN (Arno) — le prix de vente, sur la première ligne, avant le taux de commission (« 240 000 € » ; sans prix : « à renseigner »).
+              Avec le libellé du fichier, la grille passe à 4 colonnes (grand écran) : « Dates » reste sur la première ligne. */}
+          {info('Prix de vente', c.prix === null ? <span className="trx-a-renseigner">{A_RENSEIGNER}</span> : eur(c.prix), 'prix')}
+          {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
+          {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
+          {/* 🔴 LOT K (Arno) — UNE case « Dates », l'une au-dessus de l'autre : le compromis signé, puis la vente définitive au plus
+              tard (rouge et « dépassée » si la date est passée) ; chacune « à renseigner » si absente. (Accord d'Arno : la date
+              butoir revient ici malgré la règle « zéro doublon » du lot H.) */}
+          {info('Dates', <span className="trx-dates">
+            <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>
+              {v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
+            <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+              {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+          </span>, 'dates')}
+          {/* LOT I — la rétrocession dans SON unité, avec son équivalent (« 500,00 € HT (soit 600,00 € TTC) »). */}
+          {/* LOT J (Arno) — sur la même ligne, à droite du nom : le montant de la rétrocession, son unité et son équivalent ;
+              sans rétrocession, « montant à renseigner ». */}
+          {info('Apporteur', (() => { const m = retroApporteurDe(v) ?? (r !== null && r.retroApporteurTtc > 0 ? { montant: r.retroApporteurTtc, unite: 'ttc' as const } : null);
+            return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
+              {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
+              <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}`
+                : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span>
+              {/* 🔴 LOT BH (Arno) — ajouter, modifier ou retirer l'apporteur de l'affaire ; chaque geste s'enregistre aussitôt (journalisé) et
+                  tout se recalcule (relecture, sans recharger la page). Un observateur ne voit pas ces boutons. */}
+              <ApporteurAffaire actuel={{ id: v.dossier?.apporteurId ?? null, nom: v.apporteur ?? null, montant: m }} annuaire={d.apporteurs} collegues={d.collegues}
+                modifiable={d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
+                onValider={(c) => enregistrerApporteur(v, { apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false })}
+                onRetirer={() => enregistrerApporteur(v, { apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true })} /></span>; })(), 'apporteur')}
+        </dl>
+        {r !== null && ps !== null ? (() => {
+          // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,
+          // = la base ; les parties ; les parts par société ; − les reversements de la porteuse, = son reste. Chaque montant au centime par
+          // LA règle unique (`centimesRepartition`) : un même montant identique partout (parties, parts, reversement, tuiles, ligne miroir),
+          // et reste + reversements + apporteur = commission de la vente. LOT AM : l'unité choisie en grand, l'autre dessous ; couleur selon le
+          // sens (versé en rouge ; la commission de la vente et le reste, en vert ; sinon l'encre).
+          const porteuse = societePorteuse(v);
+          const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
+          const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+          const brutes = r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
+          const repli = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })), brutes, ps.netHt);
+          const montant = (h: number, t: number, o: { rouge?: boolean; vert?: boolean; donnee?: Record<string, string> } = {}) => (
+            <span className={o.rouge ? 'trx-ht-ttc-pile trx-montant-repartition trx-rouge' : 'trx-ht-ttc-pile trx-montant-repartition'} {...o.donnee}>
+              <Montants ht={h} ttc={t} sens={o.rouge ? 'verse' : o.vert ? 'recu' : 'neutre'} /></span>);
+          const colonneEur = `€ ${MOT} (${MOT_UNITE[unite === 'ttc' ? 'ht' : 'ttc']})`;
+          const ligne = (cle: string, mot: ReactNode, societe: string, pctTexte: string, valeur: ReactNode, classe?: string, pctDonnee?: Record<string, string>) => (
+            <tr key={cle} className={classe} data-ligne-repartition={cle}><th scope="row">{mot}</th><td data-mot="Société">{societe}</td><td data-mot="%" {...pctDonnee}>{pctTexte}</td><td data-mot={colonneEur}>{valeur}</td></tr>);
+          const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
+          return (
+          <div data-repartition-compromis>
+          <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
+            <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
+            <tbody>
+              {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], pct(100),
+                montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort trx-somme-ligne')}
+              {apporteur
+                ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
+                : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
+              {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
+              {r.parties.map((p, i) => (
+                <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
+                  <td data-mot="%">{pct(p.pourcentage !== null ? p.pourcentage : ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100)}</td>
+                  <td data-mot={colonneEur}>{montant(cHt?.parts[i] ?? repli[i], cTtc?.parts[i] ?? brutes[i] * TVA, { donnee: { 'data-part-partie-compromis': String(i) } })}</td></tr>
+              ))}
+              {/* 🔴 LOT AJ (Arno) — « Part X » et « − Reversé en inter-cabinet vers X » portaient le même montant : UNE ligne
+                  « Part X − Reversé en inter-cabinet vers X », en rouge (fusion autorisée par Arno). X = la société qui REÇOIT (jamais écrit
+                  en dur). La part de la porteuse reste sa ligne ; une société sans part reçue garde sa ligne « Part » ; même principe pour
+                  une partie extérieure seule (« Part [agence] − Reversé à [agence] »). Sans centimes (somme ≠ 100 %), les lignes d'avant. */}
+              {(() => {
+                const recoit = (s: Societe): boolean => cHt !== null && cTtc !== null && s !== porteuse && cHt.reverse[s] > 0;
+                const partSociete = (s: Societe) => <tr key={s} className="tdb-fort" data-ligne-repartition={`part-${s}`}><th scope="row">Part {LIBELLE_SOCIETE[s]}</th><td data-mot="Société">{LIBELLE_SOCIETE[s]}</td>
+                  <td data-mot="%" data-pct-societe-compromis={s}>{pcts === null ? '' : pct(pcts.societe[s])}</td>
+                  <td data-mot={colonneEur}>{montant(cHt?.parSociete[s] ?? ps.societe[s], cTtc?.parSociete[s] ?? ps.societe[s] * TVA, { donnee: { 'data-part-societe-compromis': s } })}</td></tr>;
+                const ordre = cHt === null ? [...SOCIETES] : [porteuse, ...SOCIETES.filter((s) => s !== porteuse)];
+                const exterieurs = cHt === null ? [] : cHt.exterieurs.filter((e) => e.ht > 0);
+                const exterieurSeul = cHt !== null && cTtc !== null && exterieurs.length === 1;
+                return <>
+                  {ordre.map((s) => recoit(s)
+                    ? ligne(`part-reverse-${s}`, <>Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]}</>, LIBELLE_SOCIETE[s],
+                      pcts === null ? '' : pct(pcts.societe[s]), montant(cHt!.reverse[s], cTtc!.reverse[s], { rouge: true, donnee: { 'data-part-societe-compromis': s, 'data-reverse-compromis': s } }), undefined, { 'data-pct-societe-compromis': s })
+                    : partSociete(s))}
+                  {ps.exterieurHt > 0 && (exterieurSeul
+                    ? ligne('part-reverse-exterieur-0', <>Part {exterieurs[0].nom} − Reversé à {exterieurs[0].nom}</>, 'extérieur', pcts === null ? '' : pct(pcts.exterieur),
+                      montant(exterieurs[0].ht, cTtc!.exterieurs.filter((e) => e.ht > 0)[0]?.ht ?? exterieurs[0].ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': 'exterieur-0' } }), undefined, { 'data-pct-exterieur-compromis': '' })
+                    : <tr data-ligne-repartition="part-exterieure"><th scope="row">Part extérieure (inter-cabinet extérieur)</th><td data-mot="Société">extérieur</td>
+                      <td data-mot="%" data-pct-exterieur-compromis>{pcts === null ? '' : pct(pcts.exterieur)}</td>
+                      <td data-mot={colonneEur}>{montant(cHt === null ? ps.exterieurHt : cHt.exterieurs.reduce((t, e) => t + e.ht, 0), cTtc === null ? ps.exterieurHt * TVA : cTtc.exterieurs.reduce((t, e) => t + e.ht, 0))}</td></tr>)}
+                  {/* 🔴 LOT R / AH — plusieurs parties extérieures : chacune son reversement (en rouge) sous leur part commune. */}
+                  {cHt !== null && cTtc !== null && !exterieurSeul && exterieurs.map((e, k) => ligne(`reverse-exterieur-${k}`, <>− Reversé à {e.nom}</>, 'extérieur', '',
+                    montant(e.ht, cTtc.exterieurs.filter((x) => x.ht > 0)[k]?.ht ?? e.ht * TVA, { rouge: true, donnee: { 'data-reverse-compromis': `exterieur-${k}` } })))}
+                  {cHt !== null && cTtc !== null && ligne('reste', <>= Reste à {LIBELLE_SOCIETE[porteuse]}</>, LIBELLE_SOCIETE[porteuse], pcts === null ? '' : pct(pcts.societe[porteuse]),
+                    montant(cHt.resteHt, cTtc.resteHt, { vert: true, donnee: { 'data-reste-compromis': porteuse } }), 'tdb-fort trx-ligne-base trx-somme-ligne')}
+                </>;
+              })()}
+            </tbody>
+          </table>
+          </div>
+          );
+        })() : <p className="loc-muet">Répartition : toute la commission à {LIBELLE_SOCIETE[v.societe]} (historique, avant la répartition entre parties).</p>}
+      </section>
+      <div className="trx-actions trx-barre-actions">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>
+        {/* 🔴 LOT BU — « Acte signé » et « Annulation » : seulement pour un compromis (une vente déjà signée, ouverte depuis « Le mois », ne les a pas). */}
+      {v.statut === 'compromis' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setActe({ id: v.id, date: d.aujourdhui })} disabled={!d.disponible} data-acte-signe={v.id}>Acte signé</button>}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setHistorique(historique === v.id ? null : v.id)}>{historique === v.id ? 'Masquer l’historique' : 'Historique'}</button>
+        {/* LOT G — « Annulation », à droite, contour et texte rouges : le mot accompagne la couleur. */}
+        {v.statut === 'compromis' && <button type="button" className="trx-btn-annulation" onClick={() => setAnnulation(v)} disabled={!d.disponible || d.annulation !== true}
+          title={d.annulation === true ? undefined : 'Disponible après la mise à jour de la base (migration 436)'} data-annulation-compromis={v.id}>Annulation</button>}
+        {v.statut === 'compromis' && d.annulation !== true && <span className="loc-muet trx-annulation-note" data-annulation-indisponible>Annulation : disponible après la mise à jour (migration 436).</span>}
+      </div>
+      {acte?.id === v.id && (
+        <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void signer(); }} data-form-acte={v.id}>
+          <label>Date de l’acte (son mois est le mois du CA)<input type="date" value={acte.date} onChange={(e) => setActe({ id: v.id, date: e.target.value })} required data-date-acte /></label>
+          <div className="trx-actions"><button type="submit" className="svv-btn svv-btn-primary gst-btn" data-confirmer-acte>Confirmer l’acte</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setActe(null)}>Abandonner</button></div>
+        </form>
+      )}
+      {historique === v.id && <Journal entite="vente" id={v.id} onFait={relire} />}
+    </div>
   );
 }
 
@@ -925,8 +1015,6 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   ouvertInitial?: boolean }) {
   const m = v.miroir!;
   const c = carteCompromis(v, aujourdhui);
-  // 🔴 LOT AY — chaque côté tenu par la société qui reçoit : sa part de l'agence, à partir de SA part reçue.
-  const ventilation = ventilationVente(v, v.societe);
   const pctTexte = m.pourcentage === null ? null : pctFormat(m.pourcentage);
   const titre = (
     <span className="trx-carte-gauche">
@@ -949,49 +1037,64 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
     <li data-compromis={v.id} data-miroir={m.origineId}>
       <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte trx-carte--miroir"
         donnees={{ 'data-carte-miroir': String(m.origineId) }} ouvertInitial={ouvertInitial}>
-        <div className="trx-carte-detail">
-          {/* 🔴 LOT AF (Arno) — le bloc « Inter-cabinet reçu » en couples libellé / valeur, une information par ligne (comme les Informations
-              communes) ; puis la note, d'une ligne ; puis le bloc du négociateur. Rien n'est retiré : la phrase d'avant est dépliée en lignes. */}
-          <section className="trx-communes" aria-label="Inter-cabinet reçu" data-miroir-bloc>
-            <h4>Inter-cabinet reçu</h4>
-            <dl className="trx-couples">
-              <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
-              <div className="trx-couple" data-miroir-info="origine"><dt>Vente d’origine</dt><dd>{m.libelleOrigine}
-                {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></dd></div>
-              <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>
-                <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} de la commission nette`}</dd></div>
-              <div className="trx-couple" data-miroir-info="ca"><dt>CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente</dt>
-                <dd><span className="trx-ht-ttc-pile"><Montants ht={m.partHt} ttc={v.honorairesTtc} sens="recu" /></span></dd></div>
-              <div className="trx-couple" data-miroir-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
-                <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
-                <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-                  {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
-              </span></dd></div>
-            </dl>
-          </section>
-          {/* 🔴 LOT BJ (Arno) — les vendeurs et acquéreurs de la vente d'origine : un bouton par personne, sa fenêtre de détail, en lecture seule. */}
-          {references.personneType === true && (v.dossier?.personnes ?? []).length > 0 && (
-            <section className="trx-communes" aria-label="Vendeurs et acquéreurs" data-miroir-personnes>
-              <h4>Vendeurs et acquéreurs</h4>
-              {(['vendeur', 'acquereur'] as const).map((role) => {
-                const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
-                return gens.length === 0 ? null : <div key={role} className="trx-personnes-boutons" data-personnes-miroir={role}>
-                  <span className="loc-muet">{role === 'vendeur' ? 'Vendeurs' : 'Acquéreurs'}</span>
-                  {gens.map((p) => <BoutonPersonne key={p.id} p={p} />)}
-                </div>;
-              })}
-            </section>
-          )}
-          <AlerteVentilation v={v} vue={v.societe} />
-          <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
-          {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
-            : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
-              ventilation={ventilation[x.cote]}
-              baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
-              disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
-        </div>
+        <DetailMiroir v={v} references={references} aujourdhui={aujourdhui} disponible={disponible} onFait={onFait} statutDuLibelle={statutDuLibelle} />
       </BlocReplie>
     </li>
+  );
+}
+
+/**
+ * 🔴 LOT BU — LA FICHE DÉPLIÉE D'UNE LIGNE MIROIR (inter-cabinet reçu), partagée : la carte de l'onglet « Compromis » et les listes de « Le mois ».
+ */
+export function DetailMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle }: { v: Vente; references: References; aujourdhui: string; disponible: boolean;
+  onFait: () => void; statutDuLibelle?: StatutDuLibelle }) {
+  const m = v.miroir!;
+  const c = carteCompromis(v, aujourdhui);
+  // 🔴 LOT AY — chaque côté tenu par la société qui reçoit : sa part de l'agence, à partir de SA part reçue.
+  const ventilation = ventilationVente(v, v.societe);
+  const pctTexte = m.pourcentage === null ? null : pctFormat(m.pourcentage);
+  return (
+      <div className="trx-carte-detail">
+        {/* 🔴 LOT AF (Arno) — le bloc « Inter-cabinet reçu » en couples libellé / valeur, une information par ligne (comme les Informations
+            communes) ; puis la note, d'une ligne ; puis le bloc du négociateur. Rien n'est retiré : la phrase d'avant est dépliée en lignes. */}
+        <section className="trx-communes" aria-label="Inter-cabinet reçu" data-miroir-bloc>
+          <h4>Inter-cabinet reçu</h4>
+          <dl className="trx-couples">
+            <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
+            <div className="trx-couple" data-miroir-info="origine"><dt>Vente d’origine</dt><dd>{m.libelleOrigine}
+              {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></dd></div>
+            <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>
+              <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} de la commission nette`}</dd></div>
+            <div className="trx-couple" data-miroir-info="ca"><dt>CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente</dt>
+              <dd><span className="trx-ht-ttc-pile"><Montants ht={m.partHt} ttc={v.honorairesTtc} sens="recu" /></span></dd></div>
+            <div className="trx-couple" data-miroir-info="dates"><dt>Dates</dt><dd><span className="trx-dates">
+              <span data-date="compromis" className={v.dateCompromis ? undefined : 'trx-a-renseigner'}>{v.dateCompromis ? `Compromis signé le ${date(v.dateCompromis)}` : `Compromis signé le : ${A_RENSEIGNER}`}</span>
+              <span data-date="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                {c.butoir === null ? `Vente définitive au plus tard le : ${A_RENSEIGNER}` : `Vente définitive au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+            </span></dd></div>
+          </dl>
+        </section>
+        {/* 🔴 LOT BJ (Arno) — les vendeurs et acquéreurs de la vente d'origine : un bouton par personne, sa fenêtre de détail, en lecture seule. */}
+        {references.personneType === true && (v.dossier?.personnes ?? []).length > 0 && (
+          <section className="trx-communes" aria-label="Vendeurs et acquéreurs" data-miroir-personnes>
+            <h4>Vendeurs et acquéreurs</h4>
+            {(['vendeur', 'acquereur'] as const).map((role) => {
+              const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
+              return gens.length === 0 ? null : <div key={role} className="trx-personnes-boutons" data-personnes-miroir={role}>
+                <span className="loc-muet">{role === 'vendeur' ? 'Vendeurs' : 'Acquéreurs'}</span>
+                {gens.map((p) => <BoutonPersonne key={p.id} p={p} />)}
+              </div>;
+            })}
+          </section>
+        )}
+        <AlerteVentilation v={v} vue={v.societe} />
+        <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
+        {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
+          : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
+            ventilation={ventilation[x.cote]}
+            baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
+            disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
+      </div>
   );
 }
 

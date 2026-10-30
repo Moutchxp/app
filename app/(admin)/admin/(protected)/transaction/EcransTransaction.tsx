@@ -14,9 +14,10 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, nombreFr, parametre, posterTransaction, signePct, useTransaction } from './commun';
+import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, FournisseurAffichage, nombreFr, parametre, posterTransaction, signePct, useAffichageRetenu, useTransaction } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
-import { adresseOrigine, OngletCompromis } from './OngletCompromis';
+import { adresseOrigine, DetailAffaire, DetailMiroir, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
+import { DessinTriangle } from '../_composants/TriangleDepliage';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
 import { partAgenceRattacheeHt } from '../../../../lib/transaction/partAgence';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
@@ -169,7 +170,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       </form>
 
       {vue === 'mois'
-        ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} />
+        ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
       </>}
@@ -204,10 +205,19 @@ const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; 
 type MesureTrx = 'ca' | 'nombre';
 const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 
-function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire }: {
+function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois; onMois: (m: number) => void;
   onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
+  /** 🔴 LOT BU — les références (négociateurs, apporteurs, personnes…) de la fiche dépliée d'une vente ; null : pas encore lues (lecture seule). */
+  references: References | null;
 }) {
+  // 🔴 LOT BU — la fiche d'une vente dépliée dans les listes du mois : LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir`), son
+  // hôte (les mêmes fenêtres), et l'unité « HT | TTC » retenue par le navigateur (celle du sélecteur de l'onglet « Compromis »).
+  const [unite] = useAffichageRetenu();
+  const refs: References = references ?? { lotD: false, negociateurs: [], apporteurs: [], personnes: [] };
+  const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe,
+    statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
+  const fiches = { hote, references: refs };
   const [cumul, setCumul] = useState(false);
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
   const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : 'ca'));
@@ -317,12 +327,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 
     {mode !== 'compromis' && <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
-      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
+      <FournisseurAffichage value={unite}><TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} /></FournisseurAffichage>
     </section>}
     {mode !== 'vendu' && <section className="tdb-section" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
       <h3 id="trx-compromis-mois">{mode === 'tous' ? 'Les compromis en cours du mois' : 'Les compromis du mois'} — {libMois} <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
-      <TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
+      <FournisseurAffichage value={unite}><TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} /></FournisseurAffichage>
     </section>}
+    <FournisseurAffichage value={unite}>{fenetres}</FournisseurAffichage>
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
       <h3 id="trx-resultat">Résultat de l’agence — {libMois}{mode === 'vendu' ? '' : <small className="loc-muet"> ({LIBELLE_MODE[mode].toLowerCase()})</small>}</h3>
@@ -369,20 +380,37 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 }
 
 /** Les ventes, en tableau (en cartes au téléphone) : chaque ligne s'ouvre en modification. */
-function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
+/** 🔴 LOT BU — le négociateur d'ENTRÉE (porteur du mandat, côté vendeurs) ; une vente importée sans entrée identifiée : le nom tel qu'importé. PUR. */
+export function negociateurEntree(v: Vente): string {
+  const e = v.dossier?.entree?.nom ?? v.repartition?.parties.find((p) => p.sorte === 'entree' || p.sorte === 'entree_sortie')?.negociateur ?? null;
+  return e !== null && e.trim() !== '' ? e : negociateursDe(v).join(', ');
+}
+
+function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
   /** LOT Q — le statut des négociateurs importés : le reste à l'agence ne déduit que la paye des indépendants. */
   statutDuLibelle?: StatutDuLibelle;
   /** LOT D — la société vue : la part d'une vente répartie s'affiche sous ses honoraires. */
-  societe?: Societe | null }) {
+  societe?: Societe | null;
+  /**
+   * 🔴 LOT BU (Arno) — « Les ventes du mois » / « Les compromis du mois » : chaque ligne se DÉPLIE (clic sur la ligne ou le triangle rouge ; Entrée,
+   * Espace) sur LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir` pour une ligne miroir), sur toute la largeur ; plusieurs à la
+   * fois, rien de retenu. La colonne devient « Négociateur » : celui d'ENTRÉE (la sortie est dans la fiche). Absent : le tableau d'avant.
+   */
+  fiches?: { hote: HoteDetail; references: References } }) {
+  const [ouvertes, setOuvertes] = useState<ReadonlySet<number>>(() => new Set());
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
+  const basculer = (id: number): void => setOuvertes((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   return (
     <table className="tdb-table tdb-table--large" data-table-ventes>
-      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">Négociateur(s)</th><th scope="col">Honoraires TTC</th><th scope="col">Honoraires HT</th>
+      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">Honoraires TTC</th><th scope="col">Honoraires HT</th>
         <th scope="col">Rétrocessions</th><th scope="col">Paye négo</th><th scope="col">Reste agence HT</th><th scope="col">Action</th></tr></thead>
       <tbody>
-        {ventes.map((v) => (
-          <tr key={v.id} data-vente={v.id}>
-            <th scope="row">{v.libelle}
+        {ventes.map((v) => { const ouverte = fiches !== undefined && ouvertes.has(v.id); return [
+          <tr key={v.id} data-vente={v.id} className={fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}`}
+            onClick={fiches === undefined ? undefined : (e) => { if ((e.target as Element).closest('a, button, input, select, textarea, label') === null) basculer(v.id); }}>
+            <th scope="row">{fiches === undefined ? v.libelle
+              : <button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
+                <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button>}
               <span className="trx-pastilles">
                 {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
                 {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
@@ -392,7 +420,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
               </span>
               {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
             </th>
-            <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td>
+            {fiches === undefined ? <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td> : <td data-mot="Négociateur" data-negociateur-entree>{negociateurEntree(v)}</td>}
             <td data-mot="Honoraires TTC">{eur(v.honorairesTtc)}</td>
             <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}
               {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
@@ -406,8 +434,15 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
             <td data-mot="Action">{v.miroir != null
               ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
               : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
-          </tr>
-        ))}
+          </tr>,
+          ouverte && fiches !== undefined && (
+            <tr key={`${v.id}-fiche`} className="trx-ligne-fiche" id={`trx-fiche-vente-${v.id}`} data-fiche-vente={v.id}><td colSpan={8}>
+              {v.miroir != null
+                ? <DetailMiroir v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire} statutDuLibelle={fiches.hote.statutDuLibelle} />
+                : <DetailAffaire v={v} hote={fiches.hote} />}
+            </td></tr>
+          ),
+        ]; })}
       </tbody>
     </table>
   );
