@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
   anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
@@ -16,7 +16,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
-import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
+import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
 import { partAgenceRattacheeHt } from '../../../../lib/transaction/partAgence';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
@@ -222,6 +222,9 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   // 🔴 LOT BU — la fiche d'une vente dépliée dans les listes du mois : LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir`), son
   // hôte (les mêmes fenêtres), et l'unité « HT | TTC » retenue par le navigateur (celle du sélecteur de l'onglet « Compromis »).
   const U = useUnite();
+  // 🔴 LOT CE — les colonnes des lignes de négociateur, communes aux deux listes (ventes et compromis du mois).
+  const listes = useRef<HTMLDivElement | null>(null);
+  useColonnesNegociateurs(listes);
   const refs: References = references ?? { lotD: false, negociateurs: [], apporteurs: [], personnes: [] };
   const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe,
     statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
@@ -335,6 +338,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>
 
+    <div ref={listes} className="trx-listes-mois">
     {/* 🔴 LOT CA — l'en-tête : le titre puis le nombre « (3) » ; les ventes en CARTES (celles de l'onglet « Compromis »). */}
     {mode !== 'compromis' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <div className="trx-entete-gauche"><h3 id="trx-ventes">Les ventes du mois — {libMois}</h3><span className="trx-compteur" data-compteur-liste>({ventes.length})</span></div>
@@ -346,6 +350,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small></div>
       <CartesVentes ventes={compDuMois} retros={tout.retrocessions} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
     </section>}
+    </div>
     {fenetres}
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">

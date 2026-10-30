@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
 import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
@@ -86,6 +86,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const [unite, setUnite] = useAffichageRetenu();
   // 🔴 LOT BY (Arno) — « Du mois | En cours » : retenu dans le navigateur (partagé CRITERIMMO / MACJ / CA global) ; « En cours » par défaut.
   const [vueListe, setVueListeEtat] = useState<VueCompromis>(lireVueCompromis);
+  // 🔴 LOT CE — les colonnes des lignes de négociateur, communes à toutes les cartes de l'onglet.
+  const page = useRef<HTMLElement | null>(null);
+  useColonnesNegociateurs(page);
   const setVueListe = (x: VueCompromis): void => { setVueListeEtat(x); try { window.localStorage.setItem(CLE_VUE_COMPROMIS, x); } catch { /* préférence seulement */ } };
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
@@ -154,7 +157,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     ouvrirEdition: (x) => setEdition(x), ouvrirPersonnes: setFenetrePersonnes, acte, setActe, signer, historique, setHistorique, ouvrirAnnulation: setAnnulation };
   return (
     <FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}>
-    <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
+    <section ref={page} className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
         {/* 🔴 LOT CA (Arno) — à GAUCHE, ensemble : « Compromis » · « Du mois | En cours » · le nombre affiché « (8) » (lot BY : la vue choisie) ;
             à DROITE, inchangés : « HT | TTC » et « + Nouveau compromis » (CA global : ni l'un ni l'autre) ; au téléphone, ils passent dessous. */}
@@ -406,28 +409,48 @@ function LigneUneCarte({ v, titre, aujourdhui }: { v: Vente; titre: ReactNode; a
 function LignesNegociateurs({ l }: { l: LignesCarte }) {
   const u = useAffichage();
   const m = (x: { htC: number; ttcC: number }): string => eur((u === 'ht' ? x.htC : x.ttcC) / 100);
-  // 🔴 LOT CD (Arno) — « honoraires nets » : en ROUGE quand un apporteur est déduit de la vente (chaque part en est nette), sinon gris ; la mention
-  // « apporteur » et la « rétro » du mois quittent la ligne (accord d'Arno ; détaillées dans la fiche). Les lignes d'une carte forment des COLONNES
-  // (nom · côté · honoraires nets · com négo · reste), montants alignés à droite ; au téléphone, chaque ligne revient à la ligne proprement.
-  const nets = l.apporteur !== null ? 'trx-rouge' : undefined;
+  // 🔴 LOT CD / CE (Arno) — le LIBELLÉ « honoraires nets » en ROUGE quand quelque chose en est déduit (un apporteur de la répartition, ou une
+  // rétrocession saisie au mois et rattachée à la vente) ; son MONTANT reste gris. Les colonnes (nom · rôle · honoraires nets · com négo · reste)
+  // ont des largeurs COMMUNES à toute la page (`useColonnesNegociateurs`) ; au téléphone, chaque ligne revient à la ligne proprement.
+  const deduit = l.apporteur !== null || l.retro !== null;
   return (
     <span className="trx-carte-negos" data-carte-negos>
       {l.lignes.map((x) => (
         <span key={x.cote ?? 'unique'} className="trx-carte-nego" data-nego-ligne={x.cote ?? 'unique'}>
-          <span className="trx-nego-nom" data-nego-nom>{x.nom}</span>{' '}
-          <span className="trx-nego-cote" data-nego-cote>{x.cote === null ? '' : `· ${x.cote === 'entree' ? 'entrée' : 'sortie'}`}</span>{x.cote === null ? '' : ' '}
-          <span className={`trx-nego-col${nets ? ` ${nets}` : ''}`} data-nego-nets={nets ? 'apporteur' : ''}><span className="trx-nego-sep">— </span>honoraires nets <span data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
+          <span className="trx-nego-nom" data-nego-nom data-col="1">{x.nom}</span>{' '}
+          <span className="trx-nego-cote" data-nego-cote data-col="2">{x.cote === null ? '' : `· ${x.cote === 'entree' ? 'entrée' : 'sortie'}`}</span>{x.cote === null ? '' : ' '}
+          <span className="trx-nego-col" data-col="3"><span className="trx-nego-lib"><span className="trx-nego-sep">— </span><span className={deduit ? 'trx-rouge trx-nego-mot' : 'trx-nego-mot'} data-nego-nets={deduit ? 'deduit' : ''}>honoraires nets</span></span> <span className="trx-nego-montant" data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
           {x.reverse !== null
             ? <span className="trx-nego-col trx-nego-col--double trx-rouge" data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
             : <>
-              <span className={`trx-nego-col${x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? ' trx-rouge' : ''}`}><span className="trx-nego-sep">· </span>com négo <span data-nego-com>{m(x.com)}</span></span>{' '}
-              <span className="trx-nego-col trx-vert"><span className="trx-nego-sep">· </span>reste <span data-nego-reste>{m(x.reste)}</span></span>
+              <span className={`trx-nego-col${x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? ' trx-rouge' : ''}`} data-col="4"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>com négo</span> <span className="trx-nego-val" data-nego-com>{m(x.com)}</span></span>{' '}
+              <span className="trx-nego-col trx-vert" data-col="5"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>reste</span> <span className="trx-nego-val" data-nego-reste>{m(x.reste)}</span></span>
             </>}
           <span className="trx-nego-extra">{x.exterieures.map((y) => <span key={y.nom} className="trx-rouge" data-nego-exterieure> · {y.nom} {m(y.m)}</span>)}</span>
         </span>
       ))}
     </span>
   );
+}
+
+/**
+ * 🔴 LOT CE (Arno) — DES COLONNES COMMUNES À TOUTE LA PAGE : après chaque rendu, la largeur naturelle de chaque colonne des lignes de négociateur
+ * (nom, rôle, honoraires nets, com négo, reste) est mesurée sur TOUTES les cartes du conteneur, et la plus grande est posée pour toutes
+ * (`--trx-nego-c1` … `--trx-nego-c5`) : « honoraires nets », « com négo » et « reste » s'alignent d'une carte à l'autre, ventes comme compromis.
+ * Au téléphone, la grille n'est pas utilisée (retour à la ligne) : les variables sont sans effet.
+ */
+export function useColonnesNegociateurs(conteneur: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const el = conteneur.current;
+    if (el === null) return;
+    for (let k = 1; k <= 5; k++) el.style.removeProperty(`--trx-nego-c${k}`);
+    const largeurs = [0, 0, 0, 0, 0];
+    for (const cellule of el.querySelectorAll<HTMLElement>('[data-carte-negos] [data-col]')) {
+      const k = Number(cellule.dataset.col) - 1;
+      largeurs[k] = Math.max(largeurs[k], cellule.getBoundingClientRect().width);
+    }
+    largeurs.forEach((w, k) => { if (w > 0) el.style.setProperty(`--trx-nego-c${k + 1}`, `${Math.ceil(w)}px`); });
+  });
 }
 
 /**

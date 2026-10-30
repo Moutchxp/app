@@ -932,9 +932,42 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       await cliquer('[data-vente="50"] .tdb-replie-ligne');
       expect(texte('[data-vente="50"] [data-retro-fiche="77"]')).toBe('Rétrocession saisie au mois (janvier 2025, Jean-Baptiste PONS → M. Durand) : 500 € HT');
       const { CSS_TRANSACTION } = await import('./commun');
-      expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-carte-negos{display:grid;grid-template-columns:max-content max-content max-content max-content max-content auto');
+      expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-carte-negos{display:grid;grid-template-columns:var(--trx-nego-c1,max-content) var(--trx-nego-c2,max-content)');
       const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
       expect(src.match(/<LignesNegociateurs /g)?.length).toBe(2); // CarteAffaire (Compromis, Le mois) et CarteMiroir : un seul rendu
     } finally { fin(); }
+  });
+  it('🔴 LOT CE — « honoraires nets » : le LIBELLÉ rouge (apporteur, ou rétrocession du mois rattachée), le montant gris ; sans déduction, gris', async () => {
+    // une vente importée avec une rétrocession saisie au mois et rattachée (le cas ZEMMOR BERKER), et une vente sans déduction
+    const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, sourceOnglet: 'CEDRIC' });
+    const sci = vente(61, { societe: 'criterimmo', libelle: 'SCI LES TILLEULS/BLANCO', honorairesTtc: 7000, sourceOnglet: 'CEDRIC' });
+    const retro = { id: 78, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'CEDRIC', montantTtc: 3333, apporteur: null, venteId: 60, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3' };
+    const fin = await ouvrirSur([deux, zemmor, sci], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [retro]);
+    try {
+      const nets = (id: number) => container.querySelector(`[data-vente="${id}"] [data-nego-nets]`)!;
+      expect([nets(50).className.includes('trx-rouge'), nets(60).className.includes('trx-rouge'), nets(61).className.includes('trx-rouge')]).toEqual([true, true, false]);
+      // le montant n'est jamais rouge (il est dans son propre élément, gris)
+      for (const id of [50, 60, 61]) expect(container.querySelector(`[data-vente="${id}"] [data-nego-honoraires]`)!.closest('.trx-rouge')).toBeNull();
+      expect(texte('[data-vente="60"] [data-nego-reste]')).toBe('30 555,83 €');
+    } finally { fin(); }
+  });
+
+  it('🔴 LOT CE — colonnes COMMUNES à la page : chaque colonne prend la largeur de la plus large de toutes les cartes (ventes et compromis)', async () => {
+    // jsdom ne calcule pas de mise en page : la largeur d'une cellule simulée = 7 px par caractère
+    const vraie = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) { return { width: (this.textContent ?? '').length * 7, height: 10, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect; };
+    const comp = { ...deux, id: 52, statut: 'compromis' as const, mois: null, dateCompromis: '2025-01-12' };
+    const sci = vente(61, { societe: 'criterimmo', libelle: 'SCI', honorairesTtc: 7000, sourceOnglet: 'CEDRIC' });
+    const fin = await ouvrirSur([deux, sci, comp], 'criterimmo', '/?vue=mois&annee=2025&mois=1&mode=tous');
+    try {
+      const cont = container.querySelector('.trx-listes-mois') as HTMLElement;
+      const cellules = [...cont.querySelectorAll('[data-carte-negos] [data-col]')];
+      for (let k = 1; k <= 5; k++) {
+        const max = Math.max(...cellules.filter((c) => c.getAttribute('data-col') === String(k)).map((c) => (c.textContent ?? '').length * 7));
+        expect([k, cont.style.getPropertyValue(`--trx-nego-c${k}`)]).toEqual([k, `${max}px`]);
+      }
+      // deux listes (ventes, compromis du mois), un seul conteneur de mesure
+      expect([cont.querySelector('[data-bloc="ventes-mois"]') !== null, cont.querySelector('[data-bloc="compromis-du-mois"]') !== null]).toEqual([true, true]);
+    } finally { fin(); Element.prototype.getBoundingClientRect = vraie; }
   });
 });

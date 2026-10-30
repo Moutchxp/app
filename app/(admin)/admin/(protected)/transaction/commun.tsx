@@ -270,13 +270,15 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT CD — les lignes de négociateur d'une carte en COLONNES : nom (largeur du plus long de la carte) · côté · honoraires nets · com négo · reste,
    les montants alignés à droite ; une ligne inter-cabinet : « reversé à … » sur les deux dernières colonnes. Au téléphone : retour à la ligne. */
 @media (min-width:761px){
-  .trx-carte-negos{display:grid;grid-template-columns:max-content max-content max-content max-content max-content auto;column-gap:6px;row-gap:1px;justify-content:start}
+  .trx-carte-negos{display:grid;grid-template-columns:var(--trx-nego-c1,max-content) var(--trx-nego-c2,max-content) var(--trx-nego-c3,max-content) var(--trx-nego-c4,max-content) var(--trx-nego-c5,max-content) auto;column-gap:6px;row-gap:1px;justify-content:start}
   .trx-carte-nego{display:contents}
-  .trx-nego-col{text-align:right;white-space:nowrap}
-  .trx-nego-col--double{grid-column:span 2;text-align:left}
+  .trx-nego-col{display:flex;justify-content:space-between;gap:4px;white-space:nowrap}
+  .trx-nego-col--double{grid-column:span 2;justify-content:flex-start}
 }
 /* les séparateurs restent gris, quelle que soit la couleur du montant ; au téléphone, chaque segment est insécable (retour entre les segments) */
 .trx-carte-negos .trx-nego-sep{color:var(--color-svv-muted);font-weight:400}
+/* LOT CE — « honoraires nets » rouge (déduction) : le libellé seul ; le montant reste gris. */
+.trx-carte-negos .trx-nego-montant{color:var(--color-svv-muted);font-weight:400}
 @media (max-width:760px){ .trx-carte-nego > span{margin-right:4px} .trx-carte-nego > .trx-nego-col,.trx-carte-nego > .trx-nego-cote{white-space:nowrap} }
 .trx-carte-negos .trx-rouge,.trx-carte-negos .trx-vert{font-weight:700}
 @media (max-width:760px){ .trx-carte-lieu{flex-basis:100%} }
@@ -284,6 +286,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
+.trx-listes-mois{display:contents}
 .trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
 .trx-btn-large{width:100%;min-height:44px}
 .trx-negociateur-carte{display:flex;flex-direction:column;gap:8px;width:100%}
