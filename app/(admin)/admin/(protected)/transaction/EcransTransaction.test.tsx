@@ -87,8 +87,9 @@ describe('une société — le mois', () => {
     expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('9 187,50 €');
     expect(texte('[data-tuile="ca-mois"] .tdb-tuile-n1')).toContain('5 000 € en 2024');
     expect([...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['1']);
-    // 11 025 − 1 200 (rétrocession du mois) − 3 215 (paye de Mylène), ÷ 1,2.
-    expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
+    // 🔴 LOT CH — la somme des cartes : 11 025 − 3 215 (paye de Mylène), ÷ 1,2 ; la rétrocession « à répartir » (1 200 TTC) est dite à part, non déduite.
+    expect(texte('[data-reste-agence]')).toBe('6 508,33 €');
+    expect(texte('[data-total-hors-resultat]')).toBe('1 000 € HT (1 200 € TTC)');
     expect(texte('[data-tuile="compromis"] .tdb-tuile-valeur')).toBe('20 833,33 €');
   });
   it('D5 — la rétrocession « à répartir » se rattache à la main à la vente du négociateur et du mois', async () => {
@@ -248,7 +249,8 @@ describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépend
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
       await calmer();
       // 11 025 − 1 200 (apporteur), ÷ 1,2 : la paye de Mylène (3 215) n'est plus déduite.
-      expect(texte('[data-reste-agence]')).toBe('8 187,50 €');
+      expect(texte('[data-reste-agence]')).toBe('9 187,50 €'); // 🔴 LOT CH : la rétrocession « à répartir » (1 200 TTC) n'est plus déduite — dite à part
+      expect(texte('[data-total-hors-resultat]')).toBe('1 000 € HT (1 200 € TTC)');
       expect(texte('[data-paye-deduite]')).toBe('0 €');
       expect(texte('[data-internes-non-deduits]')).toBe('2 679,17 €');
       // 🔴 LOT CC — la carte : sa commission, NON comptabilisée (salariée) : en gris, pas en rouge
@@ -313,7 +315,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       await act(async () => { (container.querySelector('[data-vente="38"] .tdb-replie-ligne') as HTMLElement).click(); }); await calmer();
       expect(container.querySelector('[data-vente="38"] [data-contenu-replie] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
       // Reste : 1 666,67 − 833,33 (Pierre, 1 000 TTC, indépendant) = 833,33 HT
-      expect(texte('[data-reste-agence]')).toBe('833,33 €');
+      expect(texte('[data-reste-agence]')).toBe('833,34 €'); // 🔴 LOT CH : la somme des cartes, au centime (part 1 666,67 − commission 833,33);
     } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
   });
 
@@ -340,7 +342,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       expect(texte('[data-vente="38"] [data-contenu-replie]')).toContain('CA de CRITERIMMO (société porteuse)');
       expect(texte('[data-inter-cabinet-mois]')).toBe('1 666,67 €');
       // Reste : 3 333,33 − 1 666,67 ; Pierre (MACJ) n'est pas déduit chez CRITERIMMO
-      expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
+      expect(texte('[data-reste-agence]')).toBe('1 666,66 €'); // 🔴 LOT CH : la somme des cartes (part de l'agence de l'entrée, centimes du lot AH);
       expect(texte('[data-paye-deduite]')).toBe('0 €');
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
   });
@@ -368,7 +370,7 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
         .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT porté', 'Paye HT', 'CA généré HT', 'Rétrocessions HT']);
       expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,66 €'); // LOT BA : la part de l'entrée au centime du lot AH (celle de la Répartition)
       expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('0 €');
-      expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
+      expect(texte('[data-reste-agence]')).toBe('1 666,66 €'); // 🔴 LOT CH : la somme des cartes (centimes du lot AH);
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
   });
 
@@ -381,7 +383,7 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
       await calmer(); await ouvrirEspace();
       expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('833,33 €');
-      expect(texte('[data-reste-agence]')).toBe('833,33 €');
+      expect(texte('[data-reste-agence]')).toBe('833,34 €'); // 🔴 LOT CH : la somme des cartes, au centime);
     } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
   });
 });
@@ -433,7 +435,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(container.querySelector('[data-filtre="mode"]')!.closest('form.tdb-filtres')).not.toBeNull();
     expect(tuile('ca-mois')).toEqual(['CA HT — janvier', '9 187,50 €', '5 000 € en 2024 (+83,8 %)']);
     expect(tuile('ventes-mois')).toEqual(['Ventes — janvier', '1', '1 en 2024']);
-    expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
+    expect(texte('[data-reste-agence]')).toBe('6 508,33 €'); // 🔴 LOT CH : la rétrocession « à répartir » n'est plus déduite);
     expect(container.querySelector('[data-compromis-sans-date]')).toBeNull();
     expect(container.querySelector('[data-bloc="compromis-du-mois"]')).toBeNull();
     expect(new URLSearchParams(window.location.search).get('mode')).toBe('vendu');
@@ -721,7 +723,7 @@ describe('🔴 LOT BV — libellés : « Com négo » et « − Commissions des 
     expect(container.querySelector('[data-paye-deduite]')!.closest('dd')!.previousElementSibling!.textContent).toBe('− Commissions des négociateurs indépendants (HT)');
     expect(container.textContent).not.toContain('Paye négo');
     expect(container.textContent).not.toContain('Paye des négociateurs');
-    expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
+    expect(texte('[data-reste-agence]')).toBe('6 508,33 €'); // 🔴 LOT CH : la rétrocession « à répartir » n'est plus déduite);
   });
 });
 
@@ -1000,5 +1002,39 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const fin2 = await ouvrirSur([donnees.ventes[0]], 'macj');
       try { expect(texte('[data-vente="1"] [data-nego-nom]')).toBe('Mylène DURAND, Cédric JULLIEN'); } finally { fin2(); }
     } finally { donnees.nomsNegociateurs = avant; }
+  });
+  it('🔴 LOT CH — le Résultat = la somme des cartes : rétrocessions RATTACHÉES aux ventes affichées (même saisies un autre mois) ; « à répartir » à part, en orange ; HT et TTC au centime', async () => {
+    const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, sourceOnglet: 'CEDRIC' });
+    const basu = vente(61, { societe: 'criterimmo', libelle: 'BASUYEAUX', honorairesTtc: 11000, sourceOnglet: 'ARNAUD' });
+    const r = (id: number, venteId: number | null, montantTtc: number, annee: number, mois: number) => ({ id, societe: 'criterimmo' as const, annee, mois, negociateur: 'CEDRIC', montantTtc,
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'L3' });
+    // 3 333 rattachée à ZEMMOR (saisie ce mois), 500 rattachée à BASUYEAUX mais saisie en décembre 2024, 833 « à répartir » saisie ce mois
+    const fin = await ouvrirSur([zemmor, basu], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(1, 60, 3333, 2025, 1), r(2, 61, 500, 2024, 12), r(124, null, 833, 2025, 1)]);
+    try {
+      for (const u of ['ht', 'ttc'] as const) {
+        if (u === 'ttc') await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+        const cartes = (k: string) => [...container.querySelectorAll(`[data-cartes-ventes] [data-nego-${k}]`)].reduce((t, x) => t + centimes(x.textContent!), 0);
+        expect(montant('[data-reste-agence]')).toBe(cartes('reste'));
+        expect(montant('[data-retro-resultat]')).toBe(u === 'ttc' ? 383300 : Math.round(3333 / 1.2 * 100) + Math.round(500 / 1.2 * 100));
+      }
+      expect(texte('[data-total-hors-resultat]')).toBe('833 € TTC (694,17 € HT)');
+      expect(texte('[data-retros-hors-resultat]')).toContain('Non déduites ci-dessus — à rattacher à leur vente.');
+      await cliquer('[data-ouvrir-hors-resultat]');
+      expect(texte('[data-retro-hors="124"]')).toContain('à répartir');
+      expect(texte('[data-retro-hors="124"]')).toContain('CEDRIC › L3');
+      expect(container.textContent).not.toContain('Les rétrocessions comptent sur le mois où elles sont saisies');
+    } finally { fin(); }
+  });
+
+  it('🔴 LOT CH — un mois sans rétrocession hors vente : pas de ligne orange ; compromis (apporteur de répartition) et « Vendu + compromis » : Résultat = cartes', async () => {
+    const comp = { ...deux, id: 52, statut: 'compromis' as const, mois: null, dateCompromis: '2025-01-12' };
+    for (const mode of ['compromis', 'tous'] as const) {
+      const fin = await ouvrirSur([deux, comp], 'criterimmo', `/?vue=mois&annee=2025&mois=1&mode=${mode}`);
+      try {
+        expect(container.querySelector('[data-retros-hors-resultat]')).toBeNull();
+        const cartes = [...container.querySelectorAll('.trx-listes-mois [data-nego-reste]')].reduce((t, x) => t + centimes(x.textContent!), 0);
+        expect([mode, montant('[data-reste-agence]')]).toEqual([mode, cartes]);
+      } finally { fin(); }
+    }
   });
 });

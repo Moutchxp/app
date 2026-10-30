@@ -297,6 +297,13 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-entete-gauche h3{margin:0}
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
 .trx-listes-mois{display:contents}
+/* LOT CH — sous le Résultat : les rétrocessions saisies sans vente affichée, en ORANGE (jeton d'alerte), dépliables. */
+.trx-hors-resultat{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding:8px 10px;border:1px solid var(--color-svv-orange);border-radius:10px;background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.trx-hors-tete{appearance:none;display:flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.trx-hors-tete:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-hors-mention{margin:0;font-size:.82rem}
+.trx-hors-liste{list-style:none;margin:0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:6px;font-size:.88rem}
+.trx-hors-liste li{display:flex;flex-direction:column}
 .trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
 .trx-btn-large{width:100%;min-height:44px}
 .trx-negociateur-carte{display:flex;flex-direction:column;gap:8px;width:100%}

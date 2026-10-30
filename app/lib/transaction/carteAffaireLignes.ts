@@ -124,3 +124,35 @@ export function ecartsCarte(v: Vente, vue: Societe | null, l: LignesCarte): stri
   for (const u of ['htC', 'ttcC'] as const) if (total[u] !== commission[u]) out.push(`somme des lignes + rétrocessions = ${total[u]} ≠ commission ${commission[u]} (${u})`);
   return out;
 }
+
+/**
+ * ══ 🔴 LOT CH (Arno, 31/10/2026) — LE « RÉSULTAT DE L'AGENCE » = LA SOMME DES CARTES AFFICHÉES (PUR) ═══════════════════════════════════════════
+ * Calculé à partir des seules ventes / compromis affichés, avec la fonction des cartes (`lignesCarteAffaire`), sans copie de calcul :
+ *   · CA = la commission de chaque carte ;
+ *   · − Rétrocessions d'apporteurs = l'apporteur de la répartition + les rétrocessions RATTACHÉES à ces ventes, quel que soit leur mois de saisie ;
+ *   · − Inter-cabinet (nos sociétés, extérieur) = les « reversé à … » et les agences extérieures des cartes ;
+ *   · − Commissions des négociateurs indépendants = les « com négo » déduites des cartes ;
+ *   · = Reste à l'agence = la somme des « reste » des cartes, au centime, en HT et en TTC (CA − tout ce qui précède).
+ */
+export interface ResultatCartes { ca: MontantC; retro: MontantC; interCabinet: MontantC; exterieur: MontantC; com: MontantC; reste: MontantC; ids: number[] }
+
+export function resultatDesCartes(ventes: readonly Vente[], vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): ResultatCartes {
+  const r: ResultatCartes = { ca: RIEN, retro: RIEN, interCabinet: RIEN, exterieur: RIEN, com: RIEN, reste: RIEN, ids: [] };
+  for (const v of ventes) {
+    const l = lignesCarteAffaire(v, vue, o);
+    const vent = ventilationVente(v, vue);
+    r.ca = plus(r.ca, (vent.entree ?? vent.sortie)?.commissionVente ?? depuisTtc(v.honorairesTtc));
+    r.retro = plus(plus(r.retro, l.apporteur ?? RIEN), l.retro ?? RIEN);
+    r.interCabinet = plus(r.interCabinet, somme(l.lignes.map((x) => x.reverse?.m ?? RIEN)));
+    r.exterieur = plus(r.exterieur, somme(l.lignes.flatMap((x) => x.exterieures.map((y) => y.m))));
+    r.com = plus(r.com, somme(l.lignes.map((x) => x.comDeduite)));
+    r.reste = plus(r.reste, somme(l.lignes.map((x) => x.reste)));
+    r.ids.push(v.id);
+  }
+  return r;
+}
+
+/** 🔴 LOT CH — les rétrocessions SAISIES sur la période mais rattachées à aucune vente affichée (« à répartir », ou une vente d'une autre période) :
+ *  montrées à part, jamais déduites du Résultat. PUR. */
+export const retrosSansVenteAffichee = (saisies: readonly Retrocession[], ids: readonly number[]): Retrocession[] =>
+  saisies.filter((x) => x.venteId === null || !ids.includes(x.venteId));
