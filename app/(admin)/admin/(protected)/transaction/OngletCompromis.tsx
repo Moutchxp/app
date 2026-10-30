@@ -780,11 +780,11 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
     // 🔴 LOT BD — l'en-tête (la base) : un cadre à liseré gris.
     <div className={groupe === 'tete' ? 'trx-ventilation trx-cadre-base' : 'trx-ventilation'} data-ventilation={x.cote} data-groupe-ventilation={groupe}>
       {/* 🔴 LOT BA — l'en-tête, sans cadre : la part du CA de cette partie, référence de la carte (les cadres dessous la totalisent au centime). */}
-      {/* 🔴 LOT BB (Arno) — avec apporteur, l'en-tête est le calcul complet : « Commission de la vente », « − Apporteur » (rouge, son nom dessous en
+      {/* 🔴 LOT BB (Arno) — avec apporteur, l'en-tête est le calcul complet : « Honoraires de la vente » (🔴 LOT BQ, ex-« Commission de la vente »), « − Apporteur » (rouge, son nom dessous en
           petit, une ligne par apporteur), puis « = Honoraires nets partie … : (commission − apporteur) × part % = … » en gras. Sans apporteur : une ligne. */}
       {groupe === 'tete' && x.recuDe === null && x.apporteurs.length > 0 && <>
         <LigneCalcul donnees={{ 'data-entete-commission': x.cote }} ttc={x.commissionVente.ttcC / 100} ht={x.commissionVente.htC / 100}
-          libelle={<span className="trx-calcul-mot">Commission de la vente</span>} />
+          libelle={<span className="trx-calcul-mot">Honoraires de la vente</span>} />
         {/* 🔴 LOT BC (Arno) — une seule ligne par apporteur : « − Apporteur : [nom] » (sans nom : « à renseigner »), le montant rouge à droite sur la
             même ligne ; au téléphone, le nom peut passer à la ligne sous « − Apporteur : », sans jamais quitter son montant. */}
         {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100}
