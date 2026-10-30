@@ -893,11 +893,17 @@ export function filtreVersParams(f: Filtre): string {
 export const NOMS_MOIS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 /** Une ligne d'activité telle que l'écran la reçoit : le bien et le bail pour ouvrir la fiche, la provenance. */
+/**
+ * 🔴 LOT LS3 — un bien de la ligne (bouton « Fiche du bien ») ; `annexeDe` : le bien principal de la même ligne dont c'est une annexe (non
+ * détachée) — l'écran l'affiche en « + annexe : … » sous un seul bouton du bien principal ; `categorie`, `nature`, `typeBien`, `porte` : de
+ * quoi la nommer (« Parking n° 12 »). Absents (réponse d'avant ce lot) : un bien sans annexe.
+ */
+export interface FicheLot { id: number; libelle: string; annexeDe?: number | null; categorie?: string | null; nature?: string | null; typeBien?: string | null; porte?: string | null }
 export interface ActiviteLue extends ActiviteCalcul {
   lotId: number | null; bailId: number | null; source: string;
   /** 🔴 Arno (24/10/2026) — les locataires et les biens de la ligne, lus dans l'annuaire (raccourcis du panneau déplié). */
   locataires?: { id: number; libelle: string }[];
-  lots?: { id: number; libelle: string }[];
+  lots?: FicheLot[];
   /** 🔴 Arno (24/10/2026, Q1) — une ligne REPRISE rattachée à un bail affiche les noms de l'annuaire ; le texte du fichier reste ici. */
   libelleOrigine?: { proprietaire: string; locataire: string };
   /** 🔴 Arno (26/10/2026, 431) — ligne « Bail » convertie en « Mandat de gestion seul » : quand, par qui, et sa nature et sa date d'origine. */

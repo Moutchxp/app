@@ -69,7 +69,7 @@ describe('🔴 LOT LS2 — le reste de la ligne dépliée ne change pas', () => 
   it('« Dossier de location », « Modifier », « Fiche locataire », « Fiche du bien », la mention d’une ligne convertie, « Supprimer » ; l’étiquette « Gestion seule »', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/(admin)/admin/(protected)/location/FeuilleDuMois.tsx', 'utf8');
-    const reperes = ['data-dossier-location={id}>Dossier de location', "{edition === a.id ? 'Fermer' : 'Modifier'}", "'Fiche locataire'", "'Fiche du bien'",
+    const reperes = ['data-dossier-location={id}>Dossier de location', "{edition === a.id ? 'Fermer' : 'Modifier'}", "'Fiche locataire'", 'groupesFicheBien(a.lots ?? [])', // LOT LS3 : « Fiche du bien » vient du regroupement par bien principal
       '<ConversionMandat a={a} onFini={onRelire} />', '<SupprimerLocation id={a.id} onFini={onRelire} />'];
     const pos = reperes.map((r) => src.indexOf(r));
     expect(pos.every((p) => p > 0)).toBe(true);

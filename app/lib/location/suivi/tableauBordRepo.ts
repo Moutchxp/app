@@ -3,7 +3,7 @@ import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 import { familleDuLot } from '../bienComplet';
 import type { Origine, TypeActivite, CategoriePrime } from './suivi';
-import { aUnDuMensuel, champsResultatNet, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition, type CascadeNegociateur } from './tableauBord';
+import { aUnDuMensuel, champsResultatNet, historiqueAnnees, NATURES_BIEN, suiviDuNegociateur, variablesDuNegociateur, type EcartFichier, type ActiviteCalcul, type ActiviteLue, type FicheLot, type Assurance, type DonneesTableau, type LigneGestion, type NatureBien, type Transition, type CascadeNegociateur } from './tableauBord';
 import { typeDeBienDesFiches } from './suivi';
 import { aujourdhuiParis, type ModeApporteur, type ModePrime, type OrigineContact } from './suivi';
 import { enrichirGestionMensuelle } from '../gestionMensuelleRepo';
@@ -70,6 +70,13 @@ export function natureManuelleLue(r: Record<string, unknown>): ActiviteCalcul['n
 /** Une liste `json_agg` de { id, libelle } (absente : vide). */
 const fiches = (v: unknown): { id: number; libelle: string }[] => (Array.isArray(v) ? v : [])
   .map((x: { id?: unknown; libelle?: unknown }) => ({ id: Number(x.id), libelle: String(x.libelle ?? '') })).filter((x) => Number.isSafeInteger(x.id) && x.id > 0);
+const texteOuNull = (x: unknown): string | null => (typeof x === 'string' && x.trim() !== '' ? x : null);
+/** 🔴 LOT LS3 — les biens de la ligne, avec, pour une ANNEXE d'un autre bien de la même ligne, son bien principal et de quoi la nommer. */
+const fichesLots = (v: unknown): FicheLot[] => (Array.isArray(v) ? v : [])
+  .map((x: Record<string, unknown>) => ({ id: Number(x.id), libelle: String(x.libelle ?? ''),
+    annexeDe: x.annexeDe === null || x.annexeDe === undefined ? null : Number(x.annexeDe),
+    categorie: texteOuNull(x.categorie), nature: texteOuNull(x.nature), typeBien: texteOuNull(x.typeBien), porte: texteOuNull(x.porte) }))
+  .filter((x) => Number.isSafeInteger(x.id) && x.id > 0);
 
 export async function lireActivites(annees: readonly number[]): Promise<ActiviteLue[]> {
   if (!(await suiviDisponible()) || annees.length === 0) return [];
@@ -81,6 +88,11 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
   const avecBailOcc = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
   const avec424 = await statutBienManuelDisponible();
   const avec431 = await colonneExisteMemo('gestion_location_activite', 'converti_le');
+  // 🔴 LOT LS3 — les annexes (« bien principal » d'une annexe, 379 pour le détachement) et ce qui les nomme ; chaque colonne sondée.
+  const avecAnnexes = await colonneExisteMemo('gestion_lot_annexe', 'parent_id');
+  const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
+  const colLot = async (c: string): Promise<string> => (await colonneExisteMemo('gestion_annuaire_lot', c) ? `lt.${c}` : 'NULL::text');
+  const [catLot, typeLot, porteLot] = [await colLot('categorie'), await colLot('type_bien'), await colLot('porte')];
   const compte = (col: string): string => `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = a.${col})`;
   // 🔴 Arno (24/10/2026) — les LOCATAIRES et les BIENS de la ligne, lus dans l'annuaire (la source) : les raccourcis « Fiche
   // locataire » / « Fiche du bien » du panneau déplié. Locataires : les occupants du bail, sinon le locataire de la ligne ; biens :
@@ -132,7 +144,12 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
                JOIN gestion_annuaire_proprietaire p ON p.id = lb.proprietaire_id WHERE b.id = a.bail_id) AS proprietaire_source,
             ${avecBailOcc ? `(SELECT nullif(string_agg(${nomLocataire}, ', ' ORDER BY lo.id), '')
                FROM gestion_annuaire_locataire lo WHERE lo.id IN (SELECT oc.locataire_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id))` : 'NULL::text'} AS locataires_source,
-            (SELECT json_agg(json_build_object('id', lt.id, 'libelle', ${libelleLot}) ORDER BY lt.id) FROM gestion_annuaire_lot lt
+            (SELECT json_agg(json_build_object('id', lt.id, 'libelle', ${libelleLot},
+                -- 🔴 LOT LS3 — une ANNEXE (non détachée) d'un autre bien de la même ligne : son bien principal (affichage : « + annexe : … »).
+                'annexeDe', ${avecAnnexes ? `(SELECT ax.parent_id FROM gestion_lot_annexe ax WHERE ax.annexe_id = lt.id${avecDetache ? ' AND lt.annexe_detachee_le IS NULL' : ''}
+                   AND ax.parent_id <> lt.id AND (ax.parent_id = a.lot_id${avecBailOcc ? ' OR ax.parent_id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)' : ''})
+                 ORDER BY ax.id LIMIT 1)` : 'NULL::bigint'},
+                'categorie', ${catLot}, 'nature', lt.nature, 'typeBien', ${typeLot}, 'porte', ${porteLot}) ORDER BY lt.id) FROM gestion_annuaire_lot lt
               WHERE lt.id = a.lot_id${avecBailOcc ? ' OR lt.id IN (SELECT oc.lot_id FROM gestion_annuaire_occupation oc WHERE oc.bail_id = a.bail_id)' : ''}) AS lots,
             (SELECT b.entree - max(p.sortie) FROM gestion_bail b JOIN gestion_bail p ON p.lot_id = b.lot_id AND p.id <> b.id AND p.sortie IS NOT NULL AND p.sortie <= b.entree
               WHERE b.id = a.bail_id GROUP BY b.entree) AS vacance
@@ -162,7 +179,7 @@ export async function lireActivites(annees: readonly number[]): Promise<Activite
     apporteurTauxGestion: nOuNull(r.apporteur_taux_gestion), tauxGestionBien: nOuNull(r.taux_gestion_bien_ht),
     finGestion: r.fin_gestion === null || r.fin_gestion === undefined ? null : iso(r.fin_gestion),
     entreeGestionBien: r.entree_gestion_bien === null || r.entree_gestion_bien === undefined ? null : iso(r.entree_gestion_bien),
-    locataires: fiches(r.locataires), lots: fiches(r.lots),
+    locataires: fiches(r.locataires), lots: fichesLots(r.lots),
     conversion: r.converti_le === null || r.converti_le === undefined ? null : {
       le: r.converti_le instanceof Date ? r.converti_le.toISOString() : String(r.converti_le), par: String(r.converti_par_libelle ?? ''),
       typeOrigine: String(r.type_origine ?? 'bail'), dateOrigine: iso(r.date_signature_origine) },
