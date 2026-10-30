@@ -43,8 +43,13 @@ export interface VentilationCote {
    * commission de son négociateur, payée par l'autre société (null : non commissionné), et la part de l'agence de l'autre société.
    */
   versee: { vers: Societe; m: MontantC; negociateur: string | null; taux: number | null; commission: MontantC | null; agenceAutre: MontantC } | null;
-  /** 🔴 LOT BA — la commission de la vente (porteuse, CA global) : l'en-tête « Honoraires partie … : commission × part % = … ». */
+  /** 🔴 LOT BA — la commission de la vente (porteuse, CA global) : l'en-tête de la carte. */
   commissionVente: MontantC;
+  /**
+   * 🔴 LOT BB (Arno) — le(s) apporteur(s), déduits dans l'EN-TÊTE de chaque carte (« − Apporteur », son nom dessous), jamais dans sa ventilation :
+   * « = Honoraires partie … : (commission − apporteur) × part % = … » — les honoraires NETS de la partie. Vide : sans apporteur (ou ligne miroir).
+   */
+  apporteurs: { nom: string | null; m: MontantC }[];
   /** 🔴 LOT BA — la ligne miroir : la société porteuse (« Honoraires reçus de … ») ; null : une vente de la société vue. */
   recuDe: Societe | null;
   agence: MontantC;
@@ -137,9 +142,11 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
   // Les quote-parts de l'apporteur et des agences extérieures (vue de la porteuse ou CA global : c'est elle qui les paie), au prorata.
   const pctInternes = r.parties.reduce((t, p, i) => t + (p.sorte === 'exterieure' ? 0 : pctDe(i)), 0);
   const poids = cotes.map((c) => c.part);
+  // 🔴 LOT BB — l'apporteur est déduit dans l'en-tête de chaque carte (il n'est plus réparti entre les cartes) ; seules les agences extérieures
+  // gardent leur quote-part dans la ventilation.
+  const apporteurs = r.retroApporteurTtc === 0 ? [] : [{ nom: v.apporteur?.trim() || null,
+    m: ah ? { htC: Math.round(cHt!.apporteurHt * 100), ttcC: Math.round(cTtc!.apporteurHt * 100) } : depuisTtc(r.retroApporteurTtc) }];
   const aRepartir: { cle: QuotePart['cle']; nom: string | null; total: MontantC }[] = [];
-  if (r.retroApporteurTtc !== 0) aRepartir.push({ cle: 'apporteur', nom: v.apporteur?.trim() || null,
-    total: ah ? { htC: Math.round(cHt!.apporteurHt * 100), ttcC: Math.round(cTtc!.apporteurHt * 100) } : depuisTtc(r.retroApporteurTtc) });
   r.parties.forEach((p, i) => {
     if (p.sorte !== 'exterieure') return;
     const total = ah ? { htC: Math.round(cHt!.parts[i] * 100), ttcC: Math.round(cTtc!.parts[i] * 100) } : depuisTtc((netHt * pctDe(i) * TVA) / 100);
@@ -165,7 +172,7 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
     const commissions: CommissionCote[] = versee === null && c.nego !== null && commission !== null ? [{ negociateur: c.nego.nom, m: commission }] : [];
     const agence = commissions.reduce((t, x) => moins(t, x.m), versee === null ? c.base : moins(c.base, versee.m));
     out[c.cote] = { cote: c.cote, societe: garde, base: c.base, pctQuote: pctInternes === 0 ? 0 : (c.part / pctInternes) * 100, quoteParts, honoraires, commissions, versee, agence,
-      associes: rattacher(agence, associesDe(v, garde)), commissionVente, recuDe: null };
+      associes: rattacher(agence, associesDe(v, garde)), commissionVente, apporteurs, recuDe: null };
   });
   return out;
 }
@@ -183,7 +190,7 @@ function ventilationMiroir(v: Vente): Partial<Record<'entree' | 'sortie', Ventil
     const commissions = c === null ? [] : [{ negociateur: x.negociateur, m: c }];
     const agence = commissions.reduce((t, k) => moins(t, k.m), base);
     out[x.cote] = { cote: x.cote, societe: s, base, pctQuote: 100, quoteParts: [], honoraires: base, commissions, versee: null, agence, associes: rattacher(agence, associes),
-      commissionVente: depuisTtc(v.honorairesTtc), recuDe: m.porteuse };
+      commissionVente: depuisTtc(v.honorairesTtc), apporteurs: [], recuDe: m.porteuse };
   }
   return out;
 }
@@ -193,15 +200,17 @@ export interface ControleVentilation { attendu: MontantC; ventile: MontantC; eca
 
 /**
  * 🔴 LOT BA (Arno) — LE CONTRÔLE PERMANENT : la somme de TOUS les cadres des cartes de partie (vert + rouge : commissions, quote-parts,
- * inter-cabinet versé, parts de l'agence ; jamais les lignes « dont » d'information) = la commission de la vente (porteuse, CA global) ou la
- * part reçue (ligne miroir), au centime, en HT et en TTC. null : rien à contrôler (historique sans répartition, vente lue chez l'autre
+ * inter-cabinet versé, parts de l'agence ; jamais les lignes « dont » d'information) — 🔴 LOT BB : + le(s) apporteur(s) de l'en-tête — = la
+ * commission de la vente (porteuse, CA global) ou la part reçue (ligne miroir), au centime, en HT et en TTC. null : rien à contrôler (historique sans répartition, vente lue chez l'autre
  * société). Un écart = des données incomplètes (une partie qui n'est ni l'entrée ni la sortie, une répartition qui ne fait pas 100 %). PUR.
  */
 export function controleVentilation(v: Vente, vue: Societe | null): ControleVentilation | null {
   const vt = ventilationVente(v, vue);
   const cartes = Object.values(vt).filter((x): x is VentilationCote => x !== undefined);
   if (v.miroir == null && (v.repartition == null || (vue !== null && vue !== societePorteuse(v)))) return null;
-  const ventile = cartes.reduce((t, c) => [...c.commissions.map((x) => x.m), ...c.quoteParts.map((x) => x.m), ...(c.versee === null ? [] : [c.versee.m]), c.agence].reduce(plus, t), RIEN);
+  // 🔴 LOT BB — les honoraires nets des cartes (la somme de leurs cadres) + le(s) apporteur(s), comptés une fois.
+  const cadres = cartes.reduce((t, c) => [...c.commissions.map((x) => x.m), ...c.quoteParts.map((x) => x.m), ...(c.versee === null ? [] : [c.versee.m]), c.agence].reduce(plus, t), RIEN);
+  const ventile = (cartes[0]?.apporteurs ?? []).reduce((t, a) => plus(t, a.m), cadres);
   const attendu = v.miroir != null ? { htC: enCentimes(v.miroir.partHt), ttcC: enCentimes(v.honorairesTtc) } : cartes[0]?.commissionVente ?? commissionDeVente(v);
   return { attendu, ventile, ecart: moins(attendu, ventile) };
 }

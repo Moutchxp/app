@@ -73,17 +73,19 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
     complet(vt);
   });
 
-  it('apporteur : sa quote-part dans chaque carte (au prorata des parts, centimes du lot AH, l’écart sur le dernier) ; commissions + apporteur + part = honoraires', () => {
+  it('apporteur (🔴 LOT BB : déduit dans l’en-tête de chaque carte, plus réparti) : honoraires NETS 3 250 / 3 250 ; nets + apporteur = la commission de la vente', () => {
     // « Location ? » : 7 500 TTC, apporteur 1 000 TTC ; Arnaud (CRITERIMMO, associé non commissionné) 50 %, Pierre (CRITERIMMO, indépendant) 50 %.
     const v = vente({ id: 37, societe: 'criterimmo', honorairesTtc: 7500, retro: 1000, apporteur: 'Gardien Dacquet',
       parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50, { statut: 'associe', commissionne: false }), partie('sortie', 8, 'Pierre Thevenin', 'criterimmo', 50)] });
     const vt = ventilationVente(v, 'criterimmo');
-    expect(vt.entree!.quoteParts.map((q) => [q.cle, q.nom, ttc(q.m), ht(q.m)])).toEqual([['apporteur', 'Gardien Dacquet', 500, 416.67]]);
-    expect(vt.sortie!.quoteParts.map((q) => [ttc(q.m), ht(q.m)])).toEqual([[500, 416.66]]);
-    expect([ttc(vt.entree!.honoraires), ttc(vt.entree!.agence), ttc(vt.sortie!.commissions[0].m), ttc(vt.sortie!.agence)]).toEqual([3750, 3250, 1625, 1625]);
-    // les deux quote-parts = l'apporteur ; les deux cartes = la commission de la vente, au centime
-    expect(vt.entree!.quoteParts[0].m.htC + vt.sortie!.quoteParts[0].m.htC).toBe(83333);
-    expect(vt.entree!.honoraires.ttcC + vt.sortie!.honoraires.ttcC).toBe(750000);
+    expect([vt.entree!.quoteParts, vt.sortie!.quoteParts]).toEqual([[], []]);
+    for (const c of [vt.entree!, vt.sortie!]) expect(c.apporteurs.map((a) => [a.nom, ttc(a.m), ht(a.m)])).toEqual([['Gardien Dacquet', 1000, 833.33]]);
+    expect([ttc(vt.entree!.honoraires), ttc(vt.entree!.agence), ttc(vt.sortie!.honoraires), ttc(vt.sortie!.commissions[0].m), ttc(vt.sortie!.agence)]).toEqual([3250, 3250, 3250, 1625, 1625]);
+    // HT : 5 416,67 de nette ne se partage pas juste en deux (2 708,333…) : un centime reporté sur la dernière partie de la porteuse (lot AH)
+    expect([ht(vt.entree!.honoraires), ht(vt.sortie!.honoraires)]).toEqual([2708.33, 2708.34]);
+    // les deux cartes (nettes) + l'apporteur = la commission de la vente, au centime
+    expect(vt.entree!.honoraires.ttcC + vt.sortie!.honoraires.ttcC + 100000).toBe(750000);
+    expect(vt.entree!.honoraires.htC + vt.sortie!.honoraires.htC + 83333).toBe(625000);
     expect(vt.entree!.pctQuote).toBe(50);
     complet(vt);
   });
@@ -94,9 +96,11 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
       parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 40), partie('sortie', 6, 'Paul Martin', 'criterimmo', 40),
         partie('exterieure', null, null, null, 20, { nom: 'Agence du Parc' })] });
     const vt = ventilationVente(v, 'criterimmo');
-    expect(vt.entree!.quoteParts.map((q) => [q.cle, q.nom, ttc(q.m)])).toEqual([['apporteur', 'Julien Deblois', 1200], ['exterieure', 'Agence du Parc', 960]]);
-    // honoraires de la partie : 3 840 (base) + 1 200 + 960 = 6 000 = la moitié de la commission
-    expect([ttc(vt.entree!.base), ttc(vt.entree!.honoraires), ttc(vt.entree!.commissions[0].m), ttc(vt.entree!.agence)]).toEqual([3840, 6000, 1920, 1920]);
+    // 🔴 LOT BB — l'apporteur dans l'en-tête ; l'agence extérieure reste un cadre (sa quote-part au prorata de nos parties)
+    expect(vt.entree!.quoteParts.map((q) => [q.cle, q.nom, ttc(q.m)])).toEqual([['exterieure', 'Agence du Parc', 960]]);
+    expect(vt.entree!.apporteurs.map((a) => [a.nom, ttc(a.m)])).toEqual([['Julien Deblois', 2400]]);
+    // honoraires nets de la partie : 3 840 (base) + 960 = 4 800 = (12 000 − 2 400) × 50 %
+    expect([ttc(vt.entree!.base), ttc(vt.entree!.honoraires), ttc(vt.entree!.commissions[0].m), ttc(vt.entree!.agence)]).toEqual([3840, 4800, 1920, 1920]);
     complet(vt);
   });
 

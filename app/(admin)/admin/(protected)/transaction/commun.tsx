@@ -398,6 +398,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT BA — les lignes « dont » d'un cadre (information, hors total de la carte) : en petit, sous la mention ; l'alerte « Ventilation incomplète ». */
 .trx-calcul-dont{grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;margin-top:2px;font-size:.78rem;color:var(--color-svv-muted)}
 .trx-ventilation-alerte{margin:0 0 8px;font-size:.82rem}
+/* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
+.trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){
   .trx-calcul-libelle{grid-column:1 / -1;grid-row:1}
   .trx-calcul-resultat{grid-row:2}

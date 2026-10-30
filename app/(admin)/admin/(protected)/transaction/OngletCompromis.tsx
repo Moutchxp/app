@@ -622,7 +622,11 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
 }
 
-function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 LOT BB — un montant en rouge sans cadre (« − Apporteur » de l'en-tête). */
+  rouge?: boolean;
+  /** 🔴 LOT BB — une classe en plus (« = Honoraires partie … » en gras). */
+  classe?: string;
   /** 🔴 LOT BA — des lignes d'information en petit, sous la mention (hors du total de la carte). */
   apres?: ReactNode;
   /** 🔴 LOT AY — le HT au centime quand il ne se déduit pas du TTC (lignes de ventilation : chaque unité a ses centimes). */
@@ -640,9 +644,9 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
   const u = useAffichage();
   const autre = u === 'ttc' ? 'ht' : 'ttc';
   const valeur = (x: 'ht' | 'ttc'): number => (x === 'ttc' ? ttc : htExact ?? ttc / TVA);
-  const couleur = encadre === 'deduite' ? ' trx-rouge' : encadre === 'agence' ? ' trx-vert' : '';
+  const couleur = encadre === 'deduite' || rouge ? ' trx-rouge' : encadre === 'agence' ? ' trx-vert' : '';
   return (
-    <p className={encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`} {...donnees}
+    <p className={`${encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`}${classe === undefined ? '' : ` ${classe}`}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
       <strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
@@ -692,7 +696,8 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
       <LigneCalcul donnees={{ 'data-honoraires-cote': cote }} libelle={<><span className="trx-calcul-mot">{premier}</span> : <span className="trx-calcul-operation">{montantAffiche(u, honoraires.netTtc / TVA, honoraires.netTtc)} × {pctFr(honoraires.part)}{ESPACE}% =</span></>}
         ttc={honoraires.ttc} encadre={honorairesVersesVers === null ? null : 'deduite'} mention={honorairesVersesVers === null ? undefined : mentionVersement(honorairesVersesVers)} />
     )}
-    {rem !== null && (
+    {/* 🔴 LOT BB (accord d'Arno) — un cadre à 0 (HT et TTC) ne s'affiche pas. */}
+    {rem !== null && Math.round(rem.calculTtc * 100) !== 0 && (
       <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{baseAffichee !== undefined ? montantAffiche(u, baseAffichee.htC / 100, baseAffichee.ttcC / 100) : montantAffiche(u, rem.baseTtc / TVA, rem.baseTtc)} × {pctFr(rem.taux)}{ESPACE}% =</span></>}
         ttc={rem.calculTtc} />
     )}
@@ -718,21 +723,31 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
  * ce qui reste dans le CA de la société, ou rattaché au CA de son associé. Commissions + quote-parts + inter-cabinet versé + part de l'agence
  * = honoraires de la partie, au centime, dans chaque unité (`ventilationVente`).
  */
-function VentilationPartie({ x, groupe }: { x: VentilationCote;
+export function VentilationPartie({ x, groupe }: { x: VentilationCote;
   /** 🔴 LOT AZ — « tete » : les honoraires de la partie (sans cadre) ; « vert » : la part de l'agence ; « rouge » : les quote-parts. */
   groupe: 'tete' | 'vert' | 'rouge' }) {
   const u = useAffichage();
   const t = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
   const mot = x.cote === 'entree' ? 'vendeur' : 'acquéreur';
   const sorties = [...x.commissions.map((c) => c.m), ...x.quoteParts.map((q) => q.m), ...(x.versee === null ? [] : [x.versee.m])];
-  if (groupe === 'rouge' && x.quoteParts.length === 0 && x.versee === null) return null;
+  if (groupe === 'rouge' && x.quoteParts.length === 0 && (x.versee === null || (x.versee.m.htC === 0 && x.versee.m.ttcC === 0))) return null;
+  if (groupe === 'vert' && x.agence.htC === 0 && x.agence.ttcC === 0) return null;
   const qui = LIBELLE_SOCIETE[x.societe];
   return (
     <div className="trx-ventilation" data-ventilation={x.cote} data-groupe-ventilation={groupe}>
       {/* 🔴 LOT BA — l'en-tête, sans cadre : la part du CA de cette partie, référence de la carte (les cadres dessous la totalisent au centime). */}
-      {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100}
+      {/* 🔴 LOT BB (Arno) — avec apporteur, l'en-tête est le calcul complet : « Commission de la vente », « − Apporteur » (rouge, son nom dessous en
+          petit, une ligne par apporteur), puis « = Honoraires partie … : (commission − apporteur) × part % = … » en gras. Sans apporteur : une ligne. */}
+      {groupe === 'tete' && x.recuDe === null && x.apporteurs.length > 0 && <>
+        <LigneCalcul donnees={{ 'data-entete-commission': x.cote }} ttc={x.commissionVente.ttcC / 100} ht={x.commissionVente.htC / 100}
+          libelle={<span className="trx-calcul-mot">Commission de la vente</span>} />
+        {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100}
+          libelle={<span className="trx-calcul-mot">− Apporteur</span>} apres={a.nom === null ? undefined : <span className="trx-calcul-dont-ligne" data-entete-apporteur-nom>{a.nom}</span>} />)}
+      </>}
+      {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
         libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
-          : <><span className="trx-calcul-mot">Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />}
+          : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
+            ? `(${[x.commissionVente, ...x.apporteurs.map((a) => a.m)].map(t).join(' − ')})` : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />}
       {groupe === 'rouge' && x.quoteParts.map((q, i) => (
         <LigneCalcul key={`${q.cle}-${i}`} encadre="deduite" mention="Quote-part de cette partie — comptabilisée dans « Commissions versées »" donnees={{ 'data-quote-part': q.cle }}
           ttc={q.m.ttcC / 100} ht={q.m.htC / 100}
@@ -740,7 +755,7 @@ function VentilationPartie({ x, groupe }: { x: VentilationCote;
       ))}
       {/* 🔴 LOT BA (Arno) — l'inter-cabinet versé : le même montant que la Répartition et la fenêtre « Commissions versées » ; à titre d'information,
           en petit (hors du total de la carte), la commission du négociateur (payée par l'autre société) et la part de l'agence de l'autre société. */}
-      {groupe === 'rouge' && x.versee !== null && (() => {
+      {groupe === 'rouge' && x.versee !== null && !(x.versee.m.htC === 0 && x.versee.m.ttcC === 0) && (() => {
         const w = x.versee;
         const autre = LIBELLE_SOCIETE[w.vers];
         return <LigneCalcul encadre="deduite" mention="Comptabilisé dans « Commissions versées »" donnees={{ 'data-reverse-cote': x.cote }} ttc={w.m.ttcC / 100} ht={w.m.htC / 100}
@@ -752,7 +767,7 @@ function VentilationPartie({ x, groupe }: { x: VentilationCote;
             <span className="trx-calcul-dont-ligne" data-dont-agence={x.cote}>dont part de l’agence {autre} : {t(w.agenceAutre)}</span>
           </>} />;
       })()}
-      {groupe === 'vert' && <LigneCalcul encadre="agence" mention={mentionPartAgence(x)} donnees={{ 'data-part-agence': x.cote }} ttc={x.agence.ttcC / 100} ht={x.agence.htC / 100}
+      {groupe === 'vert' && !(x.agence.htC === 0 && x.agence.ttcC === 0) && <LigneCalcul encadre="agence" mention={mentionPartAgence(x)} donnees={{ 'data-part-agence': x.cote }} ttc={x.agence.ttcC / 100} ht={x.agence.htC / 100}
         libelle={<><span className="trx-calcul-mot">Part de l’agence {qui}</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
           ? <><span className="trx-calcul-terme">{t(x.honoraires)}</span> <span className="trx-calcul-terme">− aucune commission =</span></>
           : [x.honoraires, ...sorties].map((m, i, l) => <span key={i}>{i > 0 && ' '}<span className="trx-calcul-terme">{i > 0 && '− '}{t(m)}{i === l.length - 1 && ' ='}</span></span>)}</span></>} />}
