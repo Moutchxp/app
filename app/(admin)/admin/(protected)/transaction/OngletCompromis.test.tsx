@@ -4097,3 +4097,48 @@ describe('🔴 LOT BE — « Statut à la vente : … — non commissionné » r
     });
   }
 });
+
+describe('🔴 LOT BG — la ligne résultat du cadre gris ressort : trame, filet (avec apporteur), montant plus grand, « base des calculs ci-dessous »', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.uniteCommission = true; window.localStorage.setItem('trx-affichage-montants', 'ttc'); });
+  afterEach(() => { delete ref.uniteCommission; });
+  const ecran = async (s: 'criterimmo' | 'macj', liste: Vente[]) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = liste;
+    await act(async () => { root.render(createElement(EcranSociete, { societe: s })); }); await calmer();
+    await cliquer('[data-vue="compromis"]');
+  };
+  const sansApporteur: Vente = { ...compromis, id: 71, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0 } };
+
+  it('avec apporteur (41) : la ligne « = Honoraires partie … » dans le bloc résultat, avec filet, après l’apporteur ; la note dessous ; le texte de la ligne inchangé', async () => {
+    await ecran('criterimmo', [compromis]); await deplier(41);
+    const base = container.querySelector('[data-negociateur-cote="entree"] .trx-cadre-base')!;
+    const bloc = base.querySelector('[data-base-resultat="entree"]')!;
+    expect(bloc.className).toBe('trx-calcul-base-resultat trx-calcul-base-resultat--filet');
+    expect(bloc.querySelector('[data-honoraires-cote="entree"]')).not.toBeNull();
+    expect(texte('[data-base-note="entree"]')).toBe('base des calculs ci-dessous');
+    expect(base.querySelector('[data-entete-apporteur]')!.compareDocumentPosition(bloc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bloc.lastElementChild!.getAttribute('data-base-note')).toBe('entree'); // la dernière ligne du cadre gris
+    expect(texte('[data-honoraires-cote="entree"]')).toBe('= Honoraires partie vendeur : (12 000 € TTC − 2 400 € TTC) × 50 % = 4 800 € TTC (4 000 € HT)');
+  });
+
+  it('sans apporteur et sur la ligne miroir : le bloc résultat est seul (trame sur tout le cadre, sans filet), avec sa note', async () => {
+    await ecran('criterimmo', [sansApporteur]); await deplier(71);
+    expect(container.querySelector('[data-base-resultat="entree"]')!.className).toBe('trx-calcul-base-resultat trx-calcul-base-resultat--seule');
+    expect(container.querySelector('[data-negociateur-cote="entree"] .trx-cadre-base')!.children).toHaveLength(1);
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    await ecran('macj', [venteDansSociete(compromis, 'macj')!]); await cliquer('[data-deplier="miroir-41"]');
+    const b = container.querySelector('[data-remuneration="sortie"] [data-base-resultat]')!;
+    expect([b.className, texte('[data-remuneration="sortie"] [data-base-note]')]).toEqual(['trx-calcul-base-resultat trx-calcul-base-resultat--seule', 'base des calculs ci-dessous']);
+    expect(b.querySelector('[data-honoraires-cote]')!.textContent).toContain('Honoraires reçus de CRITERIMMO');
+  });
+
+  it('le style : trame des sommes, coins du bas assortis au cadre, filet, libellé en gras, montant un cran au-dessus, note petite et grise', async () => {
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    for (const r of ['.trx-calcul-base-resultat{display:flex;flex-direction:column;gap:2px;background:var(--trx-trame);margin:0 -8px -6px;padding:6px 8px;border-radius:0 0 8.5px 8.5px}',
+      '.trx-calcul-base-resultat--seule{margin:-6px -8px;border-radius:8.5px}', '.trx-calcul-base-resultat--filet{border-top:1px solid var(--color-svv-line)}',
+      '.trx-calcul-base-resultat .trx-calcul-libelle{font-weight:700}', '.trx-calcul-base-resultat .trx-calcul-resultat{font-size:1.15rem;font-weight:800}',
+      '.trx-calcul-base-note{font-size:.75rem;color:var(--color-svv-muted)}', '.trx-calcul-cote{margin:0;font-size:.88rem;']) expect(css).toContain(r);
+  });
+});

@@ -749,10 +749,15 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
         {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100}
           libelle={<><span className="trx-calcul-mot">− Apporteur</span> : <span className={a.nom === null ? 'trx-a-renseigner' : undefined} data-entete-apporteur-nom>{a.nom ?? A_RENSEIGNER}</span></>} />)}
       </>}
-      {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
-        libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
-          : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
-            ? `(${[x.commissionVente, ...x.apporteurs.map((a) => a.m)].map(t).join(' − ')})` : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />}
+      {/* 🔴 LOT BG (Arno) — la ligne résultat ressort : trame grise des sommes sur toute la largeur du cadre (coins du bas assortis), filet au-dessus
+          s'il y a un apporteur, montant principal plus grand et en gras, et dessous, en petit : « base des calculs ci-dessous ». */}
+      {groupe === 'tete' && <div className={`trx-calcul-base-resultat ${x.recuDe === null && x.apporteurs.length > 0 ? 'trx-calcul-base-resultat--filet' : 'trx-calcul-base-resultat--seule'}`} data-base-resultat={x.cote}>
+        <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
+          libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
+            : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
+              ? `(${[x.commissionVente, ...x.apporteurs.map((a) => a.m)].map(t).join(' − ')})` : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
+        <span className="trx-calcul-base-note" data-base-note={x.cote}>base des calculs ci-dessous</span>
+      </div>}
       {groupe === 'rouge' && x.quoteParts.map((q, i) => (
         <LigneCalcul key={`${q.cle}-${i}`} encadre="deduite" mention="Quote-part de cette partie — comptabilisée dans « Commissions versées »" donnees={{ 'data-quote-part': q.cle }}
           ttc={q.m.ttcC / 100} ht={q.m.htC / 100}

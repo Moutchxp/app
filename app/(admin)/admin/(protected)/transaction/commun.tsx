@@ -406,6 +406,15 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 @media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system']{--trx-lisere-base:#a3adbb} }
 .trx-ventilation{display:flex;flex-direction:column;gap:8px}
 .trx-cadre-base{border:1.5px solid var(--trx-lisere-base);border-radius:10px;padding:6px 8px;box-sizing:border-box;gap:4px}
+/* LOT BG (Arno) — la ligne résultat du cadre gris : trame des sommes (lot AP) sur toute la largeur intérieure, coins du bas assortis au cadre
+   (10 px − 1,5 px de liseré) ; seule (sans apporteur, ligne miroir) : tout le cadre ; filet au-dessus quand un apporteur la précède ; libellé en gras,
+   montant principal un cran au-dessus (le petit reste petit) ; « base des calculs ci-dessous » en petit, en gris. */
+.trx-calcul-base-resultat{display:flex;flex-direction:column;gap:2px;background:var(--trx-trame);margin:0 -8px -6px;padding:6px 8px;border-radius:0 0 8.5px 8.5px}
+.trx-calcul-base-resultat--seule{margin:-6px -8px;border-radius:8.5px}
+.trx-calcul-base-resultat--filet{border-top:1px solid var(--color-svv-line)}
+.trx-calcul-base-resultat .trx-calcul-libelle{font-weight:700}
+.trx-calcul-base-resultat .trx-calcul-resultat{font-size:1.15rem;font-weight:800}
+.trx-calcul-base-note{font-size:.75rem;color:var(--color-svv-muted)}
 /* LOT BB — « = Honoraires partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){
