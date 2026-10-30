@@ -45,9 +45,9 @@ describe('vérifier la répartition (avant tout enregistrement)', () => {
     expect(m).toMatch(/Rien n’a été enregistré/);
     expect(verifierRepartition([pct(e, 49.9), pct(s, 50)], 12000, 0)).toMatch(/99,9\u00a0%/);
   });
-  it('la saisie en € HT : juste au centime de la commission nette, sinon refusée', () => {
+  it('la saisie en € HT : juste au centime des honoraires nets, sinon refusée', () => {
     const [e, s] = partiesParDefaut(JB, MY);
-    // 12 000 TTC → 10 000 HT de commission nette : 6 000 € + 40 %
+    // 12 000 TTC → 10 000 HT d’honoraires nets : 6 000 € + 40 %
     expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, pct(s, 40)], 12000, 0)).toBeNull();
     expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, { ...s, pourcentage: null, montantHt: 4000 }], 12000, 0)).toBeNull();
     expect(verifierRepartition([{ ...e, pourcentage: null, montantHt: 6000 }, { ...s, pourcentage: null, montantHt: 3999.99 }], 12000, 0)).toMatch(/99,9999\u00a0%/);

@@ -696,7 +696,7 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     await repo.enregistrerDossier(37, dossier({ commissions: { entree: null, sortie: { montant: 450, unite: 'ttc' }, taux: { entree: null, sortie: 40 }, mode: { entree: null, sortie: 'calculee' } } }), '2026-10-29', A);
     expect(lignesPosees().map((l) => [l.cote, l.ttc, l.taux])).toEqual([['sortie', 6500 * 0.3 * 0.4, 40]]);
     const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
-    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commission recalculée suite à : changement de la commission de la vente, changement du taux — /);
+    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commission recalculée suite à : changement des honoraires de la vente, changement du taux — /);
   });
 
   it('« Revenir au calcul » / « Appliquer le calcul » : mode « calculee » enregistré ; une saisie à la main : « manuelle »', async () => {
@@ -750,7 +750,7 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
     expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_vente (societe'))!.params[0]).toBe('criterimmo');
   });
 
-  it('modifiée : le négociateur d’entrée passe chez MACJ → la vente bascule (colonne `societe`), journalisé « Société porteuse : CRITERIMMO → MACJ »', async () => {
+  it('modifiée : le négociateur d’entrée passe chez MACJ → la vente bascule (colonne `societe`), journalisé « Société porteuse du mandat : CRITERIMMO → MACJ »', async () => {
     reponses.push(comptes, periodes,
       (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'DURAND', honoraires_ttc: 6000, statut: 'compromis', annee: 2026, retire_le: null, societe: 'criterimmo' }] } : undefined),
       (s) => (s.includes('RETURNING id') ? { rows: [{ id: '95' }] } : undefined));
@@ -758,7 +758,7 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
     const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_vente SET') && x.sql.includes('societe = $'))!;
     expect(maj.params).toContain('macj');
     const j = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'modification')!;
-    expect(j.params[5]).toBe('Société porteuse : CRITERIMMO → MACJ (la société du négociateur d’entrée).');
+    expect(j.params[5]).toBe('Société porteuse du mandat : CRITERIMMO → MACJ (la société du négociateur d’entrée).');
     expect(JSON.parse(String(j.params[3]))).toMatchObject({ societe: 'criterimmo' });
     expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
   });
@@ -774,7 +774,7 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
       (s) => (s.includes('RETURNING id') ? { rows: [{ id: '96' }] } : undefined));
     expect(await repo.rangerPorteuse(81, A)).toEqual({ ok: true, valeur: { avant: 'criterimmo', apres: 'macj' } });
     expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente SET'))!.params).toEqual([81, 'macj']);
-    expect(String(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[5])).toMatch(/^Rangée chez sa société porteuse : CRITERIMMO → MACJ/);
+    expect(String(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[5])).toMatch(/^Rangée chez sa société porteuse du mandat : CRITERIMMO → MACJ/);
     appels.length = 0; reponses = [];
     reponses.push((s) => (s.includes('FOR UPDATE') ? { rows: [{ libelle: 'DURAND', statut: 'compromis', retire_le: null, societe: 'macj' }] } : undefined),
       (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [{ sorte: 'entree', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'macj', pourcentage: '100' }] } : undefined));

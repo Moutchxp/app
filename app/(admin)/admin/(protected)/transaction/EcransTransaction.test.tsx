@@ -339,7 +339,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       act(() => { root.unmount(); }); root = createRoot(container);
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
       await act(async () => { (container.querySelector('[data-vente="38"] .tdb-replie-ligne') as HTMLElement).click(); }); await calmer();
-      expect(texte('[data-vente="38"] [data-contenu-replie]')).toContain('CA de CRITERIMMO (société porteuse)');
+      expect(texte('[data-vente="38"] [data-contenu-replie]')).toContain('CA de CRITERIMMO (société porteuse du mandat)');
       expect(texte('[data-inter-cabinet-mois]')).toBe('1 666,67 €');
       // Reste : 3 333,33 − 1 666,67 ; Pierre (MACJ) n'est pas déduit chez CRITERIMMO
       expect(texte('[data-reste-agence]')).toBe('1 666,66 €'); // 🔴 LOT CH : la somme des cartes (part de l'agence de l'entrée, centimes du lot AH);

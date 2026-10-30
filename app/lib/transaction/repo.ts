@@ -787,7 +787,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       const ecrites = porteuse !== null ? { ...valeurs, societe: porteuse } : valeurs;
       const r = await ecrire(q, 'vente', id, ecrites, true);
       if (r !== null && Object.keys(r.apres).length > 0) await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur,
-        ...('societe' in r.apres ? { commentaire: `Société porteuse : ${LIBELLE_SOCIETE[String(r.avant.societe) as Societe] ?? r.avant.societe} → ${LIBELLE_SOCIETE[porteuse!]} (la société du négociateur d’entrée).` } : {}) });
+        ...('societe' in r.apres ? { commentaire: `Société porteuse du mandat : ${LIBELLE_SOCIETE[String(r.avant.societe) as Societe] ?? r.avant.societe} → ${LIBELLE_SOCIETE[porteuse!]} (la société du négociateur d’entrée).` } : {}) });
       venteId = id;
     }
     // ④ les personnes : réutiliser une fiche connue, sinon en créer une ; l'ensemble des liens de la vente est remplacé (réversible)
@@ -918,7 +918,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       const recalculeesFinales = recalculees.filter((c) => !nonCommissionnes.includes(c));
       const causes: string[] = [];
       if (avantVente !== null) {
-        if (Number(avantVente.honoraires_ttc) !== s.honorairesTtc) causes.push('changement de la commission de la vente');
+        if (Number(avantVente.honoraires_ttc) !== s.honorairesTtc) causes.push('changement des honoraires de la vente');
         const retroAvant = avantVente.retro_apporteur_ht != null ? Number(avantVente.retro_apporteur_ht) * TVA : Number(avantVente.retro_apporteur_ttc ?? 0);
         if (nOuNull(avantVente.apporteur_id) !== s.apporteurId || Math.abs(retroAvant - retroTtc) >= 0.005) causes.push('changement de l’apporteur');
       }
@@ -969,7 +969,7 @@ export async function rangerPorteuse(id: number, auteur: AuteurTx): Promise<Issu
     if (porteuse === avant) return { ok: true, valeur: null };
     const r = await ecrire(q, 'vente', id, { societe: porteuse }, true);
     await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
-      commentaire: `Rangée chez sa société porteuse : ${LIBELLE_SOCIETE[avant]} → ${LIBELLE_SOCIETE[porteuse]} (la société du négociateur d’entrée) — transaction:ranger-porteuse.` });
+      commentaire: `Rangée chez sa société porteuse du mandat : ${LIBELLE_SOCIETE[avant]} → ${LIBELLE_SOCIETE[porteuse]} (la société du négociateur d’entrée) — transaction:ranger-porteuse.` });
     await synchroniserInterCabinet(q, id, auteur);
     return { ok: true, valeur: { avant, apres: porteuse } };
   });

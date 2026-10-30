@@ -56,7 +56,7 @@ const pct = (x: number): string => pctFr(x);
  */
 export function verifierRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number): string | null {
   if (retroApporteurTtc < 0) return 'La rétrocession de l’apporteur ne peut pas être négative.';
-  if (retroApporteurTtc > honorairesTtc) return 'La rétrocession de l’apporteur dépasse la commission : la commission nette serait négative.';
+  if (retroApporteurTtc > honorairesTtc) return 'La rétrocession de l’apporteur dépasse la commission : les honoraires nets seraient négatifs.';
   if (parties.length === 0) return 'Choisissez au moins le négociateur d’entrée ou de sortie du mandat.';
   for (const p of parties) {
     const quoi = p.sorte === 'exterieure' ? `la partie extérieure${p.nom ? ` « ${p.nom} »` : ''}` : `« ${LIBELLE_PARTIE[p.sorte]} »`;
@@ -81,7 +81,7 @@ export function verifierRepartition(parties: readonly Partie[], honorairesTtc: n
 export function motifSomme(parties: readonly Partie[], netHt: number): string | null {
   const t = totalRepartition(parties, netHt);
   const juste = parties.every((p) => p.pourcentage !== null) ? Math.abs(t.pourcentage - 100) < 1e-9 : centimes(t.montantHt) === centimes(netHt);
-  return juste ? null : `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(netHt)} HT de commission nette) : elle doit faire exactement 100 %.`;
+  return juste ? null : `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(netHt)} HT d’honoraires nets) : elle doit faire exactement 100 %.`;
 }
 
 /** Ce que chaque société reçoit, et la part extérieure (HT). PUR. */

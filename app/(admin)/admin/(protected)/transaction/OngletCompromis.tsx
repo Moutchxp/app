@@ -606,12 +606,12 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
           <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
             <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
             <tbody>
-              {ligne('commission', <>Commission de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse)</>, LIBELLE_SOCIETE[porteuse], pct(100),
+              {ligne('commission', <>Honoraires de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse du mandat)</>, LIBELLE_SOCIETE[porteuse], pct(100),
                 montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort trx-somme-ligne')}
               {apporteur
                 ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
                 : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
-              {ligne('base', '= Base de répartition (commission nette)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
+              {ligne('base', '= Base de répartition (honoraires nets)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
               {r.parties.map((p, i) => (
                 <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
                   <td data-mot="%">{pct(p.pourcentage !== null ? p.pourcentage : ps.netHt === 0 ? 0 : ((p.montantHt ?? 0) / ps.netHt) * 100)}</td>
@@ -1200,11 +1200,11 @@ export function DetailMiroir({ v, references, aujourdhui, disponible, onFait, st
         <section className="trx-communes" aria-label="Inter-cabinet reçu" data-miroir-bloc>
           <h4>Inter-cabinet reçu</h4>
           <dl className="trx-couples">
-            <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
+            <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse du mandat</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
             <div className="trx-couple" data-miroir-info="origine"><dt>Vente d’origine</dt><dd>{m.libelleOrigine}
               {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></dd></div>
             <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>
-              <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} de la commission nette`}</dd></div>
+              <dd className={pctTexte === null ? 'trx-a-renseigner' : undefined}>{pctTexte === null ? A_RENSEIGNER : `${pctTexte} des honoraires nets`}</dd></div>
             <div className="trx-couple" data-miroir-info="ca"><dt>CA de {LIBELLE_SOCIETE[v.societe]} sur cette vente</dt>
               <dd><span className="trx-ht-ttc-pile"><Montants ht={m.partHt} ttc={v.honorairesTtc} sens="recu" /></span></dd></div>
             <div className="trx-couple" data-miroir-info="dates"><dt>Dates</dt><dd><span className="trx-dates">

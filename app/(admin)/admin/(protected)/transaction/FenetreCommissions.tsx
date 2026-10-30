@@ -144,7 +144,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
       <section key={a.id} className="trx-fc-section" data-affaire={a.id} aria-label={titres[a.id] ?? a.libelle}>
         <div className="trx-fc-tete trx-fc-tete--affaire">
           <span className="trx-fc-titre-affaire"><h3>{affaire(a.id)}</h3>{sousTitre(a.dateCompromis, a.recueDe)}</span>
-          <Montant htC={Math.round(a.commissionHt * 100)} ttcC={Math.round(a.commissionTtc * 100)} versee={false} recu donnees={{ 'data-commission-affaire': String(a.id) }} apres={<small>commission de la vente</small>} />
+          <Montant htC={Math.round(a.commissionHt * 100)} ttcC={Math.round(a.commissionTtc * 100)} versee={false} recu donnees={{ 'data-commission-affaire': String(a.id) }} apres={<small>honoraires de la vente</small>} />
         </div>
         <ul className="trx-fc-lignes">
           {[...versees, ...infos].map((l, i) => (

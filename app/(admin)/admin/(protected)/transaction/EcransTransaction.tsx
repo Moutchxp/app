@@ -995,7 +995,7 @@ export function EcranGlobal() {
                 <td data-mot="Total">−{eur(A.interCabinetHt)}</td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}
             {A.exterieurHt > 0 && (
-              <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(inter-cabinet extérieur : dans le CA de la société porteuse, versé par elle)</small></th>
+              <tr data-exterieur-global><th scope="row">Parts extérieures <small className="loc-muet">(inter-cabinet extérieur : dans le CA de la société porteuse du mandat, versé par elle)</small></th>
                 <td data-mot="Vente CRITERIMMO">—</td><td data-mot="Vente MACJ">—</td><td data-mot="Location">—</td><td data-mot="Gestion">—</td>
                 <td data-mot="Total">{eur(A.exterieurHt)} <small className="loc-muet">pour information</small></td><td data-mot={String(annee - 1)}>—</td><td data-mot="Écart">—</td></tr>
             )}

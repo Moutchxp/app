@@ -334,7 +334,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                     propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission)}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
-              {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse (dans ses commissions versées).</span>}
+              {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse du mandat (dans ses commissions versées).</span>}
             </li>
           );
         })}
@@ -366,7 +366,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
             const noms = c === null ? [] : c.exterieurs.filter((e) => e.ht > 0).map((e) => e.nom);
             const exterieurTtc = cT === null ? exterieurHt * TVA : cT.exterieurs.reduce((t, e) => t + e.ht, 0);
             return <>
-              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse), <Montants disposition="ligne" sens="recu" ht={caHt} ttc={commission} />
+              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse du mandat), <Montants disposition="ligne" sens="recu" ht={caHt} ttc={commission} />
                 {recoit.length === 0 && exterieurHt === 0 ? ' · rien de reversé en inter-cabinet' : ''}</span>
               <span className="loc-muet" data-parts-societes>
                 <span data-part-societe-form={porteuse}>Part {LIBELLE_SOCIETE[porteuse]} : <Montants disposition="ligne" ht={partDe(porteuse)} ttc={ttcDe(porteuse)} /> · {pctTexte(pcts.societe[porteuse])}</span>
@@ -432,7 +432,7 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
           onFocus={() => setEnSaisie(true)} onBlur={() => setEnSaisie(false)} data-champ={champ} /></label>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
       {brute.auto === true && propose != null && <span className="loc-muet" data-propose={champ}>
-        proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(choisie, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% de la commission nette)</span>}
+        proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(choisie, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% des honoraires nets)</span>}
       {ecartCalcul(brute, propose ?? null) && propose != null && <span className="trx-ecart-calcul" data-ecart-calcul={champ}>
         <span className="trx-alerte">valeur saisie — calcul proposé : {montantsTexte(choisie, propose.ttc / TVA, propose.ttc)}</span>
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...brute, auto: true })} data-appliquer-calcul={champ}>Appliquer le calcul</button></span>}
@@ -605,7 +605,7 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
     <table className="trx-resume-base" aria-label="Base de répartition" data-resume-base>
       <thead><tr><td /><th scope="col">{MOT_UNITE[u]} ({MOT_UNITE[autre]})</th></tr></thead>
       <tbody>
-        <tr className="trx-somme-ligne" data-resume="commission"><th scope="row">Commission de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
+        <tr className="trx-somme-ligne" data-resume="commission"><th scope="row">Honoraires de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
         {apporteurs.length === 0
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
           : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'verse', `apporteur-${i}`)}</tr>)}
