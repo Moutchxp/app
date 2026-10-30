@@ -900,7 +900,11 @@ export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: C
   /** TRANSACTION (27/10/2026) — le mot de la ligne du nombre (« Ventes ») ; absent : « Baux », comme avant. */
   motNb?: string;
   /** 🔴 LOT BS (Transaction) — ce que dit le pied sans N−1 (« 2025 : aucun compromis daté ») ; absent : « N−1 non importée », comme avant. */
-  sansN1?: string }
+  sansN1?: string;
+  /** 🔴 LOT BW (Transaction, « HT | TTC ») — le mot du montant (« CA TTC ») ; absent : « CA HT », comme avant. */
+  motCa?: string;
+  /** 🔴 LOT BW — l'autre unité, en petit entre parenthèses après chaque montant (`facteur` : de l'unité affichée vers l'autre) ; absent : rien. */
+  autre?: { mot: string; facteur: number } }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre;
   /** 🔴 LOT BS (Transaction, « Vendu + compromis ») — la part du BAS de la barre (le vendu, couleur pleine) ; le reste (les compromis) se pose
    *  au-dessus, plus clair ; `basN1` : idem pour la barre hachurée de N−1. Absent : une barre, comme avant. */
@@ -921,7 +925,8 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : (
         <>
           {x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
-          <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? 'CA HT' : 'Total HT'}</span><span className="tdb-bulle-montant">{eur(x.ca)}</span></p>
+          <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? info.motCa ?? 'CA HT' : `Total ${(info.motCa ?? 'CA HT').replace(/^CA /, '')}`}</span><span className="tdb-bulle-montant">{eur(x.ca)}
+            {info.autre !== undefined && <small className="tdb-bulle-autre" data-bulle-autre> ({eur(x.ca * info.autre.facteur)} {info.autre.mot})</small>}</span></p>
           <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>
         </>
       )}
@@ -1189,10 +1194,12 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
  * suit l'année survolée ou choisie : la valeur de l'année et de la précédente, l'écart ; en cumul, les cumuls à fin d'année. L'année en cours
  * est arrêtée au mois courant (« janv. → <mois> »). Sans `mesure` : le CA en barres, comme avant.
  */
-export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, fin, precedents, motNb }: {
+export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = false, soldes = null, fin, precedents, motNb, unite }: {
   lignes: readonly AnneeHistorique[]; annee: number; onAnnee: (a: number) => void;
   /** TRANSACTION (27/10/2026) — le mot de la ligne du nombre dans l'encart (« Ventes ») ; absent : « Baux », comme avant. */
   motNb?: string;
+  /** 🔴 LOT BW (Transaction, « HT | TTC ») — le mot du montant et l'autre unité dans l'encart ; absent : « CA HT », comme avant. */
+  unite?: Pick<InfoBarre, 'motCa' | 'autre'>;
   mesure?: MesureMois; cumul?: boolean; soldes?: readonly number[] | null;
   /** 🔴 Arno (25/10/2026) — la FIN de la période (AAAA-MM-JJ) : sa dernière année, si elle s'arrête avant le 31 décembre, est dite « (janv. → <mois>) ». */
   fin?: string;
@@ -1212,19 +1219,19 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
       const i = lignes.findIndex((l) => l.annee === a);
       const titre = `Cumul à fin ${a}${periode(a)}`;
       const prec = i > 0 ? i - 1 : -1;
-      if (mesure === 'ca') return { titre, motNb, courant: { libelle: String(a), ca: i < 0 ? null : cumuls[i], nb: i < 0 ? null : baux[i] },
+      if (mesure === 'ca') return { titre, motNb, ...unite, courant: { libelle: String(a), ca: i < 0 ? null : cumuls[i], nb: i < 0 ? null : baux[i] },
         precedent: prec < 0 ? null : { libelle: String(lignes[prec].annee), ca: cumuls[prec], nb: baux[prec] } };
       return { titre, compte: `${compte} (cumul)`, courant: { libelle: String(a), ca: i < 0 || sansGestion ? null : cumuls[i], nb: null },
         precedent: prec < 0 || sansGestion ? null : { libelle: String(lignes[prec].annee), ca: cumuls[prec], nb: null } };
     };
     return <CourbeCumul courant={sansGestion ? [] : cumuls} n1={null} annee={annee} selection={annee} entier={mesure !== 'ca'} bulle={bulle} onChoisir={onAnnee}
       etiquettes={lignes.map((l) => String(l.annee))} cles={lignes.map((l) => l.annee)} nom="annees-cumul" attributZone="data-annee-cumul"
-      aria={`${mesure === 'ca' ? 'CA HT' : compte} cumulé de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
+      aria={`${mesure === 'ca' ? unite?.motCa ?? 'CA HT' : compte} cumulé de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
       legende={<><span className="tdb-legende tdb-legende--courant" /> cumul depuis {lignes[0]?.annee}</>} />;
   }
   // Arno (23/10/2026) : une largeur d'année FIXE — chaque nouvelle année ajoute une barre, et le graphique défile quand elles ne tiennent plus.
   return <Histogramme attribut="data-barre-annee" courante={annee} onChoisir={onAnnee} pasFixe={PAS_ANNEE_FIXE} entier={mesure !== 'ca'}
-    aria={`${mesure === 'ca' ? 'CA HT' : compte} par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
+    aria={`${mesure === 'ca' ? unite?.motCa ?? 'CA HT' : compte} par année, de ${lignes[0]?.annee} à ${lignes.at(-1)?.annee}`}
     barres={lignes.map((l, i) => {
       const titre = `Année ${l.annee}${periode(l.annee)}`;
       // 🔴 Arno (25/10/2026) — l'année précédente sur la MÊME PORTION (quand elle est fournie) ; sinon l'année d'avant entière, comme avant.
@@ -1233,7 +1240,7 @@ export function CourbeAnnees({ lignes, annee, onAnnee, mesure = 'ca', cumul = fa
         const p = suite(i) ? lignes[i - 1] : null;
         const precedent = pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: pr.ca, nb: pr.nbBaux })
           : p === null ? null : { libelle: String(p.annee), ca: p.ca, nb: p.nbBaux };
-        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, motNb, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux }, precedent } };
+        return { cle: l.annee, libelle: String(l.annee), valeur: l.ca, info: { titre, motNb, ...unite, courant: { libelle: String(l.annee), ca: l.ca, nb: l.nbBaux }, precedent } };
       }
       const precedent = sansGestion ? null : pr !== undefined ? (pr === null ? null : { libelle: `${pr.annee}${periode(l.annee)}`, ca: mesure === 'baux' ? pr.nbBaux : pr.solde, nb: null })
         : !suite(i) ? null : { libelle: String(lignes[i - 1].annee), ca: valeurs[i - 1], nb: null };

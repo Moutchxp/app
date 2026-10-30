@@ -465,6 +465,10 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-modes{flex-wrap:nowrap}
 .trx-modes .trx-unite{white-space:nowrap}
 .trx-mode-regle{display:block;max-width:34rem;font-size:.75rem;font-weight:400;white-space:normal}
+/* LOT BW — « Compter » prend trois colonnes de la grille des filtres (ses trois boutons tiennent), « Montants » (HT | TTC) la suivante, à sa droite. */
+.trx-champ-mode{grid-column:span 3}
+.trx-champ-unite{display:flex;flex-direction:column;gap:4px;min-width:max-content}
+@media (max-width:1100px){ .trx-champ-mode{grid-column:span 2} }
 @media (max-width:760px){ .trx-champ-mode{grid-column:1/-1} }
 @media (max-width:420px){ .trx-champ-mode{min-width:0} .trx-modes .trx-unite{padding:0 8px;min-width:0} }
 .tdb-barre.tdb-barre--haut{opacity:.42}
@@ -477,6 +481,21 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT BU — « Le mois » : une vente se deplie sur la fiche de l'onglet Compromis (toute la ligne, ou le triangle rouge partage ; Entree, Espace) ;
    la fiche occupe toute la largeur du tableau, sous sa ligne. */
 .trx-ligne-depliable{cursor:pointer}
+.trx-mt-liste{display:inline-flex;flex-direction:column;align-items:flex-end}
+.trx-mt-liste-grand{font-weight:700;white-space:nowrap}
+.trx-montant-autre{font-size:.82em;font-weight:600;opacity:.78;white-space:nowrap}
+.trx-pile-droite{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px}
+.trx-ligne-nego-tete{font-weight:500}
+/* LOT BW — une vente en deux lignes (entrée, sortie) : un même bloc ; un trait fin pointillé entre les deux. En cartes (téléphone, tablette) : les
+   deux cartes collées, le pointillé entre elles ; la case « Action » vide de la sortie n'est pas montrée. */
+@media (min-width:1025px){ .trx-ligne-nego--entree > th,.trx-ligne-nego--entree > td{border-bottom:1px dashed var(--color-svv-line)} .trx-ligne-nego--sortie > th,.trx-ligne-nego--sortie > td{padding-top:4px} }
+@media (max-width:1024px){
+  .tdb-table--large tr.trx-ligne-nego--entree{margin-bottom:0;border-bottom:1px dashed var(--color-svv-line);border-bottom-left-radius:0;border-bottom-right-radius:0}
+  .tdb-table--large tr.trx-ligne-nego--sortie{border-top:0;border-top-left-radius:0;border-top-right-radius:0}
+  .tdb-table--large tr.trx-ligne-nego--sortie td[data-mot="Action"]:empty{display:none}
+}
+/* LOT BW — l'encart des graphiques de la tuile : « CA TTC » sur une ligne (l'autre unité entre parenthèses allonge le montant). */
+[data-transaction] .tdb-bulle-ligne > span:first-child{white-space:nowrap}
 .trx-ligne-depliable--ouverte > th,.trx-ligne-depliable--ouverte > td{border-bottom-color:transparent}
 .trx-deplier-vente{appearance:none;border:0;background:transparent;font:inherit;font-weight:inherit;color:inherit;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0;text-align:left;cursor:pointer;border-radius:8px}
 .trx-deplier-vente:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}

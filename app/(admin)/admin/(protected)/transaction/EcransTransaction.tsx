@@ -6,7 +6,7 @@ import {
   anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
-  type Retrocession, type Societe, type Vente,
+  type Retrocession, type Societe, type Vente, TVA,
   aDesCompromisDates, caHtParMoisMode, compromisDuMode, compromisSansDate, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
 import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
@@ -14,7 +14,8 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, eur, FournisseurAffichage, nombreFr, parametre, posterTransaction, signePct, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
+import { lignesParNegociateur } from '../../../../lib/transaction/lignesNegociateur';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, DetailAffaire, DetailMiroir, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { DessinTriangle } from '../_composants/TriangleDepliage';
@@ -24,9 +25,10 @@ import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 
 /** 🔴 LOT Q — la paye NON déduite du reste à l'agence, à part : internes (associés, salariés), puis statut à renseigner (signalé). */
 function NonDeduits({ T }: { T: { internesHt: number; aRenseignerHt: number } }) {
+  const MOT = MOT_UNITE[useAffichage()];
   return <>
-    <dt className="trx-tuile-detail-a-part">Internes (associés, salariés) — non déduits (HT)</dt><dd className="trx-tuile-detail-a-part" data-internes-non-deduits>{eur(T.internesHt)}</dd>
-    {T.aRenseignerHt > 0 && <><dt className="trx-alerte">Statut à renseigner — non déduits (HT)</dt><dd className="trx-alerte" data-a-renseigner-non-deduits>{eur(T.aRenseignerHt)}</dd></>}
+    <dt className="trx-tuile-detail-a-part">Internes (associés, salariés) — non déduits ({MOT})</dt><dd className="trx-tuile-detail-a-part"><Mt ht={T.internesHt} donnees={{ 'data-internes-non-deduits': '' }} /></dd>
+    {T.aRenseignerHt > 0 && <><dt className="trx-alerte">Statut à renseigner — non déduits ({MOT})</dt><dd className="trx-alerte"><Mt ht={T.aRenseignerHt} donnees={{ 'data-a-renseigner-non-deduits': '' }} /></dd></>}
   </>;
 }
 import { FormulaireDossier, type References } from './FormulaireDossier';
@@ -114,6 +116,10 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const setMode = (m: ModeMois): void => { setModeEtat(m); try { window.localStorage.setItem(CLE_MODE_MOIS, m); } catch { /* sans stockage */ } };
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
+  // 🔴 LOT BW (Arno) — « HT | TTC » sur « Le mois » et « L'année » : le choix retenu de l'onglet « Compromis » (même composant, même mémoire,
+  // les deux sociétés) ; relu à chaque changement d'onglet (le sélecteur de « Compromis » a pu le changer).
+  const [unite, setUnite] = useAffichageRetenu();
+  useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [vue]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(annee), mois: String(mois), debut: null, fin: null, mode }
       : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null, mode: null, mesure: null }
@@ -167,16 +173,20 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           </div>
           {/* 🔴 LOT BT — la règle du mode combiné, dite sous le sélecteur. */}
           <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.</small></div>}
+        {/* 🔴 LOT BW — les montants en grand : HT ou TTC (à droite de « Compter » ; sur « L'année », au même endroit de ses filtres). */}
+        <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </form>
 
+      <FournisseurAffichage value={unite}>
       {vue === 'mois'
         ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
+      </FournisseurAffichage>
       </>}
 
-      {detail !== null && <ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
-        onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} />}
+      {detail !== null && <FournisseurAffichage value={unite}><ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
+        onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} /></FournisseurAffichage>}
       {edition !== null && avecDossier(edition) && references !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={references}
         onFermer={() => setEdition(null)} onFait={fini} />}
       {edition !== null && !avecDossier(edition) && <FormulaireVente societe={societe} vente={edition === 'nouvelle' ? null : edition} annee={annee} mois={vue === 'mois' ? mois : null}
@@ -213,7 +223,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 }) {
   // 🔴 LOT BU — la fiche d'une vente dépliée dans les listes du mois : LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir`), son
   // hôte (les mêmes fenêtres), et l'unité « HT | TTC » retenue par le navigateur (celle du sélecteur de l'onglet « Compromis »).
-  const [unite] = useAffichageRetenu();
+  const U = useUnite();
   const refs: References = references ?? { lotD: false, negociateurs: [], apporteurs: [], personnes: [] };
   const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe,
     statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
@@ -222,7 +232,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
   const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'nombre' ? 'nombre' : null }); }, [mesure]);
-  const M = MOTS_MODE[mode];
+  const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
   // Le mode change ce qu'on additionne (vendu, compromis à leur date, ou les deux), jamais comment (`caHt`, `totaux`).
   const T = totauxMoisMode(d, annee, mois, mode);
   const T1 = totauxMoisMode(d, annee - 1, mois, mode);
@@ -254,6 +264,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode)].map((v) => v.id);
   /** L'encart d'un mois (ou de son cumul) : l'année et N−1 ; « Vendu + compromis » : le vendu, les compromis, puis le total. */
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
+  // 🔴 LOT BW — le graphique dans l'unité choisie (le nombre ne change pas) ; l'encart dit « CA TTC » et l'autre unité entre parenthèses.
+  const sc = (xs: readonly number[]): number[] => xs.map(U.en);
   const info = (k: number, cumule: boolean): InfoBarre => {
     const aVenir = k > dernierMois;
     const titre = cumule ? `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : NOMS_MOIS[k - 1];
@@ -263,11 +275,11 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         courant: { libelle: String(annee), ca: aVenir ? null : n[k - 1], nb: null, ...(aVenir ? {} : parts(v[k - 1], n[k - 1])) },
         precedent: sansN1 ? null : { libelle: String(annee - 1), ca: n1[k - 1], nb: null, ...parts(v1[k - 1], n1[k - 1]) } };
     }
-    const [c, c1, v, v1] = cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1];
+    const [c, c1, v, v1] = (cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1]).map(sc);
     // Le nombre de l'encart reste celui du MOIS, même en cumul (l'encart d'avant ce lot, à l'identique).
     const nb = nbParMois;
     const nb1 = nbParMoisN1;
-    return { titre, motNb: M.compte, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
+    return { titre, motNb: M.compte, motCa: `CA ${U.MOT}`, autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
       courant: { libelle: String(annee), ca: aVenir ? null : c[k - 1], nb: aVenir ? null : nb[k - 1], ...(aVenir ? {} : parts(v[k - 1], c[k - 1])) },
       precedent: sansN1 ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nb1[k - 1], ...parts(v1[k - 1], c1[k - 1]) } };
   };
@@ -275,10 +287,10 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const moisMot = NOMS_MOIS[mois - 1].toLowerCase();
   const ouvrir = (titre: string, ids: number[]) => () => onDetail({ titre, ids });
   const nombre = mesure === 'nombre';
-  const valeurs = nombre ? nbParMois : parMois;
-  const valeursN1 = nombre ? nbParMoisN1 : parMoisN1;
-  const basN = nombre ? nbVendusN : vendusN;
-  const basN1 = nombre ? nbVendusN1 : vendusN1;
+  const valeurs = nombre ? nbParMois : sc(parMois);
+  const valeursN1 = nombre ? nbParMoisN1 : sc(parMoisN1);
+  const basN = nombre ? nbVendusN : sc(vendusN);
+  const basN1 = nombre ? nbVendusN1 : sc(vendusN1);
   const motGraphe = nombre ? M.onglet.toLowerCase() : M.graphe;
   return <>
     <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`}>
@@ -288,22 +300,22 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
     </div>
     <ul className="tdb-tuiles" aria-label="L’essentiel du mois" data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ca-mois">
-        <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
-        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${eur(T1.caHt)} en ${annee - 1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
+        <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{U.e(T.caHt)}</strong><Autre ht={T.caHt} />
+        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${U.e(T1.caHt)} en ${annee - 1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ventes-mois">
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${T1.nbVentes} en ${annee - 1}`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(' HT', '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
-        <span className="tdb-tuile-mot">{mode === 'vendu' ? 'CA' : M.ca.replace(' HT', '')} cumulé {annee} (à fin {moisMot})</span><strong className="tdb-tuile-valeur">{eur(cumulN[mois - 1])}</strong>
-        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${eur(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
+        <span className="tdb-tuile-mot">{mode === 'vendu' ? `CA ${U.MOT}` : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} (à fin {moisMot})</span><strong className="tdb-tuile-valeur">{U.e(cumulN[mois - 1])}</strong><Autre ht={cumulN[mois - 1]} />
+        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
-        <span className="tdb-tuile-mot">Compromis en cours ({annee})</span><strong className="tdb-tuile-valeur">{eur(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong>
+        <span className="tdb-tuile-mot">Compromis en cours ({annee}, {U.MOT})</span><strong className="tdb-tuile-valeur">{U.e(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={comp.reduce((s, v) => s + caHt(v, d.societe), 0)} />
         <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
     </ul>
     {/* 🔴 LOT BS — un compromis sans date de compromis n'a pas de mois : compté à part, jamais placé dans un mois. */}
     {sansDate.length > 0 && <p className="loc-muet trx-sans-date" data-compromis-sans-date>
       <button type="button" className="tdb-chiffre" onClick={ouvrir(`Compromis sans date — ${annee}`, sansDate.map((v) => v.id))}>{sansDate.length} compromis sans date</button>
-      {' '}— non placés dans un mois ({eur(sansDate.reduce((t, v) => t + caHt(v, d.societe), 0))} HT)</p>}
+      {' '}— non placés dans un mois ({U.e(sansDate.reduce((t, v) => t + caHt(v, d.societe), 0))} {U.MOT})</p>}
 
     {/* 🔴 LOT BS (Arno) — l'organisation du graphique « Mois par mois » de la Location : son en-tête (la bascule « ⇄ Mensuel » / « Cumul », les
         onglets de mesure à droite), ses barres (N pleines, N−1 hachurées), sa légende, son encart à droite ; un mois s'ouvre d'un clic. « Vendu +
@@ -327,23 +339,23 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 
     {mode !== 'compromis' && <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
-      <FournisseurAffichage value={unite}><TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} /></FournisseurAffichage>
+      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
     </section>}
     {mode !== 'vendu' && <section className="tdb-section" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
       <h3 id="trx-compromis-mois">{mode === 'tous' ? 'Les compromis en cours du mois' : 'Les compromis du mois'} — {libMois} <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
-      <FournisseurAffichage value={unite}><TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} /></FournisseurAffichage>
+      <TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
     </section>}
-    <FournisseurAffichage value={unite}>{fenetres}</FournisseurAffichage>
+    {fenetres}
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
       <h3 id="trx-resultat">Résultat de l’agence — {libMois}{mode === 'vendu' ? '' : <small className="loc-muet"> ({LIBELLE_MODE[mode].toLowerCase()})</small>}</h3>
       <dl className="trx-resultat">
-        <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
-        <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
-        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-mois>{eur(T.interCabinetHt)}</dd></>}
-        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-mois>{eur(T.exterieurHt)}</dd></>}
-        <dt>− Commissions des négociateurs indépendants (HT)</dt><dd data-paye-deduite>{eur(T.payeHt)}</dd>
-        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
+        <dt>CA {U.MOT}</dt><dd><Mt ht={T.caHt} donnees={{ 'data-ca-mois': '' }} /></dd>
+        <dt>− Rétrocessions d’apporteurs ({U.MOT})</dt><dd><Mt ht={T.retroHt} /></dd>
+        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés ({U.MOT})</dt><dd><Mt ht={T.interCabinetHt} donnees={{ 'data-inter-cabinet-mois': '' }} /></dd></>}
+        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur ({U.MOT})</dt><dd><Mt ht={T.exterieurHt} donnees={{ 'data-exterieur-mois': '' }} /></dd></>}
+        <dt>− Commissions des négociateurs indépendants ({U.MOT})</dt><dd><Mt ht={T.payeHt} donnees={{ 'data-paye-deduite': '' }} /></dd>
+        <dt className="trx-total">= Reste à l’agence ({U.MOT})</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`}><Mt ht={T.resteHt} donnees={{ 'data-reste-agence': '' }} /></dd>
         <NonDeduits T={T} />
       </dl>
       <p className="loc-muet">Les rétrocessions comptent sur le mois où elles sont saisies (comme dans les fichiers), rattachées ou « à répartir »{mode === 'vendu' ? '' : ' : avec les ventes signées ; un compromis ne compte que l’apporteur de sa répartition'}.</p>
@@ -367,12 +379,12 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       </section>
     )}
 
-    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => caHt(v, d.societe))))} HT`}
+    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => U.en(caHt(v, d.societe)))))} ${U.MOT}`}
       donnees={{ 'data-bloc': 'compromis' }}>
       <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </BlocReplie>
     <BlocReplie id="trx-confirmer" section="a-confirmer" titre={<>Ventes « mois à confirmer » — {annee}</>}
-      resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => caHt(v, d.societe))))} HT`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
+      resume={`${aConfirmer.length} · ${eur(sommeAffichee(aConfirmer.map((v) => U.en(caHt(v, d.societe)))))} ${U.MOT}`} donnees={{ 'data-bloc': 'mois-a-confirmer' }}>
       <p className="loc-muet">Aucune formule du fichier ne les place dans un mois : elles comptent dans l’année, dans aucun mois. « Modifier » leur donne leur mois.</p>
       <TableVentes ventes={aConfirmer} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </BlocReplie>
@@ -386,6 +398,32 @@ export function negociateurEntree(v: Vente): string {
   return e !== null && e.trim() !== '' ? e : negociateursDe(v).join(', ');
 }
 
+/**
+ * 🔴 LOT BW (Arno) — UN MONTANT dans l'unité choisie (« HT | TTC », retenue, partagée avec l'onglet Compromis) — en grand, la marque `donnees`
+ * dessus —, puis l'autre unité en petit entre parenthèses. `ht` : le montant de référence ; `ttc` : le TTC exact s'il est connu (sinon HT × 1,2).
+ */
+export function Mt({ ht: montantHt, ttc, donnees, classe }: { ht: number; ttc?: number; donnees?: Record<string, string>; classe?: string }) {
+  const u = useAffichage();
+  const t = ttc ?? montantHt * TVA;
+  const [grand, petit, motPetit] = u === 'ht' ? [montantHt, t, MOT_UNITE.ttc] : [t, montantHt, MOT_UNITE.ht];
+  return <span className="trx-mt-liste"><span className="trx-mt-liste-grand"><span className={classe} {...donnees}>{eur(grand)}</span>{ESPACE}{MOT_UNITE[u]}</span> <small className="trx-montant-autre" data-montant-autre>({eur(petit)}{ESPACE}{motPetit})</small></span>;
+}
+const deC = (m: { htC: number; ttcC: number }): { ht: number; ttc: number } => ({ ht: m.htC / 100, ttc: m.ttcC / 100 });
+/** 🔴 LOT BW — l'unité choisie pour « Le mois » / « L'année » : `en` passe un montant HT dans cette unité (× 1,2 en TTC, sans arrondi), `e` l'écrit. */
+function useUnite() {
+  const u = useAffichage();
+  const f = u === 'ht' ? 1 : TVA;
+  const autre: UniteAffichage = u === 'ht' ? 'ttc' : 'ht';
+  return { u, f, MOT: MOT_UNITE[u], en: (x: number): number => x * f, e: (x: number): string => eur(x * f), autre: { mot: MOT_UNITE[autre], facteur: u === 'ht' ? TVA : 1 / TVA } };
+}
+/** 🔴 LOT BW — sous le montant d'une tuile : l'autre unité, en petit entre parenthèses. */
+function Autre({ ht: montantHt }: { ht: number }) {
+  const u = useAffichage();
+  return <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(u === 'ht' ? montantHt * TVA : montantHt)}{ESPACE}{MOT_UNITE[u === 'ht' ? 'ttc' : 'ht']})</small>;
+}
+/** 🔴 LOT BW — les mots du mode dans l'unité choisie (« CA TTC des compromis »). PUR. */
+const motsEnUnite = <T extends Record<string, string>>(m: T, mot: string): T => Object.fromEntries(Object.entries(m).map(([k, x]) => [k, x.replace('CA HT', `CA ${mot}`)])) as T;
+
 function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
   /** LOT Q — le statut des négociateurs importés : le reste à l'agence ne déduit que la paye des indépendants. */
   statutDuLibelle?: StatutDuLibelle;
@@ -395,19 +433,36 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
    * 🔴 LOT BU (Arno) — « Les ventes du mois » / « Les compromis du mois » : chaque ligne se DÉPLIE (clic sur la ligne ou le triangle rouge ; Entrée,
    * Espace) sur LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir` pour une ligne miroir), sur toute la largeur ; plusieurs à la
    * fois, rien de retenu. La colonne devient « Négociateur » : celui d'ENTRÉE (la sortie est dans la fiche). Absent : le tableau d'avant.
+   * 🔴 LOT BW (Arno) — une vente tenue par DEUX négociateurs (entrée ≠ sortie) : deux lignes, un même bloc (`lignesParNegociateur` : les montants
+   * des cadres de la fiche ; somme = la vente au centime) ; le nom de l'affaire et sa source sur la première ; un clic sur l'une ou l'autre
+   * déplie la fiche une fois, sous le bloc.
    */
   fiches?: { hote: HoteDetail; references: References } }) {
   const [ouvertes, setOuvertes] = useState<ReadonlySet<number>>(() => new Set());
+  const u = useAffichage();
+  const MOT = MOT_UNITE[u];
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
   const basculer = (id: number): void => setOuvertes((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  /** Un montant HT de référence dans l'unité choisie (les phrases d'information). */
+  const enU = (montantHt: number): string => eur(u === 'ht' ? montantHt : montantHt * TVA);
+  /** La commission non déduite (TTC) dite dans l'unité choisie. */
+  const nonDeduite = (id: number, ndTtc: number, aRenseigner: boolean) => ndTtc > 0 ? <><br /><span className={aRenseigner ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={id}>dont {eur(u === 'ttc' ? ndTtc : ndTtc / TVA)} non déduite{aRenseigner ? ' (statut à renseigner)' : ' (interne)'}</span></> : null;
+  /** 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). LOT BW : sous les
+   *  honoraires d'une vente à une ligne ; sous le nom de l'affaire quand elle est en deux lignes (c'est la vente entière). */
+  const partVente = (v: Vente) => v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
+    return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {enU(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${enU(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${enU(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })();
+  const NB_COLONNES = 7;
   return (
     <table className="tdb-table tdb-table--large" data-table-ventes>
-      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">Honoraires TTC</th><th scope="col">Honoraires HT</th>
-        <th scope="col">Rétrocessions</th><th scope="col">Com négo</th><th scope="col">Reste agence HT</th><th scope="col">Action</th></tr></thead>
+      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">Honoraires</th>
+        <th scope="col">Rétrocessions</th><th scope="col">Com négo</th><th scope="col">Reste agence {MOT}</th><th scope="col">Action</th></tr></thead>
       <tbody>
-        {ventes.map((v) => { const ouverte = fiches !== undefined && ouvertes.has(v.id); return [
-          <tr key={v.id} data-vente={v.id} className={fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}`}
-            onClick={fiches === undefined ? undefined : (e) => { if ((e.target as Element).closest('a, button, input, select, textarea, label') === null) basculer(v.id); }}>
+        {ventes.map((v) => {
+          const ouverte = fiches !== undefined && ouvertes.has(v.id);
+          const deux = fiches === undefined ? null : lignesParNegociateur(v, retros, statutDuLibelle, societe);
+          const surClic = fiches === undefined ? undefined : (e: { target: EventTarget }) => { if ((e.target as Element).closest('a, button, input, select, textarea, label') === null) basculer(v.id); };
+          const classe = (x: string): string | undefined => (fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}${x}`);
+          const tete = (
             <th scope="row">{fiches === undefined ? v.libelle
               : <button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
                 <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button>}
@@ -419,30 +474,56 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
                 {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
               </span>
               {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
+              {deux !== null && partVente(v)}
             </th>
-            {fiches === undefined ? <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td> : <td data-mot="Négociateur" data-negociateur-entree>{negociateurEntree(v)}</td>}
-            <td data-mot="Honoraires TTC">{eur(v.honorairesTtc)}</td>
-            <td data-mot="Honoraires HT">{eur(ht(v.honorairesTtc))}
-              {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
-              {v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
-                return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {eur(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${eur(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${eur(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })()}</td>
-            <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
-            <td data-mot="Com négo">{eur(payeTtcDe(v, societe))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
-              return nd > 0 ? <><br /><span className={c.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(nd)} non déduite{c.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></> : null; })()}</td>
-            <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle, societe)))}</td>
-            {/* 🔴 LOT R — une ligne miroir ne se modifie pas d'ici : elle suit la vente d'origine. */}
+          );
+          const action = (
             <td data-mot="Action">{v.miroir != null
               ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
               : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
-          </tr>,
-          ouverte && fiches !== undefined && (
-            <tr key={`${v.id}-fiche`} className="trx-ligne-fiche" id={`trx-fiche-vente-${v.id}`} data-fiche-vente={v.id}><td colSpan={8}>
+          );
+          const fiche = ouverte && fiches !== undefined && (
+            <tr key={`${v.id}-fiche`} className="trx-ligne-fiche" id={`trx-fiche-vente-${v.id}`} data-fiche-vente={v.id}><td colSpan={NB_COLONNES}>
               {v.miroir != null
                 ? <DetailMiroir v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire} statutDuLibelle={fiches.hote.statutDuLibelle} />
                 : <DetailAffaire v={v} hote={fiches.hote} />}
             </td></tr>
-          ),
-        ]; })}
+          );
+          if (deux !== null) {
+            // 🔴 LOT BW — deux lignes, un bloc : l'entrée (porteur du mandat) en haut, la sortie dessous ; chacune SA partie.
+            return [...deux.map((x, k) => (
+              <tr key={`${v.id}-${x.cote}`} data-vente={k === 0 ? v.id : undefined} data-vente-nego={`${v.id}-${x.cote}`} className={classe(k === 0 ? ' trx-ligne-nego trx-ligne-nego--entree' : ' trx-ligne-nego trx-ligne-nego--sortie')} onClick={surClic}>
+                {k === 0 ? tete : <th scope="row" className="trx-ligne-nego-tete"><span className="fdm-cache">{v.libelle} — </span><span className="loc-muet">sortie</span></th>}
+                <td data-mot="Négociateur" data-negociateur-cote={x.cote}>{x.negociateur}</td>
+                <td data-mot="Honoraires"><Mt {...deC(x.honoraires)} donnees={{ 'data-honoraires-nego': x.cote }} /></td>
+                <td data-mot="Rétrocessions"><span className="trx-pile-droite"><Mt {...deC(x.retro)} donnees={{ 'data-retro-nego': x.cote }} />
+                  {/* L'inter-cabinet versé à l'autre société sur ce côté, et les agences extérieures : « reversé à … », comme dans la carte. */}
+                  {x.reverses.map((y) => <span key={y.vers} className="trx-source" data-reverse-nego={x.cote}>reversé à {y.vers} : {eur(u === 'ht' ? y.m.htC / 100 : y.m.ttcC / 100)}</span>)}</span></td>
+                <td data-mot="Com négo"><Mt ht={x.payeTtc / TVA} ttc={x.payeTtc} donnees={{ 'data-com-nego': x.cote }} />{nonDeduite(v.id, x.payeNonDeduiteTtc, x.payeARenseigner)}</td>
+                <td data-mot={`Reste agence ${MOT}`}><Mt {...deC(x.reste)} donnees={{ 'data-reste-nego': x.cote }} /></td>
+                {k === 0 ? action : <td data-mot="Action" />}
+              </tr>
+            )), fiche];
+          }
+          const reste = resteTtcDe(v, retros, statutDuLibelle, societe);
+          const retro = retroTtcDe(v, retros);
+          const paye = payeTtcDe(v, societe);
+          const classes = payeParClasseTtc(v, statutDuLibelle, societe);
+          return [
+            <tr key={v.id} data-vente={v.id} className={classe('')} onClick={surClic}>
+              {tete}
+              {fiches === undefined ? <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td> : <td data-mot="Négociateur" data-negociateur-entree>{negociateurEntree(v)}</td>}
+              <td data-mot="Honoraires"><Mt ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} donnees={{ 'data-honoraires-vente': '' }} />
+                {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
+                {partVente(v)}</td>
+              <td data-mot="Rétrocessions"><Mt ht={retro / TVA} ttc={retro} /></td>
+              <td data-mot="Com négo"><Mt ht={paye / TVA} ttc={paye} />{nonDeduite(v.id, classes.interne + classes.a_renseigner, classes.a_renseigner > 0)}</td>
+              <td data-mot={`Reste agence ${MOT}`}><Mt ht={reste / TVA} ttc={reste} donnees={{ 'data-reste-vente': '' }} /></td>
+              {action}
+            </tr>,
+            fiche,
+          ];
+        })}
       </tbody>
     </table>
   );
@@ -454,10 +535,11 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
  * reste à l'agence n'en changent.
  */
 function TableNegociateurs({ lignes, rattache, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; rattache: ReadonlyMap<string, number>; onDetail: (x: Detail) => void; periode: string }) {
+  const MOT = MOT_UNITE[useAffichage()];
   if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
   return (
     <table className="tdb-table tdb-table--large" data-table-negociateurs>
-      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA HT porté</th><th scope="col">Paye HT</th><th scope="col">CA généré HT</th><th scope="col">Rétrocessions HT</th></tr></thead>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA {MOT} porté</th><th scope="col">Paye {MOT}</th><th scope="col">CA généré {MOT}</th><th scope="col">Rétrocessions {MOT}</th></tr></thead>
       <tbody>{lignes.map((l) => (
         <tr key={l.negociateur} data-negociateur={l.negociateur}>
           <th scope="row">{l.negociateur}</th>
@@ -465,8 +547,8 @@ function TableNegociateurs({ lignes, rattache, onDetail, periode }: { lignes: Re
           <td data-mot="Statut" data-statut-negociateur={l.negociateur} className={l.payeHt > 0 && classeCommission(l.statut) === 'a_renseigner' ? 'trx-alerte' : undefined}>{libelleStatut(l.statut)}
             {l.payeHt > 0 && <>{' — '}{classeCommission(l.statut) === 'independant' ? 'paye déduite' : classeCommission(l.statut) === 'interne' ? 'paye interne, non déduite' : 'paye non déduite'}</>}</td>
           <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${l.negociateur} — ${periode}`, ids: l.ids })} disabled={l.ids.length === 0}>{l.nbVentes}</button></td>
-          <td data-mot="CA HT porté">{eur(l.caHt)}</td><td data-mot="Paye HT">{eur(l.payeHt)}</td>
-          <td data-mot="CA généré HT" data-ca-genere={l.negociateur}>{eur(l.payeHt + (rattache.get(l.negociateur) ?? 0))}</td><td data-mot="Rétrocessions HT">{eur(l.retroHt)}</td>
+          <td data-mot={`CA ${MOT} porté`}><Mt ht={l.caHt} /></td><td data-mot={`Paye ${MOT}`}><Mt ht={l.payeHt} /></td>
+          <td data-mot={`CA généré ${MOT}`}><Mt ht={l.payeHt + (rattache.get(l.negociateur) ?? 0)} donnees={{ 'data-ca-genere': l.negociateur }} /></td><td data-mot={`Rétrocessions ${MOT}`}><Mt ht={l.retroHt} /></td>
         </tr>
       ))}</tbody>
     </table>
@@ -558,6 +640,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   d: DonneesSociete; annees: readonly number[]; debut: number; fin: number; jour: string; onDetail: (x: Detail) => void; onAnnee: (a: number) => void;
 }) {
   const [cumul, setCumul] = useState(false);
+  const U = useUnite();
   const periode = annees.filter((a) => a >= debut && a <= fin);
   const libelle = debut === fin ? String(debut) : `${debut} → ${fin}`;
   const H = historique(d, annees);
@@ -582,73 +665,73 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
     <p className="tdb-periode">Période : <strong>{libelle}</strong></p>
     <ul className="tdb-tuiles" aria-label={`L’essentiel — ${libelle}`}>
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ca-periode">
-        <span className="tdb-tuile-mot">CA HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
-        <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${eur(TP.caHt)} · ${ecartEur(T.caHt - TP.caHt)} (${signePct(variation(T.caHt, TP.caHt))})`}</span></button></li>
+        <span className="tdb-tuile-mot">CA {U.MOT} <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{U.e(T.caHt)}</strong><Autre ht={T.caHt} />
+        <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${U.e(TP.caHt)} · ${ecartEur(U.en(T.caHt - TP.caHt))} (${signePct(variation(T.caHt, TP.caHt))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ventes-periode">
         <span className="tdb-tuile-mot">Ventes <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${TP.nbVentes}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Compromis en cours — ${fin}`, ids: compFin.map((v) => v.id) })} data-tuile="compromis-periode">
-        <span className="tdb-tuile-mot">Compromis en cours <small>({fin})</small></span><strong className="tdb-tuile-valeur">{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong>
+        <span className="tdb-tuile-mot">Compromis en cours <small>({fin}, {U.MOT})</small></span><strong className="tdb-tuile-valeur">{U.e(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={compFin.reduce((s, v) => s + caHt(v, d.societe), 0)} />
         <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
       <li><div className="tdb-tuile" data-tuile="reste-periode">
-        <span className="tdb-tuile-mot">Reste à l’agence HT <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{eur(T.resteHt)}</strong>
-        <span className="tdb-tuile-n1">après {eur(T.retroHt)} de rétrocessions{T.interCabinetHt + T.exterieurHt > 0 ? `, ${eur(T.interCabinetHt + T.exterieurHt)} d’inter-cabinet` : ''} et {eur(T.payeHt)} de paye (indépendants)</span>
-        {T.internesHt + T.aRenseignerHt > 0 && <span className="tdb-tuile-n1" data-non-deduits-tuile>{eur(T.internesHt + T.aRenseignerHt)} de paye non déduite (internes, statut à renseigner)</span>}</div></li>
+        <span className="tdb-tuile-mot">Reste à l’agence {U.MOT} <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{U.e(T.resteHt)}</strong><Autre ht={T.resteHt} />
+        <span className="tdb-tuile-n1">après {U.e(T.retroHt)} de rétrocessions{T.interCabinetHt + T.exterieurHt > 0 ? `, ${U.e(T.interCabinetHt + T.exterieurHt)} d’inter-cabinet` : ''} et {U.e(T.payeHt)} de paye (indépendants)</span>
+        {T.internesHt + T.aRenseignerHt > 0 && <span className="tdb-tuile-n1" data-non-deduits-tuile>{U.e(T.internesHt + T.aRenseignerHt)} de paye non déduite (internes, statut à renseigner)</span>}</div></li>
     </ul>
 
     {HP.length > 0 && (
       <section className="tdb-section" aria-labelledby="trx-h" data-bloc="annee-par-annee">
         <div className="trx-barre">
-          <h3 id="trx-h">Année par année <small className="loc-muet">(CA HT{cumul ? `, cumulé depuis ${debut}` : ''} ; une année s’ouvre d’un clic)</small></h3>
+          <h3 id="trx-h">Année par année <small className="loc-muet">(CA {U.MOT}{cumul ? `, cumulé depuis ${debut}` : ''} ; une année s’ouvre d’un clic)</small></h3>
           <button type="button" className="tdb-bascule-cumul" onClick={() => setCumul((c) => !c)} data-cumul-etat={cumul ? 'cumul' : 'annuel'}>
             <span className="tdb-bascule-cumul-icone" aria-hidden="true">⇄</span><span>{cumul ? 'Cumul' : 'Annuel'}</span></button>
         </div>
-        <CourbeAnnees lignes={HP.map((h) => ({ annee: h.annee, nbBaux: h.nbVentes, nb: h.nbVentes, ca: h.caHt, caNet: h.resteHt, apporteurs: h.retroHt, commission: null }))}
-          annee={fin} onAnnee={onAnnee} cumul={cumul} motNb="Ventes" />
+        <CourbeAnnees lignes={HP.map((h) => ({ annee: h.annee, nbBaux: h.nbVentes, nb: h.nbVentes, ca: U.en(h.caHt), caNet: U.en(h.resteHt), apporteurs: U.en(h.retroHt), commission: null }))}
+          annee={fin} onAnnee={onAnnee} cumul={cumul} motNb="Ventes" unite={{ motCa: `CA ${U.MOT}`, autre: U.autre }} />
       </section>
     )}
 
     <section className="tdb-section" aria-labelledby="trx-m" data-bloc="mois-annee">
-      <h3 id="trx-m">{fin} mois par mois, face à {fin - 1} <small className="loc-muet">(CA HT)</small></h3>
-      <Histogramme attribut="data-barre-mois-annee" courante={dernierMois === 0 ? 1 : dernierMois} onChoisir={() => undefined} aria={`CA HT par mois, ${fin}`}
+      <h3 id="trx-m">{fin} mois par mois, face à {fin - 1} <small className="loc-muet">(CA {U.MOT})</small></h3>
+      <Histogramme attribut="data-barre-mois-annee" courante={dernierMois === 0 ? 1 : dernierMois} onChoisir={() => undefined} aria={`CA ${U.MOT} par mois, ${fin}`}
         legende={{ courant: String(fin), n1: sansN1 ? null : String(fin - 1) }}
-        barres={parMois.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : parMoisN1[i],
-          info: { titre: NOMS_MOIS[i], motNb: 'Ventes', courant: { libelle: String(fin), ca: i + 1 > dernierMois ? null : v, nb: i + 1 > dernierMois ? null : nb(fin, i + 1) },
-            precedent: sansN1 ? null : { libelle: String(fin - 1), ca: parMoisN1[i], nb: nb(fin - 1, i + 1) } } }))} />
+        barres={parMois.map(U.en).map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : U.en(parMoisN1[i]),
+          info: { titre: NOMS_MOIS[i], motNb: 'Ventes', motCa: `CA ${U.MOT}`, autre: U.autre, courant: { libelle: String(fin), ca: i + 1 > dernierMois ? null : v, nb: i + 1 > dernierMois ? null : nb(fin, i + 1) },
+            precedent: sansN1 ? null : { libelle: String(fin - 1), ca: U.en(parMoisN1[i]), nb: nb(fin - 1, i + 1) } } }))} />
     </section>
 
     <section className="tdb-section" aria-labelledby="trx-resume" data-bloc="resume-periode">
       <h3 id="trx-resume">Résumé — {libelle}</h3>
       <dl className="trx-resultat">
         <dt>Ventes</dt><dd>{T.nbVentes}</dd>
-        <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
-        <dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => h.moisAConfirmerHt)))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd>
-        <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
-        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-periode>{eur(T.interCabinetHt)}</dd></>}
-        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-periode>{eur(T.exterieurHt)}</dd></>}
-        <dt>− Commissions des négociateurs indépendants (HT)</dt><dd>{eur(T.payeHt)}</dd>
-        <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total" data-reste-agence-periode>{eur(T.resteHt)}</dd>
+        <dt>CA {U.MOT}</dt><dd><Mt ht={T.caHt} donnees={{ 'data-ca-periode': '' }} /></dd>
+        <dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => U.en(h.moisAConfirmerHt))))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd>
+        <dt>− Rétrocessions d’apporteurs ({U.MOT})</dt><dd><Mt ht={T.retroHt} /></dd>
+        {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés ({U.MOT})</dt><dd><Mt ht={T.interCabinetHt} donnees={{ 'data-inter-cabinet-periode': '' }} /></dd></>}
+        {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur ({U.MOT})</dt><dd><Mt ht={T.exterieurHt} donnees={{ 'data-exterieur-periode': '' }} /></dd></>}
+        <dt>− Commissions des négociateurs indépendants ({U.MOT})</dt><dd><Mt ht={T.payeHt} /></dd>
+        <dt className="trx-total">= Reste à l’agence ({U.MOT})</dt><dd className="trx-total"><Mt ht={T.resteHt} donnees={{ 'data-reste-agence-periode': '' }} /></dd>
         <NonDeduits T={T} />
-        <dt>Compromis en cours ({fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
+        <dt>Compromis en cours ({fin}, {U.MOT})</dt><dd><Mt ht={compFin.reduce((s, v) => s + caHt(v, d.societe), 0)} /></dd>
       </dl>
     </section>
 
-    <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA HT ${eur(sommeAffichee(negos.map((l) => l.caHt)))}`}
+    <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA ${U.MOT} ${eur(sommeAffichee(negos.map((l) => U.en(l.caHt))))}`}
       donnees={{ 'data-bloc': 'negociateurs-periode' }}>
       <TableNegociateurs lignes={negos} rattache={partAgenceRattacheeHt(ventesP, d.societe)} onDetail={onDetail} periode={libelle} />
     </BlocReplie>
 
     <BlocReplie id="trx-apporteurs-annee" section="apporteurs" titre={<>{periode.length > 1 ? 'Apporteur des années' : 'Apporteur de l’année'} — {libelle}</>}
-      resume={`${apporteurs.length} apporteur(s) · rétrocessions ${eur(sommeAffichee(apporteurs.map((a) => a.retroHt)))} HT`} donnees={{ 'data-bloc': 'apporteurs-periode' }}>
+      resume={`${apporteurs.length} apporteur(s) · rétrocessions ${eur(sommeAffichee(apporteurs.map((a) => U.en(a.retroHt))))} ${U.MOT}`} donnees={{ 'data-bloc': 'apporteurs-periode' }}>
       {apporteurs.length === 0 ? <p className="loc-muet">Aucune rétrocession sur la période.</p> : (
         <table className="tdb-table tdb-table--large" data-table-apporteurs>
-          <thead><tr><th scope="col">Apporteur</th><th scope="col">Rétrocessions</th><th scope="col">Montant HT</th><th scope="col">Ventes rattachées</th><th scope="col">CA apporté HT</th><th scope="col">À répartir</th></tr></thead>
+          <thead><tr><th scope="col">Apporteur</th><th scope="col">Rétrocessions</th><th scope="col">Montant {U.MOT}</th><th scope="col">Ventes rattachées</th><th scope="col">CA apporté {U.MOT}</th><th scope="col">À répartir</th></tr></thead>
           <tbody>{apporteurs.map((a) => (
             <tr key={a.apporteur} data-apporteur={a.apporteur}>
-              <th scope="row">{a.apporteur}</th><td data-mot="Rétrocessions">{a.nbRetrocessions}</td><td data-mot="Montant HT">{eur(a.retroHt)}</td>
+              <th scope="row">{a.apporteur}</th><td data-mot="Rétrocessions">{a.nbRetrocessions}</td><td data-mot={`Montant ${U.MOT}`}><Mt ht={a.retroHt} /></td>
               <td data-mot="Ventes rattachées"><button type="button" className="tdb-chiffre" disabled={a.ventesIds.length === 0}
                 onClick={() => onDetail({ titre: `Ventes apportées — ${a.apporteur}`, ids: a.ventesIds })}>{a.ventesIds.length}</button></td>
-              <td data-mot="CA apporté HT">{eur(a.caApporteHt)}</td><td data-mot="À répartir">{a.aRepartir}</td>
+              <td data-mot={`CA apporté ${U.MOT}`}><Mt ht={a.caApporteHt} /></td><td data-mot="À répartir">{a.aRepartir}</td>
             </tr>
           ))}</tbody>
         </table>
@@ -659,14 +742,14 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
     <section className="tdb-section" aria-labelledby="trx-histoire" data-bloc="toute-histoire">
       <h3 id="trx-histoire">Toute l’histoire — {annees[0]} → {annees.at(-1)}</h3>
       <table className="tdb-table tdb-table--large" data-table-histoire>
-        <thead><tr><th scope="col">Année</th><th scope="col">Ventes</th><th scope="col">CA HT</th><th scope="col">dont mois à confirmer</th><th scope="col">Compromis HT</th>
-          <th scope="col">Rétrocessions HT</th><th scope="col">Reste agence HT</th><th scope="col">Paye non déduite HT</th><th scope="col">Évolution du CA</th></tr></thead>
+        <thead><tr><th scope="col">Année</th><th scope="col">Ventes</th><th scope="col">CA {U.MOT}</th><th scope="col">dont mois à confirmer</th><th scope="col">Compromis {U.MOT}</th>
+          <th scope="col">Rétrocessions {U.MOT}</th><th scope="col">Reste agence {U.MOT}</th><th scope="col">Paye non déduite {U.MOT}</th><th scope="col">Évolution du CA</th></tr></thead>
         <tbody>{H.map((h, i) => (
           <tr key={h.annee} className={periode.includes(h.annee) ? 'tdb-fort' : undefined} data-annee-histoire={h.annee}>
             <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnnee(h.annee)}>{h.annee}</button></th>
-            <td data-mot="Ventes">{h.nbVentes}</td><td data-mot="CA HT">{eur(h.caHt)}</td><td data-mot="dont mois à confirmer">{eur(h.moisAConfirmerHt)}</td>
-            <td data-mot="Compromis HT">{eur(h.compromisHt)}</td><td data-mot="Rétrocessions HT">{eur(h.retroHt)}</td><td data-mot="Reste agence HT">{eur(h.resteHt)}</td>
-            <td data-mot="Paye non déduite HT" data-non-deduits-annee={h.annee}>{eur(h.internesHt + h.aRenseignerHt)}{h.aRenseignerHt > 0 && <><br /><span className="trx-alerte">dont {eur(h.aRenseignerHt)} à renseigner</span></>}</td>
+            <td data-mot="Ventes">{h.nbVentes}</td><td data-mot={`CA ${U.MOT}`}><Mt ht={h.caHt} /></td><td data-mot="dont mois à confirmer"><Mt ht={h.moisAConfirmerHt} /></td>
+            <td data-mot={`Compromis ${U.MOT}`}><Mt ht={h.compromisHt} /></td><td data-mot={`Rétrocessions ${U.MOT}`}><Mt ht={h.retroHt} /></td><td data-mot={`Reste agence ${U.MOT}`}><Mt ht={h.resteHt} /></td>
+            <td data-mot={`Paye non déduite ${U.MOT}`}><Mt ht={h.internesHt + h.aRenseignerHt} donnees={{ 'data-non-deduits-annee': String(h.annee) }} />{h.aRenseignerHt > 0 && <><br /><span className="trx-alerte">dont {U.e(h.aRenseignerHt)} à renseigner</span></>}</td>
             <td data-mot="Évolution du CA">{i === 0 ? '—' : signePct(variation(h.caHt, H[i - 1].caHt))}</td>
           </tr>
         ))}</tbody>
