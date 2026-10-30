@@ -303,10 +303,13 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       await calmer();
       const row = '[data-table-ventes] [data-vente="38"]';
       expect(texte(`${row} th`)).toContain('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
-      expect(texte(`${row} [data-mot="Honoraires"]`)).toBe('1 666,67 € HT (2 000 € TTC)');
+      // 🔴 LOT BZ — la ligne repliée : un seul montant (l'unité dans l'en-tête), plus de colonne « Action » ; « Voir la vente d'origine » est dans la fiche.
+      expect(texte(`${row} [data-mot="Honoraires HT"]`)).toBe('1 666,67 €');
       expect(texte(row)).not.toContain('4 000');
       expect(container.querySelector(`${row} [data-modifier-vente]`)).toBeNull();
-      expect(container.querySelector(`${row} [data-voir-origine="38"]`)!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
+      expect(container.querySelector(`${row} [data-voir-origine]`)).toBeNull();
+      await act(async () => { (container.querySelector('[data-deplier-vente="38"]') as HTMLElement).click(); }); await calmer();
+      expect(container.querySelector('[data-fiche-vente="38"] [data-voir-origine="38"]')!.getAttribute('href')).toBe('/admin/transaction/criterimmo?vente=38');
       // Reste : 1 666,67 − 833,33 (Pierre, 1 000 TTC, indépendant) = 833,33 HT
       expect(texte('[data-reste-agence]')).toBe('833,33 €');
     } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
@@ -323,7 +326,16 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
       window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
       await calmer();
-      expect(texte('[data-table-ventes] [data-vente="38"] [data-part-vente]')).toBe('CA de la vente (CRITERIMMO) : 3 333,33 € · dont reversé en inter-cabinet : 1 666,67 €');
+      // 🔴 LOT BZ — « CA de la vente » quitte la ligne repliée : la répartition de la fiche dépliée le dit (CA de la porteuse, part de MACJ).
+      expect(container.querySelector('[data-table-ventes] [data-part-vente]')).toBeNull();
+      const lire = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('vue=references') ? { ok: true, status: 200, json: async () => ({ etat: 'ok',
+        data: { disponible: true, lotD: true, negociateurs: [{ id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo' }, { id: 8, nom: 'Pierre Thevenin', societe: 'macj' }], apporteurs: [], personnes: [] } }) }
+        : lire(url, init))) as unknown as typeof fetch;
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+      await act(async () => { (container.querySelector('[data-deplier-vente="38"]') as HTMLElement).click(); }); await calmer();
+      expect(texte('[data-fiche-vente="38"]')).toContain('CA de CRITERIMMO (société porteuse)');
       expect(texte('[data-inter-cabinet-mois]')).toBe('1 666,67 €');
       // Reste : 3 333,33 − 1 666,67 ; Pierre (MACJ) n'est pas déduit chez CRITERIMMO
       expect(texte('[data-reste-agence]')).toBe('1 666,67 €');
@@ -617,7 +629,7 @@ describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche d
       // vendue : ni « Acte signé » ni « Annulation »
       expect([container.querySelector(`${f} [data-acte-signe]`), container.querySelector(`${f} [data-annulation-compromis]`)]).toEqual([null, null]);
       // un clic sur la LIGNE (hors boutons) ouvre la seconde : deux à la fois
-      await act(async () => { (container.querySelector('[data-vente="1"] [data-mot="Honoraires"]') as HTMLElement).click(); }); await calmer();
+      await act(async () => { (container.querySelector('[data-vente="1"] [data-mot="Honoraires TTC"]') as HTMLElement).click(); }); await calmer();
       expect([...container.querySelectorAll('[data-fiche-vente]')].map((x) => x.getAttribute('data-fiche-vente'))).toEqual(['38', '1']);
       await cliquer('[data-deplier-vente="38"]');
       expect([...container.querySelectorAll('[data-fiche-vente]')].map((x) => x.getAttribute('data-fiche-vente'))).toEqual(['1']);
@@ -626,12 +638,13 @@ describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche d
     } finally { fin(); }
   });
 
-  it('une vente importée incomplète : la fiche s’ouvre sans erreur, « à renseigner » ; l’étiquette « import » et la source restent sur la ligne', async () => {
+  it('une vente importée incomplète : la fiche s’ouvre sans erreur, « à renseigner » ; l’étiquette « import » et la source sont dans la fiche (LOT BZ)', async () => {
     const fin = await ouvrirMois([donnees.ventes[0]]);
     try {
       await cliquer('[data-deplier-vente="1"]');
-      expect(texte('[data-vente="1"] th')).toContain('import');
-      expect(texte('[data-vente="1"] th')).toContain('TABLEAU DE BORD MACJ 2025.xlsx › MYLENE › ligne 1');
+      expect(texte('[data-vente="1"] th')).toBe('GAVEZ DE CAMPOS/ ASMAR');
+      expect(texte('[data-fiche-vente="1"] [data-informations-communes] h4')).toContain('import');
+      expect(texte('[data-fiche-vente="1"] [data-source-fiche]')).toBe('TABLEAU DE BORD MACJ 2025.xlsx › MYLENE › ligne 1');
       expect(texte('[data-fiche-vente="1"]')).toContain('à renseigner');
       expect(container.querySelector('[data-fiche-vente="1"] [data-colonne="vendeur"]')).not.toBeNull();
     } finally { fin(); }
@@ -697,8 +710,8 @@ describe('🔴 LOT BV — libellés : « Com négo » et « − Commissions des 
   it('la colonne et la ligne du résultat de l’agence', async () => {
     window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
-    expect([...container.querySelectorAll('[data-bloc="ventes-mois"] thead th')].map((x) => x.textContent)).toContain('Com négo');
-    expect(container.querySelector('[data-bloc="ventes-mois"] [data-mot="Com négo"]')).not.toBeNull();
+    expect([...container.querySelectorAll('[data-bloc="ventes-mois"] thead th')].map((x) => x.textContent)).toContain('Com négo HT'); // LOT BZ : l'unité dans l'en-tête
+    expect(container.querySelector('[data-bloc="ventes-mois"] [data-mot="Com négo HT"]')).not.toBeNull();
     expect(container.querySelector('[data-paye-deduite]')!.closest('dd')!.previousElementSibling!.textContent).toBe('− Commissions des négociateurs indépendants (HT)');
     expect(container.textContent).not.toContain('Paye négo');
     expect(container.textContent).not.toContain('Paye des négociateurs');
@@ -776,11 +789,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   it('un clic sur l’une ou l’autre ligne déplie la fiche UNE fois, sous le bloc ; le triangle est sur la vente', async () => {
     const fin = await ouvrirSur([deux], 'criterimmo');
     try {
-      await act(async () => { (container.querySelector('[data-vente-nego="50-sortie"] [data-mot="Honoraires"]') as HTMLElement).click(); }); await calmer();
+      await act(async () => { (container.querySelector('[data-vente-nego="50-sortie"] [data-mot="Honoraires HT"]') as HTMLElement).click(); }); await calmer();
       expect(container.querySelectorAll('[data-fiche-vente="50"]').length).toBe(1);
       expect(container.querySelector('[data-vente-nego="50-sortie"]')!.nextElementSibling!.getAttribute('data-fiche-vente')).toBe('50');
       expect(container.querySelector('[data-deplier-vente="50"]')!.getAttribute('aria-expanded')).toBe('true');
-      await act(async () => { (container.querySelector('[data-vente-nego="50-entree"] [data-mot="Rétrocessions"]') as HTMLElement).click(); }); await calmer();
+      await act(async () => { (container.querySelector('[data-vente-nego="50-entree"] [data-mot="Rétrocessions HT"]') as HTMLElement).click(); }); await calmer();
       expect(container.querySelector('[data-fiche-vente="50"]')).toBeNull();
       await cliquer('[data-deplier-vente="50"]');
       expect(container.querySelectorAll('[data-fiche-vente="50"]').length).toBe(1);
@@ -857,6 +870,44 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const resteTtc = montant('[data-reste-agence-periode]');
       await cliquer('[data-affichage-montants] [data-afficher="ht"]');
       expect(Math.abs(resteTtc - montant('[data-reste-agence-periode]') * 1.2) <= 1).toBe(true);
+    } finally { fin(); }
+  });
+  it('🔴 LOT BZ — lignes repliées : un seul montant par case (unité dans l’en-tête), le triangle et le nom seuls, plus de colonne « Action » ; ligne simple et entrée / sortie', async () => {
+    const fin = await ouvrirSur([deux, donnees.ventes[0]], 'criterimmo');
+    try {
+      const entetes = () => [...container.querySelectorAll('[data-bloc="ventes-mois"] thead th')].map((x) => x.textContent);
+      expect(entetes()).toEqual(['Vendeur / acquéreur', 'Négociateur', 'Honoraires HT', 'Rétrocessions HT', 'Com négo HT', 'Reste agence HT']);
+      // ligne entrée / sortie
+      expect(texte('[data-vente-nego="50-entree"] th')).toBe('DUPONT / MARTIN');
+      expect(texte('[data-vente-nego="50-sortie"] th')).toBe('DUPONT / MARTIN — sortie');
+      expect(texte('[data-vente-nego="50-entree"] [data-mot="Honoraires HT"]')).toBe(texte('[data-honoraires-nego="entree"]'));
+      expect(texte('[data-vente-nego="50-entree"] [data-mot="Honoraires HT"]')).not.toMatch(/HT|TTC|\(/);
+      // ligne simple (import) : ni étiquettes, ni source, ni « CA de la vente », ni « Modifier »
+      expect(texte('[data-vente="1"] th')).toBe('GAVEZ DE CAMPOS/ ASMAR');
+      expect(container.querySelector('[data-bloc="ventes-mois"] [data-table-ventes] .loc-pastille, [data-bloc="ventes-mois"] [data-part-vente], [data-bloc="ventes-mois"] [data-modifier-vente], [data-bloc="ventes-mois"] [data-mot="Action"]')).toBeNull();
+      expect(texte('[data-vente="1"] [data-mot="Honoraires HT"]')).toBe('9 187,50 €');
+      // TTC : en-têtes et montants suivent, toujours un seul montant
+      await act(async () => { (container.querySelector('[data-affichage-montants] [data-afficher="ttc"]') as HTMLElement).click(); }); await calmer();
+      expect(entetes()).toEqual(['Vendeur / acquéreur', 'Négociateur', 'Honoraires TTC', 'Rétrocessions TTC', 'Com négo TTC', 'Reste agence TTC']);
+      expect(texte('[data-vente="1"] [data-mot="Honoraires TTC"]')).toBe('11 025 €');
+      expect(texte('[data-vente-nego="50-entree"] [data-mot="Honoraires TTC"]')).not.toMatch(/HT|TTC|\(/);
+    } finally { fin(); }
+  });
+
+  it('🔴 LOT BZ — la fiche dépliée garde « Modifier », et reçoit les étiquettes et la source d’import que la ligne ne montre plus ; les totaux ne changent pas', async () => {
+    const fin = await ouvrirSur([deux, donnees.ventes[0]], 'criterimmo');
+    try {
+      const reste = texte('[data-reste-agence]');
+      await act(async () => { (container.querySelector('[data-deplier-vente="50"]') as HTMLElement).click(); }); await calmer();
+      expect(container.querySelector('[data-fiche-vente="50"] [data-modifier-compromis="50"]')).not.toBeNull();
+      expect(container.querySelector('[data-fiche-vente="50"] [data-etiquette-fiche="repartie"]')).not.toBeNull();
+      await act(async () => { (container.querySelector('[data-deplier-vente="1"]') as HTMLElement).click(); }); await calmer();
+      expect(texte('[data-fiche-vente="1"] [data-source-fiche]')).toBe('TABLEAU DE BORD MACJ 2025.xlsx › MYLENE › ligne 1');
+      expect(texte('[data-fiche-vente="1"] [data-informations-communes] h4')).toContain('import');
+      expect(texte('[data-reste-agence]')).toBe(reste);
+      // l'onglet Compromis (la même fiche) n'a ni ces étiquettes ni cette ligne : ajoutées depuis « Le mois » seulement
+      const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
+      expect(src).toContain('<DetailAffaire v={v} hote={hote} />');
     } finally { fin(); }
   });
 });

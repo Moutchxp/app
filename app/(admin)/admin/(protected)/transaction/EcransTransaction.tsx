@@ -409,6 +409,11 @@ export function Mt({ ht: montantHt, ttc, donnees, classe }: { ht: number; ttc?: 
   return <span className="trx-mt-liste"><span className="trx-mt-liste-grand"><span className={classe} {...donnees}>{eur(grand)}</span>{ESPACE}{MOT_UNITE[u]}</span> <small className="trx-montant-autre" data-montant-autre>({eur(petit)}{ESPACE}{motPetit})</small></span>;
 }
 const deC = (m: { htC: number; ttcC: number }): { ht: number; ttc: number } => ({ ht: m.htC / 100, ttc: m.ttcC / 100 });
+/** 🔴 LOT BZ (Arno) — une case des lignes repliées de « Le mois » : le SEUL montant de l'unité choisie, sans mot d'unité (l'en-tête le dit). */
+function MtSeul({ ht: montantHt, ttc, donnees }: { ht: number; ttc?: number; donnees?: Record<string, string> }) {
+  const u = useAffichage();
+  return <span className="trx-mt-seul" {...donnees}>{eur(u === 'ht' ? montantHt : ttc ?? montantHt * TVA)}</span>;
+}
 /** 🔴 LOT BW — l'unité choisie pour « Le mois » / « L'année » : `en` passe un montant HT dans cette unité (× 1,2 en TTC, sans arrondi), `e` l'écrit. */
 function useUnite() {
   const u = useAffichage();
@@ -441,6 +446,11 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
   const [ouvertes, setOuvertes] = useState<ReadonlySet<number>>(() => new Set());
   const u = useAffichage();
   const MOT = MOT_UNITE[u];
+  // 🔴 LOT BZ (Arno) — les lignes REPLIÉES de « Le mois » (`fiches`) : un seul montant par case (l'unité dans l'en-tête), le triangle et le nom de
+  // l'affaire seuls (étiquettes, source et « CA de la vente » dans la fiche dépliée), plus de colonne « Action » (« Modifier » est dans la fiche).
+  const compact = fiches !== undefined;
+  const M = compact ? MtSeul : Mt;
+  const enTete = (mot: string): string => (compact ? `${mot} ${MOT}` : mot);
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
   const basculer = (id: number): void => setOuvertes((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   /** Un montant HT de référence dans l'unité choisie (les phrases d'information). */
@@ -451,18 +461,21 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
    *  honoraires d'une vente à une ligne ; sous le nom de l'affaire quand elle est en deux lignes (c'est la vente entière). */
   const partVente = (v: Vente) => v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
     return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {enU(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${enU(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${enU(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })();
-  const NB_COLONNES = 7;
+  const NB_COLONNES = compact ? 6 : 7;
   return (
-    <table className="tdb-table tdb-table--large" data-table-ventes>
-      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">Honoraires</th>
-        <th scope="col">Rétrocessions</th><th scope="col">Com négo</th><th scope="col">Reste agence {MOT}</th><th scope="col">Action</th></tr></thead>
+    <table className={`tdb-table tdb-table--large${compact ? ' trx-table-compacte' : ''}`} data-table-ventes>
+      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">{enTete('Honoraires')}</th>
+        <th scope="col">{enTete('Rétrocessions')}</th><th scope="col">{enTete('Com négo')}</th><th scope="col">Reste agence {MOT}</th>{!compact && <th scope="col">Action</th>}</tr></thead>
       <tbody>
         {ventes.map((v) => {
           const ouverte = fiches !== undefined && ouvertes.has(v.id);
           const deux = fiches === undefined ? null : lignesParNegociateur(v, retros, statutDuLibelle, societe);
           const surClic = fiches === undefined ? undefined : (e: { target: EventTarget }) => { if ((e.target as Element).closest('a, button, input, select, textarea, label') === null) basculer(v.id); };
           const classe = (x: string): string | undefined => (fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}${x}`);
-          const tete = (
+          const tete = compact ? (
+            <th scope="row"><button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
+              <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button></th>
+          ) : (
             <th scope="row">{fiches === undefined ? v.libelle
               : <button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
                 <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button>}
@@ -477,7 +490,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
               {deux !== null && partVente(v)}
             </th>
           );
-          const action = (
+          const action = compact ? null : (
             <td data-mot="Action">{v.miroir != null
               ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
               : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
@@ -486,7 +499,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
             <tr key={`${v.id}-fiche`} className="trx-ligne-fiche" id={`trx-fiche-vente-${v.id}`} data-fiche-vente={v.id}><td colSpan={NB_COLONNES}>
               {v.miroir != null
                 ? <DetailMiroir v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire} statutDuLibelle={fiches.hote.statutDuLibelle} />
-                : <DetailAffaire v={v} hote={fiches.hote} />}
+                : <DetailAffaire v={v} hote={fiches.hote} etiquettes />}
             </td></tr>
           );
           if (deux !== null) {
@@ -495,13 +508,12 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
               <tr key={`${v.id}-${x.cote}`} data-vente={k === 0 ? v.id : undefined} data-vente-nego={`${v.id}-${x.cote}`} className={classe(k === 0 ? ' trx-ligne-nego trx-ligne-nego--entree' : ' trx-ligne-nego trx-ligne-nego--sortie')} onClick={surClic}>
                 {k === 0 ? tete : <th scope="row" className="trx-ligne-nego-tete"><span className="fdm-cache">{v.libelle} — </span><span className="loc-muet">sortie</span></th>}
                 <td data-mot="Négociateur" data-negociateur-cote={x.cote}>{x.negociateur}</td>
-                <td data-mot="Honoraires"><Mt {...deC(x.honoraires)} donnees={{ 'data-honoraires-nego': x.cote }} /></td>
-                <td data-mot="Rétrocessions"><span className="trx-pile-droite"><Mt {...deC(x.retro)} donnees={{ 'data-retro-nego': x.cote }} />
+                <td data-mot={enTete('Honoraires')}><M {...deC(x.honoraires)} donnees={{ 'data-honoraires-nego': x.cote }} /></td>
+                <td data-mot={enTete('Rétrocessions')}><span className="trx-pile-droite"><M {...deC(x.retro)} donnees={{ 'data-retro-nego': x.cote }} />
                   {/* L'inter-cabinet versé à l'autre société sur ce côté, et les agences extérieures : « reversé à … », comme dans la carte. */}
                   {x.reverses.map((y) => <span key={y.vers} className="trx-source" data-reverse-nego={x.cote}>reversé à {y.vers} : {eur(u === 'ht' ? y.m.htC / 100 : y.m.ttcC / 100)}</span>)}</span></td>
-                <td data-mot="Com négo"><Mt ht={x.payeTtc / TVA} ttc={x.payeTtc} donnees={{ 'data-com-nego': x.cote }} />{nonDeduite(v.id, x.payeNonDeduiteTtc, x.payeARenseigner)}</td>
-                <td data-mot={`Reste agence ${MOT}`}><Mt {...deC(x.reste)} donnees={{ 'data-reste-nego': x.cote }} /></td>
-                {k === 0 ? action : <td data-mot="Action" />}
+                <td data-mot={enTete('Com négo')}><M ht={x.payeTtc / TVA} ttc={x.payeTtc} donnees={{ 'data-com-nego': x.cote }} />{nonDeduite(v.id, x.payeNonDeduiteTtc, x.payeARenseigner)}</td>
+                <td data-mot={`Reste agence ${MOT}`}><M {...deC(x.reste)} donnees={{ 'data-reste-nego': x.cote }} /></td>
               </tr>
             )), fiche];
           }
@@ -513,12 +525,13 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
             <tr key={v.id} data-vente={v.id} className={classe('')} onClick={surClic}>
               {tete}
               {fiches === undefined ? <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td> : <td data-mot="Négociateur" data-negociateur-entree>{negociateurEntree(v)}</td>}
-              <td data-mot="Honoraires"><Mt ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} donnees={{ 'data-honoraires-vente': '' }} />
-                {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
-                {partVente(v)}</td>
-              <td data-mot="Rétrocessions"><Mt ht={retro / TVA} ttc={retro} /></td>
-              <td data-mot="Com négo"><Mt ht={paye / TVA} ttc={paye} />{nonDeduite(v.id, classes.interne + classes.a_renseigner, classes.a_renseigner > 0)}</td>
-              <td data-mot={`Reste agence ${MOT}`}><Mt ht={reste / TVA} ttc={reste} donnees={{ 'data-reste-vente': '' }} /></td>
+              <td data-mot={enTete('Honoraires')}><M ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} donnees={{ 'data-honoraires-vente': '' }} />
+                {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). LOT BZ : dans la
+                    fiche dépliée (sa répartition), plus sur la ligne repliée. */}
+                {!compact && partVente(v)}</td>
+              <td data-mot={enTete('Rétrocessions')}><M ht={retro / TVA} ttc={retro} /></td>
+              <td data-mot={enTete('Com négo')}><M ht={paye / TVA} ttc={paye} />{nonDeduite(v.id, classes.interne + classes.a_renseigner, classes.a_renseigner > 0)}</td>
+              <td data-mot={`Reste agence ${MOT}`}><M ht={reste / TVA} ttc={reste} donnees={{ 'data-reste-vente': '' }} /></td>
               {action}
             </tr>,
             fiche,

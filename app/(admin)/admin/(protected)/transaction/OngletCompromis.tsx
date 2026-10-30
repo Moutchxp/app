@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
@@ -365,7 +365,11 @@ export interface HoteDetail {
  * cadre gris des honoraires nets, cadres verts / rouges), les informations communes, la répartition, la barre d'actions. UN SEUL composant :
  * l'onglet « Compromis » et les listes de « Le mois » le rendent tel quel ; il suit le sélecteur « HT | TTC » de son hôte.
  */
-export function DetailAffaire({ v, hote }: { v: Vente; hote: HoteDetail }) {
+/**
+ * `etiquettes` (🔴 LOT BZ, fiche dépliée depuis les listes de « Le mois ») : ce que la ligne repliée ne montre plus, dans les Informations
+ * communes — les étiquettes « compromis », « mois à confirmer », « répartie » et la source d'import (fichier › onglet › ligne), discrètes.
+ */
+export function DetailAffaire({ v, hote, etiquettes = false }: { v: Vente; hote: HoteDetail; etiquettes?: boolean }) {
   const { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur, acte, setActe, signer, historique, setHistorique } = hote;
   const setEdition = hote.ouvrirEdition;
   const setFenetrePersonnes = hote.ouvrirPersonnes;
@@ -442,8 +446,12 @@ export function DetailAffaire({ v, hote }: { v: Vente; hote: HoteDetail }) {
         <h4>Informations communes
           <span className="trx-pastilles">
             {societe === 'tous' && r === null && <span className="loc-pastille">{LIBELLE_SOCIETE[v.societe]}</span>}
+            {etiquettes && v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange" data-etiquette-fiche="compromis">compromis</span>}
+            {etiquettes && moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange" data-etiquette-fiche="mois-a-confirmer">mois à confirmer</span>}
+            {etiquettes && v.repartition != null && <span className="loc-pastille trx-pastille--verte" data-etiquette-fiche="repartie">répartie</span>}
             {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
           </span></h4>
+        {etiquettes && v.sourceOnglet !== null && <p className="trx-source" data-source-fiche>{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</p>}
         <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
           {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
               négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}

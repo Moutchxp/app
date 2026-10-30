@@ -484,6 +484,15 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-mt-liste{display:inline-flex;flex-direction:column;align-items:flex-end}
 .trx-mt-liste-grand{font-weight:700;white-space:nowrap}
 .trx-montant-autre{font-size:.82em;font-weight:600;opacity:.78;white-space:nowrap}
+/* LOT BZ — les lignes repliées de « Le mois » : compactes (hauteur au minimum lisible), un montant par case sur une ligne, la sortie collée à l'entrée. */
+.trx-table-compacte > tbody > tr > th,.trx-table-compacte > tbody > tr > td{padding-top:5px;padding-bottom:5px}
+.trx-table-compacte > tbody > tr.trx-ligne-nego--sortie > th,.trx-table-compacte > tbody > tr.trx-ligne-nego--sortie > td{padding-top:1px}
+.trx-table-compacte > tbody > tr.trx-ligne-nego--entree > th,.trx-table-compacte > tbody > tr.trx-ligne-nego--entree > td{padding-bottom:2px}
+.trx-table-compacte .trx-deplier-vente{min-height:32px}
+@media (max-width:1024px){ .trx-table-compacte .trx-deplier-vente{min-height:44px} }
+.trx-mt-seul{white-space:nowrap;font-weight:600}
+.trx-table-compacte > tbody > tr:not(.trx-ligne-fiche) > th,.trx-table-compacte > tbody > tr:not(.trx-ligne-fiche) > td{vertical-align:middle}
+[data-source-fiche]{margin:2px 0 6px}
 .trx-pile-droite{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px}
 .trx-ligne-nego-tete{font-weight:500}
 /* LOT BW — une vente en deux lignes (entrée, sortie) : un même bloc ; un trait fin pointillé entre les deux. En cartes (téléphone, tablette) : les
