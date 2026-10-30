@@ -459,6 +459,19 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-fenetre-pied{display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--color-svv-line)}
 .trx-fenetre-pied .loc-alerte{align-self:stretch;margin:0}
 .trx-fenetre-pied .svv-btn{width:auto;min-height:44px}
+/* LOT BS — « Le mois » : le choix du mode (Vendu | Compromis | Vendu + compromis), la barre empilee (compromis plus clairs au-dessus du vendu),
+   le detail vendu / compromis de l'encart, la mention des compromis sans date. */
+.trx-champ-mode{display:flex;flex-direction:column;gap:4px;min-width:max-content}
+.trx-modes{flex-wrap:nowrap}
+.trx-modes .trx-unite{white-space:nowrap}
+@media (max-width:420px){ .trx-champ-mode{min-width:0} .trx-modes .trx-unite{padding:0 8px;min-width:0} }
+.tdb-barre.tdb-barre--haut{opacity:.42}
+.tdb-barre-n1.tdb-barre--haut{opacity:.5}
+.tdb-bulle-part{font-size:.85em;opacity:.85}
+.trx-sans-date{margin:4px 0 0}
+.trx-legende-empile{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:6px 0 0;font-size:.85rem}
+.trx-pastille-empile{display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--color-svv-red)}
+.trx-pastille-empile--haut{opacity:.42}
 /* LOT BB — « = Honoraires nets partie … » (avec apporteur) : la ligne de total de l'en-tête, en gras. */
 .trx-calcul-total .trx-calcul-libelle{font-weight:700}
 @container (max-width:30rem){

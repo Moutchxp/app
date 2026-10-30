@@ -771,8 +771,10 @@ function ListeDetail({ detail, parId, ctx, voirCommissions, liens, onFermer }: {
  * graphique affiché ; clic, Entrée ou Espace), son bord droit sur celui de la zone tracée ; à droite, CA · Baux · Gestion sur les bords de
  * l'encart. Un titre trop long passe à la ligne, jamais le bouton. Encart sous le graphique (≤ 760 px) : bouton et mesures sur une ligne, à droite.
  */
-function EnteteGraphe({ id, titre, mesure, onMesure, cumul, onBasculer, motPeriode }: {
-  id: string; titre: ReactNode; mesure: MesureMois; onMesure: (m: MesureMois) => void; cumul: boolean; onBasculer: () => void; motPeriode: 'Mensuel' | 'Annuel';
+export function EnteteGraphe<M extends string = MesureMois>({ id, titre, mesure, onMesure, cumul, onBasculer, motPeriode, mesures }: {
+  id: string; titre: ReactNode; mesure: M; onMesure: (m: M) => void; cumul: boolean; onBasculer: () => void; motPeriode: 'Mensuel' | 'Annuel';
+  /** 🔴 LOT BS (Transaction) — les onglets de mesure (« CA | Nombre de ventes ») ; absent : CA · Baux · Gestion, comme avant. */
+  mesures?: readonly { cle: M; mot: string }[];
 }) {
   const action = motPeriode === 'Mensuel' ? 'Afficher le mensuel' : 'Afficher l’annuel';
   return (
@@ -787,7 +789,7 @@ function EnteteGraphe({ id, titre, mesure, onMesure, cumul, onBasculer, motPerio
       </div>
       <div className="tdb-histo-entete-detail" data-entete-detail>
         <div className="tdb-mesures" role="group" aria-label="Mesure affichée" data-mesures>
-          {MESURES_MOIS.map((x) => (
+          {(mesures ?? (MESURES_MOIS as unknown as readonly { cle: M; mot: string }[])).map((x) => (
             <button key={x.cle} type="button" className="tdb-onglet tdb-mesure" aria-pressed={mesure === x.cle} data-mesure-bouton={x.cle}
               onClick={() => onMesure(x.cle)}>{x.mot}</button>
           ))}
@@ -889,13 +891,20 @@ export function moisDeLaCourbe(annee: number, jour: string): number {
  * survolée ; au téléphone, sous le graphique, pleine largeur. La bulle flottante du survol est RETIRÉE (accord d'Arno du 23/10/2026 :
  * elle faisait doublon avec ce bloc).
  */
-interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null }
+interface ChiffresBulle { libelle: string; ca: number | null; nb: number | null;
+  /** 🔴 LOT BS (Transaction, « Vendu + compromis ») — le détail de l'année (vendu, compromis), puis le total ; absent : comme avant. */
+  parts?: readonly { mot: string; ca: number }[] }
 export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: ChiffresBulle | null;
   /** Arno (23/10/2026) — une mesure en NOMBRE (« Baux signés », « Nouvelles gestions ») : `ca` porte alors ce nombre ; absent : le CA HT. */
   compte?: string;
   /** TRANSACTION (27/10/2026) — le mot de la ligne du nombre (« Ventes ») ; absent : « Baux », comme avant. */
-  motNb?: string }
-interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre }
+  motNb?: string;
+  /** 🔴 LOT BS (Transaction) — ce que dit le pied sans N−1 (« 2025 : aucun compromis daté ») ; absent : « N−1 non importée », comme avant. */
+  sansN1?: string }
+interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre;
+  /** 🔴 LOT BS (Transaction, « Vendu + compromis ») — la part du BAS de la barre (le vendu, couleur pleine) ; le reste (les compromis) se pose
+   *  au-dessus, plus clair ; `basN1` : idem pour la barre hachurée de N−1. Absent : une barre, comme avant. */
+  empile?: { bas: number; basN1?: number | null } }
 
 /** Le sens d'un nombre, pour sa couleur : positif (vert), négatif (rouge), nul (gris). PUR. */
 export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'positif' : x < 0 ? 'negatif' : 'nul');
@@ -911,7 +920,8 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       <p className="tdb-bulle-annee">{x.libelle}</p>
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : (
         <>
-          <p className="tdb-bulle-ligne"><span>CA HT</span><span className="tdb-bulle-montant">{eur(x.ca)}</span></p>
+          {x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
+          <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? 'CA HT' : 'Total HT'}</span><span className="tdb-bulle-montant">{eur(x.ca)}</span></p>
           <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>
         </>
       )}
@@ -922,7 +932,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       <p className="tdb-bulle-titre">{info.titre}</p>
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
-      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? 'N−1 non importée'
+      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? info.sansN1 ?? 'N−1 non importée'
         : ecart === null ? 'Écart : —' : <><span>Écart</span>
           {/* Arno (23/10/2026) : l'écart positif en vert, négatif en rouge, nul en gris (montant et pourcentage) ; « Écart » reste neutre. */}
           <span className={`tdb-bulle-montant tdb-signe tdb-signe--${sensDe(ecart)}`} data-ecart={sensDe(ecart)}>{ecartEur(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
@@ -967,7 +977,8 @@ function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
     <div className={`tdb-bulle-bloc tdb-bulle-bloc--${sorte}`} data-bulle-bloc={sorte}>
       <p className="tdb-bulle-annee">{x.libelle}</p>
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p>
-        : <p className="tdb-bulle-ligne"><span>{mot}</span><span className="tdb-bulle-montant">{x.ca}</span></p>}
+        : <>{x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{p.ca}</span></p>)}
+          <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? mot : 'Total'}</span><span className="tdb-bulle-montant">{x.ca}</span></p></>}
     </div>
   );
   return (
@@ -975,11 +986,26 @@ function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
       <p className="tdb-bulle-titre">{info.titre}</p>
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
-      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? 'N−1 non importée'
+      <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? info.sansN1 ?? 'N−1 non importée'
         : ecart === null ? 'Écart : —' : <><span>Écart</span>
           <span className={`tdb-bulle-montant tdb-signe tdb-signe--${sensDe(ecart)}`} data-ecart={sensDe(ecart)}>
             {ecart > 0 ? '+' : ecart < 0 ? '−' : ''}{Math.abs(ecart)} ({signe(variation(c.ca as number, p.ca as number))})</span></>}</p>
     </div>
+  );
+}
+
+/**
+ * 🔴 LOT BS (Transaction, « Vendu + compromis ») — une barre EMPILÉE : le bas (le vendu) dans la classe de la barre, le haut (les compromis)
+ * dans la même classe en plus clair (`--haut`) ; montants positifs (un CA). Le groupe porte `data-valeur` (le total), comme une barre simple.
+ */
+function BarreEmpilee({ x, largeur, total, bas, y, classe, fill, donnees }: { x: number; largeur: number; total: number; bas: number; y: (v: number) => number;
+  classe: string; fill?: string; donnees: Record<string, string | number> }) {
+  const b = Math.max(0, Math.min(bas, total));
+  return (
+    <g data-barre-empilee {...donnees}>
+      <rect x={x} y={y(b)} height={Math.abs(y(0) - y(b))} width={largeur} fill={fill} className={classe} data-empile="bas" data-valeur-part={b} />
+      <rect x={x} y={y(total)} height={Math.abs(y(b) - y(total))} width={largeur} fill={fill} className={`${classe} tdb-barre--haut`} data-empile="haut" data-valeur-part={total - b} />
+    </g>
   );
 }
 
@@ -1134,11 +1160,14 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
             return (
               <g key={b.cle} className="tdb-barre-annee" onClick={() => onChoisir(b.cle)} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
                 <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
-                {avecN1 && b.n1 !== undefined && b.n1 !== null && (
-                  <rect x={x0 + largeur} {...barreY(b.n1, y)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
+                {avecN1 && b.n1 !== undefined && b.n1 !== null && (b.empile?.basN1 != null
+                  ? <BarreEmpilee x={x0 + largeur} largeur={largeur} total={b.n1} bas={b.empile.basN1} y={y} fill={`url(#hachures-${attribut})`} classe="tdb-barre-n1" donnees={{ 'data-barre-n1': b.cle }} />
+                  : <rect x={x0 + largeur} {...barreY(b.n1, y)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
                 )}
-                {b.valeur !== null && <rect x={x0} {...barreY(b.valeur, y)} width={largeur}
-                  className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />}
+                {b.valeur !== null && (b.empile !== undefined
+                  ? <BarreEmpilee x={x0} largeur={largeur} total={b.valeur} bas={b.empile.bas} y={y} classe={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} donnees={{ 'data-valeur': b.valeur }} />
+                  : <rect x={x0} {...barreY(b.valeur, y)} width={largeur}
+                  className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />)}
                 <text x={m.g + i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{b.libelle}</text>
               </g>
             );

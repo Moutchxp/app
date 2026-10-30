@@ -368,3 +368,145 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
     } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
   });
 });
+
+describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Vendu + compromis ; le graphique de la Location (CA | Nombre)', () => {
+  // Janvier 2025 : la vente 1 signée (11 025 TTC) ; deux compromis datés de janvier (6 000 en cours, 3 600 passé en acte en mars) ; un annulé
+  // daté de janvier (jamais compté) ; deux compromis sans date (CALMET 25 000, 2 400) ; janvier 2024 : un compromis daté (1 200), signé en février 2024.
+  const compromisDates = [
+    vente(11, { libelle: 'COMPROMIS EN COURS', honorairesTtc: 6000, statut: 'compromis', mois: null, dateCompromis: '2025-01-10', lignes: [ligne('CEDRIC', 'negociateur', 500)] }),
+    vente(12, { libelle: 'COMPROMIS PUIS ACTE', honorairesTtc: 3600, statut: 'vendue', mois: 3, dateCompromis: '2025-01-20', lignes: [ligne('MYLENE', 'negociateur', 600)] }),
+    vente(13, { libelle: 'ANNULÉ', honorairesTtc: 9000, statut: 'annulee', mois: null, dateCompromis: '2025-01-05' }),
+    vente(14, { libelle: 'SANS DATE', honorairesTtc: 2400, statut: 'compromis', mois: null }),
+    vente(15, { libelle: 'N-1', honorairesTtc: 1200, statut: 'vendue', annee: 2024, mois: 2, dateCompromis: '2024-01-15' }),
+  ];
+  let avant: Vente[];
+  beforeEach(() => { avant = donnees.ventes; donnees.ventes = [...avant, ...compromisDates]; try { window.localStorage.removeItem('trx-mois-mode'); } catch { /* */ } });
+  afterEach(() => { donnees.ventes = avant; try { window.localStorage.removeItem('trx-mois-mode'); } catch { /* */ } });
+  const ouvrir = async (adresse = '/?vue=mois&annee=2025&mois=1') => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', adresse);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+  };
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const tuile = (cle: string) => [texte(`[data-tuile="${cle}"] .tdb-tuile-mot`), texte(`[data-tuile="${cle}"] .tdb-tuile-valeur`), texte(`[data-tuile="${cle}"] .tdb-tuile-n1`)];
+
+  it('les règles (PUR) : date du compromis, annulés exclus, un compromis passé en acte compte au mois de son compromis ; « tous » = vendu + compromis, au centime, mois par mois', async () => {
+    const M = await import('../../../../lib/transaction/modele');
+    const v = donnees.ventes;
+    expect(M.compromisDuMois(v, 2025, 1).map((x) => x.id)).toEqual([11, 12]);
+    expect(M.compromisSansDate(v, 2025).map((x) => x.id)).toEqual([3, 14]);
+    const vendu = M.caHtParMois(v, 2025, 'macj'); const comp = M.caHtCompromisParMois(v, 2025, 'macj'); const tous = M.caHtParMoisMode(v, 2025, 'macj', 'tous');
+    expect(M.caHtParMoisMode(v, 2025, 'macj', 'vendu')).toEqual(vendu);
+    for (let i = 0; i < 12; i++) expect(tous[i]).toBe(vendu[i] + comp[i]);
+    expect([comp[0], vendu[0], vendu[2]]).toEqual([9600 / 1.2, 11025 / 1.2, 3600 / 1.2]);
+    expect(M.nombreParMoisMode(v, 2025, 'tous').slice(0, 3)).toEqual([3, 1, 1]);
+    const d = { ...donnees, ventes: v };
+    const T = M.totauxMoisMode(d, 2025, 1, 'tous'); const Tv = M.totauxMois(d, 2025, 1); const Tc = M.totauxMoisMode(d, 2025, 1, 'compromis');
+    expect([T.caHt, T.nbVentes, T.resteHt]).toEqual([Tv.caHt + Tc.caHt, Tv.nbVentes + Tc.nbVentes, Tv.resteHt + Tc.resteHt]);
+    expect(M.totauxMoisMode(d, 2025, 1, 'vendu')).toEqual(Tv);
+  });
+
+  it('par défaut « Vendu » : l’écran d’avant au centime ; le sélecteur à trois positions dans la barre des filtres', async () => {
+    await ouvrir();
+    expect([...container.querySelectorAll('[data-filtre="mode"] [data-mode-mois]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]))
+      .toEqual([['Vendu', 'true'], ['Compromis', 'false'], ['Vendu + compromis', 'false']]);
+    expect(container.querySelector('[data-filtre="mode"]')!.closest('form.tdb-filtres')).not.toBeNull();
+    expect(tuile('ca-mois')).toEqual(['CA HT — janvier', '9 187,50 €', '5 000 € en 2024 (+83,8 %)']);
+    expect(tuile('ventes-mois')).toEqual(['Ventes — janvier', '1', '1 en 2024']);
+    expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
+    expect(container.querySelector('[data-compromis-sans-date]')).toBeNull();
+    expect(container.querySelector('[data-bloc="compromis-du-mois"]')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('mode')).toBe('vendu');
+  });
+
+  it('« Compromis » : à la date du compromis, annulé exclu ; N−1 dans le même mode ; « N compromis sans date — non placés dans un mois » ; la liste du mois', async () => {
+    await ouvrir();
+    await cliquer('[data-mode-mois="compromis"]');
+    expect(tuile('ca-mois')).toEqual(['CA HT des compromis — janvier', '8 000 €', '1 000 € en 2024 (+700 %)']);
+    expect(tuile('ventes-mois')).toEqual(['Compromis — janvier', '2', '1 en 2024']);
+    expect(tuile('cumul')[0]).toBe('CA des compromis cumulé 2025 (à fin janvier)');
+    expect(texte('[data-compromis-sans-date]')).toBe('2 compromis sans date — non placés dans un mois (22 833,33 € HT)');
+    expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['11', '12']);
+    expect(container.querySelector('[data-bloc="ventes-mois"]')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('mode')).toBe('compromis');
+  });
+
+  it('« Vendu + compromis » : la somme au centime ; les deux listes ; la barre empilée (vendu en bas, compromis au-dessus, N−1 hachurée empilée) ; l’encart : vendu, compromis, total', async () => {
+    await ouvrir();
+    await cliquer('[data-mode-mois="tous"]');
+    expect(tuile('ca-mois')).toEqual(['CA HT vendu + compromis — janvier', '17 187,50 €', '6 000 € en 2024 (+186,5 %)']);
+    expect(tuile('ventes-mois')[1]).toBe('3');
+    expect([container.querySelector('[data-bloc="ventes-mois"]') !== null, container.querySelector('[data-bloc="compromis-du-mois"]') !== null]).toEqual([true, true]);
+    const janv = container.querySelector('[data-barre-mois="1"]')!;
+    expect([...janv.querySelectorAll('[data-barre-empilee] [data-empile]')].map((r) => [r.getAttribute('data-empile'), Number(r.getAttribute('data-valeur-part')).toFixed(2)]))
+      .toEqual([['bas', '5000.00'], ['haut', '1000.00'], ['bas', '9187.50'], ['haut', '8000.00']]); // N−1 (hachurée) dessinée d'abord, comme avant
+    expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent!.replace(/\s/g, ' ')))
+      .toEqual(['Vendu9 187,50 €', 'Compromis8 000,00 €', 'Total HT17 187,50 €', 'Ventes + compromis3']);
+    expect(container.querySelector('[data-legende-empile]')).not.toBeNull();
+  });
+
+  it('les onglets « CA | Nombre de ventes » (Compromis : « Nombre de compromis » ; combiné : « Nombre ») et le bouton « ⇄ Mensuel » de la Location ; en nombre : l’axe entier et l’encart en nombre', async () => {
+    await ouvrir();
+    const onglets = () => [...container.querySelectorAll('[data-bloc="histogramme-mois"] [data-mesure-bouton]')].map((b) => b.textContent);
+    expect(onglets()).toEqual(['CA', 'Nombre de ventes']);
+    expect(container.querySelector('[data-bloc="histogramme-mois"] [data-cumul-bouton]')!.textContent).toBe('⇄Mensuel');
+    await cliquer('[data-mode-mois="compromis"]');
+    expect(onglets()).toEqual(['CA', 'Nombre de compromis']);
+    await cliquer('[data-mesure-bouton="nombre"]');
+    expect(texte('[data-histo-detail] [data-bulle-bloc="courant"]')).toBe('2025Compromis2');
+    expect(texte('[data-histo-detail] [data-bulle-bloc="n1"]')).toBe('2024Compromis1');
+    expect(new URLSearchParams(window.location.search).get('mesure')).toBe('nombre');
+    await cliquer('[data-mode-mois="tous"]');
+    expect(onglets()).toEqual(['CA', 'Nombre']);
+    expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent)).toEqual(['Vendu1', 'Compromis2', 'Total3']);
+    await cliquer('[data-cumul-bouton]');
+    expect(container.querySelector('[data-courbe="mois-cumul"]')).not.toBeNull();
+  });
+
+  it('le filtre « Négociateur » s’applique dans chaque mode', async () => {
+    await ouvrir();
+    await cliquer('[data-mode-mois="compromis"]');
+    await cliquer('[data-filtre="negociateur"]');
+    const option = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent === 'MYLENE') as HTMLElement;
+    await act(async () => { option.click(); }); await calmer();
+    expect(tuile('ca-mois')[1]).toBe('3 000 €');
+    expect(tuile('ventes-mois')[1]).toBe('1');
+  });
+
+  it('le mode est retenu après rechargement (navigateur), et l’adresse (&mode=…) l’emporte pour un lien partagé', async () => {
+    await ouvrir();
+    await cliquer('[data-mode-mois="tous"]');
+    await ouvrir('/?vue=mois&annee=2025&mois=1');
+    expect(container.querySelector('[data-mode-mois="tous"]')!.getAttribute('aria-pressed')).toBe('true');
+    await ouvrir('/?vue=mois&annee=2025&mois=1&mode=compromis');
+    expect(container.querySelector('[data-mode-mois="compromis"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(tuile('ca-mois')[1]).toBe('8 000 €');
+  });
+
+  it('inter-cabinet : un compromis porté par CRITERIMMO, reçu à 50 % par MACJ — chacune sa part, comme pour une vente (la règle ne change pas)', async () => {
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    const parties = [
+      { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
+      { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
+    const h = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, statut: 'compromis', mois: null, dateCompromis: '2025-01-12', repartition: { retroApporteurTtc: 0, parties },
+      dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] } });
+    const M = await import('../../../../lib/transaction/modele');
+    expect(M.caHtParMoisMode([h], 2025, 'criterimmo', 'compromis')[0]).toBeCloseTo(4000 / 1.2, 9);
+    expect(M.caHtParMoisMode([venteDansSociete(h, 'macj')!], 2025, 'macj', 'compromis')[0]).toBeCloseTo(2000 / 1.2, 9);
+  });
+
+  it('le CA global n’a pas d’écran « Le mois » : pas de sélecteur de mode (ses tableaux ne changent pas)', async () => {
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(container.querySelector('[data-filtre="mode"]')).toBeNull();
+    expect(container.querySelector('[data-table-global]')).not.toBeNull();
+  });
+
+  it('la Location ne change pas : sans `mesures`, l’en-tête garde CA · Baux · Gestion ; sans `empile`, une barre simple', async () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx', 'utf8');
+    expect(src).toContain("(mesures ?? (MESURES_MOIS as unknown as readonly { cle: M; mot: string }[]))");
+    expect(src).toContain('{b.valeur !== null && (b.empile !== undefined');
+    const L = await import('../location/TableauBordSuivi');
+    expect(L.MESURES_MOIS.map((x) => x.mot)).toEqual(['CA', 'Baux', 'Gestion']);
+  });
+});

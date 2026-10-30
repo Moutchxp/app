@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
   anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
-  NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux, totauxMois,
+  NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente,
+  aDesCompromisDates, caHtParMoisMode, compromisDuMois, compromisSansDate, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
-import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
+import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
 import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
@@ -106,13 +107,17 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
   const [fin, setFin] = useState<number | null>(() => entier(parametre('fin'), 2000, 2100));
   const [negociateur, setNegociateur] = useState('');
+  // 🔴 LOT BS (Arno) — « Le mois » : Vendu | Compromis | Vendu + compromis. L'adresse (&mode=…) d'abord (un lien partagé), sinon le choix retenu
+  // par le navigateur, sinon « Vendu » (l'écran d'avant, à l'identique).
+  const [mode, setModeEtat] = useState<ModeMois>(() => modeInitial(parametre('mode')));
+  const setMode = (m: ModeMois): void => { setModeEtat(m); try { window.localStorage.setItem(CLE_MODE_MOIS, m); } catch { /* sans stockage */ } };
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   useEffect(() => {
-    ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(annee), mois: String(mois), debut: null, fin: null }
-      : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null }
-      : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin) });
-  }, [vue, annee, mois, debut, fin]);
+    ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(annee), mois: String(mois), debut: null, fin: null, mode }
+      : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null, mode: null, mesure: null }
+      : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin), mode: null, mesure: null });
+  }, [vue, annee, mois, debut, fin, mode]);
 
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
@@ -154,10 +159,15 @@ export function EcranSociete({ societe }: { societe: Societe }) {
         </>}
         <label className="tdb-champ">Négociateur
           <ListeChoix options={negos.map((x) => ({ id: x, libelle: x }))} valeur={negociateur} vide="Tous" libelle="Négociateur" onChange={setNegociateur} donnees={{ 'data-filtre': 'negociateur' }} /></label>
+        {/* 🔴 LOT BS — ce que « Le mois » additionne : les ventes signées (date de l'acte), les compromis (date du compromis), ou les deux. */}
+        {vue === 'mois' && <div className="tdb-champ trx-champ-mode"><span id="trx-mode-mot">Compter</span>
+          <div className="trx-unites trx-modes" role="group" aria-labelledby="trx-mode-mot" data-filtre="mode">
+            {MODES_MOIS.map((m) => <button key={m} type="button" className="trx-unite" aria-pressed={mode === m} onClick={() => setMode(m)} data-mode-mois={m}>{LIBELLE_MODE[m]}</button>)}
+          </div></div>}
       </form>
 
       {vue === 'mois'
-        ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} />
+        ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={setMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
       </>}
@@ -174,77 +184,145 @@ export function EcranSociete({ societe }: { societe: Societe }) {
 
 // ── Le mois ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRelire }: {
-  d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; onMois: (m: number) => void;
+/** 🔴 LOT BS — le choix du mode retenu par le navigateur (et repris de l'adresse). */
+export const CLE_MODE_MOIS = 'trx-mois-mode';
+export const LIBELLE_MODE: Record<ModeMois, string> = { vendu: 'Vendu', compromis: 'Compromis', tous: 'Vendu + compromis' };
+/** Le mode à l'arrivée : celui de l'adresse, sinon celui retenu par le navigateur, sinon « vendu ». PUR (hors lecture du stockage, protégée). */
+export function modeInitial(adresse: string | null): ModeMois {
+  if (estModeMois(adresse)) return adresse;
+  try { const r = typeof window === 'undefined' ? null : window.localStorage.getItem(CLE_MODE_MOIS); if (estModeMois(r)) return r; } catch { /* sans stockage */ }
+  return 'vendu';
+}
+/** Les mots de l'écran selon le mode (tuiles, graphique, listes). */
+const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; liste: string; graphe: string; compte: string }> = {
+  vendu: { ca: 'CA HT', nombre: 'Ventes', onglet: 'Nombre de ventes', liste: 'Ventes', graphe: 'CA HT', compte: 'Ventes' },
+  compromis: { ca: 'CA HT des compromis', nombre: 'Compromis', onglet: 'Nombre de compromis', liste: 'Compromis', graphe: 'CA HT des compromis', compte: 'Compromis' },
+  tous: { ca: 'CA HT vendu + compromis', nombre: 'Ventes + compromis', onglet: 'Nombre', liste: 'Ventes et compromis', graphe: 'CA HT vendu + compromis', compte: 'Ventes + compromis' },
+};
+type MesureTrx = 'ca' | 'nombre';
+const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
+
+function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire }: {
+  d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois; onMois: (m: number) => void;
   onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
 }) {
   const [cumul, setCumul] = useState(false);
-  const T = totauxMois(d, annee, mois);
-  const T1 = totauxMois(d, annee - 1, mois);
-  const parMois = caHtParMois(d.ventes, annee, d.societe);
-  const parMoisN1 = caHtParMois(d.ventes, annee - 1, d.societe);
-  const sansN1 = !d.ventes.some((v) => v.annee === annee - 1);
-  const cumulN = parMois.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
-  const cumulN1 = parMoisN1.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
+  // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : 'ca'));
+  useEffect(() => { ecrireAdresse({ mesure: mesure === 'nombre' ? 'nombre' : null }); }, [mesure]);
+  const M = MOTS_MODE[mode];
+  // Le mode change ce qu'on additionne (vendu, compromis à leur date, ou les deux), jamais comment (`caHt`, `totaux`).
+  const T = totauxMoisMode(d, annee, mois, mode);
+  const T1 = totauxMoisMode(d, annee - 1, mois, mode);
+  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode);
+  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode);
+  const vendusN = caHtParMois(d.ventes, annee, d.societe);
+  const vendusN1 = caHtParMois(d.ventes, annee - 1, d.societe);
+  const nbParMois = nombreParMoisMode(d.ventes, annee, mode);
+  const nbParMoisN1 = nombreParMoisMode(d.ventes, annee - 1, mode);
+  const nbVendusN = nombreParMoisMode(d.ventes, annee, 'vendu');
+  const nbVendusN1 = nombreParMoisMode(d.ventes, annee - 1, 'vendu');
+  const sansVenduN1 = !d.ventes.some((v) => v.annee === annee - 1);
+  const sansN1 = mode === 'vendu' ? sansVenduN1 : mode === 'compromis' ? !aDesCompromisDates(d.ventes, annee - 1) : sansVenduN1 && !aDesCompromisDates(d.ventes, annee - 1);
+  const motSansN1 = mode === 'compromis' ? `${annee - 1} : aucun compromis daté` : `${annee - 1} : non importé`;
+  const cumulN = cumuler(parMois);
+  const cumulN1 = cumuler(parMoisN1);
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const ventes = ventesDuMois(d.ventes, annee, mois);
+  const compDuMois = compromisDuMois(d.ventes, annee, mois);
+  const listeMode = mode === 'vendu' ? ventes : mode === 'compromis' ? compDuMois : [...ventes, ...compDuMois];
   const retros = retrosDuMois(d.retrocessions, annee, mois);
+  const retrosMode = mode === 'compromis' ? [] : retros;
   const comp = compromisDeLAnnee(d.ventes, annee);
+  const sansDate = mode === 'vendu' ? [] : compromisSansDate(d.ventes, annee);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => x.annee === annee && x.mois === mois);
-  const nbN = (k: number, a: number): number => ventesDuMois(d.ventes, a, k).length;
-  const info = (k: number, cumule: boolean): InfoBarre => ({
-    titre: cumule ? `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : NOMS_MOIS[k - 1], motNb: 'Ventes',
-    courant: { libelle: String(annee), ca: k > dernierMois ? null : (cumule ? cumulN : parMois)[k - 1], nb: k > dernierMois ? null : nbN(k, annee) },
-    precedent: sansN1 ? null : { libelle: String(annee - 1), ca: (cumule ? cumulN1 : parMoisN1)[k - 1], nb: nbN(k, annee - 1) },
-  });
+  const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...(mode === 'vendu' ? [] : compromisDuMois(d.ventes, annee, k))].map((v) => v.id);
+  /** L'encart d'un mois (ou de son cumul) : l'année et N−1 ; « Vendu + compromis » : le vendu, les compromis, puis le total. */
+  const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
+  const info = (k: number, cumule: boolean): InfoBarre => {
+    const aVenir = k > dernierMois;
+    const titre = cumule ? `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : NOMS_MOIS[k - 1];
+    if (mesure === 'nombre') {
+      const [n, n1, v, v1] = cumule ? [cumuler(nbParMois), cumuler(nbParMoisN1), cumuler(nbVendusN), cumuler(nbVendusN1)] : [nbParMois, nbParMoisN1, nbVendusN, nbVendusN1];
+      return { titre, compte: cumule ? `${M.compte} (cumul)` : M.compte, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
+        courant: { libelle: String(annee), ca: aVenir ? null : n[k - 1], nb: null, ...(aVenir ? {} : parts(v[k - 1], n[k - 1])) },
+        precedent: sansN1 ? null : { libelle: String(annee - 1), ca: n1[k - 1], nb: null, ...parts(v1[k - 1], n1[k - 1]) } };
+    }
+    const [c, c1, v, v1] = cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1];
+    // Le nombre de l'encart reste celui du MOIS, même en cumul (l'encart d'avant ce lot, à l'identique).
+    const nb = nbParMois;
+    const nb1 = nbParMoisN1;
+    return { titre, motNb: M.compte, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
+      courant: { libelle: String(annee), ca: aVenir ? null : c[k - 1], nb: aVenir ? null : nb[k - 1], ...(aVenir ? {} : parts(v[k - 1], c[k - 1])) },
+      precedent: sansN1 ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nb1[k - 1], ...parts(v1[k - 1], c1[k - 1]) } };
+  };
   const libMois = `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+  const moisMot = NOMS_MOIS[mois - 1].toLowerCase();
   const ouvrir = (titre: string, ids: number[]) => () => onDetail({ titre, ids });
+  const nombre = mesure === 'nombre';
+  const valeurs = nombre ? nbParMois : parMois;
+  const valeursN1 = nombre ? nbParMoisN1 : parMoisN1;
+  const basN = nombre ? nbVendusN : vendusN;
+  const basN1 = nombre ? nbVendusN1 : vendusN1;
+  const motGraphe = nombre ? M.onglet.toLowerCase() : M.graphe;
   return <>
     <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`}>
       {NOMS_MOIS.map((m, i) => (
         <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
       ))}
     </div>
-    <ul className="tdb-tuiles" aria-label="L’essentiel du mois">
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Ventes — ${libMois}`, T.ids)} data-tuile="ca-mois">
-        <span className="tdb-tuile-mot">CA HT — {NOMS_MOIS[mois - 1].toLowerCase()}</span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
-        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(T1.caHt)} en ${annee - 1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Ventes — ${libMois}`, T.ids)} data-tuile="ventes-mois">
-        <span className="tdb-tuile-mot">Ventes — {NOMS_MOIS[mois - 1].toLowerCase()}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
-        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${T1.nbVentes} en ${annee - 1}`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA cumulé ${annee}`, Array.from({ length: mois }, (_, i) => ventesDuMois(d.ventes, annee, i + 1).map((v) => v.id)).flat())} data-tuile="cumul">
-        <span className="tdb-tuile-mot">CA cumulé {annee} (à fin {NOMS_MOIS[mois - 1].toLowerCase()})</span><strong className="tdb-tuile-valeur">{eur(cumulN[mois - 1])}</strong>
-        <span className="tdb-tuile-n1">{sansN1 ? `${annee - 1} : non importé` : `${eur(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
+    <ul className="tdb-tuiles" aria-label="L’essentiel du mois" data-mode-ecran={mode}>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ca-mois">
+        <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur(T.caHt)}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${eur(T1.caHt)} en ${annee - 1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ventes-mois">
+        <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${T1.nbVentes} en ${annee - 1}`}</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(' HT', '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
+        <span className="tdb-tuile-mot">{mode === 'vendu' ? 'CA' : M.ca.replace(' HT', '')} cumulé {annee} (à fin {moisMot})</span><strong className="tdb-tuile-valeur">{eur(cumulN[mois - 1])}</strong>
+        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${eur(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
         <span className="tdb-tuile-mot">Compromis en cours ({annee})</span><strong className="tdb-tuile-valeur">{eur(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong>
         <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
     </ul>
+    {/* 🔴 LOT BS — un compromis sans date de compromis n'a pas de mois : compté à part, jamais placé dans un mois. */}
+    {sansDate.length > 0 && <p className="loc-muet trx-sans-date" data-compromis-sans-date>
+      <button type="button" className="tdb-chiffre" onClick={ouvrir(`Compromis sans date — ${annee}`, sansDate.map((v) => v.id))}>{sansDate.length} compromis sans date</button>
+      {' '}— non placés dans un mois ({eur(sansDate.reduce((t, v) => t + caHt(v, d.societe), 0))} HT)</p>}
 
-    <section className="tdb-section" aria-labelledby="trx-histo" data-bloc="histogramme-mois">
-      <div className="trx-barre">
-        <h3 id="trx-histo">Mois par mois — {annee} <small className="loc-muet">(CA HT{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></h3>
-        <button type="button" className="tdb-bascule-cumul" onClick={() => setCumul((c) => !c)} data-cumul-etat={cumul ? 'cumul' : 'mensuel'}>
-          <span className="tdb-bascule-cumul-icone" aria-hidden="true">⇄</span><span>{cumul ? 'Cumul' : 'Mensuel'}</span></button>
-      </div>
+    {/* 🔴 LOT BS (Arno) — l'organisation du graphique « Mois par mois » de la Location : son en-tête (la bascule « ⇄ Mensuel » / « Cumul », les
+        onglets de mesure à droite), ses barres (N pleines, N−1 hachurées), sa légende, son encart à droite ; un mois s'ouvre d'un clic. « Vendu +
+        compromis » : la barre EMPILÉE (vendu en bas, compromis au-dessus, plus clair ; N−1 hachurée, même empilement). */}
+    <section className="tdb-section" aria-labelledby="trx-histo" data-bloc="histogramme-mois" data-mesure={mesure}>
+      <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
+        mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'nombre', mot: M.onglet }]}
+        titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
       {cumul ? (
-        <CourbeCumul courant={cumulN.slice(0, dernierMois)} n1={sansN1 ? null : cumulN1} annee={annee} selection={mois}
-          aria={`CA HT cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} />
+        <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
+          aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} />
       ) : (
-        <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={onMois} aria={`CA HT par mois, ${annee}`}
+        <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
           legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
-          barres={parMois.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : parMoisN1[i], info: info(i + 1, false) }))} />
+          barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
+            ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}
+      {mode === 'tous' && !cumul && <p className="loc-muet trx-legende-empile" data-legende-empile>
+        <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>
 
-    <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
+    {mode !== 'compromis' && <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
       <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
       <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
-    </section>
+    </section>}
+    {mode !== 'vendu' && <section className="tdb-section" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
+      <h3 id="trx-compromis-mois">Les compromis du mois — {libMois} <small className="loc-muet">(date du compromis)</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
+      <TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
+    </section>}
 
     <section className="tdb-section" aria-labelledby="trx-resultat" data-bloc="resultat-mois">
-      <h3 id="trx-resultat">Résultat de l’agence — {libMois}</h3>
+      <h3 id="trx-resultat">Résultat de l’agence — {libMois}{mode === 'vendu' ? '' : <small className="loc-muet"> ({LIBELLE_MODE[mode].toLowerCase()})</small>}</h3>
       <dl className="trx-resultat">
         <dt>CA HT</dt><dd>{eur(T.caHt)}</dd>
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
@@ -254,12 +332,12 @@ function VueMois({ d, tout, annee, mois, jour, onMois, onDetail, onEdition, onRe
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
         <NonDeduits T={T} />
       </dl>
-      <p className="loc-muet">Les rétrocessions comptent sur le mois où elles sont saisies (comme dans les fichiers), rattachées ou « à répartir ».</p>
+      <p className="loc-muet">Les rétrocessions comptent sur le mois où elles sont saisies (comme dans les fichiers), rattachées ou « à répartir »{mode === 'vendu' ? '' : ' : avec les ventes signées ; un compromis ne compte que l’apporteur de sa répartition'}.</p>
     </section>
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
-      resume={`${parNegociateur(ventes, retros, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
-      <TableNegociateurs lignes={parNegociateur(ventes, retros, d.societe, resolveurDe(d.statutsNegociateurs))} rattache={partAgenceRattacheeHt(ventes, d.societe)} onDetail={onDetail} periode={libMois} />
+      resume={`${parNegociateur(listeMode, retrosMode, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
+      <TableNegociateurs lignes={parNegociateur(listeMode, retrosMode, d.societe, resolveurDe(d.statutsNegociateurs))} rattache={partAgenceRattacheeHt(listeMode, d.societe)} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
