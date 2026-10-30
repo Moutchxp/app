@@ -493,7 +493,7 @@ function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }
           statutDuLibelle={fiches.hote.statutDuLibelle} attributs={{ 'data-vente': String(v.id) }} />
         : <li key={v.id} data-vente={v.id}>
           <CarteAffaire v={v} aujourdhui={fiches.hote.d.aujourdhui} section="vente" donnees={{ 'data-carte-vente': String(v.id) }} vue={societe} retros={retros} statutDuLibelle={statutDuLibelle}>
-            <DetailAffaire v={v} hote={fiches.hote} etiquettes />
+            <DetailAffaire v={v} hote={fiches.hote} etiquettes retros={retros} />
           </CarteAffaire>
         </li>))}
     </ul>

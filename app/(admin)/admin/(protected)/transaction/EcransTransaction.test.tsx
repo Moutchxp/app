@@ -607,7 +607,7 @@ describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche d
     try {
       // 🔴 LOT CA — la carte : « Entrée : X · Sortie : Y » (deux négociateurs), « Négociateur : X » sinon (un import : le nom importé).
       // 🔴 LOT CC — une ligne par négociateur : « Arnaud Jorel · entrée », « Pierre Thevenin · sortie » ; un import : une ligne, le nom importé.
-      expect([...container.querySelectorAll('[data-vente="38"] [data-nego-nom]')].map((x) => x.textContent)).toEqual(['Arnaud Jorel · entrée', 'Pierre Thevenin · sortie']);
+      expect([...container.querySelectorAll('[data-vente="38"] [data-carte-negos] > [data-nego-ligne]')].map((x) => `${x.querySelector('[data-nego-nom]')!.textContent} ${x.querySelector('[data-nego-cote]')!.textContent}`)).toEqual(['Arnaud Jorel · entrée', 'Pierre Thevenin · sortie']);
       expect([...container.querySelectorAll('[data-vente="1"] [data-nego-nom]')].map((x) => x.textContent)).toEqual(['MYLENE, CEDRIC']);
       const b = container.querySelector('[data-vente="38"] .tdb-replie-ligne')!;
       expect([b.getAttribute('aria-expanded'), b.querySelector('svg[data-triangle]')?.getAttribute('data-triangle')]).toEqual(['false', 'replie']);
@@ -742,9 +742,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     dossier: dossier([5, 'Jean-Baptiste PONS'], [8, 'Pierre THEVENIN']) });
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
   const montant = (sel: string): number => centimes(texte(sel));
-  const ouvrirSur = async (ventes: Vente[], societe: 'criterimmo' | 'macj', adresse = '/?vue=mois&annee=2025&mois=1') => {
+  const ouvrirSur = async (ventes: Vente[], societe: 'criterimmo' | 'macj', adresse = '/?vue=mois&annee=2025&mois=1', retrocessions: DonneesSociete['retrocessions'] = []) => {
     const avant = { ventes: donnees.ventes, societe: donnees.societe, retros: donnees.retrocessions, statuts: donnees.statutsNegociateurs };
-    donnees.ventes = ventes; donnees.societe = societe; donnees.retrocessions = [];
+    donnees.ventes = ventes; donnees.societe = societe; donnees.retrocessions = retrocessions;
     donnees.statutsNegociateurs = { 'Jean-Baptiste PONS': 'independant', 'Cédric JULLIEN': 'independant', 'Pierre THEVENIN': 'independant', MYLENE: 'independant' };
     const refs = { lotD: true, negociateurs: [{ id: 5, nom: 'Jean-Baptiste PONS', societe: 'criterimmo' }, { id: 9, nom: 'Cédric JULLIEN', societe: 'criterimmo' }, { id: 8, nom: 'Pierre THEVENIN', societe: 'macj' }],
       apporteurs: [], personnes: [], uniteCommission: true, annulation: true };
@@ -767,7 +767,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     try {
       expect(container.querySelectorAll('[data-bloc="ventes-mois"] [data-cartes-ventes] > li').length).toBe(1);
       expect(container.querySelector('[data-bloc="ventes-mois"] table')).toBeNull();
-      expect(texte('[data-vente="1"] [data-carte-negos]')).toBe('MYLENE, CEDRIC — honoraires 9 187,50 € · com négo 2 679,17 € · reste 6 508,33 €');
+      expect(texte('[data-vente="1"] [data-carte-negos]')).toBe('MYLENE, CEDRIC — honoraires nets 9 187,50 € · com négo 2 679,17 € · reste 6 508,33 €');
+      // 🔴 LOT CD — sans apporteur : « honoraires nets » en gris
+      expect(container.querySelector('[data-vente="1"] [data-nego-nets]')!.className).not.toContain('trx-rouge');
       expect(montant('[data-vente="1"] [data-nego-reste]')).toBe(montant('[data-reste-agence]'));
     } finally { fin(); }
   });
@@ -775,14 +777,19 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   it('entrée ≠ sortie : deux lignes ; honoraires des lignes + apporteur = la commission, au centime (HT et TTC) ; com négo = la paye ; reste = le résultat', async () => {
     const fin = await ouvrirSur([deux], 'criterimmo');
     try {
-      expect([...container.querySelectorAll('[data-vente="50"] [data-nego-nom]')].map((x) => x.textContent)).toEqual(['Jean-Baptiste PONS · entrée', 'Cédric JULLIEN · sortie']);
+      expect([...container.querySelectorAll('[data-vente="50"] [data-nego-nom]')].map((x) => x.textContent)).toEqual(['Jean-Baptiste PONS', 'Cédric JULLIEN']);
+      expect([...container.querySelectorAll('[data-vente="50"] [data-nego-cote]')].map((x) => x.textContent)).toEqual(['· entrée', '· sortie']);
       expect(texte('[data-bloc="ventes-mois"] [data-compteur-liste]')).toBe('(1)');
-      // l'apporteur une seule fois, sur la ligne d'entrée
-      expect([container.querySelector('[data-nego-ligne="entree"] [data-apporteur-carte]') !== null, container.querySelector('[data-nego-ligne="sortie"] [data-apporteur-carte]')]).toEqual([true, null]);
+      // 🔴 LOT CD — un apporteur est déduit : « honoraires nets » en ROUGE sur les deux lignes ; plus de mention « apporteur » sur les lignes
+      expect([...container.querySelectorAll('[data-vente="50"] [data-nego-nets]')].map((x) => x.className.includes('trx-rouge'))).toEqual([true, true]);
+      expect(container.querySelector('[data-vente="50"] [data-apporteur-carte]')).toBeNull();
+      // l'apporteur tel que la fiche le déduit (cadre gris), en centimes HT et TTC
+      const { lignesCarteAffaire } = await import('../../../../lib/transaction/carteAffaireLignes');
+      const apporteur = lignesCarteAffaire(deux, 'criterimmo').apporteur!;
       const somme = (k: string) => [...container.querySelectorAll(`[data-vente="50"] [data-nego-${k}]`)].reduce((t, x) => t + centimes(x.textContent!), 0);
       for (const u of ['ht', 'ttc'] as const) {
         if (u === 'ttc') await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
-        expect(somme('honoraires') + montant('[data-vente="50"] [data-apporteur-carte]')).toBe(montant(`[data-vente="50"] [data-carte="${u === 'ht' ? 'commission-ht' : 'commission'}"]`));
+        expect(somme('honoraires') + (u === 'ttc' ? apporteur.ttcC : apporteur.htC)).toBe(montant(`[data-vente="50"] [data-carte="${u === 'ht' ? 'commission-ht' : 'commission'}"]`));
         expect(somme('com')).toBe(montant('[data-paye-deduite]'));
         expect(somme('reste')).toBe(montant('[data-reste-agence]'));
         expect(texte('[data-vente="50"] [data-carte-negos]')).not.toMatch(/\(|HT|TTC/);
@@ -805,7 +812,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   it('inter-cabinet, page de la porteuse : la ligne de sortie dit « reversé à MACJ » à la place de com négo / reste ; chez MACJ, la carte miroir', async () => {
     let fin = await ouvrirSur([ic], 'criterimmo');
     try {
-      expect(texte('[data-vente="51"] [data-nego-ligne="sortie"]')).toBe('Pierre THEVENIN · sortie — honoraires 1 666,67 € · reversé à MACJ 1 666,67 €');
+      expect(texte('[data-vente="51"] [data-nego-ligne="sortie"]')).toBe('Pierre THEVENIN · sortie — honoraires nets 1 666,67 € · reversé à MACJ 1 666,67 €');
+      expect(container.querySelector('[data-vente="51"] [data-nego-reverse]')!.className).toContain('trx-rouge');
       expect(container.querySelector('[data-vente="51"] [data-nego-ligne="sortie"] [data-nego-reste]')).toBeNull();
       // les cadres de la fiche : honoraires d'entrée = com négo (calculée au taux) + reste ; les deux honoraires = la commission (sans apporteur)
       expect(montant('[data-vente="51"] [data-nego-ligne="entree"] [data-nego-com]') + montant('[data-vente="51"] [data-nego-ligne="entree"] [data-nego-reste]'))
@@ -890,7 +898,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       // TTC : le grand et le petit s'inversent ; la ligne grise suit
       await act(async () => { (container.querySelector('[data-affichage-montants] [data-afficher="ttc"]') as HTMLElement).click(); }); await calmer();
       expect([texte('[data-vente="1"] [data-montant-grand]'), texte('[data-vente="1"] [data-montant-petit]')]).toEqual(['11 025 € TTC', '(9 187,50 € HT)']);
-      expect(texte('[data-vente="1"] [data-carte-negos]')).toContain('honoraires 11 025 €');
+      expect(texte('[data-vente="1"] [data-carte-negos]')).toContain('honoraires nets 11 025 €');
       const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
       expect(src).toContain('<CarteAffaire v={v} aujourdhui={d.aujourdhui} etiquetteActe ouvertInitial={venteVisee === v.id} vue={vue} statutDuLibelle={statutDuLibelle}>');
       const ecr = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/EcransTransaction.tsx', 'utf8');
@@ -912,6 +920,21 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       // l'onglet Compromis (la même fiche) n'a ni ces étiquettes ni cette ligne : ajoutées depuis « Le mois » seulement
       const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
       expect(src).toContain('<DetailAffaire v={v} hote={hote} />');
+    } finally { fin(); }
+  });
+  it('🔴 LOT CD — les lignes d’une carte en colonnes (nom · côté · honoraires nets · com négo · reste), la même structure que l’onglet Compromis ; la rétro du mois quitte la ligne, la fiche la dit', async () => {
+    const retro = { id: 77, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'Jean-Baptiste PONS', montantTtc: 600, apporteur: 'M. Durand', venteId: 50, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null };
+    const fin = await ouvrirSur([deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [retro]);
+    try {
+      const colonnes = (l: Element) => [...l.children].map((x) => x.className.split(' ')[0]);
+      for (const l of container.querySelectorAll('[data-vente="50"] [data-nego-ligne]')) expect(colonnes(l)).toEqual(['trx-nego-nom', 'trx-nego-cote', 'trx-nego-col', 'trx-nego-col', 'trx-nego-col', 'trx-nego-extra']);
+      expect(texte('[data-vente="50"] [data-carte-negos]')).not.toContain('rétro');
+      await cliquer('[data-vente="50"] .tdb-replie-ligne');
+      expect(texte('[data-vente="50"] [data-retro-fiche="77"]')).toBe('Rétrocession saisie au mois (janvier 2025, Jean-Baptiste PONS → M. Durand) : 500 € HT');
+      const { CSS_TRANSACTION } = await import('./commun');
+      expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.trx-carte-negos{display:grid;grid-template-columns:max-content max-content max-content max-content max-content auto');
+      const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/transaction/OngletCompromis.tsx', 'utf8');
+      expect(src.match(/<LignesNegociateurs /g)?.length).toBe(2); // CarteAffaire (Compromis, Le mois) et CarteMiroir : un seul rendu
     } finally { fin(); }
   });
 });

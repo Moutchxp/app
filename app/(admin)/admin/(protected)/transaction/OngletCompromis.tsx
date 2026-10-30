@@ -406,20 +406,24 @@ function LigneUneCarte({ v, titre, aujourdhui }: { v: Vente; titre: ReactNode; a
 function LignesNegociateurs({ l }: { l: LignesCarte }) {
   const u = useAffichage();
   const m = (x: { htC: number; ttcC: number }): string => eur((u === 'ht' ? x.htC : x.ttcC) / 100);
-  const sep = <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>;
+  // 🔴 LOT CD (Arno) — « honoraires nets » : en ROUGE quand un apporteur est déduit de la vente (chaque part en est nette), sinon gris ; la mention
+  // « apporteur » et la « rétro » du mois quittent la ligne (accord d'Arno ; détaillées dans la fiche). Les lignes d'une carte forment des COLONNES
+  // (nom · côté · honoraires nets · com négo · reste), montants alignés à droite ; au téléphone, chaque ligne revient à la ligne proprement.
+  const nets = l.apporteur !== null ? 'trx-rouge' : undefined;
   return (
     <span className="trx-carte-negos" data-carte-negos>
-      {l.lignes.map((x, i) => (
+      {l.lignes.map((x) => (
         <span key={x.cote ?? 'unique'} className="trx-carte-nego" data-nego-ligne={x.cote ?? 'unique'}>
-          <span data-nego-nom>{x.nom}{x.cote !== null ? ` · ${x.cote === 'entree' ? 'entrée' : 'sortie'}` : ''}</span>{' — '}
-          <span>honoraires <span data-nego-honoraires>{m(x.honoraires)}</span></span>
-          {i === 0 && l.apporteur !== null && <>{sep}<span className="trx-rouge" data-apporteur-carte>apporteur {m(l.apporteur)}</span></>}
-          {i === 0 && l.retro !== null && <>{sep}<span className="trx-rouge" data-retro-carte>rétro {m(l.retro)}</span></>}
-          {x.exterieures.map((y) => <span key={y.nom}>{sep}<span className="trx-rouge" data-nego-exterieure>{y.nom} {m(y.m)}</span></span>)}
+          <span className="trx-nego-nom" data-nego-nom>{x.nom}</span>{' '}
+          <span className="trx-nego-cote" data-nego-cote>{x.cote === null ? '' : `· ${x.cote === 'entree' ? 'entrée' : 'sortie'}`}</span>{x.cote === null ? '' : ' '}
+          <span className={`trx-nego-col${nets ? ` ${nets}` : ''}`} data-nego-nets={nets ? 'apporteur' : ''}><span className="trx-nego-sep">— </span>honoraires nets <span data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
           {x.reverse !== null
-            ? <>{sep}<span className="trx-rouge" data-nego-reverse>reversé à {x.reverse.vers} {m(x.reverse.m)}</span></>
-            : <>{sep}<span className={x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? 'trx-rouge' : undefined}>com négo <span data-nego-com>{m(x.com)}</span></span>
-              {sep}<span className="trx-vert">reste <span data-nego-reste>{m(x.reste)}</span></span></>}
+            ? <span className="trx-nego-col trx-nego-col--double trx-rouge" data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
+            : <>
+              <span className={`trx-nego-col${x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? ' trx-rouge' : ''}`}><span className="trx-nego-sep">· </span>com négo <span data-nego-com>{m(x.com)}</span></span>{' '}
+              <span className="trx-nego-col trx-vert"><span className="trx-nego-sep">· </span>reste <span data-nego-reste>{m(x.reste)}</span></span>
+            </>}
+          <span className="trx-nego-extra">{x.exterieures.map((y) => <span key={y.nom} className="trx-rouge" data-nego-exterieure> · {y.nom} {m(y.m)}</span>)}</span>
         </span>
       ))}
     </span>
@@ -430,7 +434,9 @@ function LignesNegociateurs({ l }: { l: LignesCarte }) {
  * `etiquettes` (🔴 LOT BZ, fiche dépliée depuis les listes de « Le mois ») : ce que la ligne repliée ne montre plus, dans les Informations
  * communes — les étiquettes « compromis », « mois à confirmer », « répartie » et la source d'import (fichier › onglet › ligne), discrètes.
  */
-export function DetailAffaire({ v, hote, etiquettes = false }: { v: Vente; hote: HoteDetail; etiquettes?: boolean }) {
+export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vente; hote: HoteDetail; etiquettes?: boolean;
+  /** 🔴 LOT CD — « Le mois » : les rétrocessions saisies au mois et rattachées à cette vente (la carte repliée ne les dit plus) ; absent : rien. */
+  retros?: readonly Retrocession[] }) {
   const { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur, acte, setActe, signer, historique, setHistorique } = hote;
   const setEdition = hote.ouvrirEdition;
   const setFenetrePersonnes = hote.ouvrirPersonnes;
@@ -513,6 +519,8 @@ export function DetailAffaire({ v, hote, etiquettes = false }: { v: Vente; hote:
             {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
           </span></h4>
         {etiquettes && v.sourceOnglet !== null && <p className="trx-source" data-source-fiche>{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</p>}
+        {(retros ?? []).filter((x) => x.venteId === v.id).map((x) => (
+          <p key={x.id} className="trx-source trx-rouge" data-retro-fiche={x.id}>Rétrocession saisie au mois ({NOMS_MOIS[x.mois - 1]?.toLowerCase() ?? ''} {x.annee}, {x.negociateur}{x.apporteur ? ` → ${x.apporteur}` : ''}) : {montantAffiche(unite, x.montantTtc / TVA, x.montantTtc)}</p>))}
         <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
           {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
               négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}

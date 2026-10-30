@@ -267,6 +267,17 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-carte-lieu{font-size:.86rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .trx-carte-negos{display:flex;flex-direction:column;gap:1px;font-size:.8rem;color:var(--color-svv-muted)}
 .trx-carte-nego{overflow-wrap:anywhere}
+/* LOT CD — les lignes de négociateur d'une carte en COLONNES : nom (largeur du plus long de la carte) · côté · honoraires nets · com négo · reste,
+   les montants alignés à droite ; une ligne inter-cabinet : « reversé à … » sur les deux dernières colonnes. Au téléphone : retour à la ligne. */
+@media (min-width:761px){
+  .trx-carte-negos{display:grid;grid-template-columns:max-content max-content max-content max-content max-content auto;column-gap:6px;row-gap:1px;justify-content:start}
+  .trx-carte-nego{display:contents}
+  .trx-nego-col{text-align:right;white-space:nowrap}
+  .trx-nego-col--double{grid-column:span 2;text-align:left}
+}
+/* les séparateurs restent gris, quelle que soit la couleur du montant ; au téléphone, chaque segment est insécable (retour entre les segments) */
+.trx-carte-negos .trx-nego-sep{color:var(--color-svv-muted);font-weight:400}
+@media (max-width:760px){ .trx-carte-nego > span{margin-right:4px} .trx-carte-nego > .trx-nego-col,.trx-carte-nego > .trx-nego-cote{white-space:nowrap} }
 .trx-carte-negos .trx-rouge,.trx-carte-negos .trx-vert{font-weight:700}
 @media (max-width:760px){ .trx-carte-lieu{flex-basis:100%} }
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
