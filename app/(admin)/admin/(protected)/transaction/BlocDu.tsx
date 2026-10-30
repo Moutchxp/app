@@ -46,8 +46,10 @@ function Section({ cle, titre, somme, sens, enfants, apresTitre }: { cle: string
   );
 }
 
-export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
+export function BlocDu({ detail, societe, autreSociete, titres, onAller, vueListe }: {
   detail: DetailDu;
+  /** 🔴 LOT CB — la vue de l'onglet (« Du mois » / « En cours ») : dite en petit après le titre ; absente : rien (comme avant). */
+  vueListe?: 'mois' | 'encours';
   /** La société vue ; null : nos deux sociétés (CA global). */
   societe: Societe | null;
   /** Une vente porte un négociateur de l'autre société : la ligne grise « rémunérés par … ». */
@@ -109,14 +111,15 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
         <button type="button" className="trx-du-bascule" aria-expanded={ouvert} aria-controls="trx-du-contenu" onClick={() => setOuvert((o) => !o)} data-ouvrir-du>
           <span className="trx-du-gauche"><span className="trx-du-chevron svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouvert} /></span><span id="trx-du-titre" className="trx-du-titre-long">Synthèse — ce que l’on doit et à qui</span>
             {/* 🔴 LOT AW (accord d'Arno) — au téléphone seulement, sur cette ligne fermée : le titre court (le complet reste à l'ordinateur). */}
-            <span className="trx-du-titre-court" data-titre-court-du>Ce que l’on doit</span></span>
+            <span className="trx-du-titre-court" data-titre-court-du>Ce que l’on doit</span>
+            {vueListe !== undefined && <small className="trx-du-vue loc-muet" data-vue-du={vueListe}>{vueListe === 'mois' ? 'compromis du mois' : 'compromis en cours'}</small>}</span>
           <span className="trx-du-droite"><span className="loc-muet" data-dossiers-du-bloc>{motDossiers(detail.nbDossiers)}</span>
             <span className="trx-du-total-entete"><span className="trx-du-mot-total">Total à verser par {qui}</span>
               <Montants ht={detail.total.htC / 100} ttc={detail.total.ttcC / 100} sens="verse" disposition="ligne" donnees={{ 'data-total-entete-du': '' }} /></span></span>
         </button>
       </h3>
       {ouvert && <div className="trx-du-contenu" id="trx-du-contenu">
-      <p className="trx-du-sous-titre loc-muet" data-sous-titre-du>Compromis non encore signés, quel que soit leur mois</p>
+      <p className="trx-du-sous-titre loc-muet" data-sous-titre-du>{vueListe === 'mois' ? 'Compromis signés ce mois-ci, actes compris, hors annulés' : 'Compromis non encore signés, quel que soit leur mois'}</p>
       {/* 🔴 LOT AS — chaque catégorie, une carte à part. 🔴 LOT AX — dans l'ordre commun (`ORDRE_CATEGORIES`) : Négociateurs (les indépendants),
           Inter-cabinet, Apporteurs d'affaires, Agences extérieures. */}
       <div className="trx-du-cartes" data-cartes-du>
@@ -155,6 +158,7 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
 }
 
 export const CSS_BLOC_DU = `
+.trx-du-vue{margin-left:8px;font-size:.8rem;font-weight:600;white-space:nowrap}
 /* 🔴 LOT AR — un vrai changement de section : grand espace avant (LOT AT : la synthèse est le dernier bloc de la page, « Compromis annulés » passe au-dessus), un filet sur toute la largeur,
    un fond propre au bloc (--trx-fond-synthese, clair et sombre) ; les en-têtes de catégorie sur la trame (plus soutenue ici, pour se voir
    sur ce fond : contrastes AA mesurés au lot AP). */

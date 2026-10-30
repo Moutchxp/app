@@ -4894,7 +4894,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     expect(compteur()).toBe('(3)');
   });
 
-  it('les tuiles = la somme des cartes affichées, au centime, dans les deux vues et dans les deux unités ; la synthèse « Ce que l’on doit » ne change pas', async () => {
+  it('les tuiles = la somme des cartes affichées, au centime, dans les deux vues et dans les deux unités ; 🔴 LOT CB : la synthèse « Ce que l’on doit » suit la vue (mêmes affaires, total = tuile)', async () => {
     const { detailCa, detailCommissions } = await import('../../../../lib/transaction/detailCommissions');
     const { resolveurDe } = await import('../../../../lib/transaction/commissions');
     const attendu = (xs: Vente[]) => { const ca = detailCa(xs, 'criterimmo', resolveurDe(undefined)); const c = detailCommissions(xs, 'criterimmo', resolveurDe(undefined));
@@ -4905,11 +4905,36 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
       act(() => { root.unmount(); }); root = createRoot(container);
       window.localStorage.removeItem('trx-compromis-vue');
       await ouvrirSur(unite);
-      const du = texte('[data-bloc-du]');
+      // la synthèse : « N dossiers » = le compteur « (N) » ; « Total à verser » = la tuile « Commissions versées » (grand et petit) ; ses affaires ⊂ la liste
+      const coherente = async (vueMot: string) => {
+        expect(texte('[data-vue-du]')).toBe(vueMot);
+        expect(`(${texte('[data-dossiers-du-bloc]').split(' ')[0]})`).toBe(compteur());
+        expect([texte('[data-total-entete-du] [data-montant-grand]'), texte('[data-total-entete-du] [data-montant-petit]')])
+          .toEqual([texte('[data-tuile="commissions"] [data-montant-grand]').replace(' versées', ''), texte('[data-tuile="commissions"] [data-montant-petit]')]);
+        if (container.querySelector('[data-du-ouvert]') === null) await cliquer('[data-ouvrir-du]');
+        expect(texte('[data-sous-titre-du]')).toBe(vueMot === 'compromis du mois' ? 'Compromis signés ce mois-ci, actes compris, hors annulés' : 'Compromis non encore signés, quel que soit leur mois');
+        const ids = new Set(cartes());
+        for (const a of container.querySelectorAll('[data-aller-affaire-du]')) expect([a.getAttribute('data-aller-affaire-du'), ids.has(a.getAttribute('data-aller-affaire-du')!)]).toEqual([a.getAttribute('data-aller-affaire-du'), true]);
+      };
       expect(lu()).toEqual(attendu([compromis, ancien, importe]));
+      await coherente('compromis en cours');
       await cliquer('[data-voir-compromis="mois"]');
       expect(lu()).toEqual(attendu([{ ...acte, statut: 'compromis' }, compromis])); // l'acte du mois, compté tel qu'au compromis (sa carte)
-      expect(texte('[data-bloc-du]')).toBe(du);
+      await coherente('compromis du mois');
+    }
+  });
+
+  it('🔴 LOT CB — un mois sans compromis : « Du mois » vide partout (liste, tuiles, synthèse « Aucun », 0 dossier) ; MACJ aussi', async () => {
+    for (const s of ['criterimmo', 'macj'] as const) {
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.localStorage.setItem('trx-compromis-vue', 'mois');
+      listeCompromis = [ancien]; listeActes = [];
+      window.localStorage.setItem('trx-affichage-montants', 'ttc');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: s })); }); await calmer();
+      expect([compteur(), texte('[data-nb-compromis]'), texte('[data-dossiers-du-bloc]'), texte('[data-total-entete-du] [data-montant-grand]')]).toEqual(['(0)', '0', '0 dossier', '0 € TTC']);
+      await cliquer('[data-ouvrir-du]');
+      expect(container.querySelectorAll('[data-bloc-du] [data-aucun-du]').length).toBeGreaterThan(0);
+      expect(texte('[data-bloc-du] [data-aucun-du]')).toMatch(/^Aucun/);
     }
   });
 

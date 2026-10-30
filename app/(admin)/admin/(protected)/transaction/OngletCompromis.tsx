@@ -17,7 +17,7 @@ import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../.
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
-import { A_RENSEIGNER, carteCompromis, compromisDeLaVue, estVueCompromis, LIBELLE_VUE_COMPROMIS, libelleTaux, trierCompromis, VUES_COMPROMIS, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
+import { A_RENSEIGNER, carteCompromis, compromisDeLaVue, estVueCompromis, LIBELLE_VUE_COMPROMIS, libelleTaux, VUES_COMPROMIS, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
 import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
@@ -101,9 +101,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // même geste (journalisé, réversible) ; puis tout se relit.
   const enregistrerPersonnes = (v: Vente, personnes: PersonneEcran[]): Promise<string | null> => enregistrerApporteur(v, {}, personnes);
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
-  // 🔴 LOT BY — `enCours` : toujours les compromis en cours (la synthèse « Ce que l'on doit » les garde) ; `liste` : ceux de la vue choisie
-  // (« En cours » = `enCours`, l'affichage d'avant ; « Du mois » = signés ce mois-ci, actes compris) — la liste, le compteur, les tuiles, leurs fenêtres.
-  const enCours = trierCompromis(d.compromis);
+  // 🔴 LOT BY / CB — `liste` : les compromis de la vue choisie (« En cours » : l'affichage d'avant ; « Du mois » : signés ce mois-ci, actes compris) —
+  // TOUTE la page la suit : la liste, le compteur, les tuiles, leurs fenêtres et la synthèse « Ce que l'on doit ».
   const { liste, sansDate } = compromisDeLaVue(d.compromis, d.actesDuMois ?? [], vueListe, d.aujourdhui);
   // 🔴 LOT I — les 4 tuiles, sur les compromis de la vue (les annulés n'y sont pas), selon la répartition par société.
   const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
@@ -116,15 +115,11 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const dc = detailCommissions(pourCalcul, vue, statutDuLibelle);
   // 🔴 LOT AN — le détail du « Chiffre d'affaires » ; la tuile en affiche le total : la somme, au centime, des montants des cartes (règle du lot AH).
   const dca = detailCa(pourCalcul, vue, statutDuLibelle);
-  // 🔴 LOT BY — la synthèse « Ce que l'on doit » : toujours les compromis en cours (la vue « En cours » : les mêmes objets, rien ne change).
-  const dcEnCours = vueListe === 'encours' ? dc : detailCommissions(enCours, vue, statutDuLibelle);
-  const dcaEnCours = vueListe === 'encours' ? dca : detailCa(enCours, vue, statutDuLibelle);
   const soldeHtC = dca.totalHtC - dc.totalHtC;
   const soldeTtcC = dca.totalTtcC - dc.totalTtcC;
   // LOT AA — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule (mention de la fenêtre).
   const autreSocieteDe = (xs: readonly Vente[]): boolean => vue !== null && xs.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue));
   const autreSociete = autreSocieteDe(liste);
-  const autreSocieteEnCours = autreSocieteDe(enCours);
   /** LOT AL — le nom d'une affaire dans la fenêtre : la fenêtre se ferme, sa carte se déplie et vient à l'écran. */
   const allerA = (id: number): void => {
     setFenetre(false); setFenetreSolde(false);
@@ -246,9 +241,10 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
       </>}
       {/* 🔴 LOT AQ (Arno) — « Ce que l'on doit — compromis non encore signés » : les mêmes lignes que les tuiles, par personne. */}
-      {/* 🔴 LOT BY — la synthèse reste TOUJOURS calculée sur les compromis EN COURS, quelle que soit la vue choisie. */}
-      <BlocDu detail={detailDu(dcEnCours, dcaEnCours, enCours, vue, d.aujourdhui)} societe={vue} autreSociete={autreSocieteEnCours}
-        titres={Object.fromEntries(enCours.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
+      {/* 🔴 LOT CB (Arno, remplace le point 3 du lot BY) — la synthèse SUIT la vue, comme toute la page : les mêmes affaires que la liste, les
+          tuiles et leurs fenêtres (« Total à verser » = la tuile « Commissions versées », au centime). */}
+      <BlocDu detail={detailDu(dc, dca, pourCalcul, vue, d.aujourdhui)} societe={vue} autreSociete={autreSociete} vueListe={vueListe}
+        titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}
       {fenetrePersonnes !== null && (() => {
