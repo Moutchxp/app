@@ -333,8 +333,9 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
 }
 
 /**
- * 🔴 LOT AY (Arno) — « CA généré HT » : ses commissions (la paye) + la part de l'agence rattachée à son CA (associé : les cartes de partie de sa
- * société sur les ventes où il est négociateur d'entrée ou de sortie). Une mesure : ni le CA de la société, ni le reste à l'agence n'en changent.
+ * 🔴 LOT AY (Arno) — « CA généré HT » : ses commissions (la paye) + ce qui est rattaché à son CA. 🔴 LOT BI — côté par côté : un associé compte
+ * 100 % des honoraires nets des côtés qu'il tient (sa paye d'un tel côté n'est pas ajoutée deux fois). Une mesure : ni le CA de la société, ni le
+ * reste à l'agence n'en changent.
  */
 function TableNegociateurs({ lignes, rattache, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; rattache: ReadonlyMap<string, number>; onDetail: (x: Detail) => void; periode: string }) {
   if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;

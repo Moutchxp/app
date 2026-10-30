@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controleVentilation, mentionPartAgence, partAgenceRattacheeHt, partsEgales, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
+import { controleVentilation, mentionPartAgence, partAgenceRattacheeHt, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
 import { tuilesCompromis } from './commissions';
 import { detailCa, detailCommissions, detailDu } from './detailCommissions';
 import { venteDansSociete } from './interCabinet';
@@ -37,12 +37,13 @@ const fabarro = (o: { statutSortie?: Statut; ligneSortie?: number } = {}): Vente
   lignes: o.ligneSortie === undefined ? [] : [ligne(1, 'Pierre Thevenin', 'sortie', o.ligneSortie)] });
 
 describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
-  it('FABARRO (l’exemple d’Arno) : Vendeurs 12 500 TTC rattachés à Cédric JULLIEN ; Acquéreurs Pierre 6 250 + part de l’agence 6 250 rattachée à Cédric', () => {
+  it('FABARRO — 🔴 LOT BI : Vendeurs (Cédric JULLIEN, associé) 12 500 TTC conservés et comptés dans son CA ; Acquéreurs (Pierre, indépendant) 6 250 + part de l’agence 6 250, NON rattachée', () => {
     const vt = ventilationVente(fabarro(), 'macj');
     expect([ttc(vt.entree!.honoraires), vt.entree!.commissions.length, ttc(vt.entree!.agence)]).toEqual([12500, 0, 12500]);
-    expect(mentionPartAgence(vt.entree!)).toBe('Rattachée au CA de Cédric JULLIEN (associé)');
+    expect(mentionPartAgence(vt.entree!)).toBe('Comptés dans le CA de Cédric JULLIEN (associé)');
+    expect(vt.entree!.associes.map((a) => [a.nom, ttc(a.m)])).toEqual([['Cédric JULLIEN', 12500]]);
     expect([ttc(vt.sortie!.honoraires), vt.sortie!.commissions.map((c) => [c.negociateur, ttc(c.m)]), ttc(vt.sortie!.agence)]).toEqual([12500, [['Pierre Thevenin', 6250]], 6250]);
-    expect(mentionPartAgence(vt.sortie!)).toBe('Rattachée au CA de Cédric JULLIEN (associé)');
+    expect([mentionPartAgence(vt.sortie!), vt.sortie!.associes, vt.sortie!.conserve]).toEqual(['Reste dans le CA de MACJ — non reversé', [], null]);
     // HT, centimes du lot AH (ceux de la Répartition) : 10 416,67 (entrée) + 10 416,66 (sortie, la porteuse prend l'écart) = 20 833,33 ;
     // sortie : 5 208,33 + 5 208,33 (la part de l'agence, reste exact)
     expect([ht(vt.entree!.honoraires), ht(vt.sortie!.honoraires), ht(vt.sortie!.commissions[0].m), ht(vt.sortie!.agence)]).toEqual([10416.67, 10416.66, 5208.33, 5208.33]);
@@ -109,7 +110,7 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
       parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50, { statut: 'associe', commissionne: false }), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)],
       lignes: [ligne(1, 'Pierre Thevenin', 'sortie', 1000)] });
     const vt = ventilationVente(v, 'criterimmo');
-    expect([ttc(vt.entree!.agence), mentionPartAgence(vt.entree!)]).toEqual([2000, 'Rattachée au CA de Arnaud Jorel (associé)']);
+    expect([ttc(vt.entree!.agence), mentionPartAgence(vt.entree!)]).toEqual([2000, 'Comptés dans le CA de Arnaud Jorel (associé)']);
     expect([vt.sortie!.versee?.vers, ttc(vt.sortie!.versee!.m), vt.sortie!.commissions.length, ttc(vt.sortie!.agence), vt.sortie!.associes]).toEqual(['macj', 2000, 0, 0, []]);
     complet(vt);
     // vue de MACJ : la vente d'origine ne se lit pas ici ; sa ligne miroir, oui
@@ -130,22 +131,20 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
     const v = vente({ id: 39, societe: 'criterimmo', honorairesTtc: 6000,
       parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50, { statut: 'associe' }), partie('sortie', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe', commissionne: false })] });
     const vm = ventilationVente(venteDansSociete(v, 'macj')!, 'macj');
-    expect([ttc(vm.sortie!.agence), mentionPartAgence(vm.sortie!)]).toEqual([3000, 'Rattachée au CA de Cédric JULLIEN (associé)']);
+    expect([ttc(vm.sortie!.agence), mentionPartAgence(vm.sortie!)]).toEqual([3000, 'Comptés dans le CA de Cédric JULLIEN (associé)']);
   });
 
-  it('deux associés de la société : la part de chaque carte, pour moitié chacun (le centime d’écart sur le dernier)', () => {
+  it('🔴 LOT BI — deux associés, un par côté : chacun SON côté (aucun partage) ; le même associé des deux côtés : 100 % de la vente', () => {
     const v = vente({ honorairesTtc: 1000.01, parties: [partie('entree', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe', commissionne: false }),
       partie('sortie', 3, 'Augustin Jorel', 'macj', 50, { statut: 'associe', commissionne: false })] });
     const vt = ventilationVente(v, 'macj');
-    for (const c of [vt.entree!, vt.sortie!]) {
-      expect(mentionPartAgence(c)).toBe('Rattachée pour moitié au CA de Cédric JULLIEN et de Augustin Jorel (associés)');
-      expect(c.associes.map((a) => a.nom)).toEqual(['Cédric JULLIEN', 'Augustin Jorel']);
-      expect(c.associes[0].m.ttcC + c.associes[1].m.ttcC).toBe(c.agence.ttcC);
-      expect(c.associes[0].m.htC + c.associes[1].m.htC).toBe(c.agence.htC);
-      expect(Math.abs(c.associes[1].m.ttcC - c.associes[0].m.ttcC)).toBeLessThanOrEqual(1);
-    }
-    expect(partsEgales({ htC: 101, ttcC: 5 }, 2)).toEqual([{ htC: 50, ttcC: 2 }, { htC: 51, ttcC: 3 }]);
+    expect([vt.entree!, vt.sortie!].map((c) => [mentionPartAgence(c), c.associes.map((a) => a.nom), c.associes[0].m])).toEqual([
+      ['Comptés dans le CA de Cédric JULLIEN (associé)', ['Cédric JULLIEN'], vt.entree!.agence],
+      ['Comptés dans le CA de Augustin Jorel (associé)', ['Augustin Jorel'], vt.sortie!.agence]]);
     complet(vt);
+    const meme = vente({ parties: [partie('entree', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe' }), partie('sortie', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe' })] });
+    const r = partAgenceRattacheeHt([meme], 'macj');
+    expect([...r]).toEqual([['Cédric JULLIEN', 20833.33]]); // toute la vente (10 416,67 + 10 416,66)
   });
 
   it('un associé de l’AUTRE société ne prend pas la part de la société de l’écran', () => {
@@ -159,9 +158,9 @@ describe('🔴 LOT AY — la part de l’agence, carte par carte', () => {
     expect(ventilationVente({ ...fabarro(), repartition: null }, 'macj')).toEqual({});
   });
 
-  it('CA généré : la part de l’agence rattachée à chaque associé, en HT (les annulées n’y comptent pas)', () => {
+  it('CA généré (🔴 LOT BI) : le côté de l’associé seulement, en HT (les annulées n’y comptent pas) ; rien pour le côté de l’indépendant', () => {
     const r = partAgenceRattacheeHt([fabarro(), { ...fabarro(), id: 261, statut: 'annulee' }], 'macj');
-    expect([...r]).toEqual([['Cédric JULLIEN', 10416.67 + 5208.33]]);
+    expect([...r]).toEqual([['Cédric JULLIEN', 10416.67]]);
   });
 
   it('aucune tuile, aucune fenêtre ni synthèse ne change : elles ne lisent pas la part de l’agence (mêmes chiffres qu’avant le lot)', () => {
@@ -235,5 +234,47 @@ describe('🔴 LOT BA — l’en-tête de chaque carte, l’inter-cabinet vu de 
     const v = vente({ honorairesTtc: 12000, parties: [partie('entree', 7, 'Mylène EBERLIN', 'macj', 40), partie('sortie', 8, 'Pierre Thevenin', 'macj', 40), partie('sortie', 4, 'Augustin Jorel', 'macj', 20)] });
     const c = controleVentilation(v, 'macj')!;
     expect([c.ecart.ttcC, c.ecart.htC]).toEqual([240000, 200000]);
+  });
+});
+
+describe('🔴 LOT BI — le rattachement aux associés, côté par côté (remplace la règle du lot AY)', () => {
+  const lt = (id: number, negociateur: string, cote: 'entree' | 'sortie', ttc: number, taux: number): LigneVente => ({ ...ligne(id, negociateur, cote, ttc), taux });
+  it('associé commissionné : un seul cadre (sa commission n’est pas distinguée), « (associé, commissionné) » ; « CA généré » = paye + le reste du côté (rien compté deux fois)', () => {
+    const v = vente({ parties: [partie('entree', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe' }), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)],
+      lignes: [lt(1, 'Cédric JULLIEN', 'entree', 6250, 50)] });
+    const vt = ventilationVente(v, 'macj');
+    expect([vt.entree!.commissions, ttc(vt.entree!.agence), mentionPartAgence(vt.entree!)]).toEqual([[], 12500, 'Comptés dans le CA de Cédric JULLIEN (associé, commissionné)']);
+    expect(vt.entree!.conserve!.commissionEnregistreeHtC).toBe(520833);
+    // sa paye (5 208,33 HT) + ce qui est ajouté (10 416,67 − 5 208,33) = tout son côté, 10 416,67 HT
+    expect([...partAgenceRattacheeHt([v], 'macj')]).toEqual([['Cédric JULLIEN', 5208.34]]);
+    complet(vt);
+  });
+
+  it('associé d’un côté, indépendant de l’autre : seul le côté de l’associé lui est rattaché ; l’autre côté, commission + part de l’agence non rattachée', () => {
+    const v = vente({ parties: [partie('entree', 2, 'Arnaud Jorel', 'macj', 50, { statut: 'associe', commissionne: false }), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] });
+    const vt = ventilationVente(v, 'macj');
+    expect(vt.entree!.associes.map((a) => [a.nom, ttc(a.m)])).toEqual([['Arnaud Jorel', 12500]]);
+    expect([vt.sortie!.associes, ttc(vt.sortie!.commissions[0].m), ttc(vt.sortie!.agence), mentionPartAgence(vt.sortie!)]).toEqual([[], 6250, 6250, 'Reste dans le CA de MACJ — non reversé']);
+    complet(vt);
+  });
+
+  it('salarié des deux côtés : aucun rattachement ; les montants de la société ne changent pas (tuiles)', () => {
+    const v = vente({ parties: [partie('entree', 2, 'Arnaud Jorel', 'macj', 50, { statut: 'salarie' }), partie('sortie', 3, 'Mylène', 'macj', 50, { statut: 'salarie' })] });
+    const vt = ventilationVente(v, 'macj');
+    expect([vt.entree!.associes, vt.sortie!.associes, vt.entree!.conserve, vt.sortie!.conserve]).toEqual([[], [], null, null]);
+    expect(partAgenceRattacheeHt([v], 'macj').size).toBe(0);
+    expect(tuilesCompromis([v], 'macj').caHt).toBeCloseTo(25000 / 1.2, 9);
+    complet(vt);
+  });
+
+  it('ligne miroir : le négociateur de ce côté est un associé de la société qui reçoit — la part reçue est comptée dans son CA, sans distinguer sa commission', () => {
+    const v = vente({ id: 39, societe: 'criterimmo', honorairesTtc: 6000,
+      parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 9, 'Cédric JULLIEN', 'macj', 50, { statut: 'associe' })],
+      lignes: [lt(1, 'Cédric JULLIEN', 'sortie', 1500, 50)] });
+    const vm = ventilationVente(venteDansSociete(v, 'macj')!, 'macj');
+    expect([vm.sortie!.commissions, ttc(vm.sortie!.agence), mentionPartAgence(vm.sortie!)]).toEqual([[], 3000, 'Comptés dans le CA de Cédric JULLIEN (associé, commissionné)']);
+    // côté porteuse : inchangé (le reversé en rouge, rien n'est rattaché à Cédric chez CRITERIMMO)
+    const vp = ventilationVente(v, 'criterimmo');
+    expect([vp.sortie!.versee?.vers, vp.sortie!.associes, vp.sortie!.conserve]).toEqual(['macj', [], null]);
   });
 });

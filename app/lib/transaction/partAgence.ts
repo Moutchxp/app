@@ -1,6 +1,6 @@
 import { bilanVente, commissionNetteHt, LIBELLE_SOCIETE, societePorteuse, TVA, type Societe, type Vente } from './modele';
-import { enHt, enTtc, remuneration, remunerationDuCote } from './commissions';
-import { statutDePartie } from './statutLigne';
+import { enHt, enTtc, montantDeLigne, remuneration, remunerationDuCote } from './commissions';
+import { commissionIgnoree, commissionneDePartie, statutDePartie } from './statutLigne';
 import { centimesRepartition } from './repartition';
 import { enCentimes } from './detailCommissions';
 
@@ -16,8 +16,10 @@ import { enCentimes } from './detailCommissions';
  *     au PRORATA de sa part parmi les parties de nos sociétés (50 / 50 pour deux côtés égaux) ; leurs centimes sont ceux du lot AH
  *     (`centimesRepartition`), l'écart d'un centime reporté sur le dernier côté.
  *   · La commission d'un négociateur : celle enregistrée, sinon le calcul (taux × base) ; non commissionné : aucune.
- * EXCEPTION ASSOCIÉ : un associé de la société de la carte sur la vente (statut à la vente, commissionné ou non, d'entrée ou de sortie) : la
- * part de l'agence est rattachée à SON CA personnel ; deux associés : à parts égales (le centime d'écart sur le dernier). Ce rattachement
+ * 🔴 LOT BI (Arno, remplace la règle du lot AY) — LE RATTACHEMENT AUX ASSOCIÉS, CÔTÉ PAR CÔTÉ, au statut figé à la vente : un côté tenu par un
+ * ASSOCIÉ de la société de la carte (commissionné ou non) garde 100 % de ses honoraires nets dans la société, et tout compte dans le CA
+ * personnel de cet associé (sa commission n'est pas distinguée : un seul cadre, « Honoraires conservés par … ») ; un côté tenu par un salarié
+ * ou un indépendant : inchangé, sans rattachement (même avec un associé de l'autre côté). Plus aucun partage entre associés. Ce rattachement
  * mesure le CA généré : il ne change NI le CA de la société, NI les Commissions versées, NI le Solde net, NI la synthèse.
  * Aucun calcul existant ne change : rien ici n'est lu par les tuiles ni par les fenêtres.
  */
@@ -26,6 +28,11 @@ export interface MontantC { htC: number; ttcC: number }
 export interface QuotePart { cle: 'apporteur' | 'exterieure'; nom: string | null; total: MontantC; m: MontantC }
 export interface CommissionCote { negociateur: string; m: MontantC }
 export interface RattachementAssocie { nom: string; m: MontantC }
+/**
+ * 🔴 LOT BI — le côté tenu par un associé de la société de la carte : tout y est conservé et compté dans son CA personnel. `commissionEnregistree`
+ * (HT, centimes) : sa commission déjà comptée dans sa paye (pour que « CA généré » = paye + rattaché ne la compte pas deux fois).
+ */
+export interface ConserveAssocie { associe: string; commissionne: boolean; commissionEnregistreeHtC: number }
 export interface VentilationCote {
   cote: 'entree' | 'sortie';
   /** La société qui garde la part de l'agence (celle de l'écran ; CA global : celle du côté). */
@@ -53,8 +60,10 @@ export interface VentilationCote {
   /** 🔴 LOT BA — la ligne miroir : la société porteuse (« Honoraires reçus de … ») ; null : une vente de la société vue. */
   recuDe: Societe | null;
   agence: MontantC;
-  /** Vide : la part reste dans le CA de la société ; sinon, rattachée au CA de ces associés. */
+  /** Vide : la part reste dans le CA de la société ; sinon (🔴 LOT BI : un seul), comptée dans le CA de cet associé. */
   associes: RattachementAssocie[];
+  /** 🔴 LOT BI — le côté d'un associé : « Honoraires conservés par … », comptés dans son CA ; null : un autre côté. */
+  conserve: ConserveAssocie | null;
 }
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
@@ -63,12 +72,6 @@ const moins = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC - b.htC, ttc
 /** Un montant TTC exact, en centimes dans les deux unités (ceux qu'affiche une ligne de calcul : TTC, et TTC ÷ 1,2). PUR. */
 export const depuisTtc = (ttc: number): MontantC => ({ htC: enCentimes(ttc / TVA), ttcC: enCentimes(ttc) });
 const SORTES = { entree: ['entree', 'entree_sortie'], sortie: ['sortie', 'entree_sortie'] } as const;
-
-/** Partage `total` à parts égales entre `n` (le centime d'écart sur le dernier). PUR. */
-export function partsEgales(total: MontantC, n: number): MontantC[] {
-  const un = { htC: Math.floor(total.htC / n), ttcC: Math.floor(total.ttcC / n) };
-  return Array.from({ length: n }, (_, i) => (i < n - 1 ? un : { htC: total.htC - un.htC * (n - 1), ttcC: total.ttcC - un.ttcC * (n - 1) }));
-}
 
 /** Partage `total` selon des poids (la somme des parts = le total ; l'écart sur le dernier). PUR. */
 function auProrata(total: MontantC, poids: readonly number[]): MontantC[] {
@@ -86,24 +89,13 @@ function commissionDe(r: ReturnType<typeof remuneration> | null): MontantC | nul
   return r.saisie !== null ? { htC: enCentimes(enHt(r.saisie)), ttcC: enCentimes(enTtc(r.saisie)) } : depuisTtc(r.calculTtc);
 }
 
-/** Les associés (noms distincts) d'une société parmi les négociateurs d'entrée et de sortie de la vente (statut figé à la vente). PUR. */
-function associesDe(v: Vente, s: Societe): string[] {
-  const r = v.repartition;
-  if (r == null) return [];
-  const noms: string[] = [];
-  for (const cote of ['entree', 'sortie'] as const) {
-    const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
-    if (nego === null) continue;
-    const p = r.parties.find((x) => x.compteId === nego.id && (SORTES[cote] as readonly string[]).includes(x.sorte)) ?? r.parties.find((x) => x.compteId === nego.id && x.sorte !== 'exterieure');
-    if (p === undefined || p.societe !== s || statutDePartie(p) !== 'associe') continue;
-    const nom = p.negociateur ?? nego.nom;
-    if (!noms.includes(nom)) noms.push(nom);
-  }
-  return noms;
+/** 🔴 LOT BI — la commission ENREGISTRÉE d'un côté (HT, centimes ; celle de la paye) ; 0 : aucune ou ignorée (non commissionné). PUR. */
+function commissionEnregistreeHtC(v: Pick<Vente, 'repartition' | 'lignes'>, cote: 'entree' | 'sortie'): number {
+  const l = v.lignes.find((x) => x.role === 'negociateur' && x.cote === cote);
+  if (l === undefined || commissionIgnoree(v, l)) return 0;
+  const m = montantDeLigne(l);
+  return m === null ? 0 : enCentimes(enHt(m));
 }
-
-const rattacher = (agence: MontantC, noms: readonly string[]): RattachementAssocie[] =>
-  noms.length === 0 || (agence.htC === 0 && agence.ttcC === 0) ? [] : partsEgales(agence, noms.length).map((m, i) => ({ nom: noms[i], m }));
 
 /**
  * 🔴 LOT AY — LA VENTILATION DES CARTES DE PARTIE d'une vente, lue avec la société de l'écran (`vue` ; null : CA global). Une vente portée
@@ -137,7 +129,9 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
     const base: MontantC = ah ? { htC: Math.round(ix.reduce((t, i) => t + cHt!.parts[i], 0) * 100), ttcC: Math.round(ix.reduce((t, i) => t + cTtc!.parts[i], 0) * 100) }
       : depuisTtc((netHt * TVA * part) / 100);
     const societe = ix.map((i) => r.parties[i].societe).find((x) => x !== null) ?? (nego !== null ? r.parties.find((p) => p.compteId === nego.id && p.societe !== null)?.societe : undefined) ?? porteuse;
-    return [{ cote, nego, part, base, societe }];
+    // 🔴 LOT BI — le statut FIGÉ à la vente de la partie de ce côté (sinon, sa partie de l'autre côté : le même négociateur).
+    const partie = nego === null ? undefined : (ix.length > 0 ? r.parties[ix[0]] : r.parties.find((p) => p.compteId === nego.id && p.sorte !== 'exterieure'));
+    return [{ cote, nego, part, base, societe, partie }];
   });
   // Les quote-parts de l'apporteur et des agences extérieures (vue de la porteuse ou CA global : c'est elle qui les paie), au prorata.
   const pctInternes = r.parties.reduce((t, p, i) => t + (p.sorte === 'exterieure' ? 0 : pctDe(i)), 0);
@@ -169,10 +163,14 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
     // commission de son négociateur est payée par l'autre société (à titre d'information).
     const versee = vue !== null && c.societe !== vue && bilanVente(v, vue).verseHt[c.societe] > 0
       ? { vers: c.societe, m: c.base, negociateur: c.nego?.nom ?? null, taux: rem?.taux ?? null, commission, agenceAutre: commission === null ? c.base : moins(c.base, commission) } : null;
-    const commissions: CommissionCote[] = versee === null && c.nego !== null && commission !== null ? [{ negociateur: c.nego.nom, m: commission }] : [];
+    // 🔴 LOT BI — un ASSOCIÉ de la société de la carte tient ce côté : tout est conservé (sa commission n'est pas distinguée) et compté dans son CA.
+    const associe = versee === null && c.nego !== null && c.partie !== undefined && c.societe === garde && statutDePartie(c.partie) === 'associe';
+    const conserve: ConserveAssocie | null = !associe ? null
+      : { associe: c.partie!.negociateur ?? c.nego!.nom, commissionne: commissionneDePartie(c.partie!), commissionEnregistreeHtC: commissionEnregistreeHtC(v, c.cote) };
+    const commissions: CommissionCote[] = conserve === null && versee === null && c.nego !== null && commission !== null ? [{ negociateur: c.nego.nom, m: commission }] : [];
     const agence = commissions.reduce((t, x) => moins(t, x.m), versee === null ? c.base : moins(c.base, versee.m));
     out[c.cote] = { cote: c.cote, societe: garde, base: c.base, pctQuote: pctInternes === 0 ? 0 : (c.part / pctInternes) * 100, quoteParts, honoraires, commissions, versee, agence,
-      associes: rattacher(agence, associesDe(v, garde)), commissionVente, apporteurs, recuDe: null };
+      associes: conserve === null || (agence.htC === 0 && agence.ttcC === 0) ? [] : [{ nom: conserve.associe, m: agence }], conserve, commissionVente, apporteurs, recuDe: null };
   });
   return out;
 }
@@ -181,15 +179,19 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
 function ventilationMiroir(v: Vente): Partial<Record<'entree' | 'sortie', VentilationCote>> {
   const m = v.miroir!;
   const s = v.societe;
-  const associes = [...new Set(m.cotes.filter((x) => x.statut === 'associe').map((x) => x.negociateur))];
   const out: Partial<Record<'entree' | 'sortie', VentilationCote>> = {};
   for (const x of m.cotes) {
     const base = depuisTtc(x.baseTtc);
     const ligne = v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote);
-    const c = x.commissionne === false ? null : commissionDe(remuneration(x.baseTtc, ligne));
+    // 🔴 LOT BI — le négociateur de ce côté est un associé de la société qui reçoit : la part reçue est comptée dans son CA (sans distinguer sa commission).
+    const conserve: ConserveAssocie | null = x.statut !== 'associe' ? null
+      : { associe: x.negociateur, commissionne: x.commissionne !== false, commissionEnregistreeHtC: ligne === undefined || x.commissionne === false ? 0
+        : (() => { const mm = montantDeLigne(ligne); return mm === null ? 0 : enCentimes(enHt(mm)); })() };
+    const c = conserve !== null || x.commissionne === false ? null : commissionDe(remuneration(x.baseTtc, ligne));
     const commissions = c === null ? [] : [{ negociateur: x.negociateur, m: c }];
     const agence = commissions.reduce((t, k) => moins(t, k.m), base);
-    out[x.cote] = { cote: x.cote, societe: s, base, pctQuote: 100, quoteParts: [], honoraires: base, commissions, versee: null, agence, associes: rattacher(agence, associes),
+    out[x.cote] = { cote: x.cote, societe: s, base, pctQuote: 100, quoteParts: [], honoraires: base, commissions, versee: null, agence,
+      associes: conserve === null || (agence.htC === 0 && agence.ttcC === 0) ? [] : [{ nom: conserve.associe, m: agence }], conserve,
       commissionVente: depuisTtc(v.honorairesTtc), apporteurs: [], recuDe: m.porteuse };
   }
   return out;
@@ -223,15 +225,12 @@ function commissionDeVente(v: Vente): MontantC {
   return c !== null && t !== null ? { htC: Math.round(c.commissionHt * 100), ttcC: Math.round(t.commissionHt * 100) } : depuisTtc(v.honorairesTtc);
 }
 
-/** La mention de la part de l'agence (le rattachement, ou ce qu'elle devient). PUR. */
-export function mentionPartAgence(x: Pick<VentilationCote, 'societe' | 'associes'> & Partial<Pick<VentilationCote, 'versee'>>): string {
-  const n = x.associes.map((a) => a.nom);
+/** La mention du cadre vert : ce que devient la part de l'agence, ou (🔴 LOT BI) le côté d'un associé, compté dans son CA. PUR. */
+export function mentionPartAgence(x: Pick<VentilationCote, 'societe'> & Partial<Pick<VentilationCote, 'versee' | 'conserve'>>): string {
+  if (x.conserve != null) return `Comptés dans le CA de ${x.conserve.associe} (associé${x.conserve.commissionne ? ', commissionné' : ''})`;
   // Inter-cabinet : les honoraires de ce côté sont versés à l'autre société — la mention le dit (le montant seul ne le dirait pas).
   const verse = x.versee == null ? '' : ` ; honoraires de ce côté versés en inter-cabinet à ${LIBELLE_SOCIETE[x.versee.vers]}`;
-  if (n.length === 0) return `Reste dans le CA de ${LIBELLE_SOCIETE[x.societe]} — non reversé${verse}`;
-  if (n.length === 1) return `Rattachée au CA de ${n[0]} (associé)`;
-  if (n.length === 2) return `Rattachée pour moitié au CA de ${n[0]} et de ${n[1]} (associés)`;
-  return `Rattachée à parts égales au CA de ${n.slice(0, -1).join(', ')} et de ${n[n.length - 1]} (associés)`;
+  return `Reste dans le CA de ${LIBELLE_SOCIETE[x.societe]} — non reversé${verse}`;
 }
 
 /**
@@ -242,7 +241,10 @@ export function partAgenceRattacheeHt(ventes: readonly Vente[], vue: Societe | n
   const out = new Map<string, number>();
   for (const v of ventes) {
     if (v.statut === 'annulee') continue;
-    for (const c of Object.values(ventilationVente(v, vue))) for (const a of c?.associes ?? []) out.set(a.nom, (out.get(a.nom) ?? 0) + a.m.htC / 100);
+    // 🔴 LOT BI — le côté d'un associé : tout le côté compte ; sa commission déjà dans sa paye n'est pas ajoutée deux fois.
+    for (const c of Object.values(ventilationVente(v, vue))) for (const a of c?.associes ?? []) {
+      out.set(a.nom, (out.get(a.nom) ?? 0) + (a.m.htC - (c?.conserve?.commissionEnregistreeHtC ?? 0)) / 100);
+    }
   }
   return out;
 }

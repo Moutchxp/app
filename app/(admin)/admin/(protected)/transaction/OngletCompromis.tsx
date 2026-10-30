@@ -538,7 +538,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   };
   const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote}
     premier={`Honoraires partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
-    rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} />;
+    rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} sansCadre={ventilation?.conserve != null} />;
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       {/* 🔴 LOT T (Arno) — « Négociateur : Prénom NOM · 25 % » : son TAUX DE COMMISSIONNEMENT sur cette vente (la société et la part sont dans le
@@ -685,7 +685,9 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout', baseAffichee }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout', baseAffichee, sansCadre = false }: {
+  /** 🔴 LOT BI (Arno) — le côté d'un associé : sa commission n'est pas distinguée (pas de cadre ; le cadre vert porte tout le côté). */
+  sansCadre?: boolean;
   /** 🔴 LOT BA — la base montrée dans l'opération de la commission : celle de l'en-tête de la carte (centimes du lot AH) ; la commission ne change pas. */
   baseAffichee?: MontantC;
   cote: 'entree' | 'sortie'; premier: string; honoraires: HonorairesCote | null; rem: Remuneration | null;
@@ -706,7 +708,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
     data-appliquer-calcul-carte={cote}>{mot}</button>;
   const manuelle = rem !== null && rem.saisie !== null && rem.modeEnregistre && rem.mode === 'manuelle';
   const u = useAffichage();
-  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers, baseAffichee }}
+  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers, baseAffichee, sansCadre }}
     honoraires={montrer === 'honoraires' ? honoraires : null} rem={montrer === 'commission' ? rem : null} />;
   return <>
     {honoraires !== null && (
@@ -714,7 +716,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
         ttc={honoraires.ttc} encadre={honorairesVersesVers === null ? null : 'deduite'} mention={honorairesVersesVers === null ? undefined : mentionVersement(honorairesVersesVers)} />
     )}
     {/* 🔴 LOT BB (accord d'Arno) — un cadre à 0 (HT et TTC) ne s'affiche pas. */}
-    {rem !== null && Math.round(rem.calculTtc * 100) !== 0 && (
+    {rem !== null && !sansCadre && Math.round(rem.calculTtc * 100) !== 0 && (
       <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention ?? mentionCommission(null)} donnees={{ 'data-commission-negociateur': cote }} libelle={<><span className="trx-calcul-mot">Commission du négociateur</span> : <span className="trx-calcul-operation">{baseAffichee !== undefined ? montantAffiche(u, baseAffichee.htC / 100, baseAffichee.ttcC / 100) : montantAffiche(u, rem.baseTtc / TVA, rem.baseTtc)} × {pctFr(rem.taux)}{ESPACE}% =</span></>}
         ttc={rem.calculTtc} />
     )}
@@ -793,7 +795,10 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
           </>} />;
       })()}
       {groupe === 'vert' && !(x.agence.htC === 0 && x.agence.ttcC === 0) && <LigneCalcul encadre="agence" mention={mentionPartAgence(x)} donnees={{ 'data-part-agence': x.cote }} ttc={x.agence.ttcC / 100} ht={x.agence.htC / 100}
-        libelle={<><span className="trx-calcul-mot">Part de l’agence {qui}</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
+        libelle={x.conserve !== null
+          // 🔴 LOT BI (Arno) — le côté d'un associé : tout le côté conservé, compté dans son CA (sa commission n'est pas distinguée).
+          ? <><span className="trx-calcul-mot" data-conserve={x.cote}>Honoraires conservés par {qui}</span> :</>
+          : <><span className="trx-calcul-mot">Part de l’agence {qui}</span> : <span className="trx-calcul-operation trx-calcul-operation--suite">{sorties.length === 0
           ? <><span className="trx-calcul-terme">{t(x.honoraires)}</span> <span className="trx-calcul-terme">− aucune commission =</span></>
           : [x.honoraires, ...sorties].map((m, i, l) => <span key={i}>{i > 0 && ' '}<span className="trx-calcul-terme">{i > 0 && '− '}{t(m)}{i === l.length - 1 && ' ='}</span></span>)}</span></>} />}
     </div>
@@ -1021,7 +1026,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="tete" />}
       {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
       {/* 🔴 LOT T — les mêmes lignes de calcul que sous le bouton d'une carte ; LOT AK : sans « Honoraires reçus de … » (doublon du CA). */}
-      <LignesCalcul cote={cote} premier="" honoraires={null} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide
+      <LignesCalcul cote={cote} premier="" honoraires={null} rem={r} enregistree occupe={!disponible || envoi} onAppliquer={(x) => void appliquer(x)} appliquerSiVide sansCadre={ventilation?.conserve != null}
         classe={classeDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle)}
         mention={mentionCommission(statutDeCommission({ repartition: null }, ligne ?? { negociateur, cote, statut }, statutDuLibelle))} />
       <button type="button" className="trx-bouton-lien" disabled={!disponible} onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} data-modifier-remuneration={cote}>Modifier la rémunération</button>
