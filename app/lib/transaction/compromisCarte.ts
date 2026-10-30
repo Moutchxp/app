@@ -81,3 +81,25 @@ export function trierCompromis<V extends Pick<Vente, 'id' | 'dossier'>>(liste: r
     return a.id - b.id;
   });
 }
+
+/**
+ * ══ 🔴 LOT BY (Arno, 30/10/2026) — « DU MOIS | EN COURS » ═══════════════════════════════════════════════════════════════════════════════
+ *   · « En cours » (par défaut, l'affichage d'avant) : les compromis signés pas encore passés en acte, non annulés, quel que soit leur mois ;
+ *   · « Du mois » : les compromis dont la date de compromis est dans le mois calendaire d'aujourd'hui, non annulés — ceux déjà passés en acte
+ *     restent (étiquette « acte signé ») ; un compromis sans date n'y est pas : il est compté à part (« N compromis sans date »).
+ */
+export type VueCompromis = 'mois' | 'encours';
+export const VUES_COMPROMIS: readonly VueCompromis[] = ['mois', 'encours'];
+export const LIBELLE_VUE_COMPROMIS: Record<VueCompromis, string> = { mois: 'Du mois', encours: 'En cours' };
+export const estVueCompromis = (x: unknown): x is VueCompromis => x === 'mois' || x === 'encours';
+
+/** Les compromis de la vue (triés comme les cartes), et le nombre de compromis en cours sans date (vue « Du mois »). PUR. */
+export function compromisDeLaVue<V extends Pick<Vente, 'id' | 'dossier' | 'dateCompromis' | 'statut'>>(enCours: readonly V[], actesDuMois: readonly V[], vue: VueCompromis,
+  aujourdhui: string): { liste: V[]; sansDate: number } {
+  if (vue === 'encours') return { liste: trierCompromis(enCours), sansDate: 0 };
+  const mois = aujourdhui.slice(0, 7);
+  const duMois = (v: V): boolean => v.statut !== 'annulee' && (v.dateCompromis ?? '').slice(0, 7) === mois;
+  const liste: V[] = [];
+  for (const v of [...enCours, ...actesDuMois]) if (duMois(v) && !liste.some((x) => x.id === v.id)) liste.push(v);
+  return { liste: trierCompromis(liste), sansDate: enCours.filter((v) => v.dateCompromis == null || v.dateCompromis === '').length };
+}

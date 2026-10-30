@@ -85,11 +85,13 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 LOT R — une société : les ventes qu'elle porte et ses LIGNES MIROIR (sa part reçue en inter-cabinet), déjà triées par `lireVentes`.
       const pourVue = (v: Vente): boolean => (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : v.miroir != null || concerne(v, societe));
       const compromis = ventes.filter((v) => v.statut === 'compromis' && pourVue(v));
+      // 🔴 LOT BY — « Du mois » : les compromis signés ce mois-ci (mois calendaire d'aujourd'hui) et déjà passés en acte (étiquette « acte signé »).
+      const actesDuMois = ventes.filter((v) => v.statut === 'vendue' && (v.dateCompromis ?? '').slice(0, 7) === aujourdhui.slice(0, 7) && pourVue(v));
       // LOT G — les compromis ANNULÉS par le bouton « Annulation » (motif enregistré) : consultables, rétablissables.
       const annules = ventes.filter((v) => v.statut === 'annulee' && v.annulation != null && (societe === 'tous' || (v.repartition != null ? concerne(v, societe) : v.societe === societe)));
       // LOT Q — même règle pour le cumul « Commissions versées » : la paye importée d'un compromis suit le compte rapproché.
-      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(compromis)).catch(() => ({}));
-      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, annules, statutsNegociateurs, ...ref } });
+      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...compromis, ...actesDuMois])).catch(() => ({}));
+      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, actesDuMois, annules, statutsNegociateurs, ...ref } });
     }
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {

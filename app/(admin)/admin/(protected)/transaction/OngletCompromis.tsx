@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
@@ -17,7 +17,7 @@ import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../.
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
-import { A_RENSEIGNER, carteCompromis, libelleTaux, trierCompromis } from '../../../../lib/transaction/compromisCarte';
+import { A_RENSEIGNER, carteCompromis, compromisDeLaVue, estVueCompromis, LIBELLE_VUE_COMPROMIS, libelleTaux, trierCompromis, VUES_COMPROMIS, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
 import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
@@ -39,10 +39,19 @@ import { FenetrePersonnes } from './FenetrePersonnes';
  */
 
 interface DonneesCompromis extends References { disponible: boolean; aujourdhui: string; compromis: Vente[];
+  /** 🔴 LOT BY — les compromis signés ce mois-ci et déjà passés en acte (vue « Du mois ») ; absent : réponse d'avant ce lot. */
+  actesDuMois?: Vente[];
   /** LOT G — les compromis annulés par « Annulation » (absent : réponse d'avant ce lot). */
   annules?: Vente[];
   /** LOT Q — le statut du compte rapproché des négociateurs payés (paye importée). */
   statutsNegociateurs?: Record<string, Statut | null> }
+/** 🔴 LOT BY — le choix « Du mois | En cours » retenu par le navigateur (partagé CRITERIMMO / MACJ) ; « En cours » par défaut. */
+export const CLE_VUE_COMPROMIS = 'trx-compromis-vue';
+function lireVueCompromis(): VueCompromis {
+  try { const x = window.localStorage.getItem(CLE_VUE_COMPROMIS); return estVueCompromis(x) ? x : 'encours'; } catch { return 'encours'; }
+}
+/** « octobre 2026 » (AAAA-MM-JJ). PUR. */
+const moisEnLettres = (jour: string): string => `${(NOMS_MOIS[Number(jour.slice(5, 7)) - 1] ?? '').toLowerCase()} ${jour.slice(0, 4)}`;
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
@@ -74,6 +83,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const tuileSolde = useRef<HTMLButtonElement | null>(null);
   // 🔴 LOT AM (Arno) — « HT | TTC » : l'unité affichée en grand dans tout le bloc, retenue dans le navigateur (partagée CRITERIMMO / MACJ).
   const [unite, setUnite] = useAffichageRetenu();
+  // 🔴 LOT BY (Arno) — « Du mois | En cours » : retenu dans le navigateur (partagé CRITERIMMO / MACJ / CA global) ; « En cours » par défaut.
+  const [vueListe, setVueListeEtat] = useState<VueCompromis>(lireVueCompromis);
+  const setVueListe = (x: VueCompromis): void => { setVueListeEtat(x); try { window.localStorage.setItem(CLE_VUE_COMPROMIS, x); } catch { /* préférence seulement */ } };
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
@@ -89,19 +101,30 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // même geste (journalisé, réversible) ; puis tout se relit.
   const enregistrerPersonnes = (v: Vente, personnes: PersonneEcran[]): Promise<string | null> => enregistrerApporteur(v, {}, personnes);
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
-  const liste = trierCompromis(d.compromis);
-  // 🔴 LOT I — les 4 tuiles, sur les compromis EN COURS (les annulés n'y sont pas), selon la répartition par société.
+  // 🔴 LOT BY — `enCours` : toujours les compromis en cours (la synthèse « Ce que l'on doit » les garde) ; `liste` : ceux de la vue choisie
+  // (« En cours » = `enCours`, l'affichage d'avant ; « Du mois » = signés ce mois-ci, actes compris) — la liste, le compteur, les tuiles, leurs fenêtres.
+  const enCours = trierCompromis(d.compromis);
+  const { liste, sansDate } = compromisDeLaVue(d.compromis, d.actesDuMois ?? [], vueListe, d.aujourdhui);
+  // 🔴 LOT I — les 4 tuiles, sur les compromis de la vue (les annulés n'y sont pas), selon la répartition par société.
   const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
-  const tu = tuilesCompromis(liste, vue, statutDuLibelle);
+  // 🔴 LOT BY — les calculs des tuiles et des fenêtres ne lisent que les compromis (statut « compromis ») : un compromis du mois déjà passé en
+  // acte y entre tel qu'il était au compromis (une copie, le temps du calcul : la règle ne change pas, ses montants sont ceux de sa carte).
+  const pourCalcul = liste.map((v) => (v.statut === 'vendue' ? { ...v, statut: 'compromis' as const } : v));
+  const tu = tuilesCompromis(pourCalcul, vue, statutDuLibelle);
   // 🔴 LOT AL — le détail des « Commissions versées » (la fenêtre) ; la tuile en affiche le total : la somme, au centime, des montants des
   // cartes (règle du lot AH) — le Solde net le suit (CA − commissions versées = le « Reste à … » des cartes, au centime).
-  const dc = detailCommissions(liste, vue, statutDuLibelle);
+  const dc = detailCommissions(pourCalcul, vue, statutDuLibelle);
   // 🔴 LOT AN — le détail du « Chiffre d'affaires » ; la tuile en affiche le total : la somme, au centime, des montants des cartes (règle du lot AH).
-  const dca = detailCa(liste, vue, statutDuLibelle);
+  const dca = detailCa(pourCalcul, vue, statutDuLibelle);
+  // 🔴 LOT BY — la synthèse « Ce que l'on doit » : toujours les compromis en cours (la vue « En cours » : les mêmes objets, rien ne change).
+  const dcEnCours = vueListe === 'encours' ? dc : detailCommissions(enCours, vue, statutDuLibelle);
+  const dcaEnCours = vueListe === 'encours' ? dca : detailCa(enCours, vue, statutDuLibelle);
   const soldeHtC = dca.totalHtC - dc.totalHtC;
   const soldeTtcC = dca.totalTtcC - dc.totalTtcC;
   // LOT AA — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule (mention de la fenêtre).
-  const autreSociete = vue !== null && liste.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue));
+  const autreSocieteDe = (xs: readonly Vente[]): boolean => vue !== null && xs.some((v) => v.miroir == null && (v.repartition?.parties ?? []).some((p) => p.compteId !== null && p.societe !== null && p.societe !== vue));
+  const autreSociete = autreSocieteDe(liste);
+  const autreSocieteEnCours = autreSocieteDe(enCours);
   /** LOT AL — le nom d'une affaire dans la fenêtre : la fenêtre se ferme, sa carte se déplie et vient à l'écran. */
   const allerA = (id: number): void => {
     setFenetre(false); setFenetreSolde(false);
@@ -137,19 +160,26 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     <FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}>
     <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
-        <h3 id="trx-compromis-titre">Compromis en cours <span className="loc-pastille">{liste.length}</span></h3>
-        {/* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » (CA global : sans sélecteur, le choix retenu). */}
-        {vue !== null && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
+        {/* 🔴 LOT BY — « Compromis » et le compteur de la vue choisie. */}
+        <h3 id="trx-compromis-titre">Compromis <span className="loc-pastille" data-compteur-compromis>{liste.length}</span></h3>
+        {/* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » (CA global : sans sélecteur, le choix retenu).
+            🔴 LOT BY — « Du mois | En cours » juste à gauche de « HT | TTC » (CA global : lui seul). */}
+        <div className="trx-actions">
+          <div className="trx-unites trx-affichage" role="group" aria-label="Compromis affichés" data-vue-compromis={vueListe}>
+            {VUES_COMPROMIS.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={vueListe === x} onClick={() => setVueListe(x)} data-voir-compromis={x}>{LIBELLE_VUE_COMPROMIS[x]}</button>)}
+          </div>
+          {vue !== null && <><BoutonAffichage unite={unite} onChange={setUnite} />
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
-          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
+          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></>}</div>
       </div>
       {!d.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Personnes, négociateurs d’entrée et de sortie et répartition : disponibles après la mise à jour de la base (migration 434).</p>}
       {/* 🔴 LOT I (Arno) — QUATRE TUILES, dans cet ordre : le nombre ; le CA (TTC en grand, en vert, HT en gris dessous ; la part de la société
           après répartition) ; les commissions versées (négociateurs + apporteurs : TTC en grand, en rouge, HT dessous, détail au toucher ou
           au survol) ; le solde net (CA HT − commissions HT, négatif tel quel). Le mot accompagne toujours la couleur. */}
-      <ul className="tdb-tuiles trx-tuiles4" aria-label="Les compromis en cours" data-totaux-compromis>
-        <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
-          <span className="tdb-tuile-n1">acte non signé, hors annulés</span></div></li>
+      {vueListe === 'mois' && sansDate > 0 && <p className="loc-muet trx-sans-date" data-compromis-sans-date>{sansDate} compromis sans date (en cours) — pas dans cette vue</p>}
+      <ul className="tdb-tuiles trx-tuiles4" aria-label={vueListe === 'mois' ? 'Les compromis du mois' : 'Les compromis en cours'} data-totaux-compromis data-totaux-vue={vueListe}>
+        <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">{vueListe === 'mois' ? 'Compromis du mois' : 'Compromis en cours'}</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
+          <span className="tdb-tuile-n1">{vueListe === 'mois' ? `signés en ${moisEnLettres(d.aujourdhui)}, hors annulés` : 'acte non signé, hors annulés'}</span></div></li>
         {/* 🔴 LOT AN / AO (Arno) — la tuile « Chiffre d'affaires » : le titre et le total (grand / petit selon « HT | TTC ») ; elle n'ouvre plus
             de fenêtre (« Voir le détail » et la fenêtre « Chiffre d'affaires » retirés, accord d'Arno : leur contenu est dans « Solde net »). */}
         <li><div className="tdb-tuile" data-tuile="ca">
@@ -189,26 +219,30 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <p className="loc-alerte" role="status" data-acte-fait>Acte enregistré : « {fait.libelle} » est une vente encaissée au mois de l’acte.
           {' '}<button type="button" className="trx-bouton-lien" onClick={() => void revenir()} data-revenir-compromis>Revenir en compromis</button></p>
       )}
-      {liste.length === 0 ? <p className="loc-muet">Aucun compromis en cours.</p> : (
+      {liste.length === 0 ? <p className="loc-muet">{vueListe === 'mois' ? 'Aucun compromis signé ce mois-ci.' : 'Aucun compromis en cours.'}</p> : (
         <ul className="trx-cartes" data-liste-compromis>
           {liste.map((v) => {
             // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
             if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
               ouvertInitial={venteVisee === v.id} />;
             const c = carteCompromis(v, d.aujourdhui);
+            // 🔴 LOT BY — vue « Du mois » : un compromis du mois déjà passé en acte garde sa carte, avec l'étiquette « acte signé » (sa date d'acte
+            // à la place de la date butoir, jamais « dépassée »).
+            const acteSigne = v.statut === 'vendue';
             // 🔴 LOT F — LA CARTE REPLIÉE : à gauche le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, plus discret, adresse · prix · acte au
             // plus tard ; à droite la commission TTC en grand et en vert (« TTC » écrit), le HT dessous, puis le % du prix (si le prix est connu).
             // Toute la ligne est le bouton qui déplie (triangle à gauche). Déplié : Vendeurs | Acquéreurs, puis les informations communes.
             const titre = (
               <span className="trx-carte-gauche">
-                <span className="trx-carte-titre" data-carte="titre">{c.titre}</span>
+                <span className="trx-carte-titre" data-carte="titre">{c.titre}{acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</span>
                 <span className="trx-carte-infos" data-carte-ligne="infos">
                   <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
                   <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
                   <span data-carte="prix">{c.prix === null ? <span className="trx-a-renseigner">prix {A_RENSEIGNER}</span> : `prix ${eur(c.prix)}`}</span>
                   <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-                  <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-                    {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+                  {acteSigne ? <span data-carte="acte">acte signé{v.dossier?.dateActe ? ` le ${date(v.dossier.dateActe)}` : ''}</span>
+                    : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+                    {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
                 </span>
               </span>
             );
@@ -219,7 +253,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
               </span>
             );
             return (
-              <li key={v.id} data-compromis={v.id} data-depassee={c.depassee ? '' : undefined}>
+              <li key={v.id} data-compromis={v.id} data-depassee={c.depassee && !acteSigne ? '' : undefined} data-acte-signe-carte={acteSigne ? '' : undefined}>
                 <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte"
                   donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
                   <DetailAffaire v={v} hote={hote} />
@@ -236,8 +270,9 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         <CompromisAnnules annules={d.annules ?? []} disponible={d.disponible && d.annulation === true} onFait={relire} onMotif={setMotif} />
       </>}
       {/* 🔴 LOT AQ (Arno) — « Ce que l'on doit — compromis non encore signés » : les mêmes lignes que les tuiles, par personne. */}
-      <BlocDu detail={detailDu(dc, dca, liste, vue, d.aujourdhui)} societe={vue} autreSociete={autreSociete}
-        titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
+      {/* 🔴 LOT BY — la synthèse reste TOUJOURS calculée sur les compromis EN COURS, quelle que soit la vue choisie. */}
+      <BlocDu detail={detailDu(dcEnCours, dcaEnCours, enCours, vue, d.aujourdhui)} societe={vue} autreSociete={autreSocieteEnCours}
+        titres={Object.fromEntries(enCours.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}
       {fenetrePersonnes !== null && (() => {

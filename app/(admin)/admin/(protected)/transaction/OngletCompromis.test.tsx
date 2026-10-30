@@ -30,6 +30,8 @@ const depasse: Vente = { ...compromis, id: 30, libelle: 'LEROY / PETIT', prixVen
     { id: 10, role: 'acquereur', nom: 'PETIT', telephone: null, email: null, adresse: null }] } };
 let listeCompromis: Vente[] = [compromis];
 let listeAnnules: Vente[] = [];
+// 🔴 LOT BY — les compromis du mois déjà passés en acte (vue « Du mois »).
+let listeActes: Vente[] = [];
 const references = { lotD: true, prixVente: true, annulation: true, negociateurs: [JB, MY, AU], apporteurs: [{ id: 4, nom: 'Julien Deblois' }], personnes: [{ id: 3, nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }] };
 const societe = { disponible: true, societe: 'criterimmo', aujourdhui: '2026-10-27', ventes: [], retrocessions: [], aRattacher: [], doubles: [] };
 const global = { disponible: true, aujourdhui: '2026-10-27', location: {}, gestion: [], ventes: [] };
@@ -39,7 +41,7 @@ let root: Root;
 let posts: Record<string, unknown>[];
 let reponsePost: { etat: string; motif?: string };
 beforeEach(() => {
-  posts = []; reponsePost = { etat: 'ok' }; listeCompromis = [compromis]; listeAnnules = []; references.annulation = true;
+  posts = []; reponsePost = { etat: 'ok' }; listeCompromis = [compromis]; listeAnnules = []; listeActes = []; references.annulation = true;
   window.history.replaceState(null, '', '/');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -49,7 +51,7 @@ beforeEach(() => {
     }
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ ...reponsePost, data: null }) }; }
     const u = String(url);
-    const data = u.includes('vue=compromis') ? { disponible: true, aujourdhui: '2026-10-27', societe: 'criterimmo', compromis: listeCompromis, annules: listeAnnules, ...references }
+    const data = u.includes('vue=compromis') ? { disponible: true, aujourdhui: '2026-10-27', societe: 'criterimmo', compromis: listeCompromis, actesDuMois: listeActes, annules: listeAnnules, ...references }
       : u.includes('vue=references') ? { disponible: true, aujourdhui: '2026-10-27', ...references } : u.includes('vue=global') ? global : u.includes('vue=journal') ? [] : societe;
     return { ok: true, status: 200, json: async () => ({ etat: 'ok', data }) };
   }) as unknown as typeof fetch;
@@ -825,7 +827,7 @@ describe('🔴 LOT L — Solde net et « + Nouveau compromis »', () => {
   it('« + Nouveau compromis » sur la ligne du titre, dans la même barre, AVANT les tuiles', async () => {
     await ouvrir(); await cliquer('[data-vue="compromis"]');
     const barre = container.querySelector('.trx-onglet-compromis > .trx-barre')!;
-    expect(barre.querySelector('h3')!.textContent).toContain('Compromis en cours');
+    expect(barre.querySelector('h3')!.textContent).toMatch(/^Compromis \d+$/); // 🔴 LOT BY : « Compromis » et le compteur de la vue
     expect(barre.querySelector('[data-nouveau-compromis]')).not.toBeNull();
     expect(barre.nextElementSibling?.matches('.tdb-tuiles') || barre.parentElement!.querySelector('.trx-barre ~ .tdb-tuiles') !== null).toBe(true);
   });
@@ -2620,7 +2622,8 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
   it('le sélecteur « HT | TTC » est juste à gauche de « + Nouveau compromis » ; par défaut TTC : TTC en grand, HT en petit entre parenthèses, dans les 4 tuiles et l’en-tête des cartes', async () => {
     await onglet();
     const actions = container.querySelector('[data-onglet-compromis] > .trx-barre > .trx-actions')!;
-    expect([...actions.children].map((x) => x.getAttribute('data-affichage-montants') ?? (x.hasAttribute('data-nouveau-compromis') ? 'nouveau' : '?'))).toEqual(['ttc', 'nouveau']);
+    // 🔴 LOT BY — « Du mois | En cours » juste à gauche de « HT | TTC ».
+    expect([...actions.children].map((x) => x.getAttribute('data-affichage-montants') ?? x.getAttribute('data-vue-compromis') ?? (x.hasAttribute('data-nouveau-compromis') ? 'nouveau' : '?'))).toEqual(['encours', 'ttc', 'nouveau']);
     expect([...container.querySelectorAll('[data-afficher]')].map((x) => [x.textContent, x.getAttribute('aria-pressed')])).toEqual([['HT', 'false'], ['TTC', 'true']]);
     expect([grand('[data-tuile="ca"]'), petit('[data-tuile="ca"]')]).toEqual(['12 000 € TTC', '(10 000 € HT)']);
     expect([grand('[data-tuile="commissions"]'), petit('[data-tuile="commissions"]')]).toEqual(['9 360 € TTC versées', '(7 800 € HT)']);
@@ -4841,5 +4844,80 @@ describe('🔴 LOT BQ — la première ligne du cadre gris : « Honoraires de la
     expect(['entree', 'sortie'].map((c) => container.querySelector(`[data-entete-commission="${c}"] .trx-calcul-mot`)!.textContent)).toEqual(['Honoraires de la vente', 'Honoraires de la vente']);
     expect(texte('[data-ligne-repartition="commission"] th')).toBe('Commission de la vente — CA de CRITERIMMO (société porteuse)');
     expect(container.querySelector('[data-colonne]')!.textContent).not.toContain('Commission de la vente');
+  });
+});
+
+
+describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les tuiles et leurs fenêtres suivent ; la synthèse reste sur les compromis en cours', () => {
+  // Aujourd'hui : 27/10/2026. 41 : compromis du 20/10 (en cours) ; 50 : compromis de septembre (en cours) ; 51 : compromis du 03/10, acte signé
+  // le 25/10 ; 12 (importé) : sans date de compromis.
+  const ancien: Vente = { ...compromis, id: 50, libelle: 'ANCIEN / SEPT', honorairesTtc: 6000, dateCompromis: '2026-09-05' };
+  const acte: Vente = { ...compromis, id: 51, libelle: 'ACTE / OCT', honorairesTtc: 9000, statut: 'vendue', annee: 2026, mois: 10, dateCompromis: '2026-10-03',
+    dossier: { ...compromis.dossier!, dateActe: '2026-10-25', dateActePrevue: '2026-10-30' } };
+  const ouvrirSur = async (unite: 'ht' | 'ttc' = 'ht', vueSociete: 'criterimmo' | 'macj' = 'criterimmo') => {
+    listeCompromis = [compromis, ancien, importe]; listeActes = [acte];
+    window.localStorage.setItem('trx-affichage-montants', unite);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: vueSociete })); }); await calmer();
+  };
+  const cartes = (): string[] => [...container.querySelectorAll('[data-liste-compromis] > li')].map((x) => x.getAttribute('data-compromis')!);
+  const compteur = (): string => texte('[data-compteur-compromis]');
+  beforeEach(() => { try { window.localStorage.removeItem('trx-compromis-vue'); } catch { /* */ } });
+
+  it('« En cours » par défaut = l’affichage d’avant : tous les compromis en cours, quel que soit leur mois ; « Compromis » + compteur', async () => {
+    await ouvrirSur();
+    expect(container.querySelector('[data-vue-compromis]')!.getAttribute('data-vue-compromis')).toBe('encours');
+    expect(texte('#trx-compromis-titre')).toBe('Compromis 3');
+    expect(cartes().sort()).toEqual(['12', '41', '50']);
+    expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]')]).toEqual(['Compromis en cours', '3']);
+    expect(container.querySelector('[data-compromis-sans-date]')).toBeNull();
+  });
+
+  it('« Du mois » : le compromis d’octobre et celui déjà acté ce mois (étiquette « acte signé »), pas celui de septembre ni le sans-date (dit à part)', async () => {
+    await ouvrirSur();
+    await cliquer('[data-voir-compromis="mois"]');
+    expect(cartes()).toEqual(['51', '41']); // la date butoir la plus proche d'abord, comme les cartes
+    expect(compteur()).toBe('2');
+    expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]'), texte('[data-tuile="nombre"] .tdb-tuile-n1')]).toEqual(['Compromis du mois', '2', 'signés en octobre 2026, hors annulés']);
+    expect(container.querySelector('[data-compromis="51"] [data-acte-signe-etiquette]')).not.toBeNull();
+    expect(texte('[data-compromis="51"] [data-carte="acte"]')).toBe('acte signé le 25/10/2026');
+    expect(container.querySelector('[data-compromis="41"] [data-acte-signe-etiquette]')).toBeNull();
+    expect(texte('[data-compromis-sans-date]')).toBe('1 compromis sans date (en cours) — pas dans cette vue');
+    // retenu dans le navigateur, et partagé avec MACJ
+    expect(window.localStorage.getItem('trx-compromis-vue')).toBe('mois');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrirSur('ht', 'macj');
+    expect(container.querySelector('[data-vue-compromis]')!.getAttribute('data-vue-compromis')).toBe('mois');
+    await cliquer('[data-voir-compromis="encours"]');
+    expect(compteur()).toBe('3');
+  });
+
+  it('les tuiles = la somme des cartes affichées, au centime, dans les deux vues et dans les deux unités ; la synthèse « Ce que l’on doit » ne change pas', async () => {
+    const { detailCa, detailCommissions } = await import('../../../../lib/transaction/detailCommissions');
+    const { resolveurDe } = await import('../../../../lib/transaction/commissions');
+    const attendu = (xs: Vente[]) => { const ca = detailCa(xs, 'criterimmo', resolveurDe(undefined)); const c = detailCommissions(xs, 'criterimmo', resolveurDe(undefined));
+      return { ca: [ca.totalHtC, ca.totalTtcC], com: [c.totalHtC, c.totalTtcC], solde: [ca.totalHtC - c.totalHtC, ca.totalTtcC - c.totalTtcC] }; };
+    const centimes = (sel: string): number => Math.round(Number(texte(sel).replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+    const lu = () => ({ ca: [centimes('[data-ca-ht]'), centimes('[data-ca-ttc]')], com: [centimes('[data-commissions-ht]'), centimes('[data-commissions-ttc]')], solde: [centimes('[data-solde-ht]'), centimes('[data-solde-ttc]')] });
+    for (const unite of ['ht', 'ttc'] as const) {
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.localStorage.removeItem('trx-compromis-vue');
+      await ouvrirSur(unite);
+      const du = texte('[data-bloc-du]');
+      expect(lu()).toEqual(attendu([compromis, ancien, importe]));
+      await cliquer('[data-voir-compromis="mois"]');
+      expect(lu()).toEqual(attendu([{ ...acte, statut: 'compromis' }, compromis])); // l'acte du mois, compté tel qu'au compromis (sa carte)
+      expect(texte('[data-bloc-du]')).toBe(du);
+    }
+  });
+
+  it('le sélecteur : même style que « HT | TTC », juste à sa gauche ; la fenêtre « Commissions versées » suit la vue', async () => {
+    await ouvrirSur();
+    const actions = container.querySelector('[data-onglet-compromis] > .trx-barre > .trx-actions')!;
+    expect(actions.children[0].className).toBe(actions.children[1].className);
+    expect([...container.querySelectorAll('[data-voir-compromis]')].map((x) => [x.textContent, x.getAttribute('aria-pressed')])).toEqual([['Du mois', 'false'], ['En cours', 'true']]);
+    await cliquer('[data-voir-compromis="mois"]');
+    await cliquer('[data-tuile="commissions"]');
+    const f = document.querySelector('[data-fenetre-commissions]')!.textContent!;
+    expect([f.includes('ACTE / OCT'), f.includes('ANCIEN / SEPT')]).toEqual([true, false]);
   });
 });
