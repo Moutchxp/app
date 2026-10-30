@@ -92,6 +92,16 @@ const ContexteAffichage = createContext<UniteAffichage>(UNITE_AFFICHAGE_DEFAUT);
 export const FournisseurAffichage = ContexteAffichage.Provider;
 /** L'unité affichée en grand (TTC hors d'un onglet Compromis). */
 export const useAffichage = (): UniteAffichage => useContext(ContexteAffichage);
+/**
+ * 🔴 LOT CG (Arno) — LE NOM AFFICHÉ DES NÉGOCIATEURS (« Prénom NOM ») : la table « libellé → nom » envoyée par le serveur (compte, fiche sans compte,
+ * sinon le libellé en prénom) ; `useNommer()` rend la fonction d'affichage (un libellé absent de la table : tel quel).
+ */
+const ContexteNoms = createContext<Readonly<Record<string, string>>>({});
+export const FournisseurNoms = ContexteNoms.Provider;
+export function useNommer(): (libelle: string) => string {
+  const table = useContext(ContexteNoms);
+  return useCallback((libelle: string) => table[libelle] ?? libelle, [table]);
+}
 /** 🔴 LOT AN — le changement de l'unité, partagé : les formulaires et panneaux montrent le même sélecteur, synchronisé avec le bloc. */
 const ContexteChangerAffichage = createContext<((u: UniteAffichage) => void) | null>(null);
 export const FournisseurChangerAffichage = ContexteChangerAffichage.Provider;

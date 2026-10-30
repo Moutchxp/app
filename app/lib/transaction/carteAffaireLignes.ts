@@ -46,7 +46,10 @@ function nomDuCote(v: Vente, c: 'entree' | 'sortie'): string | null {
 }
 
 /** Le négociateur d'une vente à une ligne : l'entrée ; un import sans entrée, le nom importé. PUR. */
-export const nomUnique = (v: Vente): string => nomDuCote(v, 'entree') ?? (negociateursDe(v).join(', ') || 'négociateur à renseigner');
+export const nomUnique = (v: Vente, nommer: (l: string) => string = (l) => l): string => {
+  const e = nomDuCote(v, 'entree');
+  return e !== null ? nommer(e) : (negociateursDe(v).map(nommer).join(', ') || 'négociateur à renseigner');
+};
 
 function ligneDe(nom: string, cote: 'entree' | 'sortie' | null, xs: readonly VentilationCote[], retro: MontantC): LigneCarte {
   const versees = xs.flatMap((x) => (x.versee === null ? [] : [x.versee]));
@@ -77,8 +80,11 @@ function partager(total: MontantC, pctSortie: number): { entree: MontantC; sorti
  * somme des lignes + apporteur + rétrocessions du mois (+ agences extérieures) = la commission de la vente. La seule fonction de ce calcul :
  * l'onglet Compromis, « Le mois » et la ligne miroir l'appellent tous.
  */
-export function lignesCarteAffaire(v: Vente, vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): LignesCarte {
+export function lignesCarteAffaire(v: Vente, vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle;
+  /** 🔴 LOT CG — le nom affiché d'un libellé (« Prénom NOM ») ; absent : tel quel. */
+  nommer?: (libelle: string) => string } = {}): LignesCarte {
   const retros = o.retros ?? [];
+  const nommer = o.nommer ?? ((l: string) => l);
   const vent = ventilationVente(v, vue);
   const e = vent.entree; const s = vent.sortie;
   const retroMois = retroTtcDe(v, retros);
@@ -89,16 +95,16 @@ export function lignesCarteAffaire(v: Vente, vue: Societe | null, o: { retros?: 
     const classes = payeParClasseTtc(v, o.statutDuLibelle, vue);
     const honoraires = moins(depuisTtc(v.honorairesTtc), retroC);
     const comDeduite = depuisTtc(classes.independant);
-    return { apporteur: null, retro, lignes: [{ nom: nomUnique(v), cote: null, honoraires, com: depuisTtc(payeTtcDe(v, vue)),
+    return { apporteur: null, retro, lignes: [{ nom: nomUnique(v, nommer), cote: null, honoraires, com: depuisTtc(payeTtcDe(v, vue)),
       comptabilisee: classes.independant > 0, comDeduite, reste: moins(honoraires, comDeduite), reverse: null, exterieures: [] }] };
   }
   const apporteurs = somme((e ?? s)!.apporteurs.map((a) => a.m));
   const apporteur = nul(apporteurs) ? null : apporteurs;
   const deux = entreeEtSortie(v);
   const cotes = [e, s].filter((x): x is VentilationCote => x !== undefined);
-  if (deux === null || cotes.length < 2) return { apporteur, retro, lignes: [ligneDe(nomDuCote(v, cotes[0].cote) ?? nomUnique(v), null, cotes, retroC)] };
+  if (deux === null || cotes.length < 2) { const n = nomDuCote(v, cotes[0].cote); return { apporteur, retro, lignes: [ligneDe(n !== null ? nommer(n) : nomUnique(v, nommer), null, cotes, retroC)] }; }
   const part = partager(retroC, s!.pctQuote);
-  return { apporteur, retro, lignes: [ligneDe(deux[0], 'entree', [e!], part.entree), ligneDe(deux[1], 'sortie', [s!], part.sortie)] };
+  return { apporteur, retro, lignes: [ligneDe(nommer(deux[0]), 'entree', [e!], part.entree), ligneDe(nommer(deux[1]), 'sortie', [s!], part.sortie)] };
 }
 
 /**

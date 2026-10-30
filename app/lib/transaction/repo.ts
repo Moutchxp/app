@@ -18,6 +18,8 @@ import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suiv
 import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
 import { comptesDeLOnglet } from './societeNegociateur';
 import { lireFichesStatut, statutDeFiche } from './statutSansCompte';
+import { nomAffiche } from './nomNegociateur';
+import { normaliserLibelle } from '../location/suivi/negociateurIdentite';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 
 export interface AuteurTx { id: number | null; libelle: string }
@@ -1149,16 +1151,30 @@ export async function lireStatutsNegociateurs(libelles: readonly string[]): Prom
 }
 
 /** Le compte rapproché de chaque libellé (règles ① à ③ ci-dessus), ou null : aucun compte sûr. LECTURE SEULE. */
-export async function comptesRapprochesDesLibelles(libelles: readonly string[]): Promise<Record<string, { id: number; nom: string } | null>> {
+export async function comptesRapprochesDesLibelles(libelles: readonly string[]): Promise<Record<string, { id: number; nom: string; prenom: string | null; nomFamille: string | null } | null>> {
   const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
   const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '' }));
-  const out: Record<string, { id: number; nom: string } | null> = {};
+  const out: Record<string, { id: number; nom: string; prenom: string | null; nomFamille: string | null } | null> = {};
   for (const l of libelles) {
     const r = rattacherLibelle(l, comptes, alias);
     let id: number | null = r.sorte === 'compte' || r.sorte === 'alias' || r.sorte === 'auto' ? r.compteId : null;
     if (id === null) { const cs = comptesDeLOnglet(l, pourOnglet); if (cs.length === 1) id = cs[0].id; }
     const c = id === null ? undefined : comptes.find((x) => x.id === id);
-    out[l] = c === undefined ? null : { id: c.id, nom: [c.prenom, c.nom].filter(Boolean).join(' ') || c.identifiant };
+    out[l] = c === undefined ? null : { id: c.id, nom: [c.prenom, c.nom].filter(Boolean).join(' ') || c.identifiant, prenom: c.prenom, nomFamille: c.nom };
+  }
+  return out;
+}
+
+/** 🔴 LOT CG — le nom AFFICHÉ de chaque libellé de négociateur (« Prénom NOM » : compte, sinon fiche sans compte, sinon le libellé en prénom). LECTURE SEULE. */
+export async function nomsAffichesNegociateurs(libelles: readonly string[]): Promise<Record<string, string>> {
+  const uniques = [...new Set(libelles.filter((l) => l.trim() !== ''))];
+  if (uniques.length === 0) return {};
+  const [comptes, fiches] = await Promise.all([comptesRapprochesDesLibelles(uniques), lireFichesStatut().catch(() => [])]);
+  const out: Record<string, string> = {};
+  for (const l of uniques) {
+    const c = comptes[l];
+    const f = fiches.find((x) => x.libelleNormalise === normaliserLibelle(l)) ?? null;
+    out[l] = nomAffiche(l, c === null ? null : { prenom: c.prenom, nom: c.nomFamille }, f);
   }
   return out;
 }

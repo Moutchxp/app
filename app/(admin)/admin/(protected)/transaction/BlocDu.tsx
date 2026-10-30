@@ -4,7 +4,7 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { ORDRE_CATEGORIES, type DetailDu, type FamilleCategorie, type LigneDu, type PersonneDu, type SommeDu } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { libelleStatut } from '../../../../lib/admin/statut';
-import { montantAffiche, Montants, useAffichage } from './commun';
+import { montantAffiche, Montants, useAffichage, useNommer } from './commun';
 import { DessinTriangle } from '../_composants/TriangleDepliage';
 
 /**
@@ -58,6 +58,7 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller, vueList
   onAller: (id: number) => void;
 }) {
   const u = useAffichage();
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   // 🔴 LOT AV (accord d'Arno) — fermé à chaque arrivée, sur une ligne ; un clic sur la ligne ouvre tout, un autre referme. Non retenu.
   const [ouvert, setOuvert] = useState(false);
   // 🔴 LOT AU — le nom vient de la société de l'écran (ou des deux sur le CA global), jamais écrit en dur.
@@ -79,7 +80,7 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller, vueList
   const ligne = (p: PersonneDu, sens: 'verse' | 'recu' | 'neutre', mention?: ReactNode) => (
     <li key={p.cle} className="trx-du-ligne" data-ligne-du={p.cle}>
       <div className="trx-du-personne">
-        <span className="trx-du-qui"><strong data-nom-du>{p.nom}</strong>{mention}
+        <span className="trx-du-qui"><strong data-nom-du>{nommer(p.nom)}</strong>{mention}
           <span className="trx-du-detail"><span data-dossiers-du>{motDossiers(p.nbDossiers)}</span><Parts s={p} avant /></span></span>
         <span className="trx-du-montant"><Montants ht={p.htC / 100} ttc={p.ttcC / 100} sens={sens} donnees={{ 'data-cumul-du': p.cle }} /></span>
       </div>

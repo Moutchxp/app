@@ -2,10 +2,11 @@ import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
+import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
-  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs } from '../../../../lib/transaction/repo';
+  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
@@ -65,7 +66,9 @@ export async function GET(request: Request): Promise<Response> {
       const [ventes, retrocessions, aRattacher, doubles] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe), lireNotesDoubles(societe)]);
       // LOT Q — le statut du compte rapproché de chaque négociateur payé (paye importée) : le « Reste à l'agence » ne déduit que les indépendants.
       const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
-      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles, statutsNegociateurs } });
+      // 🔴 LOT CG — le nom affiché (« Prénom NOM ») de chaque libellé de négociateur.
+      const nomsNegociateurs = await nomsAffichesNegociateurs(libellesNegociateurs([...ventes, ...doubles], retrocessions)).catch(() => ({}));
+      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles, statutsNegociateurs, nomsNegociateurs } });
     }
     if (vue === 'global') {
       const location = await lireCaLocation().catch(() => null);
@@ -91,7 +94,8 @@ export async function GET(request: Request): Promise<Response> {
       const annules = ventes.filter((v) => v.statut === 'annulee' && v.annulation != null && (societe === 'tous' || (v.repartition != null ? concerne(v, societe) : v.societe === societe)));
       // LOT Q — même règle pour le cumul « Commissions versées » : la paye importée d'un compromis suit le compte rapproché.
       const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...compromis, ...actesDuMois])).catch(() => ({}));
-      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, actesDuMois, annules, statutsNegociateurs, ...ref } });
+      const nomsNegociateurs = await nomsAffichesNegociateurs(libellesNegociateurs([...compromis, ...actesDuMois, ...annules])).catch(() => ({}));
+      return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, actesDuMois, annules, statutsNegociateurs, nomsNegociateurs, ...ref } });
     }
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {

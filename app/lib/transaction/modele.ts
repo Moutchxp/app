@@ -370,6 +370,8 @@ export interface DonneesSociete {
   aRattacher: CaARattacher[];
   /** LOT C — les notes (des deux sociétés) des ventes notées deux fois qui touchent cette société. */
   doubles?: Vente[];
+  /** 🔴 LOT CG — le nom affiché (« Prénom NOM ») de chaque libellé de négociateur ; absent : les libellés tels quels. */
+  nomsNegociateurs?: Record<string, string>;
   /**
    * LOT Q — le statut du compte RAPPROCHÉ de chaque libellé de négociateur des lignes (paye importée) ; null : aucun compte sûr, ou compte
    * « à renseigner ». Absent : réponse d'avant ce lot (aucun libellé importé n'est rapproché : sa paye n'est pas déduite).

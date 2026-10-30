@@ -11,6 +11,8 @@
  * Usage :
  *   npm run transaction:statut-negociateur -- --libelles="CATHERINE,JULIEN,ANTOINE,HELENE,JEAN CLAUDE,FRED" --statut=independant
  *   npm run transaction:statut-negociateur -- --libelles="…" --statut=independant --ecrire --note="réponse d'Arno, LOT BX"
+ *   npm run transaction:statut-negociateur -- --libelles=CATHERINE --prenom=Catherine --nom=TARRISSE [--ecrire]
+ *     (🔴 LOT CG, migration 445 : le prénom et le nom d'UNE fiche sans compte — affichés « Prénom NOM » partout dans la tuile ; essai par défaut)
  *   option : --rapport=/chemin (fichier ou dossier)
  */
 import '../lib/chargerEnv';
@@ -29,6 +31,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   const libelles = [...new Set((optionLigne(argv, 'libelles') ?? '').split(',').map((x) => x.trim()).filter((x) => x !== ''))];
   const statut = optionLigne(argv, 'statut');
   const note = optionLigne(argv, 'note');
+  const prenom = optionLigne(argv, 'prenom');
+  const nomFamille = optionLigne(argv, 'nom');
+  if (prenom !== null || nomFamille !== null) return nommer(argv, libelles, prenom, nomFamille, ecrire);
   const l: string[] = [`${P} ${ecrire ? 'ÉCRITURE' : 'ESSAI (rien n’est écrit ; --ecrire pour écrire)'} — ${new Date().toISOString()}`];
   if (libelles.length === 0 || !estStatutSansCompte(statut)) {
     l.push('⛔ --libelles="A,B,…" et --statut=independant|associe|salarie sont obligatoires. Rien n’est écrit.');
@@ -61,6 +66,34 @@ export async function main(argv: readonly string[]): Promise<number> {
         }
       }
     } else l.push('', 'Essai : rien n’a été écrit.');
+  } catch (e) {
+    l.push(`⛔ ${e instanceof Error ? e.message : String(e)}`); code = 1;
+  } finally { await closePool(); }
+  const chemin = cheminRapport({ nomScript: NOM_SCRIPT, demande: optionLigne(argv, 'rapport') });
+  writeFileSync(chemin, `${l.join('\n')}\n`);
+  console.log(`${l.join('\n')}\n\nRapport : ${chemin}`);
+  return code;
+}
+
+/** 🔴 LOT CG — le prénom et le nom d'UNE fiche sans compte (essai : ce qui serait écrit ; `--ecrire` : écrit et journalise). */
+async function nommer(argv: readonly string[], libelles: readonly string[], prenom: string | null, nomFamille: string | null, ecrire: boolean): Promise<number> {
+  const l: string[] = [`${P} NOM ${ecrire ? 'ÉCRITURE' : 'ESSAI (rien n’est écrit ; --ecrire pour écrire)'} — ${new Date().toISOString()}`];
+  let code = 0;
+  const { closePool } = await import('../lib/db/client');
+  try {
+    if (libelles.length !== 1) { l.push('⛔ --prenom / --nom : un seul libellé (--libelles=CATHERINE). Rien n’est écrit.'); code = 2; }
+    else {
+      const { lireFichesStatut, poserNomSansCompte } = await import('../lib/transaction/statutSansCompte');
+      const { nomAffiche } = await import('../lib/transaction/nomNegociateur');
+      const { normaliserLibelle } = await import('../lib/location/suivi/negociateurIdentite');
+      const f = (await lireFichesStatut()).find((x) => x.libelleNormalise === normaliserLibelle(libelles[0])) ?? null;
+      l.push(`${libelles[0]} : affiché aujourd’hui « ${nomAffiche(libelles[0], null, f)} » → « ${nomAffiche(libelles[0], null, { prenom, nom: nomFamille })} »${f === null ? ' — ⛔ aucune fiche (poser d’abord son statut)' : ''}`);
+      if (ecrire) {
+        const r = await poserNomSansCompte({ libelle: libelles[0], prenom, nom: nomFamille, auteur: 'transaction:statut-negociateur (LOT CG)' });
+        l.push(r.ok ? `fiche n° ${r.id} : prénom et nom posés, journalisés` : `⛔ ${r.motif}`);
+        if (!r.ok) code = 2;
+      } else l.push('Essai : rien n’a été écrit.');
+    }
   } catch (e) {
     l.push(`⛔ ${e instanceof Error ? e.message : String(e)}`); code = 1;
   } finally { await closePool(); }

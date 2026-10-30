@@ -970,4 +970,35 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect([cont.querySelector('[data-bloc="ventes-mois"]') !== null, cont.querySelector('[data-bloc="compromis-du-mois"]') !== null]).toEqual([true, true]);
     } finally { fin(); Element.prototype.getBoundingClientRect = vraie; }
   });
+  it('🔴 LOT CG — « Résultat de l’agence » : les chiffres des rétrocessions et des commissions en ROUGE (grand et petit) ; les libellés inchangés', async () => {
+    const fin = await ouvrirSur([deux], 'criterimmo');
+    try {
+      for (const sel of ['[data-retro-resultat]', '[data-paye-deduite]']) {
+        const mt = container.querySelector(sel)!.closest('.trx-mt-liste')!;
+        expect([sel, mt.className.includes('trx-rouge'), mt.querySelector('[data-montant-autre]')!.closest('.trx-rouge') !== null]).toEqual([sel, true, true]);
+        expect(container.querySelector(sel)!.closest('dd')!.previousElementSibling!.className).not.toContain('trx-rouge');
+      }
+      expect(container.querySelector('[data-reste-agence]')!.closest('.trx-rouge')).toBeNull();
+      await cliquer('[data-vue="annee"]');
+      expect(container.querySelector('[data-paye-deduite-periode]')!.closest('.trx-mt-liste')!.className).toContain('trx-rouge');
+    } finally { fin(); }
+  });
+
+  it('🔴 LOT CG — « Prénom NOM » partout : cartes, espace par négociateur, filtre ; la table du serveur fait foi (une mise à jour se répercute) ; aucun montant ne change', async () => {
+    const avant = donnees.nomsNegociateurs;
+    donnees.nomsNegociateurs = { MYLENE: 'Mylène EBERLIN', CEDRIC: 'Cédric JULLIEN', 'Jean-Baptiste PONS': 'Jean-Baptiste PONS', 'Cédric JULLIEN': 'Cédric JULLIEN' };
+    try {
+      const fin = await ouvrirSur([donnees.ventes[0]], 'macj');
+      const reste = texte('[data-reste-agence]');
+      try {
+        expect(texte('[data-vente="1"] [data-nego-nom]')).toBe('Mylène EBERLIN, Cédric JULLIEN');
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        expect([...container.querySelectorAll('[data-table-negociateurs] tbody th')].map((x) => x.textContent).sort()).toEqual(['Cédric JULLIEN', 'Mylène EBERLIN']);
+        expect(texte('[data-reste-agence]')).toBe(reste);
+      } finally { fin(); }
+      donnees.nomsNegociateurs = { MYLENE: 'Mylène DURAND', CEDRIC: 'Cédric JULLIEN' };
+      const fin2 = await ouvrirSur([donnees.ventes[0]], 'macj');
+      try { expect(texte('[data-vente="1"] [data-nego-nom]')).toBe('Mylène DURAND, Cédric JULLIEN'); } finally { fin2(); }
+    } finally { donnees.nomsNegociateurs = avant; }
+  });
 });

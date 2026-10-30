@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { dossiersConcernes, ETIQUETTE, estVersee, type AffaireCout, type AffaireSolde, type CategorieCout, type DetailCommissions, type DetailSolde,
   type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
-import { ESPACE, eur, MOT_UNITE, useAffichage, type UniteAffichage } from './commun';
+import { ESPACE, eur, MOT_UNITE, useAffichage, useNommer, type UniteAffichage } from './commun';
 
 /**
  * ══ 🔴 LOT AL (Arno, 29/10/2026) — LA FENÊTRE « COMMISSIONS VERSÉES » ══════════════════════════════════════════════════════════════════
@@ -117,12 +117,13 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
   /** Le nom d'une affaire : la fenêtre se ferme et sa carte se déplie. */
   onAller: (id: number) => void;
 }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const affaire = lienAffaire(titres, onAller);
   const concernees = dossiersConcernes(detail);
   const ligneCategorie = (l: LigneCout, i: number) => (
     <li key={i} className="trx-fc-ligne" data-ligne-cout={l.cle}>
-      <span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
+      <span className="trx-fc-quoi"><span data-qui>{nommer(l.qui)}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
       <Montant htC={l.htC} ttcC={l.ttcC} versee={estVersee(l.cle)} />
     </li>
   );
@@ -148,7 +149,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
         <ul className="trx-fc-lignes">
           {[...versees, ...infos].map((l, i) => (
             <li key={i} className={estVersee(l.cle) ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-ligne-cout={l.cle}>
-              <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{l.qui}</span></span>
+              <span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{nommer(l.qui)}</span></span>
               <Montant htC={l.htC} ttcC={l.ttcC} versee={estVersee(l.cle)} />
             </li>
           ))}
@@ -184,6 +185,7 @@ export function FenetreCommissions({ detail, societe, autreSociete, titres, onFe
 export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, onAller }: {
   detail: DetailSolde; societe: Societe | null; autreSociete: boolean; titres: Record<number, string>; onFermer: () => void; onAller: (id: number) => void;
 }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const affaire = lienAffaire(titres, onAller);
   const { ca, couts } = detail;
@@ -202,7 +204,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
       </div>
       {c.lignes.length > 0 && <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
         <li key={i} className="trx-fc-ligne" data-ligne-solde={l.cle}>
-          <span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
+          <span className="trx-fc-quoi"><span data-qui>{nommer(l.qui)}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
           <Montant htC={l.htC} ttcC={l.ttcC} versee />
         </li>))}</ul>}
     </section>
@@ -211,7 +213,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
     <section key={c.cle} className="trx-fc-section trx-fc-section--info" data-info-solde={c.cle} aria-label={c.libelle}>
       <div className="trx-fc-tete"><h3 className={c.cle === 'a-renseigner' ? 'trx-alerte' : undefined}>{c.libelle}</h3><Montant htC={c.htC} ttcC={c.ttcC} versee={false} /></div>
       {c.lignes.length === 0 ? <p className="trx-fc-aucune">Aucun</p> : <ul className="trx-fc-lignes">{c.lignes.map((l, i) => (
-        <li key={i} className="trx-fc-ligne"><span className="trx-fc-quoi"><span data-qui>{l.qui}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
+        <li key={i} className="trx-fc-ligne"><span className="trx-fc-quoi"><span data-qui>{nommer(l.qui)}</span><span className="trx-fc-sep" aria-hidden="true"> · </span>{affaire(l.venteId)}</span>
           <Montant htC={l.htC} ttcC={l.ttcC} versee={false} /></li>))}</ul>}
     </section>
   );
@@ -226,7 +228,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
         <li className="trx-fc-ligne" data-ca-affaire-solde={a.id}><span className="trx-fc-quoi">CA de {qui} sur cette affaire</span><Montant htC={a.caHtC} ttcC={a.caTtcC} versee={false} recu /></li>
         {a.couts.map((l, i) => (
           <li key={i} className="trx-fc-ligne" data-ligne-solde={l.cle}>
-            <span className="trx-fc-quoi"><span className="trx-fc-etiquette trx-rouge" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{l.qui}</span></span>
+            <span className="trx-fc-quoi"><span className="trx-fc-etiquette trx-rouge" data-etiquette>{ETIQUETTE[l.cle]}</span><span data-qui>{nommer(l.qui)}</span></span>
             <Montant htC={l.htC} ttcC={l.ttcC} versee />
           </li>))}
       </ul>

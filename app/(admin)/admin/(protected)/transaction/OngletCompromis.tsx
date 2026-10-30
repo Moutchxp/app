@@ -8,7 +8,7 @@ import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommiss
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { BoutonAffichage, ESPACE, eur, FournisseurAffichage, FournisseurChangerAffichage, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, ESPACE, eur, FournisseurAffichage, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -45,7 +45,9 @@ interface DonneesCompromis extends References { disponible: boolean; aujourdhui:
   /** LOT G — les compromis annulés par « Annulation » (absent : réponse d'avant ce lot). */
   annules?: Vente[];
   /** LOT Q — le statut du compte rapproché des négociateurs payés (paye importée). */
-  statutsNegociateurs?: Record<string, Statut | null> }
+  statutsNegociateurs?: Record<string, Statut | null>;
+  /** 🔴 LOT CG — le nom affiché (« Prénom NOM ») de chaque libellé de négociateur. */
+  nomsNegociateurs?: Record<string, string> }
 /** 🔴 LOT BY — le choix « Du mois | En cours » retenu par le navigateur (partagé CRITERIMMO / MACJ) ; « En cours » par défaut. */
 export const CLE_VUE_COMPROMIS = 'trx-compromis-vue';
 function lireVueCompromis(): VueCompromis {
@@ -156,6 +158,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const hote: HoteDetail = { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur: (v, change) => enregistrerApporteur(v, change),
     ouvrirEdition: (x) => setEdition(x), ouvrirPersonnes: setFenetrePersonnes, acte, setActe, signer, historique, setHistorique, ouvrirAnnulation: setAnnulation };
   return (
+    <FournisseurNoms value={d.nomsNegociateurs ?? {}}>
     <FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}>
     <section ref={page} className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
@@ -263,6 +266,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         references={d} onFermer={() => setEdition(null)} onFait={(e) => { setEdition(null); if (e !== undefined) signalerPorteuse(e.id, e.repartition, e.honorairesTtc); relire(); }} />}
     </section>
     </FournisseurChangerAffichage></FournisseurAffichage>
+    </FournisseurNoms>
   );
 }
 
@@ -355,12 +359,13 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
   v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; section?: string; donnees?: Record<string, string>;
   /** 🔴 LOT CC — la société vue (null : CA global), et ce que « Le mois » connaît en plus (rétrocessions saisies, statut des négociateurs importés). */
   vue: Societe | null; retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const c = carteCompromis(v, aujourdhui);
   const acteSigne = v.statut === 'vendue';
   const titre = (
     <span className="trx-carte-gauche">
       <LigneUneCarte v={v} titre={<>{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</>} aujourdhui={aujourdhui} />
-      <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle })} />
+      <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle, nommer })} />
     </span>
   );
   const droite = (
@@ -460,6 +465,7 @@ export function useColonnesNegociateurs(conteneur: RefObject<HTMLElement | null>
 export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vente; hote: HoteDetail; etiquettes?: boolean;
   /** 🔴 LOT CD — « Le mois » : les rétrocessions saisies au mois et rattachées à cette vente (la carte repliée ne les dit plus) ; absent : rien. */
   retros?: readonly Retrocession[] }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const { d, vue, societe, statutDuLibelle, relire, signalerPorteuse, enregistrerApporteur, acte, setActe, signer, historique, setHistorique } = hote;
   const setEdition = hote.ouvrirEdition;
   const setFenetrePersonnes = hote.ouvrirPersonnes;
@@ -543,7 +549,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
           </span></h4>
         {etiquettes && v.sourceOnglet !== null && <p className="trx-source" data-source-fiche>{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</p>}
         {(retros ?? []).filter((x) => x.venteId === v.id).map((x) => (
-          <p key={x.id} className="trx-source trx-rouge" data-retro-fiche={x.id}>Rétrocession saisie au mois ({NOMS_MOIS[x.mois - 1]?.toLowerCase() ?? ''} {x.annee}, {x.negociateur}{x.apporteur ? ` → ${x.apporteur}` : ''}) : {montantAffiche(unite, x.montantTtc / TVA, x.montantTtc)}</p>))}
+          <p key={x.id} className="trx-source trx-rouge" data-retro-fiche={x.id}>Rétrocession saisie au mois ({NOMS_MOIS[x.mois - 1]?.toLowerCase() ?? ''} {x.annee}, {nommer(x.negociateur)}{x.apporteur ? ` → ${x.apporteur}` : ''}) : {montantAffiche(unite, x.montantTtc / TVA, x.montantTtc)}</p>))}
         <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
           {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
               négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
@@ -708,6 +714,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   /** 🔴 LOT AY — la ventilation des honoraires de ce côté (part de l'agence) ; absente : rien à ventiler (historique, vente d'une autre société). */
   ventilation?: VentilationCote;
 }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const [ouvert, setOuvert] = useState(false);
   const actuel = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
   const [choix, setChoix] = useState<string>(actuel === null ? '' : String(actuel.id));
@@ -794,7 +801,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
           bouton de la première ligne) ; non commissionné (lot S) : « · non commissionné ». */}
       <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
-          : `Négociateur : ${actuel.nom} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
+          : `Négociateur : ${nommer(actuel.nom)} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
       {/* 🔴 LOT AB (accord d'Arno) — un négociateur de l'autre société : plus de bloc « Rémunéré par … » sous les honoraires (il reste dans le
           panneau du négociateur, « Commission réglée chez … ») ; ses honoraires, versés en inter-cabinet, sont encadrés de rouge. */}
       {/* 🔴 LOT AZ (Arno) — l'ordre des cadres : les lignes sans cadre (honoraires de la partie, statut), puis les cadres VERTS (part de l'agence,
@@ -994,6 +1001,7 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
 export function VentilationPartie({ x, groupe }: { x: VentilationCote;
   /** 🔴 LOT AZ — « tete » : les honoraires de la partie (sans cadre) ; « vert » : la part de l'agence ; « rouge » : les quote-parts. */
   groupe: 'tete' | 'vert' | 'rouge' }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const u = useAffichage();
   const t = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
   const mot = x.cote === 'entree' ? 'vendeur' : 'acquéreur';
@@ -1038,8 +1046,8 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
           libelle={<span className="trx-calcul-mot">Reversé en inter-cabinet à {autre}</span>}
           apres={<>
             {w.negociateur !== null && <span className="trx-calcul-dont-ligne" data-dont-commission={x.cote}>{w.commission === null
-              ? `dont commission de ${w.negociateur} (${autre}) : aucune — non commissionné`
-              : `dont commission de ${w.negociateur} (${autre}${w.taux === null ? '' : `, ${pctFr(w.taux)} %`}) : ${t(w.commission)} — payée par ${autre}`}</span>}
+              ? `dont commission de ${nommer(w.negociateur)} (${autre}) : aucune — non commissionné`
+              : `dont commission de ${nommer(w.negociateur)} (${autre}${w.taux === null ? '' : `, ${pctFr(w.taux)} %`}) : ${t(w.commission)} — payée par ${autre}`}</span>}
             <span className="trx-calcul-dont-ligne" data-dont-agence={x.cote}>dont part de l’agence {autre} : {t(w.agenceAutre)}</span>
           </>} />;
       })()}
@@ -1150,12 +1158,13 @@ export function CarteMiroir({ v, references, aujourdhui, disponible, onFait, sta
   attributs?: Record<string, string>;
   /** LOT AA — « Voir chez MACJ » depuis la carte de la porteuse (?vente=N) : la ligne miroir s'ouvre. */
   ouvertInitial?: boolean }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const m = v.miroir!;
   // 🔴 LOT CC — la ligne 1 (nom, adresse · date) et les lignes de négociateur, comme `CarteAffaire` (la part reçue est dans la fiche).
   const titre = (
     <span className="trx-carte-gauche">
       <LigneUneCarte v={v} titre={v.libelle} aujourdhui={aujourdhui} />
-      <LignesNegociateurs l={lignesCarteAffaire(v, v.societe, { statutDuLibelle })} />
+      <LignesNegociateurs l={lignesCarteAffaire(v, v.societe, { statutDuLibelle, nommer })} />
     </span>
   );
   const droite = (
@@ -1244,6 +1253,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   /** LOT S — faux : négociateur non commissionné (ni montant, ni calcul, ni « Appliquer le calcul ») ; absent : commissionné. */
   commissionne?: boolean;
 }) {
+  const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const r = remuneration(baseTtc, ligne);
   const [ouvert, setOuvert] = useState(false);
   // 🔴 LOT V — calculée : le champ suit le taux (proposé) ; saisie à la main : le montant enregistré, tel quel.
@@ -1273,7 +1283,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   const entete = <>
     <h5 className="trx-remuneration-titre" data-remuneration-titre={cote}>Négociateur de {mot}</h5>
     {/* LOT AG — son taux, comme sur le bouton de la carte de la porteuse (la même ligne : une seule valeur). */}
-    <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{negociateur}</strong> ({LIBELLE_SOCIETE[societe]}){commissionne ? ` · ${pctFr(r.taux)} %` : ' · non commissionné'}</p>
+    <p className="trx-remuneration-ligne" data-remuneration-negociateur={cote}><strong>{nommer(negociateur)}</strong> ({LIBELLE_SOCIETE[societe]}){commissionne ? ` · ${pctFr(r.taux)} %` : ' · non commissionné'}</p>
   </>;
   // 🔴 LOT AK (Arno) — sur la ligne miroir, « Statut à la vente : … » et « Honoraires reçus de [porteuse] » sont retirés (retrait autorisé par
   // Arno, ligne miroir seule) : le montant fait doublon avec « CA de [société] sur cette vente » juste au-dessus, et le statut reste lisible
