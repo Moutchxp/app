@@ -17,6 +17,7 @@ import { commissionneEffectif, commissionneLu } from '../admin/commissionneCompt
 import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suivi/negociateurIdentiteRepo';
 import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
 import { comptesDeLOnglet } from './societeNegociateur';
+import { lireFichesStatut, statutDeFiche } from './statutSansCompte';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 
 export interface AuteurTx { id: number | null; libelle: string }
@@ -1132,21 +1133,32 @@ export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<I
  * 🔴 LOT Q (Arno, 28/10/2026) — « libellé de négociateur → statut ACTUEL du compte rapproché », pour la paye importée (lignes sans partie).
  * Le rapprochement est celui qui existe déjà, sans rien deviner : ① un rattachement posé à la main (Location, migration 432) ; ② le nom
  * complet ou l'adresse d'UN SEUL compte (`rattacherLibelle`) ; ③ sinon le prénom (ou « prénom nom ») d'UN SEUL compte (`comptesDeLOnglet`,
- * la règle de la société au lot D). Aucun compte sûr, ou compte « à renseigner » : null — la paye n'est pas déduite et elle est signalée.
+ * la règle de la société au lot D) ; ④ 🔴 LOT BX : AUCUN compte → la fiche « statut sans compte » du libellé (migration 444, ancien
+ * collaborateur des fichiers). Rien de tout cela, ou compte « à renseigner » : null — la paye n'est pas déduite et elle est signalée.
  * Les observateurs ne sont jamais négociateurs (exclus de la liste des comptes). LECTURE SEULE.
  */
 export async function lireStatutsNegociateurs(libelles: readonly string[]): Promise<Record<string, Statut | null>> {
   const uniques = [...new Set(libelles.filter((l) => l.trim() !== ''))];
   if (uniques.length === 0) return {};
-  const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
-  const statuts = await statutsDesComptes(comptes.map((c) => c.id));
-  const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '' }));
+  // 🔴 LOT BX — un libellé qui ne se rapproche d'AUCUN compte (ancien collaborateur des fichiers) : le statut de sa fiche (migration 444).
+  const [comptes, fiches] = await Promise.all([comptesRapprochesDesLibelles(uniques), lireFichesStatut().catch(() => [])]);
+  const statuts = await statutsDesComptes([...new Set(Object.values(comptes).flatMap((c) => (c === null ? [] : [c.id])))]);
   const out: Record<string, Statut | null> = {};
-  for (const l of uniques) {
+  for (const l of uniques) { const c = comptes[l]; out[l] = c === null ? statutDeFiche(fiches, l) : statuts.get(c.id) ?? null; }
+  return out;
+}
+
+/** Le compte rapproché de chaque libellé (règles ① à ③ ci-dessus), ou null : aucun compte sûr. LECTURE SEULE. */
+export async function comptesRapprochesDesLibelles(libelles: readonly string[]): Promise<Record<string, { id: number; nom: string } | null>> {
+  const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
+  const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '' }));
+  const out: Record<string, { id: number; nom: string } | null> = {};
+  for (const l of libelles) {
     const r = rattacherLibelle(l, comptes, alias);
     let id: number | null = r.sorte === 'compte' || r.sorte === 'alias' || r.sorte === 'auto' ? r.compteId : null;
     if (id === null) { const cs = comptesDeLOnglet(l, pourOnglet); if (cs.length === 1) id = cs[0].id; }
-    out[l] = id === null ? null : statuts.get(id) ?? null;
+    const c = id === null ? undefined : comptes.find((x) => x.id === id);
+    out[l] = c === undefined ? null : { id: c.id, nom: [c.prenom, c.nom].filter(Boolean).join(' ') || c.identifiant };
   }
   return out;
 }

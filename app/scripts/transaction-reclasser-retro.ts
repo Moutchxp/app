@@ -12,6 +12,8 @@
  *   npm run transaction:reclasser-retro                                     (essai : les deux sociétés)
  *   npm run transaction:reclasser-retro -- --societe=criterimmo             (essai : une société)
  *   npm run transaction:reclasser-retro -- --ecrire --ventes=214            (écriture, après accord d'Arno sur la liste)
+ *   npm run transaction:reclasser-retro -- --annuler --ventes=214           (🔴 LOT BX : annuler un reclassement — la commission retirée, les
+ *                                                                           rétrocessions rétablies, journalisé ; rien n'est supprimé)
  *   option : --rapport=/chemin (fichier ou dossier)
  */
 import '../lib/chargerEnv';
@@ -26,12 +28,14 @@ const P = '[transaction:reclasser-retro]';
 
 export async function main(argv: readonly string[]): Promise<number> {
   const ecrire = argv.includes('--ecrire');
+  const annuler = argv.includes('--annuler');
   const demandees = (optionLigne(argv, 'ventes') ?? '').split(',').map((x) => Number(x.trim())).filter((x) => Number.isSafeInteger(x) && x > 0);
   const choix = optionLigne(argv, 'societe');
   const societes: Societe[] = choix === 'criterimmo' || choix === 'macj' ? [choix] : [...SOCIETES];
   const { closePool } = await import('../lib/db/client');
   const { lireVentes, lireRetrocessions, lireStatutsNegociateurs, libellesDePaye } = await import('../lib/transaction/repo');
   const { resolveurDe } = await import('../lib/transaction/statutLigne');
+  if (annuler) return annulerVentes(argv);
   const l: string[] = [`${P} ${ecrire ? 'ÉCRITURE' : 'ESSAI (rien n’est écrit ; --ecrire --ventes=… pour écrire, après accord d’Arno)'} — ${new Date().toISOString()}`];
   let code = 0;
   try {
@@ -58,6 +62,31 @@ export async function main(argv: readonly string[]): Promise<number> {
         }
       }
     } else l.push('', 'Essai : rien n’a été écrit.');
+  } catch (e) {
+    l.push(`⛔ ${e instanceof Error ? e.message : String(e)}`); code = 1;
+  } finally { await closePool(); }
+  const chemin = cheminRapport({ nomScript: NOM_SCRIPT, demande: optionLigne(argv, 'rapport') });
+  writeFileSync(chemin, `${l.join('\n')}\n`);
+  console.log(`${l.join('\n')}\n\nRapport : ${chemin}`);
+  return code;
+}
+
+/** 🔴 LOT BX — `--annuler --ventes=…` : chaque vente revient à son état d'avant le reclassement (réversible, journalisé). */
+async function annulerVentes(argv: readonly string[]): Promise<number> {
+  const ventes = (optionLigne(argv, 'ventes') ?? '').split(',').map((x) => Number(x.trim())).filter((x) => Number.isSafeInteger(x) && x > 0);
+  const l: string[] = [`${P} ANNULATION — ${new Date().toISOString()}`];
+  let code = 0;
+  const { closePool } = await import('../lib/db/client');
+  try {
+    if (ventes.length === 0) { l.push('⛔ --annuler demande --ventes=<n°,n°…>. Rien n’est écrit.'); code = 2; }
+    else {
+      const { annulerReclassement } = await import('../lib/transaction/reclassementRetroRepo');
+      for (const id of ventes) {
+        const r = await annulerReclassement({ venteId: id, auteur: 'transaction:reclasser-retro --annuler (LOT BX)' });
+        l.push(r.ok ? `vente ${id} : reclassement annulé (commission(s) n° ${r.ligneIds.join(', ')} retirée(s), rétrocession(s) ${r.retroIds.join(', ')} rétablie(s), journalisé)` : `⛔ ${r.motif}`);
+        if (!r.ok) code = 2;
+      }
+    }
   } catch (e) {
     l.push(`⛔ ${e instanceof Error ? e.message : String(e)}`); code = 1;
   } finally { await closePool(); }

@@ -1,4 +1,4 @@
-import { LIBELLE_SOCIETE, resteTtcDe, TVA, type LigneVente, type Retrocession, type Societe, type Vente } from './modele';
+import { compteDansSociete, LIBELLE_SOCIETE, resteTtcDe, TVA, type LigneVente, type Retrocession, type Societe, type Vente } from './modele';
 import type { StatutDuLibelle } from './statutLigne';
 
 /**
@@ -52,9 +52,14 @@ export function planReclassement(ventes: readonly Vente[], retros: readonly Retr
     const avant = centimes(resteTtcDe(v, retros, statutDuLibelle, societe) / TVA);
     const apres = centimes(resteTtcDe(venteApres(v, negociateur, retroTtc), autres, statutDuLibelle, societe) / TVA);
     const s = statutDuLibelle?.(negociateur) ?? null;
-    const motif = negos.length > 1 ? `plusieurs destinataires (${negos.join(', ')})`
-      : avant !== apres ? `le reste changerait de ${apres > avant ? '+' : '−'}${eurC(Math.abs(apres - avant))} HT : ${negociateur} est ${s === null ? 'sans statut (à renseigner)' : LIBELLE_STATUT[s] ?? s} — seule la commission d’un indépendant est déduite`
-      : null;
+    // 🔴 LOT BX — un DOUBLE « à attribuer » (la vente est dans les deux fichiers) ne compte dans aucune société tant qu'il n'est pas attribué,
+    // mais sa rétrocession compte dans le mois où elle est saisie : reclassée, elle quitterait le « Résultat de l'agence » du mois. D'abord l'attribuer.
+    const motifs = [
+      ...(negos.length > 1 ? [`plusieurs destinataires (${negos.join(', ')})`] : []),
+      ...(negos.length <= 1 && avant !== apres ? [`le reste changerait de ${apres > avant ? '+' : '−'}${eurC(Math.abs(apres - avant))} HT : ${negociateur} est ${s === null ? 'sans statut (à renseigner)' : LIBELLE_STATUT[s] ?? s} — seule la commission d’un indépendant est déduite`] : []),
+      ...(compteDansSociete(v) ? [] : ['vente « à attribuer » (en double dans les deux fichiers) : sa rétrocession compte dans le mois, pas sa commission — l’attribuer d’abord (« Ventes à attribuer »)']),
+    ];
+    const motif = motifs.length === 0 ? null : motifs.join(' ; ');
     sortie.push({ venteId: v.id, societe, libelle: v.libelle, annee: v.annee, mois: v.mois, source: `${v.sourceFichier ?? '?'} › ${v.sourceOnglet ?? '?'} › ligne ${v.sourceLigne ?? '?'}`,
       negociateur, statut: s, honorairesTtc: v.honorairesTtc, retroTtc, retroIds: rs.map((r) => r.id), partPct: v.honorairesTtc === 0 ? 0 : (retroTtc / v.honorairesTtc) * 100,
       resteAvantC: avant, resteApresC: apres, reclassable: motif === null, motif });
