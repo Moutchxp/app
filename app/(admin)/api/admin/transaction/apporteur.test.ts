@@ -10,7 +10,7 @@ vi.mock('../../../../lib/transaction/garde', () => ({ exigerTransaction: async (
 vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 2, libelle: 'a.jorel@sansvisavis.com' }) }));
 vi.mock('../../../../lib/transaction/repo', () => ({ transactionDisponible: async () => true, lireNegociateurs: async () => [], lirePersonnes: async () => [] }));
 vi.mock('../../../../lib/admin/schemaDroits', () => ({ annulationDisponible: async () => true, interCabinetDisponible: async () => true, prixVenteDisponible: async () => true,
-  repartitionDisponible: async () => true, uniteCommissionDisponible: async () => true }));
+  repartitionDisponible: async () => true, uniteCommissionDisponible: async () => true, personneTypeDisponible: async () => true }));
 vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocation: async () => ({}) }));
 const h = vi.hoisted(() => ({ creer: vi.fn() }));
 vi.mock('../../../../lib/location/suivi/suiviRepo', () => ({

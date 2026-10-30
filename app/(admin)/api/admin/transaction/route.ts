@@ -6,7 +6,7 @@ import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGes
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs } from '../../../../lib/transaction/repo';
-import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
@@ -45,7 +45,7 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
     lireComptesInterface().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
+  return { lotD, personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
     // LOT AC — la recherche (nom, prénom, société, téléphones, e-mails) et le libellé de l'annuaire (homonymes).
     recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), collegues, personnes };
 }

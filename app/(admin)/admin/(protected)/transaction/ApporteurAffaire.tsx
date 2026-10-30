@@ -138,7 +138,7 @@ export function ApporteurAffaire({ actuel, annuaire: annuaireBase, collegues, mo
             </>}
             {motif !== null && <p className="trx-erreur" role="alert" data-motif-apporteur>{motif}</p>}
           </div>
-        </div>, document.body)}
+        </div>, document.querySelector('.svv-adm-root') ?? document.body)}
     </span>
   );
 }

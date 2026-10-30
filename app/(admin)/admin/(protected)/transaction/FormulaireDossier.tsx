@@ -7,6 +7,7 @@ import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, Selecte
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
+import { BlocPersonnes, decrire, personneEcranDe, personneVide, type PersonneEcran, type PersonneRef } from './PersonnesDossier';
 import { ApporteurAffaire } from './ApporteurAffaire';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -19,7 +20,7 @@ import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
  * Enregistré, journalisé, réversible ; un refus (répartition ≠ 100 %…) laisse toute la saisie à l'écran.
  */
 
-export interface PersonneRef { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+export type { PersonneRef } from './PersonnesDossier';
 export interface References { lotD: boolean; negociateurs: NegociateurRef[]; apporteurs: ApporteurRef[]; personnes: PersonneRef[];
   /** 🔴 LOT AC — les comptes de l'interface (création d'un apporteur depuis le compromis) ; absent : réponse d'avant ce lot. */
   collegues?: { id: number; libelle: string; actif?: boolean }[];
@@ -28,10 +29,9 @@ export interface References { lotD: boolean; negociateurs: NegociateurRef[]; app
   /** LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? */
   annulation?: boolean;
   /** LOT I — la migration 437 (commissions versées, saisie en HT ou en TTC) est-elle appliquée ? Absent : non (tout en TTC, comme avant). */
-  uniteCommission?: boolean }
-interface PersonneEcran { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string; email: string; adresse: string }
-const personneVide = (role: PersonneEcran['role']): PersonneEcran => ({ id: null, role, nom: '', telephone: '', email: '', adresse: '' });
-const decrire = (p: PersonneRef): string => [p.nom, p.telephone, p.email].filter((x) => x !== null && x !== '').join(' — ');
+  uniteCommission?: boolean;
+  /** 🔴 LOT BJ — la migration 443 (particulier / société, civilité, prénom, représentants) est-elle appliquée ? Absent : non (l'ancien formulaire). */
+  personneType?: boolean }
 
 const texteMontant = (x: number): string => String(x).replace('.', ',');
 
@@ -95,7 +95,9 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message }: {
+export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null }: {
+  /** 🔴 LOT BJ — « Modifier » depuis la fenêtre d'une personne : sa ligne prend le focus. */
+  personneVisee?: number | null;
   /** LOT G — une répartition déjà changée (négociateur choisi depuis la carte) à revoir, et le message qui le dit. */
   repartitionInitiale?: EtatRepartition; message?: string;
   societe: Societe; vente: Vente | null; references: References; onFermer: () => void;
@@ -111,7 +113,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
       ? `${vente.annee}-${String(vente.mois).padStart(2, '0')}-01` : ''), adresseBien: d?.adresseBien ?? '', note: vente?.note ?? '',
     prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ',') });
   const [personnes, setPersonnes] = useState<PersonneEcran[]>(() => {
-    const lues = (d?.personnes ?? []).map((p) => ({ id: p.id, role: p.role, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' }));
+    const lues = (d?.personnes ?? []).map(personneEcranDe);
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
     return ajouter !== null && lues.some((p) => p.role === ajouter) ? [...base, personneVide(ajouter)] : base;
   });
@@ -147,13 +149,12 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   // 🔴 LOT AM / AN — hors saisie, un montant se lit mis en forme (« 7 500 ») ; pendant la frappe, tel que tapé ; le texte saisi ne change pas.
   const [enSaisie, setEnSaisie] = useState<'commission' | 'prixVente' | null>(null);
   const forme = (k: 'commission' | 'prixVente', t: string): string => (enSaisie === k ? t : grouperSaisie(t));
-  const changerPersonne = (i: number, p: Partial<PersonneEcran>): void => setPersonnes((xs) => xs.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  /** Choisir une personne de l'annuaire (par son libellé dans la liste) : sa fiche est reprise, son id gardé (aucun doublon). */
-  const choisirConnue = (i: number, texte: string): void => {
-    const p = references.personnes.find((x) => decrire(x) === texte);
-    if (p === undefined) changerPersonne(i, { nom: texte, id: null });
-    else changerPersonne(i, { id: p.id, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' });
-  };
+  // 🔴 LOT BJ — la ligne qui prend le focus : la personne visée par « Modifier », sinon la ligne neuve ajoutée depuis la carte.
+  const focus = (() => {
+    const visee = personneVisee === null ? -1 : personnes.findIndex((p) => p.id === personneVisee);
+    if (visee >= 0) return visee;
+    return ajouter === null ? null : personnes.map((x) => x.role).lastIndexOf(ajouter);
+  })();
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
     const r = await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, champs, personnes, repartition) });
@@ -163,21 +164,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
 
   const titre = vente === null ? `Nouveau compromis — ${LIBELLE_SOCIETE[societe]}` : `${statut === 'compromis' ? 'Compromis' : 'Vente'} — ${vente.libelle}`;
   const blocPersonnes = (role: PersonneEcran['role'], mot: string) => (
-    <fieldset className="trx-plein trx-parts" data-personnes={role}>
-      <legend className="loc-muet">{mot}</legend>
-      {personnes.map((p, i) => p.role !== role ? null : (
-        <div className="trx-part" key={i} data-personne={i}>
-          <label>Nom<input list="trx-personnes" value={p.nom} onChange={(e) => choisirConnue(i, e.target.value)} data-personne-nom={i}
-            autoFocus={ajouter === role && i === personnes.map((x) => x.role).lastIndexOf(role)} />
-            {p.id !== null && <span className="loc-muet">fiche de l’annuaire n° {p.id}</span>}</label>
-          <label>Téléphone<input type="tel" inputMode="tel" value={p.telephone} onChange={(e) => changerPersonne(i, { telephone: e.target.value })} /></label>
-          <label>E-mail<input type="email" inputMode="email" autoCapitalize="none" value={p.email} onChange={(e) => changerPersonne(i, { email: e.target.value })} /></label>
-          <label>Adresse<input value={p.adresse} onChange={(e) => changerPersonne(i, { adresse: e.target.value })} /></label>
-          <button type="button" className="trx-bouton-lien" onClick={() => setPersonnes((xs) => xs.filter((_, j) => j !== i))}>Enlever</button>
-        </div>
-      ))}
-      <p><button type="button" className="trx-bouton-lien" onClick={() => setPersonnes((xs) => [...xs, personneVide(role)])} data-ajouter-personne={role}>+ {role === 'vendeur' ? 'Un vendeur' : 'Un acquéreur'}</button></p>
-    </fieldset>
+    <BlocPersonnes role={role} mot={mot} personnes={personnes} onChange={setPersonnes} annuaire={references.personnes} avecType={references.personneType === true} focus={focus} />
   );
   return (
     <div className="tdb-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>

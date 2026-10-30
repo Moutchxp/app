@@ -14,9 +14,10 @@ const lotP = vi.fn<() => Promise<boolean>>(async () => false);
 const lotR = vi.fn<() => Promise<boolean>>(async () => false);
 const lotS = vi.fn<() => Promise<boolean>>(async () => false);
 const lotV = vi.fn<() => Promise<boolean>>(async () => false);
+const lotBJ = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
   annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR(), commissionneDisponible: () => lotS(),
-  modeCommissionDisponible: () => lotV() }));
+  modeCommissionDisponible: () => lotV(), personneTypeDisponible: () => lotBJ() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -28,7 +29,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); lotR.mockResolvedValue(false); lotS.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); lotR.mockResolvedValue(false); lotS.mockResolvedValue(false); lotBJ.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -803,5 +804,45 @@ describe('🔴 LOT BH — « Supprimer » l’apporteur d’une affaire : le lie
     expect(JSON.parse(String(j.params[3]))).toMatchObject({ apporteur: 'Gardien Dacquet' });
     expect(JSON.parse(String(j.params[4]))).toMatchObject({ apporteur: null });
     expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+  });
+});
+
+describe('🔴 LOT BJ (443) — vendeurs / acquéreurs : particulier ou société, représentants ; journal de l’affaire', () => {
+  const venteActuelle = { libelle: 'X', honoraires_ttc: '1000', statut: 'compromis', annee: 2026, mois_acte: null, date_compromis: '2026-10-20', apporteur: null, note: null, retire_le: null,
+    attribution: null, adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null, negociateur_sortie_id: null, apporteur_id: null, retro_apporteur_ttc: '0', repartition: false };
+  const saisie = (personnes: unknown[]) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: 'X', honorairesTtc: 1000, dateCompromis: '2026-10-20', dateActePrevue: null, dateActe: null,
+    adresseBien: null, note: null, entreeId: null, sortieId: null, apporteurId: null, apporteurNom: null, retroApporteurTtc: 0, retroUnite: 'ttc' as const, prixVente: null, lignes: [], parties: [],
+    personnes: personnes as never });
+  it('sans la 443 : une société (ou une civilité, un prénom, des représentants) est refusée, rien n’est écrit', async () => {
+    lotD.mockResolvedValue(true);
+    const r = await repo.enregistrerDossier(12, saisie([{ id: null, role: 'acquereur', nom: 'SCI DU PARC', telephone: null, email: null, adresse: null, type: 'societe', civilite: null, prenom: null, representants: [] }]), '2026-10-30', A);
+    expect(r).toEqual({ ok: false, motif: repo.MOTIF_SANS_443 });
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+  });
+  it('avec la 443 : la société et ses 2 représentants (fiches créées : type, civilité, prénom), les liens posés ; journalisé sur les fiches ET sur l’affaire', async () => {
+    lotD.mockResolvedValue(true); lotBJ.mockResolvedValue(true);
+    let suivant = 100;
+    reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [venteActuelle] } : undefined),
+      (s) => (s.startsWith('INSERT INTO transaction_personne ') ? { rows: [{ id: String(suivant++) }] } : undefined),
+      (s) => (s.includes('RETURNING id') ? { rows: [{ id: '900' }] } : undefined));
+    const r = await repo.enregistrerDossier(12, saisie([{ id: null, role: 'acquereur', nom: 'SCI DU PARC', telephone: null, email: null, adresse: null, type: 'societe', civilite: null, prenom: null,
+      representants: [{ id: null, civilite: 'Mme', nom: 'BERCIER', prenom: 'Mira', telephone: '06 11 22 33 44', email: null, adresse: null },
+        { id: null, civilite: null, nom: 'MARTIN', prenom: 'Paul', telephone: null, email: 'p@x.fr', adresse: null }] }]), '2026-10-30', A);
+    expect(r.ok).toBe(true);
+    const fiches = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_personne '));
+    expect(fiches.map((x) => x.params.slice(0, 7))).toEqual([['SCI DU PARC', null, null, null, 'societe', null, null], ['BERCIER', '06 11 22 33 44', null, null, 'particulier', 'Mme', 'Mira'],
+      ['MARTIN', null, 'p@x.fr', null, 'particulier', null, 'Paul']]);
+    expect(appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_personne_representant')).map((x) => x.params.slice(0, 3))).toEqual([[100, 101, 0], [100, 102, 1]]);
+    const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal')).map((x) => [x.params[0], x.params[1], x.params[2]]);
+    expect(journal).toContainEqual(['personne', 100, 'representants']);
+    expect(journal).toContainEqual(['vente', 12, 'representants']);
+    expect(journal).toContainEqual(['vente', 12, 'personne']);
+    expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
+  });
+  it('« Annuler » refuse une ligne « personne » / « représentants » du journal de l’affaire (elle se corrige dans « Modifier »)', async () => {
+    lotD.mockResolvedValue(true);
+    reponses.push((s) => (s.includes('FROM transaction_journal j WHERE id = $1')
+      ? { rows: [{ id: '30', entite: 'vente', entite_id: '12', action: 'representants', avant: {}, apres: {}, deja: false }] } : undefined));
+    expect((await repo.annulerGeste(30, A)).ok).toBe(false);
   });
 });

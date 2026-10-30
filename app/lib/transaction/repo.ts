@@ -3,8 +3,8 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
-import { estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
+import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
@@ -153,7 +153,9 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
               (SELECT u.role || ':' || coalesce(to_jsonb(u) ->> 'commissionne', '') FROM admin_utilisateur u WHERE u.id = p.compte_id) AS commissionne_compte
          FROM transaction_partie p WHERE p.retire_le IS NULL AND p.vente_id = ANY($1::bigint[]) ORDER BY p.vente_id, p.rang, p.id`, [ids]),
     query<Record<string, unknown>>(
-      `SELECT l.vente_id, p.id, l.role, p.nom, p.telephone, p.email, p.adresse
+      // 🔴 LOT BJ — type, civilité, prénom (443) lus par to_jsonb : sans la migration, absents (une fiche d'avant, lue comme un particulier).
+      `SELECT l.vente_id, p.id, l.role, p.nom, p.telephone, p.email, p.adresse,
+              to_jsonb(p) ->> 'type' AS type, to_jsonb(p) ->> 'civilite' AS civilite, to_jsonb(p) ->> 'prenom' AS prenom
          FROM transaction_vente_personne l JOIN transaction_personne p ON p.id = l.personne_id
         WHERE l.retire_le IS NULL AND l.vente_id = ANY($1::bigint[]) ORDER BY l.vente_id, l.role DESC, l.rang, l.id`, [ids]),
   ]);
@@ -161,9 +163,29 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
   for (const p of ps) parties.set(n(p.vente_id), [...(parties.get(n(p.vente_id)) ?? []), { ...partieDe(p), statutCompte: statutLu(p.statut_compte),
     ...(p.compte_id != null ? { commissionneCompte: commissionneDuCompteLu(p.commissionne_compte) } : {}) }]);
   const personnes = new Map<number, PersonneVente[]>();
+  // 🔴 LOT BJ — les représentants des sociétés (443) ; sans la migration : aucun.
+  const societes = [...new Set(pers.filter((p) => p.type === 'societe').map((p) => n(p.id)))];
+  const representants = await lireRepresentants(societes);
   for (const p of pers) personnes.set(n(p.vente_id), [...(personnes.get(n(p.vente_id)) ?? []), { id: n(p.id), role: p.role as PersonneVente['role'],
-    nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse) }]);
+    nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse), ...extraPersonne(p),
+    ...(p.type === 'societe' ? { representants: representants.get(n(p.id)) ?? [] } : {}) }]);
   return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? [], { parties: parties.get(n(r.id)) ?? [], personnes: personnes.get(n(r.id)) ?? [] }));
+}
+/** 🔴 LOT BJ — type, civilité et prénom d'une fiche lue (443) ; absents sans la migration (une fiche d'avant). PUR. */
+const extraPersonne = (p: Record<string, unknown>): Pick<PersonneVente, 'type' | 'civilite' | 'prenom'> =>
+  (p.type == null && p.civilite == null && p.prenom == null ? {}
+    : { type: p.type === 'societe' ? 'societe' : 'particulier', civilite: estCivilite(p.civilite) ? p.civilite : null, prenom: t(p.prenom) });
+/** 🔴 LOT BJ — les représentants (actifs, dans l'ordre) de ces sociétés ; sans la 443 : aucun. */
+async function lireRepresentants(societes: readonly number[]): Promise<Map<number, RepresentantVente[]>> {
+  const out = new Map<number, RepresentantVente[]>();
+  if (societes.length === 0 || !(await personneTypeDisponible())) return out;
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT r.societe_id, p.id, p.civilite, p.nom, p.prenom, p.telephone, p.email, p.adresse
+       FROM transaction_personne_representant r JOIN transaction_personne p ON p.id = r.personne_id
+      WHERE r.retire_le IS NULL AND r.societe_id = ANY($1::bigint[]) ORDER BY r.societe_id, r.rang, r.id`, [[...societes]]);
+  for (const r of rows) out.set(n(r.societe_id), [...(out.get(n(r.societe_id)) ?? []), { id: n(r.id), civilite: estCivilite(r.civilite) ? r.civilite : null,
+    nom: String(r.nom), prenom: t(r.prenom), telephone: t(r.telephone), email: t(r.email), adresse: t(r.adresse) }]);
+  return out;
 }
 const partieDe = (p: Record<string, unknown>): Partie => ({ sorte: p.sorte as SortePartie, compteId: nOuNull(p.compte_id), negociateur: t(p.negociateur_libelle),
   societe: estSociete(p.societe) ? p.societe : null, nom: t(p.nom), coordonnees: t(p.coordonnees), pourcentage: nOuNull(p.pourcentage), montantHt: nOuNull(p.montant_ht),
@@ -243,6 +265,8 @@ const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'ne
 const DATES = ['mois_acte', 'date_compromis', 'date_acte_prevue', 'date_acte', 'annulation_date'];
 async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   const c = COLONNES[entite].colonnes;
+  // 🔴 LOT BJ — type, civilité, prénom d'une fiche (443) : lus et écrits SEULEMENT quand la migration est appliquée.
+  if (entite === 'personne') return (await personneTypeDisponible()) ? [...c, 'type', 'civilite', 'prenom'] : c;
   if (entite !== 'vente') return c;
   // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
   return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
@@ -510,6 +534,8 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
     const id = n(j.entite_id);
     // 🔴 LOT R — une ligne miroir suit sa vente d'origine : elle ne se défait pas seule (« Annuler » le geste de la vente qui l'a changée).
     if (j.action === 'inter_cabinet') return { ok: false, motif: 'La ligne miroir suit la vente d’origine : annulez le geste de la vente qui l’a changée.' };
+    // 🔴 LOT BJ — une fiche modifiée ou des représentants changés depuis l'affaire : tracés ici, corrigés dans le formulaire « Modifier ».
+    if (j.action === 'personne' || j.action === 'representants') return { ok: false, motif: 'Une fiche de vendeur ou d’acquéreur (et ses représentants) se corrige dans le formulaire « Modifier » de l’affaire.' };
     // LOT D — un geste sur un ENSEMBLE de lignes (les parties, les personnes d'une vente) se défait en rétablissant l'ensemble d'avant.
     if (entite === 'vente' && ENSEMBLES[String(j.action)] !== undefined) {
       const r = await defaireEnsemble(q, j, journalId, auteur);
@@ -543,6 +569,8 @@ export async function annulerGeste(journalId: number, auteur: AuteurTx): Promise
 // ── LOT D (migration 434) : le dossier d'un compromis, sa répartition, « Acte signé » ─────────────────────────────────────────
 
 export const MOTIF_SANS_434 = 'Disponible après la mise à jour de la base (migration 434) : rien n’a été enregistré.';
+/** 🔴 LOT BJ — sans la 443 : ni société, ni civilité, ni prénom, ni représentants. */
+export const MOTIF_SANS_443 = 'Particulier / société, civilité, prénom et représentants : disponibles après la mise à jour de la base (migration 443). Rien n’a été enregistré.';
 export const MOTIF_SANS_437 = 'Les commissions des négociateurs et la saisie en HT sont disponibles après la mise à jour de la base (migration 437) : rien n’a été enregistré.';
 
 /** Les ENSEMBLES de lignes d'une vente qu'un geste remplace en bloc (retire les anciennes, pose les nouvelles) : réversibles en bloc. */
@@ -605,12 +633,15 @@ export async function lirePeriodesSociete(ids: readonly number[]): Promise<Map<n
 }
 
 /** L'annuaire des vendeurs et acquéreurs (pour choisir une personne déjà connue). */
-export interface PersonneAnnuaire { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+export interface PersonneAnnuaire { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null;
+  /** 🔴 LOT BJ (443) — absents : une fiche d'avant (un particulier). */
+  type?: 'particulier' | 'societe'; civilite?: 'M.' | 'Mme' | null; prenom?: string | null }
 export async function lirePersonnes(): Promise<PersonneAnnuaire[]> {
   if (!(await repartitionDisponible())) return [];
   const { rows } = await query<Record<string, unknown>>(
-    'SELECT id, nom, telephone, email, adresse FROM transaction_personne WHERE retire_le IS NULL ORDER BY lower(nom), id');
-  return rows.map((r) => ({ id: n(r.id), nom: String(r.nom), telephone: t(r.telephone), email: t(r.email), adresse: t(r.adresse) }));
+    `SELECT id, nom, telephone, email, adresse, to_jsonb(p) ->> 'type' AS type, to_jsonb(p) ->> 'civilite' AS civilite, to_jsonb(p) ->> 'prenom' AS prenom
+       FROM transaction_personne p WHERE retire_le IS NULL ORDER BY lower(nom), id`);
+  return rows.map((r) => ({ id: n(r.id), nom: String(r.nom), telephone: t(r.telephone), email: t(r.email), adresse: t(r.adresse), ...extraPersonne(r) }));
 }
 
 const anneeDe = (d: string | null): number | null => (d === null ? null : Number(d.slice(0, 4)));
@@ -705,6 +736,11 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       if (commissions[cote] !== null && negoId === null) return { ok: false, motif: `Choisissez le négociateur ${mot} avant de saisir sa commission.` };
     }
   }
+  // 🔴 LOT BJ — sans la 443, une saisie qui porte une société, une civilité, un prénom ou des représentants est refusée (rien n'est écrit).
+  const avecType = await personneTypeDisponible();
+  if (!avecType && s.personnes.some((p) => p.type === 'societe' || (p.civilite ?? null) !== null || (p.prenom ?? null) !== null || (p.representants ?? []).length > 0)) {
+    return { ok: false, motif: MOTIF_SANS_443 };
+  }
   const libelle = s.libelle ?? libelleDesPersonnes(s.personnes);
   if (libelle.trim() === '') return { ok: false, motif: 'Nommez au moins un vendeur ou un acquéreur (ou le libellé de la vente).' };
   const annee = s.statut === 'vendue' ? anneeDe(s.dateActe)! : anneeDe(s.dateActePrevue) ?? anneeDe(s.dateCompromis) ?? Number(aujourdhui.slice(0, 4));
@@ -752,23 +788,63 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       venteId = id;
     }
     // ④ les personnes : réutiliser une fiche connue, sinon en créer une ; l'ensemble des liens de la vente est remplacé (réversible)
-    const { rows: connues } = await q<Record<string, unknown>>('SELECT id, nom, telephone, email, adresse FROM transaction_personne WHERE retire_le IS NULL');
-    const fiches = connues.map((p) => ({ id: n(p.id), nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse) }));
-    const liens: { personneId: number; role: 'vendeur' | 'acquereur' }[] = [];
-    for (const p of s.personnes) {
-      let pid = p.id ?? personneExistante(p, fiches)?.id ?? null;
+    // 🔴 LOT BJ — une fiche se réutilise seulement pour une fiche du même type (particulier / société) ; une société, aussi par son nom ; chaque
+    // création ou modification d'une fiche faite depuis l'affaire est aussi inscrite au journal de l'affaire ; une société garde ses représentants.
+    const { rows: connues } = await q<Record<string, unknown>>(`SELECT id, nom, telephone, email, adresse${avecType ? ', type' : ''} FROM transaction_personne WHERE retire_le IS NULL`);
+    const fiches = connues.map((p) => ({ id: n(p.id), nom: String(p.nom), telephone: t(p.telephone), email: t(p.email), adresse: t(p.adresse),
+      type: p.type === 'societe' ? 'societe' as const : 'particulier' as const }));
+    const nomNorme = (x: string): string => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const resoudre = async (p: { id: number | null; nom: string; telephone: string | null; email: string | null; adresse: string | null;
+      type: 'particulier' | 'societe'; civilite: string | null; prenom: string | null; typeChoisi: boolean }): Promise<number> => {
+      const memeType = fiches.filter((f) => f.type === p.type);
+      let pid = p.id ?? personneExistante(p, memeType)?.id ?? (p.type === 'societe' ? memeType.find((f) => nomNorme(f.nom) === nomNorme(p.nom))?.id ?? null : null);
+      const extra = avecType ? { type: p.type, civilite: p.civilite, prenom: p.prenom } : {};
       if (pid === null) {
-        const { rows } = await q<{ id: string }>(
-          'INSERT INTO transaction_personne (nom, telephone, email, adresse, cree_par_libelle) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-          [p.nom, p.telephone, p.email, p.adresse, auteur.libelle]);
+        const cols = ['nom', 'telephone', 'email', 'adresse', ...Object.keys(extra), 'cree_par_libelle'];
+        const vals = [p.nom, p.telephone, p.email, p.adresse, ...Object.values(extra), auteur.libelle];
+        const { rows } = await q<{ id: string }>(`INSERT INTO transaction_personne (${cols.join(', ')}) VALUES (${cols.map((_, k) => `$${k + 1}`).join(', ')}) RETURNING id`, vals);
         pid = n(rows[0].id);
-        fiches.push({ id: pid, nom: p.nom, telephone: p.telephone, email: p.email, adresse: p.adresse });
-        await journaliser(q, { entite: 'personne', id: pid, action: 'saisie', avant: null, apres: p, auteur });
+        fiches.push({ id: pid, nom: p.nom, telephone: p.telephone, email: p.email, adresse: p.adresse, type: p.type });
+        const fiche = { nom: p.nom, telephone: p.telephone, email: p.email, adresse: p.adresse, ...extra };
+        await journaliser(q, { entite: 'personne', id: pid, action: 'saisie', avant: null, apres: fiche, auteur });
+        if (id !== null) await journaliser(q, { entite: 'vente', id, action: 'personne', avant: null, apres: { personne: pid, ...fiche }, auteur,
+          commentaire: `Fiche créée : ${[p.prenom, p.nom].filter((x) => (x ?? '') !== '').join(' ')} (n° ${pid}).` });
       } else {
         // Une fiche connue : ce qui est saisi la complète ou la corrige (journalisé, réversible) ; un champ laissé vide ne l'efface pas.
-        const maj = Object.fromEntries((['nom', 'telephone', 'email', 'adresse'] as const).filter((k) => p[k] !== null && p[k] !== '').map((k) => [k, p[k]]));
+        const maj: Record<string, unknown> = Object.fromEntries((['nom', 'telephone', 'email', 'adresse'] as const).filter((k) => p[k] !== null && p[k] !== '').map((k) => [k, p[k]]));
+        if (avecType) { if (p.typeChoisi) maj.type = p.type; if (p.civilite !== null) maj.civilite = p.civilite; if (p.prenom !== null && p.prenom !== '') maj.prenom = p.prenom; }
         const r = await ecrire(q, 'personne', pid, maj, true);
-        if (r !== null && Object.keys(r.apres).length > 0) await journaliser(q, { entite: 'personne', id: pid, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+        if (r !== null && Object.keys(r.apres).length > 0) {
+          await journaliser(q, { entite: 'personne', id: pid, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+          if (id !== null) await journaliser(q, { entite: 'vente', id, action: 'personne', avant: { personne: pid, ...r.avant }, apres: { personne: pid, ...r.apres }, auteur,
+            commentaire: `Fiche n° ${pid} modifiée.` });
+        }
+      }
+      return pid;
+    };
+    const liens: { personneId: number; role: 'vendeur' | 'acquereur' }[] = [];
+    for (const p of s.personnes) {
+      const type = p.type ?? 'particulier';
+      const pid = await resoudre({ ...p, type, civilite: p.civilite ?? null, prenom: p.prenom ?? null, typeChoisi: p.type !== undefined });
+      // 🔴 LOT BJ — les représentants d'une société : l'ensemble est remplacé s'il a changé (retire_le, jamais supprimé), journalisé (fiche et affaire).
+      if (avecType && type === 'societe') {
+        const reps: number[] = [];
+        for (const r of p.representants ?? []) {
+          const rid = await resoudre({ ...r, type: 'particulier', typeChoisi: true });
+          if (rid !== pid && !reps.includes(rid)) reps.push(rid);
+        }
+        const { rows: actifs } = await q<{ id: string; personne_id: string }>(
+          'SELECT id, personne_id FROM transaction_personne_representant WHERE societe_id = $1 AND retire_le IS NULL ORDER BY rang, id', [pid]);
+        const avant = actifs.map((x) => n(x.personne_id));
+        if (JSON.stringify(avant) !== JSON.stringify(reps)) {
+          await q('UPDATE transaction_personne_representant SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])', [actifs.map((x) => n(x.id)), auteur.libelle]);
+          for (const [k, rid] of reps.entries()) {
+            await q('INSERT INTO transaction_personne_representant (societe_id, personne_id, rang, cree_par_libelle) VALUES ($1, $2, $3, $4)', [pid, rid, k, auteur.libelle]);
+          }
+          await journaliser(q, { entite: 'personne', id: pid, action: 'representants', avant: { personnes: avant }, apres: { personnes: reps }, auteur });
+          if (id !== null) await journaliser(q, { entite: 'vente', id, action: 'representants', avant: { societe: pid, personnes: avant }, apres: { societe: pid, personnes: reps }, auteur,
+            commentaire: `Représentants de la société n° ${pid} : ${reps.length} (avant : ${avant.length}).` });
+        }
       }
       if (!liens.some((l) => l.personneId === pid && l.role === p.role)) liens.push({ personneId: pid, role: p.role });
     }

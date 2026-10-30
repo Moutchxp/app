@@ -24,6 +24,7 @@ import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
 import { ApporteurAffaire } from './ApporteurAffaire';
+import { BoutonPersonne, personneEcranDe } from './PersonnesDossier';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -47,7 +48,7 @@ const ouManque = (x: string | null | undefined): string => (x == null || x.trim(
 export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
   // LOT F — « + Ajouter un vendeur / un acquéreur » ouvre le formulaire du compromis sur une ligne neuve de ce côté (personne existante ou neuve).
-  const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string } | 'nouveau' | null>(null);
+  const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number } | 'nouveau' | null>(null);
   // LOT G — la modale « Annulation » ouverte sur un compromis.
   const [annulation, setAnnulation] = useState<Vente | null>(null);
   const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
@@ -225,7 +226,14 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                       qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
                   <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
                     onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} />
-                  {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p> : (
+                  {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p>
+                    // 🔴 LOT BJ (retrait autorisé par Arno : plus de coordonnées en clair) — un bouton par personne, sa fenêtre de détail ; sans la 443 : la liste d'avant.
+                    : d.personneType === true ? (
+                    <div className="trx-personnes-boutons" data-personnes-compromis={role}>
+                      {gens.map((p) => <BoutonPersonne key={`${p.role}-${p.id}`} p={p}
+                        onModifier={d.disponible ? () => setEdition({ vente: v, ajouter: null, personneVisee: p.id }) : undefined} />)}
+                    </div>
+                  ) : (
                     <ul className="trx-personnes" data-personnes-compromis={role}>
                       {gens.map((p) => (
                         <li key={`${p.role}-${p.id}`}><strong>{p.nom}</strong>
@@ -414,7 +422,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
         onFait={() => { setAnnulation(null); relire(); }} />}
       {edition !== null && <FormulaireDossier societe={edition === 'nouveau' ? societeSaisie : edition.vente.societe} vente={edition === 'nouveau' ? null : edition.vente}
         ajouter={edition === 'nouveau' ? null : edition.ajouter} repartitionInitiale={edition === 'nouveau' ? undefined : edition.repartition}
-        message={edition === 'nouveau' ? undefined : edition.message}
+        message={edition === 'nouveau' ? undefined : edition.message} personneVisee={edition === 'nouveau' ? null : edition.personneVisee ?? null}
         references={d} onFermer={() => setEdition(null)} onFait={(e) => { setEdition(null); if (e !== undefined) signalerPorteuse(e.id, e.repartition, e.honorairesTtc); relire(); }} />}
     </section>
     </FournisseurChangerAffichage></FournisseurAffichage>
@@ -437,7 +445,8 @@ function societeSurVente(v: Vente, cote: 'entree' | 'sortie', id: number): Socie
 /** Le dossier d'un compromis tel qu'il est, prêt à renvoyer avec un seul changement (les mêmes champs que « Modifier »). */
 const champsDe = (v: Vente) => ({ libelle: v.libelle, commission: String(v.honorairesTtc), dateCompromis: v.dateCompromis ?? '', dateActePrevue: v.dossier?.dateActePrevue ?? '',
   dateActe: '', adresseBien: v.dossier?.adresseBien ?? '', note: v.note ?? '', prixVente: v.prixVente == null ? '' : String(v.prixVente) });
-const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map((p) => ({ id: p.id, role: p.role, nom: p.nom, telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '' }));
+// 🔴 LOT BJ — la forme complète (type, civilité, prénom, représentants) : un geste de la carte ne fait rien perdre d'une société.
+const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map(personneEcranDe);
 
 /**
  * 🔴 LOT G — « + Ajouter un négociateur » : dans « Vendeurs », le négociateur d'ENTRÉE du mandat ; dans « Acquéreurs », celui de SORTIE.
@@ -945,6 +954,19 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
               </span></dd></div>
             </dl>
           </section>
+          {/* 🔴 LOT BJ (Arno) — les vendeurs et acquéreurs de la vente d'origine : un bouton par personne, sa fenêtre de détail, en lecture seule. */}
+          {references.personneType === true && (v.dossier?.personnes ?? []).length > 0 && (
+            <section className="trx-communes" aria-label="Vendeurs et acquéreurs" data-miroir-personnes>
+              <h4>Vendeurs et acquéreurs</h4>
+              {(['vendeur', 'acquereur'] as const).map((role) => {
+                const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
+                return gens.length === 0 ? null : <div key={role} className="trx-personnes-boutons" data-personnes-miroir={role}>
+                  <span className="loc-muet">{role === 'vendeur' ? 'Vendeurs' : 'Acquéreurs'}</span>
+                  {gens.map((p) => <BoutonPersonne key={p.id} p={p} />)}
+                </div>;
+              })}
+            </section>
+          )}
           <AlerteVentilation v={v} vue={v.societe} />
           <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
           {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>

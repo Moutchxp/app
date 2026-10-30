@@ -168,7 +168,24 @@ export interface Repartition {
   /** La rétrocession de l'apporteur (TTC), déduite AVANT toute répartition. */
   retroApporteurTtc: number;
 }
-export interface PersonneVente { id: number; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+/** 🔴 LOT BJ — la civilité d'un particulier ou d'un représentant (facultative). */
+export type Civilite = 'M.' | 'Mme';
+export const estCivilite = (x: unknown): x is Civilite => x === 'M.' || x === 'Mme';
+/** 🔴 LOT BJ (443) — un représentant d'une société (une fiche de l'annuaire, particulier). */
+export interface RepresentantVente { id: number; civilite: Civilite | null; nom: string; prenom: string | null; telephone: string | null; email: string | null; adresse: string | null }
+export interface PersonneVente { id: number; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null;
+  /** 🔴 LOT BJ (443) — absent ou 'particulier' : un particulier (les fiches d'avant : leur texte dans « Nom ») ; 'societe' : `nom` est le nom de la société. */
+  type?: 'particulier' | 'societe';
+  civilite?: Civilite | null;
+  prenom?: string | null;
+  /** Une société : ses représentants, dans l'ordre. */
+  representants?: RepresentantVente[] }
+
+/** 🔴 LOT BJ — le libellé d'une personne sur sa carte : « [Civilité] Prénom NOM » (particulier), le nom seul (société). PUR. */
+export function libellePersonne(p: Pick<PersonneVente, 'nom' | 'type' | 'civilite' | 'prenom'>): string {
+  if (p.type === 'societe') return p.nom.trim();
+  return [p.civilite ?? null, (p.prenom ?? '').trim() || null, p.nom.trim() || null].filter((x): x is string => x !== null).join(' ');
+}
 export interface DossierVente {
   adresseBien: string | null;
   dateActePrevue: string | null;

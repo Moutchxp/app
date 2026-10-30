@@ -1,4 +1,4 @@
-import { estModeCommission, estSociete, STATUTS, type ModeCommission, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
+import { estCivilite, estModeCommission, estSociete, STATUTS, type Civilite, type ModeCommission, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
 
 /**
  * TUILE « TRANSACTION » — la LECTURE d'une saisie venue de l'écran (vente, rétrocession, gestion du mois), avant toute écriture.
@@ -140,7 +140,11 @@ export function lireGestion(brut: unknown): Lu<GestionSaisie> {
 
 // ── LOT D (migration 434) : un compromis ou une vente avec son dossier et sa répartition ─────────────────────────────────────────
 
-export interface PersonneSaisie { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null }
+/** 🔴 LOT BJ — un représentant d'une société, tel que saisi (une fiche de l'annuaire, particulier). */
+export interface RepresentantSaisie { id: number | null; civilite: Civilite | null; nom: string; prenom: string | null; telephone: string | null; email: string | null; adresse: string | null }
+export interface PersonneSaisie { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null;
+  /** 🔴 LOT BJ (443) — particulier (défaut) ou société ; civilité et prénom d'un particulier ; les représentants d'une société. */
+  type?: 'particulier' | 'societe'; civilite?: Civilite | null; prenom?: string | null; representants?: RepresentantSaisie[] }
 /** LOT K — `societe` : la société CHOISIE pour cette vente (collaborateur des deux sociétés) ; pour les autres, le serveur l'ignore. */
 export interface PartieSaisie { sorte: SortePartie; compteId: number | null; nom: string | null; coordonnees: string | null; pourcentage: number | null; montantHt: number | null; societe?: Societe | null }
 export interface DossierSaisie {
@@ -217,7 +221,27 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
     if (id === undefined) return refus('Personne inconnue.');
     if (nom === null && id === null) { if (texte(o.telephone) ?? texte(o.email) ?? texte(o.adresse)) return refus('Chaque vendeur ou acquéreur a un nom.'); continue; }
     if (o.role !== 'vendeur' && o.role !== 'acquereur') return refus('Rôle inconnu (vendeur ou acquéreur).');
-    personnes.push({ id, role: o.role, nom: nom ?? '', telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse) });
+    // 🔴 LOT BJ — particulier (défaut) ou société ; une civilité inconnue est refusée ; une société garde ses représentants (un représentant vide
+    // est ignoré, un représentant sans nom refusé).
+    const type = o.type === 'societe' ? 'societe' as const : 'particulier' as const;
+    const civ = o.civilite === undefined || o.civilite === null || o.civilite === '' ? null : estCivilite(o.civilite) ? o.civilite : undefined;
+    if (civ === undefined) return refus('Civilité inconnue (M., Mme ou non renseignée).');
+    const representants: RepresentantSaisie[] = [];
+    if (type === 'societe') {
+      for (const x of Array.isArray(o.representants) ? o.representants : []) {
+        const r = (x ?? {}) as Record<string, unknown>;
+        const rid = idOuNull(r.id);
+        if (rid === undefined) return refus('Représentant inconnu.');
+        const rciv = r.civilite === undefined || r.civilite === null || r.civilite === '' ? null : estCivilite(r.civilite) ? r.civilite : undefined;
+        if (rciv === undefined) return refus('Civilité inconnue pour un représentant (M., Mme ou non renseignée).');
+        const rnom = texte(r.nom);
+        if (rnom === null && rid === null) { if (texte(r.prenom) ?? texte(r.telephone) ?? texte(r.email) ?? texte(r.adresse)) return refus('Chaque représentant a un nom (ou enlevez-le).'); continue; }
+        representants.push({ id: rid, civilite: rciv, nom: rnom ?? '', prenom: texte(r.prenom), telephone: texte(r.telephone), email: texte(r.email), adresse: texte(r.adresse) });
+      }
+    }
+    personnes.push({ id, role: o.role, nom: nom ?? '', telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse),
+      ...(o.type !== undefined || civ !== null || texte(o.prenom) !== null || representants.length > 0
+        ? { type, civilite: type === 'societe' ? null : civ, prenom: type === 'societe' ? null : texte(o.prenom), representants } : {}) });
   }
   const parties: PartieSaisie[] = [];
   for (const p of Array.isArray(c.parties) ? c.parties : []) {

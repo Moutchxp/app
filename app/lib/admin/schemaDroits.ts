@@ -137,6 +137,16 @@ export function modeCommissionDisponible(): Promise<boolean> {
   return memoiser('transaction_vente_ligne.mode_commission', () => colonneExiste('transaction_vente_ligne', 'mode_commission'));
 }
 
+/**
+ * 🔴 LOT BJ — la migration 443 (vendeurs / acquéreurs : particulier ou société, civilité, prénom, représentants) est-elle appliquée ? Sans
+ * elle : les fiches se lisent comme avant (des particuliers, leur texte dans « Nom ») ; société, civilité, prénom et représentants ne
+ * s'enregistrent pas (refus clair, rien n'est écrit).
+ */
+export function personneTypeDisponible(): Promise<boolean> {
+  return memoiser('transaction_personne.type', async () => (await colonneExiste('transaction_personne', 'type'))
+    && (await colonneExiste('transaction_personne', 'prenom')) && colonneExiste('transaction_personne_representant', 'societe_id'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

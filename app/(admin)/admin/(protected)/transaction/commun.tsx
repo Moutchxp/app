@@ -287,6 +287,14 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-colonnes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .trx-colonne{display:flex;flex-direction:column;gap:8px;align-items:flex-start;border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;min-width:0}
 .trx-personnes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;width:100%}
+/* LOT BJ — un bouton par vendeur / acquéreur (le style de « + Ajouter un vendeur »), sa fenêtre de détail, les représentants du formulaire. */
+.trx-personnes-boutons{display:flex;flex-direction:column;gap:8px;width:100%}
+.trx-btn-personne{width:100%;min-height:44px;white-space:normal;text-align:center}
+.trx-fp-tete{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.trx-fp-sous-titre{margin:0;font-weight:700}
+.trx-fp-representant{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--color-svv-line);padding-top:8px}
+.trx-representants{display:flex;flex-direction:column;gap:8px}
+.trx-representant{border:1px dashed var(--color-svv-line-strong);border-radius:10px;padding:8px}
 .trx-personnes li{display:flex;flex-direction:column;gap:2px;font-size:.9rem;overflow-wrap:anywhere}
 .trx-personnes li{gap:0}
 .trx-personnes a{color:var(--color-svv-red);display:inline-flex;align-items:center;min-height:44px}
