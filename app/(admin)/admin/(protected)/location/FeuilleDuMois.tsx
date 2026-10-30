@@ -27,6 +27,7 @@ import {
 import { ChampNombre } from './ChampNombre';
 import { BulleAnnexes, CSS_BULLE_ANNEXES } from './BulleAnnexes';
 import { ConversionMandat } from './ConversionMandat';
+import { CSS_SUPPRIMER_LOCATION, SupprimerLocation } from './SupprimerLocation';
 import { posterSuivi } from './suiviApi';
 import { useParametresSuivi } from './SuiviCommercial';
 import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
@@ -220,6 +221,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                               (réversible) ; sur la MÊME ligne que ses voisins (Arno, 26/10/2026) : son bloc se fond dans la rangée, sa confirmation
                               passe dessous. */}
                           <ConversionMandat a={a} onFini={onRelire} />
+                          {/* 🔴 LOT LS1 (suppression autorisée par Arno) — « Supprimer » la location, en dernier, au texte rouge discret ; sa confirmation
+                              dit ce qui part (la location, les profils des locataires) et ce qui reste (propriétaires, bien). */}
+                          <SupprimerLocation id={a.id} onFini={onRelire} />
                         </div>
                         {edition === a.id && (
                           <div className="fdm-edition">
@@ -957,7 +961,7 @@ function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
   );
 }
 
-export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}
+export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}${CSS_SUPPRIMER_LOCATION}
 .fdm{display:flex;flex-direction:column;gap:18px}
 /* 🔴 Arno (26/10/2026) — LES BLOCS SE DISTINGUENT : la feuille posée sur un fond légèrement teinté, chaque bloc sur sa surface, avec une bordure
    plus marquée, une ombre légère, plus d'air entre les blocs et des titres plus affirmés. Jetons du thème seulement : clair ET sombre. */

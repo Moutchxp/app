@@ -498,20 +498,29 @@ export async function supprimerPersonne(
       }
     }
 
-    await q(
-      `UPDATE ${TABLE[sujet]}
-          SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3,
-              archive_le = coalesce(archive_le, now()),
-              archive_par_libelle = coalesce(archive_par_libelle, $3)
-        WHERE id = $1`, [id, auteur.id, auteur.libelle]);
-
-    await journaliser(q, {
-      personneId: id, action: 'annuaire_supprime', avant: null, apres: 'supprimée',
-      commentaire: 'fiche supprimée — elle ne s’affiche plus nulle part ; aucune ligne n’est effacée, et ses '
-        + 'mails, ses rattachements et l’historique du bien restent intacts',
-      auteur,
-    });
+    await marquerPersonneSupprimeeTx(q, sujet, id, auteur);
     return { etat: 'ok' as const, data: { nom: p.nom } };
+  });
+}
+
+/**
+ * LE MARQUAGE « SUPPRIMÉE » D'UNE FICHE (et son journal), dans la transaction de l'appelant — écrit UNE fois : `supprimerPersonne` (après
+ * ses gardes) et 🔴 LOT LS1 la suppression d'une location (Suivi du mois), où le garde « dernière carte complète » est levé pour ce seul
+ * geste (décision d'Arno : toute la famille part avec la location). Aucune ligne n'est effacée ; le `commentaire` dit d'où vient le geste.
+ */
+export async function marquerPersonneSupprimeeTx(q: RequeteTx, sujet: Sujet, id: number, auteur: Auteur, commentaire?: string): Promise<void> {
+  await q(
+    `UPDATE ${TABLE[sujet]}
+        SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3,
+            archive_le = coalesce(archive_le, now()),
+            archive_par_libelle = coalesce(archive_par_libelle, $3)
+      WHERE id = $1`, [id, auteur.id, auteur.libelle]);
+
+  await journaliser(q, {
+    personneId: id, action: 'annuaire_supprime', avant: null, apres: 'supprimée',
+    commentaire: commentaire ?? 'fiche supprimée — elle ne s’affiche plus nulle part ; aucune ligne n’est effacée, et ses '
+      + 'mails, ses rattachements et l’historique du bien restent intacts',
+    auteur,
   });
 }
 

@@ -19,6 +19,7 @@ import { enregistrerOrigineActivite, simulerOrigineActivite } from '../../../../
 import { ajouterMargeGli, lireMargesGli, margeGliDisponible } from '../../../../../lib/location/suivi/margeGliRepo';
 import { detacherNegociateur, rattacherNegociateur } from '../../../../../lib/location/suivi/negociateurIdentiteRepo';
 import { annulerConversion, conversionDisponible, convertirEnMandatSeul, dateMandatProposee } from '../../../../../lib/location/suivi/conversionMandatRepo';
+import { lirePlanSuppression, supprimerLocation } from '../../../../../lib/location/suivi/suppressionLocationRepo';
 
 /**
  * TUILE LOCATION — « OUTILS DE SUIVI » (Arno, 22/10/2026, migration 406). Une porte dédiée, à côté de `/api/admin/location` :
@@ -57,6 +58,8 @@ export async function GET(request: Request): Promise<Response> {
     }
     // 🔴 Arno (25/10/2026) — le variable des négociateurs : administrateurs seulement ; un autre compte, SA seule cascade.
     // 🔴 Arno (25/10/2026, 425) — BLOC 9 de la Fiche du bien (Suivi du mois) : l'origine de la location, son empreinte, l'héritage du bien.
+    // 🔴 LOT LS1 — la fenêtre « Supprimer cette location ? » : la location, ses locataires, et ceux qu'un autre bien retient (lecture seule).
+    if (url.searchParams.get('vue') === 'suppression-location') return json(await lirePlanSuppression(url.searchParams.get('id')));
     if (url.searchParams.get('vue') === 'origine-activite') {
       const id = Number(url.searchParams.get('id'));
       if (!Number.isInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
@@ -171,6 +174,12 @@ export async function POST(request: Request): Promise<Response> {
       // 🔴 Arno (26/10/2026) — « Négociateurs à rapprocher » : rattacher un libellé à un compte, ou le détacher (administrateurs ; réversible, journalisé).
       case 'rattacher-negociateur': return json(await rattacherNegociateur(corps.libelle, corps.compteId, auteur));
       case 'detacher-negociateur': return json(await detacherNegociateur(corps.libelle, auteur));
+      // 🔴 LOT LS1 (suppression autorisée par Arno) — supprimer une location : le plan recalculé sous verrou côté serveur (locataire rattaché à un
+      // autre bien conservé, même si l'écran est contourné), journalisé avec compte, session et écran ; un observateur est refusé (403, garde centrale).
+      case 'supprimer-location': {
+        const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Suivi du mois' }, () => supprimerLocation(corps.id, auteur));
+        return json(r, r.etat === 'inconnu' ? 404 : 200);
+      }
       case 'proposer-conversion': {
         const id = Number(corps.id);
         if (!Number.isSafeInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Ligne inconnue.' }, 400);
