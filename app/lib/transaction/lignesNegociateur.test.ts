@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lignesParNegociateur } from './lignesNegociateur';
+import { entreeEtSortie, lignesParNegociateur } from './lignesNegociateur';
 import { payeTtcDe, resteTtcDe, retroTtcDe, type Partie, type Vente } from './modele';
 import { venteDansSociete } from './interCabinet';
 
@@ -64,5 +64,12 @@ describe('🔴 LOT BW — une ligne par négociateur', () => {
     const reste = resteTtcDe(v, [], () => 'independant', 'criterimmo');
     expect(sommeLignes(l, 'reste', 'ttcC')).toBe(C(reste));
     expect(sommeLignes(l, 'honoraires', 'ttcC')).toBe(C(12000));
+  });
+
+  it('🔴 LOT CA — « Entrée : X · Sortie : Y » : deux négociateurs différents (ligne miroir comprise, par son dossier) ; sinon null', () => {
+    expect(entreeEtSortie(vente())).toEqual(['Jean-Baptiste PONS', 'Cédric JULLIEN']);
+    expect(entreeEtSortie(vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree_sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } }))).toBeNull();
+    expect(entreeEtSortie(vente({ repartition: null }))).toEqual(['Jean-Baptiste PONS', 'Cédric JULLIEN']);
+    expect(entreeEtSortie(vente({ repartition: null, dossier: null }))).toBeNull();
   });
 });

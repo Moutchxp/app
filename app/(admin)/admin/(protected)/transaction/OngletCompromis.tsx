@@ -160,17 +160,18 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     <FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}>
     <section className="tdb-section trx-onglet-compromis" aria-labelledby="trx-compromis-titre" data-onglet-compromis={societe}>
       <div className="trx-barre">
-        {/* 🔴 LOT BY — « Compromis » et le compteur de la vue choisie. */}
-        <h3 id="trx-compromis-titre">Compromis <span className="loc-pastille" data-compteur-compromis>{liste.length}</span></h3>
-        {/* 🔴 LOT AM — le sélecteur « HT | TTC » juste à gauche de « + Nouveau compromis » (CA global : sans sélecteur, le choix retenu).
-            🔴 LOT BY — « Du mois | En cours » juste à gauche de « HT | TTC » (CA global : lui seul). */}
-        <div className="trx-actions">
+        {/* 🔴 LOT CA (Arno) — à GAUCHE, ensemble : « Compromis » · « Du mois | En cours » · le nombre affiché « (8) » (lot BY : la vue choisie) ;
+            à DROITE, inchangés : « HT | TTC » et « + Nouveau compromis » (CA global : ni l'un ni l'autre) ; au téléphone, ils passent dessous. */}
+        <div className="trx-entete-gauche">
+          <h3 id="trx-compromis-titre">Compromis</h3>
           <div className="trx-unites trx-affichage" role="group" aria-label="Compromis affichés" data-vue-compromis={vueListe}>
             {VUES_COMPROMIS.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={vueListe === x} onClick={() => setVueListe(x)} data-voir-compromis={x}>{LIBELLE_VUE_COMPROMIS[x]}</button>)}
           </div>
-          {vue !== null && <><BoutonAffichage unite={unite} onChange={setUnite} />
+          <span className="trx-compteur" data-compteur-compromis aria-label={`${liste.length} compromis affichés`}>({liste.length})</span>
+        </div>
+        {vue !== null && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
-          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></>}</div>
+          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
       </div>
       {!d.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Personnes, négociateurs d’entrée et de sortie et répartition : disponibles après la mise à jour de la base (migration 434).</p>}
       {/* 🔴 LOT I (Arno) — QUATRE TUILES, dans cet ordre : le nombre ; le CA (TTC en grand, en vert, HT en gris dessous ; la part de la société
@@ -226,38 +227,13 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
               ouvertInitial={venteVisee === v.id} />;
             const c = carteCompromis(v, d.aujourdhui);
-            // 🔴 LOT BY — vue « Du mois » : un compromis du mois déjà passé en acte garde sa carte, avec l'étiquette « acte signé » (sa date d'acte
-            // à la place de la date butoir, jamais « dépassée »).
             const acteSigne = v.statut === 'vendue';
-            // 🔴 LOT F — LA CARTE REPLIÉE : à gauche le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, plus discret, adresse · prix · acte au
-            // plus tard ; à droite la commission TTC en grand et en vert (« TTC » écrit), le HT dessous, puis le % du prix (si le prix est connu).
-            // Toute la ligne est le bouton qui déplie (triangle à gauche). Déplié : Vendeurs | Acquéreurs, puis les informations communes.
-            const titre = (
-              <span className="trx-carte-gauche">
-                <span className="trx-carte-titre" data-carte="titre">{c.titre}{acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</span>
-                <span className="trx-carte-infos" data-carte-ligne="infos">
-                  <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
-                  <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-                  <span data-carte="prix">{c.prix === null ? <span className="trx-a-renseigner">prix {A_RENSEIGNER}</span> : `prix ${eur(c.prix)}`}</span>
-                  <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-                  {acteSigne ? <span data-carte="acte">acte signé{v.dossier?.dateActe ? ` le ${date(v.dossier.dateActe)}` : ''}</span>
-                    : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-                    {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
-                </span>
-              </span>
-            );
-            const droite = (
-              <span className="trx-carte-droite" data-carte="montants">
-                <Montants ht={c.commissionHt} ttc={c.commissionTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
-                {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
-              </span>
-            );
             return (
               <li key={v.id} data-compromis={v.id} data-depassee={c.depassee && !acteSigne ? '' : undefined} data-acte-signe-carte={acteSigne ? '' : undefined}>
-                <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte"
-                  donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
+                {/* 🔴 LOT CA — LA carte d'affaire repliée, partagée avec les listes de « Le mois » (`CarteAffaire`). */}
+                <CarteAffaire v={v} aujourdhui={d.aujourdhui} etiquetteActe ouvertInitial={venteVisee === v.id}>
                   <DetailAffaire v={v} hote={hote} />
-                </BlocReplie>
+                </CarteAffaire>
               </li>
             );
           })}
@@ -365,6 +341,51 @@ export interface HoteDetail {
  * cadre gris des honoraires nets, cadres verts / rouges), les informations communes, la répartition, la barre d'actions. UN SEUL composant :
  * l'onglet « Compromis » et les listes de « Le mois » le rendent tel quel ; il suit le sélecteur « HT | TTC » de son hôte.
  */
+/**
+ * ══ 🔴 LOT CA (Arno, 30/10/2026) — LA CARTE D'AFFAIRE REPLIÉE, UN SEUL COMPOSANT : l'onglet « Compromis » et les listes « Les ventes du mois » /
+ * « Les compromis du mois » de « Le mois » (une seule esthétique). Le corps de la carte du lot F, inchangé :
+ *   · à gauche, le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, en gris, adresse · prix · « acte au plus tard le … » (compromis) ou « acte
+ *     signé le … » (vente signée ; à défaut de date, son mois) ; « à renseigner » si absent ;
+ *   · `ligne3` (« Le mois ») : une ligne grise de plus (négociateurs, rétro, com négo, reste agence…) ;
+ *   · à droite, la commission (grand / petit selon « HT | TTC »), puis le % du prix ;
+ *   · toute la ligne déplie (triangle rouge à gauche) ; dépliée : `children` (la fiche, lot BU).
+ * `etiquetteActe` (onglet « Compromis », vue « Du mois ») : l'étiquette « acte signé » à côté du titre d'une vente déjà signée.
+ */
+export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, ligne3, section = 'compromis', donnees }: {
+  v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; ligne3?: ReactNode; section?: string; donnees?: Record<string, string> }) {
+  const c = carteCompromis(v, aujourdhui);
+  const acteSigne = v.statut === 'vendue';
+  const moisActe = v.mois === null ? null : `${(NOMS_MOIS[v.mois - 1] ?? '').toLowerCase()} ${v.annee}`;
+  const titre = (
+    <span className="trx-carte-gauche">
+      <span className="trx-carte-titre" data-carte="titre">{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</span>
+      <span className="trx-carte-infos" data-carte-ligne="infos">
+        <span className={c.manque.adresse ? 'trx-a-renseigner' : undefined} data-carte="adresse">{c.adresse}</span>
+        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
+        <span data-carte="prix">{c.prix === null ? <span className="trx-a-renseigner">prix {A_RENSEIGNER}</span> : `prix ${eur(c.prix)}`}</span>
+        <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
+        {acteSigne ? <span data-carte="acte" className={v.dossier?.dateActe || moisActe !== null ? undefined : 'trx-a-renseigner'}>
+          {v.dossier?.dateActe ? `acte signé le ${date(v.dossier.dateActe)}` : moisActe !== null ? `acte signé en ${moisActe}` : `acte signé le : ${A_RENSEIGNER}`}</span>
+          : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
+      </span>
+      {ligne3 !== undefined && <span className="trx-carte-infos trx-carte-ligne3" data-carte-ligne="vente">{ligne3}</span>}
+    </span>
+  );
+  const droite = (
+    <span className="trx-carte-droite" data-carte="montants">
+      <Montants ht={c.commissionHt} ttc={c.commissionTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
+      {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
+    </span>
+  );
+  return (
+    <BlocReplie id={`trx-${section}-${v.id}`} section={`${section}-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte trx-carte-affaire"
+      donnees={donnees ?? { 'data-carte-compromis': String(v.id) }} ouvertInitial={ouvertInitial}>
+      {children}
+    </BlocReplie>
+  );
+}
+
 /**
  * `etiquettes` (🔴 LOT BZ, fiche dépliée depuis les listes de « Le mois ») : ce que la ligne repliée ne montre plus, dans les Informations
  * communes — les étiquettes « compromis », « mois à confirmer », « répartie » et la source d'import (fichier › onglet › ligne), discrètes.
@@ -1052,8 +1073,10 @@ export const adresseOrigine = (porteuse: Societe, id: number): string => `/admin
  * HT dessous) — jamais le montant de la vente ni la commission totale. Non modifiable d'ici : « Voir la vente d'origine » ; seule la
  * rémunération de son négociateur se modifie (elle s'enregistre sur la vente d'origine, sans doublon).
  */
-function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle, ouvertInitial = false }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
+export function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLibelle, ouvertInitial = false, ligne3, attributs }: { v: Vente; references: References; aujourdhui: string; disponible: boolean; onFait: () => void;
   statutDuLibelle?: StatutDuLibelle;
+  /** 🔴 LOT CA — « Le mois » : la ligne grise de la vente (comme `CarteAffaire`) et les repères de sa ligne de liste. */
+  ligne3?: ReactNode; attributs?: Record<string, string>;
   /** LOT AA — « Voir chez MACJ » depuis la carte de la porteuse (?vente=N) : la ligne miroir s'ouvre. */
   ouvertInitial?: boolean }) {
   const m = v.miroir!;
@@ -1065,9 +1088,11 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
       <span className="trx-carte-infos" data-carte-ligne="infos">
         <span data-carte="part-recue">part reçue{pctTexte === null ? '' : ` : ${pctTexte} de la commission nette`}</span>
         <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>
-        <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
-          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>
+        {v.statut === 'vendue' ? <span data-carte="acte">acte signé{v.dossier?.dateActe ? ` le ${date(v.dossier.dateActe)}` : v.mois !== null ? ` en ${(NOMS_MOIS[v.mois - 1] ?? '').toLowerCase()} ${v.annee}` : ''}</span>
+          : <span data-carte="butoir" className={c.depassee ? 'trx-depassee' : c.butoir === null ? 'trx-a-renseigner' : undefined}>
+          {c.butoir === null ? `acte au plus tard le : ${A_RENSEIGNER}` : `acte au plus tard le ${date(c.butoir)}${c.depassee ? ' — dépassée' : ''}`}</span>}
       </span>
+      {ligne3 !== undefined && <span className="trx-carte-infos trx-carte-ligne3" data-carte-ligne="vente">{ligne3}</span>}
     </span>
   );
   const droite = (
@@ -1077,8 +1102,8 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
     </span>
   );
   return (
-    <li data-compromis={v.id} data-miroir={m.origineId}>
-      <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte trx-carte--miroir"
+    <li data-compromis={v.id} data-miroir={m.origineId} {...attributs}>
+      <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte trx-carte-affaire trx-carte--miroir"
         donnees={{ 'data-carte-miroir': String(m.origineId) }} ouvertInitial={ouvertInitial}>
         <DetailMiroir v={v} references={references} aujourdhui={aujourdhui} disponible={disponible} onFait={onFait} statutDuLibelle={statutDuLibelle} />
       </BlocReplie>

@@ -35,6 +35,23 @@ const somme = (xs: readonly MontantC[]): MontantC => xs.reduce(plus, RIEN);
 const depuisTtc = (ttc: number): MontantC => ({ htC: enCentimes(ttc / TVA), ttcC: enCentimes(ttc) });
 const memeNom = (a: string | null, b: string | null): boolean => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 
+/**
+ * 🔴 LOT CA — les négociateurs d'entrée et de sortie quand ils DIFFÈRENT (« Entrée : X · Sortie : Y » de la carte de « Le mois », ligne miroir
+ * comprise) ; null : un seul négociateur (entrée = sortie, « entrée et sortie », sortie inconnue, import sans répartition). PUR.
+ */
+export function entreeEtSortie(v: Pick<Vente, 'repartition' | 'dossier'>): [string, string] | null {
+  const r = v.repartition;
+  // Une ligne miroir (sans répartition) : son dossier dit l'entrée et la sortie de la vente d'origine.
+  if (r == null) { const e = v.dossier?.entree; const so = v.dossier?.sortie;
+    return e == null || so == null || e.id === so.id || memeNom(e.nom, so.nom) ? null : [e.nom, so.nom]; }
+  if (r.parties.some((p) => p.sorte === 'entree_sortie')) return null;
+  const pe = r.parties.find((p) => p.sorte === 'entree');
+  const ps = r.parties.find((p) => p.sorte === 'sortie');
+  if (pe?.negociateur == null || ps?.negociateur == null) return null;
+  if ((pe.compteId !== null && pe.compteId === ps.compteId) || memeNom(pe.negociateur, ps.negociateur)) return null;
+  return [pe.negociateur, ps.negociateur];
+}
+
 /** Les deux lignes d'une vente tenue par deux négociateurs ; null : une seule ligne. PUR. */
 export function lignesParNegociateur(v: Vente, retros: readonly Retrocession[], statutDuLibelle: StatutDuLibelle | undefined, societe: Societe | null): [LigneNegociateur, LigneNegociateur] | null {
   const r = v.repartition;

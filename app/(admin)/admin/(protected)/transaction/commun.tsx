@@ -246,8 +246,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-carte-montants{align-items:flex-end;text-align:right}
 .trx-carte-montants .trx-mt-grand{font-size:1.15rem}
 .trx-carte-montants .trx-mt-petit{font-size:.88rem}
-.trx-onglet-compromis .trx-carte-detail{padding-bottom:6px}
-.trx-onglet-compromis .trx-carte.tdb-replie--ouvert{padding-bottom:14px}
+.trx-onglet-compromis .trx-carte-detail,.trx-liste-affaires .trx-carte-detail{padding-bottom:6px}
+.trx-onglet-compromis .trx-carte.tdb-replie--ouvert,.trx-liste-affaires .trx-carte.tdb-replie--ouvert{padding-bottom:14px}
 .trx-espace-annules{height:16px}
 /* LOT H — le champ d'adresse partagé (ChampAdresseBan) dans les formulaires de la tuile : pleine largeur, propositions ≥ 44 px. */
 .trx-form .cab-enveloppe input{width:100%;box-sizing:border-box}
@@ -256,11 +256,19 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT G (Arno) — CONTRASTE ET RELIEF, en Clair comme en Sombre (jetons seulement) : la page en « field », les cartes et les tuiles plus
    claires (« surface-raised » : blanc en Clair, un cran plus clair que la page en Sombre), bordure marquée, ombre légère (teinte
    « tip-bg », sombre dans les deux thèmes) ; dans une carte dépliée, les sous-blocs reviennent au fond « field », bordés. */
-.trx-onglet-compromis{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
-.trx-onglet-compromis .trx-carte,.trx-onglet-compromis .tdb-tuile,.trx-onglet-compromis .trx-annules{background:var(--color-svv-surface-raised);border:1px solid var(--color-svv-line-strong);
+.trx-onglet-compromis,.trx-liste-affaires{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
+.trx-onglet-compromis .trx-carte,.trx-liste-affaires .trx-carte,.trx-onglet-compromis .tdb-tuile,.trx-onglet-compromis .trx-annules{background:var(--color-svv-surface-raised);border:1px solid var(--color-svv-line-strong);
   box-shadow:0 1px 2px color-mix(in srgb, var(--color-svv-tip-bg) 18%, transparent),0 4px 12px color-mix(in srgb, var(--color-svv-tip-bg) 10%, transparent)}
-.trx-onglet-compromis .trx-colonne,.trx-onglet-compromis .trx-communes{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
-.trx-onglet-compromis .trx-carte-detail{border-top-color:var(--color-svv-line-strong)}
+.trx-onglet-compromis .trx-colonne,.trx-onglet-compromis .trx-communes,.trx-liste-affaires .trx-colonne,.trx-liste-affaires .trx-communes{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
+.trx-onglet-compromis .trx-carte-detail,.trx-liste-affaires .trx-carte-detail{border-top-color:var(--color-svv-line-strong)}
+/* LOT CA — la 3e ligne grise des cartes de « Le mois » (négociateurs, rétro, com négo, reste agence), plus petite ; les montants à leurs couleurs. */
+.trx-carte-ligne3{font-size:.8rem}
+.trx-carte-ligne3 .trx-rouge,.trx-carte-ligne3 .trx-vert{font-weight:700}
+/* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
+.trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
+.trx-entete-gauche h3{margin:0}
+.trx-compteur{font-weight:700;color:var(--color-svv-muted)}
+.trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
 .trx-btn-large{width:100%;min-height:44px}
 .trx-negociateur-carte{display:flex;flex-direction:column;gap:8px;width:100%}
 .trx-choix-negociateur{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface)}

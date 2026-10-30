@@ -827,7 +827,8 @@ describe('🔴 LOT L — Solde net et « + Nouveau compromis »', () => {
   it('« + Nouveau compromis » sur la ligne du titre, dans la même barre, AVANT les tuiles', async () => {
     await ouvrir(); await cliquer('[data-vue="compromis"]');
     const barre = container.querySelector('.trx-onglet-compromis > .trx-barre')!;
-    expect(barre.querySelector('h3')!.textContent).toMatch(/^Compromis \d+$/); // 🔴 LOT BY : « Compromis » et le compteur de la vue
+    expect(barre.querySelector('h3')!.textContent).toBe('Compromis'); // 🔴 LOT CA : « Compromis » · sélecteur · « (N) » à gauche
+    expect(barre.querySelector('.trx-entete-gauche [data-compteur-compromis]')!.textContent).toMatch(/^\(\d+\)$/);
     expect(barre.querySelector('[data-nouveau-compromis]')).not.toBeNull();
     expect(barre.nextElementSibling?.matches('.tdb-tuiles') || barre.parentElement!.querySelector('.trx-barre ~ .tdb-tuiles') !== null).toBe(true);
   });
@@ -2622,8 +2623,8 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
   it('le sélecteur « HT | TTC » est juste à gauche de « + Nouveau compromis » ; par défaut TTC : TTC en grand, HT en petit entre parenthèses, dans les 4 tuiles et l’en-tête des cartes', async () => {
     await onglet();
     const actions = container.querySelector('[data-onglet-compromis] > .trx-barre > .trx-actions')!;
-    // 🔴 LOT BY — « Du mois | En cours » juste à gauche de « HT | TTC ».
-    expect([...actions.children].map((x) => x.getAttribute('data-affichage-montants') ?? x.getAttribute('data-vue-compromis') ?? (x.hasAttribute('data-nouveau-compromis') ? 'nouveau' : '?'))).toEqual(['encours', 'ttc', 'nouveau']);
+    // 🔴 LOT CA — à droite : « HT | TTC » puis « + Nouveau compromis » ; « Du mois | En cours » est passé à gauche, avec le titre et « (N) ».
+    expect([...actions.children].map((x) => x.getAttribute('data-affichage-montants') ?? (x.hasAttribute('data-nouveau-compromis') ? 'nouveau' : '?'))).toEqual(['ttc', 'nouveau']);
     expect([...container.querySelectorAll('[data-afficher]')].map((x) => [x.textContent, x.getAttribute('aria-pressed')])).toEqual([['HT', 'false'], ['TTC', 'true']]);
     expect([grand('[data-tuile="ca"]'), petit('[data-tuile="ca"]')]).toEqual(['12 000 € TTC', '(10 000 € HT)']);
     expect([grand('[data-tuile="commissions"]'), petit('[data-tuile="commissions"]')]).toEqual(['9 360 € TTC versées', '(7 800 € HT)']);
@@ -4866,7 +4867,9 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
   it('« En cours » par défaut = l’affichage d’avant : tous les compromis en cours, quel que soit leur mois ; « Compromis » + compteur', async () => {
     await ouvrirSur();
     expect(container.querySelector('[data-vue-compromis]')!.getAttribute('data-vue-compromis')).toBe('encours');
-    expect(texte('#trx-compromis-titre')).toBe('Compromis 3');
+    expect(texte('#trx-compromis-titre')).toBe('Compromis');
+    // 🔴 LOT CA — à gauche, dans cet ordre : « Compromis » · « Du mois | En cours » · « (3) »
+    expect([...container.querySelector('[data-onglet-compromis] .trx-entete-gauche')!.children].map((x) => x.textContent)).toEqual(['Compromis', 'Du moisEn cours', '(3)']);
     expect(cartes().sort()).toEqual(['12', '41', '50']);
     expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]')]).toEqual(['Compromis en cours', '3']);
     expect(container.querySelector('[data-compromis-sans-date]')).toBeNull();
@@ -4876,7 +4879,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     await ouvrirSur();
     await cliquer('[data-voir-compromis="mois"]');
     expect(cartes()).toEqual(['51', '41']); // la date butoir la plus proche d'abord, comme les cartes
-    expect(compteur()).toBe('2');
+    expect(compteur()).toBe('(2)');
     expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]'), texte('[data-tuile="nombre"] .tdb-tuile-n1')]).toEqual(['Compromis du mois', '2', 'signés en octobre 2026, hors annulés']);
     expect(container.querySelector('[data-compromis="51"] [data-acte-signe-etiquette]')).not.toBeNull();
     expect(texte('[data-compromis="51"] [data-carte="acte"]')).toBe('acte signé le 25/10/2026');
@@ -4888,7 +4891,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     await ouvrirSur('ht', 'macj');
     expect(container.querySelector('[data-vue-compromis]')!.getAttribute('data-vue-compromis')).toBe('mois');
     await cliquer('[data-voir-compromis="encours"]');
-    expect(compteur()).toBe('3');
+    expect(compteur()).toBe('(3)');
   });
 
   it('les tuiles = la somme des cartes affichées, au centime, dans les deux vues et dans les deux unités ; la synthèse « Ce que l’on doit » ne change pas', async () => {
@@ -4913,7 +4916,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
   it('le sélecteur : même style que « HT | TTC », juste à sa gauche ; la fenêtre « Commissions versées » suit la vue', async () => {
     await ouvrirSur();
     const actions = container.querySelector('[data-onglet-compromis] > .trx-barre > .trx-actions')!;
-    expect(actions.children[0].className).toBe(actions.children[1].className);
+    expect(container.querySelector('[data-vue-compromis]')!.className).toBe(actions.children[0].className); // même style que « HT | TTC »
     expect([...container.querySelectorAll('[data-voir-compromis]')].map((x) => [x.textContent, x.getAttribute('aria-pressed')])).toEqual([['Du mois', 'false'], ['En cours', 'true']]);
     await cliquer('[data-voir-compromis="mois"]');
     await cliquer('[data-tuile="commissions"]');

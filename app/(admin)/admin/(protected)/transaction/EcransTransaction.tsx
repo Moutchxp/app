@@ -15,10 +15,9 @@ import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
-import { lignesParNegociateur } from '../../../../lib/transaction/lignesNegociateur';
+import { entreeEtSortie } from '../../../../lib/transaction/lignesNegociateur';
 import { FormulaireVente, Journal } from './FormulaireVente';
-import { adresseOrigine, DetailAffaire, DetailMiroir, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
-import { DessinTriangle } from '../_composants/TriangleDepliage';
+import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
 import { partAgenceRattacheeHt } from '../../../../lib/transaction/partAgence';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
@@ -337,13 +336,16 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>
 
-    {mode !== 'compromis' && <section className="tdb-section" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
-      <h3 id="trx-ventes">Les ventes du mois — {libMois} <span className="loc-pastille">{ventes.length}</span></h3>
-      <TableVentes ventes={ventes} retros={tout.retrocessions} onModifier={onEdition} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
+    {/* 🔴 LOT CA — l'en-tête : le titre puis le nombre « (3) » ; les ventes en CARTES (celles de l'onglet « Compromis »). */}
+    {mode !== 'compromis' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
+      <div className="trx-entete-gauche"><h3 id="trx-ventes">Les ventes du mois — {libMois}</h3><span className="trx-compteur" data-compteur-liste>({ventes.length})</span></div>
+      <CartesVentes ventes={ventes} retros={tout.retrocessions} vide="Aucune vente ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
     </section>}
-    {mode !== 'vendu' && <section className="tdb-section" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
-      <h3 id="trx-compromis-mois">{mode === 'tous' ? 'Les compromis en cours du mois' : 'Les compromis du mois'} — {libMois} <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small> <span className="loc-pastille">{compDuMois.length}</span></h3>
-      <TableVentes ventes={compDuMois} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
+    {mode !== 'vendu' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
+      <div className="trx-entete-gauche"><h3 id="trx-compromis-mois">{mode === 'tous' ? 'Les compromis en cours du mois' : 'Les compromis du mois'} — {libMois}</h3>
+        <span className="trx-compteur" data-compteur-liste>({compDuMois.length})</span>
+        <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small></div>
+      <CartesVentes ventes={compDuMois} retros={tout.retrocessions} vide="Aucun compromis signé ce mois." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
     </section>}
     {fenetres}
 
@@ -408,12 +410,6 @@ export function Mt({ ht: montantHt, ttc, donnees, classe }: { ht: number; ttc?: 
   const [grand, petit, motPetit] = u === 'ht' ? [montantHt, t, MOT_UNITE.ttc] : [t, montantHt, MOT_UNITE.ht];
   return <span className="trx-mt-liste"><span className="trx-mt-liste-grand"><span className={classe} {...donnees}>{eur(grand)}</span>{ESPACE}{MOT_UNITE[u]}</span> <small className="trx-montant-autre" data-montant-autre>({eur(petit)}{ESPACE}{motPetit})</small></span>;
 }
-const deC = (m: { htC: number; ttcC: number }): { ht: number; ttc: number } => ({ ht: m.htC / 100, ttc: m.ttcC / 100 });
-/** 🔴 LOT BZ (Arno) — une case des lignes repliées de « Le mois » : le SEUL montant de l'unité choisie, sans mot d'unité (l'en-tête le dit). */
-function MtSeul({ ht: montantHt, ttc, donnees }: { ht: number; ttc?: number; donnees?: Record<string, string> }) {
-  const u = useAffichage();
-  return <span className="trx-mt-seul" {...donnees}>{eur(u === 'ht' ? montantHt : ttc ?? montantHt * TVA)}</span>;
-}
 /** 🔴 LOT BW — l'unité choisie pour « Le mois » / « L'année » : `en` passe un montant HT dans cette unité (× 1,2 en TTC, sans arrondi), `e` l'écrit. */
 function useUnite() {
   const u = useAffichage();
@@ -429,116 +425,101 @@ function Autre({ ht: montantHt }: { ht: number }) {
 /** 🔴 LOT BW — les mots du mode dans l'unité choisie (« CA TTC des compromis »). PUR. */
 const motsEnUnite = <T extends Record<string, string>>(m: T, mot: string): T => Object.fromEntries(Object.entries(m).map(([k, x]) => [k, x.replace('CA HT', `CA ${mot}`)])) as T;
 
-function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
+function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutDuLibelle }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; onModifier: (v: Vente) => void; vide: string;
   /** LOT Q — le statut des négociateurs importés : le reste à l'agence ne déduit que la paye des indépendants. */
   statutDuLibelle?: StatutDuLibelle;
   /** LOT D — la société vue : la part d'une vente répartie s'affiche sous ses honoraires. */
-  societe?: Societe | null;
-  /**
-   * 🔴 LOT BU (Arno) — « Les ventes du mois » / « Les compromis du mois » : chaque ligne se DÉPLIE (clic sur la ligne ou le triangle rouge ; Entrée,
-   * Espace) sur LA fiche de l'onglet « Compromis » (`DetailAffaire`, `DetailMiroir` pour une ligne miroir), sur toute la largeur ; plusieurs à la
-   * fois, rien de retenu. La colonne devient « Négociateur » : celui d'ENTRÉE (la sortie est dans la fiche). Absent : le tableau d'avant.
-   * 🔴 LOT BW (Arno) — une vente tenue par DEUX négociateurs (entrée ≠ sortie) : deux lignes, un même bloc (`lignesParNegociateur` : les montants
-   * des cadres de la fiche ; somme = la vente au centime) ; le nom de l'affaire et sa source sur la première ; un clic sur l'une ou l'autre
-   * déplie la fiche une fois, sous le bloc.
-   */
-  fiches?: { hote: HoteDetail; references: References } }) {
-  const [ouvertes, setOuvertes] = useState<ReadonlySet<number>>(() => new Set());
+  societe?: Societe | null }) {
   const u = useAffichage();
   const MOT = MOT_UNITE[u];
-  // 🔴 LOT BZ (Arno) — les lignes REPLIÉES de « Le mois » (`fiches`) : un seul montant par case (l'unité dans l'en-tête), le triangle et le nom de
-  // l'affaire seuls (étiquettes, source et « CA de la vente » dans la fiche dépliée), plus de colonne « Action » (« Modifier » est dans la fiche).
-  const compact = fiches !== undefined;
-  const M = compact ? MtSeul : Mt;
-  const enTete = (mot: string): string => (compact ? `${mot} ${MOT}` : mot);
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
-  const basculer = (id: number): void => setOuvertes((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   /** Un montant HT de référence dans l'unité choisie (les phrases d'information). */
   const enU = (montantHt: number): string => eur(u === 'ht' ? montantHt : montantHt * TVA);
-  /** La commission non déduite (TTC) dite dans l'unité choisie. */
-  const nonDeduite = (id: number, ndTtc: number, aRenseigner: boolean) => ndTtc > 0 ? <><br /><span className={aRenseigner ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={id}>dont {eur(u === 'ttc' ? ndTtc : ndTtc / TVA)} non déduite{aRenseigner ? ' (statut à renseigner)' : ' (interne)'}</span></> : null;
-  /** 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). LOT BW : sous les
-   *  honoraires d'une vente à une ligne ; sous le nom de l'affaire quand elle est en deux lignes (c'est la vente entière). */
-  const partVente = (v: Vente) => v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
-    return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {enU(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${enU(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${enU(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })();
-  const NB_COLONNES = compact ? 6 : 7;
   return (
-    <table className={`tdb-table tdb-table--large${compact ? ' trx-table-compacte' : ''}`} data-table-ventes>
-      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">{enTete('Honoraires')}</th>
-        <th scope="col">{enTete('Rétrocessions')}</th><th scope="col">{enTete('Com négo')}</th><th scope="col">Reste agence {MOT}</th>{!compact && <th scope="col">Action</th>}</tr></thead>
+    <table className="tdb-table tdb-table--large" data-table-ventes>
+      <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">Négociateur(s)</th><th scope="col">Honoraires</th>
+        <th scope="col">Rétrocessions</th><th scope="col">Com négo</th><th scope="col">Reste agence {MOT}</th><th scope="col">Action</th></tr></thead>
       <tbody>
         {ventes.map((v) => {
-          const ouverte = fiches !== undefined && ouvertes.has(v.id);
-          const deux = fiches === undefined ? null : lignesParNegociateur(v, retros, statutDuLibelle, societe);
-          const surClic = fiches === undefined ? undefined : (e: { target: EventTarget }) => { if ((e.target as Element).closest('a, button, input, select, textarea, label') === null) basculer(v.id); };
-          const classe = (x: string): string | undefined => (fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}${x}`);
-          const tete = compact ? (
-            <th scope="row"><button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
-              <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button></th>
-          ) : (
-            <th scope="row">{fiches === undefined ? v.libelle
-              : <button type="button" className="trx-deplier-vente" aria-expanded={ouverte} aria-controls={`trx-fiche-vente-${v.id}`} onClick={() => basculer(v.id)} data-deplier-vente={v.id}>
-                <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><span>{v.libelle}</span></button>}
-              <span className="trx-pastilles">
-                {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
-                {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
-                {v.repartition != null && <span className="loc-pastille trx-pastille--verte" data-pastille-repartie>répartie</span>}
-                {v.miroir != null && <span className="loc-pastille trx-pastille--verte" data-pastille-miroir>inter-cabinet reçu</span>}
-                {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
-              </span>
-              {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
-              {deux !== null && partVente(v)}
-            </th>
-          );
-          const action = compact ? null : (
-            <td data-mot="Action">{v.miroir != null
-              ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
-              : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
-          );
-          const fiche = ouverte && fiches !== undefined && (
-            <tr key={`${v.id}-fiche`} className="trx-ligne-fiche" id={`trx-fiche-vente-${v.id}`} data-fiche-vente={v.id}><td colSpan={NB_COLONNES}>
-              {v.miroir != null
-                ? <DetailMiroir v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire} statutDuLibelle={fiches.hote.statutDuLibelle} />
-                : <DetailAffaire v={v} hote={fiches.hote} etiquettes />}
-            </td></tr>
-          );
-          if (deux !== null) {
-            // 🔴 LOT BW — deux lignes, un bloc : l'entrée (porteur du mandat) en haut, la sortie dessous ; chacune SA partie.
-            return [...deux.map((x, k) => (
-              <tr key={`${v.id}-${x.cote}`} data-vente={k === 0 ? v.id : undefined} data-vente-nego={`${v.id}-${x.cote}`} className={classe(k === 0 ? ' trx-ligne-nego trx-ligne-nego--entree' : ' trx-ligne-nego trx-ligne-nego--sortie')} onClick={surClic}>
-                {k === 0 ? tete : <th scope="row" className="trx-ligne-nego-tete"><span className="fdm-cache">{v.libelle} — </span><span className="loc-muet">sortie</span></th>}
-                <td data-mot="Négociateur" data-negociateur-cote={x.cote}>{x.negociateur}</td>
-                <td data-mot={enTete('Honoraires')}><M {...deC(x.honoraires)} donnees={{ 'data-honoraires-nego': x.cote }} /></td>
-                <td data-mot={enTete('Rétrocessions')}><span className="trx-pile-droite"><M {...deC(x.retro)} donnees={{ 'data-retro-nego': x.cote }} />
-                  {/* L'inter-cabinet versé à l'autre société sur ce côté, et les agences extérieures : « reversé à … », comme dans la carte. */}
-                  {x.reverses.map((y) => <span key={y.vers} className="trx-source" data-reverse-nego={x.cote}>reversé à {y.vers} : {eur(u === 'ht' ? y.m.htC / 100 : y.m.ttcC / 100)}</span>)}</span></td>
-                <td data-mot={enTete('Com négo')}><M ht={x.payeTtc / TVA} ttc={x.payeTtc} donnees={{ 'data-com-nego': x.cote }} />{nonDeduite(v.id, x.payeNonDeduiteTtc, x.payeARenseigner)}</td>
-                <td data-mot={`Reste agence ${MOT}`}><M {...deC(x.reste)} donnees={{ 'data-reste-nego': x.cote }} /></td>
-              </tr>
-            )), fiche];
-          }
           const reste = resteTtcDe(v, retros, statutDuLibelle, societe);
           const retro = retroTtcDe(v, retros);
           const paye = payeTtcDe(v, societe);
           const classes = payeParClasseTtc(v, statutDuLibelle, societe);
-          return [
-            <tr key={v.id} data-vente={v.id} className={classe('')} onClick={surClic}>
-              {tete}
-              {fiches === undefined ? <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td> : <td data-mot="Négociateur" data-negociateur-entree>{negociateurEntree(v)}</td>}
-              <td data-mot={enTete('Honoraires')}><M ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} donnees={{ 'data-honoraires-vente': '' }} />
-                {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). LOT BZ : dans la
-                    fiche dépliée (sa répartition), plus sur la ligne repliée. */}
-                {!compact && partVente(v)}</td>
-              <td data-mot={enTete('Rétrocessions')}><M ht={retro / TVA} ttc={retro} /></td>
-              <td data-mot={enTete('Com négo')}><M ht={paye / TVA} ttc={paye} />{nonDeduite(v.id, classes.interne + classes.a_renseigner, classes.a_renseigner > 0)}</td>
-              <td data-mot={`Reste agence ${MOT}`}><M ht={reste / TVA} ttc={reste} donnees={{ 'data-reste-vente': '' }} /></td>
-              {action}
-            </tr>,
-            fiche,
-          ];
+          const nd = classes.interne + classes.a_renseigner;
+          return (
+            <tr key={v.id} data-vente={v.id}>
+              <th scope="row">{v.libelle}
+                <span className="trx-pastilles">
+                  {v.statut === 'compromis' && <span className="loc-pastille trx-pastille--orange">compromis</span>}
+                  {moisAConfirmer(v) && <span className="loc-pastille trx-pastille--orange">mois à confirmer</span>}
+                  {v.repartition != null && <span className="loc-pastille trx-pastille--verte" data-pastille-repartie>répartie</span>}
+                  {v.miroir != null && <span className="loc-pastille trx-pastille--verte" data-pastille-miroir>inter-cabinet reçu</span>}
+                  {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
+                </span>
+                {v.sourceOnglet !== null && <><br /><span className="trx-source">{v.sourceFichier} › {v.sourceOnglet} › ligne {v.sourceLigne}</span></>}
+              </th>
+              <td data-mot="Négociateur(s)">{negociateursDe(v).join(', ')}</td>
+              <td data-mot="Honoraires"><Mt ht={ht(v.honorairesTtc)} ttc={v.honorairesTtc} donnees={{ 'data-honoraires-vente': '' }} />
+                {/* 🔴 LOT R — la société porteuse encaisse le CA de la vente ; dont reversé en inter-cabinet (autre société, extérieur). */}
+                {v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
+                  return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {enU(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${enU(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${enU(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })()}</td>
+              <td data-mot="Rétrocessions"><Mt ht={retro / TVA} ttc={retro} /></td>
+              <td data-mot="Com négo"><Mt ht={paye / TVA} ttc={paye} />
+                {nd > 0 && <><br /><span className={classes.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(u === 'ttc' ? nd : nd / TVA)} non déduite{classes.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></>}</td>
+              <td data-mot={`Reste agence ${MOT}`}><Mt ht={reste / TVA} ttc={reste} donnees={{ 'data-reste-vente': '' }} /></td>
+              <td data-mot="Action">{v.miroir != null
+                ? <a className="trx-lien" href={adresseOrigine(v.miroir.porteuse, v.miroir.origineId)} data-voir-origine={v.miroir.origineId}>Voir la vente d’origine</a>
+                : <button type="button" className="trx-bouton-lien" onClick={() => onModifier(v)} data-modifier-vente={v.id}>Modifier</button>}</td>
+            </tr>
+          );
         })}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * ══ 🔴 LOT CA (Arno, 30/10/2026) — « LES VENTES DU MOIS » / « LES COMPROMIS DU MOIS » : LES CARTES DE L'ONGLET « COMPROMIS » ══════════════════
+ * Une seule esthétique : chaque vente est LA carte d'affaire repliée de l'onglet « Compromis » (`CarteAffaire` ; `CarteMiroir` pour une ligne
+ * miroir) — le tableau des lots BU / BW / BZ est remplacé (accord d'Arno ; rien n'est perdu, tout est dans la carte). Sa 3e ligne grise :
+ * « Négociateur : X » (ou « Entrée : X · Sortie : Y », lot BW) · Rétro · Com négo · Reste agence (dans l'unité choisie ; rétro et com négo en
+ * rouge, reste en vert), puis « reversé à … » et « dont … non déduite » quand ils existent. Un clic : la fiche (lot BU), inchangée.
+ */
+function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string;
+  societe: Societe; statutDuLibelle?: StatutDuLibelle; fiches: { hote: HoteDetail; references: References } }) {
+  const u = useAffichage();
+  if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
+  const MOT = MOT_UNITE[u];
+  /** Un montant TTC écrit dans l'unité choisie. */
+  const enU = (ttc: number): string => `${eur(u === 'ttc' ? ttc : ttc / TVA)}${ESPACE}${MOT}`;
+  const sep = <span className="trx-sep" aria-hidden="true">{'\u00a0·\u00a0'}</span>;
+  const ligne3 = (v: Vente) => {
+    const deux = entreeEtSortie(v);
+    const classes = payeParClasseTtc(v, statutDuLibelle, societe);
+    const nd = classes.interne + classes.a_renseigner;
+    const b = bilanVente(v, societe);
+    const reverses = [...SOCIETES.filter((x) => x !== societe && b.verseHt[x] > 0).map((x) => ({ vers: LIBELLE_SOCIETE[x], ht: b.verseHt[x] })),
+      ...(b.exterieurHt > 0 ? [{ vers: 'agences extérieures', ht: b.exterieurHt }] : [])];
+    return <>
+      <span data-negociateurs-vente={v.id}>{deux === null ? `Négociateur : ${negociateurEntree(v)}` : `Entrée : ${deux[0]} · Sortie : ${deux[1]}`}</span>
+      {sep}<span>Rétro <span className="trx-rouge" data-retro-vente={v.id}>{enU(b.apporteurHt * TVA + retroTtcDe(v, retros))}</span></span>
+      {sep}<span>Com négo <span className="trx-rouge" data-com-nego-vente={v.id}>{enU(payeTtcDe(v, societe))}</span></span>
+      {nd > 0 && <>{sep}<span className={classes.a_renseigner > 0 ? 'trx-alerte' : undefined} data-paye-non-deduite={v.id}>dont {enU(nd)} non déduite{classes.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></>}
+      {reverses.map((x) => <span key={x.vers}>{sep}<span data-reverse-vente={v.id}>reversé à {x.vers} {enU(x.ht * TVA)}</span></span>)}
+      {sep}<span>Reste agence <span className="trx-vert" data-reste-vente={v.id}>{enU(resteTtcDe(v, retros, statutDuLibelle, societe))}</span></span>
+    </>;
+  };
+  return (
+    <ul className="trx-cartes" data-cartes-ventes>
+      {ventes.map((v) => (v.miroir != null
+        ? <CarteMiroir key={v.id} v={v} references={fiches.references} aujourdhui={fiches.hote.d.aujourdhui} disponible={fiches.hote.d.disponible && fiches.hote.d.lotD} onFait={fiches.hote.relire}
+          statutDuLibelle={fiches.hote.statutDuLibelle} ligne3={ligne3(v)} attributs={{ 'data-vente': String(v.id) }} />
+        : <li key={v.id} data-vente={v.id}>
+          <CarteAffaire v={v} aujourdhui={fiches.hote.d.aujourdhui} ligne3={ligne3(v)} section="vente" donnees={{ 'data-carte-vente': String(v.id) }}>
+            <DetailAffaire v={v} hote={fiches.hote} etiquettes />
+          </CarteAffaire>
+        </li>))}
+    </ul>
   );
 }
 
