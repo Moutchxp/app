@@ -290,6 +290,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT BJ — un bouton par vendeur / acquéreur (le style de « + Ajouter un vendeur »), sa fenêtre de détail, les représentants du formulaire. */
 .trx-personnes-boutons{display:flex;flex-direction:column;gap:8px;width:100%}
 .trx-btn-personne{width:100%;min-height:44px;white-space:normal;text-align:center}
+/* LOT BL (Arno) — une personne ou une société déjà créée : liseré GRIS FONCÉ un peu plus épais (la variable du cadre des honoraires, lot BD, clair
+   et sombre), même fond, taille et police ; « + Ajouter … » garde son liseré clair. Survol et focus clavier visibles sur les deux. */
+.trx-colonne .svv-btn-outline.trx-btn-personne,.trx-communes .svv-btn-outline.trx-btn-personne{border:2px solid var(--trx-lisere-base)}
+.trx-colonne .svv-btn-outline.trx-btn-personne:hover,.trx-communes .svv-btn-outline.trx-btn-personne:hover{border-color:var(--color-svv-ink)}
+.trx-colonne .svv-btn-outline:focus-visible,.trx-communes .svv-btn-outline.trx-btn-personne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .trx-fp-tete{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .trx-fp-sous-titre{margin:0;font-weight:700}
 .trx-fp-representant{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--color-svv-line);padding-top:8px}

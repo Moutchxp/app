@@ -846,3 +846,22 @@ describe('🔴 LOT BJ (443) — vendeurs / acquéreurs : particulier ou sociét�
     expect((await repo.annulerGeste(30, A)).ok).toBe(false);
   });
 });
+
+describe('🔴 LOT BL — une fiche existante s’enregistre mise en forme à sa prochaine validation (jamais réécrite autrement)', () => {
+  it('la lecture n’écrit rien ; l’enregistrement d’une fiche « Mira bercier » (lue telle quelle) la met en forme (journalisé)', async () => {
+    lotD.mockResolvedValue(true); lotBJ.mockResolvedValue(true);
+    await repo.lireVentes('criterimmo');
+    expect(appels.filter((x) => /^(INSERT|UPDATE)/.test(x.sql))).toEqual([]);
+    const { lireDossier } = await import('./saisie');
+    const s = lireDossier({ societe: 'criterimmo', statut: 'compromis', libelle: 'X', honorairesTtc: '1000', personnes: [{ id: 21, role: 'vendeur', nom: 'Mira bercier' }] });
+    expect(s.ok && s.valeur.personnes[0].nom).toBe('MIRA BERCIER');
+    reponses.push((x) => (x.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'X', honoraires_ttc: '1000', statut: 'compromis', annee: 2026, mois_acte: null,
+      date_compromis: null, apporteur: null, note: null, retire_le: null, attribution: null, adresse_bien: null, date_acte_prevue: null, date_acte: null, negociateur_entree_id: null,
+      negociateur_sortie_id: null, apporteur_id: null, retro_apporteur_ttc: '0', repartition: false }] } : undefined),
+    (x) => (x.includes('FROM transaction_personne WHERE id = $1 FOR UPDATE') ? { rows: [{ nom: 'Mira bercier', telephone: null, email: null, adresse: null, note: null, retire_le: null, type: null, civilite: null, prenom: null }] } : undefined),
+    (x) => (x.includes('RETURNING id') ? { rows: [{ id: '900' }] } : undefined));
+    expect((await repo.enregistrerDossier(12, s.ok ? s.valeur : (null as never), '2026-10-30', A)).ok).toBe(true);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_personne SET'))!;
+    expect(maj.params).toEqual([21, 'MIRA BERCIER']);
+  });
+});

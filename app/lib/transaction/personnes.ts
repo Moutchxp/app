@@ -34,3 +34,18 @@ export function libelleDesPersonnes(personnes: readonly { role: 'vendeur' | 'acq
   const a = personnes.filter((p) => p.role === 'acquereur').map((p) => p.nom.trim()).filter((x) => x !== '');
   return [v.join('-'), a.join('-')].filter((x) => x !== '').join(' / ');
 }
+
+// ── 🔴 LOT BL (Arno, 30/10/2026) — LA MISE EN FORME DES VENDEURS, ACQUÉREURS ET REPRÉSENTANTS : UNE seule règle, à la sortie du champ (écran)
+// ET à l'enregistrement (serveur), et à l'affichage (carte, fenêtre de détail). Les fiches existantes ne sont PAS réécrites en base : elles
+// s'affichent mises en forme et s'enregistrent mises en forme à la prochaine validation.
+
+/** Les espaces en trop retirées (début, fin, doubles ; espaces insécables comprises). PUR. */
+export const sansEspacesEnTrop = (x: string | null | undefined): string => (x ?? '').replace(/[\s  ]+/g, ' ').trim();
+/** Un NOM (particulier, représentant) ou un nom de SOCIÉTÉ : tout en majuscules, accents conservés (« lefèvre » → « LEFÈVRE »). PUR. */
+export const formeNom = (x: string | null | undefined): string => sansEspacesEnTrop(x).toLocaleUpperCase('fr-FR');
+/**
+ * Un PRÉNOM : première lettre en majuscule, le reste en minuscules, pour chaque partie (après un tiret ou une espace) — « JEAN-BAPTISTE » →
+ * « Jean-Baptiste », « marie claire » → « Marie Claire », « élodie » → « Élodie ». PUR.
+ */
+export const formePrenom = (x: string | null | undefined): string => sansEspacesEnTrop(x).toLocaleLowerCase('fr-FR')
+  .replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, l: string) => sep + l.toLocaleUpperCase('fr-FR'));

@@ -1,3 +1,4 @@
+import { formeNom, formePrenom } from './personnes';
 import { estCivilite, estModeCommission, estSociete, STATUTS, type Civilite, type ModeCommission, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
 
 /**
@@ -236,12 +237,14 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
         if (rciv === undefined) return refus('Civilité inconnue pour un représentant (M., Mme ou non renseignée).');
         const rnom = texte(r.nom);
         if (rnom === null && rid === null) { if (texte(r.prenom) ?? texte(r.telephone) ?? texte(r.email) ?? texte(r.adresse)) return refus('Chaque représentant a un nom (ou enlevez-le).'); continue; }
-        representants.push({ id: rid, civilite: rciv, nom: rnom ?? '', prenom: texte(r.prenom), telephone: texte(r.telephone), email: texte(r.email), adresse: texte(r.adresse) });
+        // 🔴 LOT BL — la mise en forme commune (nom en majuscules, prénom « Jean-Baptiste », espaces en trop retirées).
+        representants.push({ id: rid, civilite: rciv, nom: formeNom(rnom), prenom: texte(formePrenom(texte(r.prenom))), telephone: texte(r.telephone), email: texte(r.email), adresse: texte(r.adresse) });
       }
     }
-    personnes.push({ id, role: o.role, nom: nom ?? '', telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse),
+    // 🔴 LOT BL — la mise en forme commune : le nom (ou le nom de la société) en majuscules, le prénom « Jean-Baptiste », sans espaces en trop.
+    personnes.push({ id, role: o.role, nom: formeNom(nom), telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse),
       ...(o.type !== undefined || civ !== null || texte(o.prenom) !== null || representants.length > 0
-        ? { type, civilite: type === 'societe' ? null : civ, prenom: type === 'societe' ? null : texte(o.prenom), representants } : {}) });
+        ? { type, civilite: type === 'societe' ? null : civ, prenom: type === 'societe' ? null : texte(formePrenom(texte(o.prenom))), representants } : {}) });
   }
   const parties: PartieSaisie[] = [];
   for (const p of Array.isArray(c.parties) ? c.parties : []) {

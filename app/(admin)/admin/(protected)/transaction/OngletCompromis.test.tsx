@@ -4409,10 +4409,10 @@ describe('🔴 LOT BJ — vendeurs / acquéreurs : particulier ou société ; un
     await cliquer('[data-vue="compromis"]'); await deplier(41);
   };
 
-  it('la carte : un bouton par personne (« Mme Mira BERCIER », « DUPONT Jean », « CRITERIMMO »), du style de « + Ajouter … », au-dessus de lui ; plus de coordonnées en clair', async () => {
+  it('la carte : un bouton par personne (« Mme Mira BERCIER », « DUPONT JEAN », « CRITERIMMO »), du style de « + Ajouter … », au-dessus de lui ; plus de coordonnées en clair', async () => {
     await ecran();
     const vendeurs = [...container.querySelectorAll('[data-colonne="vendeur"] [data-bouton-personne]')];
-    expect(vendeurs.map((b) => b.textContent)).toEqual(['Mme Mira BERCIER', 'DUPONT Jean']);
+    expect(vendeurs.map((b) => b.textContent)).toEqual(['Mme Mira BERCIER', 'DUPONT JEAN']); // LOT BL : affichée mise en forme
     expect(vendeurs[0].className).toContain('svv-btn svv-btn-outline gst-btn');
     expect(texte('[data-colonne="acquereur"] [data-bouton-personne="22"]')).toBe('CRITERIMMO');
     expect(container.querySelector('[data-colonne="vendeur"]')!.textContent).not.toContain('06 11 22 33 44');
@@ -4455,7 +4455,7 @@ describe('🔴 LOT BJ — vendeurs / acquéreurs : particulier ou société ; un
     listeCompromis = [venteDansSociete(avecPersonnes, 'macj')!];
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
-    expect([...container.querySelectorAll('[data-miroir-personnes] [data-bouton-personne]')].map((b) => b.textContent)).toEqual(['Mme Mira BERCIER', 'DUPONT Jean', 'CRITERIMMO']);
+    expect([...container.querySelectorAll('[data-miroir-personnes] [data-bouton-personne]')].map((b) => b.textContent)).toEqual(['Mme Mira BERCIER', 'DUPONT JEAN', 'CRITERIMMO']); // LOT BL
     await cliquer('[data-miroir-personnes] [data-bouton-personne="22"]');
     expect([doc('[data-fenetre-personne="22"] [data-nb-representants]'), document.querySelector('[data-fenetre-personne="22"] [data-modifier-personne]')]).toEqual(['3 représentants', null]);
   });
@@ -4510,5 +4510,61 @@ describe('🔴 LOT BJ — vendeurs / acquéreurs : particulier ou société ; un
     await cliquer('[data-modifier-compromis="41"]');
     expect(container.querySelector('[data-choix-type], [data-civilite], [data-personne-prenom]')).toBeNull();
     expect(container.querySelector('[data-personne-nom="0"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 LOT BL — mise en forme à la sortie du champ ; liseré gris foncé des boutons de personne (« + Ajouter … » inchangé)', () => {
+  const ref = references as Record<string, unknown>;
+  beforeEach(() => { ref.personneType = true; ref.uniteCommission = true; });
+  afterEach(() => { delete ref.personneType; delete ref.uniteCommission; });
+  const sortir = async (sel: string) => { await act(async () => { container.querySelector(sel)!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); }); await calmer(); };
+  const legacy: Vente = { ...compromis, dossier: { ...compromis.dossier!, personnes: [{ id: 21, role: 'vendeur', nom: 'Mira bercier', telephone: null, email: null, adresse: null },
+    { id: 22, role: 'acquereur', nom: 'sci les tilleuls', type: 'societe', civilite: null, prenom: null, telephone: null, email: null, adresse: null, representants: [] }] as never } };
+  const ecran = async (liste: Vente[] = [legacy]) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = liste;
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await deplier(41);
+  };
+
+  it('les fiches existantes s’affichent mises en forme (« MIRA BERCIER », « SCI LES TILLEULS ») sans rien écrire', async () => {
+    await ecran();
+    expect([...container.querySelectorAll('[data-bouton-personne]')].map((b) => b.textContent)).toEqual(['MIRA BERCIER', 'SCI LES TILLEULS']);
+    expect(posts).toEqual([]);
+  });
+
+  it('à la sortie du champ : nom en majuscules, prénom « Jean-Baptiste », société en majuscules — le résultat se voit tout de suite et part au serveur', async () => {
+    await ecran([{ ...compromis, dossier: { ...compromis.dossier!, personnes: [] } }]);
+    await cliquer('[data-modifier-compromis="41"]');
+    await saisir('[data-personne-nom="0"]', '  de la fontaine ');
+    await sortir('[data-personne-nom="0"]');
+    await saisir('[data-personne-prenom="0"]', 'JEAN-BAPTISTE');
+    await sortir('[data-personne-prenom="0"]');
+    expect([(container.querySelector('[data-personne-nom="0"]') as HTMLInputElement).value, (container.querySelector('[data-personne-prenom="0"]') as HTMLInputElement).value])
+      .toEqual(['DE LA FONTAINE', 'Jean-Baptiste']);
+    await cliquer('[data-choix-type="1-societe"]');
+    await saisir('[data-personne-nom="1"]', 'sci les tilleuls');
+    await sortir('[data-personne-nom="1"]');
+    expect((container.querySelector('[data-personne-nom="1"]') as HTMLInputElement).value).toBe('SCI LES TILLEULS');
+    await cliquer('[data-enregistrer-dossier]');
+    const p = (posts.filter((x) => x.action === 'dossier-enregistrer').at(-1) as { dossier: { personnes: { nom: string; prenom: string }[] } }).dossier.personnes;
+    expect(p.map((x) => [x.nom, x.prenom])).toEqual([['DE LA FONTAINE', 'Jean-Baptiste'], ['SCI LES TILLEULS', '']]);
+  });
+
+  it('les deux styles : bouton de personne (liseré gris foncé, la variable du cadre des honoraires) ; « + Ajouter … » inchangé ; idem sur la ligne miroir', async () => {
+    await ecran();
+    expect(container.querySelector('[data-bouton-personne="21"]')!.className).toBe('svv-btn svv-btn-outline gst-btn trx-btn-personne');
+    expect(container.querySelector('[data-ajouter-personne-carte="vendeur"]')!.className).not.toContain('trx-btn-personne');
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    expect(css).toContain('.trx-colonne .svv-btn-outline.trx-btn-personne,.trx-communes .svv-btn-outline.trx-btn-personne{border:2px solid var(--trx-lisere-base)}');
+    expect(css).toContain('.trx-colonne .svv-btn-outline:focus-visible,.trx-communes .svv-btn-outline.trx-btn-personne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}');
+    const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    listeCompromis = [venteDansSociete(legacy, 'macj')!];
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-41"]');
+    expect(container.querySelector('[data-miroir-personnes] [data-bouton-personne="21"]')!.closest('.trx-communes')).not.toBeNull();
+    expect(container.querySelector('[data-miroir-personnes] [data-bouton-personne="21"]')!.className).toContain('trx-btn-personne');
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChampAdresseBan } from '../gestion/ChampAdresseBan';
 import { libellePersonne, type Civilite, type PersonneVente, type RepresentantVente } from '../../../../lib/transaction/modele';
+import { formeNom, formePrenom } from '../../../../lib/transaction/personnes';
 
 /**
  * ══ 🔴 LOT BJ (Arno, 30/10/2026) — LES VENDEURS ET ACQUÉREURS : PARTICULIER OU SOCIÉTÉ ═══════════════════════════════════════════════════════
@@ -63,9 +64,12 @@ function ChampsParticulier({ cle, v, onChange, onNom, avecType, autoFocus }: {
       <select value={v.civilite} onChange={(e) => onChange({ civilite: e.target.value as Civilite | '' })} data-civilite={cle}>
         <option value="">non renseignée</option><option value="M.">M.</option><option value="Mme">Mme</option>
       </select></label>}
-    <label>Nom<input list="trx-personnes" value={v.nom} onChange={(e) => onNom(e.target.value)} data-personne-nom={cle} autoFocus={autoFocus} />
+    {/* 🔴 LOT BL — la mise en forme commune à la sortie du champ (nom en majuscules, prénom « Jean-Baptiste ») ; le serveur l'applique aussi. */}
+    <label>Nom<input list="trx-personnes" value={v.nom} onChange={(e) => onNom(e.target.value)} onBlur={() => { if (v.nom !== formeNom(v.nom)) onChange({ nom: formeNom(v.nom) }); }}
+      data-personne-nom={cle} autoFocus={autoFocus} />
       {v.id !== null && <span className="loc-muet">fiche de l’annuaire n° {v.id}</span>}</label>
-    {avecType && <label>Prénom<input value={v.prenom} onChange={(e) => onChange({ prenom: e.target.value })} data-personne-prenom={cle} /></label>}
+    {avecType && <label>Prénom<input value={v.prenom} onChange={(e) => onChange({ prenom: e.target.value })} onBlur={() => { if (v.prenom !== formePrenom(v.prenom)) onChange({ prenom: formePrenom(v.prenom) }); }}
+      data-personne-prenom={cle} /></label>}
     <label>Téléphone<input type="tel" inputMode="tel" value={v.telephone} onChange={(e) => onChange({ telephone: e.target.value })} data-personne-telephone={cle} /></label>
     <label>E-mail<input type="email" inputMode="email" autoCapitalize="none" value={v.email} onChange={(e) => onChange({ email: e.target.value })} data-personne-email={cle} /></label>
     <label data-personne-adresse={cle}>Adresse
@@ -122,7 +126,8 @@ export function BlocPersonnes({ role, mot, personnes, onChange, annuaire, avecTy
             </p>
           )}
           {p.type === 'societe' && avecType ? <>
-            <label>Nom de la société<input list="trx-personnes" value={p.nom} onChange={(e) => changer(i, choisir(e.target.value, 'societe'))} data-personne-nom={i} autoFocus={focus === i} />
+            <label>Nom de la société<input list="trx-personnes" value={p.nom} onChange={(e) => changer(i, choisir(e.target.value, 'societe'))}
+              onBlur={() => { if (p.nom !== formeNom(p.nom)) changer(i, { nom: formeNom(p.nom) }); }} data-personne-nom={i} autoFocus={focus === i} />
               {p.id !== null && <span className="loc-muet">fiche de l’annuaire n° {p.id}</span>}</label>
             <div className="trx-plein trx-representants" data-representants={i}>
               <span className="loc-muet">{p.representants.length === 0 ? 'Aucun représentant' : `${p.representants.length} représentant${p.representants.length > 1 ? 's' : ''}`}</span>

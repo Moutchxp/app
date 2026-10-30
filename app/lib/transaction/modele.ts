@@ -17,6 +17,7 @@
 // LOT Q — la règle unique du statut d'une commission (aucune boucle à l'exécution : statutLigne.ts n'importe de ce fichier que des types).
 import { classeDeCommission, commissionIgnoree, resolveurDe, statutDePartie, type StatutDuLibelle } from './statutLigne';
 import type { ClasseCommission, Statut } from '../admin/statut';
+import { formeNom, formePrenom } from './personnes';
 
 export type Societe = 'criterimmo' | 'macj';
 export const SOCIETES: readonly Societe[] = ['criterimmo', 'macj'];
@@ -183,8 +184,9 @@ export interface PersonneVente { id: number; role: 'vendeur' | 'acquereur'; nom:
 
 /** 🔴 LOT BJ — le libellé d'une personne sur sa carte : « [Civilité] Prénom NOM » (particulier), le nom seul (société). PUR. */
 export function libellePersonne(p: Pick<PersonneVente, 'nom' | 'type' | 'civilite' | 'prenom'>): string {
-  if (p.type === 'societe') return p.nom.trim();
-  return [p.civilite ?? null, (p.prenom ?? '').trim() || null, p.nom.trim() || null].filter((x): x is string => x !== null).join(' ');
+  // 🔴 LOT BL — la forme normalisée (nom et société en majuscules, prénom « Jean-Baptiste ») : une fiche d'avant s'affiche mise en forme.
+  if (p.type === 'societe') return formeNom(p.nom);
+  return [p.civilite ?? null, formePrenom(p.prenom) || null, formeNom(p.nom) || null].filter((x): x is string => x !== null).join(' ');
 }
 export interface DossierVente {
   adresseBien: string | null;
