@@ -907,6 +907,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                     : <span className="loc-annexe-titre">{a.categorie === 'autre' && a.nomAnnexe.trim() !== '' ? a.nomAnnexe.trim() : LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}</span>}
                   {a.detachee && <span className="loc-etiquette-detachee">Détachée</span>}
                   <span className="loc-annexe-actions">
+                    {/* 🔴 LOT LS4 (Arno) — une annexe EXISTANTE : le lien vers SA fiche (le bouton « Fiche du bien » du Suivi du mois compte les annexes
+                        sans lien propre ; c'est ici qu'on les ouvre). Nouvel onglet : la saisie en cours de cette fiche n'est jamais perdue. */}
+                    {a.id != null && <a className="svv-btn svv-btn-outline gst-btn" href={`/admin/location/bien/${a.id}`} target="_blank" rel="noopener noreferrer"
+                      data-lien-fiche-annexe={a.id}>Fiche de l’annexe ↗</a>}
                     <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, aConfirmer: true }))}>Supprimer</button>
                     <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, detachee: !x.detachee }))}>{a.detachee ? 'Rattacher' : 'Détacher'}</button>
                     <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, fermee: !x.fermee }))} aria-expanded={!a.fermee}>{a.fermee ? 'Ouvrir' : 'Fermer'}</button>

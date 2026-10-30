@@ -213,20 +213,16 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
                             <button key={`loc-${l.id}`} type="button" className="tdb-pilule fdm-raccourci" onClick={() => setFiche({ sorte: 'locataire', id: l.id, libelle: l.libelle, bailId: a.bailId, activiteId: a.bailId !== null ? Number(a.id) : null })}
                               data-fiche-locataire={l.id}>{(a.locataires ?? []).length > 1 ? `Fiche locataire — ${l.libelle}` : 'Fiche locataire'}</button>
                           )) : <span className="fdm-non-rattache" data-locataire-non-rattache>Fiche locataire : non rattaché</span>}
-                          {/* 🔴 LOT LS3 (Arno) — un bouton par bien PRINCIPAL ; l'annexe d'un bien de la même ligne (logement + parking sur le même
-                              bail, même adresse) n'a plus son bouton au même libellé : elle passe dessous, en petit lien « + annexe : … ». */}
+                          {/* 🔴 LOT LS3 / LS4 (Arno) — un bien principal et toutes ses annexes de la ligne = UN SEUL bouton (« … · + 2 annexes »), qui
+                              ouvre la fiche du bien principal ; elle liste ses annexes, chacune avec le lien vers sa fiche (les petits liens « + annexe »
+                              du lot LS3 sont retirés, accord d'Arno). */}
                           {(a.lots ?? []).length > 0 ? groupesFicheBien(a.lots ?? []).map((g) => {
                             const ouvrirLot = (b: { id: number; libelle: string }) => setFiche({ sorte: 'lot', id: b.id, libelle: b.libelle, activiteId: a.bailId !== null ? Number(a.id) : null,
                               origineLigne: libelleOrigineContact(a.origineContact ?? null, a.origineContactPrecision ?? null) });
                             return (
                               <span key={`lot-${g.principal.id}`} className="fdm-fiche-bien-groupe">
                                 <button type="button" className="tdb-pilule fdm-raccourci" onClick={() => ouvrirLot(g.principal)}
-                                  data-fiche-bien={g.principal.id} title={g.principal.libelle}>{g.libelle}</button>
-                                {g.annexes.map((x) => (
-                                  // Un LIEN (il ouvre une fiche, il n'ajoute rien) : le mode observateur, qui grise les boutons « + … », ne le touche pas.
-                                  <a key={`annexe-${x.lot.id}`} href={`/admin/location/bien/${x.lot.id}`} className="fdm-lien-annexe"
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); ouvrirLot(x.lot); }} data-fiche-annexe={x.lot.id} title={x.lot.libelle}>+ annexe : {x.titre}</a>
-                                ))}
+                                  data-fiche-bien={g.principal.id} data-nb-annexes={g.annexes.length} title={[g.principal.libelle, ...g.annexes.map((x) => `+ ${x.titre}`)].join(' · ')}>{g.libelle}</button>
                               </span>
                             );
                           }) : <span className="fdm-non-rattache" data-bien-non-rattache>Fiche du bien : non rattaché</span>}
@@ -975,10 +971,8 @@ function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
 }
 
 export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}${CSS_SUPPRIMER_LOCATION}
-/* LOT LS3 — le bouton d'un bien principal et, a cote, le petit lien de chacune de ses annexes (cible de 44 px, sans cadre). */
+/* LOT LS3 / LS4 — le bouton d'un bien principal (ses annexes comptees dedans). */
 .fdm-fiche-bien-groupe{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px}
-.fdm-lien-annexe{display:inline-flex;align-items:center;color:var(--color-svv-ink);font-size:.85rem;font-weight:600;text-decoration:underline;min-height:44px;padding:0 6px;border-radius:8px}
-.fdm-lien-annexe:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
 .fdm{display:flex;flex-direction:column;gap:18px}
 /* 🔴 Arno (26/10/2026) — LES BLOCS SE DISTINGUENT : la feuille posée sur un fond légèrement teinté, chaque bloc sur sa surface, avec une bordure
