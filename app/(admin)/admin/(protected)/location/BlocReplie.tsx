@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { DessinTriangle } from '../_composants/TriangleDepliage';
 
 /**
  * ══ 🔴 Arno (25/10/2026, puis 26/10/2026) — UN BLOC REPLIÉ PAR DÉFAUT, partagé : « Les négociateurs » et « Les apporteurs » du Suivi annuel,
@@ -10,13 +11,15 @@ import { useState, type ReactNode } from 'react';
  * ligne de titre). `defilement` : la mécanique de « Année par année » (défilement interne au-delà d'une hauteur, en-tête de tableau
  * figé), pour un long tableau. `classe`, `niveau`, `donnees` : l'allure et les repères de l'écran hôte.
  */
-export function BlocReplie({ id, section, titre, resume, children, classe = 'tdb-section', niveau = 'h3', defilement = true, donnees, chevronAGauche = false, ouvertInitial = false }: {
+export function BlocReplie({ id, section, titre, resume, children, classe = 'tdb-section', niveau = 'h3', defilement = true, donnees, chevronAGauche = false, ouvertInitial = false, triangle = false }: {
   id: string; section: string; titre: ReactNode; resume: ReactNode; children: ReactNode;
   classe?: string; niveau?: 'h3' | 'h4'; defilement?: boolean; donnees?: Record<string, string>;
   /** 🔴 Arno (26/10/2026) — le triangle d'ouverture À GAUCHE du titre (comme les lignes « Négociateur ») ; absent : à droite, comme avant. */
   chevronAGauche?: boolean;
   /** LOT R (Transaction) — déplié dès l'affichage (une carte visée par un lien) ; absent : replié, comme avant. */
   ouvertInitial?: boolean;
+  /** 🔴 LOT BN (Transaction) — à gauche, le triangle ROUGE partagé avec la tuile Gestion (`DessinTriangle`) au lieu de la petite flèche grise ; absent : comme avant. */
+  triangle?: boolean;
 }) {
   const [ouvert, setOuvert] = useState(ouvertInitial);
   const Titre = niveau;
@@ -24,7 +27,8 @@ export function BlocReplie({ id, section, titre, resume, children, classe = 'tdb
     <section className={`${classe} tdb-replie${ouvert ? ' tdb-replie--ouvert' : ''}`} aria-labelledby={id} data-replie={ouvert ? 'ouvert' : 'replie'} {...donnees}>
       <Titre id={id} className="tdb-replie-titre">
         <button type="button" className="tdb-replie-ligne" aria-expanded={ouvert} aria-controls={`${id}-contenu`} onClick={() => setOuvert((o) => !o)} data-deplier={section}>
-          {chevronAGauche && <span className="tdb-h-chevron tdb-h-chevron--gauche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>}
+          {chevronAGauche && (triangle ? <span className="svv-triangle-boite tdb-h-triangle" aria-hidden="true"><DessinTriangle ouvert={ouvert} /></span>
+            : <span className="tdb-h-chevron tdb-h-chevron--gauche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>)}
           <span className="tdb-replie-mot">{titre}</span>
           <span className="tdb-replie-resume" data-resume-replie={section}>{resume}</span>
           {!chevronAGauche && <span className="tdb-h-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>}
@@ -52,4 +56,5 @@ export const CSS_BLOC_REPLIE = `
 .tdb-h-chevron{display:inline-flex;align-items:center;justify-content:center;min-width:32px;font-size:1rem}
 .tdb-h-chevron--gauche{min-width:0;flex:0 0 1.2em;justify-content:flex-start;color:var(--color-svv-muted)}
 .tdb-h-chevron--gauche + .tdb-replie-mot{flex:1 1 12rem;min-width:0}
+.tdb-h-triangle + .tdb-replie-mot{flex:1 1 12rem;min-width:0}
 `;

@@ -627,13 +627,13 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
   // 🔴 LOT D (Arno, 27/10/2026) — UN SEUL BLOC REPLIÉ SUR UNE LIGNE, triangle à gauche (comme les autres blocs repliables du Suivi) ;
   // déplié : le contenu d'avant, inchangé.
   return (
-    <BlocReplie id="trx-a-attribuer" section="a-attribuer" titre={<>Ventes à attribuer ({enAttente.length})</>} resume="" chevronAGauche defilement={false}
+    <BlocReplie id="trx-a-attribuer" section="a-attribuer" titre={<>Ventes à attribuer ({enAttente.length})</>} resume="" chevronAGauche triangle defilement={false}
       donnees={{ 'data-bloc': 'a-attribuer' }}>
       <p className="loc-muet">La même vente notée chez CRITERIMMO et chez MACJ : elle ne compte qu’une fois. Tant qu’elle n’est pas attribuée, elle n’entre dans le total d’aucune des deux sociétés.</p>
       {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
       {enAttente.length === 0 ? <p className="loc-muet">Aucune vente en attente.</p> : <ul className="trx-journal">{enAttente.map(ligne)}</ul>}
       {faites.length > 0 && (
-        <BlocReplie id="trx-attribuees" section="attribuees" titre={<>Déjà attribuées</>} resume={`${faites.length}`} donnees={{ 'data-bloc': 'attribuees' }}>
+        <BlocReplie id="trx-attribuees" section="attribuees" titre={<>Déjà attribuées</>} resume={`${faites.length}`} chevronAGauche triangle donnees={{ 'data-bloc': 'attribuees' }}>
           <ul className="trx-journal">{faites.map(ligne)}</ul>
         </BlocReplie>
       )}

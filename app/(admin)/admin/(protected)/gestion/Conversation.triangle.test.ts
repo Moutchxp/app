@@ -227,8 +227,11 @@ describe('🔴 le triangle a doublé, et il reste où il était', () => {
     /* ⚠️ ON REGARDE LE SVG DU TRIANGLE, pas tous les svg du fichier : l'étoile et le menu « ⋮ » font 18 px et
        doivent y rester — ce lot ne parle que du triangle. */
     const bloc = src.slice(src.indexOf('className={`cnv-triangle'), src.indexOf('className="cnv-ligne"'));
-    expect(bloc).toContain('width="36" height="36"');
-    expect(bloc).not.toContain('width="18"');
+    // 🔴 LOT BN — le dessin vient du composant partagé avec la tuile Transaction : c'est lui qui fait 36 px.
+    expect(bloc).toContain('<DessinTriangle ouvert={ouvert} />');
+    const partage = readFileSync('app/(admin)/admin/(protected)/_composants/TriangleDepliage.tsx', 'utf8');
+    expect(partage).toContain('width="36" height="36"');
+    expect(partage).not.toContain('width="18"');
   });
 
   it('🔴 la hauteur reste celle des DEUX premières lignes', () => {

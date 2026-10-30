@@ -1,4 +1,5 @@
 'use client';
+import { CSS_TRIANGLE, DessinTriangle } from '../_composants/TriangleDepliage';
 import { chargerCorpsDuMessage } from './chargerCorps';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
 import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
@@ -3222,9 +3223,8 @@ export function MessageConversation({
             🔴 LOT FIL-APERCU-MINIATURES — 36 px : LE DOUBLE, demandé par Arno. Son comportement ne change pas, et
             il reste CENTRÉ sur les deux premières lignes — c'est la hauteur fixe de `.cnv-triangle` qui le tient
             là, jamais la taille du dessin. */}
-        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false">
-          <path d="M9 5l8 7-8 7z" fill="currentColor" />
-        </svg>
+        {/* 🔴 LOT BN — le dessin vient du composant partagé avec la tuile Transaction (`DessinTriangle`, 36 px), sans changer son rendu ici. */}
+        <DessinTriangle ouvert={ouvert} />
       </button>
       {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`.
 
@@ -3852,6 +3852,7 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert 
  */
 export const CSS_CONVERSATION = `
 ${CSS_COMPTEUR_BIENS}
+${CSS_TRIANGLE}
 .cnv{display:flex;flex-direction:column;gap:12px;min-width:0}
 .cnv-bandeau{display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--color-svv-line)}
 .cnv-bandeau-haut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}

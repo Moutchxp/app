@@ -5,6 +5,7 @@ import { ORDRE_CATEGORIES, type DetailDu, type FamilleCategorie, type LigneDu, t
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { libelleStatut } from '../../../../lib/admin/statut';
 import { montantAffiche, Montants, useAffichage } from './commun';
+import { DessinTriangle } from '../_composants/TriangleDepliage';
 
 /**
  * ══ 🔴 LOT AQ (Arno, 29/10/2026) — « CE QUE L'ON DOIT — COMPROMIS NON ENCORE SIGNÉS » ══════════════════════════════════════════════════
@@ -37,7 +38,7 @@ function Section({ cle, titre, somme, sens, enfants, apresTitre }: { cle: string
   return (
     <section className="trx-du-section" data-section-du={cle} aria-label={titre}>
       <button type="button" className="trx-du-tete trx-somme" aria-expanded={ouverte} onClick={basculer} data-replier-du={cle}>
-        <span className="trx-du-titre"><span className="trx-du-chevron" aria-hidden="true">{ouverte ? '▾' : '▸'}</span><strong>{titre}</strong>{apresTitre}</span>
+        <span className="trx-du-titre"><span className="trx-du-chevron svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span><strong>{titre}</strong>{apresTitre}</span>
         {somme !== null && <span className="trx-du-montant"><Montants ht={somme.htC / 100} ttc={somme.ttcC / 100} sens={sens} donnees={{ 'data-sous-total-du': cle }} /><Parts s={somme} /></span>}
       </button>
       {ouverte && <div className="trx-du-corps">{enfants}</div>}
@@ -106,7 +107,7 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller }: {
           🔴 LOT AV — toute la ligne d'en-tête est le bouton : la flèche et le titre à gauche ; « N dossiers » et le total à verser à droite. */}
       <h3 className="trx-du-entete">
         <button type="button" className="trx-du-bascule" aria-expanded={ouvert} aria-controls="trx-du-contenu" onClick={() => setOuvert((o) => !o)} data-ouvrir-du>
-          <span className="trx-du-gauche"><span className="trx-du-chevron" aria-hidden="true">{ouvert ? '▾' : '▸'}</span><span id="trx-du-titre" className="trx-du-titre-long">Synthèse — ce que l’on doit et à qui</span>
+          <span className="trx-du-gauche"><span className="trx-du-chevron svv-triangle-boite" aria-hidden="true"><DessinTriangle ouvert={ouvert} /></span><span id="trx-du-titre" className="trx-du-titre-long">Synthèse — ce que l’on doit et à qui</span>
             {/* 🔴 LOT AW (accord d'Arno) — au téléphone seulement, sur cette ligne fermée : le titre court (le complet reste à l'ordinateur). */}
             <span className="trx-du-titre-court" data-titre-court-du>Ce que l’on doit</span></span>
           <span className="trx-du-droite"><span className="loc-muet" data-dossiers-du-bloc>{motDossiers(detail.nbDossiers)}</span>
@@ -198,6 +199,9 @@ export const CSS_BLOC_DU = `
 /* LOT AS — l'en-tête de carte coule comme un texte : le chevron reste devant le nom quand un long titre passe à la ligne (téléphone). */
 .trx-du-tete .trx-du-titre{display:block}
 .trx-du-tete .trx-du-titre > *{margin-right:8px}
+/* LOT BN — le triangle partage (rouge) dans un en-tete qui coule comme un texte : centre sur la ligne du titre. */
+.trx-du-tete .trx-du-titre > .svv-triangle-boite{vertical-align:middle;margin-right:-6px}
+.trx-du-gauche{align-items:center}
 .trx-du-note{font-size:.82rem;font-weight:600}
 /* niveau 2 : l'intervenant, taille normale ; le cumul domine la ligne */
 .trx-du-personne{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:start;padding:10px 12px 2px;border-top:1px solid var(--color-svv-line)}

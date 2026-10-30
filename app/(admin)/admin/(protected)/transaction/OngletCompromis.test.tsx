@@ -507,15 +507,17 @@ describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
     listeCompromis = [{ ...compromis, prixVente: 240000 }, importe];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41); await deplier(12);
     const intitules = (id: number) => [...container.querySelectorAll(`[data-compromis="${id}"] [data-informations-communes] dt`)].map((x) => x.textContent);
-    expect(intitules(41)).toEqual(['Taux de commission', 'Dates', 'Apporteur']); // LOT K : « Dates » (compromis signé + vente définitive)
-    expect(intitules(12)).toEqual(['Libellé du fichier', 'Taux de commission', 'Dates', 'Apporteur']);
+    expect(intitules(41)).toEqual(['Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']); // LOT BN : le prix de vente // LOT K : « Dates » (compromis signé + vente définitive)
+    expect(intitules(12)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']);
     expect(texte('[data-compromis="41"] [data-info="taux"] dd')).toBe('5,00 % du prix de vente');
     expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('calculé dès la saisie du prix de vente');
     // ce qui est en tête de carte n'est pas répété dans le corps
     const corps = texte('[data-compromis="41"] [data-informations-communes]');
     // LOT K — accord d'Arno : la date butoir revient dans la case « Dates » (le reste du « zéro doublon » tient).
     // LOT AH — à la demande d'Arno, la commission de la vente (TTC) ouvre le tableau « Répartition » (logique comptable) : elle y est.
-    for (const x of ['1 rue A, Puteaux', '240 000 €']) expect(corps).not.toContain(x);
+    // 🔴 LOT BN — à la demande d'Arno, le prix de vente a sa rubrique « Prix de vente » (exception au « zéro doublon », comme les dates au LOT K).
+    for (const x of ['1 rue A, Puteaux']) expect(corps).not.toContain(x);
+    expect(texte('[data-compromis="41"] [data-info="prix"] dd')).toBe('240 000 €');
   });
   it('plus de « (prévisionnel AAAA) », ni dans l’onglet Compromis ni dans « L’année »', async () => {
     listeCompromis = [importe];
@@ -3390,7 +3392,7 @@ describe('🔴 LOT AV — la synthèse fermée à l’arrivée, sur une ligne ; 
       const b = bouton();
       expect([b.tagName, b.type, b.getAttribute('aria-expanded'), b.closest('h3') !== null]).toEqual(['BUTTON', 'button', 'false', true]);
       expect(b.querySelector('#trx-du-titre')!.textContent).toBe('Synthèse — ce que l’on doit et à qui');
-      expect(b.querySelector('.trx-du-chevron')!.textContent).toBe('▸');
+      expect(b.querySelector('.trx-du-chevron [data-triangle]')!.getAttribute('data-triangle')).toBe('replie'); // LOT BN : le triangle partagé
       expect(b.querySelector('[data-dossiers-du-bloc]')!.textContent).toMatch(/^\d+ dossiers?$/);
       expect(b.querySelector('.trx-du-mot-total')!.textContent).toBe(`Total à verser par ${LIBELLE_SOCIETE[societe]}`);
       // fermé : rien d'autre que la ligne
@@ -3413,7 +3415,7 @@ describe('🔴 LOT AV — la synthèse fermée à l’arrivée, sur une ligne ; 
       await page(societe);
       await cliquer('[data-ouvrir-du]');
       expect(bouton().getAttribute('aria-expanded')).toBe('true');
-      expect(bouton().querySelector('.trx-du-chevron')!.textContent).toBe('▾');
+      expect(bouton().querySelector('.trx-du-chevron [data-triangle]')!.getAttribute('data-triangle')).toBe('ouvert'); // LOT BN
       expect(ouvertes()).toEqual(['true', 'true', 'true', 'true']);
       for (const sel of ['[data-solde-inter]', '[data-total-du]', '[data-internes-du]', '[data-affaires-du]', '[data-sous-titre-du]']) expect(container.querySelector(sel)).not.toBeNull();
       // le total du bas et celui de la ligne : le même montant
@@ -4601,7 +4603,7 @@ describe('🔴 LOT BM — la fenêtre épurée « Vendeurs — … » / « Acqu�
     const f = fen()!;
     expect(f.getAttribute('role')).toBe('dialog');
     expect(f.querySelector('h3')!.textContent).toBe('Vendeurs — DUPONT / MARTIN');
-    expect([...f.querySelectorAll('[data-fiche-repliee] [data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ Mme Mira BERCIER', '▸ DUPONT JEAN']);
+    expect([...f.querySelectorAll('[data-fiche-repliee] [data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['Mme Mira BERCIER', 'DUPONT JEAN']); // LOT BN : le triangle partagé (dessin) devant le nom
     expect([...f.querySelectorAll('[data-personne]')].map((x) => (x.querySelector('[data-personne-nom]') as HTMLInputElement).value)).toEqual(['']);
     expect(f.querySelector('[data-valider-fiche="2"]')!.textContent).toBe('Valider');
     for (const sel of [...INTERDITS, '[data-personnes="acquereur"]']) expect([sel, f.querySelector(sel)]).toEqual([sel, null]);
@@ -4616,7 +4618,7 @@ describe('🔴 LOT BM — la fenêtre épurée « Vendeurs — … » / « Acqu�
     await cliquer('[data-colonne="acquereur"] [data-ajouter-personne-carte="acquereur"]');
     const f = fen('acquereur')!;
     expect(f.querySelector('h3')!.textContent).toBe('Acquéreurs — DUPONT / MARTIN');
-    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ CRITERIMMO']);
+    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['CRITERIMMO']);
     for (const sel of [...INTERDITS, '[data-personnes="vendeur"]']) expect([sel, f.querySelector(sel)]).toEqual([sel, null]);
     for (const mot of MOTS_INTERDITS) expect([mot, f.textContent!.includes(mot)]).toEqual([mot, false]);
     expect(f.querySelector('[data-ajouter-fiche="acquereur"]')!.textContent).toBe('+ Un acquéreur');
@@ -4712,7 +4714,7 @@ describe('🔴 LOT BM — la fenêtre épurée « Vendeurs — … » / « Acqu�
     const f = fen()!;
     expect(f.querySelector('h3')!.textContent).toBe('Vendeurs — DUPONT / MARTIN');
     expect([...f.querySelectorAll('[data-personne]')].map((x) => (x.querySelector('[data-personne-nom]') as HTMLInputElement).value)).toEqual(['BERCIER']);
-    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['▸ DUPONT JEAN']);
+    expect([...f.querySelectorAll('[data-deplier-fiche]')].map((b) => b.textContent)).toEqual(['DUPONT JEAN']);
     expect((document.activeElement as HTMLInputElement).getAttribute('data-personne-nom')).toBe('0');
     expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
   });
@@ -4748,5 +4750,63 @@ describe('🔴 LOT BM — la fenêtre épurée « Vendeurs — … » / « Acqu�
     const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
     expect(css).toContain('.trx-part.trx-fiche{align-items:start}');
     expect(css).toMatch(/@media \(max-width:640px\)\{[^@]*\.trx-part\.trx-fiche\{grid-template-columns:minmax\(0,1fr\)\}/);
+  });
+});
+
+describe('🔴 LOT BN — « Prix de vente » dans les informations communes ; le triangle rouge partagé avec Gestion', () => {
+  const rubriques = () => [...container.querySelectorAll('[data-compromis="41"] .trx-grille .trx-info')].map((x) => [x.querySelector('dt')!.textContent, x.querySelector('dd')!.textContent!.replace(/\s/g, ' ')]);
+  it('prix présent : « 240 000 € » (espaces des milliers, sans « ,00 »), avant le taux de commission ; même rubrique que les autres', async () => {
+    listeCompromis = [{ ...compromis, prixVente: 240000 }];
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect(rubriques().slice(0, 2)).toEqual([['Prix de vente', '240 000 €'], ['Taux de commission', '5,00 % du prix de vente']]);
+    expect(container.querySelector('[data-info="prix"]')!.className).toBe('trx-info');
+    expect(container.querySelector('[data-compromis="41"] .trx-grille')!.className).toBe('trx-grille');
+  });
+  it('sans prix : « à renseigner » en italique (comme les autres rubriques vides) ; un import : 4 rubriques sur la première ligne, « Dates » y reste', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect(rubriques()[0]).toEqual(['Prix de vente', 'à renseigner']);
+    expect(container.querySelector('[data-info="prix"] dd > span')!.className).toBe('trx-a-renseigner');
+    listeCompromis = [importe];
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(12);
+    expect([...container.querySelectorAll('[data-compromis="12"] .trx-grille dt')].map((x) => x.textContent)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']);
+    expect(container.querySelector('[data-compromis="12"] .trx-grille')!.className).toBe('trx-grille trx-grille--quatre');
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    expect(css).toContain('.trx-grille.trx-grille--quatre{grid-template-columns:repeat(4,minmax(0,1fr))}');
+    expect(css).toMatch(/@media \(max-width:640px\)\{[^@]*\.trx-colonnes,\.trx-grille,\.trx-grille\.trx-grille--quatre\{grid-template-columns:minmax\(0,1fr\)\}/);
+  });
+
+  const triangle = (sel: string) => {
+    const b = container.querySelector(sel)!;
+    const d = b.querySelector('svg[data-triangle]')!;
+    return [b.getAttribute('aria-expanded'), d.getAttribute('data-triangle'), d.getAttribute('class'), d.getAttribute('width'), d.closest('[aria-hidden="true"]') !== null, b.textContent!.includes('▸') || b.textContent!.includes('▾')];
+  };
+  it('une carte d’affaire : triangle rouge à gauche, pointe à droite replié, en bas déplié (aria-expanded) ; la ligne entière reste le bouton', async () => {
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    const sel = '[data-deplier="compromis-41"]';
+    expect(triangle(sel)).toEqual(['false', 'replie', 'svv-triangle', '36', true, false]);
+    expect((container.querySelector(sel)!.firstElementChild as HTMLElement).className).toBe('svv-triangle-boite tdb-h-triangle');
+    await deplier(41);
+    expect(triangle(sel)).toEqual(['true', 'ouvert', 'svv-triangle svv-triangle--ouvert', '36', true, false]);
+  });
+  it('un compromis annulé (le bloc « Compromis annulés ») et la synthèse : le même triangle, replié puis déplié', async () => {
+    listeAnnules = [{ ...compromis, id: 77, statut: 'annulee', annulation: { date: '2026-10-20', motif: 'Défaut de crédit', note: null } } as Vente];
+    await ouvrir(); await cliquer('[data-vue="compromis"]');
+    expect(triangle('[data-deplier="compromis-annules"]').slice(0, 3)).toEqual(['false', 'replie', 'svv-triangle']);
+    await cliquer('[data-deplier="compromis-annules"]');
+    expect(triangle('[data-deplier="compromis-annules"]').slice(0, 3)).toEqual(['true', 'ouvert', 'svv-triangle svv-triangle--ouvert']);
+    expect(triangle('[data-ouvrir-du]')).toEqual(['false', 'replie', 'svv-triangle', '36', true, false]);
+    await cliquer('[data-ouvrir-du]');
+    expect(triangle('[data-ouvrir-du]').slice(0, 2)).toEqual(['true', 'ouvert']);
+    expect(triangle('[data-replier-du="apporteurs"]').slice(0, 2)).toEqual(['true', 'ouvert']);
+  });
+  it('les styles PARTAGÉS (aucune copie) : la feuille de la tuile reprend celle du triangle de Gestion — rouge de la charte, rotation de 90° animée, coupée pour « moins d’animation »', async () => {
+    const { CSS_TRIANGLE } = await import('../_composants/TriangleDepliage');
+    const { CSS_TRANSACTION } = await import('./commun');
+    const { CSS_CONVERSATION } = await import('../gestion/Conversation');
+    expect(CSS_TRANSACTION).toContain(CSS_TRIANGLE);
+    expect(CSS_CONVERSATION).toContain(CSS_TRIANGLE);
+    expect(CSS_TRIANGLE.replace(/\s+/g, ' ')).toContain('.svv-triangle{flex:0 0 auto;color:var(--color-svv-red);transition:transform .18s ease} .svv-triangle--ouvert{transform:rotate(90deg)} @media (prefers-reduced-motion:reduce){.svv-triangle{transition:none}}');
   });
 });

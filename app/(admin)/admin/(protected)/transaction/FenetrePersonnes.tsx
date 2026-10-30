@@ -5,6 +5,7 @@ import { libellePersonne, type Vente } from '../../../../lib/transaction/modele'
 import { sansEspacesEnTrop } from '../../../../lib/transaction/personnes';
 import { decrire, FichePersonne, personneEcranDe, personneVide, type PersonneEcran, type PersonneRef } from './PersonnesDossier';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { DessinTriangle } from '../_composants/TriangleDepliage';
 
 /**
  * ══ 🔴 LOT BM (Arno, 30/10/2026) — LA FENÊTRE « VENDEURS — [affaire] » / « ACQUÉREURS — [affaire] » ════════════════════════════════════════════
@@ -145,7 +146,7 @@ export function FenetrePersonnes({ vente, role, personneVisee, annuaire, avecTyp
                     <div className="trx-fiche-repliee" key={cle} data-fiche-repliee={enregistree.id}>
                       <button type="button" className="trx-fiche-libelle" aria-expanded="false" disabled={attente}
                         onClick={() => { setOuvertes((o) => ({ ...o, [cle]: enregistree })); setFocus(cle); }} data-deplier-fiche={enregistree.id}>
-                        <span aria-hidden="true">▸ </span>{nomDe(cle)}</button>
+                        <span className="svv-triangle-boite" aria-hidden="true"><DessinTriangle /></span><span>{nomDe(cle)}</span></button>
                       <button type="button" className="trx-bouton-lien" onClick={() => demanderEnlever(cle)} disabled={attente} data-enlever-fiche={i}>Enlever</button>
                       {actionsFiche(cle)}
                     </div>

@@ -262,7 +262,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             const info = (mot: string, valeur: ReactNode, cle?: string) => <div className="trx-info" data-info={cle}><dt>{mot}</dt><dd>{valeur}</dd></div>;
             return (
               <li key={v.id} data-compromis={v.id} data-depassee={c.depassee ? '' : undefined}>
-                <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte"
+                <BlocReplie id={`trx-compromis-${v.id}`} section={`compromis-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte"
                   donnees={{ 'data-carte-compromis': String(v.id) }} ouvertInitial={venteVisee === v.id}>
                   <div className="trx-carte-detail">
                     <AlerteVentilation v={v} vue={vue} />
@@ -291,10 +291,13 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
                           {societe === 'tous' && r === null && <span className="loc-pastille">{LIBELLE_SOCIETE[v.societe]}</span>}
                           {v.origine === 'import' && <span className="loc-pastille" title={`${v.sourceFichier ?? ''} › ${v.sourceOnglet ?? ''} › ligne ${v.sourceLigne ?? ''}`}>import</span>}
                         </span></h4>
-                      <dl className="trx-grille">
+                      <dl className={v.origine === 'import' ? 'trx-grille trx-grille--quatre' : 'trx-grille'}>
                         {/* 🔴 LOT H (Arno) — ZÉRO DOUBLON : ni l'adresse, ni le prix, ni la commission, ni la date butoir (en tête de carte), ni les
                             négociateurs (sous les colonnes) ; le libellé seulement pour un import (« Libellé du fichier ») ; le taux de commission. */}
                         {v.origine === 'import' && info('Libellé du fichier', v.libelle, 'libelle')}
+                        {/* 🔴 LOT BN (Arno) — le prix de vente, sur la première ligne, avant le taux de commission (« 240 000 € » ; sans prix : « à renseigner »).
+                            Avec le libellé du fichier, la grille passe à 4 colonnes (grand écran) : « Dates » reste sur la première ligne. */}
+                        {info('Prix de vente', c.prix === null ? <span className="trx-a-renseigner">{A_RENSEIGNER}</span> : eur(c.prix), 'prix')}
                         {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
                         {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
                         {/* 🔴 LOT K (Arno) — UNE case « Dates », l'une au-dessus de l'autre : le compromis signé, puis la vente définitive au plus
@@ -944,7 +947,7 @@ function CarteMiroir({ v, references, aujourdhui, disponible, onFait, statutDuLi
   );
   return (
     <li data-compromis={v.id} data-miroir={m.origineId}>
-      <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche defilement={false} classe="trx-carte trx-carte--miroir"
+      <BlocReplie id={`trx-miroir-${v.id}`} section={`miroir-${v.id}`} titre={titre} resume={droite} chevronAGauche triangle defilement={false} classe="trx-carte trx-carte--miroir"
         donnees={{ 'data-carte-miroir': String(m.origineId) }} ouvertInitial={ouvertInitial}>
         <div className="trx-carte-detail">
           {/* 🔴 LOT AF (Arno) — le bloc « Inter-cabinet reçu » en couples libellé / valeur, une information par ligne (comme les Informations
@@ -1153,7 +1156,7 @@ function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: r
     if (r === null) onFait();
   };
   return (
-    <BlocReplie id="trx-compromis-annules" section="compromis-annules" titre={<>Compromis annulés ({annules.length})</>} resume="" chevronAGauche defilement={false}
+    <BlocReplie id="trx-compromis-annules" section="compromis-annules" titre={<>Compromis annulés ({annules.length})</>} resume="" chevronAGauche triangle defilement={false}
       classe="tdb-section trx-annules" donnees={{ 'data-bloc': 'compromis-annules' }}>
       {annules.length > 0 && (
         <ul className="trx-cartes" data-liste-annules>

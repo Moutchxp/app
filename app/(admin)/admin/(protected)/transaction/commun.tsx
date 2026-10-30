@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/transaction/commissions';
 import { ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
 import { TVA } from '../../../../lib/transaction/modele';
+import { CSS_TRIANGLE, CSS_TRIANGLE_BOITE } from '../_composants/TriangleDepliage';
 
 /** TUILE TRANSACTION — le socle des écrans : lecture de la route, envoi d'un geste, formats. Aucun calcul métier ici (`modele.ts`). */
 export const API_TRANSACTION = '/api/admin/transaction';
@@ -163,6 +164,8 @@ export function ecrireAdresse(p: Record<string, string | null>): void {
 
 /** Les classes propres à la tuile (les autres viennent du Suivi de la Location : `tdb-*`, `loc-*`). Jetons de couleur seulement. */
 export const CSS_TRANSACTION = `
+${CSS_TRIANGLE}
+${CSS_TRIANGLE_BOITE}
 .trx-barre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .trx-vues{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line);overflow-x:auto}
 .trx-actions{display:flex;flex-wrap:wrap;gap:8px}
@@ -306,12 +309,14 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-sep{white-space:pre}
 .trx-communes{border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;min-width:0}
 .trx-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 16px;margin:0 0 12px}
+/* LOT BN — avec le libellé du fichier et le prix de vente : 4 rubriques sur la première ligne (« Dates » y reste). */
+.trx-grille.trx-grille--quatre{grid-template-columns:repeat(4,minmax(0,1fr))}
 .trx-info{min-width:0}
 .trx-info dt{font-size:.78rem;color:var(--color-svv-muted)}
 .trx-info dd{margin:0;font-weight:600;overflow-wrap:anywhere}
 .trx-repartition-titre{margin:0 0 6px}
 .trx-barre-actions{border-top:1px solid var(--color-svv-line);padding-top:10px}
-@media (max-width:900px){ .trx-grille{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:900px){ .trx-grille,.trx-grille.trx-grille--quatre{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .trx-depassee{color:var(--color-svv-red);font-weight:800}
 .trx-lien{color:var(--color-svv-red);font-weight:700;display:inline-flex;align-items:center;min-height:44px}
 /* LOT I (Arno) — LES 4 TUILES de l'onglet Compromis : 4 de front, 2×2 en dessous de 1100 px (règle des tuiles), 1 colonne sur téléphone.
@@ -447,7 +452,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-fenetre-personnes .trx-part.trx-fiche:not(.trx-representant){border:1px solid var(--color-svv-line-strong);border-radius:12px;padding:10px}
 .trx-fiche-actions{align-items:center}
 .trx-fiche-repliee{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;border:1px solid var(--color-svv-line);border-radius:12px;padding:0 4px 0 12px}
-.trx-fiche-libelle{appearance:none;border:0;background:transparent;font:inherit;font-weight:700;color:var(--color-svv-ink);min-height:44px;cursor:pointer;text-align:left;flex:1 1 12rem;padding:0}
+.trx-fiche-libelle{display:flex;align-items:center;gap:4px;appearance:none;border:0;background:transparent;font:inherit;font-weight:700;color:var(--color-svv-ink);min-height:44px;cursor:pointer;text-align:left;flex:1 1 12rem;padding:0}
 .trx-fiche-libelle:hover{text-decoration:underline}
 .trx-fiche-libelle:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .trx-fiche-repliee > .loc-alerte,.trx-fiche-repliee > .trx-erreur{flex-basis:100%;margin-bottom:8px}
@@ -473,7 +478,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-resume-montants > span{display:block;white-space:nowrap}
 @media (max-width:640px){
   .trx-form{grid-template-columns:minmax(0,1fr)}
-  .trx-colonnes,.trx-grille{grid-template-columns:minmax(0,1fr)}
+  .trx-colonnes,.trx-grille,.trx-grille.trx-grille--quatre{grid-template-columns:minmax(0,1fr)}
   .trx-part{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   /* LOT BM — sur téléphone, une fiche de personne : un champ par ligne. */
   .trx-part.trx-fiche{grid-template-columns:minmax(0,1fr)}
