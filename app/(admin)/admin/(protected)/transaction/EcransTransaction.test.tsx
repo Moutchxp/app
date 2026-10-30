@@ -688,3 +688,16 @@ describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche d
     } finally { fin(); }
   });
 });
+
+describe('🔴 LOT BV — libellés : « Com négo » et « − Commissions des négociateurs indépendants (HT) » (aucun montant ne change)', () => {
+  it('la colonne et la ligne du résultat de l’agence', async () => {
+    window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    expect([...container.querySelectorAll('[data-bloc="ventes-mois"] thead th')].map((x) => x.textContent)).toContain('Com négo');
+    expect(container.querySelector('[data-bloc="ventes-mois"] [data-mot="Com négo"]')).not.toBeNull();
+    expect(container.querySelector('[data-paye-deduite]')!.previousElementSibling!.textContent).toBe('− Commissions des négociateurs indépendants (HT)');
+    expect(container.textContent).not.toContain('Paye négo');
+    expect(container.textContent).not.toContain('Paye des négociateurs');
+    expect(texte('[data-reste-agence]')).toBe('5 508,33 €');
+  });
+});

@@ -40,7 +40,7 @@ describe('🔴 LOT AA — une seule commission par négociateur et par transacti
       expect(totaux([vendue(x.porteuse.v)], [], x.porteuse.s).payeHt).toBe(0);
       expect(totaux([vendue(x.autre.v)], [], x.autre.s).payeHt).toBeCloseTo(1000 / 1.2, 9);
       expect(totaux([vendue(x.global.v)], [], null).payeHt).toBeCloseTo(1000 / 1.2, 9);
-      // la colonne « Paye négo » (affichée) : la porteuse n'affiche que la sienne (Arnaud) ; la somme des deux sociétés = le global, sans doublon
+      // la colonne « Com négo » (LOT BV, ex-« Paye négo ») (affichée) : la porteuse n'affiche que la sienne (Arnaud) ; la somme des deux sociétés = le global, sans doublon
       const porteuseAffiche = payeTtcDe(x.porteuse.v, x.porteuse.s), autreAffiche = payeTtcDe(x.autre.v, x.autre.s);
       expect([porteuseAffiche, autreAffiche, payeTtcDe(x.global.v, null)]).toEqual([1000, 1000, 2000]);
       expect(porteuseAffiche + autreAffiche).toBe(payeTtcDe(x.global.v, null));

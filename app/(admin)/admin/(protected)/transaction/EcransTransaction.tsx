@@ -342,7 +342,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
         {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-mois>{eur(T.interCabinetHt)}</dd></>}
         {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-mois>{eur(T.exterieurHt)}</dd></>}
-        <dt>− Paye des négociateurs indépendants (HT)</dt><dd data-paye-deduite>{eur(T.payeHt)}</dd>
+        <dt>− Commissions des négociateurs indépendants (HT)</dt><dd data-paye-deduite>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(T.resteHt)}`} data-reste-agence>{eur(T.resteHt)}</dd>
         <NonDeduits T={T} />
       </dl>
@@ -403,7 +403,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
   return (
     <table className="tdb-table tdb-table--large" data-table-ventes>
       <thead><tr><th scope="col">Vendeur / acquéreur</th><th scope="col">{fiches === undefined ? 'Négociateur(s)' : 'Négociateur'}</th><th scope="col">Honoraires TTC</th><th scope="col">Honoraires HT</th>
-        <th scope="col">Rétrocessions</th><th scope="col">Paye négo</th><th scope="col">Reste agence HT</th><th scope="col">Action</th></tr></thead>
+        <th scope="col">Rétrocessions</th><th scope="col">Com négo</th><th scope="col">Reste agence HT</th><th scope="col">Action</th></tr></thead>
       <tbody>
         {ventes.map((v) => { const ouverte = fiches !== undefined && ouvertes.has(v.id); return [
           <tr key={v.id} data-vente={v.id} className={fiches === undefined ? undefined : `trx-ligne-depliable${ouverte ? ' trx-ligne-depliable--ouverte' : ''}`}
@@ -427,7 +427,7 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
               {v.repartition != null && (() => { const b = bilanVente(v, societe); const verse = sommeSocietes(b.verseHt) + b.exterieurHt;
                 return <><br /><span className="trx-source" data-part-vente>CA de la vente{societe === null ? '' : ` (${LIBELLE_SOCIETE[societe]})`} : {eur(b.caHt)}{verse > 0 ? ` · dont reversé en inter-cabinet : ${eur(verse)}` : ''}{b.neutraliseHt > 0 ? ` · inter-cabinet entre nos sociétés : ${eur(b.neutraliseHt)} (neutralisé)` : ''}</span></>; })()}</td>
             <td data-mot="Rétrocessions">{eur(retroTtcDe(v, retros))}</td>
-            <td data-mot="Paye négo">{eur(payeTtcDe(v, societe))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
+            <td data-mot="Com négo">{eur(payeTtcDe(v, societe))}{(() => { const c = payeParClasseTtc(v, statutDuLibelle, societe); const nd = c.interne + c.a_renseigner;
               return nd > 0 ? <><br /><span className={c.a_renseigner > 0 ? 'trx-source trx-alerte' : 'trx-source'} data-paye-non-deduite={v.id}>dont {eur(nd)} non déduite{c.a_renseigner > 0 ? ' (statut à renseigner)' : ' (interne)'}</span></> : null; })()}</td>
             <td data-mot="Reste agence HT">{eur(ht(resteTtcDe(v, retros, statutDuLibelle, societe)))}</td>
             {/* 🔴 LOT R — une ligne miroir ne se modifie pas d'ici : elle suit la vente d'origine. */}
@@ -626,7 +626,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>− Rétrocessions d’apporteurs (HT)</dt><dd>{eur(T.retroHt)}</dd>
         {T.interCabinetHt > 0 && <><dt>− Inter-cabinet vers nos autres sociétés (HT)</dt><dd data-inter-cabinet-periode>{eur(T.interCabinetHt)}</dd></>}
         {T.exterieurHt > 0 && <><dt>− Inter-cabinet extérieur (HT)</dt><dd data-exterieur-periode>{eur(T.exterieurHt)}</dd></>}
-        <dt>− Paye des négociateurs indépendants (HT)</dt><dd>{eur(T.payeHt)}</dd>
+        <dt>− Commissions des négociateurs indépendants (HT)</dt><dd>{eur(T.payeHt)}</dd>
         <dt className="trx-total">= Reste à l’agence (HT)</dt><dd className="trx-total" data-reste-agence-periode>{eur(T.resteHt)}</dd>
         <NonDeduits T={T} />
         <dt>Compromis en cours ({fin})</dt><dd>{eur(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</dd>
