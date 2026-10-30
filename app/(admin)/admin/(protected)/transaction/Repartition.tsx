@@ -109,6 +109,26 @@ export function partiesPour(negos: readonly NegociateurRef[], entreeId: number |
   const [e, s] = defautsLignes(entreeId, sortieId);
   return [ligne('entree', negos.find((x) => x.id === entreeId), e), ligne('sortie', negos.find((x) => x.id === sortieId), s), ...garder.filter((p) => p.sorte === 'exterieure')];
 }
+/**
+ * 🔴 LOT AZ (Arno) — « REVENIR AU 50/50 » : l'entrée et la sortie du mandat à 50 % CHACUNE de ce que laissent les parties extérieures (gardées
+ * telles quelles : 20 % à une agence → 40 / 40) — y compris quand le MÊME négociateur tient les deux côtés (avant ce lot, la règle des lignes
+ * par défaut lui donnait 100 / 0 : le lien semblait ne rien faire). Les lignes gardent leur négociateur et leur société ; les montants se
+ * recalculent depuis la base (centimes du lot AH, à l'affichage). Un seul côté tenu (ou aucun) : les lignes par défaut d'avant — 50/50 n'y
+ * serait pas enregistrable (une ligne sans négociateur n'est pas une partie). Rien n'est enregistré avant « Valider ». PUR.
+ */
+export function revenirAuCinquante(parties: readonly PartieEcran[], negos: readonly NegociateurRef[], entreeId: number | null, sortieId: number | null, netHt: number): PartieEcran[] {
+  const exterieures = parties.filter((p) => p.sorte === 'exterieure');
+  const defaut = partiesPour(negos, entreeId, sortieId, exterieures);
+  if (entreeId === null || sortieId === null) return defaut;
+  const pctExterieures = exterieures.reduce((t, p) => {
+    const x = nombre(p.texte) ?? 0;
+    return t + (p.mode === 'pct' ? x : pourcentageDe(x, netHt));
+  }, 0);
+  const moitie = texteNombre(Number((Math.max(0, 100 - pctExterieures) / 2).toPrecision(12)));
+  const garde = (sorte: 'entree' | 'sortie', id: number, repli: PartieEcran): PartieEcran =>
+    parties.find((p) => (p.sorte === sorte || (sorte === 'entree' && p.sorte === 'entree_sortie')) && p.compteId === id) ?? repli;
+  return [{ ...garde('entree', entreeId, defaut[0]), sorte: 'entree', mode: 'pct', texte: moitie }, { ...garde('sortie', sortieId, defaut[1]), sorte: 'sortie', mode: 'pct', texte: moitie }, ...exterieures];
+}
 /** Une répartition enregistrée → les lignes de l'écran (toujours une ligne d'entrée et une de sortie). PUR. */
 export function lignesDe(parties: readonly Partie[], negos: readonly NegociateurRef[]): PartieEcran[] {
   const es = parties.find((p) => p.sorte === 'entree_sortie');
@@ -352,7 +372,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
       </ul>
       <p className="trx-actions">
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: [...etat.parties, versEcran(partieExterieure())] })} data-ajouter-exterieure>+ Ajouter une partie extérieure</button>
-        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: partiesPour(negociateurs, etat.entreeId, etat.sortieId) })} data-revenir-5050>Revenir au 50/50</button>
+        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro)) })} data-revenir-5050>Revenir au 50/50</button>
       </p>
     </fieldset>
   );

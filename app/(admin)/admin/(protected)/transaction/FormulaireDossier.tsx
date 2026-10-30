@@ -60,7 +60,19 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
   return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null,
     retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
     commissions: avecUnite ? { entree: commission('entree'), sortie: commission('sortie') } : null,
-    parties: v?.repartition ? lignesDe(v.repartition.parties, negos) : partiesPour(negos, entreeId, sortieId) };
+    parties: v?.repartition ? avecSortieDuMeme(lignesDe(v.repartition.parties, negos), negos, entreeId, sortieId) : partiesPour(negos, entreeId, sortieId) };
+}
+
+/**
+ * 🔴 LOT AZ — le MÊME négociateur à l'entrée et à la sortie, sortie à 0 % (elle n'est pas enregistrée comme partie : il porte tout, une fois) :
+ * la ligne « Sortie du mandat » du panneau se relit AVEC son négociateur, à 0 % — comme la pastille de la carte (« MACJ · 0 % ») et le dossier.
+ * Rien ne change à l'enregistrement (`versModele` ne garde pas cette ligne à 0). PUR.
+ */
+function avecSortieDuMeme(lignes: ReturnType<typeof lignesDe>, negos: readonly NegociateurRef[], entreeId: number | null, sortieId: number | null): ReturnType<typeof lignesDe> {
+  const [entree, sortie] = lignes;
+  if (sortieId === null || sortieId !== entreeId || entree?.compteId !== entreeId || sortie === undefined || sortie.compteId !== null || (nombre(sortie.texte) ?? 0) !== 0) return lignes;
+  const ligne = partiesPour(negos, null, sortieId)[1];
+  return [entree, { ...ligne, compteId: sortieId, negociateur: ligne.negociateur ?? entree.negociateur, societe: entree.societe, texte: '0' }, ...lignes.slice(2)];
 }
 
 /** Le corps envoyé à `dossier-enregistrer` (la saisie telle quelle : le serveur relit et vérifie tout). */
