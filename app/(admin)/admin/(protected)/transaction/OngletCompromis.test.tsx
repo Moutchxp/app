@@ -3624,7 +3624,7 @@ describe('🔴 LOT AY — cartes « Vendeurs » / « Acquéreurs » : 100 % des 
         `Reversé en inter-cabinet à MACJ ${m('3 840', '3 200')} ${p('3 840', '3 200')} Comptabilisé dans « Commissions versées »dont commission de Mylène EBERLIN (MACJ, 50 %) : ${m('1 920', '1 600')} — payée par MACJdont part de l’agence MACJ : ${m('1 920', '1 600')}`,
       ]);
       expect(texte('[data-entete-commission="entree"]')).toBe(`Commission de la vente ${m('12 000', '10 000')} ${p('12 000', '10 000')}`);
-      expect(texte('[data-entete-apporteur="entree"]')).toBe(`− Apporteur ${m('2 400', '2 000')} ${p('2 400', '2 000')}Julien Deblois`);
+      expect(texte('[data-entete-apporteur="entree"]')).toBe(`− Apporteur : Julien Deblois ${m('2 400', '2 000')} ${p('2 400', '2 000')}`); // LOT BC : une ligne
       expect(container.querySelector('[data-entete-apporteur="entree"] .trx-calcul-resultat')!.className).toContain('trx-rouge');
       expect(container.querySelector('[data-entete-apporteur="entree"]')!.className).not.toContain('trx-calcul-encadre');
       expect(container.querySelector('[data-quote-part="apporteur"]')).toBeNull();
@@ -3940,7 +3940,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
       for (const [cote, mot, h] of [['entree', 'vendeur', '2 708,34'], ['sortie', 'acquéreur', '2 708,33']] as const) {
         const b = `[data-negociateur-cote="${cote}"]`;
         expect(texte(`${b} [data-entete-commission]`)).toBe(`Commission de la vente ${m('7 500', '6 250')} ${p('7 500', '6 250')}`);
-        expect(texte(`${b} [data-entete-apporteur]`)).toBe(`− Apporteur ${m('1 000', '833,33')} ${p('1 000', '833,33')}Gardien Dacquet`);
+        expect(texte(`${b} [data-entete-apporteur]`)).toBe(`− Apporteur : Gardien Dacquet ${m('1 000', '833,33')} ${p('1 000', '833,33')}`); // LOT BC : une ligne
         expect(container.querySelector(`${b} [data-entete-apporteur] .trx-calcul-resultat`)!.className).toContain('trx-rouge');
         expect(texte(`${b} [data-entete-apporteur-nom]`)).toBe('Gardien Dacquet');
         // HT : la nette (5 416,67) ne se partage pas juste en deux (2 708,333…) : le centime va à la porteuse (CRITERIMMO, l'entrée) — lot AH
@@ -3997,7 +3997,25 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     await act(async () => { root.render(createElement(VentilationPartie, { x: deux, groupe: 'tete' })); }); await calmer();
     expect([...container.querySelectorAll('[data-entete-apporteur]')].map((e) => e.textContent!.replace(/\s/g, ' '))).toEqual([
-      '− Apporteur 500 € TTC (416,67 € HT)Gardien Dacquet', '− Apporteur 500 € TTC (416,66 € HT)Julien Deblois']);
+      '− Apporteur : Gardien Dacquet 500 € TTC (416,67 € HT)', '− Apporteur : Julien Deblois 500 € TTC (416,66 € HT)']); // LOT BC : une ligne par apporteur
     expect(texte('[data-honoraires-cote]')).toBe('= Honoraires partie vendeur : (7 500 € TTC − 500 € TTC − 500 € TTC) × 50 % = 3 250 € TTC (2 708,34 € HT)');
+  });
+});
+
+describe('🔴 LOT BC — « − Apporteur : [nom] » sur une seule ligne, le montant rouge à droite', () => {
+  it('sans nom : « − Apporteur : à renseigner » ; le nom et le montant dans la même ligne de calcul (le montant ne s’en sépare jamais)', async () => {
+    const { VentilationPartie } = await import('./OngletCompromis');
+    const { ventilationVente } = await import('../../../../lib/transaction/partAgence');
+    const v: Vente = { ...compromis, honorairesTtc: 7500, apporteur: null, retroApporteur: { montant: 1000, unite: 'ttc' }, lignes: [],
+      repartition: { retroApporteurTtc: 1000, parties: [compromis.repartition!.parties[0], { ...compromis.repartition!.parties[1], pourcentage: 60 }] } };
+    const x = ventilationVente(v, 'criterimmo').entree!;
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await act(async () => { root.render(createElement(VentilationPartie, { x, groupe: 'tete' })); }); await calmer();
+    const ligne = container.querySelector('[data-entete-apporteur]')!;
+    expect(ligne.textContent!.replace(/\s/g, ' ')).toBe('− Apporteur : à renseigner 1 000 € TTC (833,33 € HT)');
+    expect(ligne.querySelector('[data-entete-apporteur-nom]')!.className).toBe('trx-a-renseigner');
+    // une seule ligne de calcul : le libellé (avec le nom) et le montant rouge, dans la même grille ; plus de ligne de nom à part
+    expect([ligne.querySelector('.trx-calcul-libelle [data-entete-apporteur-nom]') !== null, ligne.querySelector('.trx-calcul-resultat')!.className.includes('trx-rouge'),
+      ligne.querySelector('.trx-calcul-dont')]).toEqual([true, true, null]);
   });
 });

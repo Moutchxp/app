@@ -741,8 +741,10 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
       {groupe === 'tete' && x.recuDe === null && x.apporteurs.length > 0 && <>
         <LigneCalcul donnees={{ 'data-entete-commission': x.cote }} ttc={x.commissionVente.ttcC / 100} ht={x.commissionVente.htC / 100}
           libelle={<span className="trx-calcul-mot">Commission de la vente</span>} />
+        {/* 🔴 LOT BC (Arno) — une seule ligne par apporteur : « − Apporteur : [nom] » (sans nom : « à renseigner »), le montant rouge à droite sur la
+            même ligne ; au téléphone, le nom peut passer à la ligne sous « − Apporteur : », sans jamais quitter son montant. */}
         {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100}
-          libelle={<span className="trx-calcul-mot">− Apporteur</span>} apres={a.nom === null ? undefined : <span className="trx-calcul-dont-ligne" data-entete-apporteur-nom>{a.nom}</span>} />)}
+          libelle={<><span className="trx-calcul-mot">− Apporteur</span> : <span className={a.nom === null ? 'trx-a-renseigner' : undefined} data-entete-apporteur-nom>{a.nom ?? A_RENSEIGNER}</span></>} />)}
       </>}
       {groupe === 'tete' && <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
         libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
