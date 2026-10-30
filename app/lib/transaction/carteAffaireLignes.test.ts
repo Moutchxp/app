@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { lignesCarteAffaire } from './carteAffaireLignes';
+import { ecartsCarte, lignesCarteAffaire } from './carteAffaireLignes';
+import type { Retrocession } from './modele';
 import type { Partie, Vente } from './modele';
 import { venteDansSociete } from './interCabinet';
 
@@ -36,5 +37,42 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
     const l = lignesCarteAffaire(ic, 'criterimmo');
     expect(l.lignes[1].reverse).toEqual({ vers: 'MACJ', m: { htC: 166667, ttcC: 200000 } });
     expect(lignesCarteAffaire(venteDansSociete(ic, 'macj')!, 'macj').lignes.map((x) => x.nom)).toEqual(['Pierre Thevenin']);
+  });
+
+  // 🔴 LOT CF — « honoraires nets » = honoraires MOINS toutes les rétrocessions d'apporteurs (apporteur de la répartition ET rétrocessions du mois)
+  const retro = (id: number, venteId: number, montantTtc: number): Retrocession => ({ id, societe: 'criterimmo', annee: 2026, mois: 7, negociateur: 'CEDRIC', montantTtc,
+    apporteur: null, venteId, libelle: null, origine: 'import', sourceOnglet: 'CEDRIC', sourceCellule: 'J3' });
+  const imp = (id: number, honorairesTtc: number) => vente({ id, repartition: null, dossier: null, origine: 'import', lignes: [], honorairesTtc, statut: 'vendue', mois: 7, annee: 2026, sourceOnglet: 'CEDRIC' });
+
+  it('🔴 LOT CF — rétrocession saisie au mois rattachée : ZEMMOR BERKER 36 667 € TTC (30 555,83 € HT), BASUYEAUX 10 500 € (8 750 € HT) ; contrôles nuls', () => {
+    const z = imp(201, 40000); const b = imp(202, 11000);
+    const rs = [retro(1, 201, 3333), retro(2, 202, 500)];
+    const lz = lignesCarteAffaire(z, 'criterimmo', { retros: rs, statutDuLibelle: () => null });
+    const lb = lignesCarteAffaire(b, 'criterimmo', { retros: rs, statutDuLibelle: () => null });
+    expect([lz.lignes[0].honoraires, lz.lignes[0].reste]).toEqual([{ htC: 3055583, ttcC: 3666700 }, { htC: 3055583, ttcC: 3666700 }]);
+    expect([lb.lignes[0].honoraires, lb.lignes[0].reste]).toEqual([{ htC: 875000, ttcC: 1050000 }, { htC: 875000, ttcC: 1050000 }]);
+    expect([ecartsCarte(z, 'criterimmo', lz), ecartsCarte(b, 'criterimmo', lb)]).toEqual([[], []]);
+  });
+
+  it('🔴 LOT CF — sans rétrocession : inchangé (MILLECAMPS 29 423 € ; commission comptabilisée déduite du reste) ; apporteur de répartition : 3 250 € par côté (inchangé)', () => {
+    const m = vente({ id: 200, repartition: null, dossier: null, origine: 'import', honorairesTtc: 29423, statut: 'vendue',
+      lignes: [{ id: 9, negociateur: 'CATHERINE', role: 'negociateur', montantTtc: 23538, nature: 'vente', compte: true, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] });
+    const lm = lignesCarteAffaire(m, 'criterimmo', { statutDuLibelle: () => 'independant' });
+    expect([lm.lignes[0].honoraires.ttcC, lm.lignes[0].reste.ttcC]).toEqual([2942300, 588500]);
+    expect(ecartsCarte(m, 'criterimmo', lm)).toEqual([]);
+    const t = lignesCarteAffaire(vente(), 'criterimmo');
+    expect(t.lignes.map((x) => x.honoraires.ttcC)).toEqual([325000, 325000]);
+    expect(ecartsCarte(vente(), 'criterimmo', t)).toEqual([]);
+  });
+
+  it('🔴 LOT CF — deux négociateurs + rétrocession du mois : partagée comme l’apporteur (entrée l’écart) ; inter-cabinet : reversé compris ; contrôles nuls', () => {
+    const v = vente({ id: 37, statut: 'vendue' });
+    const l = lignesCarteAffaire(v, 'criterimmo', { retros: [retro(3, 37, 600.01)] });
+    expect(l.lignes.map((x) => x.honoraires.ttcC)).toEqual([325000 - 30000, 325000 - 30001]); // 600,01 € : sortie 300,01 (arrondi), entrée le reste exact;
+    expect(ecartsCarte(v, 'criterimmo', l)).toEqual([]);
+    const ic = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
+      dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] }, honorairesTtc: 4000 });
+    const li = lignesCarteAffaire(ic, 'criterimmo', { retros: [retro(4, 37, 100)] });
+    expect([ecartsCarte(ic, 'criterimmo', li), ecartsCarte(venteDansSociete(ic, 'macj')!, 'macj', lignesCarteAffaire(venteDansSociete(ic, 'macj')!, 'macj'))]).toEqual([[], []]);
   });
 });
