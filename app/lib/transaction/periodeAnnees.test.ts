@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compromisDuMode, MODES_MOIS, totauxMoisMode, ventesDuMois, type DonneesSociete, type ModeMois, type Vente } from './modele';
 import { resultatDesCartes } from './carteAffaireLignes';
-import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
 
 /** 🔴 LOT DG (Arno) — « L'année » : la somme exacte de ses 12 mois de « Le mois », plus ses ventes « mois à confirmer ». */
 const vente = (id: number, o: Partial<Vente>): Vente => ({ id, societe: 'macj', libelle: `V${id}`, honorairesTtc: 12000, statut: 'vendue', annee: 2026, mois: 7,
@@ -86,5 +86,17 @@ describe('🔴 LOT DG — « L’année » = la somme de ses 12 mois + ses vente
     expect(p({ debut: '2025', fin: '2025' })).toEqual({ decoupage: 'annee', annees: [2025], annee: 2025 });
     expect(p({ debut: '2024', fin: '2026' })).toEqual({ decoupage: 'periode', annees: [2024, 2025, 2026], annee: 2026 });
     expect(p({ debut: '2025' })).toEqual({ decoupage: 'periode', annees: [2025, 2026], annee: 2026 });
+  });
+});
+
+describe('🔴 LOT DN — borneCumul : la borne unique de fin du cumul', () => {
+  it('Mois : le mois choisi (même une année terminée) ; Période : le dernier mois choisi ; Année : complète (terminée), le mois en cours, rien (future)', () => {
+    const j = '2026-10-31';
+    expect(borneCumul('mois', 2025, 8, null, j)).toEqual({ fin: 8, mot: 'à fin août' });
+    expect(borneCumul('periode', 2025, 3, [3, 10, 7], j)).toEqual({ fin: 10, mot: 'à fin octobre' });
+    expect(borneCumul('annee', 2025, 8, null, j)).toEqual({ fin: 12, mot: 'année complète' }); // le mois de l'adresse n'est pas une borne
+    expect(borneCumul('annee', 2026, 2, null, j)).toEqual({ fin: 10, mot: 'à fin octobre' });
+    expect(borneCumul('annee', 2027, 2, null, j)).toEqual({ fin: 0, mot: 'rien encore' });
+    expect([cumulA([1, 3, 6], 0), cumulA([1, 3, 6], 2), cumulA([1, 3, 6], 3)]).toEqual([0, 3, 6]);
   });
 });

@@ -1,5 +1,5 @@
 import { compromisPeriode, totauxPeriode, ventesPeriode, type MoisChoisi } from './periodeMois';
-import { additionnerTotaux, moisAConfirmer, totaux, ventesDeLAnnee, type DonneesSociete, type ModeMois, type Retrocession, type Totaux, type Vente } from './modele';
+import { additionnerTotaux, moisAConfirmer, NOMS_MOIS, totaux, ventesDeLAnnee, type DonneesSociete, type ModeMois, type Retrocession, type Totaux, type Vente } from './modele';
 import { resolveurDe } from './statutLigne';
 
 /**
@@ -40,6 +40,33 @@ export const moisADate = (annee: number, jour: string): number => {
   const a = Number(jour.slice(0, 4));
   return annee < a ? 12 : annee > a ? 0 : Number(jour.slice(5, 7));
 };
+/**
+ * ══ 🔴 LOT DN (Arno, 31/10/2026) — LA BORNE DE FIN DU CUMUL : UNE SEULE FONCTION, PARTOUT (PUR) ══════════════════════════════════════════════════
+ * Les tuiles de cumul (« CA … cumulé [année] », « CA net … cumulé », « Prévisionnel … »), l'encadré du graphique en Cumul au repos et « L'année »
+ * (« à date ») cumulent de janvier au mois `fin` de cette borne ; N−1 : la MÊME borne sur l'année précédente.
+ * - « Mois » : le mois sélectionné (même pour une année terminée) — « à fin [mois] » ;
+ * - « Période » : le DERNIER mois sélectionné de l'année — « à fin [mois] » ;
+ * - « Année » : une année terminée, COMPLÈTE (12) — « année complète » ; l'année en cours, jusqu'au mois en cours — « à fin [mois en cours] » ;
+ *   une année future : rien (0) — « rien encore ». Le mois de l'adresse n'est PAS une borne en « Année ».
+ * Aucune règle de calcul ne change : seule la borne.
+ */
+export type DecoupageCumul = 'mois' | 'periode' | 'annee';
+export interface BorneCumul {
+  /** Le dernier mois cumulé (1 → 12) ; 0 : aucun. */
+  fin: number;
+  /** « à fin août », « année complète », « rien encore ». */
+  mot: string;
+}
+export function borneCumul(decoupage: DecoupageCumul, annee: number, mois: number, moisChoisis: readonly number[] | null, jour: string): BorneCumul {
+  const aFin = (k: number): BorneCumul => ({ fin: k, mot: `à fin ${NOMS_MOIS[k - 1].toLowerCase()}` });
+  if (decoupage === 'mois') return aFin(mois);
+  if (decoupage === 'periode') return aFin(moisChoisis !== null && moisChoisis.length > 0 ? Math.max(...moisChoisis) : mois);
+  const k = moisADate(annee, jour);
+  return k === 12 ? { fin: 12, mot: 'année complète' } : k === 0 ? { fin: 0, mot: 'rien encore' } : aFin(k);
+}
+/** Le cumul (janvier → `fin`) d'une série cumulée mois par mois ; 0 : rien. PUR. */
+export const cumulA = (cumules: readonly number[], fin: number): number => (fin <= 0 ? 0 : cumules[fin - 1] ?? 0);
+
 /**
  * « À date » : une année passée = l'année complète (ses « mois à confirmer » compris) ; l'année en cours = ses mois de janvier au mois d'aujourd'hui
  * (`nbMois`), sans les « mois à confirmer » (non datés). La même règle pour l'année précédente : les MÊMES mois (`nbMois` de l'année affichée).

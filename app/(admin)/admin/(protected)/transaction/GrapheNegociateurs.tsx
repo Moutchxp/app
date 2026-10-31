@@ -35,7 +35,7 @@ const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFra
 export interface AxeGraphe { etiquettes: readonly string[]; cles: readonly number[]; attribut: string; titre: (rang: number, cumul: boolean) => string;
   libelleN1: (rang: number) => string; attenuer: boolean }
 
-export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee, moisSeul = false, axe = null }: {
+export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee, moisSeul = false, axe = null, finPeriode = null }: {
   series: readonly SerieGraphe[];
   /** L'ensemble de la sélection, mois par mois (chaque affaire une fois) : ce que comptent les tuiles et les listes de la page. */
   total: { ca: readonly number[]; nb: readonly number[] };
@@ -46,6 +46,8 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   /** 🔴 LOT DE — le mode « Mois » : le mois choisi plein, les autres pâles ; l'encadré au repos = le mois choisi. Absent : le lot CV (Période, Année). */
   moisSeul?: boolean;
   axe?: AxeGraphe | null;
+  /** 🔴 LOT DN — « Période » : la borne du cumul (`borneCumul`, le dernier mois choisi) — le Cumul au repos s'y arrête ; null : la règle CV. */
+  finPeriode?: number | null;
 }) {
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
@@ -72,10 +74,11 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   // (décembre), une année future (rien encore, à 0). Le titre cite toujours l'année du graphique ; un mois à venir : « — à venir », à 0.
   // 🔴 LOT DE — en mode « Mois », pas de repos : le mois survolé, sinon le mois choisi.
   const repos = axe === null && !moisSeul && clic === null && survol === null;
-  const mois = survol ?? (moisSeul || axe !== null ? choisi : clic ?? (dernierMois === 0 ? 12 : dernierMois));
+  const finRepos = cumul && finPeriode !== null && finPeriode > 0 ? finPeriode : null;
+  const mois = survol ?? (moisSeul || axe !== null ? choisi : clic ?? finRepos ?? (dernierMois === 0 ? 12 : dernierMois));
   const aVenir = mois > dernierMois;
   const nomMois = NOMS_MOIS[mois - 1] ?? '';
-  const titre = axe !== null ? axe.titre(mois, cumul) : repos
+  const titre = axe !== null ? axe.titre(mois, cumul) : repos && finRepos === null
     ? (dernierMois === 0 ? (cumul ? `Cumul ${annee} — aucune vente` : `Janvier ${annee} — aucune vente`)
       : dernierMois === 12 ? (cumul ? `Cumul ${annee} — année complète` : `Décembre ${annee}`)
         : (cumul ? `Cumul ${annee} jusqu’à aujourd’hui` : `${nomMois} ${annee} — en cours`))

@@ -2070,9 +2070,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         await cliquer('[data-mode-mois="tous"]');
         expect(texte('[data-previsionnel-detail]')).toBe('dont 5 000 € vendus · 2 500 € en compromis (1)');
       } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
-      for (const q of ['&vue-mois=annee', '&vue-mois=periode&periode=2025-03,2025-06']) {
+      // 🔴 LOT DN (Arno) — la borne unique : « Année » (2025, l'année en cours au 27/10) → jusqu'au mois en cours (octobre), plus le mois de
+      // l'adresse (juin) ; « Période » (mars, juin) → le dernier mois coché (juin).
+      for (const [q, attendu, mot] of [['&vue-mois=annee', 2050000, 'à fin octobre'], ['&vue-mois=periode&periode=2025-03,2025-06', 1300000, 'à fin juin']] as const) {
         fin = await ouvrir6(q);
-        try { expect([q, t4('[data-ca-net-cumul]')]).toEqual([q, 1300000]); } finally { fin(); }
+        try { expect([q, t4('[data-ca-net-cumul]'), texte('[data-tuile="ca-net-cumul"] .tdb-tuile-mot').includes(`(${mot})`)]).toEqual([q, attendu, true]); } finally { fin(); }
       }
       fin = await ouvrir6('&negociateur=ARNAUD&negociateur=MYLENE');
       try { expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, '4 000 € en 2024 (+225 %)']); } finally { fin(); } // 🔴 LOT DC : N−1 de la sélection (ARNAUD + MYLENE)
@@ -2515,6 +2517,57 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect([q, /Aucune vente/.test(vide)]).toEqual([q, true]);
         } finally { fin(); }
       }
+    });
+  });
+
+  describe('🔴 LOT DN — la borne de fin du cumul : une seule fonction (Mois → le mois choisi, Période → le dernier mois choisi, Année → l’année complète)', () => {
+    const lm = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (): Vente[] => [
+      vente(800, { societe: 'macj', libelle: 'MARS', honorairesTtc: 6000, annee: 2024, mois: 3, lignes: [lm('ARNAUD', 6000)] }),
+      vente(801, { societe: 'macj', libelle: 'SEPT', honorairesTtc: 3000, annee: 2024, mois: 9, lignes: [lm('ARNAUD', 3000)] }),
+      vente(802, { societe: 'macj', libelle: 'N1MARS', honorairesTtc: 1200, annee: 2023, mois: 3, lignes: [lm('ARNAUD', 1200)] }),
+      vente(803, { societe: 'macj', libelle: 'N1OCT', honorairesTtc: 2400, annee: 2023, mois: 10, lignes: [lm('ARNAUD', 2400)] }),
+    ];
+    const ouvrirN = async (q: string) => {
+      const avant = donnees.ventes;
+      donnees.ventes = jeu();
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', q);
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+      return () => { donnees.ventes = avant; };
+    };
+    const tuile = () => [texte('[data-tuile="cumul"] .tdb-tuile-mot'), texte('[data-tuile="cumul"] .tdb-tuile-valeur'), texte('[data-tuile-n1="cumul"]')];
+
+    it('2024 (terminée), adresse &mois=8 : Mois → à fin août ; Année → l’année complète = la tuile CA de l’année, au centime ; Période → le dernier mois coché ; N−1 sur la même borne', async () => {
+      window.localStorage.setItem('trx-affichage-montants', 'ttc');
+      const fin = await ouvrirN('/?vue=mois&annee=2024&mois=8');
+      try {
+        expect(tuile()).toEqual(['CA TTC cumulé 2024 (à fin août)', '6 000 €', '1 200 € en 2023 (+400 %)']);
+        await cliquer('[data-decouper="annee"]');
+        expect(tuile()).toEqual(['CA TTC cumulé 2024 (année complète)', '9 000 €', '3 600 € en 2023 (+150 %)']);
+        expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('9 000 €'); // = le CA de l'année
+        expect(texte('[data-tuile="ca-net-cumul"] .tdb-tuile-mot')).toContain('cumulé 2024 (année complète)');
+        await cliquer('[data-decouper="mois"]');
+        await cliquer('[data-onglet-mois="8"]');
+        await cliquer('[data-decouper="periode"]');
+        await cliquer('[data-onglet-mois="3"]');
+        expect(tuile()[0]).toBe('CA TTC cumulé 2024 (à fin août)');
+        await cliquer('[data-onglet-mois="10"]');
+        expect(tuile()).toEqual(['CA TTC cumulé 2024 (à fin octobre)', '9 000 €', '3 600 € en 2023 (+150 %)']);
+        // l'encadré du Cumul au repos : la même borne
+        await cliquer('[data-cumul-bouton]');
+        expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2024 à fin octobre');
+      } finally { fin(); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
+    });
+
+    it('l’année en cours (2025, au 27/10) en Année : jusqu’au mois en cours — « à fin octobre » ; Prévisionnel sur la même borne', async () => {
+      const fin = await ouvrirN('/?vue=mois&annee=2025&mois=2&mode=tous');
+      try {
+        await cliquer('[data-decouper="annee"]');
+        expect(tuile()[0]).toContain('cumulé 2025 (à fin octobre)');
+        expect(texte('[data-tuile="previsionnel-mois"] .tdb-tuile-mot')).toContain('vendu à fin octobre');
+      } finally { fin(); }
     });
   });
 
