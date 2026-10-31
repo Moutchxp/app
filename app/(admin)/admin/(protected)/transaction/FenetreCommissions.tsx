@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { dossiersConcernes, ETIQUETTE, estVersee, type AffaireCout, type AffaireSolde, type CategorieCout, type DetailCommissions, type DetailSolde,
   type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
-import { ESPACE, eur, MOT_UNITE, useAffichage, useNommer, type UniteAffichage } from './commun';
+import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage, useNommer, type UniteAffichage } from './commun';
 
 /**
  * ══ 🔴 LOT AL (Arno, 29/10/2026) — LA FENÊTRE « COMMISSIONS VERSÉES » ══════════════════════════════════════════════════════════════════
@@ -43,7 +43,7 @@ const textes = (u: UniteAffichage, htC: number, ttcC: number): [string, string] 
 function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: number; ttcC: number; versee: boolean; recu?: boolean; donnees?: Record<string, string>; apres?: ReactNode }) {
   const [grand, petit] = textes(useAffichage(), htC, ttcC);
   return (
-    <span className={versee ? 'trx-fc-montant trx-rouge' : recu ? 'trx-fc-montant trx-vert' : 'trx-fc-montant trx-fc-info'} {...donnees}>
+    <span className={versee ? `trx-fc-montant ${classeSens('verse', htC, ttcC)}` : recu ? 'trx-fc-montant trx-vert' : 'trx-fc-montant trx-fc-info'} {...donnees}>
       <strong>{grand}</strong><span className="trx-mt-petit">({petit})</span>{apres}
     </span>
   );
@@ -76,7 +76,7 @@ function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, doss
           <div className="trx-fc-entete">
             <div className="trx-fc-entete-texte">
               <h2 id={`${donnee}-titre`}>{titre}</h2>
-              <span className={`trx-fc-montant trx-fc-montant--gauche ${sens === 'verse' ? 'trx-rouge' : 'trx-vert'}`} data-fenetre-total-haut>
+              <span className={`trx-fc-montant trx-fc-montant--gauche ${sens === 'verse' ? classeSens('verse', totalHtC, totalTtcC) : 'trx-vert'}`} data-fenetre-total-haut>
                 <strong>{totalHaut[0]}{motTotal === undefined ? '' : ` ${motTotal}`}</strong><span className="trx-mt-petit">({totalHaut[1]})</span></span>
             </div>
             <button type="button" className="trx-fc-fermer" ref={fermer} onClick={onFermer} aria-label="Fermer" data-fermer-fenetre>×</button>

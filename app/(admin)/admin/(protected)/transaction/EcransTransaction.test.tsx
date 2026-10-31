@@ -1075,4 +1075,26 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(texte('[data-bloc="negociateurs-mois"]')).toContain('Aucune vente sur la période.');
     } finally { fin(); }
   });
+  it('🔴 LOT CM — un coût nul en GRIS (le grand et le petit), un coût non nul en rouge : Espace par négociateur, son total, Résultat de l’agence ; HT et TTC', async () => {
+    const { classeSens, montantNul } = await import('./commun');
+    expect([classeSens('verse', 0, 0), classeSens('verse', 0.004, 0.004), classeSens('verse', 1, 1.2), classeSens('recu', 0, 0)]).toEqual(['trx-cout-nul', 'trx-cout-nul', 'trx-rouge', 'trx-vert']);
+    expect(montantNul(0, 0.01)).toBe(false);
+    const mylene = vente(61, { societe: 'criterimmo', libelle: 'MILLECAMPS', honorairesTtc: 29423, lignes: [{ id: 9, negociateur: 'MYLENE', role: 'negociateur', montantTtc: 23538, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: 'MYLENE', sourceLigne: 1, note: null }] });
+    const fin = await ouvrirSur([mylene], 'criterimmo');
+    try {
+      await cliquer('[data-bloc="negociateurs-mois"] button');
+      for (const u of ['ht', 'ttc'] as const) {
+        if (u === 'ttc') await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+        const cout = (sel: string) => container.querySelector(sel)!.closest('.trx-mt-liste')!.className;
+        // rétrocessions 0 : gris (ligne, total, Résultat) ; commission 23 538 : rouge
+        for (const sel of ['[data-retro-espace="MYLENE"]', '[data-total-retro]', '[data-retro-resultat]']) expect([u, sel, cout(sel)]).toEqual([u, sel, 'trx-mt-liste trx-cout-nul']);
+        for (const sel of ['[data-com-espace="MYLENE"]', '[data-total-com]', '[data-paye-deduite]']) expect([u, sel, cout(sel)]).toEqual([u, sel, 'trx-mt-liste trx-rouge']);
+        // la carte : com négo comptabilisée non nulle en rouge
+        expect(container.querySelector('[data-vente="61"] [data-nego-com]')!.closest('.trx-rouge')).not.toBeNull();
+      }
+      const { CSS_TRANSACTION } = await import('./commun');
+      expect(CSS_TRANSACTION).toContain('.trx-cout-nul,.trx-cout-nul .trx-mt-petit,.trx-cout-nul .trx-montant-autre{color:var(--color-svv-muted)}');
+    } finally { fin(); }
+  });
 });

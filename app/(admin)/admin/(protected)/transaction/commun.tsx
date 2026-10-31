@@ -115,6 +115,13 @@ export function SelecteurAffichage() {
 /** Le sens d'un montant : sa couleur. */
 export type Sens = 'verse' | 'recu' | 'neutre';
 export const CLASSE_SENS: Record<Sens, string> = { verse: 'trx-rouge', recu: 'trx-vert', neutre: '' };
+/**
+ * 🔴 LOT CM (Arno) — LA SEULE RÈGLE DE COULEUR D'UN MONTANT : un COÛT (« versé », rouge) qui vaut 0 (en HT et en TTC, au centime) s'affiche en
+ * GRIS, comme une com à 0 ; un montant vert (CA, reste) garde sa couleur même à 0. Utilisée partout dans la tuile (cartes, Résultat, espace par
+ * négociateur, fenêtres, synthèse, tuiles, répartition). PUR.
+ */
+export const montantNul = (ht: number, ttc: number): boolean => Math.round(ht * 100) === 0 && Math.round(ttc * 100) === 0;
+export const classeSens = (sens: Sens, ht: number, ttc: number): string => (sens === 'verse' && montantNul(ht, ttc) ? 'trx-cout-nul' : CLASSE_SENS[sens]);
 
 /** Un montant seul, dans l'unité affichée (« 6 500,00 € TTC ») — l'opérande d'un calcul. PUR. */
 export const montantAffiche = (u: UniteAffichage, ht: number, ttc: number): string => `${eur(u === 'ttc' ? ttc : ht)}${ESPACE}${MOT_UNITE[u]}`;
@@ -136,7 +143,7 @@ export function Montants({ ht, ttc, sens = 'neutre', disposition = 'pile', suffi
   const autre: UniteAffichage = u === 'ttc' ? 'ht' : 'ttc';
   const valeur = (x: UniteAffichage): number => (x === 'ttc' ? ttc : ht);
   const marques = (x: UniteAffichage): Record<string, string> | undefined => (x === 'ttc' ? donneesTtc : donneesHt);
-  const couleur = CLASSE_SENS[sens];
+  const couleur = classeSens(sens, ht, ttc);
   return (
     <span className={`trx-mt trx-mt--${disposition}${classe ? ` ${classe}` : ''}`} data-montants={u} {...donnees}>
       <strong className={`trx-mt-grand${couleur ? ` ${couleur}` : ''}`} data-montant-grand><span className={couleur || undefined} {...marques(u)}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</span>{suffixe}</strong>
@@ -297,6 +304,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-entete-gauche h3{margin:0}
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
 .trx-listes-mois{display:contents}
+/* LOT CM — un coût nul : gris (le grand et le petit), comme une com à 0. */
+.trx-cout-nul,.trx-cout-nul .trx-mt-petit,.trx-cout-nul .trx-montant-autre{color:var(--color-svv-muted)}
 /* LOT CL — Espace par négociateur : une Com non comptabilisée en gris ; la ligne de total sur la trame. */
 .trx-espace-gris .trx-mt-liste{color:var(--color-svv-muted)}
 .trx-espace-total > th,.trx-espace-total > td{background:var(--trx-trame);font-weight:700}

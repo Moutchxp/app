@@ -8,7 +8,7 @@ import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant } fr
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
 import { auCentime, centimesRepartition, motifSomme, partieExterieure, partsParSociete, pourcentageDe, pourcentagesParSociete, totalRepartition, verifierRepartition } from '../../../../lib/transaction/repartition';
-import { ESPACE, eur, grouperSaisie, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, pctFr, useAffichage } from './commun';
+import { classeSens, ESPACE, eur, grouperSaisie, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, pctFr, useAffichage } from './commun';
 import { texteSaisie } from '../../../../lib/transaction/format';
 
 /**
@@ -594,7 +594,7 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
   const u = useAffichage();
   const autre = u === 'ttc' ? 'ht' : 'ttc';
   const montants = (ttc: number, sens: 'verse' | 'recu' | 'neutre', donnee?: string, htForce?: number) => {
-    const couleur = sens === 'verse' ? 'trx-rouge' : sens === 'recu' ? 'trx-vert' : undefined;
+    const couleur = classeSens(sens, htForce ?? ttc / TVA, ttc) || undefined; // 🔴 LOT CM — un coût nul en gris
     const texte = (x: 'ht' | 'ttc'): string => `${eur(x === 'ttc' ? ttc : htForce ?? ttc / TVA)}${ESPACE}${MOT_UNITE[x]}`;
     const marque = (x: 'ht' | 'ttc') => (x === 'ht' ? { 'data-resume-ht': donnee } : { 'data-resume-ttc': donnee });
     return (

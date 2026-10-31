@@ -14,7 +14,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
+import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -419,7 +419,9 @@ export function Mt({ ht: montantHt, ttc, donnees, classe, cout = false }: { ht: 
   const u = useAffichage();
   const t = ttc ?? montantHt * TVA;
   const [grand, petit, motPetit] = u === 'ht' ? [montantHt, t, MOT_UNITE.ttc] : [t, montantHt, MOT_UNITE.ht];
-  return <span className={cout ? 'trx-mt-liste trx-rouge' : 'trx-mt-liste'} data-cout={cout ? '' : undefined}><span className="trx-mt-liste-grand"><span className={classe} {...donnees}>{eur(grand)}</span>{ESPACE}{MOT_UNITE[u]}</span> <small className="trx-montant-autre" data-montant-autre>({eur(petit)}{ESPACE}{motPetit})</small></span>;
+  // 🔴 LOT CM — un coût nul en gris (la règle partagée `classeSens`).
+  const couleur = cout ? classeSens('verse', montantHt, t) : '';
+  return <span className={couleur ? `trx-mt-liste ${couleur}` : 'trx-mt-liste'} data-cout={cout ? '' : undefined}><span className="trx-mt-liste-grand"><span className={classe} {...donnees}>{eur(grand)}</span>{ESPACE}{MOT_UNITE[u]}</span> <small className="trx-montant-autre" data-montant-autre>({eur(petit)}{ESPACE}{motPetit})</small></span>;
 }
 /** 🔴 LOT BW — l'unité choisie pour « Le mois » / « L'année » : `en` passe un montant HT dans cette unité (× 1,2 en TTC, sans arrondi), `e` l'écrit. */
 function useUnite() {

@@ -8,7 +8,7 @@ import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommiss
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { BoutonAffichage, ESPACE, eur, FournisseurAffichage, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -426,9 +426,9 @@ function LignesNegociateurs({ l }: { l: LignesCarte }) {
           <span className="trx-nego-cote" data-nego-cote data-col="2">{x.cote === null ? '' : `· ${x.cote === 'entree' ? 'entrée' : 'sortie'}`}</span>{x.cote === null ? '' : ' '}
           <span className="trx-nego-col" data-col="3"><span className="trx-nego-lib"><span className="trx-nego-sep">— </span><span className={deduit ? 'trx-rouge trx-nego-mot' : 'trx-nego-mot'} data-nego-nets={deduit ? 'deduit' : ''}>honoraires nets</span></span> <span className="trx-nego-montant" data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
           {x.reverse !== null
-            ? <span className="trx-nego-col trx-nego-col--double trx-rouge" data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
+            ? <span className={`trx-nego-col trx-nego-col--double ${classeSens('verse', x.reverse.m.htC, x.reverse.m.ttcC)}`} data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
             : <>
-              <span className={`trx-nego-col${x.comptabilisee && (x.com.htC !== 0 || x.com.ttcC !== 0) ? ' trx-rouge' : ''}`} data-col="4"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>com négo</span> <span className="trx-nego-val" data-nego-com>{m(x.com)}</span></span>{' '}
+              <span className={`trx-nego-col${x.comptabilisee ? ` ${classeSens('verse', x.com.htC, x.com.ttcC)}` : ''}`} data-col="4"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>com négo</span> <span className="trx-nego-val" data-nego-com>{m(x.com)}</span></span>{' '}
               <span className="trx-nego-col trx-vert" data-col="5"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>reste</span> <span className="trx-nego-val" data-nego-reste>{m(x.reste)}</span></span>
             </>}
           <span className="trx-nego-extra">{x.exterieures.map((y) => <span key={y.nom} className="trx-rouge" data-nego-exterieure> · {y.nom} {m(y.m)}</span>)}</span>

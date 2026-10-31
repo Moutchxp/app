@@ -4950,4 +4950,17 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     const f = document.querySelector('[data-fenetre-commissions]')!.textContent!;
     expect([f.includes('ACTE / OCT'), f.includes('ANCIEN / SEPT')]).toEqual([true, false]);
   });
+  it('🔴 LOT CM — onglet Compromis : un coût nul en gris (tuile et fenêtre « Commissions versées », synthèse), la même règle partagée', async () => {
+    // un compromis sans apporteur ni commission : « Commissions versées » 0 €
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, parties: [{ ...compromis.repartition!.parties[0], pourcentage: 100, statut: 'associe' }] }, apporteur: null }];
+    listeActes = [];
+    window.localStorage.setItem('trx-compromis-vue', 'encours');
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();
+    expect(texte('[data-tuile="commissions"] [data-montant-grand]')).toMatch(/^0 € /);
+    expect(container.querySelector('[data-tuile="commissions"] [data-montant-grand]')!.className).toContain('trx-cout-nul');
+    expect(container.querySelector('[data-tuile="commissions"] [data-montant-petit]')!.className).toContain('trx-cout-nul');
+    expect(container.querySelector('[data-total-entete-du] [data-montant-grand]')!.className).toContain('trx-cout-nul');
+    await cliquer('[data-tuile="commissions"]');
+    expect(document.querySelector('[data-fenetre-total-haut]')!.className).toContain('trx-cout-nul');
+  });
 });
