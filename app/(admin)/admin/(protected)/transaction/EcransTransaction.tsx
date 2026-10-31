@@ -27,6 +27,8 @@ import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, listeADate, listeDesAnnees, moisADate, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
+import { carteCompromis } from '../../../../lib/transaction/compromisCarte';
 import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
@@ -632,16 +634,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 
     <div ref={listes} className="trx-listes-mois">
     {/* 🔴 LOT CA — l'en-tête : le titre puis le nombre « (3) » ; les ventes en CARTES (celles de l'onglet « Compromis »). */}
-    {mode !== 'compromis' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-ventes" data-bloc="ventes-mois">
-      <div className="trx-entete-gauche"><h3 id="trx-ventes">Les ventes {duMois} — {enPeriode ? nomPeriode : libMois}</h3><span className="trx-compteur" data-compteur-liste>({ventes.length})</span></div>
-      <CartesVentes ventes={ventes} retros={tout.retrocessions} vide={enPeriode ? `Aucune vente ${surLaPeriode}.` : 'Aucune vente ce mois.'} societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
-    </section>}
-    {mode !== 'vendu' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-compromis-mois" data-bloc="compromis-du-mois">
-      <div className="trx-entete-gauche"><h3 id="trx-compromis-mois">{mode === 'tous' ? `Les compromis en cours ${duMois}` : `Les compromis ${duMois}`} — {enPeriode ? nomPeriode : libMois}</h3>
-        <span className="trx-compteur" data-compteur-liste>({compDuMois.length})</span>
-        <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small></div>
-      <CartesVentes ventes={compDuMois} retros={tout.retrocessions} vide={enPeriode ? `Aucun compromis signé ${surLaPeriode}.` : 'Aucun compromis signé ce mois.'} societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />
-    </section>}
+    {mode !== 'compromis' && <ListeCartesAffaires id="trx-ventes" bloc="ventes-mois" titre={`Les ventes ${duMois} — ${enPeriode ? nomPeriode : libMois}`} ventes={ventes}
+      retros={tout.retrocessions} vide={enPeriode ? `Aucune vente ${surLaPeriode}.` : 'Aucune vente ce mois.'} motAucun="Aucune vente ne correspond." societe={d.societe}
+      statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
+    {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-mois" bloc="compromis-du-mois" titre={`${mode === 'tous' ? `Les compromis en cours ${duMois}` : `Les compromis ${duMois}`} — ${enPeriode ? nomPeriode : libMois}`}
+      apres={<small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>} ventes={compDuMois} retros={tout.retrocessions}
+      vide={enPeriode ? `Aucun compromis signé ${surLaPeriode}.` : 'Aucun compromis signé ce mois.'} motAucun="Aucun compromis ne correspond." societe={d.societe}
+      statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
     </div>
     {fenetres}
 
@@ -848,6 +847,46 @@ function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }
           </CarteAffaire>
         </li>))}
     </ul>
+  );
+}
+
+/**
+ * 🔴 LOT DJ (Arno) — UNE LISTE DE CARTES de « Le mois » et « L'année » (ventes, compromis) : le titre, le compteur, le TRI discret (« Trier : … »,
+ * le gabarit du lot CS ; retenu par le navigateur, partagé par les deux écrans et les deux sociétés), puis, à partir de 10 cartes, « Rechercher… »
+ * (pendant la frappe ; « (3 sur 17) » ; la croix efface). Le tri et la recherche ne changent que les cartes montrées (`listeCartes`).
+ */
+function ListeCartesAffaires({ id, bloc, titre, apres, ventes, retros, vide, motAucun, societe, statutDuLibelle, fiches }: { id: string; bloc: string; titre: string;
+  apres?: ReactNode; ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string; motAucun: string; societe: Societe; statutDuLibelle?: StatutDuLibelle;
+  fiches: { hote: HoteDetail; references: References } }) {
+  const u = useAffichage();
+  const nommer = useNommer();
+  const [tri, setTriEtat] = useState<TriListe>(() => { try { const x = window.localStorage.getItem(CLE_TRI_LISTE); return estTriListe(x) ? x : TRI_LISTE_DEFAUT; } catch { return TRI_LISTE_DEFAUT; } });
+  const setTri = (x: string): void => { if (!estTriListe(x)) return; setTriEtat(x); try { window.localStorage.setItem(CLE_TRI_LISTE, x); } catch { /* préférence seulement */ } };
+  const [recherche, setRecherche] = useState('');
+  const titreDe = (v: Vente): string => (v.miroir != null ? v.libelle : carteCompromis(v, fiches.hote.d.aujourdhui).titre);
+  const opts = { retros, statutDuLibelle };
+  const avecRecherche = ventes.length >= SEUIL_RECHERCHE;
+  const q = avecRecherche ? recherche.trim() : '';
+  const montrees = q === '' ? ventes : ventes.filter((v) => correspond(ficheRecherche(v, { titre: titreDe(v), vue: societe, ...opts, nommer, apporteurs: fiches.references.apporteurs }), q));
+  const triees = trierListe(montrees, tri, (v) => { const c = resultatDesCartes([v], societe, opts).ca; return u === 'ht' ? c.htC : c.ttcC; }, titreDe);
+  return (
+    <section className="tdb-section trx-liste-affaires" aria-labelledby={id} data-bloc={bloc}>
+      <div className="trx-entete-gauche trx-entete-liste">
+        <h3 id={id}>{titre}</h3>
+        <span className="trx-compteur" data-compteur-liste>({q === '' ? ventes.length : `${triees.length} sur ${ventes.length}`})</span>
+        {ventes.length > 0 && <div className="trx-tri-compromis trx-tri-liste" data-tri-liste={tri}><span className="trx-tri-mot" aria-hidden="true">Trier :</span>
+          <ListeChoix options={TRIS_LISTE.map((x) => ({ id: x, libelle: LIBELLE_TRI_LISTE[x] }))} valeur={tri} vide={null} libelle={`Trier — ${titre}`}
+            onChange={setTri} classe="trx-tri-champ" donnees={{ 'data-choix-tri-liste': '' }} /></div>}
+        {apres}
+        {avecRecherche && <div className="trx-recherche-liste">
+          <input type="search" className="trx-recherche-champ" placeholder="Rechercher…" aria-label={`Rechercher — ${titre}`} value={recherche}
+            onChange={(e) => setRecherche(e.target.value)} data-recherche-liste />
+          {recherche !== '' && <button type="button" className="trx-recherche-effacer" aria-label="Effacer la recherche" onClick={() => setRecherche('')} data-effacer-recherche>×</button>}
+        </div>}
+      </div>
+      {q !== '' && triees.length === 0 ? <p className="loc-muet" data-aucun-resultat>{motAucun}</p>
+        : <CartesVentes ventes={triees} retros={retros} vide={vide} societe={societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
+    </section>
   );
 }
 
@@ -1271,16 +1310,12 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
       : <GrapheMois d={d} tout={tout} annee={annee} mois={0} jour={jour} mode={mode} series={series} onMois={(m) => onOuvrirMois(annee, m)} moisSeul={false} periodeAnnee={null} entete={choixEchelle} />}
 
     <div ref={listes} className="trx-listes-mois">
-      {mode !== 'compromis' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-ventes-annee" data-bloc="ventes-annee">
-        <div className="trx-entete-gauche"><h3 id="trx-ventes-annee">{enTout ? `Les ventes — toutes les années (${plage})` : `Les ventes de ${lib}`}</h3><span className="trx-compteur" data-compteur-liste>({ventesSel.length})</span></div>
-        <CartesVentes ventes={ventesSel} retros={tout.retrocessions} vide={`Aucune vente ${surLaPeriode}.`} societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />
-      </section>}
-      {mode !== 'vendu' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-compromis-annee" data-bloc="compromis-annee">
-        <div className="trx-entete-gauche"><h3 id="trx-compromis-annee">{enTout ? (mode === 'tous' ? 'Les compromis en cours — toutes les années' : 'Les compromis — toutes les années') : mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}</h3>
-          <span className="trx-compteur" data-compteur-liste>({compSel.length})</span>
-          <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small></div>
-        <CartesVentes ventes={compSel} retros={tout.retrocessions} vide={`Aucun compromis signé ${surLaPeriode}.`} societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />
-      </section>}
+      {mode !== 'compromis' && <ListeCartesAffaires id="trx-ventes-annee" bloc="ventes-annee" titre={enTout ? `Les ventes — toutes les années (${plage})` : `Les ventes de ${lib}`}
+        ventes={ventesSel} retros={tout.retrocessions} vide={`Aucune vente ${surLaPeriode}.`} motAucun="Aucune vente ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
+      {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-annee" bloc="compromis-annee"
+        titre={enTout ? (mode === 'tous' ? 'Les compromis en cours — toutes les années' : 'Les compromis — toutes les années') : mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}
+        apres={<small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>} ventes={compSel} retros={tout.retrocessions}
+        vide={`Aucun compromis signé ${surLaPeriode}.`} motAucun="Aucun compromis ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
     </div>
     {fenetres}
 

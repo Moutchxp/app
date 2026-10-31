@@ -478,7 +478,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(tuile('ventes-mois')).toEqual(['Compromis — janvier', '2', '1 en 2024']);
     expect(tuile('cumul')[0]).toBe('CA des compromis cumulé 2025 (à fin janvier)');
     expect(container.querySelector('[data-compromis-sans-date]')).toBeNull(); // 🔴 LOT CR — la mention est retirée (accord d'Arno) ; ils ne comptent dans aucun mois
-    expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['11', '12']);
+    expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['12', '11']); // 🔴 LOT DJ : la date la plus récente d'abord
     expect(container.querySelector('[data-bloc="ventes-mois"]')).toBeNull();
     expect(new URLSearchParams(window.location.search).get('mode')).toBe('compromis');
   });
@@ -932,7 +932,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const fin = await ouvrirSur([deux, donnees.ventes[0]], 'criterimmo');
     try {
       // l'en-tête de la liste : « Les ventes du mois — janvier 2025 » puis « (2) », ensemble à gauche
-      expect([...container.querySelector('[data-bloc="ventes-mois"] .trx-entete-gauche')!.children].map((x) => x.textContent)).toEqual(['Les ventes du mois — janvier 2025', '(2)']);
+      expect([...container.querySelector('[data-bloc="ventes-mois"] .trx-entete-gauche')!.children].map((x) => x.textContent).slice(0, 2)).toEqual(['Les ventes du mois — janvier 2025', '(2)']);
+      expect(container.querySelector('[data-bloc="ventes-mois"] .trx-entete-gauche')!.children[2].hasAttribute('data-tri-liste')).toBe(true); // 🔴 LOT DJ : le tri, après le compteur
       // la même carte que l'onglet Compromis : même classe, même structure (titre, ligne d'infos, montants à droite, triangle rouge)
       const carte = container.querySelector('[data-vente="50"] .trx-carte')!;
       expect(carte.className).toContain('trx-carte-affaire');
@@ -1235,7 +1236,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de la période — juillet, septembre 2025 (2 mois)');
         expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Période : juillet, septembre 2025 (2 mois)');
         expect(container.querySelector('[data-bloc="histogramme-mois"]')!.getAttribute('data-periode-graphe')).toBe('7,9');
-        expect([...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['60', '61']);
+        expect([...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['61', '60']); // 🔴 LOT DJ : la date la plus récente d'abord
         // téléphone : le bouton est dans la ligne des mois, après les mois (la feuille le passe au-dessus, à droite)
         const rangee = container.querySelector('.trx-rangee-mois')!;
         expect([...rangee.children].map((x) => x.className)).toEqual(['tdb-onglets trx-onglets-periode', 'trx-unites trx-choix-periode']);
@@ -2027,7 +2028,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       try {
         const blocs = [...container.querySelectorAll('[data-bloc]')].map((b) => b.getAttribute('data-bloc')).filter((b) => ['ventes-annee', 'compromis-annee', 'resume-periode', 'negociateurs-periode', 'toute-histoire', 'apporteurs-periode', 'compromis', 'mois-a-confirmer'].includes(b!));
         expect(blocs).toEqual(['ventes-annee', 'compromis-annee', 'resume-periode', 'negociateurs-periode', 'toute-histoire', 'apporteurs-periode', 'compromis', 'mois-a-confirmer']);
-        expect([...container.querySelectorAll('[data-bloc="ventes-annee"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['200', '201', '204', '203']);
+        expect([...container.querySelectorAll('[data-bloc="ventes-annee"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['204', '201', '200', '203']); // 🔴 LOT DJ : la plus récente d'abord, « mois à confirmer » en fin
         expect([...container.querySelectorAll('[data-bloc="compromis-annee"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['202']);
         expect(texte('[data-bloc="resume-periode"] h3')).toBe('Résultat de l’agence — 2025 (vendu + compromis)');
         expect(texte('[data-mois-a-confirmer-resultat]')).toBe('2 000 € (1)');
@@ -2092,6 +2093,87 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         fin = await ouvrirH('/?vue=annee&vue-annee=periode&annees=2024,2025');
         try { expect([texte('[data-tuile="ca-annee"] .tdb-tuile-mot'), texte('[data-tuile-n1="ca"]')]).toEqual(['CA HT — 2024 → 2025', expect.stringContaining('un an plus tôt')]); } finally { fin(); }
       });
+    });
+  });
+
+  describe('🔴 LOT DJ — les listes de cartes de « Le mois » et « L’année » : tri et recherche', () => {
+    const lj = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const doss = (o: Partial<NonNullable<Vente['dossier']>>): NonNullable<Vente['dossier']> => ({ adresseBien: null, dateActePrevue: null, dateActe: null, entree: null, sortie: null, apporteurId: null, personnes: [], ...o });
+    // 2025 : 10 ventes signées (dont une « mois à confirmer »), une le 20 mars à 7 500 TTC, un vendeur au téléphone et à l'e-mail connus
+    const jeu = (n = 10): Vente[] => Array.from({ length: n }, (_, i) => vente(400 + i, { societe: 'criterimmo', libelle: `AFFAIRE ${String.fromCharCode(65 + i)}`, honorairesTtc: 1000 * (i + 1),
+      annee: 2025, mois: i === 9 ? null : (i % 9) + 1, lignes: [lj('ARNAUD', 1000 * (i + 1))] })).map((v) => (v.id !== 404 ? v : {
+      ...v, libelle: 'DUPONT/MARTIN', honorairesTtc: 7500, mois: 3, lignes: [lj('ARNAUD', 7500)],
+      dossier: doss({ dateActe: '2025-03-20', adresseBien: '12 rue de l’Église, Asnières', personnes: [
+        { id: 1, role: 'vendeur', nom: 'DUPONT', prenom: 'Élodie', telephone: '06 12 34 56 78', email: 'e.dupont@exemple.fr', adresse: null }] }) }));
+    const ouvrirJ = async (q: string, n = 10) => {
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = { ARNAUD: 'Arnaud JOREL' };
+      const fin = await ouvrirSur(jeu(n), 'criterimmo', q);
+      return () => { fin(); donnees.nomsNegociateurs = avant; };
+    };
+    const L = '[data-bloc="ventes-annee"]';
+    const cartes = (b = L) => [...container.querySelectorAll(`${b} [data-cartes-ventes] > [data-vente]`)].map((x) => x.getAttribute('data-vente'));
+    const choisir = async (libelle: string, b = L) => {
+      await cliquer(`${b} [data-choix-tri-liste]`);
+      const o = [...document.querySelectorAll('[role="option"]')].find((x) => (x.textContent ?? '').replace('✓', '') === libelle) as HTMLElement;
+      await act(async () => { o.click(); }); await calmer();
+    };
+    const taper = async (x: string, b = L) => {
+      const el = container.querySelector(`${b} [data-recherche-liste]`) as HTMLInputElement;
+      const regler = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => { regler.call(el, x); el.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
+    };
+    afterEach(() => { window.localStorage.removeItem('trx-liste-tri'); });
+
+    it('les quatre tris (« Trier : » après le compteur) ; « mois à confirmer » en fin ; égalité alphabétique ; retenu et partagé avec « Le mois » ; les tuiles ne bougent pas', async () => {
+      let fin = await ouvrirJ('/?vue=annee&annee=2025');
+      try {
+        const tuile = texte('[data-tuile="ca-annee"] .tdb-tuile-valeur');
+        expect([texte(`${L} [data-tri-liste] .trx-tri-mot`), texte(`${L} [data-choix-tri-liste]`)]).toEqual(['Trier :', 'Date : la plus récente d’abord']);
+        // défaut : la plus récente d'abord (le mois de l'acte ; DUPONT : 20 mars), la « mois à confirmer » (409) en dernier
+        expect(cartes()).toEqual(['408', '407', '406', '405', '403', '404', '402', '401', '400', '409']);
+        await choisir('Date : la plus ancienne d’abord');
+        expect(cartes()).toEqual(['400', '401', '402', '404', '403', '405', '406', '407', '408', '409']);
+        await choisir('CA : du plus gros au plus petit');
+        expect(cartes()).toEqual(['409', '408', '407', '404', '406', '405', '403', '402', '401', '400']);
+        await choisir('CA : du plus petit au plus gros');
+        expect([cartes()[0], cartes().at(-1), texte('[data-tuile="ca-annee"] .tdb-tuile-valeur')]).toEqual(['400', '409', tuile]);
+        expect(window.localStorage.getItem('trx-liste-tri')).toBe('ca-asc');
+      } finally { fin(); }
+      // le choix retenu : « Le mois », mars 2025 (deux ventes : 1 000… 7 500) — du plus petit au plus gros
+      fin = await ouvrirJ('/?vue=mois&annee=2025&mois=3');
+      try { expect([texte('[data-bloc="ventes-mois"] [data-choix-tri-liste]'), cartes('[data-bloc="ventes-mois"]')]).toEqual(['CA : du plus petit au plus gros', ['402', '404']]); } finally { fin(); }
+    });
+
+    it('la recherche (à partir de 10 cartes) : nom, adresse, téléphone autrement écrit, e-mail, montant de trois façons ; « (N sur M) » ; aucune ; effacer ; HT et TTC', async () => {
+      for (const u of ['ht', 'ttc'] as const) {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        const fin = await ouvrirJ('/?vue=annee&annee=2025');
+        try {
+          expect(container.querySelector(`${L} [data-recherche-liste]`)!.getAttribute('placeholder')).toBe('Rechercher…');
+          for (const q of ['dupont', 'ELODIE', 'eglise', 'asnieres', '0612', '06 12 34', 'e.dupont@', '7500', '7 500', '7500,00', 'arnaud jorel']) {
+            await taper(q);
+            // « 7 500 » : DUPONT (7 500 TTC) et l'affaire I (9 000 TTC = 7 500 HT) — un montant se cherche en HT comme en TTC
+            const attendu = q === 'arnaud jorel' ? 10 : ['7500', '7 500', '7500,00'].includes(q) ? 2 : 1;
+            expect([u, q, cartes().length, texte(`${L} [data-compteur-liste]`)]).toEqual([u, q, attendu, `(${attendu} sur 10)`]);
+          }
+          await taper('durand');
+          expect([cartes(), texte(`${L} [data-aucun-resultat]`), texte(`${L} [data-compteur-liste]`)]).toEqual([[], 'Aucune vente ne correspond.', '(0 sur 10)']);
+          await cliquer(`${L} [data-effacer-recherche]`);
+          expect([cartes().length, texte(`${L} [data-compteur-liste]`), container.querySelector(`${L} [data-effacer-recherche]`)]).toEqual([10, '(10)', null]);
+          expect(texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')).toBe('10');
+        } finally { fin(); }
+      }
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+    });
+
+    it('sous 10 cartes : pas de champ ; au téléphone : sous le titre, pleine largeur ; le même composant dans « Le mois »', async () => {
+      let fin = await ouvrirJ('/?vue=annee&annee=2025', 9);
+      try { expect([container.querySelector(`${L} [data-recherche-liste]`), container.querySelector(`${L} [data-tri-liste]`) !== null]).toEqual([null, true]); } finally { fin(); }
+      fin = await ouvrirJ('/?vue=mois&annee=2025&mois=3');
+      try { expect([container.querySelector('[data-bloc="ventes-mois"] [data-tri-liste]') !== null, container.querySelector('[data-bloc="ventes-mois"] [data-recherche-liste]')]).toEqual([true, null]); } finally { fin(); }
+      const { CSS_TRANSACTION } = await import('./commun');
+      expect(CSS_TRANSACTION).toContain('@media (max-width:720px){ .trx-recherche-liste{flex-basis:100%;margin-left:0} .trx-recherche-champ{width:100%} }');
     });
   });
 

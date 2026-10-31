@@ -416,6 +416,14 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-hors-liste{list-style:none;margin:0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:6px;font-size:.88rem}
 .trx-hors-liste li{display:flex;flex-direction:column}
 .trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
+/* LOT DJ — la recherche d'une liste de cartes : discrete, a droite de la ligne du titre ; au telephone, sous le titre, pleine largeur. */
+.trx-recherche-liste{margin-left:auto;position:relative;display:inline-flex;align-items:center}
+.trx-recherche-champ{height:36px;width:min(260px,100%);padding:0 30px 0 12px;border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem}
+.trx-recherche-champ::placeholder{color:var(--color-svv-muted)}
+.trx-recherche-champ::-webkit-search-cancel-button{display:none}
+.trx-recherche-effacer{position:absolute;right:4px;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--color-svv-muted);font-size:1.1rem;cursor:pointer}
+.trx-recherche-effacer:hover{color:var(--color-svv-ink)}
+@media (max-width:720px){ .trx-recherche-liste{flex-basis:100%;margin-left:0} .trx-recherche-champ{width:100%} }
 .trx-btn-large{width:100%;min-height:44px}
 .trx-negociateur-carte{display:flex;flex-direction:column;gap:8px;width:100%}
 .trx-choix-negociateur{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface)}
