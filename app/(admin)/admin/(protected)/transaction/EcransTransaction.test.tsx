@@ -1178,7 +1178,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('bascule Mensuel ↔ Période ; sélection / désélection ; mois contigus et non contigus ; le dernier ne se retire pas ; retour au dernier mois cliqué', async () => {
       const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7', retros());
       try {
-        expect([texte('[data-choix-periode] [aria-pressed="true"]'), container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois')]).toEqual(['Mensuel', '7']);
+        expect([texte('[data-choix-periode] [aria-pressed="true"]'), container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois')]).toEqual(['Mois', '7']);
         expect([container.querySelector('[data-periode-libelle]'), adresse()]).toEqual([null, null]);
         await cliquer('[data-decouper="periode"]');
         expect([choisis(), texte('[data-bloc="ventes-mois"] h3'), adresse()]).toEqual([[7], 'Les ventes de la période — juillet 2025', '2025-07']); // le mois en cours reste choisi
@@ -1204,7 +1204,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect([...rangee.children].map((x) => x.className)).toEqual(['tdb-onglets trx-onglets-periode', 'trx-unites trx-choix-periode']);
         const { CSS_TRANSACTION } = await import('./commun');
         expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('@media (max-width:720px){ .trx-rangee-mois{flex-direction:column-reverse');
-        await cliquer('[data-decouper="mensuel"]');
+        await cliquer('[data-decouper="mois"]'); // 🔴 LOT CT : « Mois » (l'ancien « Mensuel »)
         expect([container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois'), adresse(), container.querySelector('[data-periode-libelle]')])
           .toEqual(['7', null, null]); // le dernier mois cliqué
       } finally { fin(); }
@@ -1244,6 +1244,59 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect([mode, u, p]).toEqual([mode, u, somme]);
         }
       }
+    });
+    describe('🔴 LOT CT — « Mois | Période | Année »', () => {
+      const pressee = () => texte('[data-choix-periode] [aria-pressed="true"]');
+      const vueMois = () => new URLSearchParams(window.location.search).get('vue-mois');
+      it('trois positions (Mois par défaut) ; « Année » : les 12 mois soulignés, « Année 2025 », N−1 sur 2024 entière ; changer d’année ; un clic sur un mois → Période sans lui ; retour au Mois', async () => {
+        const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7', retros());
+        try {
+          expect([[...container.querySelectorAll('[data-choix-periode] button')].map((x) => x.textContent), pressee(), vueMois()]).toEqual([['Mois', 'Période', 'Année'], 'Mois', 'mois']);
+          await cliquer('[data-decouper="annee"]');
+          expect([pressee(), choisis(), vueMois(), adresse()]).toEqual(['Année', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 'annee', null]);
+          expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Année 2025');
+          expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de l’année — 2025');
+          expect(texte('[data-bloc="apporteurs-mois"] h3')).toContain('Apporteurs de l’année — 2025');
+          expect(texte('[data-tuile="ca-mois"] .tdb-tuile-mot')).toBe('CA HT — année');
+          expect(texte('[data-tuile-n1="ca"]')).toMatch(/ en 2024 \(/);
+          expect(container.querySelector('[data-bloc="histogramme-mois"]')!.getAttribute('data-periode-graphe')).toBe('1,2,3,4,5,6,7,8,9,10,11,12');
+          // changer d'année : les 12 mois de la nouvelle
+          await cliquer('[data-filtre="annee"]');
+          const o = [...document.querySelectorAll('[role="option"]')].find((x) => (x.textContent ?? '').replace('✓', '') === '2024') as HTMLElement;
+          await act(async () => { o.click(); }); await calmer();
+          expect([pressee(), choisis().length, texte('[data-bloc="resultat-mois"] h3')]).toEqual(['Année', 12, 'Résultat de l’agence — Année 2024']);
+          // un clic sur un mois : Période, ce mois retiré (11 mois)
+          await cliquer('[data-onglet-mois="3"]');
+          expect([pressee(), choisis(), vueMois(), adresse()]).toEqual(['Période', [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12], 'periode', '2024-01,2024-02,2024-04,2024-05,2024-06,2024-07,2024-08,2024-09,2024-10,2024-11,2024-12']);
+          await cliquer('[data-decouper="annee"]');
+          await cliquer('[data-decouper="mois"]');
+          expect([pressee(), container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois'), vueMois()]).toEqual(['Mois', '7', 'mois']);
+        } finally { fin(); }
+      });
+      it('les liens : &vue-mois=annee ; les anciens (« &periode=… » sans vue-mois → Période ; sans rien → Mois)', async () => {
+        let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7&vue-mois=annee', retros());
+        try { expect([pressee(), choisis().length]).toEqual(['Année', 12]); } finally { fin(); }
+        fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=9&periode=2025-07,2025-09', retros());
+        try { expect([pressee(), choisis(), vueMois()]).toEqual(['Période', [7, 9], 'periode']); } finally { fin(); }
+        fin = await ouvrirSur(jeu(), 'criterimmo', '/?annee=2025&mois=7', retros());
+        try { expect([pressee(), vueMois()]).toEqual(['Mois', 'mois']); } finally { fin(); }
+      });
+      it('en Année, chaque total = la somme des 12 mois pris un par un, au centime (HT et TTC, trois modes)', async () => {
+        const lire = async (q: string, u: 'ht' | 'ttc') => {
+          window.localStorage.setItem('trx-affichage-montants', u);
+          const fin = await ouvrirSur(jeu(), 'criterimmo', q, retros());
+          try {
+            if (container.querySelector('[data-total-ca-net]') === null) await cliquer('[data-bloc="negociateurs-mois"] button');
+            return [montant('[data-tuile="ca-mois"] .tdb-tuile-valeur'), Number(texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur')), montant('[data-reste-agence]'), montant('[data-total-ca-net]')];
+          } finally { fin(); }
+        };
+        for (const mode of ['vendu', 'compromis', 'tous'] as const) for (const u of ['ht', 'ttc'] as const) {
+          const an = await lire(`/?vue=mois&annee=2025&mois=7&mode=${mode}&vue-mois=annee`, u);
+          const somme = [0, 0, 0, 0];
+          for (let m = 1; m <= 12; m++) (await lire(`/?vue=mois&annee=2025&mois=${m}&mode=${mode}&vue-mois=mois`, u)).forEach((x, i) => { somme[i] += x; });
+          expect([mode, u, an]).toEqual([mode, u, somme]);
+        }
+      });
     });
   });
 
