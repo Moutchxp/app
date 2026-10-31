@@ -1884,7 +1884,60 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
-  describe('🔴 LOT DE — mode « Mois » : le mois choisi plein, les autres pâles ; l’encadré au repos = le mois choisi', () => {
+  describe('🔴 LOT DF — le graphique de base (Tous ou un négociateur) : aucun mois pâle ; l’année affichée nettement devant N−1', () => {
+    const lf = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (): Vente[] => [
+      vente(195, { societe: 'criterimmo', libelle: 'MARS', honorairesTtc: 3000, annee: 2025, mois: 3, lignes: [lf('ARNAUD', 3000)] }),
+      vente(196, { societe: 'criterimmo', libelle: 'JUIL', honorairesTtc: 6000, annee: 2025, mois: 7, lignes: [lf('ARNAUD', 6000)] }),
+      vente(197, { societe: 'criterimmo', libelle: 'MARS 24', honorairesTtc: 2400, annee: 2024, mois: 3, lignes: [lf('ARNAUD', 2400)] }),
+    ];
+    const pales = () => container.querySelectorAll('.tdb-barre-annee--pale, .tdb-point--pale').length;
+
+    it('à l’ouverture de « Le mois » (Mensuel, Cumul) et de « L’année » : aucun mois pâle, le mois choisi en rouge ; Période et plusieurs négociateurs : l’atténuation reste', async () => {
+      let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7');
+      try {
+        expect([pales(), container.querySelectorAll('[data-bloc="histogramme-mois"] .tdb-barre--courante').length]).toEqual([0, 1]);
+        await cliquer('[data-cumul-bouton]');
+        expect(pales()).toBe(0);
+      } finally { fin(); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=annee&annee=2025');
+      try {
+        expect(container.querySelector('[data-bloc="mois-annee"] [data-barre-mois-annee]')).not.toBeNull();
+        expect(pales()).toBe(0);
+      } finally { fin(); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7&vue-mois=periode&periode=2025-03,2025-07');
+      try { expect(texte('[data-bloc="histogramme-mois"] style')).toContain('[data-periode-graphe] g[data-barre-mois]{opacity:.35}'); } finally { fin(); }
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = { ARNAUD: 'Arnaud JOREL', CEDRIC: 'Cédric JULLIEN' };
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN');
+      try { expect(pales()).toBe(11); } finally { fin(); donnees.nomsNegociateurs = avant; }
+    });
+
+    it('les couleurs : année pleine ardoise (rouge au mois choisi), N−1 hachurée plus claire et plus fine ; Cumul : courbe de l’année épaisse rouge, N−1 en pointillés gris clair ; la légende ; contraste AA en clair et en sombre', async () => {
+      const { CSS_TABLEAU_BORD } = await import('../location/TableauBordSuivi');
+      for (const r of ['.tdb-barre{fill:var(--tdb-annee)}', '.tdb-barre--courante{fill:var(--color-svv-red)}', '.tdb-barre-n1-trait{stroke:var(--tdb-n1);stroke-width:1}',
+        '.tdb-barre-n1{stroke:var(--tdb-n1);stroke-width:.75}', '.tdb-trait{fill:none;stroke:var(--color-svv-red);stroke-width:3}',
+        '.tdb-trait-n1{fill:none;stroke:var(--tdb-n1-courbe);stroke-width:1.75;stroke-dasharray:6 5}', '.tdb-legende--barre{background:var(--tdb-annee);',
+        '.tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--tdb-n1) 0 1px,', '.tdb-legende--n1{background:repeating-linear-gradient(90deg,var(--tdb-n1-courbe)']) expect(CSS_TABLEAU_BORD).toContain(r);
+      // les teintes : l'encre du thème mêlée à la surface (elles suivent Clair / Sombre / Système)
+      const part = (nom: string) => Number(new RegExp(`--${nom}:color-mix\\(in srgb, var\\(--color-svv-ink\\) (\\d+)%, var\\(--color-svv-surface\\)\\)`).exec(CSS_TABLEAU_BORD)![1]) / 100;
+      const [pA, pN1] = [part('tdb-annee'), part('tdb-n1')];
+      const globals = readFileSync('app/globals.css', 'utf8');
+      const jeton = (nom: string, i: number) => [...globals.matchAll(new RegExp(`--color-svv-${nom}:\\s*(#[0-9a-fA-F]{6})`, 'g'))][i][1];
+      const rgb = (h: string) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
+      const melange = (a: number[], b: number[], p: number) => a.map((x, k) => x * p + b[k] * (1 - p));
+      const lum = (c: number[]) => { const l = c.map((x) => { const v = x / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+      const contraste = (a: number[], b: number[]) => { const [x, y] = [lum(a), lum(b)].sort((u, v) => v - u); return (x + 0.05) / (y + 0.05); };
+      for (const [theme, i] of [['clair', 0], ['sombre', 1]] as const) {
+        const [encre, surface] = [rgb(jeton('ink', i)), rgb(jeton('surface', i))];
+        const [annee, n1] = [melange(encre, surface, pA), melange(encre, surface, pN1)];
+        // AA entre les deux années ; l'année plus visible que N−1 sur la surface
+        expect([theme, contraste(annee, n1) >= 4.5, contraste(annee, surface) > contraste(n1, surface)]).toEqual([theme, true, true]);
+      }
+    });
+  });
+
+  describe('🔴 LOT DE — mode « Mois » (2 à 5 négociateurs) : le mois choisi plein, les autres pâles ; l’encadré au repos = le mois choisi', () => {
     // aujourd'hui : 27/10/2025 ; mars (Cédric), mai (Arnaud), juillet (Julien) 2025, et mai 2024 (N−1)
     const le = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
       origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
@@ -1909,20 +1962,19 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const survoler = async (k: number) => { await act(async () => { container.querySelector(`${G} [data-barre-mois="${k}"], ${G} [data-mois-cumul="${k}"]`)!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); };
     const sortir = async () => { await act(async () => { container.querySelector(`${G} .tdb-histo-zone`)!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); }); };
 
-    it('un négociateur (Tous) : mai plein (barre rouge, hachures N−1 pleines), les 11 autres mois pâles (barre et hachures) ; changer de mois (ligne des mois, clic sur une barre)', async () => {
-      const fin = await ouvrirE('/?vue=mois&annee=2025&mois=5');
-      try {
-        expect([pleins(), pales()]).toEqual([['5'], 11]);
-        const mai = container.querySelector(`${G} g[data-barre-mois="5"]`)!;
-        expect([mai.querySelector('.tdb-barre--courante') !== null, mai.querySelector('[data-barre-n1]') !== null]).toEqual([true, true]);
-        expect(container.querySelector(`${G} g[data-barre-mois="3"]`)!.classList.contains('tdb-barre-annee--pale')).toBe(true);
-        await cliquer('[data-onglet-mois="7"]');
-        expect(pleins()).toEqual(['7']);
-        await act(async () => { container.querySelector(`${G} [data-barre-mois="3"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer();
-        expect([pleins(), pales()]).toEqual([['3'], 11]);
-        // la légende garde ses couleurs pleines
-        expect(container.querySelector(`${G} .tdb-histo-legende .tdb-barre-annee--pale`)).toBeNull();
-      } finally { fin(); }
+    it('🔴 LOT DF — un seul tracé (Tous, ou un négociateur) : aucun mois pâle ; le mois choisi en rouge ; changer de mois (ligne des mois, clic sur une barre)', async () => {
+      for (const q of ['', '&negociateur=Arnaud%20JOREL']) {
+        const fin = await ouvrirE(`/?vue=mois&annee=2025&mois=5${q}`);
+        try {
+          expect([q, pleins().length, pales()]).toEqual([q, 12, 0]);
+          const mai = container.querySelector(`${G} g[data-barre-mois="5"]`)!;
+          expect([mai.querySelector('.tdb-barre--courante') !== null, mai.querySelector('[data-barre-n1]') !== null]).toEqual([true, true]);
+          await cliquer('[data-onglet-mois="7"]');
+          expect([pales(), container.querySelector(`${G} g[data-barre-mois="7"] .tdb-barre--courante`) !== null]).toEqual([0, true]);
+          await act(async () => { container.querySelector(`${G} [data-barre-mois="3"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer();
+          expect([pales(), container.querySelector(`${G} g[data-barre-mois="3"] .tdb-barre--courante`) !== null]).toEqual([0, true]);
+        } finally { fin(); }
+      }
     });
 
     it('trois négociateurs : les barres de mai pleines (chaque couleur), les autres mois pâles ; la légende pleine ; changer de mois', async () => {
@@ -1937,14 +1989,14 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       } finally { fin(); }
     });
 
-    it('Cumul : le point du mois choisi plein et plus gros, les autres plus discrets ; les courbes restent pleines (un et trois négociateurs)', async () => {
+    it('Cumul : le point du mois choisi plus gros ; trois négociateurs : les autres points plus discrets, les courbes pleines ; un seul tracé : rien de pâle (lot DF)', async () => {
       let fin = await ouvrirE('/?vue=mois&annee=2025&mois=5');
       try {
         await cliquer('[data-cumul-bouton]');
+        // 🔴 LOT DF — un seul tracé : aucun point pâle ; le point du mois choisi plus gros
         const points = [...container.querySelectorAll(`${G} [data-point-cumul]`)];
-        expect(points.filter((p) => !p.classList.contains('tdb-point--pale')).map((p) => [p.getAttribute('data-point-cumul'), p.getAttribute('r')])).toEqual([['5', '5']]);
-        expect(points.filter((p) => p.classList.contains('tdb-point--pale')).every((p) => p.getAttribute('r') === '3')).toBe(true);
-        expect(container.querySelector(`${G} [data-trait-cumul="courant"]`)!.classList.contains('tdb-point--pale')).toBe(false);
+        expect(points.filter((p) => p.getAttribute('r') === '5').map((p) => p.getAttribute('data-point-cumul'))).toEqual(['5']);
+        expect([points.length, container.querySelectorAll(`${G} .tdb-point--pale, ${G} .tdb-barre-annee--pale`).length]).toEqual([10, 0]);
       } finally { fin(); }
       fin = await ouvrirE(`/?vue=mois&annee=2025&mois=5${TROIS}`);
       try {
@@ -1987,8 +2039,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       try { expect([pales(), titre()]).toEqual([0, 'Octobre 2025 — en cours']); } finally { fin(); }
       // la même atténuation qu'en Période (opacité .35), sans couleur propre : la couleur pleine du thème, claire ou sombre, pâlie
       const { CSS_TABLEAU_BORD } = await import('../location/TableauBordSuivi');
-      expect(CSS_TABLEAU_BORD).toContain('.tdb-barre-annee--pale,.tdb-point--pale{opacity:.35}');
-      expect(CSS_TABLEAU_BORD).toContain('[data-courbe="mois"] .tdb-barre-annee--pale{opacity:.6}'); // un seul tracé : les barres grises restent lisibles
+      expect(CSS_TABLEAU_BORD).toContain('.tdb-barre-annee--pale{opacity:.35}');
     });
   });
 

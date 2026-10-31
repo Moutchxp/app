@@ -485,9 +485,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           {cumulMois ? (
             <CourbeCumul courant={indisponible ? [] : cumulN.slice(0, moisCourbe)} n1={sansN1Mesure ? null : cumulN1} annee={annee} selection={mois}
               entier={mesure !== 'ca'} aria={`${motCumul} cumulé ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}, de janvier à décembre`}
-              bulle={bulleCumul} onChoisir={setMois} attenuer />
+              bulle={bulleCumul} onChoisir={setMois} />
           ) : (
-          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'} attenuer
+          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'}
             aria={`${mesure === 'ca' ? 'CA HT' : motDetail} par mois, ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}`}
             legende={{ courant: String(annee), n1: sansN1Mesure ? null : String(annee - 1) }}
             barres={B.map((p, i) => {
@@ -833,15 +833,13 @@ export function EnteteGraphe<M extends string = MesureMois>({ id, titre, mesure,
  * `n1` = les 12 de l'année précédente (null : non importée) ; `entier` : axe en nombres entiers (négatifs permis : un solde de gestions) ;
  * `bulle` : chaque mois se survole et s'ouvre, le détail s'écrit À DROITE (comme l'histogramme). Sans `bulle` : la courbe d'avant, telle quelle.
  */
-export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende, repos, attenuer = false }: {
+export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende, repos }: {
   courant: readonly number[]; n1: readonly number[] | null; annee: number; selection: number; aria: string; entier?: boolean;
   bulle?: (cle: number) => InfoBarre; onChoisir?: (cle: number) => void;
   /** 🔴 Arno (25/10/2026) — « Année par année » : un point par ANNÉE (les étiquettes et les clés des points ; défaut : les 12 mois, clés 1 → 12). */
   etiquettes?: readonly string[]; cles?: readonly number[]; nom?: string; attributZone?: string; legende?: ReactNode;
   /** 🔴 LOT CV (Arno) — l'encadré quand rien n'est survolé ni cliqué (« Cumul 2026 jusqu'à aujourd'hui »…) ; absent : le point choisi, comme avant. */
   repos?: InfoBarre;
-  /** 🔴 LOT DE (Arno) — mode « Mois » : le point du mois choisi plein et plus gros, les autres plus discrets (la courbe reste pleine). */
-  attenuer?: boolean;
 }) {
   const n = etiquettes.length;
   const cle = (i: number): number => cles?.[i] ?? i + 1;
@@ -872,7 +870,7 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
       {etiquettes.map((c, i) => <text key={c} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{c}</text>)}
       {n1 !== null && <path d={trace(n1)} className="tdb-trait-n1" data-trait-cumul="n1" />}
       {courant.length > 0 && <path d={trace(courant)} className="tdb-trait" data-trait-cumul="courant" />}
-      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className={attenuer && cle(i) !== selection ? 'tdb-point tdb-point--pale' : 'tdb-point'} data-point-cumul={cle(i)} data-valeur={v} />)}
+      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className="tdb-point" data-point-cumul={cle(i)} data-valeur={v} />)}
       {bulle !== undefined && etiquettes.map((c, i) => (
         <rect key={`z-${c}`} x={x(i) - pas / 2} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone tdb-zone-cumul" {...{ [attributZone]: cle(i) }}
           onMouseEnter={() => setSurvol(cle(i))} onClick={() => { setClic(cle(i)); onChoisir?.(cle(i)); }} />
@@ -1050,7 +1048,7 @@ function BarreEmpilee({ x, largeur, total, bas, y, classe, fill, donnees }: { x:
   );
 }
 
-export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe, entier = false, repos, attenuer = false }: {
+export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe, entier = false, repos }: {
   barres: readonly Barre[]; courante: number; onChoisir: (cle: number) => void; attribut: string; legende?: { courant: string; n1: string | null }; aria: string;
   /** La largeur FIXE d'une barre (unités du dessin) : au-delà de ce qui tient, le graphique défile (« Année par année »). */
   pasFixe?: number;
@@ -1059,9 +1057,6 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   /** 🔴 LOT CV (Arno) — l'encadré quand rien n'est survolé ni cliqué dans le graphique (le cumul de l'année, le mois en cours…) ; absent :
    *  la barre choisie, comme avant. */
   repos?: InfoBarre;
-  /** 🔴 LOT DE (Arno) — « Mois par mois » en mode « Mois » : la barre du mois choisi pleine, les autres mois pâles (barre et hachures N−1, la
-   *  même atténuation qu'en « Période ») ; absent : comme avant. */
-  attenuer?: boolean;
 }) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
   const [clic, setClic] = useState<number | null>(null);
@@ -1169,7 +1164,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
                     {barres.map((b, i) => {
                       const x0 = i * pas + pas * (avecN1 ? 0.12 : 0.18);
                       return (
-                        <g key={b.cle} className={attenuer && b.cle !== courante ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+                        <g key={b.cle} className="tdb-barre-annee" onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
                           <rect x={i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                           {avecN1 && b.n1 !== undefined && b.n1 !== null && (
                             <rect x={x0 + largeur} {...barreY(b.n1, yD)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
@@ -1210,7 +1205,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
           {barres.map((b, i) => {
             const x0 = m.g + i * pas + pas * (avecN1 ? 0.12 : 0.18);
             return (
-              <g key={b.cle} className={attenuer && b.cle !== courante ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+              <g key={b.cle} className="tdb-barre-annee" onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
                 <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                 {avecN1 && b.n1 !== undefined && b.n1 !== null && (b.empile?.basN1 != null
                   ? <BarreEmpilee x={x0 + largeur} largeur={largeur} total={b.n1} bas={b.empile.basN1} y={y} fill={`url(#hachures-${attribut})`} classe="tdb-barre-n1" donnees={{ 'data-barre-n1': b.cle }} />
@@ -1307,6 +1302,10 @@ const cartes = (t: string): string => `
 
 export const CSS_TABLEAU_BORD = `
 .tdb{display:flex;flex-direction:column;gap:18px}
+/* LOT DF (Arno) : le contraste entre les annees du graphique de base. Annee affichee : barres pleines ardoise soutenue (le mois choisi en rouge) ;
+   annee precedente : hachures plus claires, trait fin, en retrait ; Cumul : courbe N-1 en pointilles gris clair. Les teintes melangent l'encre et
+   la surface du theme (elles basculent seules en clair, sombre, systeme) ; contraste AA (>= 4,5) entre la barre de l'annee et le trait des hachures. */
+.tdb{--tdb-annee:color-mix(in srgb, var(--color-svv-ink) 80%, var(--color-svv-surface));--tdb-n1:color-mix(in srgb, var(--color-svv-ink) 20%, var(--color-svv-surface));--tdb-n1-courbe:color-mix(in srgb, var(--color-svv-ink) 40%, var(--color-svv-surface))}
 .tdb-rangee-mois{display:flex;align-items:stretch;border-bottom:1px solid var(--color-svv-line)}
 .tdb-rangee-mois .tdb-onglets{flex:1 1 auto;min-width:0;border-bottom:0}
 .tdb-onglet-annee{flex:0 0 auto;width:104px;position:sticky;right:0;background:var(--color-svv-surface);padding-left:6px;box-shadow:-10px 0 10px -10px var(--color-svv-line-strong)}
@@ -1452,19 +1451,18 @@ export const CSS_TABLEAU_BORD = `
 .tdb-grille{stroke:var(--color-svv-line);stroke-width:1}
 .tdb-axe{fill:var(--color-svv-muted);font-size:11px}
 .tdb-axe--fort{fill:var(--color-svv-ink);font-weight:700}
-.tdb-trait{fill:none;stroke:var(--color-svv-red);stroke-width:2.5}
-.tdb-trait-n1{fill:none;stroke:var(--color-svv-muted);stroke-width:2;stroke-dasharray:6 5}
+.tdb-trait{fill:none;stroke:var(--color-svv-red);stroke-width:3}
+.tdb-trait-n1{fill:none;stroke:var(--tdb-n1-courbe);stroke-width:1.75;stroke-dasharray:6 5}
 .tdb-point{fill:var(--color-svv-red)}
-.tdb-barre{fill:var(--color-svv-line-strong)}
+.tdb-barre{fill:var(--tdb-annee)}
 .tdb-barre--courante{fill:var(--color-svv-red)}
 .tdb-barre-annee{cursor:pointer}
-/* LOT DE (Arno) : mode Mois, les autres mois pales (la couleur pleine attenuee, comme en Periode) ; le graphique a un seul trace garde ses barres grises lisibles (.6), en clair et en sombre. */
-.tdb-barre-annee--pale,.tdb-point--pale{opacity:.35}
-[data-courbe="mois"] .tdb-barre-annee--pale{opacity:.6}
+/* LOT DE (Arno) : mode Mois a 2-5 negociateurs, les autres mois pales (l'attenuation de Periode). LOT DF : le graphique de base (Tous ou un negociateur) n'est jamais pali. */
+.tdb-barre-annee--pale{opacity:.35}
 .tdb-barre-zone{fill:transparent}
 .tdb-barre-n1-fond{fill:var(--color-svv-field)}
-.tdb-barre-n1-trait{stroke:var(--color-svv-muted);stroke-width:2}
-.tdb-barre-n1{stroke:var(--color-svv-muted);stroke-width:1}
+.tdb-barre-n1-trait{stroke:var(--tdb-n1);stroke-width:1}
+.tdb-barre-n1{stroke:var(--tdb-n1);stroke-width:.75}
 .tdb-histo-zone{position:relative}
 .tdb-bulle{min-width:190px;background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:8px 10px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent);font-size:.82rem}
 .tdb-bulle--sous{display:inline-block;margin-top:6px;box-shadow:none}
@@ -1481,10 +1479,10 @@ export const CSS_TABLEAU_BORD = `
 .tdb-mois-gestion:hover .tdb-cible,.tdb-mois-gestion:focus-visible .tdb-cible{fill:color-mix(in srgb, var(--color-svv-ink) 6%, transparent)}
 .tdb-mois-gestion:focus-visible{outline:none}
 .tdb-legende{display:inline-block;width:18px;height:3px;vertical-align:middle;background:var(--color-svv-red)}
-.tdb-legende--n1{background:repeating-linear-gradient(90deg,var(--color-svv-muted) 0 5px,transparent 5px 9px)}
+.tdb-legende--n1{background:repeating-linear-gradient(90deg,var(--tdb-n1-courbe) 0 5px,transparent 5px 9px)}
 .tdb-legende--sortie{background:var(--color-svv-amber);height:8px;width:8px}
-.tdb-legende--barre{background:var(--color-svv-red);height:10px;width:12px}
-.tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--color-svv-muted) 0 2px,var(--color-svv-field) 2px 5px);border:1px solid var(--color-svv-muted);height:10px;width:12px;box-sizing:border-box}
+.tdb-legende--barre{background:var(--tdb-annee);height:10px;width:12px}
+.tdb-legende--barre-n1{background:repeating-linear-gradient(45deg,var(--tdb-n1) 0 1px,var(--color-svv-field) 1px 5px);border:1px solid var(--tdb-n1);height:10px;width:12px;box-sizing:border-box}
 .tdb-bouton-export{width:auto !important;display:inline-flex;align-items:center;min-height:44px}
 .tdb-voile{position:fixed;inset:0;z-index:80;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:24px}
 .tdb-fenetre{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:18px;width:min(860px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden}

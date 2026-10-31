@@ -895,7 +895,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.tdb-bulle-bloc--courant{color:var(--color-svv-red)}');
     expect(css).toContain('.tdb-bulle-bloc--n1{color:var(--color-svv-muted)}');
-    expect(css).toContain('.tdb-barre-n1-trait{stroke:var(--color-svv-muted)');
+    expect(css).toContain('.tdb-barre-n1-trait{stroke:var(--tdb-n1)'); // 🔴 LOT DF : les hachures N−1, plus claires et plus fines
     // Un clic sur une année l'OUVRE : la période devient « 2025 → 2025 » (une barre).
     const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -1146,17 +1146,16 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(titre()).toBe('Octobre 2026'); // en quittant le graphique : le mois choisi
     });
 
-    it('🔴 LOT DE : le mois choisi plein, les autres pâles (barres et hachures N−1) ; Cumul : le point choisi plein, les autres discrets ; un clic change le mois', async () => {
+    it('🔴 LOT DF : aucun mois pâle (le graphique de base) ; le mois choisi en rouge ; Cumul : le point choisi plus gros ; un clic change le mois', async () => {
       await monter('mois');
-      const pleins = () => [...container.querySelectorAll('[data-bloc="histogramme-mois"] g[data-barre-mois]')].filter((g) => !g.classList.contains('tdb-barre-annee--pale')).map((g) => g.getAttribute('data-barre-mois'));
-      expect(pleins()).toEqual(['10']);
-      expect(container.querySelectorAll('[data-bloc="histogramme-mois"] g.tdb-barre-annee--pale').length).toBe(11);
+      expect(container.querySelectorAll('[data-bloc="histogramme-mois"] .tdb-barre-annee--pale, [data-bloc="histogramme-mois"] .tdb-point--pale').length).toBe(0);
+      expect(barre(10).querySelector('.tdb-barre--courante')).not.toBeNull();
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-      expect(pleins()).toEqual(['9']);
+      expect([barre(9).querySelector('.tdb-barre--courante') !== null, container.querySelectorAll('[data-bloc="histogramme-mois"] .tdb-barre-annee--pale').length]).toEqual([true, 0]);
       expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Septembre 2026');
       await act(async () => { (container.querySelector('[data-cumul-bouton]') as HTMLElement).click(); });
       const points = [...container.querySelectorAll('[data-bloc="histogramme-mois"] [data-point-cumul]')];
-      expect(points.filter((p) => !p.classList.contains('tdb-point--pale')).map((p) => p.getAttribute('data-point-cumul'))).toEqual(['9']);
+      expect([points.filter((p) => p.getAttribute('r') === '5').map((p) => p.getAttribute('data-point-cumul')), points.filter((p) => p.classList.contains('tdb-point--pale')).length]).toEqual([['9'], 0]);
       expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Cumul 2026 à fin septembre');
     });
 
