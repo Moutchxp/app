@@ -103,3 +103,29 @@ export function compromisDeLaVue<V extends Pick<Vente, 'id' | 'dossier' | 'dateC
   for (const v of [...enCours, ...actesDuMois]) if (duMois(v) && !liste.some((x) => x.id === v.id)) liste.push(v);
   return { liste: trierCompromis(liste), sansDate: enCours.filter((v) => v.dateCompromis == null || v.dateCompromis === '').length };
 }
+
+/**
+ * ══ 🔴 LOT CS (Arno, 31/10/2026) — LE TRI DES CARTES DE L'ONGLET « COMPROMIS » (l'ordre des cartes seulement : tuiles et synthèse inchangées) ════
+ * « Compromis » = la date de signature du compromis ; « Date butoir » = la date de l'acte au plus tard. Les affaires sans la date concernée : toujours
+ * à la fin, dans l'ordre alphabétique ; à date égale : l'ordre alphabétique. Défaut : « Compromis : plus récent d'abord ».
+ */
+export type TriCompromis = 'compromis-recent' | 'compromis-ancien' | 'butoir-proche' | 'butoir-lointain';
+export const TRIS_COMPROMIS: readonly TriCompromis[] = ['compromis-recent', 'compromis-ancien', 'butoir-proche', 'butoir-lointain'];
+export const LIBELLE_TRI_COMPROMIS: Record<TriCompromis, string> = {
+  'compromis-recent': 'Compromis : plus récent d’abord', 'compromis-ancien': 'Compromis : plus ancien d’abord',
+  'butoir-proche': 'Date butoir : la plus proche d’abord', 'butoir-lointain': 'Date butoir : la plus lointaine d’abord',
+};
+export const estTriCompromis = (x: unknown): x is TriCompromis => typeof x === 'string' && (TRIS_COMPROMIS as readonly string[]).includes(x);
+/** Le choix retenu par le navigateur, partagé entre CRITERIMMO et MACJ. */
+export const CLE_TRI_COMPROMIS = 'trx-compromis-tri';
+/** Les cartes dans l'ordre choisi ; `titre` : le nom affiché de l'affaire (l'ordre alphabétique). PUR. */
+export function trierCompromisPar<V extends Pick<Vente, 'id' | 'dossier' | 'dateCompromis'>>(liste: readonly V[], tri: TriCompromis, titre: (v: V) => string): V[] {
+  const date = (v: V): string | null => { const x = tri.startsWith('compromis') ? v.dateCompromis : v.dossier?.dateActePrevue; return x == null || x === '' ? null : x; };
+  const sens = tri === 'compromis-recent' || tri === 'butoir-lointain' ? -1 : 1;
+  const alpha = (a: V, b: V): number => titre(a).localeCompare(titre(b), 'fr', { sensitivity: 'base' }) || a.id - b.id;
+  return [...liste].sort((a, b) => {
+    const [da, db] = [date(a), date(b)];
+    if (da === null || db === null) return da === db ? alpha(a, b) : da === null ? 1 : -1;
+    return da === db ? alpha(a, b) : sens * da.localeCompare(db);
+  });
+}

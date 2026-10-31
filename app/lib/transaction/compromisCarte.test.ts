@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { carteCompromis, libelleTaux, TAUX_SANS_PRIX, tauxDuPrix, trierCompromis } from './compromisCarte';
+import { carteCompromis, estTriCompromis, LIBELLE_TRI_COMPROMIS, libelleTaux, TAUX_SANS_PRIX, tauxDuPrix, trierCompromis, trierCompromisPar, TRIS_COMPROMIS } from './compromisCarte';
 import type { Vente } from './modele';
 
 /** 🔴 LOT E — la carte compacte d'un compromis (pur) : « à renseigner », date dépassée, tri par date butoir. */
@@ -51,5 +51,24 @@ describe('🔴 LOT J — le taux de commission', () => {
     expect(tauxDuPrix(18000, null)).toBeNull();
     expect(tauxDuPrix(18000, 0)).toBeNull();
     expect(libelleTaux(null)).toBe(TAUX_SANS_PRIX);
+  });
+});
+
+describe('🔴 LOT CS — le tri des cartes de l’onglet Compromis (pur)', () => {
+  const v = (id: number, libelle: string, dateCompromis: string | null, butoir: string | null): Vente => ({ id, societe: 'criterimmo', libelle, honorairesTtc: 1000, statut: 'compromis',
+    annee: 2026, mois: null, dateCompromis, apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null,
+    dossier: d({ dateActePrevue: butoir }) });
+  const liste = [v(1, 'Bravo', '2026-10-20', '2027-01-15'), v(2, 'alpha', '2026-09-05', '2027-01-15'), v(3, 'Zoulou', null, null), v(4, 'Charlie', '2026-10-20', '2026-11-30'), v(5, 'Delta', null, '2027-03-01')];
+  const ordre = (t: Parameters<typeof trierCompromisPar>[1]) => trierCompromisPar(liste, t, (x) => x.libelle).map((x) => x.libelle);
+  it('les quatre ordres ; à date égale, l’ordre alphabétique ; sans la date concernée : à la fin, dans l’ordre alphabétique', () => {
+    expect(ordre('compromis-recent')).toEqual(['Bravo', 'Charlie', 'alpha', 'Delta', 'Zoulou']);
+    expect(ordre('compromis-ancien')).toEqual(['alpha', 'Bravo', 'Charlie', 'Delta', 'Zoulou']);
+    expect(ordre('butoir-proche')).toEqual(['Charlie', 'alpha', 'Bravo', 'Delta', 'Zoulou']);
+    expect(ordre('butoir-lointain')).toEqual(['Delta', 'alpha', 'Bravo', 'Charlie', 'Zoulou']);
+  });
+  it('le choix : quatre libellés, le défaut reconnu, une valeur inconnue refusée', () => {
+    expect(TRIS_COMPROMIS.map((x) => LIBELLE_TRI_COMPROMIS[x])).toEqual(['Compromis : plus récent d’abord', 'Compromis : plus ancien d’abord',
+      'Date butoir : la plus proche d’abord', 'Date butoir : la plus lointaine d’abord']);
+    expect([estTriCompromis('compromis-recent'), estTriCompromis('autre'), estTriCompromis(null)]).toEqual([true, false, false]);
   });
 });

@@ -18,7 +18,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { lignesCarteAffaire, type LignesCarte } from '../../../../lib/transaction/carteAffaireLignes';
-import { A_RENSEIGNER, carteCompromis, compromisDeLaVue, estVueCompromis, LIBELLE_VUE_COMPROMIS, libelleTaux, VUES_COMPROMIS, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
+import { A_RENSEIGNER, carteCompromis, CLE_TRI_COMPROMIS, compromisDeLaVue, estTriCompromis, estVueCompromis, LIBELLE_TRI_COMPROMIS, LIBELLE_VUE_COMPROMIS, libelleTaux, TRIS_COMPROMIS, trierCompromisPar, VUES_COMPROMIS, type TriCompromis, type VueCompromis } from '../../../../lib/transaction/compromisCarte';
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
 import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
@@ -52,6 +52,10 @@ interface DonneesCompromis extends References { disponible: boolean; aujourdhui:
 export const CLE_VUE_COMPROMIS = 'trx-compromis-vue';
 function lireVueCompromis(): VueCompromis {
   try { const x = window.localStorage.getItem(CLE_VUE_COMPROMIS); return estVueCompromis(x) ? x : 'encours'; } catch { return 'encours'; }
+}
+/** 🔴 LOT CS — le tri des cartes retenu par le navigateur (partagé CRITERIMMO / MACJ) ; « Compromis : plus récent d'abord » par défaut. */
+function lireTriCompromis(): TriCompromis {
+  try { const x = window.localStorage.getItem(CLE_TRI_COMPROMIS); return estTriCompromis(x) ? x : 'compromis-recent'; } catch { return 'compromis-recent'; }
 }
 /** « octobre 2026 » (AAAA-MM-JJ). PUR. */
 const moisEnLettres = (jour: string): string => `${(NOMS_MOIS[Number(jour.slice(5, 7)) - 1] ?? '').toLowerCase()} ${jour.slice(0, 4)}`;
@@ -92,6 +96,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const page = useRef<HTMLElement | null>(null);
   useColonnesNegociateurs(page);
   const setVueListe = (x: VueCompromis): void => { setVueListeEtat(x); try { window.localStorage.setItem(CLE_VUE_COMPROMIS, x); } catch { /* préférence seulement */ } };
+  const [tri, setTriEtat] = useState<TriCompromis>(lireTriCompromis);
+  const setTri = (x: string): void => { if (!estTriCompromis(x)) return; setTriEtat(x); try { window.localStorage.setItem(CLE_TRI_COMPROMIS, x); } catch { /* préférence seulement */ } };
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
@@ -170,6 +176,10 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             {VUES_COMPROMIS.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={vueListe === x} onClick={() => setVueListe(x)} data-voir-compromis={x}>{LIBELLE_VUE_COMPROMIS[x]}</button>)}
           </div>
           <span className="trx-compteur" data-compteur-compromis aria-label={`${liste.length} compromis affichés`}>({liste.length})</span>
+          {/* 🔴 LOT CS (Arno) — le tri des cartes, discret, juste après le nombre ; seul l'ordre des cartes change. */}
+          <div className="trx-tri-compromis" data-tri-compromis={tri}><span className="trx-tri-mot" aria-hidden="true">Trier :</span>
+            <ListeChoix options={TRIS_COMPROMIS.map((x) => ({ id: x, libelle: LIBELLE_TRI_COMPROMIS[x] }))} valeur={tri} vide={null} libelle="Trier les compromis"
+              onChange={setTri} classe="trx-tri-champ" donnees={{ 'data-choix-tri-compromis': '' }} /></div>
         </div>
         {vue !== null && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
@@ -225,7 +235,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       )}
       {liste.length === 0 ? <p className="loc-muet">{vueListe === 'mois' ? 'Aucun compromis signé ce mois-ci.' : 'Aucun compromis en cours.'}</p> : (
         <ul className="trx-cartes" data-liste-compromis>
-          {liste.map((v) => {
+          {trierCompromisPar(liste, tri, (v) => (v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre)).map((v) => {
             // 🔴 LOT R — la LIGNE MIROIR de l'inter-cabinet : sa seule part, non modifiable d'ici (sauf la rémunération du négociateur).
             if (v.miroir != null) return <CarteMiroir key={`miroir-${v.id}`} v={v} references={d} aujourdhui={d.aujourdhui} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle}
               ouvertInitial={venteVisee === v.id} />;

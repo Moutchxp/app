@@ -60,6 +60,8 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 // LOT AL — la présentation choisie dans la fenêtre est retenue par le navigateur : chaque test part du défaut (« Par catégorie »).
 beforeEach(() => { try { window.localStorage.removeItem('trx-commissions-versees-mode'); window.localStorage.removeItem('trx-solde-net-mode'); } catch { /* sans stockage */ } });
+// 🔴 LOT CS — le tri des cartes retenu par le navigateur : chaque épreuve part du défaut (« Compromis : plus récent d'abord »).
+beforeEach(() => { try { window.localStorage.removeItem('trx-compromis-tri'); } catch { /* sans stockage */ } });
 // 🔴 LOT AM — « HT | TTC » : les tests d'avant ce lot lisent les montants dans l'ordre d'alors (HT en grand, TTC dessous) ; le défaut (TTC) et la
 // bascule sont éprouvés au describe « LOT AM ».
 beforeEach(() => { try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ } });
@@ -181,6 +183,7 @@ describe('l’onglet « Compromis »', () => {
   });
   it('une date butoir dépassée est en rouge, avec le mot « dépassée » ; le tri : la plus proche d’abord, sans date à la fin', async () => {
     listeCompromis = [importe, compromis, depasse];
+    window.localStorage.setItem('trx-compromis-tri', 'butoir-proche'); // 🔴 LOT CS — ce tri est désormais un choix (le défaut : compromis le plus récent)
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     expect([...container.querySelectorAll('[data-compromis]')].map((x) => x.getAttribute('data-compromis'))).toEqual(['30', '41', '12']);
@@ -4871,7 +4874,8 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     expect(container.querySelector('[data-vue-compromis]')!.getAttribute('data-vue-compromis')).toBe('encours');
     expect(texte('#trx-compromis-titre')).toBe('Compromis');
     // 🔴 LOT CA — à gauche, dans cet ordre : « Compromis » · « Du mois | En cours » · « (3) »
-    expect([...container.querySelector('[data-onglet-compromis] .trx-entete-gauche')!.children].map((x) => x.textContent)).toEqual(['Compromis', 'Du moisEn cours', '(3)']);
+    expect([...container.querySelector('[data-onglet-compromis] .trx-entete-gauche')!.children].map((x) => { const c = x.cloneNode(true) as HTMLElement; c.querySelectorAll('style').forEach((y) => y.remove()); return c.textContent; }))
+      .toEqual(['Compromis', 'Du moisEn cours', '(3)', 'Trier :Compromis : plus récent d’abord']); // 🔴 LOT CS : le tri, juste après le nombre
     expect(cartes().sort()).toEqual(['12', '41', '50']);
     expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]')]).toEqual(['Compromis en cours', '3']);
     expect(container.querySelector('[data-compromis-sans-date]')).toBeNull();
@@ -4880,7 +4884,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
   it('« Du mois » : le compromis d’octobre et celui déjà acté ce mois (étiquette « acte signé »), pas celui de septembre ni le sans-date (dit à part)', async () => {
     await ouvrirSur();
     await cliquer('[data-voir-compromis="mois"]');
-    expect(cartes()).toEqual(['51', '41']); // la date butoir la plus proche d'abord, comme les cartes
+    expect(cartes()).toEqual(['41', '51']); // 🔴 LOT CS — le défaut : le compromis le plus récent d'abord (20/10, puis 03/10)
     expect(compteur()).toBe('(2)');
     expect([texte('[data-tuile="nombre"] .tdb-tuile-mot'), texte('[data-nb-compromis]'), texte('[data-tuile="nombre"] .tdb-tuile-n1')]).toEqual(['Compromis du mois', '2', 'signés en octobre 2026, hors annulés']);
     expect(container.querySelector('[data-compromis="51"] [data-acte-signe-etiquette]')).not.toBeNull();
@@ -4962,5 +4966,42 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     expect(container.querySelector('[data-total-entete-du] [data-montant-grand]')!.className).toContain('trx-cout-nul');
     await cliquer('[data-tuile="commissions"]');
     expect(document.querySelector('[data-fenetre-total-haut]')!.className).toContain('trx-cout-nul');
+  });
+
+  // 🔴 LOT CS (Arno) — « Trier : [choix] ▾ », juste après le nombre : seul l'ordre des cartes change (tuiles et synthèse inchangées).
+  describe('🔴 LOT CS — le tri discret des cartes', () => {
+    const choisir = async (libelle: string) => {
+      await cliquer('[data-choix-tri-compromis]');
+      const o = [...document.querySelectorAll('[role="option"]')].find((x) => (x.textContent ?? '').replace('✓', '') === libelle) as HTMLElement;
+      await act(async () => { o.click(); }); await calmer();
+    };
+    const tuiles = () => ['nombre', 'ca', 'commissions', 'solde'].map((t) => texte(`[data-tuile="${t}"]`)).join(' | ') + ' || ' + texte('[data-total-entete-du]');
+    it('« En cours » : les quatre ordres (le sans-date toujours à la fin) ; les tuiles et la synthèse ne bougent pas ; le menu est un vrai sélecteur', async () => {
+      await ouvrirSur();
+      const champ = container.querySelector('[data-choix-tri-compromis]')!;
+      expect([champ.tagName, champ.getAttribute('role'), champ.getAttribute('aria-haspopup'), texte('[data-tri-compromis] .trx-tri-mot')]).toEqual(['BUTTON', 'combobox', 'listbox', 'Trier :']);
+      expect(cartes()).toEqual(['41', '50', '12']); // défaut : compromis le plus récent (20/10, 05/09), le sans-date à la fin
+      const avant = tuiles();
+      await choisir('Compromis : plus ancien d’abord');
+      expect(cartes()).toEqual(['50', '41', '12']);
+      await choisir('Date butoir : la plus proche d’abord');
+      expect(cartes()).toEqual(['50', '41', '12']); // même date butoir (15/01/2027) : l'ordre alphabétique (ANCIEN avant DUPONT)
+      await choisir('Date butoir : la plus lointaine d’abord');
+      expect(cartes()).toEqual(['50', '41', '12']);
+      expect(tuiles()).toBe(avant);
+      expect(compteur()).toBe('(3)');
+    });
+    it('« Du mois » : le tri vaut aussi ; le choix est retenu par le navigateur et partagé avec MACJ', async () => {
+      await ouvrirSur();
+      await cliquer('[data-voir-compromis="mois"]');
+      expect(cartes()).toEqual(['41', '51']); // compromis du 20/10, puis du 03/10
+      await choisir('Date butoir : la plus proche d’abord');
+      expect(cartes()).toEqual(['51', '41']); // 30/10/2026, puis 15/01/2027
+      expect(window.localStorage.getItem('trx-compromis-tri')).toBe('butoir-proche');
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await ouvrirSur('ht', 'macj');
+      expect(container.querySelector('[data-tri-compromis]')!.getAttribute('data-tri-compromis')).toBe('butoir-proche');
+      expect(texte('[data-choix-tri-compromis]')).toBe('Date butoir : la plus proche d’abord');
+    });
   });
 });

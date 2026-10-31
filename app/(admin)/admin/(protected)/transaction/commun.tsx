@@ -302,6 +302,13 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}
+/* LOT CS — le tri des cartes de l'onglet Compromis : un petit menu texte, gris, sans cadre ; au téléphone, sous le titre, à gauche. */
+.trx-tri-compromis{display:inline-flex;align-items:center;gap:2px;color:var(--color-svv-muted);font-size:.85rem}
+.trx-tri-compromis .lch{width:auto}
+.trx-tri-compromis .lch-champ.trx-tri-champ{width:auto;min-height:36px;border:0;background:transparent;color:var(--color-svv-muted);font-size:.85rem;font-weight:600;padding:0 6px;gap:6px;border-radius:8px}
+.trx-tri-compromis .lch-champ.trx-tri-champ:hover{color:var(--color-svv-ink)}
+.trx-tri-compromis .lch-liste{right:auto;min-width:340px;font-size:.9rem}
+@media (max-width:720px){ .trx-tri-compromis{flex-basis:100%} .trx-tri-compromis .lch-liste{min-width:280px} }
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
 .trx-listes-mois{display:contents}
 /* LOT CN — Apporteurs du mois : « Apporteur non nommé » en gris italique ; le négociateur en taille normale, à gauche, sa source dessous. */
