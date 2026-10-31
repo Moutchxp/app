@@ -307,6 +307,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const nommer = useNommer(); // 🔴 LOT CQ — le compteur de l'Espace compte des PERSONNES
   const enPeriode = periode !== null;
   const enAnnee = decoupage === 'annee';
+  const moisSeul = !enPeriode && !enAnnee; // 🔴 LOT DE — le mode « Mois »
   // 🔴 LOT DC (Arno) — de 2 à 5 négociateurs : les tuiles comparent la SÉLECTION (`d` filtrées : chaque affaire une fois) à la même sélection
   // l'année précédente — la mention « comparaison N−1 : choisir un seul négociateur » (lot CU) est retirée (accord d'Arno).
   const ms: readonly MoisChoisi[] = periode ?? [{ annee, mois }];
@@ -535,6 +536,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
         mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
+      {/* 🔴 LOT DE (Arno) — en mode « Mois » : le mois choisi plein, les autres mois pâles (la même atténuation qu'en « Période ») ; l'encadré au repos
+          montre le mois choisi (au survol, le mois survolé ; en quittant le graphique, le mois choisi). Période / Année : le lot CV, inchangé. */}
       {/* 🔴 LOT CU — de 2 à 5 négociateurs : une série par négociateur (sa couleur), sans N−1 ; Mensuel en barres groupées, Cumul en courbes. */}
       {series !== null ? (
         <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: nombreParMoisMode(x.d.ventes, annee, mode),
@@ -543,14 +546,14 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           total={{ ca: net ? netN : sc(parMois), nb: nbParMois }}
           totalN1={sansN1 ? null : { ca: net ? netN1 : sc(parMoisN1), nb: nbParMoisN1, annee: annee - 1 }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
           choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
-          motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
+          motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} moisSeul={moisSeul} />
       ) : cumul ? (
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
-          aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={repos(true)} />
+          aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={moisSeul ? undefined : repos(true)} attenuer={moisSeul} />
       ) : (
         <Histogramme attribut="data-barre-mois" courante={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
           legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
-          repos={repos(false)}
+          repos={moisSeul ? undefined : repos(false)} attenuer={moisSeul}
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
             ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}

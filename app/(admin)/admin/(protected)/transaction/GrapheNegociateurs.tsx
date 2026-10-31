@@ -27,7 +27,7 @@ export const ordreEncadre = <T extends { nom: string; ca: number; nb: number }>(
 const cumuler =(xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee }: {
+export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee, moisSeul = false }: {
   series: readonly SerieGraphe[];
   /** L'ensemble de la sélection, mois par mois (chaque affaire une fois) : ce que comptent les tuiles et les listes de la page. */
   total: { ca: readonly number[]; nb: readonly number[] };
@@ -35,6 +35,8 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   totalN1?: { ca: readonly number[]; nb: readonly number[]; annee: number } | null;
   cumul: boolean; nombre: boolean; dernierMois: number; choisi: number; onChoisir: (mois: number) => void;
   motCa: string; motNb: string; aria: string; annee: number;
+  /** 🔴 LOT DE — le mode « Mois » : le mois choisi plein, les autres pâles ; l'encadré au repos = le mois choisi. Absent : le lot CV (Période, Année). */
+  moisSeul?: boolean;
 }) {
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
@@ -58,8 +60,9 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   const x = (i: number): number => m.g + i * pas + pas / 2;
   // 🔴 LOT CV — le mois survolé, sinon le mois cliqué, sinon le repos : l'année en cours jusqu'au mois en cours, une année passée complète
   // (décembre), une année future (rien encore, à 0). Le titre cite toujours l'année du graphique ; un mois à venir : « — à venir », à 0.
-  const repos = clic === null && survol === null;
-  const mois = survol ?? clic ?? (dernierMois === 0 ? 12 : dernierMois);
+  // 🔴 LOT DE — en mode « Mois », pas de repos : le mois survolé, sinon le mois choisi.
+  const repos = !moisSeul && clic === null && survol === null;
+  const mois = survol ?? (moisSeul ? choisi : clic ?? (dernierMois === 0 ? 12 : dernierMois));
   const aVenir = mois > dernierMois;
   const nomMois = NOMS_MOIS[mois - 1];
   const titre = repos
@@ -89,7 +92,7 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
                   d={v.map((w, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />;
               })}
               {COURT.map((c, i) => (
-                <g key={c} className="tdb-barre-annee" data-barre-mois={i + 1} onClick={() => { setClic(i + 1); onChoisir(i + 1); }} onMouseEnter={() => setSurvol(i + 1)}>
+                <g key={c} className={moisSeul && i + 1 !== choisi ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} data-barre-mois={i + 1} onClick={() => { setClic(i + 1); onChoisir(i + 1); }} onMouseEnter={() => setSurvol(i + 1)}>
                   <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                   {i < dernierMois && s.map((x0, j) => {
                     const v = dessine(x0)[i];

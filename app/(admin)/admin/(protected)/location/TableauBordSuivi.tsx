@@ -473,13 +473,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           return { titre, compte: motDetail, courant: { libelle: String(annee), ca: aVenir ? (indisponible ? null : 0) : v, nb: null },
             precedent: sansN1Mesure ? null : { libelle: String(annee - 1), ca: v1, nb: null } };
         };
-        /** 🔴 LOT CV — l'encadré au repos : l'année en cours jusqu'à aujourd'hui (le mois en cours inclus) ; une année passée complète ; une année
-         *  future à 0 ; en Mensuel, le mois en cours « — en cours » (décembre d'une année passée). */
-        const repos = (cumule: boolean): InfoBarre => {
-          if (moisCourbe === 0) return { ...(cumule ? bulleCumul(12) : infoMois(0)), titre: cumule ? `Cumul ${annee} — aucune vente` : `Janvier ${annee} — aucune vente` };
-          if (moisCourbe === 12 && annee < Number(jour.slice(0, 4))) return { ...(cumule ? bulleCumul(12) : infoMois(11)), titre: cumule ? `Cumul ${annee} — année complète` : `Décembre ${annee}` };
-          return { ...(cumule ? bulleCumul(moisCourbe) : infoMois(moisCourbe - 1)), titre: cumule ? `Cumul ${annee} jusqu’à aujourd’hui` : `${NOMS_MOIS[moisCourbe - 1]} ${annee} — en cours` };
-        };
+        /* 🔴 LOT DE (Arno) — l'encadré au repos : le MOIS CHOISI (« Mai 2026 », « Cumul 2026 à fin mai ») ; au survol, le mois survolé ; en quittant
+           le graphique, le mois choisi. (Avant, lot CV : le mois en cours ou le cumul jusqu'à aujourd'hui.) Les autres mois sont pâles. */
         return (
         <section className="tdb-section" aria-labelledby="tdb-histo" data-bloc="histogramme-mois" data-mesure={mesure}>
           <EnteteGraphe id="tdb-histo" mesure={mesure} onMesure={setMesure} cumul={cumulMois} onBasculer={() => setCumulMois((c) => !c)} motPeriode="Mensuel"
@@ -490,9 +485,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           {cumulMois ? (
             <CourbeCumul courant={indisponible ? [] : cumulN.slice(0, moisCourbe)} n1={sansN1Mesure ? null : cumulN1} annee={annee} selection={mois}
               entier={mesure !== 'ca'} aria={`${motCumul} cumulé ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}, de janvier à décembre`}
-              bulle={bulleCumul} onChoisir={setMois} repos={repos(true)} />
+              bulle={bulleCumul} onChoisir={setMois} attenuer />
           ) : (
-          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'} repos={repos(false)}
+          <Histogramme attribut="data-barre-mois" courante={mois} onChoisir={setMois} entier={mesure !== 'ca'} attenuer
             aria={`${mesure === 'ca' ? 'CA HT' : motDetail} par mois, ${annee}${sansN1Mesure ? '' : ` et ${annee - 1}`}`}
             legende={{ courant: String(annee), n1: sansN1Mesure ? null : String(annee - 1) }}
             barres={B.map((p, i) => {
@@ -838,13 +833,15 @@ export function EnteteGraphe<M extends string = MesureMois>({ id, titre, mesure,
  * `n1` = les 12 de l'année précédente (null : non importée) ; `entier` : axe en nombres entiers (négatifs permis : un solde de gestions) ;
  * `bulle` : chaque mois se survole et s'ouvre, le détail s'écrit À DROITE (comme l'histogramme). Sans `bulle` : la courbe d'avant, telle quelle.
  */
-export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende, repos }: {
+export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende, repos, attenuer = false }: {
   courant: readonly number[]; n1: readonly number[] | null; annee: number; selection: number; aria: string; entier?: boolean;
   bulle?: (cle: number) => InfoBarre; onChoisir?: (cle: number) => void;
   /** 🔴 Arno (25/10/2026) — « Année par année » : un point par ANNÉE (les étiquettes et les clés des points ; défaut : les 12 mois, clés 1 → 12). */
   etiquettes?: readonly string[]; cles?: readonly number[]; nom?: string; attributZone?: string; legende?: ReactNode;
   /** 🔴 LOT CV (Arno) — l'encadré quand rien n'est survolé ni cliqué (« Cumul 2026 jusqu'à aujourd'hui »…) ; absent : le point choisi, comme avant. */
   repos?: InfoBarre;
+  /** 🔴 LOT DE (Arno) — mode « Mois » : le point du mois choisi plein et plus gros, les autres plus discrets (la courbe reste pleine). */
+  attenuer?: boolean;
 }) {
   const n = etiquettes.length;
   const cle = (i: number): number => cles?.[i] ?? i + 1;
@@ -875,7 +872,7 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
       {etiquettes.map((c, i) => <text key={c} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{c}</text>)}
       {n1 !== null && <path d={trace(n1)} className="tdb-trait-n1" data-trait-cumul="n1" />}
       {courant.length > 0 && <path d={trace(courant)} className="tdb-trait" data-trait-cumul="courant" />}
-      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className="tdb-point" data-point-cumul={cle(i)} data-valeur={v} />)}
+      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className={attenuer && cle(i) !== selection ? 'tdb-point tdb-point--pale' : 'tdb-point'} data-point-cumul={cle(i)} data-valeur={v} />)}
       {bulle !== undefined && etiquettes.map((c, i) => (
         <rect key={`z-${c}`} x={x(i) - pas / 2} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone tdb-zone-cumul" {...{ [attributZone]: cle(i) }}
           onMouseEnter={() => setSurvol(cle(i))} onClick={() => { setClic(cle(i)); onChoisir?.(cle(i)); }} />
@@ -1053,7 +1050,7 @@ function BarreEmpilee({ x, largeur, total, bas, y, classe, fill, donnees }: { x:
   );
 }
 
-export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe, entier = false, repos }: {
+export function Histogramme({ barres, courante, onChoisir, attribut, legende, aria, pasFixe, entier = false, repos, attenuer = false }: {
   barres: readonly Barre[]; courante: number; onChoisir: (cle: number) => void; attribut: string; legende?: { courant: string; n1: string | null }; aria: string;
   /** La largeur FIXE d'une barre (unités du dessin) : au-delà de ce qui tient, le graphique défile (« Année par année »). */
   pasFixe?: number;
@@ -1062,6 +1059,9 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   /** 🔴 LOT CV (Arno) — l'encadré quand rien n'est survolé ni cliqué dans le graphique (le cumul de l'année, le mois en cours…) ; absent :
    *  la barre choisie, comme avant. */
   repos?: InfoBarre;
+  /** 🔴 LOT DE (Arno) — « Mois par mois » en mode « Mois » : la barre du mois choisi pleine, les autres mois pâles (barre et hachures N−1, la
+   *  même atténuation qu'en « Période ») ; absent : comme avant. */
+  attenuer?: boolean;
 }) {
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
   const [clic, setClic] = useState<number | null>(null);
@@ -1169,7 +1169,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
                     {barres.map((b, i) => {
                       const x0 = i * pas + pas * (avecN1 ? 0.12 : 0.18);
                       return (
-                        <g key={b.cle} className="tdb-barre-annee" onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+                        <g key={b.cle} className={attenuer && b.cle !== courante ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
                           <rect x={i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                           {avecN1 && b.n1 !== undefined && b.n1 !== null && (
                             <rect x={x0 + largeur} {...barreY(b.n1, yD)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
@@ -1210,7 +1210,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
           {barres.map((b, i) => {
             const x0 = m.g + i * pas + pas * (avecN1 ? 0.12 : 0.18);
             return (
-              <g key={b.cle} className="tdb-barre-annee" onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
+              <g key={b.cle} className={attenuer && b.cle !== courante ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} onClick={() => { setClic(b.cle); onChoisir(b.cle); }} onMouseEnter={() => setSurvol(b.cle)} {...{ [attribut]: b.cle }}>
                 <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                 {avecN1 && b.n1 !== undefined && b.n1 !== null && (b.empile?.basN1 != null
                   ? <BarreEmpilee x={x0 + largeur} largeur={largeur} total={b.n1} bas={b.empile.basN1} y={y} fill={`url(#hachures-${attribut})`} classe="tdb-barre-n1" donnees={{ 'data-barre-n1': b.cle }} />
@@ -1458,6 +1458,9 @@ export const CSS_TABLEAU_BORD = `
 .tdb-barre{fill:var(--color-svv-line-strong)}
 .tdb-barre--courante{fill:var(--color-svv-red)}
 .tdb-barre-annee{cursor:pointer}
+/* LOT DE (Arno) : mode Mois, les autres mois pales (la couleur pleine attenuee, comme en Periode) ; le graphique a un seul trace garde ses barres grises lisibles (.6), en clair et en sombre. */
+.tdb-barre-annee--pale,.tdb-point--pale{opacity:.35}
+[data-courbe="mois"] .tdb-barre-annee--pale{opacity:.6}
 .tdb-barre-zone{fill:transparent}
 .tdb-barre-n1-fond{fill:var(--color-svv-field)}
 .tdb-barre-n1-trait{stroke:var(--color-svv-muted);stroke-width:2}
