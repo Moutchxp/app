@@ -19,10 +19,12 @@ export const MAX_NEGOCIATEURS = 5;
 const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee }: {
+export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee }: {
   series: readonly SerieGraphe[];
   /** L'ensemble de la sélection, mois par mois (chaque affaire une fois) : ce que comptent les tuiles et les listes de la page. */
   total: { ca: readonly number[]; nb: readonly number[] };
+  /** 🔴 LOT DC — la même sélection l'année précédente (chaque affaire une fois), mois par mois ; null : année précédente non importée. */
+  totalN1?: { ca: readonly number[]; nb: readonly number[]; annee: number } | null;
   cumul: boolean; nombre: boolean; dernierMois: number; choisi: number; onChoisir: (mois: number) => void;
   motCa: string; motNb: string; aria: string; annee: number;
 }) {
@@ -32,6 +34,7 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
   const prepare = (xs: readonly number[]): number[] => (cumul ? cumuler(xs) : [...xs]);
   const s = series.map((x) => ({ ...x, caV: prepare(x.ca), nbV: prepare(x.nb) }));
   const t = { ca: prepare(total.ca), nb: prepare(total.nb) };
+  const t1 = totalN1 === null ? null : { ca: prepare(totalN1.ca), nb: prepare(totalN1.nb) };
   const dessine = (x: { caV: number[]; nbV: number[] }): number[] => (nombre ? x.nbV : x.caV);
   const visibles = s.flatMap((x) => dessine(x).slice(0, dernierMois));
   const plusHaut = Math.max(0, ...visibles);
@@ -100,6 +103,15 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
             {s.map((x0) => ligne(x0.nom, x0.couleur, val(x0.caV), val(x0.nbV), String(x0.couleur)))}
             <p className="tdb-bulle-pied" data-detail-ensemble><span>Ensemble de la sélection</span>
               <span className="tdb-bulle-montant">{montant(val(t.ca))} · {val(t.nb)}</span></p>
+            {/* 🔴 LOT DC — sous l'ensemble : la même sélection l'année précédente (même mois, ou même cumul) et l'écart. */}
+            {t1 !== null && totalN1 !== null && (() => {
+              const n1 = t1.ca[mois - 1]; const ecart = val(t.ca) - n1;
+              return <>
+                <p className="tdb-bulle-ligne trx-serie-n1" data-detail-ensemble-n1><span>{totalN1.annee}</span><span className="tdb-bulle-montant">{montant(n1)} · {t1.nb[mois - 1]}</span></p>
+                <p className="tdb-bulle-ligne" data-detail-ensemble-ecart><span>Écart</span>
+                  <span className={`tdb-bulle-montant tdb-signe tdb-signe--${ecart > 0 ? 'positif' : ecart < 0 ? 'negatif' : 'nul'}`}>{ecart > 0 ? '+' : ecart < 0 ? '−' : ''}{montant(Math.abs(ecart))}{n1 === 0 ? '' : ` (${ecart >= 0 ? '+' : '−'}${Math.abs((ecart / n1) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %)`}</span></p>
+              </>;
+            })()}
             <p className="loc-muet trx-serie-note">Une affaire de deux négociateurs choisis compte dans leurs deux lignes, une fois dans l’ensemble.</p>
           </div>
         </div>

@@ -266,8 +266,6 @@ function TuileCompromisEnCours({ cec, filtre }: { cec: TotalCompromisEnCours; fi
     <span className="tdb-tuile-n1">{cec.nb} compromis — le prévisionnel</span>
   </>;
 }
-/** 🔴 LOT CU — la mention des tuiles quand plusieurs négociateurs sont choisis. */
-const SANS_N1_PLUSIEURS = 'comparaison N−1 : choisir un seul négociateur';
 /** 🔴 LOT CT — la ligne des mois : un mois, une période (des mois choisis) ou l'année (ses 12 mois). */
 export type Decoupage = 'mois' | 'periode' | 'annee';
 export const DECOUPAGES: readonly Decoupage[] = ['mois', 'periode', 'annee'];
@@ -309,7 +307,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const nommer = useNommer(); // 🔴 LOT CQ — le compteur de l'Espace compte des PERSONNES
   const enPeriode = periode !== null;
   const enAnnee = decoupage === 'annee';
-  const plusieurs = series !== null; // 🔴 LOT CU — de 2 à 5 négociateurs : les tuiles cumulent, sans comparaison N−1
+  // 🔴 LOT DC (Arno) — de 2 à 5 négociateurs : les tuiles comparent la SÉLECTION (`d` filtrées : chaque affaire une fois) à la même sélection
+  // l'année précédente — la mention « comparaison N−1 : choisir un seul négociateur » (lot CU) est retirée (accord d'Arno).
   const ms: readonly MoisChoisi[] = periode ?? [{ annee, mois }];
   const anneesP = [...new Set(ms.map((m) => m.annee))];
   const moisPeriodeAnnee = ms.filter((m) => m.annee === annee).map((m) => m.mois);
@@ -348,9 +347,12 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const nbParMoisN1 = nombreParMoisMode(d.ventes, annee - 1, mode);
   const nbVendusN = nombreParMoisMode(d.ventes, annee, 'vendu');
   const nbVendusN1 = nombreParMoisMode(d.ventes, annee - 1, 'vendu');
+  // 🔴 LOT DC — plusieurs négociateurs : « N−1 non importé » se juge sur TOUTES les données (une personne sans activité l'année précédente compte
+  // pour 0 dans la sélection) ; un seul négociateur ou « Tous » : comme avant, à l'identique.
+  const baseN1 = series !== null ? tout.ventes : d.ventes;
   const sansN1De = (a: number): boolean => {
-    const sansVenduN1 = !d.ventes.some((v) => v.annee === a - 1);
-    return mode === 'vendu' ? sansVenduN1 : mode === 'compromis' ? !aDesCompromisDates(d.ventes, a - 1) : sansVenduN1 && !aDesCompromisDates(d.ventes, a - 1);
+    const sansVenduN1 = !baseN1.some((v) => v.annee === a - 1);
+    return mode === 'vendu' ? sansVenduN1 : mode === 'compromis' ? !aDesCompromisDates(baseN1, a - 1) : sansVenduN1 && !aDesCompromisDates(baseN1, a - 1);
   };
   const sansN1 = sansN1De(annee);
   const motSansN1De = (a: number): string => (mode === 'compromis' ? `${a - 1} : aucun compromis daté` : `${a - 1} : non importé`);
@@ -493,13 +495,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
         {/* 🔴 LOT CH — le CA de la tuile = celui du Résultat (la somme des cartes, au centime). */}
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur((U.u === 'ht' ? Rc.ca.ttcC : Rc.ca.htC) / 100)}{ESPACE}{U.autre.mot})</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="ca">{plusieurs ? SANS_N1_PLUSIEURS : sansN1P ? motSansN1P : `${n1Ca} ${enN1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="ca">{sansN1P ? motSansN1P : `${n1Ca} ${enN1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ventes-mois">
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
-        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{plusieurs ? SANS_N1_PLUSIEURS : sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
         <span className="tdb-tuile-mot">{mode === 'vendu' ? `CA ${U.MOT}` : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} (à fin {moisFin})</span><strong className="tdb-tuile-valeur">{U.e(cumulN[mois - 1])}</strong><Autre ht={cumulN[mois - 1]} />
-        <span className="tdb-tuile-n1" data-tuile-n1="cumul">{plusieurs ? SANS_N1_PLUSIEURS : sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="cumul">{sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
       {/* 🔴 LOT DA (changement autorisé par Arno) — la 4ᵉ tuile suit « Compter » : Vendu → le CA net cumulé (même période que la 3ᵉ tuile) ;
           Compromis → les compromis en cours (inchangée) ; Vendu + compromis → le prévisionnel (vendu cumulé + compromis en cours). */}
       {mode === 'vendu' ? (
@@ -507,7 +509,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           <span className="tdb-tuile-mot">CA net {U.MOT} cumulé {annee} (à fin {moisFin})<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
           <strong className="tdb-tuile-valeur" data-ca-net-cumul>{eur(enUnite(netCumul))}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netCumul))}{ESPACE}{U.autre.mot})</small>
-          <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{plusieurs ? SANS_N1_PLUSIEURS : sansN1 ? motSansN1 : `${eur(enUnite(netCumulN1))} en ${annee - 1} (${signePct(variation(netCumul.htC, netCumulN1.htC))})`}</span></button></li>
+          <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{sansN1 ? motSansN1 : `${eur(enUnite(netCumulN1))} en ${annee - 1} (${signePct(variation(netCumul.htC, netCumulN1.htC))})`}</span></button></li>
       ) : mode === 'compromis' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir('Compromis en cours', cec.ids)} data-tuile="compromis">
           <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
@@ -538,7 +540,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: nombreParMoisMode(x.d.ventes, annee, mode),
           // 🔴 LOT CW — « CA net » : le CA net des ventes de CE négociateur
           ca: net ? netDe(x.d.ventes, annee, mode) : caHtParMoisMode(x.d.ventes, annee, d.societe, mode).map(U.en) }))}
-          total={{ ca: net ? netN : sc(parMois), nb: nbParMois }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
+          total={{ ca: net ? netN : sc(parMois), nb: nbParMois }}
+          totalN1={sansN1 ? null : { ca: net ? netN1 : sc(parMoisN1), nb: nbParMoisN1, annee: annee - 1 }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
           choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
           motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
       ) : cumul ? (

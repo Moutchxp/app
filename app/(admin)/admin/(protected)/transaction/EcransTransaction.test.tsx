@@ -1484,7 +1484,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         try {
           expect(container.querySelector('[data-bloc="histogramme-mois"] [data-courbe="negociateurs"]')!.getAttribute('data-series')).toBe('3');
           expect([...container.querySelectorAll('[data-legende-serie]')].map((x) => [x.getAttribute('data-legende-serie'), x.textContent])).toEqual([['1', 'Antoine'], ['2', 'Cédric JULLIEN'], ['3', 'Arnaud JOREL']]);
-          for (const t of ['ca', 'nombre', 'cumul']) expect(texte(`[data-tuile-n1="${t}"]`)).toBe('comparaison N−1 : choisir un seul négociateur');
+          // 🔴 LOT DC — la comparaison N−1 de la sélection (la mention « choisir un seul négociateur » est retirée)
+          for (const t of ['ca', 'nombre', 'cumul']) expect([t, texte(`[data-tuile-n1="${t}"]`).includes('choisir un seul'), texte(`[data-tuile-n1="${t}"]`).includes(' en 2024')]).toEqual([t, false, true]);
           // une série = ce négociateur seul (février : Antoine 6 000 + la partagée 10 000 ; Cédric : la partagée)
           expect([u, Math.round(serieMois(1, 2) * 100), Math.round(serieMois(2, 2) * 100)]).toEqual([u, antoine, cedric]);
           // la page cumule la sélection, chaque affaire une fois : la partagée n'y compte qu'une fois
@@ -1792,7 +1793,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         try { expect([q, t4('[data-ca-net-cumul]')]).toEqual([q, 1300000]); } finally { fin(); }
       }
       fin = await ouvrir6('&negociateur=ARNAUD&negociateur=MYLENE');
-      try { expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, 'comparaison N−1 : choisir un seul négociateur']); } finally { fin(); }
+      try { expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, '4 000 € en 2024 (+225 %)']); } finally { fin(); } // 🔴 LOT DC : N−1 de la sélection (ARNAUD + MYLENE)
       fin = await ouvrir6('', 'macj');
       try { expect(t4('[data-ca-net-cumul]')).toBe(1300000); } finally { fin(); }
     });
@@ -1824,6 +1825,62 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     try { verifier('annee'); } finally { fin(); }
     fin = await ouvrirSur([deux], 'criterimmo', '/?vue=compromis');
     try { verifier('onglet compromis'); } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+  });
+
+  describe('🔴 LOT DC — la comparaison N−1 avec 2 à 5 négociateurs : la même sélection l’année précédente', () => {
+    const lx = (negociateur: string, montantTtc: number, role: LigneVente['role'] = 'part'): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    // mars 2025 et mars 2024 ; une affaire PARTAGÉE (ARNAUD + CEDRIC) chaque année ; JULIEN et HELENE sans activité en 2024
+    const jeu = (): Vente[] => [
+      vente(170, { societe: 'criterimmo', libelle: 'A25', honorairesTtc: 10000, annee: 2025, mois: 3, lignes: [lx('ARNAUD', 10000)] }),
+      vente(171, { societe: 'criterimmo', libelle: 'PARTAGEE 25', honorairesTtc: 6000, annee: 2025, mois: 3, lignes: [lx('ARNAUD', 3000), lx('CEDRIC', 3000)] }),
+      vente(172, { societe: 'criterimmo', libelle: 'C25', honorairesTtc: 4000, annee: 2025, mois: 3, lignes: [lx('CEDRIC', 4000)] }),
+      vente(173, { societe: 'criterimmo', libelle: 'M25', honorairesTtc: 2400, annee: 2025, mois: 3, lignes: [lx('MYLENE', 600, 'negociateur')] }),
+      vente(174, { societe: 'criterimmo', libelle: 'J25', honorairesTtc: 1200, annee: 2025, mois: 3, lignes: [lx('JULIEN', 1200)] }),
+      vente(175, { societe: 'criterimmo', libelle: 'H25', honorairesTtc: 1200, annee: 2025, mois: 3, lignes: [lx('HELENE', 1200)] }),
+      vente(176, { societe: 'criterimmo', libelle: 'A24', honorairesTtc: 5000, annee: 2024, mois: 3, lignes: [lx('ARNAUD', 5000)] }),
+      vente(177, { societe: 'criterimmo', libelle: 'PARTAGEE 24', honorairesTtc: 3000, annee: 2024, mois: 3, lignes: [lx('ARNAUD', 1500), lx('CEDRIC', 1500)] }),
+      vente(178, { societe: 'criterimmo', libelle: 'M24', honorairesTtc: 1200, annee: 2024, mois: 3, lignes: [lx('MYLENE', 300, 'negociateur')] }),
+    ];
+    const q = (...noms: string[]) => noms.map((n) => `&negociateur=${n}`).join('');
+    const n1 = (t: string) => texte(`[data-tuile-n1="${t}"]`);
+
+    it('1 négociateur : comme avant ; 2 : la sélection N−1, l’affaire partagée une fois en N et en N−1 ; 5 : une personne sans 2024 compte 0 ; HT et TTC', async () => {
+      let fin = await ouvrirSur(jeu(), 'criterimmo', `/?vue=mois&annee=2025&mois=3${q('ARNAUD')}`);
+      try { expect([texte('[data-tuile="ca-mois"] .tdb-tuile-valeur'), n1('ca'), n1('nombre')]).toEqual(['13 333,33 €', '6 666,67 € en 2024 (+100 %)', '2 en 2024']); } finally { fin(); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', `/?vue=mois&annee=2025&mois=3${q('ARNAUD', 'CEDRIC')}`);
+      try {
+        // N : 10 000 + 6 000 (partagée, une fois) + 4 000 = 20 000 TTC ; N−1 : 5 000 + 3 000 (partagée, une fois) = 8 000 TTC
+        expect([texte('[data-tuile="ca-mois"] .tdb-tuile-valeur'), n1('ca'), texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur'), n1('nombre')]).toEqual(['16 666,66 €', '6 666,67 € en 2024 (+150 %)', '3', '2 en 2024']); // la tuile : la somme des cartes, au centime
+        expect(n1('cumul')).toBe('6 666,67 € en 2024 (+150 %)');
+        await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+        expect([texte('[data-tuile="ca-mois"] .tdb-tuile-valeur'), n1('ca')]).toEqual(['20 000 €', '8 000 € en 2024 (+150 %)']);
+        // l'encadré : sous l'ensemble, la même sélection en 2024 et l'écart
+        await act(async () => { container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois="3"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+        expect([texte('[data-detail-ensemble] .tdb-bulle-montant'), texte('[data-detail-ensemble-n1]'), texte('[data-detail-ensemble-ecart]')])
+          .toEqual(['20 000,00 € · 3', '20248 000,00 € · 2', 'Écart+12 000,00 € (+150 %)']);
+      } finally { fin(); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', `/?vue=mois&annee=2025&mois=3${q('ARNAUD', 'CEDRIC', 'MYLENE', 'JULIEN', 'HELENE')}`);
+      try {
+        // N : 20 000 + 2 400 + 1 200 + 1 200 = 24 800 TTC ; N−1 : 8 000 + 1 200 = 9 200 TTC (JULIEN et HELENE : 0)
+        expect([n1('ca'), n1('nombre')]).toEqual(['7 666,67 € en 2024 (+169,6 %)', '3 en 2024']);
+      } finally { fin(); }
+    });
+
+    it('Période, Année ; les trois options « Compter » (CA net, compromis, prévisionnel) ; aucune mention « choisir un seul négociateur »', async () => {
+      for (const v of ['&vue-mois=periode&periode=2025-03,2025-04', '&vue-mois=annee']) {
+        const fin = await ouvrirSur(jeu(), 'criterimmo', `/?vue=mois&annee=2025&mois=3${v}${q('ARNAUD', 'CEDRIC')}`);
+        try { expect([v, n1('ca')]).toEqual([v, '6 666,67 € en 2024 (+150 %)']); } finally { fin(); }
+      }
+      const fin = await ouvrirSur(jeu(), 'criterimmo', `/?vue=mois&annee=2025&mois=3${q('ARNAUD', 'CEDRIC')}`);
+      try {
+        expect(n1('ca-net')).toBe('6 666,67 € en 2024 (+150 %)'); // aucune commission sur ces ventes : CA net = CA
+        for (const m of ['compromis', 'tous'] as const) {
+          await cliquer(`[data-mode-mois="${m}"]`);
+          expect([m, texte('.tdb-tuiles').includes('choisir un seul')]).toEqual([m, false]);
+        }
+      } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+    });
   });
 
   it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {

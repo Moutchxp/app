@@ -354,6 +354,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-graphe-negos .tdb-histo-detail .tdb-bulle--sous{font-size:.8rem}
 .trx-serie-entete{color:var(--color-svv-muted);font-size:.75rem}
 .trx-serie-note{font-size:.75rem;margin-top:4px !important}
+/* LOT DC — sous l'ensemble de la sélection : la même sélection l'année précédente, en gris. */
+.trx-serie-n1{color:var(--color-svv-muted)}
 /* LOT CU — le filtre « Négociateur » à choix multiple : des cases à cocher dans la liste ; « 5 au maximum » dessous. */
 .trx-filtre-negos .trx-filtre-negos-panneau{right:auto;min-width:100%;width:max-content;max-width:min(340px,90vw);max-height:min(480px,70vh)}
 @media (max-width:720px){ .trx-filtre-negos .trx-filtre-negos-panneau{left:auto;right:0;width:min(300px,calc(100vw - 32px));max-width:none} }
