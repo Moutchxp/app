@@ -31,3 +31,22 @@ export function libellesNegociateurs(ventes: readonly Vente[], retros: readonly 
   retros.forEach((r) => ajouter(r.negociateur));
   return [...xs];
 }
+
+/**
+ * 🔴 LOT CQ (règle d'Arno : un même négociateur n'apparaît JAMAIS deux fois) — les libellés regroupés par PERSONNE, selon la correspondance
+ * libellé → « Prénom NOM » du lot CG (`nommer`) : « ARNAUD » et « Arnaud Jorel » → une seule entrée « Arnaud JOREL ». Triées par nom. PUR.
+ */
+export interface PersonneNegociateur { nom: string; libelles: string[] }
+export function personnesNegociateurs(libelles: readonly string[], nommer: (libelle: string) => string): PersonneNegociateur[] {
+  const m = new Map<string, string[]>();
+  for (const l of libelles) { const n = nommer(l); m.set(n, [...new Set([...(m.get(n) ?? []), l])]); }
+  return [...m].map(([nom, ls]) => ({ nom, libelles: ls })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+/**
+ * Le filtre « Négociateur » : sa valeur (le nom affiché — ou, lien d'avant, un libellé) → les libellés de la personne. Inconnue : la valeur seule
+ * (rien ne correspond, comme avant). PUR.
+ */
+export function libellesDuFiltre(personnes: readonly PersonneNegociateur[], valeur: string): { nom: string; libelles: string[] } {
+  const p = personnes.find((x) => x.nom === valeur) ?? personnes.find((x) => x.libelles.includes(valeur));
+  return p === undefined ? { nom: valeur, libelles: [valeur] } : { nom: p.nom, libelles: p.libelles };
+}

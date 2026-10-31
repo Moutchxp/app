@@ -1181,16 +1181,16 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect([texte('[data-choix-periode] [aria-pressed="true"]'), container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois')]).toEqual(['Mensuel', '7']);
         expect([container.querySelector('[data-periode-libelle]'), adresse()]).toEqual([null, null]);
         await cliquer('[data-decouper="periode"]');
-        expect([choisis(), texte('[data-periode-libelle]'), adresse()]).toEqual([[7], 'Période : juillet 2025', '2025-07']); // le mois en cours reste choisi
+        expect([choisis(), texte('[data-bloc="ventes-mois"] h3'), adresse()]).toEqual([[7], 'Les ventes de la période — juillet 2025', '2025-07']); // le mois en cours reste choisi
         await cliquer('[data-onglet-mois="9"]');
-        expect([choisis(), texte('[data-periode-libelle]'), adresse()]).toEqual([[7, 9], 'Période : juillet, septembre 2025 (2 mois)', '2025-07,2025-09']);
+        expect([choisis(), texte('[data-bloc="ventes-mois"] h3'), adresse()]).toEqual([[7, 9], 'Les ventes de la période — juillet, septembre 2025 (2 mois)', '2025-07,2025-09']);
         await cliquer('[data-onglet-mois="8"]');
-        expect([choisis(), texte('[data-periode-libelle]')]).toEqual([[7, 8, 9], 'Période : juillet → septembre 2025']);
+        expect([choisis(), texte('[data-bloc="ventes-mois"] h3')]).toEqual([[7, 8, 9], 'Les ventes de la période — juillet → septembre 2025']);
         await cliquer('[data-onglet-mois="8"]');
         await cliquer('[data-onglet-mois="7"]');
         expect([choisis(), container.querySelector('[data-periode-refus]')]).toEqual([[9], null]);
         await cliquer('[data-onglet-mois="9"]'); // le dernier : refusé, un petit message
-        expect([choisis(), texte('[data-periode-refus]')]).toEqual([[9], ' — au moins un mois reste choisi.']);
+        expect([choisis(), texte('[data-periode-refus]')]).toEqual([[9], 'Au moins un mois reste choisi.']);
         await cliquer('[data-onglet-mois="7"]');
         expect([choisis(), container.querySelector('[data-periode-refus]')]).toEqual([[7, 9], null]);
         // titres et graphique
@@ -1213,7 +1213,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('le lien partagé (&periode=…) rouvre la période ; la sélection est retenue en changeant d’onglet', async () => {
       const fin = await ouvrirSur(jeu(), 'criterimmo', '/?periode=2025-09,2025-07', retros());
       try {
-        expect([choisis(), texte('[data-periode-libelle]'), container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')]).toEqual([[7, 9], 'Période : juillet, septembre 2025 (2 mois)', 'true']);
+        expect([choisis(), texte('[data-bloc="ventes-mois"] h3'), container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')]).toEqual([[7, 9], 'Les ventes de la période — juillet, septembre 2025 (2 mois)', 'true']);
         await cliquer('[data-vue="annee"]');
         expect(adresse()).toBeNull();
         await cliquer('[data-vue="mois"]');
@@ -1244,6 +1244,87 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect([mode, u, p]).toEqual([mode, u, somme]);
         }
       }
+    });
+  });
+
+  describe('🔴 LOT CQ — un négociateur n’apparaît jamais deux fois ; plus de ligne « Période : … » ; le bouton « Mensuel | Période » centré', () => {
+    const lq = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true, origine: 'import',
+      sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    // « ARNAUD » (libellé d'import) et « Arnaud Jorel » (libellé du compte) : une seule personne, « Arnaud JOREL » (lot CG)
+    const jeu = () => [
+      vente(80, { societe: 'criterimmo', libelle: 'BASUYEAUX', honorairesTtc: 11000, annee: 2025, mois: 1, lignes: [lq('ARNAUD', 'part', 11000)] }),
+      vente(81, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, annee: 2025, mois: 1, lignes: [lq('Arnaud Jorel', 'part', 4000)] }),
+      vente(82, { societe: 'criterimmo', libelle: 'ZEMMOR', honorairesTtc: 40000, annee: 2025, mois: 1, lignes: [lq('CEDRIC', 'part', 40000)] }),
+      vente(83, { societe: 'criterimmo', libelle: 'MILLECAMPS', honorairesTtc: 29423, annee: 2025, mois: 1, lignes: [lq('Cédric JULLIEN', 'negociateur', 2000)] }),
+    ];
+    const noms = { ARNAUD: 'Arnaud JOREL', 'Arnaud Jorel': 'Arnaud JOREL', CEDRIC: 'Cédric JULLIEN', 'Cédric JULLIEN': 'Cédric JULLIEN' };
+    const ouvrirNoms = async (q: string) => {
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = noms;
+      const fin = await ouvrirSur(jeu(), 'criterimmo', q);
+      return () => { fin(); donnees.nomsNegociateurs = avant; };
+    };
+    const options = () => [...document.querySelectorAll('[role="option"]')].map((o) => (o.textContent ?? '').replace('✓', '')); // ✓ : l'entrée choisie
+    /** 🔴 L'épreuve anti-doublon : deux entrées qui affichent le même nom font échouer. */
+    const sansDoublon = (quoi: string, xs: readonly string[]) => expect([quoi, xs.filter((x, i) => xs.indexOf(x) !== i)]).toEqual([quoi, []]);
+
+    it('la ligne « Période : … » n’existe plus (Mensuel et Période) ; les titres des blocs disent la période', async () => {
+      const fin = await ouvrirNoms('/?vue=mois&annee=2025&mois=1');
+      try {
+        const sous = () => container.querySelector('.trx-rangee-mois')!.nextElementSibling!;
+        expect([container.querySelector('[data-periode-libelle]'), sous().className]).toEqual([null, 'tdb-tuiles']);
+        await cliquer('[data-decouper="periode"]');
+        await cliquer('[data-onglet-mois="3"]');
+        expect([container.querySelector('[data-periode-libelle]'), sous().className]).toEqual([null, 'tdb-tuiles']);
+        expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de la période — janvier, mars 2025 (2 mois)');
+        expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Période : janvier, mars 2025 (2 mois)');
+      } finally { fin(); }
+    });
+
+    it('le filtre : un seul « Arnaud JOREL », qui choisit ses ventes ARNAUD + compte ensemble ; dans l’adresse ; un ancien lien (libellé) ouvre la même personne', async () => {
+      let fin = await ouvrirNoms('/?vue=mois&annee=2025&mois=1');
+      try {
+        const tousCa = montant('[data-tuile="ca-mois"] .tdb-tuile-valeur');
+        await cliquer('[data-filtre="negociateur"]');
+        expect(options().filter((x) => x === 'Arnaud JOREL')).toHaveLength(1);
+        sansDoublon('filtre Négociateur', options());
+        expect(options()).toEqual(['Tous', 'Arnaud JOREL', 'Cédric JULLIEN']);
+        const option = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent === 'Arnaud JOREL') as HTMLElement;
+        await act(async () => { option.click(); }); await calmer();
+        expect([texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur'), [...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))])
+          .toEqual(['2', ['80', '81']]);
+        expect(montant('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe(Math.round((11000 + 4000) / 1.2 * 100)); // en HT : ses deux ventes
+        expect(new URLSearchParams(window.location.search).get('negociateur')).toBe('Arnaud JOREL');
+        expect(tousCa).toBe(Math.round((11000 + 4000 + 40000 + 29423) / 1.2 * 100)); // sans filtre : rien ne change
+      } finally { fin(); }
+      fin = await ouvrirNoms('/?vue=mois&annee=2025&mois=1&negociateur=ARNAUD');
+      try {
+        expect(texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur')).toBe('2');
+        expect(texte('[data-filtre="negociateur"]')).toContain('Arnaud JOREL');
+      } finally { fin(); }
+    });
+
+    it('anti-doublon : l’Espace par négociateur (Le mois, L’année) et son compteur, les lignes des Apporteurs — un nom, une entrée', async () => {
+      const fin = await ouvrirNoms('/?vue=mois&annee=2025&mois=1');
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        const lignes = [...container.querySelectorAll('[data-table-negociateurs] tbody th')].map((x) => x.textContent ?? '');
+        sansDoublon('Espace par négociateur (Le mois)', lignes);
+        expect(lignes.sort()).toEqual(['Arnaud JOREL', 'Cédric JULLIEN']);
+        expect(texte('[data-bloc="negociateurs-mois"]')).toContain('2 négociateur(s)');
+        await cliquer('[data-vue="annee"]');
+        if (container.querySelector('[data-bloc="negociateurs-periode"] [data-table-negociateurs]') === null) await cliquer('[data-bloc="negociateurs-periode"] button');
+        const an = [...container.querySelectorAll('[data-bloc="negociateurs-periode"] [data-table-negociateurs] tbody th')].map((x) => x.textContent ?? '');
+        sansDoublon('Les négociateurs (L’année)', an);
+        expect(texte('[data-bloc="negociateurs-periode"]')).toContain('2 négociateur(s)');
+      } finally { fin(); }
+    });
+
+    it('le bouton « Mensuel | Période » : centré dans la ligne des mois, même marge en haut et en bas (sans toucher le trait), hauteur des onglets ; téléphone au-dessus, à droite', async () => {
+      const { CSS_TRANSACTION } = await import('./commun');
+      const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+      expect(css).toContain('.trx-rangee-mois .trx-choix-periode{flex:0 0 auto;align-self:center;margin:6px 0}');
+      expect(css).toContain('.trx-rangee-mois .trx-choix-periode .trx-unite{min-height:42px}');
+      expect(css).toContain('@media (max-width:720px){ .trx-rangee-mois{flex-direction:column-reverse;align-items:stretch;gap:0} .trx-rangee-mois .trx-choix-periode{align-self:flex-end} }');
     });
   });
 

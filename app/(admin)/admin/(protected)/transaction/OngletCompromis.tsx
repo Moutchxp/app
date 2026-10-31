@@ -250,7 +250,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       {/* 🔴 LOT AQ (Arno) — « Ce que l'on doit — compromis non encore signés » : les mêmes lignes que les tuiles, par personne. */}
       {/* 🔴 LOT CB (Arno, remplace le point 3 du lot BY) — la synthèse SUIT la vue, comme toute la page : les mêmes affaires que la liste, les
           tuiles et leurs fenêtres (« Total à verser » = la tuile « Commissions versées », au centime). */}
-      <BlocDu detail={detailDu(dc, dca, pourCalcul, vue, d.aujourdhui)} societe={vue} autreSociete={autreSociete} vueListe={vueListe}
+      <BlocDu detail={detailDu(dc, dca, pourCalcul, vue, d.aujourdhui, (x) => d.nomsNegociateurs?.[x] ?? x)} societe={vue} autreSociete={autreSociete} vueListe={vueListe}
         titres={Object.fromEntries(liste.map((v) => [v.id, v.miroir != null ? v.libelle : carteCompromis(v, d.aujourdhui).titre]))} onAller={allerA} />
       {annulation !== null && <ModaleAnnulation vente={annulation} aujourdhui={d.aujourdhui} onFermer={() => setAnnulation(null)}
         onFait={() => { setAnnulation(null); relire(); }} />}

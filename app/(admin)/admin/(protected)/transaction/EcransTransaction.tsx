@@ -22,6 +22,7 @@ import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 import { DessinTriangle } from '../_composants/TriangleDepliage';
 import { espaceNegociateurs, resultatDesCartes, retrosSansVenteAffichee, type LigneEspace, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
+import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { basculerMois, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
@@ -130,7 +131,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   };
   const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
   const [fin, setFin] = useState<number | null>(() => entier(parametre('fin'), 2000, 2100));
-  const [negociateur, setNegociateur] = useState('');
+  // 🔴 LOT CQ — le filtre « Négociateur » : une PERSONNE (son nom affiché), gardé dans l'adresse (&negociateur=…) ; un ancien lien qui porte un
+  // libellé (« ARNAUD ») ouvre la même personne.
+  const [negociateur, setNegociateur] = useState(() => parametre('negociateur') ?? '');
   // 🔴 LOT BS (Arno) — « Le mois » : Vendu | Compromis | Vendu + compromis. L'adresse (&mode=…) d'abord (un lien partagé), sinon le choix retenu
   // par le navigateur, sinon « Vendu » (l'écran d'avant, à l'identique).
   const [mode, setModeEtat] = useState<ModeMois>(() => modeInitial(parametre('mode')));
@@ -146,14 +149,18 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null, mode: null, mesure: null, periode: null }
       : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin), mode: null, mesure: null, periode: null });
   }, [vue, annee, mois, debut, fin, mode, periode]);
+  useEffect(() => { ecrireAdresse({ negociateur: vue === 'compromis' || negociateur === '' ? null : negociateur }); }, [vue, negociateur]);
 
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
   const annees = anneesDe(d, jour);
   const negos = [...new Set([...d.ventes.flatMap(negociateursDe), ...d.retrocessions.map((r) => r.negociateur)])].sort((a, b) => a.localeCompare(b, 'fr'));
-  const filtrees: DonneesSociete = negociateur === '' ? d : { ...d, ventes: d.ventes.filter((v) => negociateursDe(v).includes(negociateur)),
-    retrocessions: d.retrocessions.filter((r) => r.negociateur === negociateur), aRattacher: d.aRattacher.filter((x) => x.negociateur === negociateur) };
+  // 🔴 LOT CQ — une entrée par PERSONNE (lot CG : « ARNAUD » et « Arnaud Jorel » = « Arnaud JOREL ») ; elle choisit toutes ses ventes, tous libellés confondus.
+  const personnes = personnesNegociateurs(negos, (x) => d.nomsNegociateurs?.[x] ?? x);
+  const filtre = negociateur === '' ? null : libellesDuFiltre(personnes, negociateur);
+  const filtrees: DonneesSociete = filtre === null ? d : { ...d, ventes: d.ventes.filter((v) => negociateursDe(v).some((l) => filtre.libelles.includes(l))),
+    retrocessions: d.retrocessions.filter((r) => filtre.libelles.includes(r.negociateur)), aRattacher: d.aRattacher.filter((x) => filtre.libelles.includes(x.negociateur)) };
   const fini = (): void => { setEdition(null); relire(); };
   const references = refs.lu.etat === 'ok' ? refs.lu.data : null;
   /** LOT D — une vente répartie (ou avec son dossier) se modifie dans le formulaire du dossier ; les autres, comme avant. */
@@ -186,7 +193,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
               libelle="Fin" onChange={(v) => setFin(Number(v))} donnees={{ 'data-filtre': 'fin' }} /></label>
         </>}
         <label className="tdb-champ">Négociateur
-          <ListeChoix options={negos.map((x) => ({ id: x, libelle: d.nomsNegociateurs?.[x] ?? x }))} valeur={negociateur} vide="Tous" libelle="Négociateur" onChange={setNegociateur} donnees={{ 'data-filtre': 'negociateur' }} /></label>
+          <ListeChoix options={personnes.map((p) => ({ id: p.nom, libelle: p.nom }))} valeur={filtre?.nom ?? ''} vide="Tous" libelle="Négociateur" onChange={setNegociateur} donnees={{ 'data-filtre': 'negociateur' }} /></label>
         {/* 🔴 LOT BS — ce que « Le mois » additionne : les ventes signées (date de l'acte), les compromis (date du compromis), ou les deux. */}
         {vue === 'mois' && <div className="tdb-champ trx-champ-mode"><span id="trx-mode-mot">Compter</span>
           <div className="trx-unites trx-modes" role="group" aria-labelledby="trx-mode-mot" data-filtre="mode">
@@ -246,6 +253,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   periode?: readonly MoisChoisi[] | null; refusPeriode?: boolean; onDecoupage?: (x: 'mensuel' | 'periode') => void;
 }) {
   // 🔴 LOT CP — en Période, chaque grandeur du mois devient la somme de ses mois (`periodeMois` : les fonctions du mois, mois après mois).
+  const nommer = useNommer(); // 🔴 LOT CQ — le compteur de l'Espace compte des PERSONNES
   const enPeriode = periode !== null;
   const ms: readonly MoisChoisi[] = periode ?? [{ annee, mois }];
   const anneesP = [...new Set(ms.map((m) => m.annee))];
@@ -373,8 +381,9 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <button type="button" className="trx-unite" aria-pressed={enPeriode} onClick={() => onDecoupage('periode')} data-decouper="periode">Période</button>
       </div>}
     </div>
-    {enPeriode && <p className="tdb-periode trx-periode-libelle" data-periode-libelle>Période : <strong>{nomPeriode}</strong>
-      {refusPeriode && <small className="loc-muet trx-periode-refus" role="status" data-periode-refus> — au moins un mois reste choisi.</small>}</p>}
+    {/* 🔴 LOT CQ — la ligne « Période : … » sous les mois est RETIRÉE (accord d'Arno) : les titres des blocs disent la période. Reste le petit
+        message du dernier mois, qui ne se retire pas. */}
+    {enPeriode && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
     <ul className="tdb-tuiles" aria-label={enPeriode ? 'L’essentiel de la période' : 'L’essentiel du mois'} data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ca-mois">
         <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
@@ -445,7 +454,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
     </section>
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
-      resume={`${parNegociateur(listeMode, retrosMode, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
+      resume={`${personnesNegociateurs(parNegociateur(listeMode, retrosMode, d.societe).map((l) => l.negociateur), nommer).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
       <TableNegociateurs lignes={parNegociateur(listeMode, retrosMode, d.societe, resolveurDe(d.statutsNegociateurs))}
         espace={espaceNegociateurs(listeMode, d.societe, { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) })} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
@@ -831,6 +840,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
 }) {
   const [cumul, setCumul] = useState(false);
   const U = useUnite();
+  const nommer = useNommer(); // 🔴 LOT CQ
   const periode = annees.filter((a) => a >= debut && a <= fin);
   const libelle = debut === fin ? String(debut) : `${debut} → ${fin}`;
   // 🔴 LOT CH (Arno) — la règle de « Le mois » : le résultat = la SOMME DES CARTES des ventes de la période (`resultatDesCartes`) ; les rétrocessions
@@ -912,7 +922,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
       <RetrosHorsResultat retros={horsP} ventes={d.ventes} quand="sur la période" />
     </section>
 
-    <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA ${U.MOT} ${eur(sommeAffichee(negos.map((l) => U.en(l.caHt))))}`}
+    <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${personnesNegociateurs(negos.map((l) => l.negociateur), nommer).length} négociateur(s) · CA ${U.MOT} ${eur(sommeAffichee(negos.map((l) => U.en(l.caHt))))}`}
       donnees={{ 'data-bloc': 'negociateurs-periode' }}>
       <TableNegociateurs lignes={negos} espace={espaceNegociateurs(ventesP, d.societe, { retros: d.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) })} onDetail={onDetail} periode={libelle} />
     </BlocReplie>

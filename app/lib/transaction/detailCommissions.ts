@@ -284,7 +284,12 @@ export function sommeDu(lignes: readonly LigneDu[], mois: string): SommeDu {
 }
 
 /** 🔴 LOT AQ — « CE QUE L'ON DOIT » des compromis en cours, pour une société (null : nos deux sociétés), au jour `aujourdhui` (AAAA-MM-JJ). PUR. */
-export function detailDu(couts: DetailCommissions, ca: DetailCa, ventes: readonly Pick<Vente, 'id' | 'statut' | 'dateCompromis'>[], societe: Societe | null, aujourdhui: string): DetailDu {
+/**
+ * 🔴 LOT CQ (règle d'Arno : un même négociateur n'apparaît jamais deux fois) — `nommer` : le nom affiché d'un libellé (lot CG) ; les lignes d'une même
+ * PERSONNE (« ARNAUD », « Arnaud Jorel ») se regroupent sous une seule entrée (dans chaque classe). Absent : un libellé, une entrée (comme avant).
+ */
+export function detailDu(couts: DetailCommissions, ca: DetailCa, ventes: readonly Pick<Vente, 'id' | 'statut' | 'dateCompromis'>[], societe: Societe | null, aujourdhui: string,
+  nommer: (libelle: string) => string = (x) => x): DetailDu {
   const mois = aujourdhui.slice(0, 7);
   const dates = new Map(ventes.map((v) => [v.id, v.dateCompromis || null]));
   const ligne = (l: { venteId: number; htC: number; ttcC: number; statut?: Statut | null }): LigneDu => ({ venteId: l.venteId, date: dates.get(l.venteId) ?? null, htC: l.htC, ttcC: l.ttcC,
@@ -294,14 +299,14 @@ export function detailDu(couts: DetailCommissions, ca: DetailCa, ventes: readonl
     const l = [...lignes].sort(tri);
     return { cle, nom, lignes: l, nbDossiers: new Set(l.map((x) => x.venteId)).size, ...sommeDu(l, mois), ...extra };
   };
-  const parQui = (cles: readonly CleCout[], prefixe: string, extra: (ls: LigneCout[]) => Partial<PersonneDu> = () => ({})): PersonneDu[] => {
+  const parQui = (cles: readonly CleCout[], prefixe: string, extra: (ls: LigneCout[]) => Partial<PersonneDu> = () => ({}), qui: (x: string) => string = (x) => x): PersonneDu[] => {
     const groupes = new Map<string, LigneCout[]>();
-    for (const c of [...couts.versees, ...couts.infos]) if (cles.includes(c.cle)) for (const l of c.lignes) groupes.set(`${c.cle}|${l.qui}`, [...(groupes.get(`${c.cle}|${l.qui}`) ?? []), l]);
+    for (const c of [...couts.versees, ...couts.infos]) if (cles.includes(c.cle)) for (const l of c.lignes) groupes.set(`${c.cle}|${qui(l.qui)}`, [...(groupes.get(`${c.cle}|${qui(l.qui)}`) ?? []), l]);
     return [...groupes.entries()].map(([k, ls]) => personne(`${prefixe}-${k}`, ls[0].qui, ls.map(ligne), extra(ls)))
       .sort((a, b) => b.ttcC - a.ttcC || a.nom.localeCompare(b.nom));
   };
   const classeDe = (cle: CleCout): PersonneDu['classe'] => (cle === 'independants' ? 'independant' : cle === 'internes' ? 'interne' : 'a_renseigner');
-  const negociateurs = parQui(['independants', 'internes', 'a-renseigner'], 'negociateur', (ls) => ({ classe: classeDe(ls[0].cle), statuts: [...new Set(ls.map((l) => l.statut ?? null))] }));
+  const negociateurs = parQui(['independants', 'internes', 'a-renseigner'], 'negociateur', (ls) => ({ classe: classeDe(ls[0].cle), statuts: [...new Set(ls.map((l) => l.statut ?? null))] }), nommer);
   const autre = societe === null ? null : SOCIETES.find((s) => s !== societe) ?? null;
   const lignesDe = (cle: CleCout): LigneDu[] => [...couts.versees, ...couts.infos].filter((c) => c.cle === cle).flatMap((c) => c.lignes.map(ligne));
   const reverse = autre === null ? null : personne('reverse', LIBELLE_SOCIETE[autre], lignesDe(`inter-cabinet-${autre}`));
