@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { MAX_NEGOCIATEURS } from './GrapheNegociateurs';
+import { CSS_LISTE_CHOIX } from '../location/ListeChoix';
 
 /**
  * ══ 🔴 LOT CU (Arno, 31/10/2026) — LE FILTRE « NÉGOCIATEUR » À CHOIX MULTIPLE ══════════════════════════════════════════════════════════════
@@ -42,6 +43,9 @@ export function FiltreNegociateurs({ personnes, choisis, onChange }: { personnes
   };
   return (
     <div className="lch trx-filtre-negos" ref={racine}>
+      {/* 🔴 LOT DK — le style des listes, apporté par le champ lui-même (comme `ListeChoix`) : sans lui, « L'année » d'une année sans vente (aucune
+          autre liste à l'écran, ex. MACJ 2026) montrait un bouton nu. */}
+      <style>{CSS_LISTE_CHOIX}</style>
       <button type="button" className="lch-champ" role="combobox" aria-haspopup="listbox" aria-expanded={ouvert} aria-controls={`${id}-liste`} aria-label={`Négociateur : ${libelleChoixNegociateurs(choisis)}`}
         onClick={() => setOuvert((o) => !o)} data-filtre="negociateur" data-valeur={choisis.join('|')}>
         <span className={choisis.length === 0 ? 'lch-vide' : undefined}>{libelleChoixNegociateurs(choisis)}</span>

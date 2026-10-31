@@ -2177,6 +2177,67 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
+  describe('🔴 LOT DK — CRITERIMMO et MACJ : la même page (mêmes composants), seule la société change', () => {
+    const lk = (negociateur: string, montantTtc: number, role: LigneVente['role'] = 'part'): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    /** Le même jeu pour chaque société : ventes, mois à confirmer, compromis, deux négociateurs, l'année précédente. */
+    const jeuPour = (s: 'criterimmo' | 'macj'): Vente[] => [
+      vente(500, { societe: s, libelle: 'UN', honorairesTtc: 6000, annee: 2025, mois: 1, lignes: [lk('ARNAUD', 6000), lk('ARNAUD', 1200, 'negociateur')] }),
+      vente(501, { societe: s, libelle: 'DEUX', honorairesTtc: 3000.01, annee: 2025, mois: 3, lignes: [lk('ARNAUD', 1500), lk('CEDRIC', 1500.01)] }),
+      vente(502, { societe: s, libelle: 'TROIS', honorairesTtc: 2400, annee: 2025, mois: null, lignes: [lk('CEDRIC', 2400)] }),
+      vente(503, { societe: s, libelle: 'QUATRE', honorairesTtc: 4800, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-07-10', lignes: [lk('ARNAUD', 4800)] }),
+      vente(504, { societe: s, libelle: 'CINQ', honorairesTtc: 1200, annee: 2024, mois: 3, lignes: [lk('CEDRIC', 1200)] }),
+    ];
+    /** La structure rendue : chaque attribut data-*, les titres, les boutons et les onglets ; le nom de la société remplacé par « S ». */
+    const structure = (): string[] => {
+      const s = (x: string) => x.replace(/criterimmo|macj/gi, 'S');
+      const racine = container.querySelector('[data-transaction]')!;
+      return [...racine.querySelectorAll('*')].flatMap((el) => [
+        ...[...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `${el.tagName}[${a.name}=${s(a.value)}]`),
+        ...(['H3', 'BUTTON', 'TH'].includes(el.tagName) ? [`${el.tagName}:${s(el.textContent ?? '')}`] : []),
+      ]);
+    };
+    const ouvrirK = async (s: 'criterimmo' | 'macj', q: string) => {
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = { ARNAUD: 'Arnaud JOREL', CEDRIC: 'Cédric JULLIEN' };
+      const fin = await ouvrirSur(jeuPour(s), s, q);
+      return () => { fin(); donnees.nomsNegociateurs = avant; };
+    };
+    const ECRANS = ['/', '/?vue=compromis', '/?vue=mois&annee=2025&mois=3', '/?vue=mois&annee=2025&mois=3&vue-mois=periode&periode=2025-01,2025-03', '/?vue=mois&annee=2025&mois=3&vue-mois=annee',
+      '/?vue=mois&annee=2025&mois=7&mode=compromis', '/?vue=mois&annee=2025&mois=7&mode=tous', '/?vue=mois&annee=2025&mois=3&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN',
+      '/?vue=annee&annee=2025', '/?vue=annee&vue-annee=periode&annees=2024,2025', '/?vue=annee&vue-annee=tout', '/?vue=annee&annee=2025&mode=tous', '/?vue=annee&annee=2025&graphe=mois',
+      '/?vue=annee&annee=2025&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN'];
+
+    it('chaque écran (Compromis, Le mois — Mois, Période, Année, les trois modes, 2 négociateurs —, L’année — Année, Période, Tout, Mois par mois) : la même structure pour les deux sociétés, HT et TTC', async () => {
+      for (const u of ['ht', 'ttc'] as const) for (const q of ECRANS) {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        let fin = await ouvrirK('criterimmo', q);
+        let c: string[] = [];
+        try { c = structure(); } finally { fin(); }
+        fin = await ouvrirK('macj', q);
+        let m: string[] = [];
+        try { m = structure(); } finally { fin(); }
+        expect([u, q, c.length > 20]).toEqual([u, q, true]);
+        expect([u, q, m]).toEqual([u, q, c]);
+      }
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      window.localStorage.removeItem('trx-mois-mode');
+    });
+
+    // aujourd'hui (dans ces tests) : 27/10/2025 — l'année en cours de MACJ n'a encore aucune vente (comme MACJ 2026 en recette)
+    it('MACJ, année en cours sans données (fichier pas encore importé) : Le mois et L’année s’affichent proprement (« Aucune vente »), sans erreur', async () => {
+      for (const q of ['/?vue=mois&annee=2025&mois=3', '/?vue=annee&annee=2025', '/?vue=annee&annee=2025&graphe=mois']) {
+        const fin = await ouvrirSur([vente(600, { societe: 'macj', annee: 2024, mois: 2 })], 'macj', q);
+        try {
+          expect([q, container.querySelector('[role="alert"]'), container.querySelector('[data-transaction="macj"]') !== null]).toEqual([q, null, true]);
+          // le champ « Négociateur » porte son style (aucune autre liste à l'écran sur une année sans vente : il était nu)
+          expect([q, container.querySelector('.trx-filtre-negos > style')?.textContent?.includes('.lch-champ')]).toEqual([q, true]);
+          const vide = texte('[data-bloc="ventes-mois"], [data-bloc="ventes-annee"]');
+          expect([q, /Aucune vente/.test(vide)]).toEqual([q, true]);
+        } finally { fin(); }
+      }
+    });
+  });
+
   it('🔴 LOT DI — « Montants » (HT | TTC) à droite de la ligne des filtres (dernière colonne, libellé à droite) ; au téléphone, sur sa ligne, à droite ; Le mois et L’année', async () => {
     const { CSS_TRANSACTION } = await import('./commun');
     expect(CSS_TRANSACTION).toContain('.trx-champ-unite{display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:4px;min-width:max-content;grid-column:-2/-1;justify-self:end}');
