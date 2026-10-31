@@ -2095,6 +2095,19 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
+  it('🔴 LOT DI — « Montants » (HT | TTC) à droite de la ligne des filtres (dernière colonne, libellé à droite) ; au téléphone, sur sa ligne, à droite ; Le mois et L’année', async () => {
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION).toContain('.trx-champ-unite{display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:4px;min-width:max-content;grid-column:-2/-1;justify-self:end}');
+    expect(CSS_TRANSACTION).toContain('@media (max-width:760px){ .trx-champ-mode{grid-column:1/-1} .trx-champ-unite{grid-column:1/-1} }');
+    for (const q of ['/?vue=mois&annee=2025&mois=1', '/?vue=annee']) {
+      const fin = await ouvrirSur([vente(300, { societe: 'criterimmo', annee: 2025, mois: 1 })], 'criterimmo', q);
+      try {
+        const champs = [...container.querySelectorAll('.tdb-filtres > *')];
+        expect([q, champs.at(-1)!.classList.contains('trx-champ-unite'), texte('.trx-champ-unite #trx-unite-mot')]).toEqual([q, true, 'Montants']);
+      } finally { fin(); }
+    }
+  });
+
   describe('🔴 LOT DF — le graphique de base (Tous ou un négociateur) : aucun mois pâle ; l’année affichée nettement devant N−1', () => {
     const lf = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
       origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });

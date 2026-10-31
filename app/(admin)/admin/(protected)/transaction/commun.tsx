@@ -622,9 +622,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-mode-regle{display:block;max-width:34rem;font-size:.75rem;font-weight:400;white-space:normal}
 /* LOT BW — « Compter » prend trois colonnes de la grille des filtres (ses trois boutons tiennent), « Montants » (HT | TTC) la suivante, à sa droite. */
 .trx-champ-mode{grid-column:span 3}
-.trx-champ-unite{display:flex;flex-direction:column;gap:4px;min-width:max-content}
+/* LOT DI (Arno) — « Montants » (HT | TTC) alignes a DROITE de la ligne des filtres (derniere colonne, bord droit = bord interieur du cadre),
+   son libelle aligne a droite au-dessus ; au telephone, sur sa propre ligne, a droite. */
+.trx-champ-unite{display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:4px;min-width:max-content;grid-column:-2/-1;justify-self:end}
 @media (max-width:1100px){ .trx-champ-mode{grid-column:span 2} }
-@media (max-width:760px){ .trx-champ-mode{grid-column:1/-1} }
+@media (max-width:760px){ .trx-champ-mode{grid-column:1/-1} .trx-champ-unite{grid-column:1/-1} }
 @media (max-width:420px){ .trx-champ-mode{min-width:0} .trx-modes .trx-unite{padding:0 8px;min-width:0} }
 .tdb-barre.tdb-barre--haut{opacity:.42}
 .tdb-barre-n1.tdb-barre--haut{opacity:.5}
