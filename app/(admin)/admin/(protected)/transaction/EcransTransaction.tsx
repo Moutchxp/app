@@ -159,7 +159,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
     setRefusAnnees(false);
     if (choixA.decoupage === 'annee') { setChoixAnnees({ decoupage: 'annee', annees: [a], annee: a }); return; }
     // depuis « Tout » : la Période des autres années (cette année retirée), comme « Le mois » depuis « Année »
-    if (choixA.decoupage === 'tout') { const autres = anneesDispo.filter((x) => x !== a); setChoixAnnees({ decoupage: 'periode', annees: autres, annee: autres.at(-1) ?? a }); return; }
+    if (choixA.decoupage === 'tout') { const autres = (anneesVisibles ?? anneesDispo).filter((x) => x !== a); setChoixAnnees({ decoupage: 'periode', annees: autres, annee: autres.at(-1) ?? a }); return; }
     const b = basculerAnnee(choixA.annees, a);
     setRefusAnnees(b.refus);
     setChoixAnnees({ decoupage: 'periode', annees: b.annees, annee: b.annees.includes(a) ? a : b.annees.includes(choixA.annee) ? choixA.annee : b.annees.at(-1)! });
@@ -168,8 +168,8 @@ export function EcranSociete({ societe }: { societe: Societe }) {
     if (choixA === null || anneesDispo === null) return;
     setRefusAnnees(false);
     if (x === 'annee') setChoixAnnees({ decoupage: 'annee', annees: [choixA.annee], annee: choixA.annee });
-    else if (x === 'tout') setChoixAnnees({ decoupage: 'tout', annees: [...anneesDispo], annee: choixA.annee });
-    else setChoixAnnees({ decoupage: 'periode', annees: choixA.decoupage === 'tout' ? [...anneesDispo] : choixA.annees, annee: choixA.annee });
+    else if (x === 'tout') setChoixAnnees({ decoupage: 'tout', annees: [...(anneesVisibles ?? anneesDispo)], annee: choixA.annee });
+    else setChoixAnnees({ decoupage: 'periode', annees: choixA.decoupage === 'tout' ? [...(anneesVisibles ?? anneesDispo)] : choixA.annees, annee: choixA.annee });
   };
   const cleChoixA = choixA === null ? null : `${choixA.decoupage}|${choixA.annees.join(',')}|${choixA.annee}`;
   // 🔴 LOT CQ — le filtre « Négociateur » : une PERSONNE (son nom affiché), gardé dans l'adresse (&negociateur=…) ; un ancien lien qui porte un
@@ -180,6 +180,11 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   // par le navigateur, sinon « Vendu » (l'écran d'avant, à l'identique).
   const [mode, setModeEtat] = useState<ModeMois>(() => modeInitial(parametre('mode')));
   const setMode = (m: ModeMois): void => { setModeEtat(m); try { window.localStorage.setItem(CLE_MODE_MOIS, m); } catch { /* sans stockage */ } };
+  // 🔴 LOT DH (Arno) — la ligne des années et l'axe : seulement les années qui ont une donnée comptée dans le mode affiché (une vente, un compromis
+  // à sa date) ou une rétrocession saisie ; l'année montrée et les années cochées restent toujours (ex. 2027, présente par la seule date butoir
+  // d'un compromis : absente). « Toute l'histoire » garde toutes les années.
+  const anneesVisibles = lu.etat !== 'ok' || anneesDispo === null ? null : anneesDispo.filter((a) => listeDesAnnees(lu.data.ventes, [a], mode).length > 0
+    || lu.data.retrocessions.some((x) => x.annee === a) || (choixA !== null && (a === choixA.annee || (choixA.decoupage === 'periode' && choixA.annees.includes(a)))));
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   // 🔴 LOT BW (Arno) — « HT | TTC » sur « Le mois » et « L'année » : le choix retenu de l'onglet « Compromis » (même composant, même mémoire,
@@ -254,7 +259,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       {vue === 'mois'
         ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={choisirMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references}
             periode={periodeVue} decoupage={decoupage} refusPeriode={refusPeriode} onDecoupage={choisirDecoupage} series={seriesNegos} filtreNegociateurs={choisis.map((c) => c.nom)} />
-        : choixA !== null && <VueAnnee d={filtrees} tout={d} annees={annees} choix={choixA} refus={refusAnnees} onAnnee={choisirAnnee}
+        : choixA !== null && <VueAnnee d={filtrees} tout={d} annees={anneesVisibles ?? annees} anneesHistoire={annees} choix={choixA} refus={refusAnnees} onAnnee={choisirAnnee}
             onAnneeSeule={(a) => { setRefusAnnees(false); setChoixAnnees({ decoupage: 'annee', annees: [a], annee: a }); }} onDecoupage={choisirDecoupageAnnees}
             onOuvrirMois={(a, m) => { setAnneeEntiere(false); setPeriode(null); setAnnee(a); setMois(m); setVue('mois'); }}
             jour={jour} mode={mode} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references} series={seriesNegos} filtreNegociateurs={choisis.map((c) => c.nom)} />}
@@ -1053,9 +1058,11 @@ export function libelleAnnees(c: Pick<ChoixAnnees, 'decoupage' | 'annees'>): str
 const sommeMontants = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
 
 /** 🔴 LOT DG — « Année par année » : un point par année ; Annuel (barres) / Cumul (courbe) ; CA | CA net | Nombre ; 2 à 5 négociateurs : une série chacun. */
-function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete }: {
+function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete, comparaison = null }: {
   d: DonneesSociete; tout: DonneesSociete; annees: readonly number[]; selection: readonly number[]; annee: number; decoupage: DecoupageAnnees; jour: string;
   mode: ModeMois; series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onAnnee: (a: number) => void; entete: ReactNode;
+  /** 🔴 LOT DH — « Tout » : ce que dit l'encadré à la place de l'année précédente (« Toutes les années (2019 → 2026) ») ; null : la comparaison N−1. */
+  comparaison?: string | null;
 }) {
   const U = useUnite();
   const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
@@ -1087,10 +1094,10 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
     const k = rang(a);
     const titre = enCumul ? `Cumul ${annees[0]} → ${a}` : `${a}${a === anneeEnCours ? ' — en cours' : ''}`;
     const v = enCumul ? cumule(vals, k) : vals[k]; const vb = enCumul ? cumule(bas, k) : bas[k];
-    const avant = presente(a - 1);
+    const avant = comparaison === null && presente(a - 1);
     const v1 = avant ? (enCumul ? cumule(vals, k - 1) : vals[k - 1]) : 0; const vb1 = avant ? (enCumul ? cumule(bas, k - 1) : bas[k - 1]) : 0;
     const nb = enCumul ? cumule(nbs, k) : nbs[k]; const nb1 = avant ? (enCumul ? cumule(nbs, k - 1) : nbs[k - 1]) : 0;
-    const sansN1 = `${a - 1} : non importé`;
+    const sansN1 = comparaison ?? `${a - 1} : non importé`;
     if (nombre) return { titre, compte: enCumul ? `${M.compte} (cumul)` : M.compte, sansN1, courant: { libelle: String(a), ca: v, nb: null, ...parts(vb, v) },
       precedent: avant ? { libelle: String(a - 1), ca: v1, nb: null, ...parts(vb1, v1) } : null };
     return { titre, motNb: M.compte, motCa: net ? `CA net ${U.MOT}` : `CA ${U.MOT}`, autre: U.autre, sansN1, courant: { libelle: String(a), ca: v, nb, ...parts(vb, v) },
@@ -1108,7 +1115,7 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
       {entete}
       {series !== null ? (
         <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: annees.map((a) => listeDesAnnees(x.d.ventes, [a], mode).length), ca: annees.map((a) => valeur(x.d, a)) }))}
-          total={{ ca: vals, nb: nbs }} totalN1={{ ca: valsN1, nb: annees.map((a) => listeDesAnnees(d.ventes, [a - 1], mode).length), annee: annee - 1 }}
+          total={{ ca: vals, nb: nbs }} totalN1={comparaison !== null ? null : { ca: valsN1, nb: annees.map((a) => listeDesAnnees(d.ventes, [a - 1], mode).length), annee: annee - 1 }}
           cumul={cumul} nombre={nombre} dernierMois={dernier} annee={annee} choisi={rang(annee) + 1} onChoisir={(r) => onAnnee(annees[r - 1])}
           motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par année, un négociateur par série`}
           axe={{ etiquettes: annees.map(String), cles: annees, attribut: 'data-barre-annee', libelleN1: (r) => String(annees[r - 1] - 1), attenuer: !enPeriode,
@@ -1129,8 +1136,10 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   );
 }
 
-function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDecoupage, onOuvrirMois, jour, mode, onDetail, onEdition, onRelire, references, series = null, filtreNegociateurs = [] }: {
+function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAnneeSeule, onDecoupage, onOuvrirMois, jour, mode, onDetail, onEdition, onRelire, references, series = null, filtreNegociateurs = [] }: {
   d: DonneesSociete; tout: DonneesSociete; annees: readonly number[]; choix: ChoixAnnees; refus: boolean;
+  /** 🔴 LOT DH — « Toute l'histoire » : toutes les années (la ligne et l'axe : celles qui ont une donnée comptée, `annees`). */
+  anneesHistoire: readonly number[];
   /** Un clic sur une année (ligne des années, graphique) : Année → cette année ; Période → cochée / décochée ; Tout → la Période des autres. */
   onAnnee: (a: number) => void; onAnneeSeule: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void; onOuvrirMois: (a: number, m: number) => void;
   jour: string; mode: ModeMois; onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void; references: References | null;
@@ -1148,9 +1157,13 @@ function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDeco
   const [echelle, setEchelle] = useState<'annees' | 'mois'>(() => (parametre('graphe') === 'mois' ? 'mois' : 'annees'));
   useEffect(() => { ecrireAdresse({ graphe: echelle === 'mois' ? 'mois' : null }); }, [echelle]);
   const { annee } = choix;
-  const sel = [...choix.annees].sort((a, b) => a - b);
+  // 🔴 LOT DH (Arno) — « Tout » : toutes les années montrées, sans année précédente (ni N−1, ni écart) ; les titres disent « toutes les années ».
+  const enTout = choix.decoupage === 'tout';
+  const sel = enTout ? [...annees] : [...choix.annees].sort((a, b) => a - b);
+  const plage = `${annees[0]} → ${annees.at(-1)}`;
+  const toutes = `Toutes les années (${plage})`;
   const sel1 = sel.map((a) => a - 1);
-  const lib = libelleAnnees(choix);
+  const lib = enTout ? 'toutes les années' : libelleAnnees(choix);
   const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
   const opts = { retros: tout.retrocessions, statutDuLibelle };
   const cartes = (vs: readonly Vente[]): ResultatCartes => resultatDesCartes(vs, d.societe, opts);
@@ -1194,7 +1207,7 @@ function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDeco
   const aRattacher = d.aRattacher.filter((x) => sel.includes(x.annee));
   const surLaPeriode = sel.length === 1 ? 'sur l’année' : 'sur la période';
   // Toute l'histoire (gardée telle quelle, accord d'Arno) : chaque année, la règle du Résultat (rétrocessions et reste)
-  const H = historique(d, annees).map((h) => {
+  const H = historique(d, anneesHistoire).map((h) => {
     const r = cartes(d.ventes.filter((v) => v.statut === 'vendue' && v.annee === h.annee && compteDansSociete(v)));
     return { ...h, retroHt: r.retro.htC / 100, resteHt: r.reste.htC / 100 };
   });
@@ -1227,20 +1240,20 @@ function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDeco
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ca-annee">
         <span className="tdb-tuile-mot">{M.ca} — {lib}</span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rc.ca))}{ESPACE}{U.autre.mot})</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="ca">{sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="ca">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ventes-annee">
         <span className="tdb-tuile-mot">{M.nombre} — {lib}</span><strong className="tdb-tuile-valeur">{liste.length}</strong>
-        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode).length} ${enN1}`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode).length} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} à date — ${lib}`, aDate.map((v) => v.id))} data-tuile="ca-a-date">
-        <span className="tdb-tuile-mot">{M.ca} — {lib} à date<small>{motADate}</small></span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
+        <span className="tdb-tuile-mot">{enTout ? <>{M.ca} — à date (toutes les années)</> : <>{M.ca} — {lib} à date<small>{motADate}</small></>}</span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rd.ca))}{ESPACE}{U.autre.mot})</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="a-date">{sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="a-date">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>
       {mode === 'vendu' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net — ${lib}`, ventesSel.map((v) => v.id))} data-tuile="ca-net-annee">
           <span className="tdb-tuile-mot">CA net {U.MOT} — {lib}<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
           <strong className="tdb-tuile-valeur" data-ca-net-annee>{ca(netA)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netA))}{ESPACE}{U.autre.mot})</small>
-          <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{sansN1 ? motSansN1 : `${ca(netA1)} ${enN1} (${pct(netA, netA1)})`}</span></button></li>
+          <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netA1)} ${enN1} (${pct(netA, netA1)})`}</span></button></li>
       ) : mode === 'compromis' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir('Compromis en cours', cec.ids)} data-tuile="compromis">
           <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
@@ -1254,16 +1267,16 @@ function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDeco
     </ul>
 
     {echelle === 'annees'
-      ? <GrapheAnnees d={d} tout={tout} annees={annees} selection={sel} annee={annee} decoupage={choix.decoupage} jour={jour} mode={mode} series={series} onAnnee={onAnnee} entete={choixEchelle} />
+      ? <GrapheAnnees d={d} tout={tout} annees={annees} selection={sel} comparaison={enTout ? toutes : null} annee={annee} decoupage={choix.decoupage} jour={jour} mode={mode} series={series} onAnnee={onAnnee} entete={choixEchelle} />
       : <GrapheMois d={d} tout={tout} annee={annee} mois={0} jour={jour} mode={mode} series={series} onMois={(m) => onOuvrirMois(annee, m)} moisSeul={false} periodeAnnee={null} entete={choixEchelle} />}
 
     <div ref={listes} className="trx-listes-mois">
       {mode !== 'compromis' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-ventes-annee" data-bloc="ventes-annee">
-        <div className="trx-entete-gauche"><h3 id="trx-ventes-annee">Les ventes de {lib}</h3><span className="trx-compteur" data-compteur-liste>({ventesSel.length})</span></div>
+        <div className="trx-entete-gauche"><h3 id="trx-ventes-annee">{enTout ? `Les ventes — toutes les années (${plage})` : `Les ventes de ${lib}`}</h3><span className="trx-compteur" data-compteur-liste>({ventesSel.length})</span></div>
         <CartesVentes ventes={ventesSel} retros={tout.retrocessions} vide={`Aucune vente ${surLaPeriode}.`} societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />
       </section>}
       {mode !== 'vendu' && <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-compromis-annee" data-bloc="compromis-annee">
-        <div className="trx-entete-gauche"><h3 id="trx-compromis-annee">{mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}</h3>
+        <div className="trx-entete-gauche"><h3 id="trx-compromis-annee">{enTout ? (mode === 'tous' ? 'Les compromis en cours — toutes les années' : 'Les compromis — toutes les années') : mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}</h3>
           <span className="trx-compteur" data-compteur-liste>({compSel.length})</span>
           <small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small></div>
         <CartesVentes ventes={compSel} retros={tout.retrocessions} vide={`Aucun compromis signé ${surLaPeriode}.`} societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />
@@ -1307,7 +1320,7 @@ function VueAnnee({ d, tout, annees, choix, refus, onAnnee, onAnneeSeule, onDeco
     </section>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs-annee" data-bloc="apporteurs-periode">
-      <h3 id="trx-apporteurs-annee">{sel.length > 1 ? 'Apporteurs des années' : 'Apporteurs de l’année'} — {lib} <span className="loc-pastille">{apporteurs.length}</span></h3>
+      <h3 id="trx-apporteurs-annee">{enTout ? 'Apporteurs' : sel.length > 1 ? 'Apporteurs des années' : 'Apporteurs de l’année'} — {lib} <span className="loc-pastille">{apporteurs.length}</span></h3>
       {apporteurs.length === 0 ? <p className="loc-muet">Aucune rétrocession sur la période.</p> : (
         <table className="tdb-table tdb-table--large" data-table-apporteurs>
           <thead><tr><th scope="col">Apporteur</th><th scope="col">Rétrocessions</th><th scope="col">Montant {U.MOT}</th><th scope="col">Ventes rattachées</th><th scope="col">CA apporté {U.MOT}</th><th scope="col">À répartir</th></tr></thead>
