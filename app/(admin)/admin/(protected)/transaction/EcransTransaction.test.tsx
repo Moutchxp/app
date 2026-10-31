@@ -277,7 +277,7 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
     // le tableau : les 12 mois de l'année, son titre et son total disent l'année
     expect([texte('[data-bloc="gestion-mois"] h3'), texte('[data-total-gestion] th')]).toEqual(['2025 mois par mois (HT ; envoyé chaque mois par le comptable)', 'Total — 2025']);
     const { CSS_TRANSACTION } = await import('./commun');
-    expect(CSS_TRANSACTION).toContain('[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;'); // les cinq onglets, aucun coupé
+    expect(CSS_TRANSACTION).toContain('[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))'); // 🔴 LOT GE4 : la grille 3 × 2
     // mars : avec salariés et lots
     await cliquer('[data-onglet-mois="3"]');
     expect([valeur('gestion-net'), texte('[data-gestion-lots]'), adresse().get('mois')]).toEqual([1618463 - 244900 - 268891, '310 lots', '3']);
@@ -302,7 +302,7 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
 
   it('le graphique : Honoraires | ADHOC | Salariés | CA net | Lots ; Mensuel (N−1 hachurée, le mois en rouge, aucun mois pâle) / Cumul', async () => {
     await ouvrirG('/?vue=mois&annee=2025&mois=3');
-    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['Honoraires', 'ADHOC', 'MONGA', 'Salariés', 'CA net', 'Lots']); // 🔴 LOT GE3
+    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['CA', 'CA net', 'Lots', 'ADHOC', 'MONGA', 'Salaires']); // 🔴 LOT GE4 : grille 3 × 2
     const barre = (k: number) => Number(container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"] .tdb-barre`)!.getAttribute('data-valeur'));
     expect([barre(1), barre(3), container.querySelector('[data-barre-mois="3"] .tdb-barre--courante') !== null, container.querySelector('[data-barre-n1="1"]') !== null,
       container.querySelectorAll('.tdb-barre-annee--pale').length]).toEqual([14127, 16184.63, true, true, 0]);
@@ -322,7 +322,7 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
     expect([valeur('gestion-honoraires'), texte('[data-tuile-n1="gestion-honoraires"]')]).toEqual([1412700 + 1618463, '10 000 € en 2024 (+203,1 %)']);
     expect(container.querySelector('[data-bloc="graphe-annees"] [data-barre-annee="2025"] .tdb-barre--courante')).not.toBeNull();
     await cliquer('[data-echelle="mois"]');
-    expect([texte('[data-bloc="histogramme-mois"] h3'), adresse().get('graphe')]).toEqual(['Mois par mois — 2025 (Honoraires HT)', 'mois']);
+    expect([texte('[data-bloc="histogramme-mois"] h3'), adresse().get('graphe')]).toEqual(['Mois par mois — 2025 (CA HT)', 'mois']);
     await cliquer('[data-echelle="annees"]');
     await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
     expect([adresse().get('vue-annee'), adresse().get('annees'), valeur('gestion-honoraires'), container.querySelectorAll('[data-table-gestion] tbody tr[data-mois-gestion]').length])
@@ -374,7 +374,7 @@ describe('🔴 LOT GE2 — « Gestion » : Montants HT | TTC', () => {
       .toEqual(['CA net TTC — mars 2025', '(16 184,63 € HT)', '12 000,01 € en 2024 (+61,8 %)']);
     // le graphique, l'encadré, le tableau et ses totaux suivent
     expect(Number(container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois="3"] .tdb-barre')!.getAttribute('data-valeur'))).toBeCloseTo(19421.56, 6);
-    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('Honoraires TTC19 421,56 €');
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('CA TTC19 421,56 €'); // 🔴 LOT GE4 : « CA » dans l'encadré
     expect([texte('[data-mois-gestion="3"] [data-mot="Honoraires"]'), texte('[data-mois-gestion="3"] [data-mot="Salarié"]'), texte('[data-mois-gestion="3"] [data-mot="Reste"]'),
       texte('[data-total-gestion] [data-mot="ADHOC"]')]).toEqual(['19 421,56 €', '2 688,91 €', '13 793,85 €', '2 938,80 €']); // reste TTC = 19 421,56 − 2 938,80 − 2 688,91
     expect(texte('[data-bloc="gestion-mois"] h3')).toContain('TTC, salariés sans TVA');
@@ -418,7 +418,7 @@ describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salari
     expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaries', 'gestion-net']);
     expect([...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(2, 7)).toEqual(['Honoraires', 'ADHOC', 'MONGA', 'Salarié', 'Reste']);
     expect([texte('[data-mois-gestion="3"] [data-mot="MONGA"]'), texte('[data-mois-gestion="3"] [data-mot="Reste"]')]).toEqual(['—', '11 046,72 €']);
-    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent).slice(1, 4)).toEqual(['ADHOC', 'MONGA', 'Salariés']);
+    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent).slice(3, 6)).toEqual(['ADHOC', 'MONGA', 'Salaires']); // 🔴 LOT GE4 : la ligne des coûts
     const { CSS_TRANSACTION } = await import('./commun');
     expect(CSS_TRANSACTION).toContain('.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(5,minmax(0,1fr))}');
     expect(CSS_TRANSACTION).toContain('@media (max-width:760px){ .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(2,minmax(0,1fr))} }');
@@ -467,6 +467,38 @@ describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salari
     expect([(container.querySelector('[data-champ-gestion="mongaHt"]') as HTMLInputElement).disabled, texte('[data-saisie-gestion] form')]).toEqual([true, expect.stringContaining('migration 446')]);
     const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
     expect([ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction'), ecritureRefuseeObservateur('observateur', 'GET', '/api/admin/transaction')]).toEqual([true, false]);
+  });
+});
+
+describe('🔴 LOT GE4 — « Gestion » : les onglets du graphique en grille 3 × 2', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const ouvrirG = async (q: string) => { window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGestion)); }); await calmer(); };
+  const onglets = () => [...container.querySelectorAll('[data-bloc="histogramme-mois"] [data-mesure-bouton], [data-bloc="graphe-annees"] [data-mesure-bouton]')];
+
+  it('ligne 1 : CA · CA net · Lots ; ligne 2 : ADHOC · MONGA · Salaires — une grille de 3 colonnes de même largeur ; un seul actif ; l’encadré dit « CA » / « Salaires » ; tuiles et tableau inchangés', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=1');
+    expect(onglets().map((x) => [x.getAttribute('data-mesure-bouton'), x.textContent])).toEqual([['honoraires', 'CA'], ['net', 'CA net'], ['lots', 'Lots'], ['adhoc', 'ADHOC'], ['monga', 'MONGA'], ['salaries', 'Salaires']]);
+    const { CSS_TRANSACTION } = await import('./commun');
+    for (const r of ['[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:4px;row-gap:4px}',
+      '[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesure{width:100%;min-width:0;padding-left:4px;padding-right:4px;white-space:nowrap;text-align:center}',
+      '@media (max-width:420px){ [data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesure{font-size:.9rem} }']) expect(CSS_TRANSACTION).toContain(r);
+    expect(onglets().filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.textContent)).toEqual(['CA']);
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('CA HT');
+    await cliquer('[data-mesure-bouton="salaries"]');
+    expect([onglets().filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.textContent), new URLSearchParams(window.location.search).get('mesure')]).toEqual([['Salaires'], 'salaries']);
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('Salaires (sans TVA)');
+    // les tuiles et le tableau gardent leurs libellés
+    expect([texte('[data-tuile="gestion-honoraires"] .tdb-tuile-mot'), texte('[data-tuile="gestion-salaries"] .tdb-tuile-mot'), [...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent)[2]])
+      .toEqual(['Honoraires de gestion HT — janvier 2025', 'Coût des salariés HT — janvier 2025', 'Honoraires']);
+  });
+
+  it('les anciens liens (&mesure=honoraires, &mesure=salaries) ; « L’année » : la même grille', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=1&mesure=salaries');
+    expect(onglets().filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.textContent)).toEqual(['Salaires']);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrirG('/?vue=annee&annee=2025&mesure=honoraires');
+    expect([onglets().map((x) => x.textContent), onglets().filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.textContent)])
+      .toEqual([['CA', 'CA net', 'Lots', 'ADHOC', 'MONGA', 'Salaires'], ['CA']]);
   });
 });
 

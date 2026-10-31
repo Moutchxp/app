@@ -1916,8 +1916,9 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
 }
 
 /** Les mots d'une mesure de la gestion (l'onglet du graphique, l'encadré). */
-const motMesureGestion = (m: MesureGestion, u: UniteGestion): string => (m === 'lots' ? 'Lots' : m === 'salaries' ? 'Salariés (sans TVA)'
-  : `${({ honoraires: 'Honoraires', adhoc: 'ADHOC', monga: 'MONGA', net: 'CA net' } as const)[m]} ${MOT_UNITE[u]}`);
+// 🔴 LOT GE4 — dans le graphique et son encadré : « CA » (les honoraires) et « Salaires » (les tuiles et le tableau gardent leurs libellés)
+const motMesureGestion = (m: MesureGestion, u: UniteGestion): string => (m === 'lots' ? 'Lots' : m === 'salaries' ? 'Salaires (sans TVA)'
+  : `${({ honoraires: 'CA', adhoc: 'ADHOC', monga: 'MONGA', net: 'CA net' } as const)[m]} ${MOT_UNITE[u]}`);
 function useMesureGestion(): [MesureGestion, (m: MesureGestion) => void] {
   const [mesure, setMesure] = useState<MesureGestion>(() => { const x = parametre('mesure'); return estMesureGestion(x) ? x : 'honoraires'; });
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'honoraires' ? null : mesure }); }, [mesure]);

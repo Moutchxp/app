@@ -419,8 +419,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT GE1 — Gestion : la ligne de total du tableau (trame grise) ; le mois choisi, legerement surligne. */
 .trx-ligne-total th,.trx-ligne-total td{background:var(--color-svv-field)}
 .trx-ligne-choisie th,.trx-ligne-choisie td{background:color-mix(in srgb, var(--color-svv-red) 7%, transparent)}
-/* LOT GE1 — les cinq onglets du graphique de la Gestion (Honoraires, ADHOC, Salaries, CA net, Lots) : sur deux lignes si besoin, aucun coupe. */
-[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;justify-content:flex-start;column-gap:2px}
+/* LOT GE4 — les six onglets du graphique de la Gestion : une grille de 3 colonnes de meme largeur, 2 lignes (CA, CA net, Lots / ADHOC, MONGA,
+   Salaires), chaque onglet sous celui du dessus ; un petit ecart entre les lignes ; jamais de retour a la ligne dans un onglet. */
+[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:4px;row-gap:4px}
+[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesure{width:100%;min-width:0;padding-left:4px;padding-right:4px;white-space:nowrap;text-align:center}
+@media (max-width:420px){ [data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesure{font-size:.9rem} }
 /* LOT GE3 — la Gestion : CINQ tuiles alignees (honoraires, ADHOC, MONGA, salaries, CA net) ; tablette 3 par ligne, telephone 2 par ligne. */
 .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:1100px){ .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(3,minmax(0,1fr))} }

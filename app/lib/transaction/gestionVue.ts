@@ -9,10 +9,14 @@ import type { MoisChoisi } from './periodeMois';
  * Montants HT seulement (le comptable envoie du HT).
  */
 export type MesureGestion = 'honoraires' | 'adhoc' | 'monga' | 'salaries' | 'net' | 'lots';
-/** 🔴 LOT GE3 — l'ordre partout : Honoraires · ADHOC · MONGA · Salariés · CA net (reste) · Lots. */
+/**
+ * 🔴 LOT GE4 (Arno) — les onglets du graphique, en grille 3 × 2 : ligne 1 (revenus) « CA » · « CA net » · « Lots » ; ligne 2 (coûts) « ADHOC » · « MONGA »
+ * · « Salaires ». (Les tuiles et le tableau gardent l'ordre Honoraires · ADHOC · MONGA · Salarié · Reste et leurs libellés.) L'adresse ne change pas
+ * (&mesure=honoraires | net | lots | adhoc | monga | salaries).
+ */
 export const MESURES_GESTION: readonly { cle: MesureGestion; mot: string }[] = [
-  { cle: 'honoraires', mot: 'Honoraires' }, { cle: 'adhoc', mot: 'ADHOC' }, { cle: 'monga', mot: 'MONGA' }, { cle: 'salaries', mot: 'Salariés' }, { cle: 'net', mot: 'CA net' },
-  { cle: 'lots', mot: 'Lots' },
+  { cle: 'honoraires', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'lots', mot: 'Lots' },
+  { cle: 'adhoc', mot: 'ADHOC' }, { cle: 'monga', mot: 'MONGA' }, { cle: 'salaries', mot: 'Salaires' },
 ];
 export const estMesureGestion = (x: unknown): x is MesureGestion => MESURES_GESTION.some((m) => m.cle === x);
 
