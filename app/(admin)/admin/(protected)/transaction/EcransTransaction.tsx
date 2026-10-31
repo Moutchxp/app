@@ -25,7 +25,7 @@ import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
-import { basculerMois, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
+import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
 type NonDeduitsMontants = { internesHt: number; aRenseignerHt: number; internesTtc?: number; aRenseignerTtc?: number };
@@ -120,12 +120,15 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const [refusPeriode, setRefusPeriode] = useState(false);
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? lirePeriode(parametre('periode'))?.at(-1)?.annee ?? Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? lirePeriode(parametre('periode'))?.at(-1)?.mois ?? Number(jour.slice(5, 7)));
+  // 🔴 LOT CV (Arno) — les mois choisis appartiennent TOUJOURS à l'année du filtre : une période lue d'un lien, ou gardée d'avant un changement
+  // d'année (cause du titre « janvier → décembre 2023 » sous une année 2026), est reportée sur cette année — les mêmes mois.
+  const periodeA: MoisChoisi[] | null = periode === null ? null : ordonner(periode.map((x) => ({ annee, mois: x.mois })));
   /** Un clic sur un mois : Mensuel, il devient LE mois ; Période, il est choisi ou retiré (le dernier ne se retire pas), et le mois montré suit. */
   const choisirMois = (m: number): void => {
     // 🔴 LOT CT — depuis « Année » : la Période des 11 autres mois (ce mois retiré).
     if (anneeEntiere) { setAnneeEntiere(false); setRefusPeriode(false); setPeriode(douzeMois(annee).filter((x) => x.mois !== m)); return; }
-    if (periode === null) { setMois(m); return; }
-    const r = basculerMois(periode, { annee, mois: m });
+    if (periodeA === null) { setMois(m); return; }
+    const r = basculerMois(periodeA, { annee, mois: m });
     setRefusPeriode(r.refus);
     setPeriode(r.mois);
     if (estChoisi(r.mois, { annee, mois: m })) setMois(m);
@@ -139,7 +142,8 @@ export function EcranSociete({ societe }: { societe: Societe }) {
     if (anneeEntiere) { setAnneeEntiere(false); setPeriode(douzeMois(annee)); } else if (periode === null) setPeriode([{ annee, mois }]);
   };
   const decoupage: Decoupage = anneeEntiere ? 'annee' : periode !== null ? 'periode' : 'mois';
-  const periodeVue: MoisChoisi[] | null = anneeEntiere ? douzeMois(annee) : periode;
+  const periodeVue: MoisChoisi[] | null = anneeEntiere ? douzeMois(annee) : periodeA;
+  const periodeTexte = periodeA === null ? null : ecrirePeriode(periodeA);
   const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
   const [fin, setFin] = useState<number | null>(() => entier(parametre('fin'), 2000, 2100));
   // 🔴 LOT CQ — le filtre « Négociateur » : une PERSONNE (son nom affiché), gardé dans l'adresse (&negociateur=…) ; un ancien lien qui porte un
@@ -158,10 +162,10 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [vue]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(annee), mois: String(mois), debut: null, fin: null, mode, 'vue-mois': decoupage,
-      periode: decoupage === 'periode' && periode !== null ? ecrirePeriode(periode) : null }
+      periode: decoupage === 'periode' ? periodeTexte : null }
       : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null, mode: null, mesure: null, periode: null, 'vue-mois': null }
       : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin), mode: null, mesure: null, periode: null, 'vue-mois': null });
-  }, [vue, annee, mois, debut, fin, mode, periode, decoupage]);
+  }, [vue, annee, mois, debut, fin, mode, periodeTexte, decoupage]);
   useEffect(() => { ecrireAdresseListe('negociateur', vue === 'compromis' ? [] : negociateurs); }, [vue, negociateurs]);
 
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
@@ -360,22 +364,35 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
   // 🔴 LOT BW — le graphique dans l'unité choisie (le nombre ne change pas) ; l'encart dit « CA TTC » et l'autre unité entre parenthèses.
   const sc = (xs: readonly number[]): number[] => xs.map(U.en);
-  const info = (k: number, cumule: boolean): InfoBarre => {
+  // 🔴 LOT CV (Arno) — le titre cite TOUJOURS l'année du graphique (« Cumul 2026 à fin mai », « Mai 2026 ») ; un mois à venir : « — à venir », à 0
+  // (plus de case vide). `nbCumule` : le nombre cumulé (l'encadré « au repos » : le cumul de l'année) ; sinon le nombre du mois, comme avant.
+  const info = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
     const aVenir = k > dernierMois;
-    const titre = cumule ? `Cumul à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : NOMS_MOIS[k - 1];
+    const titre = `${cumule ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${aVenir ? ' — à venir' : ''}`;
     if (mesure === 'nombre') {
       const [n, n1, v, v1] = cumule ? [cumuler(nbParMois), cumuler(nbParMoisN1), cumuler(nbVendusN), cumuler(nbVendusN1)] : [nbParMois, nbParMoisN1, nbVendusN, nbVendusN1];
       return { titre, compte: cumule ? `${M.compte} (cumul)` : M.compte, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
-        courant: { libelle: String(annee), ca: aVenir ? null : n[k - 1], nb: null, ...(aVenir ? {} : parts(v[k - 1], n[k - 1])) },
+        courant: { libelle: String(annee), ca: aVenir ? 0 : n[k - 1], nb: null, ...(aVenir ? parts(0, 0) : parts(v[k - 1], n[k - 1])) },
         precedent: sansN1 ? null : { libelle: String(annee - 1), ca: n1[k - 1], nb: null, ...parts(v1[k - 1], n1[k - 1]) } };
     }
     const [c, c1, v, v1] = (cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1]).map(sc);
     // Le nombre de l'encart reste celui du MOIS, même en cumul (l'encart d'avant ce lot, à l'identique).
-    const nb = nbParMois;
-    const nb1 = nbParMoisN1;
+    const nb = nbCumule ? cumuler(nbParMois) : nbParMois;
+    const nb1 = nbCumule ? cumuler(nbParMoisN1) : nbParMoisN1;
     return { titre, motNb: M.compte, motCa: `CA ${U.MOT}`, autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
-      courant: { libelle: String(annee), ca: aVenir ? null : c[k - 1], nb: aVenir ? null : nb[k - 1], ...(aVenir ? {} : parts(v[k - 1], c[k - 1])) },
+      courant: { libelle: String(annee), ca: aVenir ? 0 : c[k - 1], nb: aVenir ? 0 : nb[k - 1], ...(aVenir ? parts(0, 0) : parts(v[k - 1], c[k - 1])) },
       precedent: sansN1 ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nb1[k - 1], ...parts(v1[k - 1], c1[k - 1]) } };
+  };
+  /**
+   * 🔴 LOT CV (Arno) — l'encadré « au repos » (rien de survolé ni de cliqué) : Cumul — l'année en cours jusqu'à aujourd'hui (le mois en cours
+   * inclus), une année passée complète, une année future à 0 ; Mensuel — le mois en cours « — en cours », décembre d'une année passée. Les
+   * mêmes lignes (CA, nombre, N−1 sur la même période de l'année précédente).
+   */
+  const repos = (cumule: boolean): InfoBarre => {
+    const moisEnCours = Number(jour.slice(5, 7));
+    if (annee > anneeEnCours) return { ...info(12, cumule, cumule), titre: cumule ? `Cumul ${annee} — aucune vente` : `Janvier ${annee} — aucune vente` };
+    if (annee < anneeEnCours) return { ...info(12, cumule, cumule), titre: cumule ? `Cumul ${annee} — année complète` : `Décembre ${annee}` };
+    return { ...info(moisEnCours, cumule, cumule), titre: cumule ? `Cumul ${annee} jusqu’à aujourd’hui` : `${NOMS_MOIS[moisEnCours - 1]} ${annee} — en cours` };
   };
   // 🔴 LOT CP — en Période : « Période : juillet, septembre 2026 (2 mois) » (ou « juillet → septembre 2026 » si les mois se suivent).
   // 🔴 LOT CT — en Année : « Année 2026 ».
@@ -455,10 +472,11 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           motCa={`CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
       ) : cumul ? (
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
-          aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} />
+          aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={repos(true)} />
       ) : (
         <Histogramme attribut="data-barre-mois" courante={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
           legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
+          repos={repos(false)}
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
             ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}

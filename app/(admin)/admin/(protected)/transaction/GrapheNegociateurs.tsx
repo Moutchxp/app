@@ -27,6 +27,7 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
   motCa: string; motNb: string; aria: string; annee: number;
 }) {
   const [survol, setSurvol] = useState<number | null>(null);
+  const [clic, setClic] = useState<number | null>(null);
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
   const prepare = (xs: readonly number[]): number[] => (cumul ? cumuler(xs) : [...xs]);
   const s = series.map((x) => ({ ...x, caV: prepare(x.ca), nbV: prepare(x.nb) }));
@@ -44,7 +45,18 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
   const y = (v: number): number => H - m.b - (v * (H - m.h - m.b)) / max;
   const largeur = (pas * 0.8) / Math.max(1, s.length);
   const x = (i: number): number => m.g + i * pas + pas / 2;
-  const mois = survol ?? choisi;
+  // 🔴 LOT CV — le mois survolé, sinon le mois cliqué, sinon le repos : l'année en cours jusqu'au mois en cours, une année passée complète
+  // (décembre), une année future (rien encore, à 0). Le titre cite toujours l'année du graphique ; un mois à venir : « — à venir », à 0.
+  const repos = clic === null && survol === null;
+  const mois = survol ?? clic ?? (dernierMois === 0 ? 12 : dernierMois);
+  const aVenir = mois > dernierMois;
+  const nomMois = NOMS_MOIS[mois - 1];
+  const titre = repos
+    ? (dernierMois === 0 ? (cumul ? `Cumul ${annee} — aucune vente` : `Janvier ${annee} — aucune vente`)
+      : dernierMois === 12 ? (cumul ? `Cumul ${annee} — année complète` : `Décembre ${annee}`)
+        : (cumul ? `Cumul ${annee} jusqu’à aujourd’hui` : `${nomMois} ${annee} — en cours`))
+    : `${cumul ? `Cumul ${annee} à fin ${nomMois.toLowerCase()}` : `${nomMois} ${annee}`}${aVenir ? ' — à venir' : ''}`;
+  const val = (xs: readonly number[]): number => (aVenir ? 0 : xs[mois - 1]);
   const ligne = (nom: string, couleur: number | null, ca: number, nb: number, cle: string) => (
     <p className="tdb-bulle-ligne trx-serie-ligne" key={cle} data-detail-serie={cle}>
       <span>{couleur !== null && <span className={`trx-pastille-serie trx-serie--${couleur}`} aria-hidden="true" />}{nom}</span>
@@ -66,7 +78,7 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
                   d={v.map((w, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />;
               })}
               {COURT.map((c, i) => (
-                <g key={c} className="tdb-barre-annee" data-barre-mois={i + 1} onClick={() => onChoisir(i + 1)} onMouseEnter={() => setSurvol(i + 1)}>
+                <g key={c} className="tdb-barre-annee" data-barre-mois={i + 1} onClick={() => { setClic(i + 1); onChoisir(i + 1); }} onMouseEnter={() => setSurvol(i + 1)}>
                   <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                   {i < dernierMois && s.map((x0, j) => {
                     const v = dessine(x0)[i];
@@ -83,14 +95,12 @@ export function GrapheNegociateurs({ series, total, cumul, nombre, dernierMois, 
         </div>
         <div className="tdb-histo-detail" data-histo-detail aria-live="polite">
           <div className="tdb-bulle tdb-bulle--sous" data-bulle="sous">
-            <p className="tdb-bulle-titre">{cumul ? `Cumul à fin ${NOMS_MOIS[mois - 1].toLowerCase()}` : `${NOMS_MOIS[mois - 1]} ${annee}`}</p>
+            <p className="tdb-bulle-titre" data-titre-detail>{titre}</p>
             <p className="tdb-bulle-ligne trx-serie-entete"><span /><span className="tdb-bulle-montant">{motCa} · {motNb}</span></p>
-            {mois > dernierMois ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : <>
-              {s.map((x0) => ligne(x0.nom, x0.couleur, x0.caV[mois - 1], x0.nbV[mois - 1], String(x0.couleur)))}
-              <p className="tdb-bulle-pied" data-detail-ensemble><span>Ensemble de la sélection</span>
-                <span className="tdb-bulle-montant">{montant(t.ca[mois - 1])} · {t.nb[mois - 1]}</span></p>
-              <p className="loc-muet trx-serie-note">Une affaire de deux négociateurs choisis compte dans leurs deux lignes, une fois dans l’ensemble.</p>
-            </>}
+            {s.map((x0) => ligne(x0.nom, x0.couleur, val(x0.caV), val(x0.nbV), String(x0.couleur)))}
+            <p className="tdb-bulle-pied" data-detail-ensemble><span>Ensemble de la sélection</span>
+              <span className="tdb-bulle-montant">{montant(val(t.ca))} · {val(t.nb)}</span></p>
+            <p className="loc-muet trx-serie-note">Une affaire de deux négociateurs choisis compte dans leurs deux lignes, une fois dans l’ensemble.</p>
           </div>
         </div>
         <figcaption className="tdb-histo-legende trx-legende-series" data-legende-series>

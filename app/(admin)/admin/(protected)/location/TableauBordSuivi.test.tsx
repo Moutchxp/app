@@ -1118,7 +1118,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
       const bulle = container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
-      expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Septembre');
+      expect(bulle.querySelector('.tdb-bulle-titre')?.textContent).toBe('Septembre 2026'); // 🔴 LOT CV : l'année du graphique dans le titre
       expect([...bulle.querySelectorAll('[data-bulle-bloc]')].map((b) => b.getAttribute('data-bulle-bloc'))).toEqual(['courant', 'n1']);
       expect(bulle.querySelector('[data-bulle-bloc="courant"]')?.className).toContain('tdb-bulle-bloc--courant');
       expect(bulle.querySelector('[data-bulle-bloc="n1"]')?.className).toContain('tdb-bulle-bloc--n1');
@@ -1129,7 +1129,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
       // Le détail sous le graphique : la même bulle, pour le mois de l'onglet (octobre, en cours : 0).
       const sous = h.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
-      expect(sous.querySelector('.tdb-bulle-titre')?.textContent).toBe('Octobre');
+      expect(sous.querySelector('.tdb-bulle-titre')?.textContent).toBe('Octobre 2026 — en cours'); // 🔴 LOT CV : au repos, le mois en cours
       expect(nbsp(sous.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT0,00 €Baux0');
     });
 
@@ -1138,12 +1138,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const rangee = container.querySelector('[data-bloc="histogramme-mois"] [data-histo-rangee]')!;
       expect([...rangee.children].map((e) => e.className)).toEqual(['tdb-histo-graphe', 'tdb-histo-detail', 'loc-muet tdb-histo-legende']);
       const titre = () => container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent;
-      expect(titre()).toBe('Octobre');
+      expect(titre()).toBe('Octobre 2026 — en cours'); // 🔴 LOT CV : au repos, le mois en cours de l'année en cours
       await act(async () => { barre(9).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-      expect(titre()).toBe('Septembre');
+      expect(titre()).toBe('Septembre 2026');
       expect(container.querySelector('[data-histo-detail] [data-ecart]')?.getAttribute('data-ecart')).toBe('positif');   // +13 471,70 € : vert
       await act(async () => { container.querySelector('.tdb-histo-zone')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
-      expect(titre()).toBe('Octobre');
+      expect(titre()).toBe('Octobre 2026 — en cours');
     });
 
     it('un clic sur une barre ouvre l’onglet de ce mois ; le détail s’écrit sous le graphique (lisible au toucher)', async () => {
@@ -1153,7 +1153,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(container.querySelector('[data-feuille-mois]')?.getAttribute('data-feuille-mois')).toBe('2026-09');
       expect(barre(9).querySelector('.tdb-barre--courante')).not.toBeNull();
       expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT15 471,70 €Baux17');
-      expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Septembre');
+      expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Septembre 2026'); // 🔴 LOT CV : le mois cliqué
     });
 
     it('les filtres s’appliquent ; N−1 absente : pas de barre N−1, pas de légende N−1', async () => {
@@ -1168,9 +1168,10 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const sous = container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
       expect([...sous.querySelectorAll('[data-bulle-bloc]')].map((b) => b.getAttribute('data-bulle-bloc'))).toEqual(['courant']);
       expect(sous.querySelector('[data-bulle-pied]')?.textContent).toBe('N−1 non importée');
-      // Un mois à venir : « À venir », pas de montant.
+      // 🔴 LOT CV — un mois à venir : « Décembre 2026 — à venir », à 0 (plus de case vide).
       await act(async () => { barre(12).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-      expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
+      expect(container.querySelector('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Décembre 2026 — à venir');
+      expect(nbsp(container.querySelector('[data-histo-detail] [data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT0,00 €Baux0');
     });
   });
 
@@ -1335,8 +1336,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       points().forEach((v, i) => expect(v).toBeCloseTo(attendu[i], 6));
       await act(async () => { container.querySelector('[data-mois-cumul="11"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       const det = container.querySelector('[data-histo-detail]')!;
-      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin novembre');
-      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026À venir');
+      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul 2026 à fin novembre — à venir'); // 🔴 LOT CV
+      expect(nbsp(det.querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2026CA HT0,00 €Baux0');
       // Le mois survolé : le cumul de l'année, celui de N−1, l'écart « +x € (+y %) ».
       await act(async () => { container.querySelector('[data-mois-cumul="9"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
       expect(nbsp(det.querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025CA HT3 000,00 €Baux2');
