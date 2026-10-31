@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GestionMois } from './modele';
-import { anneesGestion, moisGestion, totauxGestion, valeurGestion } from './gestionVue';
+import { anneesGestion, centimesGestion, ligneGestionEnUnite, moisGestion, TAUX_TVA_ADHOC, totauxGestion, valeurGestion } from './gestionVue';
 
 /** 🔴 LOT GE1 (Arno) — l'écran « Gestion » : CA net = honoraires − ADHOC − salariés, au centime ; mois non saisi = 0. */
 const g = (id: number, annee: number, mois: number, o: Partial<GestionMois>): GestionMois =>
@@ -27,5 +27,16 @@ describe('🔴 LOT GE1 — la gestion du mois et des périodes', () => {
     expect(t.honorairesC - t.adhocC - t.salariesC).toBe(t.netC);
     expect([valeurGestion(t, 'net'), valeurGestion(t, 'lots'), valeurGestion(totauxGestion(gestion, [{ annee: 2024, mois: 1 }]), 'lots')]).toEqual([t.netC / 100, 305, 0]);
     expect(anneesGestion(gestion, '2026-10-31')).toEqual([2025, 2026]);
+  });
+  it('🔴 LOT GE2 — TTC : honoraires × 1,20, ADHOC × TAUX_TVA_ADHOC, salariés sans TVA ; CA net TTC = honoraires TTC − ADHOC TTC − salariés, au centime', () => {
+    const t = totauxGestion(gestion, [{ annee: 2026, mois: 10 }]);
+    expect([TAUX_TVA_ADHOC, centimesGestion(t, 'honoraires', 'ttc'), centimesGestion(t, 'adhoc', 'ttc'), centimesGestion(t, 'salaries', 'ttc'), centimesGestion(t, 'salaries', 'ht')])
+      .toEqual([1.2, Math.round(1618463 * 1.2), 293880, 268891, 268891]);
+    expect(centimesGestion(t, 'net', 'ttc')).toBe(centimesGestion(t, 'honoraires', 'ttc') - centimesGestion(t, 'adhoc', 'ttc') - centimesGestion(t, 'salaries', 'ttc'));
+    expect(valeurGestion(t, 'net', 'ttc')).toBe(centimesGestion(t, 'net', 'ttc') / 100);
+    // une ligne du tableau : le reste saisi reçoit la TVA des honoraires moins celle d'ADHOC
+    const l = ligneGestionEnUnite({ honorairesHt: 16184.63, adhocHt: 2449, salarieHt: 2688.91, resteHt: 11046.72 }, 'ttc');
+    expect(l).toEqual({ honoraires: 19421.56, adhoc: 2938.8, salarie: 2688.91, reste: 13793.85 });
+    expect(ligneGestionEnUnite(null, 'ttc')).toEqual({ honoraires: null, adhoc: null, salarie: null, reste: null });
   });
 });
