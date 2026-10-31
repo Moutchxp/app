@@ -687,6 +687,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 }
 /* LOT BW — l'encart des graphiques de la tuile : « CA TTC » sur une ligne (l'autre unité entre parenthèses allonge le montant). */
 [data-transaction] .tdb-bulle-ligne > span:first-child{white-space:nowrap}
+/* 🔴 LOT DO — FUSION : les intitulés « consolidés » sont plus longs — les onglets de mesure passent à la ligne au lieu de déborder, le mot de
+   l'encadré peut s'enrouler (le montant reste entier, à droite). CRITERIMMO, MACJ : inchangés. */
+[data-transaction="tous"] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;row-gap:4px}
+[data-transaction="tous"] .tdb-bulle-ligne > span:first-child{white-space:normal;min-width:0}
+[data-transaction="tous"] .tdb-bulle-ligne > .tdb-bulle-montant{flex:0 0 auto;text-align:right}
 .trx-ligne-depliable--ouverte > th,.trx-ligne-depliable--ouverte > td{border-bottom-color:transparent}
 .trx-deplier-vente{appearance:none;border:0;background:transparent;font:inherit;font-weight:inherit;color:inherit;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0;text-align:left;cursor:pointer;border-radius:8px}
 .trx-deplier-vente:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
@@ -727,3 +732,25 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
   .trx-resume-base .trx-resume-base-total{border-top:1px solid var(--color-svv-line-strong);padding-top:2px}
 }
 `;
+
+/**
+ * ══ 🔴 LOT DO (Arno, 31/10/2026) — LA PAGE FUSION : LES INTITULÉS « CONSOLIDÉS » ═══════════════════════════════════════════════════════════════════
+ * Sur la page FUSION CRITERIMMO & MACJ seulement (le fournisseur est posé par `EcranSociete` « tous ») : « Chiffre d’affaires » → « Chiffre
+ * d’affaires consolidé », « CA TTC — … » → « CA consolidé TTC — … », « CA net » → « CA net consolidé », « Solde net » → « Solde net consolidé »,
+ * « Reste à l’agence » → « Reste consolidé du groupe ». CRITERIMMO, MACJ et le CA global (hors de ce fournisseur) gardent leurs intitulés.
+ */
+const ConsolideContexte = createContext(false);
+export const FournisseurConsolide = ConsolideContexte.Provider;
+/** Un intitulé en version consolidée (idempotent). PUR. */
+export const consolider = (t: string): string => t
+  .replace(/Chiffre d’affaires(?! consolidé)/g, 'Chiffre d’affaires consolidé')
+  .replace(/Solde net(?! consolidé)/g, 'Solde net consolidé')
+  .replace(/Reste à l’agence/g, 'Reste consolidé du groupe')
+  .replace(/\bCA net(?! consolidé)/g, 'CA net consolidé')
+  .replace(/\bCA (?=HT\b|TTC\b)/g, 'CA consolidé ')
+  .replace(/^CA$/, 'CA consolidé');
+const identite = (t: string): string => t;
+/** L'intitulé tel que la page l'affiche : consolidé sur la page FUSION, inchangé ailleurs. */
+export function useConsolide(): (t: string) => string {
+  return useContext(ConsolideContexte) ? consolider : identite;
+}

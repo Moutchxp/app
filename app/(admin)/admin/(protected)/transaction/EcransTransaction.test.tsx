@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, syntheseGlobal, vueInitiale } from './EcransTransaction';
 import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele';
+import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
+import { compromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { existsSync, readFileSync } from 'node:fs';
 import { ARIANE } from './FilAriane';
 import type { DonneesSociete, LigneVente, Vente } from '../../../../lib/transaction/modele';
@@ -2944,4 +2946,104 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(container.querySelector('[data-saisir-retro]')).not.toBeNull();
     } finally { fin(); donnees.nomsNegociateurs = avant; }
   });
+});
+
+/**
+ * 🔴 LOT DO (Arno) — LE CA CONSOLIDÉ : CRITERIMMO porte un mandat à 10 000 € HT d'honoraires (12 000 € TTC), un négociateur MACJ vend et partage
+ * 5 000 € ; CRITERIMMO compte 10 000 €, MACJ 5 000 € reçus, les DEUX sociétés ensemble 10 000 € (jamais 15 000 €). Idem dans l'autre sens. Le
+ * reversé entre nos sociétés n'est ni un coût ni une somme à verser : seules les com négo (ici 1 000 € et 2 000 € HT) sortent du groupe.
+ */
+describe('🔴 LOT DO — FUSION : le CA consolidé (10 000 / 5 000, dans les deux sens) et les intitulés « consolidés »', () => {
+  const autre = (s: 'criterimmo' | 'macj') => (s === 'criterimmo' ? 'macj' as const : 'criterimmo' as const);
+  const lc = (negociateur: string, cote: 'entree' | 'sortie', ht: number): LigneVente => ({ id: Math.random(), negociateur, role: 'negociateur', montantTtc: ht * 1.2, montantHt: ht, cote,
+    nature: 'vente', compte: true, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, mode: 'manuelle' } as LigneVente);
+  const partie = (sorte: 'entree' | 'sortie', compteId: number, negociateur: string, societe: 'criterimmo' | 'macj') =>
+    ({ sorte, compteId, negociateur, societe, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const, commissionne: true });
+  /** Le mandat : la porteuse rentre (com négo 1 000 € HT), l'autre société vend (com négo 2 000 € HT) ; partage 50 / 50. */
+  const cas = (porteuse: 'criterimmo' | 'macj', id: number, statut: 'vendue' | 'compromis'): Vente => vente(id, { societe: porteuse, libelle: `MANDAT ${id}`, honorairesTtc: 12000, statut,
+    annee: 2025, mois: statut === 'vendue' ? 9 : null, dateCompromis: statut === 'vendue' ? '2025-08-01' : '2025-09-20', origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
+    lignes: [lc('Mandat', 'entree', 1000), lc('Vendeur', 'sortie', 2000)],
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: statut === 'vendue' ? '2025-09-15' : null, entree: { id: 1, nom: 'Mandat' }, sortie: { id: 2, nom: 'Vendeur' }, apporteurId: null, personnes: [] },
+    repartition: { retroApporteurTtc: 0, parties: [partie('entree', 1, 'Mandat', porteuse), partie('sortie', 2, 'Vendeur', autre(porteuse))] } } as Partial<Vente>);
+  const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const montant = (sel: string): number => centimes(texte(sel));
+  /** La page d'une société (ou FUSION) telle que la route la lit : la porteuse, la ligne miroir chez l'autre, chaque vente une fois pour les deux. */
+  const ouvrirCas = async (porteuse: 'criterimmo' | 'macj', page: 'criterimmo' | 'macj' | 'tous', q: string) => {
+    const brutes = [cas(porteuse, 90, 'vendue'), cas(porteuse, 91, 'compromis')];
+    const ventes = page === 'tous' ? brutes : brutes.map((v) => venteDansSociete(v, page)).filter((v): v is Vente => v !== null);
+    const vue = page === 'tous' ? null : page;
+    const avant = { ventes: donnees.ventes, societe: donnees.societe, retros: donnees.retrocessions, statuts: donnees.statutsNegociateurs, fetch: globalThis.fetch };
+    donnees.ventes = ventes; (donnees as { societe: string | null }).societe = vue; donnees.retrocessions = []; donnees.statutsNegociateurs = { Mandat: 'independant', Vendeur: 'independant' };
+    const compromis = { disponible: true, aujourdhui: '2025-10-27', societe: page, compromis: compromisEnCours(ventes, vue), actesDuMois: [], annules: [], lotD: true, negociateurs: [], apporteurs: [], personnes: [],
+      statutsNegociateurs: donnees.statutsNegociateurs };
+    const precedent = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('vue=compromis')
+      ? { ok: true, status: 200, json: async () => ({ etat: 'ok', data: compromis }) } : precedent(url, init))) as unknown as typeof fetch;
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', q);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: page })); }); await calmer();
+    return () => { donnees.ventes = avant.ventes; donnees.societe = avant.societe; donnees.retrocessions = avant.retros; donnees.statutsNegociateurs = avant.statuts; globalThis.fetch = avant.fetch; };
+  };
+  const cliquer = async (sel: string) => { await act(async () => { container.querySelector<HTMLElement>(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer(); };
+  const jamais15000 = () => { const t = container.textContent ?? ''; expect([t.includes('15 000'), t.includes('18 000')]).toEqual([false, false]); };
+  // [CA, commissions versées, solde net] en centimes, HT puis TTC
+  const ATTENDU = { porteuse: { ht: [1000000, 600000, 400000], ttc: [1200000, 720000, 480000] }, autre: { ht: [500000, 200000, 300000], ttc: [600000, 240000, 360000] },
+    tous: { ht: [1000000, 300000, 700000], ttc: [1200000, 360000, 840000] } };
+
+  for (const porteuse of ['criterimmo', 'macj'] as const) {
+    for (const u of ['ht', 'ttc'] as const) {
+      it(`${porteuse.toUpperCase()} porteuse, ${u.toUpperCase()} — onglet Compromis : CA, commissions versées, solde net (porteuse, autre société, FUSION consolidée) ; la synthèse`, async () => {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        for (const [page, cle] of [[porteuse, 'porteuse'], [autre(porteuse), 'autre'], ['tous', 'tous']] as const) {
+          const fin = await ouvrirCas(porteuse, page, '/?vue=compromis');
+          try {
+            expect([page, montant(`[data-ca-${u}]`), montant(`[data-commissions-${u}]`), montant(`[data-solde-${u}]`)]).toEqual([page, ...ATTENDU[cle][u]]);
+            if (page === 'tous') {
+              // la synthèse « Ce que l'on doit » : seules les com négo sortent du groupe ; l'inter-cabinet : « interne au groupe — 0 »
+              expect(texte('[data-total-entete-du]')).toContain(u === 'ht' ? '3 000' : '3 600');
+              await cliquer('[data-ouvrir-du]');
+              expect([texte('[data-total-du]').includes(u === 'ht' ? '3 000' : '3 600'), texte('.trx-du-contenu').includes('interne au groupe — 0')]).toEqual([true, true]);
+              expect([texte('[data-tuile="ca"] .tdb-tuile-mot'), texte('[data-tuile="solde"] .tdb-tuile-mot')]).toEqual(['Chiffre d’affaires consolidé', 'Solde net consolidé']);
+              jamais15000();
+            } else expect([texte('[data-tuile="ca"] .tdb-tuile-mot'), texte('[data-tuile="solde"] .tdb-tuile-mot')]).toEqual(['Chiffre d’affaires', 'Solde net']);
+          } finally { fin(); }
+        }
+      });
+
+      it(`${porteuse.toUpperCase()} porteuse, ${u.toUpperCase()} — Le mois (septembre 2025) et L’année : tuiles, graphique, encadré, Résultat, Espace — 10 000 € consolidés`, async () => {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        const [dix, cinq, reste] = u === 'ht' ? [1000000, 500000, 700000] : [1200000, 600000, 840000];
+        for (const [page, ca] of [[porteuse, dix], [autre(porteuse), cinq], ['tous', dix]] as const) {
+          let fin = await ouvrirCas(porteuse, page, '/?vue=mois&annee=2025&mois=9&mode=vendu');
+          try {
+            expect([page, montant('[data-tuile="ca-mois"] .tdb-tuile-valeur'), montant('[data-ca-mois]')]).toEqual([page, ca, ca]);
+            if (page === 'tous') {
+              expect([montant('[data-tuile="cumul"] .tdb-tuile-valeur'), Math.round(Number(container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois="9"] .tdb-barre')?.getAttribute('data-valeur')) * 100)]).toEqual([dix, dix]);
+              expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail]')).toContain(u === 'ht' ? '10 000,00' : '12 000,00'); // l'encadré
+              expect([container.querySelector('[data-inter-cabinet-mois]'), montant('[data-tuile="ca-net-cumul"] [data-ca-net-cumul]')]).toEqual([null, reste]);
+              expect(texte('[data-bloc="resultat-mois"]')).toContain('= Reste consolidé du groupe');
+              expect(texte('[data-tuile="ca-mois"] .tdb-tuile-mot')).toBe(`CA consolidé ${u.toUpperCase()} — septembre`);
+              expect([...container.querySelectorAll('[data-bloc="histogramme-mois"] [data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['CA consolidé', 'CA net consolidé', 'Nombre de ventes']);
+              await cliquer('[data-cumul-bouton]');
+              expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail]')).toContain(`CA consolidé ${u.toUpperCase()}`);
+              // l'Espace par négociateur : Mandat 5 000 + Vendeur 5 000 = 10 000 € HT générés ; CA net = le Reste consolidé du groupe
+              await cliquer('[data-deplier="negociateurs"]');
+              expect([montant('[data-total-ca-genere]'), montant('[data-total-ca-net]')]).toEqual([dix, reste]);
+              jamais15000();
+            } else expect([texte('[data-tuile="ca-mois"] .tdb-tuile-mot'), texte('[data-bloc="resultat-mois"]').includes('= Reste à l’agence')]).toEqual([`CA ${u.toUpperCase()} — septembre`, true]);
+          } finally { fin(); }
+          fin = await ouvrirCas(porteuse, page, '/?vue=annee&annee=2025&mode=vendu');
+          try {
+            // L'année : la tuile CA, « à date », le Résultat de l'agence
+            expect([page, montant('[data-tuile="ca-annee"] .tdb-tuile-valeur'), montant('[data-tuile="ca-a-date"] .tdb-tuile-valeur'), montant('[data-ca-periode]')]).toEqual([page, ca, ca, ca]);
+            if (page === 'tous') {
+              expect([montant('[data-tuile="ca-net-annee"] .tdb-tuile-valeur'), texte('[data-tuile="ca-annee"] .tdb-tuile-mot').startsWith(`CA consolidé ${u.toUpperCase()}`),
+                texte('[data-tuile="ca-net-annee"] .tdb-tuile-mot').startsWith(`CA net consolidé ${u.toUpperCase()}`), texte('[data-bloc="resume-periode"]').includes('= Reste consolidé du groupe')]).toEqual([reste, true, true, true]);
+              jamais15000();
+            }
+          } finally { fin(); }
+        }
+      }, 30_000);
+    }
+  }
 });

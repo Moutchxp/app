@@ -14,7 +14,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
+import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -253,6 +253,7 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
   const avecDossier = (v: Vente | 'nouvelle' | null): v is Vente => v !== null && v !== 'nouvelle' && (v.repartition != null || v.dossier != null);
 
   return (
+    <FournisseurConsolide value={societe === 'tous'}>
     <div className="tdb loc-page" data-transaction={societe}>
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
@@ -307,6 +308,7 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
       {edition !== null && !avecDossier(edition) && <FormulaireVente societe={societeEdition} vente={edition === 'nouvelle' ? null : edition} annee={vue === 'annee' && choixA !== null ? choixA.annee : annee} mois={vue === 'mois' ? mois : null}
         negociateurs={negos} references={references} onFermer={() => setEdition(null)} onFait={fini} />}
     </div>
+    </FournisseurConsolide>
   );
 }
 
@@ -372,7 +374,8 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   entete?: ReactNode;
 }) {
   const U = useUnite();
-  const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
+  const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   const enPeriode = periodeAnnee !== null;
   const moisPeriodeAnnee = periodeAnnee ?? [];
   const [cumul, setCumul] = useState(false);
@@ -421,7 +424,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
     // Le nombre de l'encart reste celui du MOIS, même en cumul (l'encart d'avant ce lot, à l'identique).
     const nb = nbCumule ? cumuler(nbParMois) : nbParMois;
     const nb1 = nbCumule ? cumuler(nbParMoisN1) : nbParMoisN1;
-    return { titre, motNb: M.compte, motCa: net ? `CA net ${U.MOT}` : `CA ${U.MOT}`, autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
+    return { titre, motNb: M.compte, motCa: cons(net ? `CA net ${U.MOT}` : `CA ${U.MOT}`), autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
       courant: { libelle: String(annee), ca: aVenir ? 0 : c[k - 1], nb: aVenir ? 0 : nb[k - 1], ...(aVenir ? parts(0, 0) : parts(v[k - 1], c[k - 1])) },
       precedent: sansN1 ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nb1[k - 1], ...parts(v1[k - 1], c1[k - 1]) } };
   };
@@ -443,7 +446,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   const valeursN1 = nombre ? nbParMoisN1 : net ? netN1 : sc(parMoisN1);
   const basN = nombre ? nbVendusN : net ? netVenduN : sc(vendusN);
   const basN1 = nombre ? nbVendusN1 : net ? netVenduN1 : sc(vendusN1);
-  const motGraphe = nombre ? M.onglet.toLowerCase() : net ? `CA net ${U.MOT}` : M.graphe;
+  const motGraphe = nombre ? M.onglet.toLowerCase() : net ? cons(`CA net ${U.MOT}`) : M.graphe;
   return <>
     {/* 🔴 LOT BS (Arno) — l'organisation du graphique « Mois par mois » de la Location : son en-tête (la bascule « ⇄ Mensuel » / « Cumul », les
         onglets de mesure à droite), ses barres (N pleines, N−1 hachurées), sa légende, son encart à droite ; un mois s'ouvre d'un clic. « Vendu +
@@ -454,7 +457,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
           partagé de la Location n'est pas touché. */}
       {enPeriode && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${moisPeriodeAnnee.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-        mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
       {entete}
       {/* 🔴 LOT DE (Arno) — en mode « Mois », l'encadré au repos montre le mois choisi (au survol, le mois survolé ; en quittant le graphique, le mois
@@ -468,7 +471,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
           total={{ ca: net ? netN : sc(parMois), nb: nbParMois }}
           totalN1={sansN1 ? null : { ca: net ? netN1 : sc(parMoisN1), nb: nbParMoisN1, annee: annee - 1 }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
           choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
-          motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} moisSeul={moisSeul} finPeriode={finPeriode} />
+          motCa={cons(net ? `CA net ${U.MOT}` : `CA ${U.MOT}`)} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} moisSeul={moisSeul} finPeriode={finPeriode} />
       ) : cumul ? (
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
           aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={moisSeul ? undefined : repos(true)} />
@@ -570,7 +573,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe ?? 'tous',
     statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
   const fiches = { hote, references: refs };
-  const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
+  const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   // Le mode change ce qu'on additionne (vendu, compromis à leur date, ou les deux), jamais comment (`caHt`, `totaux`).
   const T = enPeriode ? totauxPeriode(d, ms, mode) : totauxMoisMode(d, annee, mois, mode);
   const T1 = enPeriode ? totauxPeriode(d, unAnPlusTot(ms), mode) : totauxMoisMode(d, annee - 1, mois, mode);
@@ -670,13 +674,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee} (${borne.mot})`, Array.from({ length: fin }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul" data-borne-cumul={fin}>
-        <span className="tdb-tuile-mot">{mode === 'vendu' ? `CA ${U.MOT}` : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} ({borne.mot})</span><strong className="tdb-tuile-valeur">{U.e(cumulA(cumulN, fin))}</strong><Autre ht={cumulA(cumulN, fin)} />
+        <span className="tdb-tuile-mot">{mode === 'vendu' ? cons(`CA ${U.MOT}`) : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} ({borne.mot})</span><strong className="tdb-tuile-valeur">{U.e(cumulA(cumulN, fin))}</strong><Autre ht={cumulA(cumulN, fin)} />
         <span className="tdb-tuile-n1" data-tuile-n1="cumul">{sansN1 ? motSansN1 : `${U.e(cumulA(cumulN1, fin))} en ${annee - 1} (${signePct(variation(cumulA(cumulN, fin), cumulA(cumulN1, fin)))})`}</span></button></li>
       {/* 🔴 LOT DA (changement autorisé par Arno) — la 4ᵉ tuile suit « Compter » : Vendu → le CA net cumulé (même période que la 3ᵉ tuile) ;
           Compromis → les compromis en cours (inchangée) ; Vendu + compromis → le prévisionnel (vendu cumulé + compromis en cours). */}
       {mode === 'vendu' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net cumulé ${annee} (${borne.mot})`, idsVendusCumul)} data-tuile="ca-net-cumul">
-          <span className="tdb-tuile-mot">CA net {U.MOT} cumulé {annee} ({borne.mot})<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
+          <span className="tdb-tuile-mot">{cons(`CA net ${U.MOT}`)} cumulé {annee} ({borne.mot})<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
           <strong className="tdb-tuile-valeur" data-ca-net-cumul>{eur(enUnite(netCumul))}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netCumul))}{ESPACE}{U.autre.mot})</small>
           <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{sansN1 ? motSansN1 : `${eur(enUnite(netCumulN1))} en ${annee - 1} (${signePct(variation(netCumul.htC, netCumulN1.htC))})`}</span></button></li>
@@ -783,6 +787,8 @@ function Autre({ ht: montantHt }: { ht: number }) {
   return <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(u === 'ht' ? montantHt * TVA : montantHt)}{ESPACE}{MOT_UNITE[u === 'ht' ? 'ttc' : 'ht']})</small>;
 }
 /** 🔴 LOT BW — les mots du mode dans l'unité choisie (« CA TTC des compromis »). PUR. */
+/** 🔴 LOT DO — chaque mot passé par l'intitulé consolidé (page FUSION). */
+const consoliderMots = <T extends Record<string, string>>(c: (t: string) => string, m: T): T => Object.fromEntries(Object.entries(m).map(([k, x]) => [k, c(x)])) as T;
 const motsEnUnite = <T extends Record<string, string>>(m: T, mot: string): T => Object.fromEntries(Object.entries(m).map(([k, x]) => [k, x.replace('CA HT', `CA ${mot}`)])) as T;
 
 /**
@@ -791,16 +797,17 @@ const motsEnUnite = <T extends Record<string, string>>(m: T, mot: string): T => 
  */
 function LignesResultat({ R: r, T, suffixe, apresCa }: { R: ResultatCartes; T: NonDeduitsMontants; suffixe: 'mois' | 'periode'; apresCa?: ReactNode }) {
   const MOT = MOT_UNITE[useAffichage()];
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : « = Reste consolidé du groupe »
   const m = (x: MontantC) => ({ ht: x.htC / 100, ttc: x.ttcC / 100 });
   const non = (x: MontantC): boolean => x.htC !== 0 || x.ttcC !== 0;
   return <>
-    <dt>CA {MOT}</dt><dd><Mt {...m(r.ca)} donnees={{ [`data-ca-${suffixe}`]: '' }} /></dd>
+    <dt>{cons(`CA ${MOT}`)}</dt><dd><Mt {...m(r.ca)} donnees={{ [`data-ca-${suffixe}`]: '' }} /></dd>
     {apresCa}
     <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd><Mt {...m(r.retro)} cout donnees={{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }} /></dd>
     {non(r.interCabinet) && <><dt>− Inter-cabinet vers nos autres sociétés ({MOT})</dt><dd><Mt {...m(r.interCabinet)} donnees={{ [`data-inter-cabinet-${suffixe}`]: '' }} /></dd></>}
     {non(r.exterieur) && <><dt>− Inter-cabinet extérieur ({MOT})</dt><dd><Mt {...m(r.exterieur)} donnees={{ [`data-exterieur-${suffixe}`]: '' }} /></dd></>}
     <dt>− Commissions des négociateurs indépendants ({MOT})</dt><dd><Mt {...m(r.com)} cout donnees={{ [suffixe === 'mois' ? 'data-paye-deduite' : 'data-paye-deduite-periode']: '' }} /></dd>
-    <dt className="trx-total">= Reste à l’agence ({MOT})</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(r.reste.htC)}`}><Mt {...m(r.reste)} donnees={{ [suffixe === 'mois' ? 'data-reste-agence' : 'data-reste-agence-periode']: '' }} /></dd>
+    <dt className="trx-total">= {cons('Reste à l’agence')} ({MOT})</dt><dd className={`trx-total tdb-signe tdb-signe--${sensDe(r.reste.htC)}`}><Mt {...m(r.reste)} donnees={{ [suffixe === 'mois' ? 'data-reste-agence' : 'data-reste-agence-periode']: '' }} /></dd>
     <NonDeduits T={T} />
   </>;
 }
@@ -1175,7 +1182,8 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   comparaison?: string | null;
 }) {
   const U = useUnite();
-  const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
+  const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   const [cumul, setCumul] = useState(false);
   const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
@@ -1194,7 +1202,7 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   const nbs = annees.map((a) => listeDesAnnees(d.ventes, [a], mode).length);
   const bas = mode === 'tous' ? annees.map((a) => valeur(d, a, 'vendu')) : vals;
   const dernier = annees.filter((a) => a <= anneeEnCours).length;
-  const motGraphe = nombre ? M.onglet.toLowerCase() : net ? `CA net ${U.MOT}` : M.graphe;
+  const motGraphe = nombre ? M.onglet.toLowerCase() : net ? cons(`CA net ${U.MOT}`) : M.graphe;
   const presente = (a: number): boolean => annees.includes(a);
   const rang = (a: number): number => annees.indexOf(a);
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
@@ -1210,7 +1218,7 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
     const sansN1 = comparaison ?? `${a - 1} : non importé`;
     if (nombre) return { titre, compte: enCumul ? `${M.compte} (cumul)` : M.compte, sansN1, courant: { libelle: String(a), ca: v, nb: null, ...parts(vb, v) },
       precedent: avant ? { libelle: String(a - 1), ca: v1, nb: null, ...parts(vb1, v1) } : null };
-    return { titre, motNb: M.compte, motCa: net ? `CA net ${U.MOT}` : `CA ${U.MOT}`, autre: U.autre, sansN1, courant: { libelle: String(a), ca: v, nb, ...parts(vb, v) },
+    return { titre, motNb: M.compte, motCa: cons(net ? `CA net ${U.MOT}` : `CA ${U.MOT}`), autre: U.autre, sansN1, courant: { libelle: String(a), ca: v, nb, ...parts(vb, v) },
       precedent: avant ? { libelle: String(a - 1), ca: v1, nb: nb1, ...parts(vb1, v1) } : null };
   };
   const enPeriode = decoupage === 'periode';
@@ -1220,14 +1228,14 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
       {/* En Période : les années choisies surlignées (rouge), les autres atténuées — la règle de « Le mois » en Période. */}
       {enPeriode && <style>{`[data-periode-annees] g[data-barre-annee]{opacity:.35}${selection.map((a) => `[data-periode-annees] g[data-barre-annee="${a}"]{opacity:1}[data-periode-annees] g[data-barre-annee="${a}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
       <EnteteGraphe<MesureTrx> id="trx-annees" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel"
-        mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {entete}
       {series !== null ? (
         <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: annees.map((a) => listeDesAnnees(x.d.ventes, [a], mode).length), ca: annees.map((a) => valeur(x.d, a)) }))}
           total={{ ca: vals, nb: nbs }} totalN1={comparaison !== null ? null : { ca: valsN1, nb: annees.map((a) => listeDesAnnees(d.ventes, [a - 1], mode).length), annee: annee - 1 }}
           cumul={cumul} nombre={nombre} dernierMois={dernier} annee={annee} choisi={rang(annee) + 1} onChoisir={(r) => onAnnee(annees[r - 1])}
-          motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par année, un négociateur par série`}
+          motCa={cons(net ? `CA net ${U.MOT}` : `CA ${U.MOT}`)} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par année, un négociateur par série`}
           axe={{ etiquettes: annees.map(String), cles: annees, attribut: 'data-barre-annee', libelleN1: (r) => String(annees[r - 1] - 1), attenuer: !enPeriode,
             titre: (r, c) => (c ? `Cumul ${annees[0]} → ${annees[r - 1]}` : String(annees[r - 1])) }} />
       ) : cumul ? (
@@ -1256,7 +1264,8 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   series?: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; filtreNegociateurs?: readonly string[];
 }) {
   const U = useUnite();
-  const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
+  const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   const nommer = useNommer();
   const listes = useRef<HTMLDivElement | null>(null);
   useColonnesNegociateurs(listes);
@@ -1347,7 +1356,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         <span className="tdb-tuile-n1" data-tuile-n1="a-date">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>
       {mode === 'vendu' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net — ${lib}`, ventesSel.map((v) => v.id))} data-tuile="ca-net-annee">
-          <span className="tdb-tuile-mot">CA net {U.MOT} — {lib}<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
+          <span className="tdb-tuile-mot">{cons(`CA net ${U.MOT}`)} — {lib}<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
           <strong className="tdb-tuile-valeur" data-ca-net-annee>{ca(netA)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netA))}{ESPACE}{U.autre.mot})</small>
           <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netA1)} ${enN1} (${pct(netA, netA1)})`}</span></button></li>

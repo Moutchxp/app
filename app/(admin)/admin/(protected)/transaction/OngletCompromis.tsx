@@ -8,7 +8,7 @@ import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommiss
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useConsolide, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -66,6 +66,7 @@ const ouManque = (x: string | null | undefined): string => (x == null || x.trim(
 export function OngletCompromis({ societe, fusion = false }: { societe: Societe | 'tous';
   /** 🔴 LOT DM — la page FUSION (les deux sociétés) : « HT | TTC » et « + Nouveau compromis », qui demande d'abord la société porteuse. */
   fusion?: boolean }) {
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : « Chiffre d’affaires consolidé », « Solde net consolidé »
   const [choixSociete, setChoixSociete] = useState(false);
   const [societeNouveau, setSocieteNouveau] = useState<Societe | null>(null);
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
@@ -211,7 +212,7 @@ export function OngletCompromis({ societe, fusion = false }: { societe: Societe 
         {/* 🔴 LOT AN / AO (Arno) — la tuile « Chiffre d'affaires » : le titre et le total (grand / petit selon « HT | TTC ») ; elle n'ouvre plus
             de fenêtre (« Voir le détail » et la fenêtre « Chiffre d'affaires » retirés, accord d'Arno : leur contenu est dans « Solde net »). */}
         <li><div className="tdb-tuile" data-tuile="ca">
-          <span className="tdb-tuile-mot">Chiffre d’affaires</span>
+          <span className="tdb-tuile-mot">{cons('Chiffre d’affaires')}</span>
           <Montants ht={(cec?.htC ?? dca.totalHtC) / 100} ttc={(cec?.ttcC ?? dca.totalTtcC) / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-ca-ht': '' }} donneesTtc={{ 'data-ca-ttc': '' }} />
         </div></li>
         {/* 🔴 LOT AL (Arno) — la tuile garde le titre, le total en rouge, le HT et « Voir le détail » ; toute la tuile ouvre la fenêtre (souris,
@@ -225,7 +226,7 @@ export function OngletCompromis({ societe, fusion = false }: { societe: Societe 
         {/* LOT L (Arno) — le Solde net, en VERT ; LOT AM : l'unité choisie en grand, l'autre dessous. 🔴 LOT AO — comme « Commissions versées » :
             le titre, le total et « Voir le détail » ; toute la tuile ouvre la fenêtre ; « CA − commissions versées » y est passée (accord d'Arno). */}
         <li><button type="button" className="tdb-tuile" data-tuile="solde" aria-haspopup="dialog" aria-expanded={fenetreSolde} ref={tuileSolde} onClick={() => setFenetreSolde(true)}>
-          <span className="tdb-tuile-mot">Solde net</span>
+          <span className="tdb-tuile-mot">{cons('Solde net')}</span>
           <Montants ht={soldeHtC / 100} ttc={soldeTtcC / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-solde-ht': '' }} donneesTtc={{ 'data-solde-ttc': '' }} />
           <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-solde>Voir le détail</span>
         </button></li>

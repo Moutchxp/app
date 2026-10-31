@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { dossiersConcernes, ETIQUETTE, estVersee, type AffaireCout, type AffaireSolde, type CategorieCout, type DetailCommissions, type DetailSolde,
   type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
-import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage, useNommer, type UniteAffichage } from './commun';
+import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage, useConsolide, useNommer, type UniteAffichage } from './commun';
 
 /**
  * ══ 🔴 LOT AL (Arno, 29/10/2026) — LA FENÊTRE « COMMISSIONS VERSÉES » ══════════════════════════════════════════════════════════════════
@@ -186,6 +186,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
   detail: DetailSolde; societe: Societe | null; autreSociete: boolean; titres: Record<number, string>; onFermer: () => void; onAller: (id: number) => void;
 }) {
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
+  const cons = useConsolide(); // 🔴 LOT DO — FUSION : « Solde net consolidé », « Chiffre d’affaires consolidé »
   const qui = societe === null ? 'CRITERIMMO et MACJ' : LIBELLE_SOCIETE[societe];
   const affaire = lienAffaire(titres, onAller);
   const { ca, couts } = detail;
@@ -218,7 +219,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
     </section>
   );
   const mention = autreSociete && <p className="trx-fc-mention" data-detail="autre-societe">Négociateurs de l’autre société : rémunérés par elle — non comptés ici</p>;
-  const total = <><span>= Solde net de {qui}</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  const total = <><span>= {cons('Solde net')} de {qui}</span><Montant htC={detail.totalHtC} ttcC={detail.totalTtcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
   const bloc = (a: AffaireSolde) => (
     <section key={a.id} className="trx-fc-section" data-affaire-solde={a.id} aria-label={titres[a.id] ?? a.libelle}>
       <div className="trx-fc-tete trx-fc-tete--affaire">
@@ -232,17 +233,17 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
             <Montant htC={l.htC} ttcC={l.ttcC} versee />
           </li>))}
       </ul>
-      <div className="trx-fc-sous-total trx-somme"><span>= Solde net de l’affaire</span><Montant htC={a.soldeHtC} ttcC={a.soldeTtcC} versee={false} recu donnees={{ 'data-solde-affaire': String(a.id) }} /></div>
+      <div className="trx-fc-sous-total trx-somme"><span>= {cons('Solde net')} de l’affaire</span><Montant htC={a.soldeHtC} ttcC={a.soldeTtcC} versee={false} recu donnees={{ 'data-solde-affaire': String(a.id) }} /></div>
     </section>
   );
   return (
-    <CoqueFenetre titre={`Solde net — ${qui} — compromis en cours`} donnee="fenetre-solde" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="recu"
+    <CoqueFenetre titre={`${cons('Solde net')} — ${qui} — compromis en cours`} donnee="fenetre-solde" totalHtC={detail.totalHtC} totalTtcC={detail.totalTtcC} sens="recu"
       dossiers={motDossiers(detail.affaires.length, false)} cleMode={CLE_MODE_FENETRE_SOLDE} onFermer={onFermer} pied={total}
       corps={(mode) => (mode === 'categorie' ? <>
         {/* La ligne de la tuile, passée ici (lot AO) : ce que le solde mesure. */}
-        <p className="trx-fc-mention" data-solde-explication>CA {MOT_UNITE[u]} − commissions versées {MOT_UNITE[u]}</p>
-        <section className="trx-fc-section" data-solde-ca aria-label={`Chiffre d’affaires de ${qui}`}>
-          <div className="trx-fc-tete trx-somme"><h3>Chiffre d’affaires de {qui}</h3><Montant htC={ca.totalHtC} ttcC={ca.totalTtcC} versee={false} recu donnees={{ 'data-ca-solde': '' }} /></div>
+        <p className="trx-fc-mention" data-solde-explication>{cons(`CA ${MOT_UNITE[u]}`)} − commissions versées {MOT_UNITE[u]}</p>
+        <section className="trx-fc-section" data-solde-ca aria-label={`${cons('Chiffre d’affaires')} de ${qui}`}>
+          <div className="trx-fc-tete trx-somme"><h3>{cons('Chiffre d’affaires')} de {qui}</h3><Montant htC={ca.totalHtC} ttcC={ca.totalTtcC} versee={false} recu donnees={{ 'data-ca-solde': '' }} /></div>
           <ul className="trx-fc-lignes">{dont.map((c) => (
             <li key={c.cle} className="trx-fc-ligne trx-fc-info" data-solde-dont={c.cle}><span className="trx-fc-quoi">{motDont(c)}</span><Montant htC={c.htC} ttcC={c.ttcC} versee={false} /></li>))}</ul>
           {/* Nos deux sociétés : le CA de chacune, sa part reçue comprise (ce que disait la tuile « Chiffre d'affaires »). */}
@@ -257,7 +258,7 @@ export function FenetreSolde({ detail, societe, autreSociete, titres, onFermer, 
           {mention}
         </div>
       </> : <>
-        <p className="trx-fc-mention" data-solde-explication>CA {MOT_UNITE[u]} − commissions versées {MOT_UNITE[u]}</p>
+        <p className="trx-fc-mention" data-solde-explication>{cons(`CA ${MOT_UNITE[u]}`)} − commissions versées {MOT_UNITE[u]}</p>
         {detail.affaires.length === 0 ? <p className="trx-fc-aucune" data-aucune-affaire>Aucun compromis en cours.</p> : detail.affaires.map(bloc)}
         {mention}
       </>)} />
