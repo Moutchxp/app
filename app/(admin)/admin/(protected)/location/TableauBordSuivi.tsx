@@ -87,7 +87,22 @@ export function cumulDeLAdresse(recherche: string = typeof window === 'undefined
  */
 const API = '/api/admin/location/suivi';
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-const eurRond = (x: number): string => `${Math.round(x).toLocaleString('fr-FR')} €`;
+/**
+ * 🔴 LOT CR (Arno, 31/10/2026) — UNE GRADUATION DE L'AXE VERTICAL, EN ABRÉGÉ (l'axe seulement : bulles, encarts et tuiles gardent le montant
+ * complet) : sous 1 000 € le montant entier (« 850 € ») ; puis « 25 k€ », « 21,3 k€ », « 100 k€ » ; puis « 1,2 M€ » — une décimale au plus,
+ * aucune si elle est nulle. Un montant qui s'arrondit au palier suivant y passe (999 960 € → « 1 M€ »). PUR.
+ */
+export function eurAxe(x: number): string {
+  const signe = x < 0 ? '-' : '';
+  const a = Math.abs(x);
+  const dec = (v: number): string => v.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+  if (Math.round(a) < 1000) return `${signe}${Math.round(a).toLocaleString('fr-FR')} €`;
+  const k = Math.round(a / 100) / 10;
+  if (k < 1000) return `${signe}${dec(k)} k€`;
+  return `${signe}${dec(Math.round(a / 100000) / 10)} M€`;
+}
+/** 🔴 LOT CR — la largeur de la marge de l'axe (unités du dessin, police de 11) : assez pour la plus longue graduation, jamais moins qu'avant (56). PUR. */
+export const margeAxe = (etiquettes: readonly string[]): number => Math.max(56, Math.ceil(12 + Math.max(0, ...etiquettes.map((e) => e.length)) * 6.6));
 const pct = (x: number | null): string => (x === null ? '—' : `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`);
 const signe = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 const moisCourt = (m: string): string => `${NOMS_MOIS[Number(m.slice(5, 7)) - 1].slice(0, 4).replace(/\.$/, '')}. ${m.slice(0, 4)}`;
@@ -825,7 +840,8 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
   const y = (v: number): number => H - m.b - ((v - min) * (H - m.h - m.b)) / (max - min);
   const trace = (vals: readonly number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
-  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurRond(v));
+  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v)); // 🔴 LOT CR — en abrégé
+  m.g = margeAxe(graduations.map(etiquette)); // 🔴 LOT CR — aucune graduation coupée
   const pas = (L - m.g - m.d) / Math.max(1, n - 1);
   const dessin = (
     // Une étiquette d'année (« 2026 ») est plus large que la marge droite : le dessin peut déborder de quelques unités plutôt que la rogner.
@@ -1033,7 +1049,9 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   const pasEntier = Math.max(1, Math.ceil((plusHaut - plusBas) / 4));
   const min = entier ? Math.floor(plusBas / pasEntier) * pasEntier : plusBas;
   const max = entier ? min + pasEntier * 4 : plusHaut;
-  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurRond(v));
+  const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v)); // 🔴 LOT CR — en abrégé
+  const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
+  m.g = margeAxe(graduations.map(etiquette)); // 🔴 LOT CR — la marge de l'axe suit sa plus longue graduation
   const defile = histogrammeDefile(barres.length, pasFixe);
   const pas = defile ? (pasFixe as number) : (L - m.g - m.d) / barres.length;
   /* ── LE DÉFILEMENT (Arno, 23/10/2026) : glisser à la souris, molette / pavé horizontal et doigt (natifs), flèches ‹ ›, clavier. */
@@ -1086,7 +1104,6 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   };
   const pasPx = (): number => (piste.current === null ? 0 : piste.current.scrollWidth / Math.max(1, barres.length));
   const y = (v: number): number => H - m.b - ((v - min) * (H - m.h - m.b)) / (max - min);
-  const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
   /** Le haut et la hauteur d'une barre, de 0 vers sa valeur (vers le bas si elle est négative). */
   const barreY = (v: number, f: (x: number) => number): { y: number; height: number } => ({ y: f(Math.max(v, 0)), height: Math.abs(f(0) - f(v)) });
   const largeur = pas * (avecN1 ? 0.36 : 0.64);

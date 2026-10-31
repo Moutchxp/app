@@ -95,7 +95,8 @@ describe('🔴 « Année par année » : 8 années tiennent, 15 défilent', () =
     expect(q('[data-histo-detail] .tdb-bulle-titre')?.textContent).toBe('Année 2019');
     expect(q('[data-bulle="survol"]')).toBeNull();
     // L'échelle est calculée sur TOUTES les années : la plus haute graduation est le maximum de toutes.
-    expect(axe.querySelectorAll('text')[4].textContent?.replace(/\s/g, '')).toBe(`${(1000 + 2026).toLocaleString('fr-FR').replace(/\s/g, '')}€`);
+    // 🔴 LOT CR — l'axe en abrégé : 3 026 € → « 3 k€ »
+    expect(axe.querySelectorAll('text')[4].textContent).toBe('3 k€');
   });
 
   it('le Suivi annuel passe la largeur fixe à « Année par année » (et pas au mois par mois)', () => {

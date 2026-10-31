@@ -4886,7 +4886,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     expect(container.querySelector('[data-compromis="51"] [data-acte-signe-etiquette]')).not.toBeNull();
     expect(texte('[data-compromis="51"] [data-carte="acte"]')).toBe('acte signé le 25/10/2026');
     expect(container.querySelector('[data-compromis="41"] [data-acte-signe-etiquette]')).toBeNull();
-    expect(texte('[data-compromis-sans-date]')).toBe('1 compromis sans date (en cours) — pas dans cette vue');
+    expect(container.querySelector('[data-compromis-sans-date]')).toBeNull(); // 🔴 LOT CR — la ligne est retirée (accord d'Arno) ; le sans-date reste dans « En cours »
     // retenu dans le navigateur, et partagé avec MACJ
     expect(window.localStorage.getItem('trx-compromis-vue')).toBe('mois');
     act(() => { root.unmount(); }); root = createRoot(container);

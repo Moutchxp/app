@@ -109,7 +109,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   // LOT E — la date butoir la plus proche d'abord ; les compromis sans date à la fin.
   // 🔴 LOT BY / CB — `liste` : les compromis de la vue choisie (« En cours » : l'affichage d'avant ; « Du mois » : signés ce mois-ci, actes compris) —
   // TOUTE la page la suit : la liste, le compteur, les tuiles, leurs fenêtres et la synthèse « Ce que l'on doit ».
-  const { liste, sansDate } = compromisDeLaVue(d.compromis, d.actesDuMois ?? [], vueListe, d.aujourdhui);
+  const { liste } = compromisDeLaVue(d.compromis, d.actesDuMois ?? [], vueListe, d.aujourdhui);
   // 🔴 LOT I — les 4 tuiles, sur les compromis de la vue (les annulés n'y sont pas), selon la répartition par société.
   const statutDuLibelle = resolveurDe(d.statutsNegociateurs);
   // 🔴 LOT BY — les calculs des tuiles et des fenêtres ne lisent que les compromis (statut « compromis ») : un compromis du mois déjà passé en
@@ -179,7 +179,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
       {/* 🔴 LOT I (Arno) — QUATRE TUILES, dans cet ordre : le nombre ; le CA (TTC en grand, en vert, HT en gris dessous ; la part de la société
           après répartition) ; les commissions versées (négociateurs + apporteurs : TTC en grand, en rouge, HT dessous, détail au toucher ou
           au survol) ; le solde net (CA HT − commissions HT, négatif tel quel). Le mot accompagne toujours la couleur. */}
-      {vueListe === 'mois' && sansDate > 0 && <p className="loc-muet trx-sans-date" data-compromis-sans-date>{sansDate} compromis sans date (en cours) — pas dans cette vue</p>}
+      {/* 🔴 LOT CR (Arno) — la ligne « N compromis sans date (en cours) — pas dans cette vue » de la vue « Du mois » est RETIRÉE (accord d'Arno) ;
+          les compromis sans date restent dans la vue « En cours ». */}
       <ul className="tdb-tuiles trx-tuiles4" aria-label={vueListe === 'mois' ? 'Les compromis du mois' : 'Les compromis en cours'} data-totaux-compromis data-totaux-vue={vueListe}>
         <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">{vueListe === 'mois' ? 'Compromis du mois' : 'Compromis en cours'}</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
           <span className="tdb-tuile-n1">{vueListe === 'mois' ? `signés en ${moisEnLettres(d.aujourdhui)}, hors annulés` : 'acte non signé, hors annulés'}</span></div></li>

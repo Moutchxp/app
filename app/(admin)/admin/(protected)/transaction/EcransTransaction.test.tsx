@@ -451,7 +451,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     expect(tuile('ca-mois')).toEqual(['CA HT des compromis — janvier', '8 000 €', '1 000 € en 2024 (+700 %)']);
     expect(tuile('ventes-mois')).toEqual(['Compromis — janvier', '2', '1 en 2024']);
     expect(tuile('cumul')[0]).toBe('CA des compromis cumulé 2025 (à fin janvier)');
-    expect(texte('[data-compromis-sans-date]')).toBe('2 compromis sans date — non placés dans un mois (22 833,33 € HT)');
+    expect(container.querySelector('[data-compromis-sans-date]')).toBeNull(); // 🔴 LOT CR — la mention est retirée (accord d'Arno) ; ils ne comptent dans aucun mois
     expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['11', '12']);
     expect(container.querySelector('[data-bloc="ventes-mois"]')).toBeNull();
     expect(new URLSearchParams(window.location.search).get('mode')).toBe('compromis');
@@ -1326,6 +1326,21 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(css).toContain('.trx-rangee-mois .trx-choix-periode .trx-unite{min-height:42px}');
       expect(css).toContain('@media (max-width:720px){ .trx-rangee-mois{flex-direction:column-reverse;align-items:stretch;gap:0} .trx-rangee-mois .trx-choix-periode{align-self:flex-end} }');
     });
+  });
+
+  it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {
+    const grosse = vente(90, { societe: 'criterimmo', libelle: 'GROSSE', honorairesTtc: 300000, annee: 2025, mois: 1 });
+    const fin = await ouvrirSur([grosse], 'criterimmo');
+    try {
+      const graduations = () => [...container.querySelectorAll('[data-bloc="histogramme-mois"] svg text.tdb-axe')].filter((x) => x.getAttribute('text-anchor') === 'end').map((x) => x.textContent);
+      expect(graduations()).toEqual(['0 €', '62,5 k€', '125 k€', '187,5 k€', '250 k€']); // HT : 300 000 ÷ 1,2
+      expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail]')).toContain('250 000,00 €');
+      await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+      expect(graduations()).toEqual(['0 €', '75 k€', '150 k€', '225 k€', '300 k€']);
+      expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail]')).toContain('300 000,00 €');
+      await cliquer('[data-cumul-bouton]');
+      expect(graduations().at(-1)).toBe('300 k€');
+    } finally { fin(); }
   });
 
   it('🔴 LOT CM — un coût nul en GRIS (le grand et le petit), un coût non nul en rouge : Espace par négociateur, son total, Résultat de l’agence ; HT et TTC', async () => {

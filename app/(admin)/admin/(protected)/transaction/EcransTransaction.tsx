@@ -7,7 +7,7 @@ import {
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente, TVA,
-  aDesCompromisDates, caHtParMoisMode, compromisDuMode, compromisSansDate, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
+  aDesCompromisDates, caHtParMoisMode, compromisDuMode, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
 import { CourbeAnnees, CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
 import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
@@ -321,7 +321,6 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const horsResultat = retrosSansVenteAffichee(retros, Rc.ids);
   const retrosMode = retrosLiees;
   const comp = compromisDeLAnnee(d.ventes, annee);
-  const sansDate = mode === 'vendu' ? [] : compromisSansDate(d.ventes, annee);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => estChoisi(ms, { annee: x.annee, mois: x.mois }));
   const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode)].map((v) => v.id);
@@ -400,10 +399,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="tdb-tuile-mot">Compromis en cours ({annee}, {U.MOT})</span><strong className="tdb-tuile-valeur">{U.e(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={comp.reduce((s, v) => s + caHt(v, d.societe), 0)} />
         <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
     </ul>
-    {/* 🔴 LOT BS — un compromis sans date de compromis n'a pas de mois : compté à part, jamais placé dans un mois. */}
-    {sansDate.length > 0 && <p className="loc-muet trx-sans-date" data-compromis-sans-date>
-      <button type="button" className="tdb-chiffre" onClick={ouvrir(`Compromis sans date — ${annee}`, sansDate.map((v) => v.id))}>{sansDate.length} compromis sans date</button>
-      {' '}— non placés dans un mois ({U.e(sansDate.reduce((t, v) => t + caHt(v, d.societe), 0))} {U.MOT})</p>}
+    {/* 🔴 LOT CR (Arno) — la mention « N compromis sans date — non placés dans un mois » est RETIRÉE (accord d'Arno) : un compromis sans
+        date n'a toujours pas de mois (jamais compté dans un mois) ; il reste visible dans l'onglet « Compromis », vue « En cours ». */}
 
     {/* 🔴 LOT BS (Arno) — l'organisation du graphique « Mois par mois » de la Location : son en-tête (la bascule « ⇄ Mensuel » / « Cumul », les
         onglets de mesure à droite), ses barres (N pleines, N−1 hachurées), sa légende, son encart à droite ; un mois s'ouvre d'un clic. « Vendu +
