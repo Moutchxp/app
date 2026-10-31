@@ -198,7 +198,6 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
         </div>
       </div>
-      <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
       {vue === 'compromis' ? <OngletCompromis societe={societe} /> : <>
       <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
         {vue === 'mois' ? (
@@ -235,6 +234,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
       </FournisseurNoms></FournisseurAffichage>
       </>}
+      {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs (onglet Compromis : après la synthèse et les annulés ;
+          Le mois / L'année : après les apporteurs et l'espace par négociateur) ; replié, compteur, contenu et attribution inchangés. */}
+      <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
 
       {detail !== null && <FournisseurAffichage value={unite}><FournisseurNoms value={d.nomsNegociateurs ?? {}}><ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
         onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} /></FournisseurNoms></FournisseurAffichage>}
@@ -1156,8 +1158,6 @@ export function EcranGlobal() {
       </div>
       {onglet === 'compromis' ? <OngletCompromis societe="tous" /> : <>
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
-      <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
-        disponible={d.disponible} onRelire={relire} />
       <form className="tdb-filtres" aria-label="Année" onSubmit={(x) => x.preventDefault()}>
         <label className="tdb-champ">Année
           <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
@@ -1264,6 +1264,9 @@ export function EcranGlobal() {
         </table>
       </section>
 
+      {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs ; replié, compteur, contenu et attribution inchangés. */}
+      <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
+        disponible={d.disponible} onRelire={relire} />
       </>}
     </div>
   );

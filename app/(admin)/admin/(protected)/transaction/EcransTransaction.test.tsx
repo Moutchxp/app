@@ -153,6 +153,29 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     expect(posts).toContainEqual({ action: 'attribuer', cle: 'double|DHIB', societe: 'criterimmo' });
     donnees.ventes.pop(); delete donnees.doubles;
   });
+  it('🔴 LOT CX — le bloc est le DERNIER de la page (onglet Compromis, Le mois, L’année ; CA global), replié ; il se déplie et attribue toujours', async () => {
+    donnees.ventes.push(dhibMacj);
+    donnees.doubles = [dhibMacj, dhibCrit];
+    try {
+      const dernier = (racine: string) => { const r = container.querySelector(racine)!; const kids = [...r.children].filter((x) => x.tagName !== 'STYLE');
+        return kids.at(-1)!.contains(container.querySelector('#trx-a-attribuer')); };
+      for (const vue of ['compromis', 'mois', 'annee'] as const) {
+        act(() => { root.unmount(); }); root = createRoot(container);
+        window.history.replaceState(null, '', `/?vue=${vue}&annee=2025&mois=3`);
+        await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+        expect([vue, dernier('[data-transaction]'), texte('#trx-a-attribuer .tdb-replie-mot'), container.querySelector('[data-attribuer]')]).toEqual([vue, true, 'Ventes à attribuer (1)', null]);
+        await act(async () => { (container.querySelector('[data-deplier="a-attribuer"]') as HTMLButtonElement).click(); });
+        await act(async () => { (container.querySelector('[data-attribuer="criterimmo"]') as HTMLButtonElement).click(); }); await calmer();
+        expect(posts.at(-1)).toEqual({ action: 'attribuer', cle: 'double|DHIB', societe: 'criterimmo' });
+      }
+      act(() => { root.unmount(); }); root = createRoot(container);
+      donneesGlobal.ventes = [...donneesGlobal.ventes, ...[dhibMacj, dhibCrit].map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois,
+        honorairesTtc: v.honorairesTtc, libelle: v.libelle, double: v.double }))];
+      window.history.replaceState(null, '', '/?annee=2025');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      expect(dernier('[data-ca-global]')).toBe(true);
+    } finally { donnees.ventes.pop(); delete donnees.doubles; }
+  });
   it('le CA global la compte une fois (le plus bas), dans aucune société', async () => {
     donneesGlobal.ventes = [...donneesGlobal.ventes, ...[dhibMacj, dhibCrit].map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois,
       honorairesTtc: v.honorairesTtc, libelle: v.libelle, double: v.double }))];
