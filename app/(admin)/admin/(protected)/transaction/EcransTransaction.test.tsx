@@ -1157,6 +1157,96 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       } finally { fin(); }
     });
   });
+  describe('🔴 LOT CP — « Mensuel | Période » : plusieurs mois choisis, cumulés (la somme exacte des mois)', () => {
+    const lp = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true, origine: 'import',
+      sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = () => [
+      vente(60, { societe: 'criterimmo', libelle: 'JUILLET', honorairesTtc: 10000.01, annee: 2025, mois: 7, lignes: [lp('MYLENE', 'negociateur', 2000.33)] }),
+      vente(61, { societe: 'criterimmo', libelle: 'SEPTEMBRE', honorairesTtc: 16275.07, annee: 2025, mois: 9, lignes: [lp('CEDRIC', 'part', 16275.07)] }),
+      vente(62, { societe: 'criterimmo', libelle: 'AOUT', honorairesTtc: 5000, annee: 2025, mois: 8 }),
+      vente(63, { societe: 'criterimmo', libelle: 'N-1 JUILLET', honorairesTtc: 7000.03, annee: 2024, mois: 7 }),
+      vente(64, { societe: 'criterimmo', libelle: 'N-1 SEPTEMBRE', honorairesTtc: 4000, annee: 2024, mois: 9 }),
+      vente(65, { societe: 'criterimmo', libelle: 'COMPROMIS JUILLET', honorairesTtc: 9000.05, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-07-10', lignes: [lp('MYLENE', 'negociateur', 1500)] }),
+      vente(66, { societe: 'criterimmo', libelle: 'COMPROMIS SEPTEMBRE', honorairesTtc: 3000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-09-03' }),
+    ];
+    const r = (id: number, mois: number, venteId: number | null, montantTtc: number) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois, negociateur: 'MYLENE', montantTtc,
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'MYLENE', sourceCellule: 'J3' });
+    const retros = () => [r(1, 7, 60, 500.01), r(2, 9, null, 250)];
+    const choisis = () => [...container.querySelectorAll('.trx-onglets-periode [aria-pressed="true"]')].map((x) => Number(x.getAttribute('data-onglet-mois')));
+    const adresse = () => new URLSearchParams(window.location.search).get('periode');
+
+    it('bascule Mensuel ↔ Période ; sélection / désélection ; mois contigus et non contigus ; le dernier ne se retire pas ; retour au dernier mois cliqué', async () => {
+      const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7', retros());
+      try {
+        expect([texte('[data-choix-periode] [aria-pressed="true"]'), container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois')]).toEqual(['Mensuel', '7']);
+        expect([container.querySelector('[data-periode-libelle]'), adresse()]).toEqual([null, null]);
+        await cliquer('[data-decouper="periode"]');
+        expect([choisis(), texte('[data-periode-libelle]'), adresse()]).toEqual([[7], 'Période : juillet 2025', '2025-07']); // le mois en cours reste choisi
+        await cliquer('[data-onglet-mois="9"]');
+        expect([choisis(), texte('[data-periode-libelle]'), adresse()]).toEqual([[7, 9], 'Période : juillet, septembre 2025 (2 mois)', '2025-07,2025-09']);
+        await cliquer('[data-onglet-mois="8"]');
+        expect([choisis(), texte('[data-periode-libelle]')]).toEqual([[7, 8, 9], 'Période : juillet → septembre 2025']);
+        await cliquer('[data-onglet-mois="8"]');
+        await cliquer('[data-onglet-mois="7"]');
+        expect([choisis(), container.querySelector('[data-periode-refus]')]).toEqual([[9], null]);
+        await cliquer('[data-onglet-mois="9"]'); // le dernier : refusé, un petit message
+        expect([choisis(), texte('[data-periode-refus]')]).toEqual([[9], ' — au moins un mois reste choisi.']);
+        await cliquer('[data-onglet-mois="7"]');
+        expect([choisis(), container.querySelector('[data-periode-refus]')]).toEqual([[7, 9], null]);
+        // titres et graphique
+        expect(texte('[data-bloc="apporteurs-mois"] h3')).toContain('Apporteurs de la période — juillet, septembre 2025 (2 mois)');
+        expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de la période — juillet, septembre 2025 (2 mois)');
+        expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Période : juillet, septembre 2025 (2 mois)');
+        expect(container.querySelector('[data-bloc="histogramme-mois"]')!.getAttribute('data-periode-graphe')).toBe('7,9');
+        expect([...container.querySelectorAll('[data-bloc="ventes-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['60', '61']);
+        // téléphone : le bouton est dans la ligne des mois, après les mois (la feuille le passe au-dessus, à droite)
+        const rangee = container.querySelector('.trx-rangee-mois')!;
+        expect([...rangee.children].map((x) => x.className)).toEqual(['tdb-onglets trx-onglets-periode', 'trx-unites trx-choix-periode']);
+        const { CSS_TRANSACTION } = await import('./commun');
+        expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('@media (max-width:720px){ .trx-rangee-mois{flex-direction:column-reverse');
+        await cliquer('[data-decouper="mensuel"]');
+        expect([container.querySelector('.trx-rangee-mois [role="tablist"] [aria-selected="true"]')!.getAttribute('data-onglet-mois'), adresse(), container.querySelector('[data-periode-libelle]')])
+          .toEqual(['7', null, null]); // le dernier mois cliqué
+      } finally { fin(); }
+    });
+
+    it('le lien partagé (&periode=…) rouvre la période ; la sélection est retenue en changeant d’onglet', async () => {
+      const fin = await ouvrirSur(jeu(), 'criterimmo', '/?periode=2025-09,2025-07', retros());
+      try {
+        expect([choisis(), texte('[data-periode-libelle]'), container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')]).toEqual([[7, 9], 'Période : juillet, septembre 2025 (2 mois)', 'true']);
+        await cliquer('[data-vue="annee"]');
+        expect(adresse()).toBeNull();
+        await cliquer('[data-vue="mois"]');
+        expect([choisis(), adresse()]).toEqual([[7, 9], '2025-07,2025-09']);
+      } finally { fin(); }
+    });
+
+    it('chaque total de la période = la somme des mois pris un par un, au centime (HT et TTC, trois modes) ; N−1 sur les mêmes mois', async () => {
+      const lire = async (q: string, u: 'ht' | 'ttc') => {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        const fin = await ouvrirSur(jeu(), 'criterimmo', q, retros());
+        try {
+          if (container.querySelector('[data-total-ca-net]') === null) await cliquer('[data-bloc="negociateurs-mois"] button');
+          const n1 = texte('[data-tuile-n1="ca"]');
+          return { ca: montant('[data-tuile="ca-mois"] .tdb-tuile-valeur'), nb: Number(texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur')), reste: montant('[data-reste-agence]'),
+            caNet: montant('[data-total-ca-net]'), caGenere: montant('[data-total-ca-genere]'), horsResultat: container.querySelector('[data-total-hors-resultat]') === null ? 0 : centimes(texte('[data-total-hors-resultat]').split('(')[0]),
+            // sans N−1 (« 2024 : aucun compromis daté ») : le message, tel quel
+            n1: n1.includes(' : ') ? n1 : centimes(n1.split(/ en | sur /)[0]), cartes: container.querySelectorAll('.trx-listes-mois [data-vente]').length };
+        } finally { fin(); }
+      };
+      for (const mode of ['vendu', 'compromis', 'tous'] as const) {
+        for (const u of ['ht', 'ttc'] as const) {
+          const [a, b, p] = [await lire(`/?vue=mois&annee=2025&mois=7&mode=${mode}`, u), await lire(`/?vue=mois&annee=2025&mois=9&mode=${mode}`, u),
+            await lire(`/?vue=mois&annee=2025&mois=9&mode=${mode}&periode=2025-07,2025-09`, u)];
+          const somme = Object.fromEntries(Object.keys(a).map((k) => { const [x, y] = [a[k as keyof typeof a], b[k as keyof typeof b]];
+            return [k, typeof x === 'string' ? (x === y ? x : `${x} ≠ ${y}`) : x + (y as number)]; }));
+          expect(Number.isNaN(p.horsResultat)).toBe(false);
+          expect([mode, u, p]).toEqual([mode, u, somme]);
+        }
+      }
+    });
+  });
+
   it('🔴 LOT CM — un coût nul en GRIS (le grand et le petit), un coût non nul en rouge : Espace par négociateur, son total, Résultat de l’agence ; HT et TTC', async () => {
     const { classeSens, montantNul } = await import('./commun');
     expect([classeSens('verse', 0, 0), classeSens('verse', 0.004, 0.004), classeSens('verse', 1, 1.2), classeSens('recu', 0, 0)]).toEqual(['trx-cout-nul', 'trx-cout-nul', 'trx-rouge', 'trx-vert']);

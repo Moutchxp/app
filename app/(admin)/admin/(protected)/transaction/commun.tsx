@@ -309,6 +309,17 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 [data-table-retrocessions] .trx-retro-negociateur{text-align:left;font-weight:400}
 .trx-retro-nego-pile{display:inline-flex;flex-direction:column;gap:2px}
 @media (max-width:1024px){ .trx-retro-nego-pile{align-items:flex-end;text-align:right} }
+/* LOT CP — « Mensuel | Période » à droite de la ligne des mois (au téléphone : au-dessus, à droite) ; en Période, les mois choisis soulignés
+   comme le mois du Mensuel. */
+.trx-rangee-mois{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--color-svv-line)}
+.trx-rangee-mois .tdb-onglets{flex:1 1 auto;min-width:0;border-bottom:0}
+.trx-rangee-mois .trx-choix-periode{flex:0 0 auto;align-self:center}
+.trx-onglets-periode .tdb-onglet[aria-pressed="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}
+.trx-periode-libelle{margin:0}
+@media (max-width:720px){
+  .trx-rangee-mois{flex-direction:column-reverse;align-items:stretch;gap:8px}
+  .trx-rangee-mois .trx-choix-periode{align-self:flex-end}
+}
 /* LOT CO — tri de l'Espace par négociateur : l'intitulé est un bouton, deux flèches grises, celle du tri en cours en vert ; sur téléphone
    (en-tête replié en cartes) les deux tris passent au-dessus du tableau. */
 .trx-tri{appearance:none;border:0;background:transparent;padding:4px 2px;margin:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:6px;min-height:32px}
