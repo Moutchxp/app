@@ -276,6 +276,19 @@ export function societesDeLaVente(v: Pick<Vente, 'societe' | 'honorairesTtc' | '
   const { parSociete } = partsDeLaVente(v.repartition, v.honorairesTtc);
   return SOCIETES.filter((s) => s === porteuse || parSociete[s] > 0);
 }
+/**
+ * 🔴 LOT DP (Arno) — l'étiquette ROUGE d'une vente PARTAGÉE entre nos deux sociétés : « Inter-cabinet [porteuse du mandat] – [l'autre] » ; la
+ * ligne miroir (la part reçue) : la même, la porteuse d'abord ; une vente d'une seule société (ou partagée avec une agence extérieure seulement) :
+ * null. PUR.
+ */
+export function etiquetteInterCabinet(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition' | 'miroir'>): string | null {
+  if (v.miroir != null) return v.miroir.porteuse === v.societe ? null : `Inter-cabinet ${LIBELLE_SOCIETE[v.miroir.porteuse]} – ${LIBELLE_SOCIETE[v.societe]}`;
+  const ss = societesDeLaVente(v);
+  if (ss.length < 2) return null;
+  const porteuse = societePorteuse(v);
+  const autre = ss.find((s) => s !== porteuse);
+  return autre === undefined ? null : `Inter-cabinet ${LIBELLE_SOCIETE[porteuse]} – ${LIBELLE_SOCIETE[autre]}`;
+}
 export const etiquetteSocietes = (v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>): string => societesDeLaVente(v).map((s) => LIBELLE_SOCIETE[s]).join(' + ');
 /** Le total d'un enregistrement « par société ». */
 export const sommeSocietes = (r: Readonly<Record<Societe, number>>): number => SOCIETES.reduce((t, s) => t + r[s], 0);

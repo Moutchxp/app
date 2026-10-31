@@ -2602,8 +2602,12 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect(container.querySelector('[data-transaction="tous"]')).not.toBeNull();
         expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('13 000 €'); // 6 000 + 3 000 + 4 000 (une fois)
         const cartes = [...container.querySelectorAll('[data-bloc="ventes-mois"] [data-cartes-ventes] > [data-vente]')];
-        expect(cartes.map((c) => [c.getAttribute('data-vente'), c.querySelector('[data-etiquette-societe]')?.textContent])).toEqual(
-          expect.arrayContaining([['700', 'CRITERIMMO'], ['701', 'MACJ'], ['702', 'CRITERIMMO + MACJ']]));
+        // 🔴 LOT DP — l'étiquette de société à côté du nom est retirée (accord d'Arno) : la société est sur chaque ligne de négociateur ; la vente
+        // partagée porte l'étiquette rouge « Inter-cabinet CRITERIMMO – MACJ » (la porteuse d'abord)
+        expect(container.querySelector('[data-etiquette-societe]')).toBeNull();
+        expect(cartes.map((c) => [c.getAttribute('data-vente'), [...c.querySelectorAll('[data-nego-societe]')].map((x) => x.textContent).join(' / '),
+          c.querySelector('[data-etiquette-inter-cabinet]')?.textContent ?? null])).toEqual(
+          expect.arrayContaining([['700', 'CRITERIMMO', null], ['701', 'MACJ', null], ['702', 'CRITERIMMO / MACJ', 'Inter-cabinet CRITERIMMO – MACJ']]));
         expect(cartes.length).toBe(3);
         expect(texte('[data-bloc="ventes-mois"] [data-vente="702"]')).not.toContain('reversé à');
         // le Résultat : le CA total, l'apporteur déduit, AUCUNE ligne d'inter-cabinet entre nos sociétés
@@ -3046,4 +3050,52 @@ describe('🔴 LOT DO — FUSION : le CA consolidé (10 000 / 5 000, dans les de
       }, 30_000);
     }
   }
+
+  // ══ 🔴 LOT DP (Arno) — les étiquettes des cartes : rouge « Inter-cabinet [porteuse] – [l'autre] » sur les trois pages (miroir compris) ; la
+  // société de chaque négociateur dans sa colonne, sur FUSION seulement ; l'ancienne étiquette à côté du nom retirée (accord d'Arno).
+  describe('🔴 LOT DP — étiquettes inter-cabinet et société par négociateur', () => {
+    for (const porteuse of ['criterimmo', 'macj'] as const) {
+      const rouge = porteuse === 'criterimmo' ? 'Inter-cabinet CRITERIMMO – MACJ' : 'Inter-cabinet MACJ – CRITERIMMO';
+      it(`${porteuse.toUpperCase()} porteuse : l’étiquette rouge « ${rouge} » sur les trois pages ; FUSION : CRITERIMMO / MACJ sur les lignes, une colonne commune`, async () => {
+        for (const page of ['criterimmo', 'macj', 'tous'] as const) {
+          const fin = await ouvrirCas(porteuse, page, '/?vue=compromis');
+          try {
+            const carte = container.querySelector('[data-compromis="91"]')!;
+            expect([page, carte.querySelector('[data-etiquette-inter-cabinet]')?.textContent, container.querySelector('[data-etiquette-societe]')]).toEqual([page, rouge, null]);
+            expect(carte.querySelector('[data-carte="titre"]')!.textContent!.indexOf(rouge)).toBeGreaterThan(0); // juste après le nom
+            const lignes = [...carte.querySelectorAll('[data-nego-ligne]')];
+            if (page === 'tous') {
+              // la société à la vente de chaque négociateur : l'entrée chez la porteuse, la sortie chez l'autre ; une colonne (data-col 6) par ligne
+              expect(lignes.map((l) => [l.getAttribute('data-nego-ligne'), l.querySelector('[data-nego-societe]')?.textContent, l.querySelectorAll('[data-col="6"]').length]))
+                .toEqual([['entree', porteuse.toUpperCase(), 1], ['sortie', autre(porteuse).toUpperCase(), 1]]);
+              expect(carte.querySelector('[data-carte-negos]')!.classList.contains('trx-carte-negos--societes')).toBe(true);
+              // la colonne se place entre le nom et « entrée / sortie »
+              const ordre = [...lignes[0].children].map((x) => x.getAttribute('data-col')).filter(Boolean);
+              expect(ordre.slice(0, 3)).toEqual(['1', '6', '2']);
+            } else expect([carte.querySelector('[data-nego-societe]'), carte.querySelector('[data-carte-negos]')!.classList.contains('trx-carte-negos--societes')]).toEqual([null, false]);
+          } finally { fin(); }
+        }
+      });
+    }
+
+    it('une vente d’une seule société : pas d’étiquette rouge ; FUSION : un ou deux négociateurs, chaque ligne a sa colonne société (vide si inconnue)', async () => {
+      const simple = vente(95, { societe: 'macj', libelle: 'SIMPLE', honorairesTtc: 6000, annee: 2025, mois: 9, lignes: [] });
+      const sansSociete = vente(96, { societe: 'criterimmo', libelle: 'INCONNUE', honorairesTtc: 6000, annee: 2025, mois: 9, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [],
+        dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-09-02', entree: { id: 1, nom: 'Mandat' }, sortie: { id: 2, nom: 'Vendeur' }, apporteurId: null, personnes: [] },
+        repartition: { retroApporteurTtc: 0, parties: [{ ...partie('entree', 1, 'Mandat', 'criterimmo'), societe: null }, { ...partie('sortie', 2, 'Vendeur', 'criterimmo'), societe: null }] } } as unknown as Partial<Vente>);
+      const avant = { ventes: donnees.ventes, societe: donnees.societe };
+      donnees.ventes = [simple, sansSociete, cas('criterimmo', 90, 'vendue')]; (donnees as { societe: string | null }).societe = null;
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=9&mode=vendu');
+      try {
+        await act(async () => { root.render(createElement(EcranSociete, { societe: 'tous' })); }); await calmer();
+        const ligne = (id: number) => [...container.querySelectorAll(`[data-bloc="ventes-mois"] [data-vente="${id}"] [data-nego-ligne]`)].map((l) => [l.querySelectorAll('[data-col="6"]').length, l.querySelector('[data-nego-societe]')!.textContent]);
+        expect(container.querySelector('[data-vente="95"] [data-etiquette-inter-cabinet]')).toBeNull();
+        expect(ligne(95)).toEqual([[1, 'MACJ']]); // un négociateur (vente importée) : la société de la vente
+        expect(ligne(96)).toEqual([[1, ''], [1, '']]); // société inconnue : la colonne est là, vide
+        expect(ligne(90)).toEqual([[1, 'CRITERIMMO'], [1, 'MACJ']]);
+      } finally { donnees.ventes = avant.ventes; donnees.societe = avant.societe; }
+    });
+  });
 });
+

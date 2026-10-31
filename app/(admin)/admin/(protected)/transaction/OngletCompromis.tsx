@@ -3,12 +3,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, etiquetteSocietes, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, etiquetteInterCabinet, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useConsolide, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useConsolide, usePageFusion, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -390,9 +390,9 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
   const acteSigne = v.statut === 'vendue';
   const titre = (
     <span className="trx-carte-gauche">
-      <LigneUneCarte v={v} titre={<>{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}
-        {/* 🔴 LOT DM — les deux sociétés vues ensemble (FUSION, CA global) : la société de l'affaire, ou « CRITERIMMO + MACJ » (inter-cabinet) */}
-        {vue === null && <> <span className="loc-pastille trx-pastille-societe" data-etiquette-societe>{etiquetteSocietes(v)}</span></>}</>} aujourdhui={aujourdhui} />
+      {/* 🔴 LOT DP (retrait autorisé par Arno) — l'étiquette de société à côté du nom (« CRITERIMMO », « MACJ », « CRITERIMMO + MACJ ») est retirée ;
+          à sa place, seulement pour une vente partagée entre nos deux sociétés, l'étiquette ROUGE « Inter-cabinet [porteuse] – [l'autre] ». */}
+      <LigneUneCarte v={v} titre={<>{c.titre}<EtiquetteInterCabinet v={v} />{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</>} aujourdhui={aujourdhui} />
       <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle, nommer })} />
     </span>
   );
@@ -434,6 +434,12 @@ function LigneUneCarte({ v, titre, aujourdhui }: { v: Vente; titre: ReactNode; a
   );
 }
 
+/** 🔴 LOT DP — l'étiquette rouge d'une vente partagée entre nos deux sociétés (la ligne miroir comprise) ; rien sinon. */
+function EtiquetteInterCabinet({ v }: { v: Vente }) {
+  const t = etiquetteInterCabinet(v);
+  return t === null ? null : <> <span className="loc-pastille trx-pastille-inter" data-etiquette-inter-cabinet>{t}</span></>;
+}
+
 /**
  * 🔴 LOT CC (Arno) — SOUS LE NOM, UNE LIGNE PAR NÉGOCIATEUR (petite, grise), dans l'unité choisie, sans montant entre parenthèses :
  * « [Nom] · entrée — honoraires … · com négo … · reste … » ; l'apporteur une fois (ligne d'entrée) ; l'inter-cabinet versé : « reversé à … » à la
@@ -441,16 +447,19 @@ function LigneUneCarte({ v, titre, aujourdhui }: { v: Vente; titre: ReactNode; a
  */
 function LignesNegociateurs({ l }: { l: LignesCarte }) {
   const u = useAffichage();
+  // 🔴 LOT DP — la page FUSION : la société du négociateur à la vente, dans sa colonne (vide si inconnue, même largeur).
+  const societes = usePageFusion();
   const m = (x: { htC: number; ttcC: number }): string => eur((u === 'ht' ? x.htC : x.ttcC) / 100);
   // 🔴 LOT CD / CE (Arno) — le LIBELLÉ « honoraires nets » en ROUGE quand quelque chose en est déduit (un apporteur de la répartition, ou une
   // rétrocession saisie au mois et rattachée à la vente) ; son MONTANT reste gris. Les colonnes (nom · rôle · honoraires nets · com négo · reste)
   // ont des largeurs COMMUNES à toute la page (`useColonnesNegociateurs`) ; au téléphone, chaque ligne revient à la ligne proprement.
   const deduit = l.apporteur !== null || l.retro !== null;
   return (
-    <span className="trx-carte-negos" data-carte-negos>
+    <span className={societes ? 'trx-carte-negos trx-carte-negos--societes' : 'trx-carte-negos'} data-carte-negos>
       {l.lignes.map((x) => (
         <span key={x.cote ?? 'unique'} className="trx-carte-nego" data-nego-ligne={x.cote ?? 'unique'}>
           <span className="trx-nego-nom" data-nego-nom data-col="1">{x.nom}</span>{' '}
+          {societes && <><span className="trx-nego-societe" data-nego-societe={x.societe ?? ''} data-col="6">{x.societe != null && <span className="loc-pastille trx-pastille-societe">{LIBELLE_SOCIETE[x.societe]}</span>}</span>{' '}</>}
           <span className="trx-nego-cote" data-nego-cote data-col="2">{x.cote === null ? '' : `· ${x.cote === 'entree' ? 'entrée' : 'sortie'}`}</span>{x.cote === null ? '' : ' '}
           <span className="trx-nego-col" data-col="3"><span className="trx-nego-lib"><span className="trx-nego-sep">— </span><span className={deduit ? 'trx-rouge trx-nego-mot' : 'trx-nego-mot'} data-nego-nets={deduit ? 'deduit' : ''}>honoraires nets</span></span> <span className="trx-nego-montant" data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
           {x.reverse !== null
@@ -476,8 +485,8 @@ export function useColonnesNegociateurs(conteneur: RefObject<HTMLElement | null>
   useLayoutEffect(() => {
     const el = conteneur.current;
     if (el === null) return;
-    for (let k = 1; k <= 5; k++) el.style.removeProperty(`--trx-nego-c${k}`);
-    const largeurs = [0, 0, 0, 0, 0];
+    for (let k = 1; k <= 6; k++) el.style.removeProperty(`--trx-nego-c${k}`);
+    const largeurs = [0, 0, 0, 0, 0, 0]; // 🔴 LOT DP — la 6ᵉ : la société (FUSION)
     for (const cellule of el.querySelectorAll<HTMLElement>('[data-carte-negos] [data-col]')) {
       const k = Number(cellule.dataset.col) - 1;
       largeurs[k] = Math.max(largeurs[k], cellule.getBoundingClientRect().width);
@@ -1191,7 +1200,7 @@ export function CarteMiroir({ v, references, aujourdhui, disponible, onFait, sta
   // 🔴 LOT CC — la ligne 1 (nom, adresse · date) et les lignes de négociateur, comme `CarteAffaire` (la part reçue est dans la fiche).
   const titre = (
     <span className="trx-carte-gauche">
-      <LigneUneCarte v={v} titre={v.libelle} aujourdhui={aujourdhui} />
+      <LigneUneCarte v={v} titre={<>{v.libelle}<EtiquetteInterCabinet v={v} /></>} aujourdhui={aujourdhui} />
       <LignesNegociateurs l={lignesCarteAffaire(v, v.societe, { statutDuLibelle, nommer })} />
     </span>
   );

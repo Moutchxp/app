@@ -114,7 +114,8 @@ describe('l’onglet « Compromis »', () => {
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
     const carte = '[data-compromis="41"]';
-    expect(texte(`${carte} [data-carte="titre"]`)).toBe('DUPONT / MARTIN');
+    // 🔴 LOT DP — la vente est partagée CRITERIMMO / MACJ : l'étiquette rouge « Inter-cabinet CRITERIMMO – MACJ » suit le nom
+    expect([texte(`${carte} [data-carte="titre"]`), texte(`${carte} [data-etiquette-inter-cabinet]`)]).toEqual(['DUPONT / MARTIN Inter-cabinet CRITERIMMO – MACJ', 'Inter-cabinet CRITERIMMO – MACJ']);
     // 🔴 LOT CC — juste derrière le nom : adresse · date ; le prix est dans la fiche (Informations communes)
     expect(texte(`${carte} [data-carte-ligne="infos"]`)).toBe('1 rue A, Puteaux · acte au plus tard le 15/01/2027');
     expect(container.querySelector(`${carte} [data-carte="prix"]`)).toBeNull();
@@ -135,7 +136,7 @@ describe('l’onglet « Compromis »', () => {
     listeCompromis = [deux];
     await ouvrir();
     await cliquer('[data-vue="compromis"]');
-    expect(texte('[data-compromis="41"] [data-carte="titre"]')).toBe('DUPONT-DURANT / MARTIN');
+    expect(texte('[data-compromis="41"] [data-carte="titre"]')).toBe('DUPONT-DURANT / MARTIN Inter-cabinet CRITERIMMO – MACJ'); // 🔴 LOT DP
     expect(container.querySelector('[data-compromis="41"] [data-carte="pct-prix"]')).toBeNull();
     expect(container.querySelector('[data-compromis="41"] [data-carte="prix"]')).toBeNull(); // LOT CC : le prix, dans la fiche
   });
@@ -1011,7 +1012,8 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     await ouvrirMacj(); await cliquer('[data-vue="compromis"]');
     const carte = '[data-compromis="38"]';
     expect(container.querySelector(carte)!.getAttribute('data-miroir')).toBe('38');
-    expect(texte(`${carte} [data-carte="titre"]`)).toBe('HEIDIDON — inter-cabinet reçu de CRITERIMMO');
+    // 🔴 LOT DP — la ligne miroir porte aussi l'étiquette rouge, la porteuse d'abord
+    expect([texte(`${carte} [data-carte="titre"]`), texte(`${carte} [data-etiquette-inter-cabinet]`)]).toEqual(['HEIDIDON — inter-cabinet reçu de CRITERIMMO Inter-cabinet CRITERIMMO – MACJ', 'Inter-cabinet CRITERIMMO – MACJ']);
     expect([...container.querySelector(`${carte} [data-carte="montants"]`)!.children].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['1 666,67 € HT(2 000 € TTC)', 'inter-cabinet reçu']); // LOT AM
     expect(texte(carte)).not.toContain('4 000');
     // les tuiles : CA = sa part ; Pierre (indépendant, 2 000 saisis) déduit ; solde 0 tant que le calcul n'est pas appliqué

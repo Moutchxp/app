@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { celluleGlobal, SOCIETES, type Partie, type Societe, type Vente } from './modele';
+import { celluleGlobal, etiquetteInterCabinet, SOCIETES, type Partie, type Societe, type Vente } from './modele';
 import { venteDansSociete } from './interCabinet';
-import { lignesCarteAffaire, resultatDesCartes } from './carteAffaireLignes';
+import { lignesCarteAffaire, resultatDesCartes, societeDuCote } from './carteAffaireLignes';
 import { detailCa, detailCommissions, detailDu } from './detailCommissions';
 import { totalCompromisEnCours } from './compromisEnCours';
 
@@ -74,3 +74,20 @@ describe('🔴 LOT DK — l’inter-cabinet, dans les deux sens', () => {
     });
   }
 });
+
+describe('🔴 LOT DP — l’étiquette rouge et la société de chaque négociateur (PUR)', () => {
+  it('« Inter-cabinet [porteuse] – [l’autre] », la ligne miroir comprise ; une vente d’une seule société : rien', () => {
+    expect([etiquetteInterCabinet(partagee('criterimmo')), etiquetteInterCabinet(venteDansSociete(partagee('criterimmo'), 'macj')!)])
+      .toEqual(['Inter-cabinet CRITERIMMO – MACJ', 'Inter-cabinet CRITERIMMO – MACJ']);
+    expect([etiquetteInterCabinet(partagee('macj')), etiquetteInterCabinet(venteDansSociete(partagee('macj'), 'criterimmo')!)])
+      .toEqual(['Inter-cabinet MACJ – CRITERIMMO', 'Inter-cabinet MACJ – CRITERIMMO']);
+    const seule = partagee('criterimmo', { repartition: { retroApporteurTtc: 0, parties: [partie('entree', 1, 'Entrée', 'criterimmo', 50), partie('sortie', 2, 'Sortie', 'criterimmo', 50)] } });
+    expect([etiquetteInterCabinet(seule), etiquetteInterCabinet(partagee('macj', { repartition: null }))]).toEqual([null, null]);
+  });
+  it('la société de chaque ligne : la partie de ce côté ; sans répartition, la société de la vente ; les lignes de la carte la portent', () => {
+    const v = partagee('criterimmo');
+    expect([societeDuCote(v, 'entree'), societeDuCote(v, 'sortie'), societeDuCote({ ...v, repartition: null }, null)]).toEqual(['criterimmo', 'macj', 'criterimmo']);
+    expect(lignesCarteAffaire(v, null).lignes.map((l) => l.societe)).toEqual(['criterimmo', 'macj']);
+  });
+});
+

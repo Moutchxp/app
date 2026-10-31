@@ -30,6 +30,8 @@ export interface LigneCarte {
   /** L'inter-cabinet versé à l'autre société sur ce côté (la porteuse) : remplace com négo / reste. */
   reverse: { vers: string; m: MontantC } | null;
   exterieures: { nom: string; m: MontantC }[];
+  /** 🔴 LOT DP — la société du négociateur à la vente (sa partie de ce côté ; une vente sans répartition : la société de la vente) ; null : inconnue. */
+  societe?: Societe | null;
 }
 export interface LignesCarte { lignes: LigneCarte[]; apporteur: MontantC | null; retro: MontantC | null }
 
@@ -38,6 +40,13 @@ const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC
 const moins = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC - b.htC, ttcC: a.ttcC - b.ttcC });
 const somme = (xs: readonly MontantC[]): MontantC => xs.reduce(plus, RIEN);
 const nul = (m: MontantC): boolean => m.htC === 0 && m.ttcC === 0;
+
+/** 🔴 LOT DP — la société du négociateur d'un côté (null : la ligne unique) : sa partie à la vente ; sans répartition, la société de la vente. PUR. */
+export function societeDuCote(v: Pick<Vente, 'societe' | 'repartition'>, cote: 'entree' | 'sortie' | null): Societe | null {
+  if (v.repartition == null) return v.societe;
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : cote === 'sortie' ? ['sortie', 'entree_sortie'] : ['entree', 'entree_sortie', 'sortie'];
+  return v.repartition.parties.find((p) => sortes.includes(p.sorte) && p.negociateur && p.societe !== null)?.societe ?? null;
+}
 
 /** Le nom du négociateur d'un côté : sa partie ; une ligne miroir, son côté ; sinon le dossier. */
 function nomDuCote(v: Vente, c: 'entree' | 'sortie'): string | null {
@@ -85,6 +94,11 @@ function partager(total: MontantC, pctSortie: number): { entree: MontantC; sorti
 export function lignesCarteAffaire(v: Vente, vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle;
   /** 🔴 LOT CG — le nom affiché d'un libellé (« Prénom NOM ») ; absent : tel quel. */
   nommer?: (libelle: string) => string } = {}): LignesCarte {
+  // 🔴 LOT DP — chaque ligne porte la société de son négociateur à la vente (l'étiquette de la page FUSION).
+  const l = lignesSansSociete(v, vue, o);
+  return { ...l, lignes: l.lignes.map((x) => ({ ...x, societe: societeDuCote(v, x.cote) })) };
+}
+function lignesSansSociete(v: Vente, vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle; nommer?: (libelle: string) => string }): LignesCarte {
   const retros = o.retros ?? [];
   const nommer = o.nommer ?? ((l: string) => l);
   const vent = ventilationVente(v, vue);

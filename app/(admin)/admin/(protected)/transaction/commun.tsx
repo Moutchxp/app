@@ -306,7 +306,12 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
   .trx-carte-nego{display:contents}
   .trx-nego-col{display:flex;justify-content:space-between;gap:4px;white-space:nowrap}
   .trx-nego-col--double{grid-column:span 2;justify-content:flex-start}
+  /* 🔴 LOT DP — FUSION : une colonne de plus, la société du négociateur, entre le nom et « entrée / sortie » (largeur commune à toute la liste) */
+  .trx-carte-negos--societes{grid-template-columns:var(--trx-nego-c1,max-content) var(--trx-nego-c6,max-content) var(--trx-nego-c2,max-content) var(--trx-nego-c3,max-content) var(--trx-nego-c4,max-content) var(--trx-nego-c5,max-content) auto}
 }
+/* 🔴 LOT DP — l'étiquette ROUGE « Inter-cabinet … – … » après le nom de l'affaire (clair et sombre : fond rouge pâle, texte rouge) */
+.trx-pastille-inter{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);font-size:.72rem;letter-spacing:.02em;vertical-align:middle;white-space:nowrap}
+.trx-nego-societe{display:inline-block}
 /* les séparateurs restent gris, quelle que soit la couleur du montant ; au téléphone, chaque segment est insécable (retour entre les segments) */
 .trx-carte-negos .trx-nego-sep{color:var(--color-svv-muted);font-weight:400}
 /* LOT CE — « honoraires nets » rouge (déduction) : le libellé seul ; le montant reste gris. */
@@ -751,6 +756,8 @@ export const consolider = (t: string): string => t
   .replace(/^CA$/, 'CA consolidé');
 const identite = (t: string): string => t;
 /** L'intitulé tel que la page l'affiche : consolidé sur la page FUSION, inchangé ailleurs. */
+/** 🔴 LOT DP — la page FUSION (les étiquettes de société sur les lignes de négociateur). */
+export const usePageFusion = (): boolean => useContext(ConsolideContexte);
 export function useConsolide(): (t: string) => string {
   return useContext(ConsolideContexte) ? consolider : identite;
 }
