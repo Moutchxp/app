@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ecartsCarte, lignesCarteAffaire } from './carteAffaireLignes';
+import { caNetParMoisMode, caNetVente, ecartsCarte, lignesCarteAffaire, resultatDesCartes } from './carteAffaireLignes';
 import type { Retrocession } from './modele';
 import type { Partie, Vente } from './modele';
 import { venteDansSociete } from './interCabinet';
@@ -74,5 +74,39 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] }, honorairesTtc: 4000 });
     const li = lignesCarteAffaire(ic, 'criterimmo', { retros: [retro(4, 37, 100)] });
     expect([ecartsCarte(ic, 'criterimmo', li), ecartsCarte(venteDansSociete(ic, 'macj')!, 'macj', lignesCarteAffaire(venteDansSociete(ic, 'macj')!, 'macj'))]).toEqual([[], []]);
+  });
+});
+
+describe('🔴 LOT CW — le CA net d’une vente (ce qu’elle rapporte réellement à l’agence)', () => {
+  const lg = (negociateur: string, montantTtc: number) => ({ id: Math.random(), negociateur, role: 'negociateur' as const, montantTtc, nature: 'vente' as const, compte: true,
+    origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
+  const retro = (montantTtc: number, venteId = 37): Retrocession => ({ id: 5, societe: 'criterimmo', annee: 2026, mois: 7, negociateur: 'CATHERINE', montantTtc, apporteur: null, venteId,
+    libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null });
+  it('un import : honoraires − commissions de TOUS (l’indépendante ET le salarié commissionné, non déduit du reste) − rétrocession rattachée (HT et TTC)', () => {
+    const v = vente({ repartition: null, dossier: null, origine: 'import', statut: 'vendue', annee: 2026, mois: 7, honorairesTtc: 6000, lignes: [lg('CATHERINE', 1200), lg('JULIEN', 600)] });
+    const o = { retros: [retro(500)], statutDuLibelle: (l: string) => (l === 'CATHERINE' ? 'independant' as const : 'salarie' as const) };
+    const l = lignesCarteAffaire(v, 'criterimmo', o).lignes[0];
+    expect([l.reste.ttcC, caNetVente(v, 'criterimmo', o).ttcC]).toEqual([430000, 370000]); // 6 000 − 500 − 1 200 = 4 300 ; − 600 (salarié) = 3 700
+    expect(caNetVente(v, 'criterimmo', o).htC).toBe(308333); // 5 000 − 416,67 − 1 500 (toutes les commissions, HT)
+  });
+  it('une vente répartie avec apporteur et inter-cabinet : CA − apporteur − reversé − commissions = le CA net (= la somme des « reste », toutes ses commissions étant déduites)', () => {
+    const v = vente({ statut: 'vendue', annee: 2026, mois: 7, repartition: { retroApporteurTtc: 1000, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
+      dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2026-07-10', entree: { id: 9, nom: 'Cédric JULLIEN' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] } });
+    const R = resultatDesCartes([v], 'criterimmo');
+    expect([R.retro.ttcC > 0, R.interCabinet.ttcC > 0]).toEqual([true, true]);
+    for (const u of ['htC', 'ttcC'] as const) {
+      expect(caNetVente(v, 'criterimmo')[u]).toBe(R.ca[u] - R.retro[u] - R.interCabinet[u] - R.exterieur[u] - R.com[u]);
+      expect(caNetVente(v, 'criterimmo')[u]).toBe(R.reste[u]);
+    }
+  });
+  it('par mois : la somme des 12 mois = la somme des ventes de l’année placées dans un mois (le cumul) ; selon le mode', () => {
+    const v1 = vente({ id: 1, repartition: null, dossier: null, statut: 'vendue', annee: 2026, mois: 3, honorairesTtc: 1200, lignes: [lg('CATHERINE', 120)] });
+    const v2 = vente({ id: 2, repartition: null, dossier: null, statut: 'vendue', annee: 2026, mois: 7, honorairesTtc: 2400, lignes: [] });
+    const c = vente({ id: 3, repartition: null, dossier: null, statut: 'compromis', annee: 2026, mois: null, dateCompromis: '2026-09-02', honorairesTtc: 600, lignes: [] });
+    const o = { statutDuLibelle: () => 'independant' as const };
+    const vendu = caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'vendu', o);
+    expect(vendu.map((m) => m.ttcC)).toEqual([0, 0, 108000, 0, 0, 0, 240000, 0, 0, 0, 0, 0]);
+    expect(vendu.reduce((t, m) => t + m.ttcC, 0)).toBe(caNetVente(v1, 'criterimmo', o).ttcC + caNetVente(v2, 'criterimmo', o).ttcC);
+    expect(caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'tous', o)[8].ttcC).toBe(60000);
   });
 });

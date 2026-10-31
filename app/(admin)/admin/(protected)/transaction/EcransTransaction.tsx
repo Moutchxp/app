@@ -20,7 +20,7 @@ import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletComprom
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 import { DessinTriangle } from '../_composants/TriangleDepliage';
-import { espaceNegociateurs, resultatDesCartes, retrosSansVenteAffichee, type LigneEspace, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
+import { caNetParMoisMode, espaceNegociateurs, resultatDesCartes, retrosSansVenteAffichee, type LigneEspace, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
@@ -271,7 +271,8 @@ const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; 
   compromis: { ca: 'CA HT des compromis', nombre: 'Compromis', onglet: 'Nombre de compromis', liste: 'Compromis', graphe: 'CA HT des compromis', compte: 'Compromis' },
   tous: { ca: 'CA HT vendu + compromis', nombre: 'Ventes + compromis', onglet: 'Nombre', liste: 'Ventes et compromis', graphe: 'CA HT vendu + compromis', compte: 'Ventes + compromis' },
 };
-type MesureTrx = 'ca' | 'nombre';
+/** 🔴 LOT CW — « CA | CA net | Nombre » (le CA net : `caNetVente`, ce que la vente rapporte réellement à l'agence). */
+type MesureTrx = 'ca' | 'net' | 'nombre';
 const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 
 function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage, series = null }: {
@@ -306,8 +307,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const fiches = { hote, references: refs };
   const [cumul, setCumul] = useState(false);
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
-  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : 'ca'));
-  useEffect(() => { ecrireAdresse({ mesure: mesure === 'nombre' ? 'nombre' : null }); }, [mesure]);
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' ? 'net' : 'ca'));
+  useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
   const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
   // Le mode change ce qu'on additionne (vendu, compromis à leur date, ou les deux), jamais comment (`caHt`, `totaux`).
   const T = enPeriode ? totauxPeriode(d, ms, mode) : totauxMoisMode(d, annee, mois, mode);
@@ -364,6 +365,15 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
   // 🔴 LOT BW — le graphique dans l'unité choisie (le nombre ne change pas) ; l'encart dit « CA TTC » et l'autre unité entre parenthèses.
   const sc = (xs: readonly number[]): number[] => xs.map(U.en);
+  // 🔴 LOT CW — le CA NET de chaque mois, dans l'unité affichée (au centime, HT ou TTC, sans passer par HT × 1,2) ; « vendu » : la part du bas
+  // de la barre empilée (Vendu + compromis). Calculé seulement dans l'onglet « CA net ».
+  const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
+  const optsNet = { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) };
+  const netDe = (ventesX: readonly Vente[], a: number, m: ModeMois): number[] => (mesure === 'net' ? caNetParMoisMode(ventesX, a, d.societe, m, optsNet).map(enUnite) : Array(12).fill(0));
+  const netN = netDe(d.ventes, annee, mode);
+  const netN1 = netDe(d.ventes, annee - 1, mode);
+  const netVenduN = mode === 'tous' ? netDe(d.ventes, annee, 'vendu') : netN;
+  const netVenduN1 = mode === 'tous' ? netDe(d.ventes, annee - 1, 'vendu') : netN1;
   // 🔴 LOT CV (Arno) — le titre cite TOUJOURS l'année du graphique (« Cumul 2026 à fin mai », « Mai 2026 ») ; un mois à venir : « — à venir », à 0
   // (plus de case vide). `nbCumule` : le nombre cumulé (l'encadré « au repos » : le cumul de l'année) ; sinon le nombre du mois, comme avant.
   const info = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
@@ -375,11 +385,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         courant: { libelle: String(annee), ca: aVenir ? 0 : n[k - 1], nb: null, ...(aVenir ? parts(0, 0) : parts(v[k - 1], n[k - 1])) },
         precedent: sansN1 ? null : { libelle: String(annee - 1), ca: n1[k - 1], nb: null, ...parts(v1[k - 1], n1[k - 1]) } };
     }
-    const [c, c1, v, v1] = (cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1]).map(sc);
+    const net = mesure === 'net';
+    const [c, c1, v, v1] = net ? (cumule ? [netN, netN1, netVenduN, netVenduN1].map(cumuler) : [netN, netN1, netVenduN, netVenduN1])
+      : (cumule ? [cumulN, cumulN1, cumuler(vendusN), cumuler(vendusN1)] : [parMois, parMoisN1, vendusN, vendusN1]).map(sc);
     // Le nombre de l'encart reste celui du MOIS, même en cumul (l'encart d'avant ce lot, à l'identique).
     const nb = nbCumule ? cumuler(nbParMois) : nbParMois;
     const nb1 = nbCumule ? cumuler(nbParMoisN1) : nbParMoisN1;
-    return { titre, motNb: M.compte, motCa: `CA ${U.MOT}`, autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
+    return { titre, motNb: M.compte, motCa: net ? `CA net ${U.MOT}` : `CA ${U.MOT}`, autre: U.autre, ...(mode === 'compromis' ? { sansN1: motSansN1 } : {}),
       courant: { libelle: String(annee), ca: aVenir ? 0 : c[k - 1], nb: aVenir ? 0 : nb[k - 1], ...(aVenir ? parts(0, 0) : parts(v[k - 1], c[k - 1])) },
       precedent: sansN1 ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nb1[k - 1], ...parts(v1[k - 1], c1[k - 1]) } };
   };
@@ -404,11 +416,12 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const surLaPeriode = enAnnee ? 'sur l’année' : 'sur la période';
   const ouvrir = (titre: string, ids: number[]) => () => onDetail({ titre, ids });
   const nombre = mesure === 'nombre';
-  const valeurs = nombre ? nbParMois : sc(parMois);
-  const valeursN1 = nombre ? nbParMoisN1 : sc(parMoisN1);
-  const basN = nombre ? nbVendusN : sc(vendusN);
-  const basN1 = nombre ? nbVendusN1 : sc(vendusN1);
-  const motGraphe = nombre ? M.onglet.toLowerCase() : M.graphe;
+  const net = mesure === 'net';
+  const valeurs = nombre ? nbParMois : net ? netN : sc(parMois);
+  const valeursN1 = nombre ? nbParMoisN1 : net ? netN1 : sc(parMoisN1);
+  const basN = nombre ? nbVendusN : net ? netVenduN : sc(vendusN);
+  const basN1 = nombre ? nbVendusN1 : net ? netVenduN1 : sc(vendusN1);
+  const motGraphe = nombre ? M.onglet.toLowerCase() : net ? `CA net ${U.MOT}` : M.graphe;
   return <>
     {/* 🔴 LOT CP — la ligne des mois et, à droite, « Mensuel | Période » (au téléphone : au-dessus, à droite). En Période, chaque mois est un
         bouton à bascule : plusieurs mois soulignés, le dernier ne se retire pas. */}
@@ -462,14 +475,16 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           partagé de la Location n'est pas touché. */}
       {enPeriode && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${moisPeriodeAnnee.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-        mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
       {/* 🔴 LOT CU — de 2 à 5 négociateurs : une série par négociateur (sa couleur), sans N−1 ; Mensuel en barres groupées, Cumul en courbes. */}
       {series !== null ? (
-        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, ca: caHtParMoisMode(x.d.ventes, annee, d.societe, mode).map(U.en), nb: nombreParMoisMode(x.d.ventes, annee, mode) }))}
-          total={{ ca: sc(parMois), nb: nbParMois }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
+        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: nombreParMoisMode(x.d.ventes, annee, mode),
+          // 🔴 LOT CW — « CA net » : le CA net des ventes de CE négociateur
+          ca: net ? netDe(x.d.ventes, annee, mode) : caHtParMoisMode(x.d.ventes, annee, d.societe, mode).map(U.en) }))}
+          total={{ ca: net ? netN : sc(parMois), nb: nbParMois }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
           choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
-          motCa={`CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
+          motCa={net ? `CA net ${U.MOT}` : `CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
       ) : cumul ? (
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
           aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={repos(true)} />
@@ -480,6 +495,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
             ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}
+      {/* 🔴 LOT CW — la définition, en petit, dans l'onglet « CA net ». */}
+      {net && <p className="loc-muet trx-note-ca-net" data-note-ca-net>CA net : honoraires moins commissions des négociateurs (salariés compris), rétrocessions d’apporteurs et reversé inter-cabinet.</p>}
       {mode === 'tous' && !cumul && series === null && <p className="loc-muet trx-legende-empile" data-legende-empile>
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>

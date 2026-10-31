@@ -317,6 +317,10 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}
+/* LOT CW — la définition du CA net, en petit, sous le graphique. */
+.trx-note-ca-net{margin:6px 0 0;font-size:.8rem}
+/* LOT CW — trois onglets « CA | CA net | Nombre de ventes » dans la colonne de 270 px de l'encadré : un peu moins d'espace autour de chacun. */
+[data-transaction] [data-bloc="histogramme-mois"] .tdb-mesure{padding-left:6px;padding-right:6px}
 /* LOT CU — de 2 à 5 négociateurs : la palette fixe des séries (clair ; sombre plus bas), une couleur par négociateur dans l'ordre de la sélection. */
 .tdb{--trx-serie-1:#2563eb;--trx-serie-2:#c2410c;--trx-serie-3:#047857;--trx-serie-4:#7c3aed;--trx-serie-5:#be185d}
 .svv-adm-root[data-theme='dark'] .tdb{--trx-serie-1:#60a5fa;--trx-serie-2:#fb923c;--trx-serie-3:#34d399;--trx-serie-4:#a78bfa;--trx-serie-5:#f472b6}

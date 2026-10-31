@@ -1,4 +1,4 @@
-import { caHtPortePar, LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, TVA, type Retrocession, type Societe, type Vente } from './modele';
+import { caHtPortePar, compromisDuMode, LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, TVA, ventesDuMois, type ModeMois, type Retrocession, type Societe, type Vente } from './modele';
 import { depuisTtc, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
 import { entreeEtSortie } from './lignesNegociateur';
 import type { StatutDuLibelle } from './statutLigne';
@@ -152,6 +152,22 @@ export function resultatDesCartes(ventes: readonly Vente[], vue: Societe | null,
     r.ids.push(v.id);
   }
   return r;
+}
+
+/**
+ * ══ 🔴 LOT CW (Arno, 31/10/2026) — LE « CA NET » D'UNE VENTE : CE QU'ELLE RAPPORTE RÉELLEMENT À L'AGENCE (PUR) ══════════════════════════════════
+ * Honoraires − commissions de TOUS les négociateurs (indépendants ET salariés / associés commissionnés, à renseigner : même celles non déduites du
+ * « Reste à l'agence ») − rétrocessions d'apporteurs (de la répartition et saisies au mois rattachées) − reversé en inter-cabinet (nos sociétés,
+ * agences extérieures). Sur les lignes de sa carte (`lignesCarteAffaire`, aucune copie de calcul) : la somme des « reste » (qui retirent déjà la
+ * commission déduite, les rétrocessions et l'inter-cabinet) moins la part des commissions NON déduites. Au centime, en HT et en TTC.
+ */
+export function caNetVente(v: Vente, vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): MontantC {
+  return somme(lignesCarteAffaire(v, vue, o).lignes.map((x) => moins(x.reste, moins(x.com, x.comDeduite))));
+}
+/** 🔴 LOT CW — le CA net de chaque mois (12 valeurs), selon le mode : les mêmes ventes que le CA du mois (`ventesDuMois`, `compromisDuMode`). PUR. */
+export function caNetParMoisMode(ventes: readonly Vente[], annee: number, vue: Societe | null, mode: ModeMois, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): MontantC[] {
+  return Array.from({ length: 12 }, (_, i) => somme([...(mode === 'compromis' ? [] : ventesDuMois(ventes, annee, i + 1)), ...compromisDuMode(ventes, annee, i + 1, mode)]
+    .map((v) => caNetVente(v, vue, o))));
 }
 
 /** 🔴 LOT CH — les rétrocessions SAISIES sur la période mais rattachées à aucune vente affichée (« à répartir », ou une vente d'une autre période) :
