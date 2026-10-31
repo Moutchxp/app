@@ -598,6 +598,14 @@ describe('🔴 LOT BT — « Vendu + compromis » : une affaire n’est jamais c
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
       expect(texte('[data-regle-mode]')).toBe('Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.');
       expect(texte('#trx-compromis-mois')).toContain('Les compromis en cours du mois — octobre 2025');
+      // 🔴 LOT CZ — la phrase seulement en « Vendu + compromis » : ni en « Vendu », ni en « Compromis » (aucun élément, donc aucune place) ; bascule instantanée
+      const champMode = () => container.querySelector('.trx-champ-mode')!;
+      for (const m of ['vendu', 'compromis'] as const) {
+        await act(async () => { (container.querySelector(`[data-mode-mois="${m}"]`) as HTMLElement).click(); });
+        expect([m, container.querySelector('[data-regle-mode]'), [...champMode().children].map((x) => x.className)]).toEqual([m, null, ['', 'trx-unites trx-modes']]);
+      }
+      await act(async () => { (container.querySelector('[data-mode-mois="tous"]') as HTMLElement).click(); });
+      expect(container.querySelector('[data-regle-mode]')).not.toBeNull();
       expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['22']);
       expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('5 000 €');
     } finally { donnees.ventes = avant; }

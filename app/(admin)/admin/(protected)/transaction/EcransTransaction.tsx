@@ -221,8 +221,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           <div className="trx-unites trx-modes" role="group" aria-labelledby="trx-mode-mot" data-filtre="mode">
             {MODES_MOIS.map((m) => <button key={m} type="button" className="trx-unite" aria-pressed={mode === m} onClick={() => setMode(m)} data-mode-mois={m}>{LIBELLE_MODE[m]}</button>)}
           </div>
-          {/* 🔴 LOT BT — la règle du mode combiné, dite sous le sélecteur. */}
-          <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.</small></div>}
+          {/* 🔴 LOT BT — la règle du mode combiné, dite sous le sélecteur. 🔴 LOT CZ (affichage conditionnel autorisé par Arno) — seulement en
+              « Vendu + compromis » ; dans les autres modes, rien (ni texte, ni place réservée). */}
+          {mode === 'tous' && <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.</small>}</div>}
         {/* 🔴 LOT BW — les montants en grand : HT ou TTC (à droite de « Compter » ; sur « L'année », au même endroit de ses filtres). */}
         <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </form>
