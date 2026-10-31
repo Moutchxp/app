@@ -921,7 +921,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(texte('[data-tuile="ca-mois"] [data-montant-autre]')).toBe('(9 187,50 € HT)');
       expect(texte('[data-bloc="ventes-mois"] [data-vente="1"] [data-nego-reste]')).toBe('7 810 €');
       await cliquer('[data-vue="annee"]');
-      expect(texte('[data-tuile="ca-periode"] .tdb-tuile-mot')).toContain('CA TTC');
+      expect(texte('[data-tuile="ca-annee"] .tdb-tuile-mot')).toContain('CA TTC'); // 🔴 LOT DG : la tuile « CA [année] »
       expect(texte('[data-annee-histoire="2025"] [data-mot="CA TTC"]')).toBe('33 300 € TTC (27 750 € HT)');
       const resteTtc = montant('[data-reste-agence-periode]');
       await cliquer('[data-affichage-montants] [data-afficher="ht"]');
@@ -1703,9 +1703,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect([u, lire('[data-tuile="compromis"] [data-compromis-en-cours]'), texte('[data-tuile="compromis"] .tdb-tuile-n1'), texte('[data-tuile="compromis"] .tdb-tuile-mot')])
           .toEqual([u, attendu, '4 compromis — le prévisionnel', `Compromis en cours (${u.toUpperCase()})`]);
       } finally { fin(); }
-      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=annee');
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=annee&mode=compromis'); // 🔴 LOT DG : la 4ᵉ tuile suit « Compter », comme « Le mois »
       try {
-        expect([lire('[data-tuile="compromis-periode"] [data-compromis-en-cours]'), lire('[data-compromis-en-cours-resume]')]).toEqual([attendu, attendu]);
+        expect([lire('[data-tuile="compromis"] [data-compromis-en-cours]'), lire('[data-compromis-en-cours-resume]')]).toEqual([attendu, attendu]);
       } finally { fin(); }
       // l'onglet « Compromis », vue « En cours » : la liste de la route (la même règle), sa tuile « Chiffre d'affaires »
       const lu = globalThis.fetch;
@@ -1884,6 +1884,163 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
+  describe('🔴 LOT DG — « L’année » : les mécaniques de « Le mois » à l’échelle de l’année', () => {
+    // aujourd'hui : 27/10/2025
+    const lg = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (): Vente[] => [
+      vente(200, { societe: 'criterimmo', libelle: 'A JANV 25', honorairesTtc: 6000, annee: 2025, mois: 1, lignes: [lg('ARNAUD', 6000)] }),
+      vente(201, { societe: 'criterimmo', libelle: 'B MARS 25', honorairesTtc: 3000.01, annee: 2025, mois: 3, lignes: [lg('CEDRIC', 3000.01)] }),
+      vente(202, { societe: 'criterimmo', libelle: 'C COMPROMIS', honorairesTtc: 4800, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-07-10', lignes: [lg('ARNAUD', 4800)] }),
+      vente(203, { societe: 'criterimmo', libelle: 'D A CONFIRMER', honorairesTtc: 2400, annee: 2025, mois: null, lignes: [lg('CEDRIC', 2400)] }),
+      vente(204, { societe: 'criterimmo', libelle: 'E SEPT 25', honorairesTtc: 1200, annee: 2025, mois: 9, dateCompromis: '2025-05-02', lignes: [lg('ARNAUD', 1200)] }),
+      vente(205, { societe: 'criterimmo', libelle: 'F MARS 24', honorairesTtc: 3600, annee: 2024, mois: 3, lignes: [lg('ARNAUD', 3600)] }),
+      vente(206, { societe: 'criterimmo', libelle: 'G NOV 24', honorairesTtc: 1200, annee: 2024, mois: 11, lignes: [lg('CEDRIC', 1200)] }),
+      vente(207, { societe: 'criterimmo', libelle: 'H FEV 23', honorairesTtc: 2400, annee: 2023, mois: 2, lignes: [lg('JULIEN', 2400)] }),
+    ];
+    const ouvrirG = async (q: string) => {
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = { ARNAUD: 'Arnaud JOREL', CEDRIC: 'Cédric JULLIEN', JULIEN: 'Julien' };
+      const fin = await ouvrirSur(jeu(), 'criterimmo', q);
+      return () => { fin(); donnees.nomsNegociateurs = avant; };
+    };
+    const adresse = () => new URLSearchParams(window.location.search);
+    const presses = () => [...container.querySelectorAll('[data-onglet-annee]')].filter((b) => b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true').map((b) => b.getAttribute('data-onglet-annee'));
+    const caTuile = (t = 'ca-annee') => montant(`[data-tuile="${t}"] .tdb-tuile-valeur`);
+
+    it('la ligne des années (de la plus ancienne à la plus récente) ; Année | Période | Tout ; l’adresse ; les anciens liens Début / Fin ; plus de filtre Début / Fin', async () => {
+      let fin = await ouvrirG('/?vue=annee');
+      try {
+        expect([...container.querySelectorAll('[data-onglet-annee]')].map((b) => b.textContent)).toEqual(['2023', '2024', '2025']);
+        expect([presses(), adresse().get('annee'), container.querySelector('[data-filtre="debut"]'), container.querySelector('[data-filtre="fin"]')]).toEqual([['2025'], '2025', null, null]);
+        expect(container.querySelector('.trx-rangee-annees')!.classList.contains('trx-rangee-mois')).toBe(true); // la ligne des mois : mêmes règles au téléphone
+        await cliquer('[data-onglet-annee="2024"]');
+        expect([presses(), texte('[data-tuile="ca-annee"] .tdb-tuile-mot')]).toEqual([['2024'], 'CA HT — 2024']);
+        await cliquer('[data-decouper-annees="periode"]');
+        await cliquer('[data-onglet-annee="2025"]');
+        expect([presses(), adresse().get('vue-annee'), adresse().get('annees'), texte('[data-tuile="ca-annee"] .tdb-tuile-mot')]).toEqual([['2024', '2025'], 'periode', '2024,2025', 'CA HT — 2024 → 2025']);
+        await cliquer('[data-onglet-annee="2024"]');
+        await cliquer('[data-onglet-annee="2025"]'); // la dernière ne se retire pas
+        expect([presses(), texte('[data-periode-refus]')]).toEqual([['2025'], 'Au moins une année reste choisie.']);
+        await cliquer('[data-decouper-annees="tout"]');
+        expect([presses(), adresse().get('vue-annee'), texte('[data-tuile="ca-annee"] .tdb-tuile-mot')]).toEqual([['2023', '2024', '2025'], 'tout', 'CA HT — Tout (2023 → 2025)']);
+        await cliquer('[data-decouper-annees="annee"]');
+        expect([presses(), adresse().get('vue-annee')]).toEqual([['2025'], null]);
+      } finally { fin(); }
+      // les anciens liens « Début / Fin »
+      fin = await ouvrirG('/?vue=annee&debut=2024&fin=2025');
+      try { expect([presses(), texte('[data-tuile="ca-annee"] .tdb-tuile-mot')]).toEqual([['2024', '2025'], 'CA HT — 2024 → 2025']); } finally { fin(); }
+      fin = await ouvrirG('/?vue=annee&debut=2023&fin=2023');
+      try { expect([presses(), adresse().get('debut'), adresse().get('annee')]).toEqual([['2023'], null, '2023']); } finally { fin(); }
+    });
+
+    it('contrôle 6 : le CA de l’année = la somme de ses 12 mois de « Le mois » + ses « mois à confirmer », au centime, HT et TTC, les trois modes ; l’écart est dit dans le Résultat', async () => {
+      for (const u of ['ht', 'ttc'] as const) for (const mode of ['vendu', 'compromis', 'tous'] as const) {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        let fin = await ouvrirG(`/?vue=annee&annee=2025&mode=${mode}`);
+        let annee = 0; let aConfirmer = 0;
+        try {
+          annee = caTuile();
+          aConfirmer = mode === 'compromis' ? 0 : centimes(texte('[data-mois-a-confirmer-resultat]').split('(')[0]);
+        } finally { fin(); }
+        let mois = 0;
+        for (let k = 1; k <= 12; k++) {
+          fin = await ouvrirG(`/?vue=mois&annee=2025&mois=${k}&mode=${mode}`);
+          try { mois += montant('[data-tuile="ca-mois"] .tdb-tuile-valeur'); } finally { fin(); }
+        }
+        // l'écart = EXACTEMENT les ventes « mois à confirmer » (D : 2 400 TTC, 2 000 HT ; aucune en mode « Compromis »)
+        expect([u, mode, annee - mois, aConfirmer]).toEqual([u, mode, mode === 'compromis' ? 0 : (u === 'ht' ? 200000 : 240000), mode === 'compromis' ? 0 : (u === 'ht' ? 200000 : 240000)]);
+      }
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      window.localStorage.removeItem('trx-mois-mode');
+    });
+
+    it('Période = la somme des années ; Tout = le total historique ; Ventes ; « à date » (année en cours / passée) ; N−1 ; la 4ᵉ tuile suit « Compter »', async () => {
+      const deUnAn = async (a: number) => { const f = await ouvrirG(`/?vue=annee&annee=${a}`); try { return caTuile(); } finally { f(); } };
+      const [a23, a24, a25] = [await deUnAn(2023), await deUnAn(2024), await deUnAn(2025)];
+      expect([a23, a24, a25]).toEqual([200000, 400000, Math.round((6000 + 3000.01 + 2400 + 1200) / 1.2 * 100)]);
+      let fin = await ouvrirG('/?vue=annee&vue-annee=periode&annees=2024,2025');
+      try { expect(caTuile()).toBe(a24 + a25); } finally { fin(); }
+      fin = await ouvrirG('/?vue=annee&vue-annee=tout');
+      try {
+        expect([caTuile(), texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([a23 + a24 + a25, '7']);
+        expect(texte('[data-tuile-n1="ca"]')).toBe('2022 : non importé');
+      } finally { fin(); }
+      fin = await ouvrirG('/?vue=annee&annee=2025');
+      try {
+        expect([texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur'), texte('[data-tuile-n1="nombre"]')]).toEqual(['4', '2 en 2024']);
+        // à date (fin octobre) : janvier → octobre, sans « mois à confirmer » ; 2024 aux mêmes mois : mars seulement (novembre exclu)
+        expect(texte('[data-tuile="ca-a-date"] .tdb-tuile-mot')).toBe('CA HT — 2025 à date (à fin octobre)');
+        expect(caTuile('ca-a-date')).toBe(Math.round((6000 + 3000.01 + 1200) / 1.2 * 100));
+        expect(texte('[data-tuile-n1="a-date"]')).toContain('3 000 € en 2024 à la même date');
+        expect(texte('[data-tuile-n1="ca"]')).toContain('en 2024 (');
+        expect(container.querySelector('[data-tuile="ca-net-annee"]')).not.toBeNull();
+        await cliquer('[data-mode-mois="compromis"]');
+        expect([container.querySelector('[data-tuile="compromis"]') !== null, texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([true, '2']);
+        await cliquer('[data-mode-mois="tous"]');
+        // vendu (6 000 + 3 000,01 + 2 400 + 1 200) + compromis en cours (4 800), en HT
+        expect([texte('[data-regle-mode]') !== '', caTuile('previsionnel-annee')]).toEqual([true, Math.round((6000 + 3000.01 + 2400 + 1200) / 1.2 * 100) + 400000]);
+      } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+      fin = await ouvrirG('/?vue=annee&annee=2024');
+      try { expect([texte('[data-tuile="ca-a-date"] .tdb-tuile-mot'), caTuile('ca-a-date')]).toEqual(['CA HT — 2024 à date (année complète)', a24]); } finally { fin(); }
+    });
+
+    it('le graphique « Année par année » (Annuel, Cumul, CA | CA net | Nombre ; l’année choisie en rouge, les autres pleines ; Période atténuée) et « Mois par mois » (celui de « Le mois ») ; 3 négociateurs', async () => {
+      let fin = await ouvrirG('/?vue=annee&annee=2024');
+      try {
+        const G = '[data-bloc="graphe-annees"]';
+        expect([...container.querySelectorAll(`${G} [data-barre-annee]`)].map((g) => g.getAttribute('data-barre-annee'))).toEqual(['2023', '2024', '2025']);
+        expect([container.querySelectorAll(`${G} .tdb-barre--courante`).length, container.querySelector(`${G} [data-barre-annee="2024"] .tdb-barre--courante`) !== null, container.querySelectorAll(`${G} .tdb-barre-annee--pale`).length]).toEqual([1, true, 0]);
+        expect(Number(container.querySelector(`${G} [data-barre-annee="2024"] .tdb-barre`)!.getAttribute('data-valeur'))).toBeCloseTo(4000, 6);
+        // l'encadré au repos : l'année choisie ; au survol, une autre
+        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2024');
+        await act(async () => { container.querySelector(`${G} [data-barre-annee="2025"]`)!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2025 — en cours');
+        // un clic sur une barre choisit l'année
+        await act(async () => { container.querySelector(`${G} [data-barre-annee="2023"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer();
+        expect(presses()).toEqual(['2023']);
+        await cliquer('[data-mesure-bouton="nombre"]');
+        expect(Number(container.querySelector(`${G} [data-barre-annee="2025"] .tdb-barre`)!.getAttribute('data-valeur'))).toBe(4);
+        await cliquer('[data-cumul-bouton]');
+        expect([...container.querySelectorAll(`${G} [data-point-cumul]`)].map((p) => p.getAttribute('data-valeur'))).toEqual(['1', '3', '7']);
+        // « Mois par mois » de l'année montrée : le graphique de « Le mois »
+        await cliquer('[data-echelle="mois"]');
+        expect([container.querySelector('[data-bloc="graphe-annees"]'), adresse().get('graphe'), texte('[data-bloc="histogramme-mois"] h3')]).toEqual([null, 'mois', 'Mois par mois — 2023 (nombre de ventes ; un mois s’ouvre d’un clic)']); // la mesure suit (l'adresse) ; il s'ouvre en Mensuel
+      } finally { fin(); }
+      fin = await ouvrirG('/?vue=annee&vue-annee=periode&annees=2023,2025');
+      try { expect(texte('[data-bloc="graphe-annees"] style')).toContain('[data-periode-annees] g[data-barre-annee]{opacity:.35}'); } finally { fin(); }
+      // trois négociateurs : une série chacun, les autres années pâles, l'encadré trié
+      fin = await ouvrirG('/?vue=annee&annee=2025&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN&negociateur=Julien');
+      try {
+        const G = '[data-bloc="graphe-annees"]';
+        expect(container.querySelector(`${G} [data-courbe="negociateurs"]`)!.getAttribute('data-series')).toBe('3');
+        expect([...container.querySelectorAll(`${G} g[data-barre-annee]`)].filter((g) => !g.classList.contains('tdb-barre-annee--pale')).map((g) => g.getAttribute('data-barre-annee'))).toEqual(['2025']);
+        expect(texte(`${G} [data-titre-detail]`)).toBe('2025');
+        // 2025 : Arnaud 6 000 + 1 200, Cédric 3 000,01 + 2 400, Julien 0
+        expect([...container.querySelectorAll(`${G} [data-detail-serie]`)].map((x) => x.getAttribute('data-detail-serie'))).toEqual(['1', '2', '3']);
+        expect(texte(`${G} [data-detail-ensemble-n1]`)).toContain('2024');
+        expect(texte('[data-tuile-n1="ca"]')).toContain('en 2024');
+      } finally { fin(); }
+    });
+
+    it('les blocs de « Le mois » sur l’année : cartes des ventes et des compromis, Résultat (dont mois à confirmer), Espace par négociateur, Toute l’histoire en dessous, apporteurs (tableau puis liste), mois à confirmer', async () => {
+      const fin = await ouvrirG('/?vue=annee&annee=2025&mode=tous');
+      try {
+        const blocs = [...container.querySelectorAll('[data-bloc]')].map((b) => b.getAttribute('data-bloc')).filter((b) => ['ventes-annee', 'compromis-annee', 'resume-periode', 'negociateurs-periode', 'toute-histoire', 'apporteurs-periode', 'compromis', 'mois-a-confirmer'].includes(b!));
+        expect(blocs).toEqual(['ventes-annee', 'compromis-annee', 'resume-periode', 'negociateurs-periode', 'toute-histoire', 'apporteurs-periode', 'compromis', 'mois-a-confirmer']);
+        expect([...container.querySelectorAll('[data-bloc="ventes-annee"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['200', '201', '204', '203']);
+        expect([...container.querySelectorAll('[data-bloc="compromis-annee"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['202']);
+        expect(texte('[data-bloc="resume-periode"] h3')).toBe('Résultat de l’agence — 2025 (vendu + compromis)');
+        expect(texte('[data-mois-a-confirmer-resultat]')).toBe('2 000 € (1)');
+        expect(texte('[data-bloc="apporteurs-periode"] h3')).toContain('Apporteurs de l’année — 2025');
+        expect(container.querySelector('[data-bloc="apporteurs-periode"] [data-saisir-retro]')).not.toBeNull(); // la liste de « Le mois » (et sa saisie)
+        expect(texte('[data-bloc="toute-histoire"] h3')).toBe('Toute l’histoire — 2023 → 2025');
+        // Ventes à attribuer : toujours en dernier
+        const tous = [...container.querySelectorAll('[data-bloc]')].map((b) => b.getAttribute('data-bloc'));
+        expect(tous.indexOf('a-attribuer') === -1 || tous.at(-1) === 'a-attribuer').toBe(true);
+      } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+    });
+  });
+
   describe('🔴 LOT DF — le graphique de base (Tous ou un négociateur) : aucun mois pâle ; l’année affichée nettement devant N−1', () => {
     const lf = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
       origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
@@ -1901,10 +2058,13 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         await cliquer('[data-cumul-bouton]');
         expect(pales()).toBe(0);
       } finally { fin(); }
+      // 🔴 LOT DG — « L'année » : ses deux échelles
       fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=annee&annee=2025');
       try {
-        expect(container.querySelector('[data-bloc="mois-annee"] [data-barre-mois-annee]')).not.toBeNull();
+        expect(container.querySelector('[data-bloc="graphe-annees"] [data-barre-annee="2025"] .tdb-barre--courante')).not.toBeNull();
         expect(pales()).toBe(0);
+        await cliquer('[data-echelle="mois"]');
+        expect([container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois]') !== null, pales()]).toEqual([true, 0]);
       } finally { fin(); }
       fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7&vue-mois=periode&periode=2025-03,2025-07');
       try { expect(texte('[data-bloc="histogramme-mois"] style')).toContain('[data-periode-graphe] g[data-barre-mois]{opacity:.35}'); } finally { fin(); }

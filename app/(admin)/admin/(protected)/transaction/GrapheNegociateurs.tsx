@@ -27,7 +27,15 @@ export const ordreEncadre = <T extends { nom: string; ca: number; nb: number }>(
 const cumuler =(xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee, moisSeul = false }: {
+/**
+ * 🔴 LOT DG (Arno) — l'AXE du graphique : par défaut les 12 mois ; « L'année » (échelle « Année par année ») : un point par ANNÉE (`etiquettes`,
+ * `cles` : les années ; `choisi` et `onChoisir` : le RANG du point, 1 → n). Le titre de l'encadré (`titre`), le libellé de la ligne N−1
+ * (`libelleN1`) et l'atténuation des autres points (`attenuer`) viennent de l'axe ; l'encadré au repos = le point choisi.
+ */
+export interface AxeGraphe { etiquettes: readonly string[]; cles: readonly number[]; attribut: string; titre: (rang: number, cumul: boolean) => string;
+  libelleN1: (rang: number) => string; attenuer: boolean }
+
+export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee, moisSeul = false, axe = null }: {
   series: readonly SerieGraphe[];
   /** L'ensemble de la sélection, mois par mois (chaque affaire une fois) : ce que comptent les tuiles et les listes de la page. */
   total: { ca: readonly number[]; nb: readonly number[] };
@@ -37,6 +45,7 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   motCa: string; motNb: string; aria: string; annee: number;
   /** 🔴 LOT DE — le mode « Mois » : le mois choisi plein, les autres pâles ; l'encadré au repos = le mois choisi. Absent : le lot CV (Période, Année). */
   moisSeul?: boolean;
+  axe?: AxeGraphe | null;
 }) {
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
@@ -54,18 +63,19 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
   const etiquette = (v: number): string => (nombre ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v));
   m.g = margeAxe(graduations.map(etiquette));
-  const pas = (L - m.g - m.d) / 12;
+  const etiquettes = axe?.etiquettes ?? COURT;
+  const pas = (L - m.g - m.d) / etiquettes.length;
   const y = (v: number): number => H - m.b - (v * (H - m.h - m.b)) / max;
   const largeur = (pas * 0.8) / Math.max(1, s.length);
   const x = (i: number): number => m.g + i * pas + pas / 2;
   // 🔴 LOT CV — le mois survolé, sinon le mois cliqué, sinon le repos : l'année en cours jusqu'au mois en cours, une année passée complète
   // (décembre), une année future (rien encore, à 0). Le titre cite toujours l'année du graphique ; un mois à venir : « — à venir », à 0.
   // 🔴 LOT DE — en mode « Mois », pas de repos : le mois survolé, sinon le mois choisi.
-  const repos = !moisSeul && clic === null && survol === null;
-  const mois = survol ?? (moisSeul ? choisi : clic ?? (dernierMois === 0 ? 12 : dernierMois));
+  const repos = axe === null && !moisSeul && clic === null && survol === null;
+  const mois = survol ?? (moisSeul || axe !== null ? choisi : clic ?? (dernierMois === 0 ? 12 : dernierMois));
   const aVenir = mois > dernierMois;
-  const nomMois = NOMS_MOIS[mois - 1];
-  const titre = repos
+  const nomMois = NOMS_MOIS[mois - 1] ?? '';
+  const titre = axe !== null ? axe.titre(mois, cumul) : repos
     ? (dernierMois === 0 ? (cumul ? `Cumul ${annee} — aucune vente` : `Janvier ${annee} — aucune vente`)
       : dernierMois === 12 ? (cumul ? `Cumul ${annee} — année complète` : `Décembre ${annee}`)
         : (cumul ? `Cumul ${annee} jusqu’à aujourd’hui` : `${nomMois} ${annee} — en cours`))
@@ -91,8 +101,9 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
                 return v.length === 0 ? null : <path key={`trait-${x0.couleur}`} className={`trx-serie-trait trx-serie--${x0.couleur}`} data-trait-serie={x0.couleur}
                   d={v.map((w, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />;
               })}
-              {COURT.map((c, i) => (
-                <g key={c} className={moisSeul && i + 1 !== choisi ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'} data-barre-mois={i + 1} onClick={() => { setClic(i + 1); onChoisir(i + 1); }} onMouseEnter={() => setSurvol(i + 1)}>
+              {etiquettes.map((c, i) => (
+                <g key={c} className={(axe === null ? moisSeul : axe.attenuer) && i + 1 !== choisi ? 'tdb-barre-annee tdb-barre-annee--pale' : 'tdb-barre-annee'}
+                  {...{ [axe?.attribut ?? 'data-barre-mois']: axe === null ? i + 1 : axe.cles[i] }} onClick={() => { setClic(i + 1); onChoisir(i + 1); }} onMouseEnter={() => setSurvol(i + 1)}>
                   <rect x={m.g + i * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                   {i < dernierMois && s.map((x0, j) => {
                     const v = dessine(x0)[i];
@@ -118,7 +129,7 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
             {t1 !== null && totalN1 !== null && (() => {
               const n1 = t1.ca[mois - 1]; const ecart = val(t.ca) - n1;
               return <>
-                <p className="tdb-bulle-ligne trx-serie-n1" data-detail-ensemble-n1><span>{totalN1.annee}</span><span className="tdb-bulle-montant">{montant(n1)} · {t1.nb[mois - 1]}</span></p>
+                <p className="tdb-bulle-ligne trx-serie-n1" data-detail-ensemble-n1><span>{axe === null ? totalN1.annee : axe.libelleN1(mois)}</span><span className="tdb-bulle-montant">{montant(n1)} · {t1.nb[mois - 1]}</span></p>
                 <p className="tdb-bulle-ligne" data-detail-ensemble-ecart><span>Écart</span>
                   <span className={`tdb-bulle-montant tdb-signe tdb-signe--${ecart > 0 ? 'positif' : ecart < 0 ? 'negatif' : 'nul'}`}>{ecart > 0 ? '+' : ecart < 0 ? '−' : ''}{montant(Math.abs(ecart))}{n1 === 0 ? '' : ` (${ecart >= 0 ? '+' : '−'}${Math.abs((ecart / n1) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %)`}</span></p>
               </>;
