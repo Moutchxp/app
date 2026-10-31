@@ -266,6 +266,17 @@ export function bilanVente(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'reparti
   if (societe === porteuse) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: ht(v.repartition.retroApporteurTtc), verseHt: autres, exterieurHt: ext, recuHt: 0, neutraliseHt: 0 };
   return { porteuse, caHt: autres[societe], apporteurHt: 0, verseHt: { ...RIEN }, exterieurHt: 0, recuHt: autres[societe], neutraliseHt: 0 };
 }
+/**
+ * 🔴 LOT DM — les sociétés d'une vente (l'étiquette de sa carte sur la FUSION) : historique, la sienne ; répartie, la porteuse et celle qui reçoit
+ * une part en inter-cabinet (« CRITERIMMO + MACJ »). PUR.
+ */
+export function societesDeLaVente(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>): Societe[] {
+  if (v.repartition == null) return [v.societe];
+  const porteuse = societePorteuse(v);
+  const { parSociete } = partsDeLaVente(v.repartition, v.honorairesTtc);
+  return SOCIETES.filter((s) => s === porteuse || parSociete[s] > 0);
+}
+export const etiquetteSocietes = (v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>): string => societesDeLaVente(v).map((s) => LIBELLE_SOCIETE[s]).join(' + ');
 /** Le total d'un enregistrement « par société ». */
 export const sommeSocietes = (r: Readonly<Record<Societe, number>>): number => SOCIETES.reduce((t, s) => t + r[s], 0);
 /** Ce que la vente laisse à la société vue (HT) : CA − apporteur − inter-cabinet versé (nos sociétés, extérieur). PUR. */
@@ -365,7 +376,8 @@ export interface GestionMois {
 /** Les données d'une société, telles que la route les envoie. */
 export interface DonneesSociete {
   disponible: boolean;
-  societe: Societe;
+  /** 🔴 LOT DM — null : FUSION, les deux sociétés réunies (chaque vente une fois, l'inter-cabinet entre elles neutralisé). */
+  societe: Societe | null;
   aujourdhui: string;
   ventes: Vente[];
   retrocessions: Retrocession[];

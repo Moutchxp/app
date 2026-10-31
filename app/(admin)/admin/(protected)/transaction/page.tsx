@@ -11,7 +11,8 @@ export default async function TransactionPage() {
   const { autorise } = await accesTransaction();
   return (
     <section className="gst-page">
-      <EnTetePage titre="Transaction" intro="Les ventes de CRITERIMMO et de MACJ, la gestion, et le CA global."><FilAriane etapes={ARIANE.accueil} /></EnTetePage>
+      {/* 🔴 LOT DM (Arno) — « Suivi Chiffre d'affaires » (ex-« Transaction ») ; l'adresse ne change pas. */}
+      <EnTetePage titre="Suivi Chiffre d’affaires" intro="Le chiffre d’affaires : la transaction vente (CRITERIMMO, MACJ et leur fusion), la gestion, et le CA global."><FilAriane etapes={ARIANE.accueil} /></EnTetePage>
       {autorise ? <AccueilTransaction /> : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_TRANSACTION}</div>}
     </section>
   );

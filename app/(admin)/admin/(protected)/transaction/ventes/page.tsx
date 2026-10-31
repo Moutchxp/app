@@ -8,7 +8,8 @@ export default async function Page() {
   const { autorise } = await accesTransaction();
   return (
     <section className="gst-page">
-      <EnTetePage titre="Transaction" intro="Les ventes et compromis de CRITERIMMO et de MACJ." retour="/admin/transaction"><FilAriane etapes={ARIANE.ventes} /></EnTetePage>
+      {/* 🔴 LOT DM — « Transaction vente » : CRITERIMMO, MACJ et leur FUSION */}
+      <EnTetePage titre="Transaction vente" intro="Les ventes et compromis de CRITERIMMO, de MACJ, et des deux sociétés réunies." retour="/admin/transaction"><FilAriane etapes={ARIANE.ventes} /></EnTetePage>
       {autorise ? <AccueilVentes /> : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_TRANSACTION}</div>}
     </section>
   );

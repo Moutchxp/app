@@ -31,11 +31,15 @@ export function FilAriane({ etapes }: { etapes: readonly EtapeAriane[] }) {
 }
 
 /** Les étapes, écrites une fois (relues par les tests). */
+// 🔴 LOT DM (Arno) — « Suivi Chiffre d'affaires » (ex-« Transaction ») › « Transaction vente » › CRITERIMMO | MACJ | FUSION ; les adresses ne changent pas.
+const SUIVI = 'Suivi Chiffre d’affaires';
+const VENTE = 'Transaction vente';
 export const ARIANE = {
-  accueil: [{ libelle: 'Transaction' }],
-  ventes: [{ libelle: 'Transaction', href: '/admin/transaction' }, { libelle: 'Transaction (ventes)' }],
-  criterimmo: [{ libelle: 'Transaction', href: '/admin/transaction' }, { libelle: 'Transaction (ventes)', href: '/admin/transaction/ventes' }, { libelle: 'CRITERIMMO' }],
-  macj: [{ libelle: 'Transaction', href: '/admin/transaction' }, { libelle: 'Transaction (ventes)', href: '/admin/transaction/ventes' }, { libelle: 'MACJ' }],
-  gestion: [{ libelle: 'Transaction', href: '/admin/transaction' }, { libelle: 'Gestion' }],
-  global: [{ libelle: 'Transaction', href: '/admin/transaction' }, { libelle: 'CA global' }],
+  accueil: [{ libelle: SUIVI }],
+  ventes: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE }],
+  criterimmo: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'CRITERIMMO' }],
+  macj: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'MACJ' }],
+  fusion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'FUSION CRITERIMMO & MACJ' }],
+  gestion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: 'Gestion' }],
+  global: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: 'CA global' }],
 } as const satisfies Record<string, readonly EtapeAriane[]>;

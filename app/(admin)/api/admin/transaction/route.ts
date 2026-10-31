@@ -62,8 +62,10 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const disponible = await transactionDisponible();
     if (vue === 'societe') {
-      const societe = url.searchParams.get('societe');
-      if (!estSociete(societe)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
+      // 🔴 LOT DM — « tous » : la FUSION des deux sociétés (toutes les ventes, chacune une fois : `lireVentes(null)`, comme le CA global)
+      const brut = url.searchParams.get('societe');
+      if (brut !== 'tous' && !estSociete(brut)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
+      const societe = brut === 'tous' ? null : brut;
       if (!disponible) return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes: [], retrocessions: [], aRattacher: [], doubles: [] } });
       const [ventes, retrocessions, aRattacher, doubles] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe), lireNotesDoubles(societe)]);
       // LOT Q — le statut du compte rapproché de chaque négociateur payé (paye importée) : le « Reste à l'agence » ne déduit que les indépendants.

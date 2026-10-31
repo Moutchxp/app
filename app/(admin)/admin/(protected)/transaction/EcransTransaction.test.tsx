@@ -61,19 +61,20 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 
 describe('l’accueil de la tuile', () => {
-  it('LOT L — trois cases : « Transaction », « Gestion », « CA global »', async () => {
+  it('LOT L — trois cases : « Transaction vente » (LOT DM, ex-« Transaction »), « Gestion », « CA global »', async () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['Transaction', '/admin/transaction/ventes'], ['Gestion', '/admin/transaction/gestion'], ['CA global', '/admin/transaction/global']]);
+      .toEqual([['Transaction vente', '/admin/transaction/ventes'], ['Gestion', '/admin/transaction/gestion'], ['CA global', '/admin/transaction/global']]);
   });
-  it('LOT L — « Transaction » : deux cases, « CRITERIMMO » et « MACJ », vers les écrans de toujours', async () => {
+  it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION CRITERIMMO & MACJ », vers leurs écrans', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj']]);
+      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
+    expect(texte('[data-tuile-transaction="fusion"] .loc-case-phrase')).toBe('Les ventes et compromis des deux sociétés réunis.');
   });
-  it('LOT M — les deux cases se partagent toute la largeur (deux colonnes) ; l’accueil garde ses trois colonnes', async () => {
+  it('LOT M / DM — trois cases de même taille (la grille de l’accueil, une colonne au téléphone) ; l’accueil garde ses trois colonnes', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
-    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil loc-cases--deux');
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
@@ -195,7 +196,7 @@ describe('🔴 LOT L — l’arborescence', () => {
   it('les trois niveaux existent, chacun avec « ← Retour » vers son parent et son fil d’Ariane ; le droit « Transaction » garde tout l’arbre', () => {
     const pages: [string, string, keyof typeof ARIANE][] = [['page.tsx', '', 'accueil'], ['ventes/page.tsx', '/admin/transaction', 'ventes'],
       ['criterimmo/page.tsx', '/admin/transaction/ventes', 'criterimmo'], ['macj/page.tsx', '/admin/transaction/ventes', 'macj'],
-      ['gestion/page.tsx', '/admin/transaction', 'gestion'], ['global/page.tsx', '/admin/transaction', 'global']];
+      ['gestion/page.tsx', '/admin/transaction', 'gestion'], ['global/page.tsx', '/admin/transaction', 'global'], ['fusion/page.tsx', '/admin/transaction/ventes', 'fusion']];
     for (const [f, retour, ariane] of pages) {
       const src = readFileSync(`${T}/${f}`, 'utf8');
       if (retour !== '') expect(src).toContain(`retour="${retour}"`);
@@ -203,7 +204,9 @@ describe('🔴 LOT L — l’arborescence', () => {
       expect(src).toContain('accesTransaction()');
     }
     expect(readFileSync('proxy.ts', 'utf8')).toContain("['/admin/transaction', 'transaction']");
-    expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Transaction', 'Transaction (ventes)', 'CRITERIMMO']);
+    // 🔴 LOT DM : « Suivi Chiffre d'affaires » › « Transaction vente »
+    expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'CRITERIMMO']);
+    expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'FUSION CRITERIMMO & MACJ']);
   });
   it('les anciennes adresses restent valides : /criterimmo, /macj, /global ; une adresse du mois (?annee&mois) rouvre « Le mois »', () => {
     for (const f of ['criterimmo', 'macj', 'global']) expect(existsSync(`${T}/${f}/page.tsx`)).toBe(true);
@@ -1611,7 +1614,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           for (let m = 1; m <= 12; m++) (await lire(`/?vue=mois&annee=2025&mois=${m}&mode=${mode}&vue-mois=mois`, u)).forEach((x, i) => { somme[i] += x; });
           expect([mode, u, an]).toEqual([mode, u, somme]);
         }
-      });
+      }, 30_000); // 🔴 LOT DM : test lourd (des dizaines d'écrans) — délai long, docs/FLAKES_CONNUS.md
     });
   });
 
@@ -2230,7 +2233,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       }
       window.localStorage.setItem('trx-affichage-montants', 'ht');
       window.localStorage.removeItem('trx-mois-mode');
-    });
+    }, 30_000); // 🔴 LOT DM : test lourd (des dizaines d'écrans) — délai long, docs/FLAKES_CONNUS.md
 
     it('Période = la somme des années ; Tout = le total historique ; Ventes ; « à date » (année en cours / passée) ; N−1 ; la 4ᵉ tuile suit « Compter »', async () => {
       const deUnAn = async (a: number) => { const f = await ouvrirG(`/?vue=annee&annee=${a}`); try { return caTuile(); } finally { f(); } };
@@ -2260,7 +2263,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
       fin = await ouvrirG('/?vue=annee&annee=2024');
       try { expect([texte('[data-tuile="ca-a-date"] .tdb-tuile-mot'), caTuile('ca-a-date')]).toEqual(['CA HT — 2024 à date (année complète)', a24]); } finally { fin(); }
-    });
+    }, 30_000); // 🔴 LOT DM : test lourd (des dizaines d'écrans) — délai long, docs/FLAKES_CONNUS.md
 
     it('le graphique « Année par année » (Annuel, Cumul, CA | CA net | Nombre ; l’année choisie en rouge, les autres pleines ; Période atténuée) et « Mois par mois » (celui de « Le mois ») ; 3 négociateurs', async () => {
       let fin = await ouvrirG('/?vue=annee&annee=2024');
@@ -2349,7 +2352,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         }
         window.localStorage.setItem('trx-affichage-montants', 'ht');
         window.localStorage.removeItem('trx-mois-mode');
-      });
+      }, 30_000); // 🔴 LOT DM : test lourd (des dizaines d'écrans) — délai long, docs/FLAKES_CONNUS.md
 
       it('Tout avec 3 négociateurs : l’encadré n’a ni année précédente ni écart', async () => {
         const fin = await ouvrirH('/?vue=annee&vue-annee=tout&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN&negociateur=Julien');
@@ -2498,7 +2501,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       }
       window.localStorage.setItem('trx-affichage-montants', 'ht');
       window.localStorage.removeItem('trx-mois-mode');
-    });
+    }, 30_000); // 🔴 LOT DM : test lourd (des dizaines d'écrans) — délai long, docs/FLAKES_CONNUS.md
 
     // aujourd'hui (dans ces tests) : 27/10/2025 — l'année en cours de MACJ n'a encore aucune vente (comme MACJ 2026 en recette)
     it('MACJ, année en cours sans données (fichier pas encore importé) : Le mois et L’année s’affichent proprement (« Aucune vente »), sans erreur', async () => {
@@ -2512,6 +2515,67 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect([q, /Aucune vente/.test(vide)]).toEqual([q, true]);
         } finally { fin(); }
       }
+    });
+  });
+
+  describe('🔴 LOT DM — la FUSION CRITERIMMO & MACJ : le même écran, les deux sociétés, chaque vente une fois', () => {
+    const lm = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const partie = (sorte: 'entree' | 'sortie', compteId: number, negociateur: string, societe: 'criterimmo' | 'macj', pourcentage: number) =>
+      ({ sorte, compteId, negociateur, societe, nom: null, coordonnees: null, pourcentage, montantHt: null, statut: 'independant' as const, commissionne: false });
+    // mars 2025 : une vente CRITERIMMO, une vente MACJ, et une vente PARTAGÉE (CRITERIMMO porteuse, 50 % MACJ, apporteur 1 000 TTC), comme HEIDIDON
+    const jeu = (): Vente[] => [
+      vente(700, { societe: 'criterimmo', libelle: 'CRIT', honorairesTtc: 6000, annee: 2025, mois: 3, lignes: [lm('ARNAUD', 6000)] }),
+      vente(701, { societe: 'macj', libelle: 'MAC', honorairesTtc: 3000, annee: 2025, mois: 3, lignes: [lm('PIERRE', 3000)] }),
+      vente(702, { societe: 'criterimmo', libelle: 'PARTAGEE', honorairesTtc: 4000, annee: 2025, mois: 3, lignes: [],
+        dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
+        repartition: { retroApporteurTtc: 1000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] } } as Partial<Vente>),
+    ];
+    const ouvrirF = async (q: string) => {
+      const avant = { ventes: donnees.ventes, societe: donnees.societe, retros: donnees.retrocessions };
+      donnees.ventes = jeu(); (donnees as { societe: string | null }).societe = null; donnees.retrocessions = [];
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', q);
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'tous' })); }); await calmer();
+      return () => { donnees.ventes = avant.ventes; donnees.societe = avant.societe; donnees.retrocessions = avant.retros; };
+    };
+
+    it('Le mois : la vente partagée comptée UNE fois (ses honoraires totaux) ; pas de ligne miroir ; étiquettes CRITERIMMO / MACJ / CRITERIMMO + MACJ ; l’inter-cabinet ni coût ni CA ; HT et TTC', async () => {
+      window.localStorage.setItem('trx-affichage-montants', 'ttc');
+      const fin = await ouvrirF('/?vue=mois&annee=2025&mois=3');
+      try {
+        expect(container.querySelector('[data-transaction="tous"]')).not.toBeNull();
+        expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('13 000 €'); // 6 000 + 3 000 + 4 000 (une fois)
+        const cartes = [...container.querySelectorAll('[data-bloc="ventes-mois"] [data-cartes-ventes] > [data-vente]')];
+        expect(cartes.map((c) => [c.getAttribute('data-vente'), c.querySelector('[data-etiquette-societe]')?.textContent])).toEqual(
+          expect.arrayContaining([['700', 'CRITERIMMO'], ['701', 'MACJ'], ['702', 'CRITERIMMO + MACJ']]));
+        expect(cartes.length).toBe(3);
+        expect(texte('[data-bloc="ventes-mois"] [data-vente="702"]')).not.toContain('reversé à');
+        // le Résultat : le CA total, l'apporteur déduit, AUCUNE ligne d'inter-cabinet entre nos sociétés
+        expect([texte('[data-ca-mois]'), container.querySelector('[data-inter-cabinet-mois]'), texte('[data-retro-resultat]')]).toEqual(['13 000 €', null, '1 000 €']);
+        await act(async () => { (container.querySelector('[data-affichage-montants] [data-afficher="ht"]') as HTMLElement).click(); }); await calmer();
+        expect(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('10 833,33 €');
+      } finally { fin(); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
+    });
+
+    it('L’année : la même règle ; l’Espace par négociateur des deux sociétés, une ligne par personne', async () => {
+      const fin = await ouvrirF('/?vue=annee&annee=2025');
+      try {
+        expect([texte('[data-tuile="ca-annee"] .tdb-tuile-valeur'), texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual(['10 833,33 €', '3']);
+        expect(container.querySelector('[data-bloc="negociateurs-periode"]')).not.toBeNull();
+      } finally { fin(); }
+    });
+
+    it('Compromis : « + Nouveau compromis » demande d’abord la société porteuse, puis le formulaire habituel ; l’observateur ne peut pas écrire', async () => {
+      const fin = await ouvrirF('/?vue=compromis');
+      try {
+        await act(async () => { (container.querySelector('[data-nouveau-compromis]') as HTMLElement).click(); }); await calmer();
+        expect([container.querySelector('[data-formulaire-dossier]'), [...container.querySelectorAll('[data-societe-nouveau]')].map((b) => b.textContent)]).toEqual([null, ['CRITERIMMO', 'MACJ']]);
+        await act(async () => { (container.querySelector('[data-societe-nouveau="macj"]') as HTMLElement).click(); }); await calmer();
+        expect(container.querySelector('[data-formulaire-dossier="nouveau"]')!.getAttribute('aria-label')).toBe('Nouveau compromis — MACJ');
+      } finally { fin(); }
+      const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
+      expect(ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction')).toBe(true);
     });
   });
 

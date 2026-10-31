@@ -54,6 +54,8 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   // TRANSACTION (27/10/2026) — les trois tuiles de la Transaction : retour vers l'accueil de la tuile.
   // LOT L (Arno, 28/10/2026) — CRITERIMMO et MACJ sont sous « Transaction » (/admin/transaction/ventes) ; « Gestion » et « CA global » sous l'accueil.
   'transaction/criterimmo': [{ fichier: `${RACINE}/transaction/criterimmo/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
+  // 🔴 LOT DM — la FUSION des deux sociétés, sous « Transaction vente »
+  'transaction/fusion': [{ fichier: `${RACINE}/transaction/fusion/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
   'transaction/gestion': [{ fichier: `${RACINE}/transaction/gestion/page.tsx`, lien: 'retour="/admin/transaction"' }],
   'transaction/global': [{ fichier: `${RACINE}/transaction/global/page.tsx`, lien: 'retour="/admin/transaction"' }],
   'transaction/macj': [{ fichier: `${RACINE}/transaction/macj/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],

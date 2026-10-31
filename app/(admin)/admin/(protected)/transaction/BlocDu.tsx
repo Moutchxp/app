@@ -138,8 +138,10 @@ export function BlocDu({ detail, societe, autreSociete, titres, onAller, vueList
             <p className="trx-du-solde trx-somme" data-solde-inter><span>= Solde inter-cabinet</span><strong>{solde()}</strong></p>
           </>} />
         ) : detail.neutralise !== null ? (
-          <Section cle="inter-cabinet" titre="Inter-cabinet CRITERIMMO ↔ MACJ — neutralisé (compté une fois)" somme={detail.neutralise} sens="neutre" enfants={
-            detail.neutralise.lignes.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{ligne({ ...detail.neutralise, nom: 'Entre nos sociétés' }, 'neutre')}</ul>} />
+          // 🔴 LOT DM (Arno) — les deux sociétés réunies (FUSION, CA global) : l'inter-cabinet entre elles est INTERNE au groupe — ni coût, ni dû (« — 0 ») ;
+          // le détail reste lisible dessous (la part neutralisée, comptée une fois).
+          <Section cle="inter-cabinet" titre="Inter-cabinet CRITERIMMO ↔ MACJ — interne au groupe — 0" somme={null} sens="neutre" enfants={
+            detail.neutralise.lignes.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{ligne({ ...detail.neutralise, nom: 'Entre nos sociétés (neutralisé, compté une fois)' }, 'neutre')}</ul>} />
         ) : null,
         apporteurs: <Section cle="apporteurs" titre="Apporteurs d’affaires" somme={somme(detail.apporteurs)} sens="verse" enfants={
           detail.apporteurs.length === 0 ? aucune('Aucun') : <ul className="trx-du-lignes">{detail.apporteurs.map((p) => ligne(p, 'verse'))}</ul>} />,

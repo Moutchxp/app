@@ -418,6 +418,10 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
 /* LOT GE1 — Gestion : la ligne de total du tableau (trame grise) ; le mois choisi, legerement surligne. */
 .trx-ligne-total th,.trx-ligne-total td{background:var(--color-svv-field)}
+/* LOT DM — FUSION : le choix de la societe porteuse d'un nouveau compromis ; l'etiquette de societe sur les cartes. */
+.trx-choix-societe{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;flex-basis:100%}
+.trx-choix-societe .svv-btn{width:auto;min-height:40px}
+.trx-pastille-societe{font-size:.72rem;letter-spacing:.02em;vertical-align:middle}
 .trx-ligne-choisie th,.trx-ligne-choisie td{background:color-mix(in srgb, var(--color-svv-red) 7%, transparent)}
 /* LOT GE4 — les six onglets du graphique de la Gestion : une grille de 3 colonnes de meme largeur, 2 lignes (CA, CA net, Lots / ADHOC, MONGA,
    Salaires), chaque onglet sous celui du dessus ; un petit ecart entre les lignes ; jamais de retour a la ligne dans un onglet. */

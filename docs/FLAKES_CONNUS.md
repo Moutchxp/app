@@ -179,3 +179,35 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
   avant d'allonger encore. Un script qui ne rend plus la main est un vrai défaut, et un délai plus long ne le corrige pas.
 - Si une **assertion** échoue (ligne finale, code de sortie, conclusion du Mac) : ce n'est pas ce flake. C'est un défaut de
   `serveur.sh` ou de `prod-mettre-a-jour.sh`, à instruire comme tel.
+
+---
+
+## `EcransTransaction.test.tsx` — « Test timed out in 5000ms » en suite complète (stabilisé le 31/10/2026, lot DM)
+
+- **Fichier / tests** : `app/(admin)/admin/(protected)/transaction/EcransTransaction.test.tsx`, les tests qui rendent des
+  dizaines d'écrans d'affilée : « en Année, chaque total = la somme des 12 mois pris un par un » (lot CT), « contrôle 6 : le CA
+  de l'année = la somme de ses 12 mois » (lot DG), « chaque écran (Compromis, Le mois …) : la même structure pour les deux
+  sociétés » (lot DK), « Tout en Vendu, Compromis, Vendu + compromis » et « Période = la somme des années ; Tout = le total
+  historique » (lots DG / DH).
+- **Symptôme** : en `npm test` complet, un de ces tests échoue par **dépassement du délai de 5 s** ; vert en isolé et au re-run.
+
+### ✅ PROUVÉ
+
+- Durées **seul** (31/10/2026, `--reporter=verbose`) : **2 312 ms** (lot CT), **2 007 ms** (contrôle 6), **1 855 ms** (lot DK) —
+  les autres sous la seconde. La marge sous 5 s est faible quand la suite entière se dispute le CPU.
+- L'échec constaté est un **dépassement de délai**, jamais une assertion fausse (même test vert au re-run, sans changement).
+
+### ❓ NON ÉTABLI
+
+- Aucune cause autre que la charge n'a été cherchée ; aucune n'est affirmée.
+
+### Correctif
+
+- Délai porté à **30 s pour ces cinq tests seuls** (`it(…, …, 30_000)`, repère « LOT DM » dans le fichier) ; délai global de
+  vitest et assertions inchangés. Décision d'Arno du 31/10/2026 (réponse à la question du lot GE4).
+
+### Conduite à tenir si rouge
+
+- **Dépassement au-delà de 30 s** : mesurer la durée du test dans la suite qui a échoué avant d'allonger ; un écran qui boucle
+  (rendu sans fin) est un vrai défaut — cf. la note « suite figée = boucle de rendu ».
+- **Assertion fausse** : ce n'est pas ce flake ; c'est un écart de calcul ou d'écran à instruire.

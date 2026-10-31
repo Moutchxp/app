@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ventePorteeAilleurs } from '../../../../lib/transaction/interCabinet';
-import { bilanVente, commissionNetteHt, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, etiquetteSocietes, ht, LIBELLE_SOCIETE, moisAConfirmer, NOMS_MOIS, SOCIETES, societePorteuse, TVA, type MontantSaisi, type Retrocession, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommission, commissionneDuCote, enHt, enTtc, honorairesDuCote, partDuCote, remuneration, remunerationDuCote, resolveurDe, retroApporteurDe, statutDePartie, tauxDuCote, tuilesCompromis,
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
@@ -63,7 +63,11 @@ const moisEnLettres = (jour: string): string => `${(NOMS_MOIS[Number(jour.slice(
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
-export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
+export function OngletCompromis({ societe, fusion = false }: { societe: Societe | 'tous';
+  /** 🔴 LOT DM — la page FUSION (les deux sociétés) : « HT | TTC » et « + Nouveau compromis », qui demande d'abord la société porteuse. */
+  fusion?: boolean }) {
+  const [choixSociete, setChoixSociete] = useState(false);
+  const [societeNouveau, setSocieteNouveau] = useState<Societe | null>(null);
   const { lu, relire } = useTransaction<DonneesCompromis>(`vue=compromis&societe=${societe}`);
   // LOT F — « + Ajouter un vendeur / un acquéreur » ouvre le formulaire du compromis sur une ligne neuve de ce côté (personne existante ou neuve).
   const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number } | 'nouveau' | null>(null);
@@ -156,7 +160,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
     setMotif(r);
     if (r === null) { setFait(null); relire(); }
   };
-  const societeSaisie: Societe = vue ?? 'criterimmo';
+  const societeSaisie: Societe = vue ?? societeNouveau ?? 'criterimmo';
   /** LOT AE — après un enregistrement (formulaire, ou geste de la carte) : la vente est-elle portée par l'autre société ? Le dire. */
   const signalerPorteuse = (id: number, etat: EtatRepartition, honorairesTtc: number): void => {
     if (vue === null) return;
@@ -184,9 +188,16 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             <ListeChoix options={TRIS_COMPROMIS.map((x) => ({ id: x, libelle: LIBELLE_TRI_COMPROMIS[x] }))} valeur={tri} vide={null} libelle="Trier les compromis"
               onChange={setTri} classe="trx-tri-champ" donnees={{ 'data-choix-tri-compromis': '' }} /></div>
         </div>
-        {vue !== null && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEdition('nouveau')}
+        {(vue !== null || fusion) && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => (vue === null ? setChoixSociete(true) : setEdition('nouveau'))}
           disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
+        {/* 🔴 LOT DM — FUSION : la société porteuse d'abord, puis le formulaire habituel */}
+        {choixSociete && <div className="trx-choix-societe" role="group" aria-label="La société porteuse du nouveau compromis" data-choix-societe-nouveau>
+          <span className="loc-muet">Société porteuse :</span>
+          {SOCIETES.map((x) => <button key={x} type="button" className="svv-btn svv-btn-outline gst-btn" data-societe-nouveau={x}
+            onClick={() => { setSocieteNouveau(x); setChoixSociete(false); setEdition('nouveau'); }}>{LIBELLE_SOCIETE[x]}</button>)}
+          <button type="button" className="trx-bouton-lien" onClick={() => setChoixSociete(false)}>Annuler</button>
+        </div>}
       </div>
       {!d.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Personnes, négociateurs d’entrée et de sortie et répartition : disponibles après la mise à jour de la base (migration 434).</p>}
       {/* 🔴 LOT I (Arno) — QUATRE TUILES, dans cet ordre : le nombre ; le CA (TTC en grand, en vert, HT en gris dessous ; la part de la société
@@ -378,7 +389,9 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
   const acteSigne = v.statut === 'vendue';
   const titre = (
     <span className="trx-carte-gauche">
-      <LigneUneCarte v={v} titre={<>{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</>} aujourdhui={aujourdhui} />
+      <LigneUneCarte v={v} titre={<>{c.titre}{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}
+        {/* 🔴 LOT DM — les deux sociétés vues ensemble (FUSION, CA global) : la société de l'affaire, ou « CRITERIMMO + MACJ » (inter-cabinet) */}
+        {vue === null && <> <span className="loc-pastille trx-pastille-societe" data-etiquette-societe>{etiquetteSocietes(v)}</span></>}</>} aujourdhui={aujourdhui} />
       <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle, nommer })} />
     </span>
   );

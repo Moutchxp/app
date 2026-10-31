@@ -192,7 +192,7 @@ describe('LOCATION (17/10/2026) — la tuile dédiée, même règle que les autr
 describe('TRANSACTION (27/10/2026) — la tuile dédiée, même règle que les autres', () => {
   it('visible pour le droit Transaction seul, et pour un administrateur ; elle mène à /admin/transaction', () => {
     const collab = liensVisibles('collaborateur', { ...permsAucune(), transaction: true });
-    expect(collab.map((l) => [l.slug, l.libelle, l.accueil ?? l.slug])).toEqual([['/admin/transaction', 'Transaction', '/admin/transaction']]);
+    expect(collab.map((l) => [l.slug, l.libelle, l.accueil ?? l.slug])).toEqual([['/admin/transaction', 'Suivi Chiffre d’affaires', '/admin/transaction']]); // 🔴 LOT DM : ex-« Transaction »
     expect(liensVisibles('collaborateur', { ...permsAucune(), location: true }).map((l) => l.slug)).not.toContain('/admin/transaction');
     expect(liensVisibles('administrateur', permsAucune()).map((l) => l.slug)).toContain('/admin/transaction');
   });

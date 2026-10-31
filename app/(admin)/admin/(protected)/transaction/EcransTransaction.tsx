@@ -65,16 +65,18 @@ const SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 
  */
 export const ADRESSES_TRANSACTION = {
   accueil: '/admin/transaction', ventes: '/admin/transaction/ventes', gestion: '/admin/transaction/gestion', global: '/admin/transaction/global',
-  criterimmo: '/admin/transaction/criterimmo', macj: '/admin/transaction/macj',
+  criterimmo: '/admin/transaction/criterimmo', macj: '/admin/transaction/macj', fusion: '/admin/transaction/fusion',
 } as const;
 const CASES = [
-  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction', phrase: 'Les ventes et compromis de CRITERIMMO et de MACJ : les compromis, le mois, l’année, les négociateurs, les apporteurs.', cle: 'ventes' },
+  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction vente', phrase: 'Les ventes et compromis de CRITERIMMO et de MACJ : les compromis, le mois, l’année, les négociateurs, les apporteurs.', cle: 'ventes' },
   { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', phrase: 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.', cle: 'gestion' },
   { href: ADRESSES_TRANSACTION.global, titre: 'CA global', phrase: 'Tous les CA réunis : CRITERIMMO (vente, location, gestion), MACJ (vente), puis les deux — par mois et par année, face à N−1.', cle: 'global' },
 ];
 const CASES_VENTES = [
   { href: ADRESSES_TRANSACTION.criterimmo, titre: 'CRITERIMMO', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de CRITERIMMO.', cle: 'criterimmo' },
   { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
+  // 🔴 LOT DM — les deux sociétés réunies (le même écran ; chaque vente une fois, l'inter-cabinet entre elles neutralisé)
+  { href: ADRESSES_TRANSACTION.fusion, titre: 'FUSION CRITERIMMO & MACJ', phrase: 'Les ventes et compromis des deux sociétés réunis.', cle: 'fusion' },
 ];
 
 function Cases({ cases, libelle, deux = false }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string;
@@ -94,8 +96,8 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
 }
 /** L'accueil de la tuile : « Transaction », « Gestion », « CA global ». */
 export const AccueilTransaction = () => <Cases cases={CASES} libelle="Les tuiles de la Transaction" />;
-/** LOT L — « Transaction » : « CRITERIMMO » et « MACJ ». */
-export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" deux />;
+/** LOT L — « Transaction vente » : « CRITERIMMO », « MACJ » et (LOT DM) « FUSION CRITERIMMO & MACJ » — trois cases de même taille. */
+export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" />;
 
 // ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -183,7 +185,11 @@ function useLigneDesAnnees(jour: string, anneesDispo: readonly number[] | null, 
   return { choixA, setChoixAnnees, refusAnnees, setRefusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles };
 }
 
-export function EcranSociete({ societe }: { societe: Societe }) {
+/**
+ * 🔴 LOT DM — `societe` « tous » : la page FUSION (les deux sociétés réunies) — le MÊME écran, seul le périmètre change : toutes les ventes, chacune
+ * une fois (une vente partagée : ses honoraires totaux, l'inter-cabinet entre nos sociétés neutralisé), chaque carte avec l'étiquette de sa société.
+ */
+export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
   // LOT D — trois onglets : « Compromis », « Le mois », « L'année ». LOT L (Arno) — à l'ouverture : « Compromis ». Une ANCIENNE adresse
@@ -242,6 +248,8 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const fini = (): void => { setEdition(null); relire(); };
   const references = refs.lu.etat === 'ok' ? refs.lu.data : null;
   /** LOT D — une vente répartie (ou avec son dossier) se modifie dans le formulaire du dossier ; les autres, comme avant. */
+  // 🔴 LOT DM — sur la FUSION, une vente se modifie dans SA société
+  const societeEdition: Societe = societe !== 'tous' ? societe : edition !== null && edition !== 'nouvelle' ? edition.societe : 'criterimmo';
   const avecDossier = (v: Vente | 'nouvelle' | null): v is Vente => v !== null && v !== 'nouvelle' && (v.repartition != null || v.dossier != null);
 
   return (
@@ -255,7 +263,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
         </div>
       </div>
-      {vue === 'compromis' ? <OngletCompromis societe={societe} /> : <>
+      {vue === 'compromis' ? <OngletCompromis societe={societe} fusion={societe === 'tous'} /> : <>
       <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
         {/* 🔴 LOT DG — « L'année » : les filtres Début / Fin sont remplacés par la ligne des années (accord d'Arno). */}
         {vue === 'mois' && (
@@ -292,11 +300,11 @@ export function EcranSociete({ societe }: { societe: Societe }) {
           Le mois / L'année : après les apporteurs et l'espace par négociateur) ; replié, compteur, contenu et attribution inchangés. */}
       <BlocAAttribuer notes={d.doubles ?? []} disponible={d.disponible} onRelire={relire} />
 
-      {detail !== null && <FournisseurAffichage value={unite}><FournisseurNoms value={d.nomsNegociateurs ?? {}}><ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
+      {detail !== null && <FournisseurAffichage value={unite}><FournisseurNoms value={d.nomsNegociateurs ?? {}}><ListeVentes titre={detail.titre} ventes={d.ventes.filter((v) => detail.ids.includes(v.id))} retros={d.retrocessions} societe={societe === 'tous' ? null : societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)}
         onFermer={() => setDetail(null)} onModifier={(v) => { setDetail(null); setEdition(v); }} /></FournisseurNoms></FournisseurAffichage>}
       {edition !== null && avecDossier(edition) && references !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={references}
         onFermer={() => setEdition(null)} onFait={fini} />}
-      {edition !== null && !avecDossier(edition) && <FormulaireVente societe={societe} vente={edition === 'nouvelle' ? null : edition} annee={vue === 'annee' && choixA !== null ? choixA.annee : annee} mois={vue === 'mois' ? mois : null}
+      {edition !== null && !avecDossier(edition) && <FormulaireVente societe={societeEdition} vente={edition === 'nouvelle' ? null : edition} annee={vue === 'annee' && choixA !== null ? choixA.annee : annee} mois={vue === 'mois' ? mois : null}
         negociateurs={negos} references={references} onFermer={() => setEdition(null)} onFait={fini} />}
     </div>
   );
@@ -556,7 +564,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const listes = useRef<HTMLDivElement | null>(null);
   useColonnesNegociateurs(listes);
   const refs: References = references ?? { lotD: false, negociateurs: [], apporteurs: [], personnes: [] };
-  const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe,
+  const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe ?? 'tous',
     statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
   const fiches = { hote, references: refs };
   const M = motsEnUnite(MOTS_MODE[mode], U.MOT);
@@ -885,7 +893,8 @@ function TableVentes({ ventes, retros, onModifier, vide, societe = null, statutD
  * saisies au mois et le statut des négociateurs importés). Un clic : la fiche (lot BU), inchangée.
  */
 function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }: { ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string;
-  societe: Societe; statutDuLibelle?: StatutDuLibelle; fiches: { hote: HoteDetail; references: References } }) {
+  /** null : la FUSION (les deux sociétés) — chaque carte porte l'étiquette de sa société. */
+  societe: Societe | null; statutDuLibelle?: StatutDuLibelle; fiches: { hote: HoteDetail; references: References } }) {
   if (ventes.length === 0) return <p className="loc-muet">{vide}</p>;
   return (
     <ul className="trx-cartes" data-cartes-ventes>
@@ -907,7 +916,7 @@ function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }
  * (pendant la frappe ; « (3 sur 17) » ; la croix efface). Le tri et la recherche ne changent que les cartes montrées (`listeCartes`).
  */
 function ListeCartesAffaires({ id, bloc, titre, apres, ventes, retros, vide, motAucun, societe, statutDuLibelle, fiches }: { id: string; bloc: string; titre: string;
-  apres?: ReactNode; ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string; motAucun: string; societe: Societe; statutDuLibelle?: StatutDuLibelle;
+  apres?: ReactNode; ventes: readonly Vente[]; retros: readonly Retrocession[]; vide: string; motAucun: string; societe: Societe | null; statutDuLibelle?: StatutDuLibelle;
   fiches: { hote: HoteDetail; references: References } }) {
   const u = useAffichage();
   const nommer = useNommer();
@@ -1058,7 +1067,8 @@ function TableARattacher({ lignes }: { lignes: readonly CaARattacher[] }) {
  * et du mois d'abord), ou redevient « à répartir » ; réversible et journalisé (son historique, avec « Annuler »).
  */
 function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, onRelire, vide = 'Aucune rétrocession ce mois.' }: {
-  retros: readonly Retrocession[]; ventes: readonly Vente[]; societe: Societe; annee: number; mois: number; disponible: boolean; onRelire: () => void;
+  /** null : la FUSION — la saisie d'une rétrocession demande d'abord sa société. */
+  retros: readonly Retrocession[]; ventes: readonly Vente[]; societe: Societe | null; annee: number; mois: number; disponible: boolean; onRelire: () => void;
   /** 🔴 LOT DG — ce que dit la liste vide (« L'année » : « sur l'année »). */
   vide?: string;
 }) {
@@ -1106,7 +1116,9 @@ function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, 
   </>;
 }
 
-function SaisieRetro({ societe, annee, mois, onFait }: { societe: Societe; annee: number; mois: number; onFait: () => void }) {
+function SaisieRetro({ societe: societeVue, annee, mois, onFait }: { societe: Societe | null; annee: number; mois: number; onFait: () => void }) {
+  // 🔴 LOT DM — sur la FUSION, la société de la rétrocession se choisit (CRITERIMMO par défaut)
+  const [societe, setSociete] = useState<Societe>(societeVue ?? 'criterimmo');
   const [negociateur, setNegociateur] = useState('');
   const [montantTtc, setMontant] = useState('');
   const [apporteur, setApporteur] = useState('');
@@ -1117,6 +1129,8 @@ function SaisieRetro({ societe, annee, mois, onFait }: { societe: Societe; annee
   };
   return (
     <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void envoyer(); }} data-form-retro>
+      {societeVue === null && <label>Société<select value={societe} onChange={(e) => setSociete(e.target.value as Societe)} data-societe-retro>
+        {SOCIETES.map((x) => <option key={x} value={x}>{LIBELLE_SOCIETE[x]}</option>)}</select></label>}
       <label>Négociateur<input value={negociateur} onChange={(e) => setNegociateur(e.target.value)} required /></label>
       <label>Montant TTC<input value={montantTtc} onChange={(e) => setMontant(e.target.value)} inputMode="decimal" required /></label>
       <label>Apporteur<input value={apporteur} onChange={(e) => setApporteur(e.target.value)} /></label>
@@ -1241,7 +1255,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   const listes = useRef<HTMLDivElement | null>(null);
   useColonnesNegociateurs(listes);
   const refs: References = references ?? { lotD: false, negociateurs: [], apporteurs: [], personnes: [] };
-  const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe,
+  const { hote, fenetres } = useHoteAffaires({ d: { ...refs, disponible: tout.disponible && references !== null, aujourdhui: tout.aujourdhui }, vue: d.societe, societe: d.societe ?? 'tous',
     statutDuLibelle: resolveurDe(d.statutsNegociateurs), relire: onRelire, ventes: tout.ventes });
   const fiches = { hote, references: refs };
   const [echelle, setEchelle] = useState<'annees' | 'mois'>(() => (parametre('graphe') === 'mois' ? 'mois' : 'annees'));

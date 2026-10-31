@@ -211,10 +211,11 @@ export async function lireRetrocessions(societe: Societe | null): Promise<Retroc
     sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule) }));
 }
 
-export async function lireARattacher(societe: Societe): Promise<CaARattacher[]> {
+export async function lireARattacher(societe: Societe | null): Promise<CaARattacher[]> {
+  // 🔴 LOT DM — null : les deux sociétés (la FUSION)
   const { rows } = await query<Record<string, unknown>>(
     `SELECT id, societe, annee, mois, negociateur, montant_ttc, libelle, source_onglet, source_cellule
-       FROM transaction_ca_a_rattacher WHERE retire_le IS NULL AND societe = $1 ORDER BY annee, mois, id`, [societe]);
+       FROM transaction_ca_a_rattacher WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois, id`, [societe]);
   return rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, annee: n(r.annee), mois: n(r.mois), negociateur: String(r.negociateur),
     montantTtc: n(r.montant_ttc), libelle: t(r.libelle), sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule) }));
 }
