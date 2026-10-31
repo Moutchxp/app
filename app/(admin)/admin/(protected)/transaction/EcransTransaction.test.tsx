@@ -90,7 +90,10 @@ describe('une société — le mois', () => {
     // 🔴 LOT CH — la somme des cartes : 11 025 − 3 215 (paye de Mylène), ÷ 1,2 ; la rétrocession « à répartir » (1 200 TTC) est dite à part, non déduite.
     expect(texte('[data-reste-agence]')).toBe('6 508,33 €');
     expect(texte('[data-total-hors-resultat]')).toBe('1 000 € HT (1 200 € TTC)');
+    // 🔴 LOT DA — en « Vendu », la 4ᵉ tuile est le CA net cumulé ; « Compromis en cours » est la 4ᵉ tuile du mode « Compromis »
+    await act(async () => { (container.querySelector('[data-mode-mois="compromis"]') as HTMLElement).click(); });
     expect(texte('[data-tuile="compromis"] .tdb-tuile-valeur')).toBe('20 833,33 €');
+    window.localStorage.removeItem('trx-mois-mode'); // le mode est retenu par le navigateur : les épreuves suivantes partent de « Vendu »
   });
   it('D5 — la rétrocession « à répartir » se rattache à la main à la vente du négociateur et du mois', async () => {
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
@@ -1693,7 +1696,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     for (const u of ['ht', 'ttc'] as const) {
       const attendu = u === 'ht' ? t.htC : t.ttcC;
       window.localStorage.setItem('trx-affichage-montants', u);
-      let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10');
+      let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10&mode=compromis'); // 🔴 LOT DA : la tuile du mode « Compromis »
       try {
         expect([u, lire('[data-tuile="compromis"] [data-compromis-en-cours]'), texte('[data-tuile="compromis"] .tdb-tuile-n1'), texte('[data-tuile="compromis"] .tdb-tuile-mot')])
           .toEqual([u, attendu, '4 compromis — le prévisionnel', `Compromis en cours (${u.toUpperCase()})`]);
@@ -1716,7 +1719,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     }
     // le filtre « Négociateur » : seulement ses compromis, dit en petit
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
-    const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10&negociateur=CEDRIC');
+    const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10&negociateur=CEDRIC&mode=compromis');
     try {
       expect([lire('[data-tuile="compromis"] [data-compromis-en-cours]'), texte('[data-tuile="compromis"] [data-tuile-filtre]')]).toEqual([300000, ' — Négociateur : CEDRIC']);
     } finally { fin(); }
@@ -1731,6 +1734,68 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(lire('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe(totalCompromisEnCours(tousV, null).htC);
       expect([lire('[data-synthese="criterimmo"] [data-mot="Prévisionnel"]'), lire('[data-synthese="global"] [data-mot="Prévisionnel"]')]).toEqual([t.htC, totalCompromisEnCours(tousV, null).htC]);
     } finally { delete (donneesGlobal as unknown as { compromisEnCours?: unknown }).compromisEnCours; }
+  });
+
+  describe('🔴 LOT DA — la 4ᵉ tuile suit « Compter » : CA net cumulé / compromis en cours / prévisionnel', () => {
+    const ld = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (societe: 'criterimmo' | 'macj' = 'criterimmo'): Vente[] => [
+      vente(160, { societe, libelle: 'MARS', honorairesTtc: 12000, annee: 2025, mois: 3, lignes: [ld('MYLENE', 'negociateur', 2400)] }),
+      vente(161, { societe, libelle: 'MAI', honorairesTtc: 6000, annee: 2025, mois: 5, lignes: [ld('ARNAUD', 'part', 6000)] }),
+      vente(162, { societe, libelle: 'AOUT', honorairesTtc: 9000, annee: 2025, mois: 8, lignes: [ld('ARNAUD', 'part', 9000)] }),
+      vente(163, { societe, libelle: 'N-1', honorairesTtc: 4800, annee: 2024, mois: 4, lignes: [ld('ARNAUD', 'part', 4800)] }),
+      vente(164, { societe, libelle: 'COMPROMIS', statut: 'compromis', honorairesTtc: 3000, annee: 2025, mois: null, dateCompromis: '2025-09-01', lignes: [ld('ARNAUD', 'part', 3000)] }),
+      vente(165, { societe, libelle: 'COMPROMIS 2019', statut: 'compromis', honorairesTtc: 1200, annee: 2019, mois: null, dateCompromis: null, lignes: [ld('CEDRIC', 'part', 1200)] }),
+    ];
+    const t4 = (sel: string) => montant(`.tdb-tuiles ${sel}`);
+    const ouvrir6 = (q = '', societe: 'criterimmo' | 'macj' = 'criterimmo') => ouvrirSur(jeu(societe), societe, `/?vue=mois&annee=2025&mois=6${q}`);
+
+    it('« Vendu » : le CA net cumulé à fin juin (commissions, rétrocessions, reversé déduits), N−1 sur les mêmes mois ; = la somme des CA nets du graphique (HT et TTC)', async () => {
+      const fin = await ouvrir6();
+      try {
+        expect(texte('[data-tuile="ca-net-cumul"] .tdb-tuile-mot')).toBe('CA net HT cumulé 2025 (à fin juin) — après commissions, rétrocessions et reversé');
+        expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, '4 000 € en 2024 (+225 %)']); // (12 000 − 2 400) ÷ 1,2 + 6 000 ÷ 1,2
+        await cliquer('[data-mesure-bouton="net"]');
+        const barres = [1, 2, 3, 4, 5, 6].reduce((t, k) => t + Math.round(Number(container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"] .tdb-barre`)?.getAttribute('data-valeur') ?? 0) * 100), 0);
+        expect(barres).toBe(t4('[data-ca-net-cumul]'));
+        await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+        expect(t4('[data-ca-net-cumul]')).toBe(1560000);
+      } finally { fin(); }
+    });
+
+    it('« Compromis » : la tuile d’avant ; « Vendu + compromis » : vendu cumulé (3ᵉ tuile en Vendu) + compromis en cours (4ᵉ tuile en Compromis), au centime (HT et TTC)', async () => {
+      for (const u of ['ht', 'ttc'] as const) {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        const fin = await ouvrir6();
+        try {
+          const vendu = t4('[data-tuile="cumul"] .tdb-tuile-valeur');
+          await cliquer('[data-mode-mois="compromis"]');
+          const compromis = t4('[data-tuile="compromis"] [data-compromis-en-cours]');
+          expect(texte('[data-tuile="compromis"] .tdb-tuile-n1')).toBe('2 compromis — le prévisionnel');
+          await cliquer('[data-mode-mois="tous"]');
+          expect([u, t4('[data-previsionnel-mois]')]).toEqual([u, vendu + compromis]);
+          expect(texte('[data-tuile="previsionnel-mois"] .tdb-tuile-mot')).toBe(`Prévisionnel 2025 (vendu à fin juin + compromis en cours, ${u.toUpperCase()})`);
+          expect(texte('[data-previsionnel-detail]')).toBe(u === 'ht' ? 'dont 15 000 € vendus · 3 500 € en compromis (2)' : 'dont 18 000 € vendus · 4 200 € en compromis (2)');
+        } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+      }
+    });
+
+    it('filtre Négociateur ; Période et Année (la période de la 3ᵉ tuile) ; plusieurs négociateurs (sans N−1) ; MACJ', async () => {
+      let fin = await ouvrir6('&negociateur=ARNAUD');
+      try {
+        expect(t4('[data-ca-net-cumul]')).toBe(500000);
+        await cliquer('[data-mode-mois="tous"]');
+        expect(texte('[data-previsionnel-detail]')).toBe('dont 5 000 € vendus · 2 500 € en compromis (1)');
+      } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
+      for (const q of ['&vue-mois=annee', '&vue-mois=periode&periode=2025-03,2025-06']) {
+        fin = await ouvrir6(q);
+        try { expect([q, t4('[data-ca-net-cumul]')]).toEqual([q, 1300000]); } finally { fin(); }
+      }
+      fin = await ouvrir6('&negociateur=ARNAUD&negociateur=MYLENE');
+      try { expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, 'comparaison N−1 : choisir un seul négociateur']); } finally { fin(); }
+      fin = await ouvrir6('', 'macj');
+      try { expect(t4('[data-ca-net-cumul]')).toBe(1300000); } finally { fin(); }
+    });
   });
 
   it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {
