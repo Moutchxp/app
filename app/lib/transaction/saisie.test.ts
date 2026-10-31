@@ -38,7 +38,7 @@ describe('saisie d’une rétrocession et de la gestion du mois', () => {
   });
   it('gestion : champs vides = null, montants lus tels quels', () => {
     expect(lireGestion({ nbLots: '286', honorairesHt: '15345,12', adhocHt: '2767.2', salarieHt: '', resteHt: '', note: '' }))
-      .toEqual({ ok: true, valeur: { nbLots: 286, honorairesHt: 15345.12, adhocHt: 2767.2, salarieHt: null, resteHt: null, note: null } });
+      .toEqual({ ok: true, valeur: { nbLots: 286, honorairesHt: 15345.12, adhocHt: 2767.2, mongaHt: null, salarieHt: null, resteHt: null, note: null } }); // 🔴 LOT GE3 : MONGA lu comme ADHOC
     expect(lireGestion({ nbLots: '-1' }).ok).toBe(false);
   });
   it('montant : nombre, texte français, illisible', () => {

@@ -15,9 +15,10 @@ const lotR = vi.fn<() => Promise<boolean>>(async () => false);
 const lotS = vi.fn<() => Promise<boolean>>(async () => false);
 const lotV = vi.fn<() => Promise<boolean>>(async () => false);
 const lotBJ = vi.fn<() => Promise<boolean>>(async () => false);
+const lotGE3 = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
   annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR(), commissionneDisponible: () => lotS(),
-  modeCommissionDisponible: () => lotV(), personneTypeDisponible: () => lotBJ() }));
+  modeCommissionDisponible: () => lotV(), personneTypeDisponible: () => lotBJ(), mongaDisponible: () => lotGE3() }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -29,7 +30,7 @@ vi.mock('../db/client', () => ({ query: (s: string, p: unknown[]) => q(s, p), wi
 
 const repo = await import('./repo');
 const A = { id: 3, libelle: 'arno' };
-beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); lotR.mockResolvedValue(false); lotS.mockResolvedValue(false); lotBJ.mockResolvedValue(false); q.mockClear(); });
+beforeEach(() => { appels.length = 0; reponses = []; disponible.mockResolvedValue(true); lotD.mockResolvedValue(false); lotE.mockResolvedValue(false); lotG.mockResolvedValue(false); lotI.mockResolvedValue(false); lotP.mockResolvedValue(false); lotR.mockResolvedValue(false); lotS.mockResolvedValue(false); lotBJ.mockResolvedValue(false); lotGE3.mockResolvedValue(false); q.mockClear(); });
 
 describe('sans la migration 433', () => {
   it('toute écriture est refusée avec le motif, sans une requête', async () => {
@@ -504,7 +505,7 @@ describe('🔴 LOT R (440) — l’inter-cabinet : le registre des lignes miroir
     expect(maj.sql).toContain("etat = 'annulee'");
     expect(maj.params).toEqual([38, 'macj']);
     expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
-    appels.length = 0; reponses = [];
+    appels.length = 0; reponses = [(x) => (x.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined)];
     reponses.push(...relue([P('entree', '2', 'Arnaud Jorel', 'criterimmo', '50'), P('sortie', '8', 'Pierre Thevenin', 'macj', '50')], [{ ...actif, etat: 'annulee' }]),
       (s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ statut: 'compromis', retire_le: null, annee: 2026 }] } : undefined),
       (s) => (s.includes('RETURNING id') ? { rows: [{ id: '10' }] } : undefined));
@@ -767,7 +768,7 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
     reponses.push((s) => (s.includes('JOIN LATERAL') ? { rows: [{ id: '81', libelle: 'DURAND', statut: 'compromis', societe: 'criterimmo', porteuse: 'macj', negociateur: 'Mylène EBERLIN' }] } : undefined));
     expect(await repo.ventesMalRangees()).toEqual([{ id: 81, libelle: 'DURAND', statut: 'compromis', enregistree: 'criterimmo', porteuse: 'macj', negociateurEntree: 'Mylène EBERLIN' }]);
     expect(appels.every((x) => x.sql.startsWith('SELECT'))).toBe(true);
-    appels.length = 0; reponses = [];
+    appels.length = 0; reponses = [(x) => (x.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined)];
     reponses.push((s) => (s.includes('FROM transaction_vente WHERE id = $1 FOR UPDATE') ? { rows: [{ libelle: 'DURAND', statut: 'compromis', retire_le: null, societe: 'criterimmo' }] } : undefined),
       (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [{ sorte: 'entree', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'macj', pourcentage: '50' },
         { sorte: 'sortie', compte_id: '5', negociateur_libelle: 'Jean-Baptiste PONS', societe: 'criterimmo', pourcentage: '50' }] } : undefined),
@@ -775,7 +776,7 @@ describe('🔴 LOT AE — la vente est enregistrée chez la société de son né
     expect(await repo.rangerPorteuse(81, A)).toEqual({ ok: true, valeur: { avant: 'criterimmo', apres: 'macj' } });
     expect(appels.find((x) => x.sql.startsWith('UPDATE transaction_vente SET'))!.params).toEqual([81, 'macj']);
     expect(String(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params[5])).toMatch(/^Rangée chez sa société porteuse du mandat : CRITERIMMO → MACJ/);
-    appels.length = 0; reponses = [];
+    appels.length = 0; reponses = [(x) => (x.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined)];
     reponses.push((s) => (s.includes('FOR UPDATE') ? { rows: [{ libelle: 'DURAND', statut: 'compromis', retire_le: null, societe: 'macj' }] } : undefined),
       (s) => (s.startsWith('SELECT sorte, compte_id') ? { rows: [{ sorte: 'entree', compte_id: '7', negociateur_libelle: 'Mylène EBERLIN', societe: 'macj', pourcentage: '100' }] } : undefined));
     expect(await repo.rangerPorteuse(81, A)).toEqual({ ok: true, valeur: null });
@@ -863,5 +864,38 @@ describe('🔴 LOT BL — une fiche existante s’enregistre mise en forme à sa
     expect((await repo.enregistrerDossier(12, s.ok ? s.valeur : (null as never), '2026-10-30', A)).ok).toBe(true);
     const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_personne SET'))!;
     expect(maj.params).toEqual([21, 'MIRA BERCIER']);
+  });
+});
+
+describe('🔴 LOT GE3 — le coût MONGA de la gestion du mois (migration 446)', () => {
+  beforeEach(() => { reponses.push((x) => (x.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined)); });
+  const G = { nbLots: null, honorairesHt: 1000, adhocHt: 100, salarieHt: null, resteHt: 850, note: null };
+  it('sans la 446 : un MONGA saisi est refusé (motif, aucune écriture) ; un MONGA vide s’enregistre comme avant ; la lecture rend MONGA vide', async () => {
+    expect(await repo.enregistrerGestion(2026, 10, { ...G, mongaHt: 50 }, A)).toEqual({ ok: false, motif: expect.stringContaining('migration 446') });
+    expect(appels).toEqual([]);
+    reponses.push((s) => (s.startsWith('INSERT INTO transaction_gestion_mois') ? { rows: [{ id: '7' }] } : undefined));
+    expect(await repo.enregistrerGestion(2026, 10, { ...G, mongaHt: null }, A)).toEqual({ ok: true });
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_gestion_mois'))!.sql).not.toContain('monga_ht');
+    reponses.push((s) => (s.includes('FROM transaction_gestion_mois WHERE retire_le IS NULL') ? { rows: [{ id: '1', annee: 2026, mois: 9, honoraires_ht: '10', monga_ht: null }] } : undefined));
+    const l = await repo.lireGestion();
+    expect([appels.at(-1)!.sql.includes('NULL::numeric AS monga_ht'), l[0].mongaHt]).toEqual([true, null]);
+  });
+  it('avec la 446 : MONGA lu, écrit à la saisie (nouveau mois) et à la modification, journalisé avant / après', async () => {
+    lotGE3.mockResolvedValue(true);
+    reponses.push((s) => (s.startsWith('INSERT INTO transaction_gestion_mois') ? { rows: [{ id: '7' }] } : undefined));
+    expect(await repo.enregistrerGestion(2026, 10, { ...G, mongaHt: 50 }, A)).toEqual({ ok: true });
+    const ins = appels.find((x) => x.sql.startsWith('INSERT INTO transaction_gestion_mois'))!;
+    expect([ins.sql.includes('monga_ht'), ins.params.at(-1)]).toEqual([true, 50]);
+    expect(appels.find((x) => x.sql.startsWith('INSERT INTO transaction_journal'))!.params.some((p) => typeof p === 'string' && p.includes('"monga_ht":50'))).toBe(true);
+    appels.length = 0; reponses = [(x) => (x.startsWith('INSERT INTO transaction_journal') ? { rows: [{ id: '9' }] } : undefined)];
+    reponses.push((s) => (s.startsWith('SELECT id FROM transaction_gestion_mois WHERE annee') ? { rows: [{ id: '7' }] } : undefined));
+    reponses.push((s) => (s.includes('FROM transaction_gestion_mois WHERE id = $1 FOR UPDATE')
+      ? { rows: [{ nb_lots: null, honoraires_ht: '1000', adhoc_ht: '100', salarie_ht: null, reste_ht: '850', note: null, retire_le: null, monga_ht: '50' }] } : undefined));
+    expect(await repo.enregistrerGestion(2026, 10, { ...G, mongaHt: 80, resteHt: 820 }, A)).toEqual({ ok: true });
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE transaction_gestion_mois'))!;
+    expect([maj.sql.includes('monga_ht = '), maj.params.includes(80), maj.params.includes(820)]).toEqual([true, true, true]);
+    reponses.push((s) => (s.includes('FROM transaction_gestion_mois WHERE retire_le IS NULL') ? { rows: [{ id: '1', annee: 2026, mois: 9, honoraires_ht: '10', monga_ht: '12.5' }] } : undefined));
+    const l = await repo.lireGestion();
+    expect([appels.at(-1)!.sql.includes('adhoc_ht, monga_ht, salarie_ht'), l[0].mongaHt]).toEqual([true, 12.5]);
   });
 });

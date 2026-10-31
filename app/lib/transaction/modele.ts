@@ -354,6 +354,8 @@ export interface GestionMois {
   nbLots: number | null;
   honorairesHt: number | null;
   adhocHt: number | null;
+  /** 🔴 LOT GE3 (446) — le coût MONGA HT du mois ; absent ou null : pas de MONGA (0), ou la migration 446 n'est pas appliquée. */
+  mongaHt?: number | null;
   salarieHt: number | null;
   resteHt: number | null;
   note: string | null;
@@ -795,5 +797,5 @@ export function previsionnel(e: Pick<EntreesGlobal, 'ventes'>, annee: number): {
 export const variation = (courant: number, precedent: number): number | null => (precedent === 0 ? null : (courant - precedent) / precedent);
 
 /** Le reste de gestion proposé à la saisie : honoraires − ADHOC − salarié (les champs vides comptent 0) ; null sans honoraires. PUR. */
-export const resteGestionPropose = (g: Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'salarieHt'>): number | null =>
-  g.honorairesHt === null ? null : g.honorairesHt - (g.adhocHt ?? 0) - (g.salarieHt ?? 0);
+export const resteGestionPropose = (g: Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'salarieHt' | 'mongaHt'>): number | null =>
+  g.honorairesHt === null ? null : g.honorairesHt - (g.adhocHt ?? 0) - (g.mongaHt ?? 0) - (g.salarieHt ?? 0); // 🔴 LOT GE3 : MONGA s'y retranche

@@ -9,7 +9,7 @@ import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGes
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
-import { annulationDisponible, interCabinetDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, interCabinetDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocation } from '../../../../lib/transaction/locationLue';
@@ -82,7 +82,8 @@ export async function GET(request: Request): Promise<Response> {
         return totalCompromisEnCours(vs, vueC, resolveurDe(statuts));
       };
       const compromisEnCoursTotaux = { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') };
-      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, compromisEnCours: compromisEnCoursTotaux,
+      // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
+      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, compromisEnCours: compromisEnCoursTotaux, monga: await mongaDisponible().catch(() => false),
         ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
           double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne, repartition: v.repartition ?? null })) } });
     }

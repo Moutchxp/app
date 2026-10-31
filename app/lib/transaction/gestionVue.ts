@@ -8,9 +8,11 @@ import type { MoisChoisi } from './periodeMois';
  * absent d'un mois saisi compte pour 0. Une période = la somme de ses mois ; les lots : ceux du mois, ou leur moyenne sur la période.
  * Montants HT seulement (le comptable envoie du HT).
  */
-export type MesureGestion = 'honoraires' | 'adhoc' | 'salaries' | 'net' | 'lots';
+export type MesureGestion = 'honoraires' | 'adhoc' | 'monga' | 'salaries' | 'net' | 'lots';
+/** 🔴 LOT GE3 — l'ordre partout : Honoraires · ADHOC · MONGA · Salariés · CA net (reste) · Lots. */
 export const MESURES_GESTION: readonly { cle: MesureGestion; mot: string }[] = [
-  { cle: 'honoraires', mot: 'Honoraires' }, { cle: 'adhoc', mot: 'ADHOC' }, { cle: 'salaries', mot: 'Salariés' }, { cle: 'net', mot: 'CA net' }, { cle: 'lots', mot: 'Lots' },
+  { cle: 'honoraires', mot: 'Honoraires' }, { cle: 'adhoc', mot: 'ADHOC' }, { cle: 'monga', mot: 'MONGA' }, { cle: 'salaries', mot: 'Salariés' }, { cle: 'net', mot: 'CA net' },
+  { cle: 'lots', mot: 'Lots' },
 ];
 export const estMesureGestion = (x: unknown): x is MesureGestion => MESURES_GESTION.some((m) => m.cle === x);
 
@@ -21,43 +23,46 @@ export const estMesureGestion = (x: unknown): x is MesureGestion => MESURES_GEST
  */
 export const TAUX_TVA_HONORAIRES = TVA;
 export const TAUX_TVA_ADHOC = TVA;
+/** 🔴 LOT GE3 — MONGA : HT × TAUX_TVA_MONGA (hypothèse d'Arno : MONGA facture avec TVA). */
+export const TAUX_TVA_MONGA = TVA;
 export type UniteGestion = 'ht' | 'ttc';
 const enTtcC = (htC: number, taux: number): number => Math.round(htC * taux);
 
 export interface MoisGestionVu { annee: number; mois: number; saisi: boolean;
   /** Centimes HT. */
-  honorairesC: number; adhocC: number; salariesC: number; netC: number; lots: number | null; ligne: GestionMois | null;
+  honorairesC: number; adhocC: number; mongaC: number; salariesC: number; netC: number; lots: number | null; ligne: GestionMois | null;
   /** 🔴 LOT GE2 — les mêmes en TTC (centimes) ; les salariés : sans TVA. */
-  honorairesTtcC: number; adhocTtcC: number; netTtcC: number }
+  honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number }
 const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(x * 100));
 
 /** Le mois tel que l'écran le compte. PUR. */
 export function moisGestion(gestion: readonly GestionMois[], annee: number, mois: number): MoisGestionVu {
   const g = gestion.find((x) => x.annee === annee && x.mois === mois) ?? null;
-  const [h, a, s] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.salarieHt)];
-  const [hT, aT] = [enTtcC(h, TAUX_TVA_HONORAIRES), enTtcC(a, TAUX_TVA_ADHOC)];
-  return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, salariesC: s, netC: h - a - s, lots: g?.nbLots ?? null, ligne: g,
-    honorairesTtcC: hT, adhocTtcC: aT, netTtcC: hT - aT - s };
+  const [h, a, m, s] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt)];
+  const [hT, aT, mT] = [enTtcC(h, TAUX_TVA_HONORAIRES), enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
+  // 🔴 LOT GE3 — CA net = honoraires − ADHOC − MONGA − salariés (un mois sans MONGA : inchangé au centime)
+  return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, mongaC: m, salariesC: s, netC: h - a - m - s, lots: g?.nbLots ?? null, ligne: g,
+    honorairesTtcC: hT, adhocTtcC: aT, mongaTtcC: mT, netTtcC: hT - aT - mT - s };
 }
 
-export interface TotauxGestion { honorairesC: number; adhocC: number; salariesC: number; netC: number; honorairesTtcC: number; adhocTtcC: number; netTtcC: number;
+export interface TotauxGestion { honorairesC: number; adhocC: number; mongaC: number; salariesC: number; netC: number; honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number;
   /** Les lots : ceux du mois (un seul mois), sinon la moyenne des mois qui en ont ; null : aucun. */
   lots: number | null; nbMois: number; nbSaisis: number }
 /** Les totaux des mois choisis (la somme de leurs mois, au centime). PUR. */
 export function totauxGestion(gestion: readonly GestionMois[], ms: readonly MoisChoisi[]): TotauxGestion {
   const vus = ms.map((m) => moisGestion(gestion, m.annee, m.mois));
   const avecLots = vus.filter((v) => v.lots !== null).map((v) => v.lots as number);
-  const somme = (k: 'honorairesC' | 'adhocC' | 'salariesC' | 'netC' | 'honorairesTtcC' | 'adhocTtcC' | 'netTtcC'): number => vus.reduce((t, v) => t + v[k], 0);
-  return { honorairesC: somme('honorairesC'), adhocC: somme('adhocC'), salariesC: somme('salariesC'), netC: somme('netC'),
-    honorairesTtcC: somme('honorairesTtcC'), adhocTtcC: somme('adhocTtcC'), netTtcC: somme('netTtcC'),
+  const somme = (k: 'honorairesC' | 'adhocC' | 'mongaC' | 'salariesC' | 'netC' | 'honorairesTtcC' | 'adhocTtcC' | 'mongaTtcC' | 'netTtcC'): number => vus.reduce((t, v) => t + v[k], 0);
+  return { honorairesC: somme('honorairesC'), adhocC: somme('adhocC'), mongaC: somme('mongaC'), salariesC: somme('salariesC'), netC: somme('netC'),
+    honorairesTtcC: somme('honorairesTtcC'), adhocTtcC: somme('adhocTtcC'), mongaTtcC: somme('mongaTtcC'), netTtcC: somme('netTtcC'),
     lots: avecLots.length === 0 ? null : avecLots.reduce((t, x) => t + x, 0) / avecLots.length, nbMois: vus.length, nbSaisis: vus.filter((v) => v.saisi).length };
 }
 
 /** Le montant d'une mesure en centimes, dans l'unité (les salariés : sans TVA). PUR. */
 export function centimesGestion(t: Omit<TotauxGestion, 'lots' | 'nbMois' | 'nbSaisis'>, m: Exclude<MesureGestion, 'lots'>, u: UniteGestion = 'ht'): number {
   if (m === 'salaries') return t.salariesC;
-  if (u === 'ttc') return m === 'honoraires' ? t.honorairesTtcC : m === 'adhoc' ? t.adhocTtcC : t.netTtcC;
-  return m === 'honoraires' ? t.honorairesC : m === 'adhoc' ? t.adhocC : t.netC;
+  if (u === 'ttc') return m === 'honoraires' ? t.honorairesTtcC : m === 'adhoc' ? t.adhocTtcC : m === 'monga' ? t.mongaTtcC : t.netTtcC;
+  return m === 'honoraires' ? t.honorairesC : m === 'adhoc' ? t.adhocC : m === 'monga' ? t.mongaC : t.netC;
 }
 /** La valeur d'une mesure (en euros, dans l'unité, ou le nombre de lots ; un mois sans lots : 0). PUR. */
 export function valeurGestion(t: TotauxGestion, m: MesureGestion, u: UniteGestion = 'ht'): number {
@@ -69,15 +74,15 @@ export function valeurGestion(t: TotauxGestion, m: MesureGestion, u: UniteGestio
  * montant du comptable, tel quel en HT) reçoit en TTC la TVA des honoraires moins celle d'ADHOC — soit honoraires TTC − ADHOC TTC − salarié quand le
  * reste saisi suit la règle. PUR.
  */
-export function ligneGestionEnUnite(g: Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'salarieHt' | 'resteHt'> | null, u: UniteGestion):
-  { honoraires: number | null; adhoc: number | null; salarie: number | null; reste: number | null } {
+export function ligneGestionEnUnite(g: Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'mongaHt' | 'salarieHt' | 'resteHt'> | null, u: UniteGestion):
+  { honoraires: number | null; adhoc: number | null; monga: number | null; salarie: number | null; reste: number | null } {
   const c = (x: number | null | undefined): number | null => (x == null ? null : Math.round(x * 100));
-  const [h, a, s, r] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.salarieHt), c(g?.resteHt)];
+  const [h, a, m, s, r] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt), c(g?.resteHt)];
   const e = (x: number | null): number | null => (x === null ? null : x / 100);
-  if (u === 'ht') return { honoraires: e(h), adhoc: e(a), salarie: e(s), reste: e(r) };
-  const hT = h === null ? null : enTtcC(h, TAUX_TVA_HONORAIRES); const aT = a === null ? null : enTtcC(a, TAUX_TVA_ADHOC);
-  const tvaH = h === null || hT === null ? 0 : hT - h; const tvaA = a === null || aT === null ? 0 : aT - a;
-  return { honoraires: e(hT), adhoc: e(aT), salarie: e(s), reste: r === null ? null : e(r + tvaH - tvaA) };
+  if (u === 'ht') return { honoraires: e(h), adhoc: e(a), monga: e(m), salarie: e(s), reste: e(r) };
+  const hT = h === null ? null : enTtcC(h, TAUX_TVA_HONORAIRES); const aT = a === null ? null : enTtcC(a, TAUX_TVA_ADHOC); const mT = m === null ? null : enTtcC(m, TAUX_TVA_MONGA);
+  const tvaH = h === null || hT === null ? 0 : hT - h; const tvaA = a === null || aT === null ? 0 : aT - a; const tvaM = m === null || mT === null ? 0 : mT - m;
+  return { honoraires: e(hT), adhoc: e(aT), monga: e(mT), salarie: e(s), reste: r === null ? null : e(r + tvaH - tvaA - tvaM) };
 }
 
 /** Les années de la gestion (et l'année en cours), croissantes. PUR. */

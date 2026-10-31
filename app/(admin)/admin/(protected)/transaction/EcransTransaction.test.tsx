@@ -265,7 +265,7 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
 
   it('Le mois (janvier 2025) : 4 tuiles — honoraires, ADHOC (rouge), salariés (gris à 0), CA net = honoraires − ADHOC − salariés au centime ; N−1 et écart ; pas de HT | TTC ni de Négociateur', async () => {
     await ouvrirG('/?vue=mois&annee=2025&mois=1');
-    expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-salaries', 'gestion-net']);
+    expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaries', 'gestion-net']); // 🔴 LOT GE3 : MONGA
     expect([valeur('gestion-honoraires'), valeur('gestion-adhoc'), valeur('gestion-salaries'), valeur('gestion-net')]).toEqual([1412700, 643700, 0, 769000]);
     expect(valeur('gestion-honoraires') - valeur('gestion-adhoc') - valeur('gestion-salaries')).toBe(valeur('gestion-net'));
     expect([container.querySelector('[data-tuile-valeur="gestion-adhoc"]')!.className, container.querySelector('[data-tuile-valeur="gestion-salaries"]')!.className])
@@ -302,7 +302,7 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
 
   it('le graphique : Honoraires | ADHOC | Salariés | CA net | Lots ; Mensuel (N−1 hachurée, le mois en rouge, aucun mois pâle) / Cumul', async () => {
     await ouvrirG('/?vue=mois&annee=2025&mois=3');
-    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['Honoraires', 'ADHOC', 'Salariés', 'CA net', 'Lots']);
+    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['Honoraires', 'ADHOC', 'MONGA', 'Salariés', 'CA net', 'Lots']); // 🔴 LOT GE3
     const barre = (k: number) => Number(container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"] .tdb-barre`)!.getAttribute('data-valeur'));
     expect([barre(1), barre(3), container.querySelector('[data-barre-mois="3"] .tdb-barre--courante') !== null, container.querySelector('[data-barre-n1="1"]') !== null,
       container.querySelectorAll('.tdb-barre-annee--pale').length]).toEqual([14127, 16184.63, true, true, 0]);
@@ -394,6 +394,79 @@ describe('🔴 LOT GE2 — « Gestion » : Montants HT | TTC', () => {
     await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
     await cliquer('[data-saisir-gestion-mois="2025-3"]');
     expect([texte('[data-montants-ht]'), (container.querySelector('[data-champ-gestion="honorairesHt"]') as HTMLInputElement).value]).toEqual(['Montants HT (la saisie du comptable).', '16184,63']);
+  });
+});
+
+describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salarié)', () => {
+  const g = (id: number, annee: number, mois: number, o: Record<string, unknown>) => ({ id, annee, mois, nbLots: null, honorairesHt: null, adhocHt: null, salarieHt: null, resteHt: null, note: null, origine: 'saisie', ...o });
+  const jeu = () => [g(2, 2025, 3, { honorairesHt: 16184.63, adhocHt: 2449, salarieHt: 2688.91, resteHt: 11046.72 }), g(3, 2024, 3, { honorairesHt: 10000, adhocHt: 5000, resteHt: 5000 })];
+  let avant: typeof donneesGlobal.gestion;
+  beforeEach(() => { avant = donneesGlobal.gestion; donneesGlobal.gestion = jeu() as unknown as typeof donneesGlobal.gestion; (donneesGlobal as { monga?: boolean }).monga = true; });
+  afterEach(() => { donneesGlobal.gestion = avant; delete (donneesGlobal as { monga?: boolean }).monga; window.localStorage.setItem('trx-affichage-montants', 'ht'); });
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const valeur = (cle: string) => centimesDe(texte(`[data-tuile-valeur="${cle}"]`));
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const taper = async (cle: string, x: string) => {
+    const el = container.querySelector(`[data-champ-gestion="${cle}"]`) as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, x); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const ouvrirG = async (q: string) => { window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGestion)); }); await calmer(); };
+
+  it('un mois sans MONGA : inchangé au centime ; les 5 tuiles (MONGA gris à 0), la colonne et l’onglet MONGA, dans l’ordre Honoraires · ADHOC · MONGA · Salarié · Reste', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=3');
+    expect([valeur('gestion-monga'), valeur('gestion-net'), container.querySelector('[data-tuile-valeur="gestion-monga"]')!.className]).toEqual([0, 1618463 - 244900 - 268891, expect.stringContaining('trx-cout-nul')]);
+    expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaries', 'gestion-net']);
+    expect([...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(2, 7)).toEqual(['Honoraires', 'ADHOC', 'MONGA', 'Salarié', 'Reste']);
+    expect([texte('[data-mois-gestion="3"] [data-mot="MONGA"]'), texte('[data-mois-gestion="3"] [data-mot="Reste"]')]).toEqual(['—', '11 046,72 €']);
+    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent).slice(1, 4)).toEqual(['ADHOC', 'MONGA', 'Salariés']);
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION).toContain('.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(5,minmax(0,1fr))}');
+    expect(CSS_TRANSACTION).toContain('@media (max-width:760px){ .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(2,minmax(0,1fr))} }');
+  });
+
+  it('« Modifier » : MONGA entre ADHOC et Salarié ; le reste saisi diminue d’autant ; enregistré ; la page suit (tuiles, tableau, total, graphique), HT et TTC', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=3');
+    await cliquer('[data-saisir-gestion-mois="2025-3"]');
+    expect([...container.querySelectorAll('[data-saisie-gestion] [data-champ-gestion]')].map((x) => x.getAttribute('data-champ-gestion')))
+      .toEqual(['nbLots', 'honorairesHt', 'adhocHt', 'mongaHt', 'salarieHt', 'resteHt']);
+    await taper('mongaHt', '500');
+    expect((container.querySelector('[data-champ-gestion="resteHt"]') as HTMLInputElement).value).toBe('10546,72');
+    await taper('mongaHt', '500,05');
+    expect((container.querySelector('[data-champ-gestion="resteHt"]') as HTMLInputElement).value).toBe('10546,67');
+    expect(texte('[data-saisie-gestion] form')).toContain('Proposé : 10 546,67 €');
+    donneesGlobal.gestion = [{ ...(jeu()[0] as object), mongaHt: 500.05, resteHt: 10546.67 }, jeu()[1]] as unknown as typeof donneesGlobal.gestion;
+    await cliquer('[data-enregistrer-gestion]');
+    expect(posts.at(-1)).toMatchObject({ action: 'gestion-enregistrer', annee: 2025, mois: 3, gestion: { mongaHt: '500,05', resteHt: '10546,67' } });
+    expect([valeur('gestion-monga'), valeur('gestion-net'), texte('[data-mois-gestion="3"] [data-mot="MONGA"]'), texte('[data-mois-gestion="3"] [data-mot="Reste"]'), texte('[data-total-gestion] [data-mot="MONGA"]')])
+      .toEqual([50005, 1618463 - 244900 - 50005 - 268891, '500,05 €', '10 546,67 €', '500,05 €']);
+    expect(valeur('gestion-honoraires') - valeur('gestion-adhoc') - valeur('gestion-monga') - valeur('gestion-salaries')).toBe(valeur('gestion-net'));
+    expect(texte('[data-tuile-n1="gestion-monga"]')).toBe('0 € en 2024 (—)');
+    await cliquer('[data-mesure-bouton="monga"]');
+    expect(Number(container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois="3"] .tdb-barre')!.getAttribute('data-valeur'))).toBe(500.05);
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('MONGA HT500,05 €');
+    await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+    expect([valeur('gestion-monga'), texte('[data-mois-gestion="3"] [data-mot="MONGA"]'), valeur('gestion-net')])
+      .toEqual([60006, '600,06 €', Math.round(1618463 * 1.2) - 293880 - 60006 - 268891]);
+  });
+
+  it('Période, Année, Tout : la colonne MONGA et ses totaux ; sans la migration 446 : MONGA à 0, champ grisé ; l’observateur ne peut pas écrire', async () => {
+    donneesGlobal.gestion = [{ ...(jeu()[0] as object), mongaHt: 100, resteHt: 10946.72 }, g(4, 2025, 4, { honorairesHt: 1000, mongaHt: 10.5, resteHt: 989.5 }), jeu()[1]] as unknown as typeof donneesGlobal.gestion;
+    await ouvrirG('/?vue=mois&annee=2025&mois=4&vue-mois=periode&periode=2025-03,2025-04');
+    expect([valeur('gestion-monga'), texte('[data-total-gestion] [data-mot="MONGA"]')]).toEqual([11050, '110,50 €']);
+    await cliquer('[data-decouper="annee"]');
+    expect(valeur('gestion-monga')).toBe(11050);
+    await cliquer('[data-vue="annee"]'); await cliquer('[data-decouper-annees="tout"]');
+    expect([texte('[data-annee-gestion="2025"] [data-mot="MONGA"]'), [...container.querySelectorAll('[data-table-gestion-annees] thead th')].map((x) => x.textContent).slice(2, 7)])
+      .toEqual(['110,50 €', ['Honoraires', 'ADHOC', 'MONGA', 'Salarié', 'Reste']]);
+    // sans la 446 : le champ est grisé, son motif dit
+    act(() => { root.unmount(); }); root = createRoot(container);
+    delete (donneesGlobal as { monga?: boolean }).monga;
+    donneesGlobal.gestion = jeu() as unknown as typeof donneesGlobal.gestion;
+    await ouvrirG('/?vue=mois&annee=2025&mois=3');
+    await cliquer('[data-saisir-gestion-mois="2025-3"]');
+    expect([(container.querySelector('[data-champ-gestion="mongaHt"]') as HTMLInputElement).disabled, texte('[data-saisie-gestion] form')]).toEqual([true, expect.stringContaining('migration 446')]);
+    const { ecritureRefuseeObservateur } = await import('../../../../lib/admin/observateur');
+    expect([ecritureRefuseeObservateur('observateur', 'POST', '/api/admin/transaction'), ecritureRefuseeObservateur('observateur', 'GET', '/api/admin/transaction')]).toEqual([true, false]);
   });
 });
 

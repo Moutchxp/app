@@ -66,7 +66,7 @@ describe('les gestes', () => {
     expect((await post({ action: 'gestion-enregistrer', annee: 2025, mois: 13, gestion: {} })).status).toBe(400);
     repo.enregistrerGestion.mockResolvedValue({ ok: true });
     await post({ action: 'gestion-enregistrer', annee: 2025, mois: 5, gestion: { nbLots: '286', honorairesHt: '15345,12' } });
-    expect(repo.enregistrerGestion).toHaveBeenCalledWith(2025, 5, { nbLots: 286, honorairesHt: 15345.12, adhocHt: null, salarieHt: null, resteHt: null, note: null }, { id: 3, libelle: 'arno' });
+    expect(repo.enregistrerGestion).toHaveBeenCalledWith(2025, 5, { nbLots: 286, honorairesHt: 15345.12, adhocHt: null, mongaHt: null, salarieHt: null, resteHt: null, note: null }, { id: 3, libelle: 'arno' });
   });
   it('action inconnue : 400', async () => {
     expect((await post({ action: 'supprimer', id: 1 })).status).toBe(400);

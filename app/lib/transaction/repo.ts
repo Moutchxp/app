@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -220,11 +220,13 @@ export async function lireARattacher(societe: Societe): Promise<CaARattacher[]> 
 }
 
 export async function lireGestion(): Promise<GestionMois[]> {
+  // 🔴 LOT GE3 — le coût MONGA (446) : lu seulement quand la colonne existe ; sans elle, null (0).
+  const avecMonga = await mongaDisponible();
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT id, annee, mois, nb_lots, honoraires_ht, adhoc_ht, salarie_ht, reste_ht, note, origine
+    `SELECT id, annee, mois, nb_lots, honoraires_ht, adhoc_ht, ${avecMonga ? 'monga_ht' : 'NULL::numeric AS monga_ht'}, salarie_ht, reste_ht, note, origine
        FROM transaction_gestion_mois WHERE retire_le IS NULL ORDER BY annee, mois`);
   return rows.map((r) => ({ id: n(r.id), annee: n(r.annee), mois: n(r.mois), nbLots: nOuNull(r.nb_lots), honorairesHt: nOuNull(r.honoraires_ht),
-    adhocHt: nOuNull(r.adhoc_ht), salarieHt: nOuNull(r.salarie_ht), resteHt: nOuNull(r.reste_ht), note: t(r.note), origine: r.origine as GestionMois['origine'] }));
+    adhocHt: nOuNull(r.adhoc_ht), mongaHt: nOuNull(r.monga_ht), salarieHt: nOuNull(r.salarie_ht), resteHt: nOuNull(r.reste_ht), note: t(r.note), origine: r.origine as GestionMois['origine'] }));
 }
 
 export interface EntreeJournal { id: number; action: string; avant: unknown; apres: unknown; commentaire: string | null; auteur: string; le: string;
@@ -270,6 +272,8 @@ async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   const c = COLONNES[entite].colonnes;
   // 🔴 LOT BJ — type, civilité, prénom d'une fiche (443) : lus et écrits SEULEMENT quand la migration est appliquée.
   if (entite === 'personne') return (await personneTypeDisponible()) ? [...c, 'type', 'civilite', 'prenom'] : c;
+  // 🔴 LOT GE3 — le coût MONGA (446) : lu et écrit SEULEMENT quand la colonne existe.
+  if (entite === 'gestion_mois') return (await mongaDisponible()) ? [...c, 'monga_ht'] : c;
   if (entite !== 'vente') return c;
   // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
   return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
@@ -497,14 +501,17 @@ export async function saisirRetro(s: RetroSaisie, auteur: AuteurTx): Promise<Iss
 
 export async function enregistrerGestion(annee: number, mois: number, g: GestionSaisie, auteur: AuteurTx): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  // 🔴 LOT GE3 — sans la 446, un MONGA saisi est refusé (rien n'est écrit) ; un MONGA vide passe comme avant.
+  const avecMonga = await mongaDisponible();
+  if (!avecMonga && g.mongaHt != null) return { ok: false, motif: 'Le coût MONGA s’enregistrera après la mise à jour de la base (migration 446) : rien n’a été écrit.' };
   return withTransaction(async (q) => {
-    const valeurs = { nb_lots: g.nbLots, honoraires_ht: g.honorairesHt, adhoc_ht: g.adhocHt, salarie_ht: g.salarieHt, reste_ht: g.resteHt, note: g.note };
+    const valeurs = { nb_lots: g.nbLots, honoraires_ht: g.honorairesHt, adhoc_ht: g.adhocHt, ...(avecMonga ? { monga_ht: g.mongaHt ?? null } : {}), salarie_ht: g.salarieHt, reste_ht: g.resteHt, note: g.note };
     const { rows } = await q<{ id: string }>('SELECT id FROM transaction_gestion_mois WHERE annee = $1 AND mois = $2 AND retire_le IS NULL FOR UPDATE', [annee, mois]);
     if (rows.length === 0) {
       const { rows: c } = await q<{ id: string }>(
-        `INSERT INTO transaction_gestion_mois (annee, mois, nb_lots, honoraires_ht, adhoc_ht, salarie_ht, reste_ht, note, origine, cree_par_libelle)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'saisie', $9) RETURNING id`,
-        [annee, mois, g.nbLots, g.honorairesHt, g.adhocHt, g.salarieHt, g.resteHt, g.note, auteur.libelle]);
+        `INSERT INTO transaction_gestion_mois (annee, mois, nb_lots, honoraires_ht, adhoc_ht, salarie_ht, reste_ht, note, origine, cree_par_libelle${avecMonga ? ', monga_ht' : ''})
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'saisie', $9${avecMonga ? ', $10' : ''}) RETURNING id`,
+        [annee, mois, g.nbLots, g.honorairesHt, g.adhocHt, g.salarieHt, g.resteHt, g.note, auteur.libelle, ...(avecMonga ? [g.mongaHt ?? null] : [])]);
       await journaliser(q, { entite: 'gestion_mois', id: n(c[0].id), action: 'saisie', avant: null, apres: { annee, mois, ...valeurs }, auteur });
       return { ok: true };
     }

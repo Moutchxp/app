@@ -421,6 +421,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-ligne-choisie th,.trx-ligne-choisie td{background:color-mix(in srgb, var(--color-svv-red) 7%, transparent)}
 /* LOT GE1 — les cinq onglets du graphique de la Gestion (Honoraires, ADHOC, Salaries, CA net, Lots) : sur deux lignes si besoin, aucun coupe. */
 [data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;justify-content:flex-start;column-gap:2px}
+/* LOT GE3 — la Gestion : CINQ tuiles alignees (honoraires, ADHOC, MONGA, salaries, CA net) ; tablette 3 par ligne, telephone 2 par ligne. */
+.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:1100px){ .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:760px){ .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.trx-tuiles-gestion .trx-tuile-autre{white-space:normal;overflow-wrap:anywhere}
 /* LOT DJ — la recherche d'une liste de cartes : discrete, a droite de la ligne du titre ; au telephone, sous le titre, pleine largeur. */
 .trx-recherche-liste{margin-left:auto;position:relative;display:inline-flex;align-items:center}
 .trx-recherche-champ{height:36px;width:min(260px,100%);padding:0 30px 0 12px;border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem}

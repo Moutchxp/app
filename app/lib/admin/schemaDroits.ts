@@ -147,6 +147,14 @@ export function personneTypeDisponible(): Promise<boolean> {
     && (await colonneExiste('transaction_personne', 'prenom')) && colonneExiste('transaction_personne_representant', 'societe_id'));
 }
 
+/**
+ * 🔴 LOT GE3 — la migration 446 (le coût MONGA HT de la gestion du mois) est-elle appliquée ? Sans elle : MONGA vaut 0 partout, la saisie d'un
+ * MONGA est refusée (motif clair, rien n'est écrit).
+ */
+export function mongaDisponible(): Promise<boolean> {
+  return memoiser('transaction_gestion_mois.monga_ht', () => colonneExiste('transaction_gestion_mois', 'monga_ht'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

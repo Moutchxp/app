@@ -25,7 +25,9 @@ export interface VenteSaisie {
 export type ChampsVente = Partial<Omit<VenteSaisie, 'societe' | 'parts'>>;
 
 export interface RetroSaisie { societe: Societe; annee: number; mois: number; negociateur: string; montantTtc: number; apporteur: string | null; venteId: number | null }
-export interface GestionSaisie { nbLots: number | null; honorairesHt: number | null; adhocHt: number | null; salarieHt: number | null; resteHt: number | null; note: string | null }
+export interface GestionSaisie { nbLots: number | null; honorairesHt: number | null; adhocHt: number | null; salarieHt: number | null; resteHt: number | null; note: string | null;
+  /** 🔴 LOT GE3 (446) — le coût MONGA HT ; mêmes contrôles qu'ADHOC. */
+  mongaHt?: number | null }
 
 type Lu<T> = { ok: true; valeur: T } | { ok: false; motif: string };
 const refus = <T>(motif: string): Lu<T> => ({ ok: false, motif });
@@ -129,14 +131,14 @@ export function lireGestion(brut: unknown): Lu<GestionSaisie> {
   const c = (brut ?? {}) as Record<string, unknown>;
   const lots = entier(c.nbLots, 0, 100000);
   if (lots === undefined) return refus('Nombre de lots invalide.');
-  const champs = ['honorairesHt', 'adhocHt', 'salarieHt', 'resteHt'] as const;
+  const champs = ['honorairesHt', 'adhocHt', 'mongaHt', 'salarieHt', 'resteHt'] as const;
   const lus: Record<string, number | null> = {};
   for (const k of champs) {
     const m = montant(c[k]);
     if (m === undefined) return refus('Montant illisible.');
     lus[k] = m;
   }
-  return { ok: true, valeur: { nbLots: lots, honorairesHt: lus.honorairesHt, adhocHt: lus.adhocHt, salarieHt: lus.salarieHt, resteHt: lus.resteHt, note: texte(c.note) } };
+  return { ok: true, valeur: { nbLots: lots, honorairesHt: lus.honorairesHt, adhocHt: lus.adhocHt, mongaHt: lus.mongaHt, salarieHt: lus.salarieHt, resteHt: lus.resteHt, note: texte(c.note) } };
 }
 
 // ── LOT D (migration 434) : un compromis ou une vente avec son dossier et sa répartition ─────────────────────────────────────────
