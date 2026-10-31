@@ -1361,10 +1361,10 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const fin = await ouvrirNoms('/?vue=mois&annee=2025&mois=1');
       try {
         const sous = () => container.querySelector('.trx-rangee-mois')!.nextElementSibling!;
-        expect([container.querySelector('[data-periode-libelle]'), sous().className]).toEqual([null, 'tdb-tuiles']);
+        expect([container.querySelector('[data-periode-libelle]'), sous().classList.contains('tdb-tuiles')]).toEqual([null, true]); // 🔴 LOT DB : + trx-tuiles-alignees
         await cliquer('[data-decouper="periode"]');
         await cliquer('[data-onglet-mois="3"]');
-        expect([container.querySelector('[data-periode-libelle]'), sous().className]).toEqual([null, 'tdb-tuiles']);
+        expect([container.querySelector('[data-periode-libelle]'), sous().classList.contains('tdb-tuiles')]).toEqual([null, true]); // 🔴 LOT DB : + trx-tuiles-alignees
         expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de la période — janvier, mars 2025 (2 mois)');
         expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Période : janvier, mars 2025 (2 mois)');
       } finally { fin(); }
@@ -1796,6 +1796,34 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       fin = await ouvrir6('', 'macj');
       try { expect(t4('[data-ca-net-cumul]')).toBe(1300000); } finally { fin(); }
     });
+  });
+
+  it('🔴 LOT DB — les rangées de tuiles alignées (subgrid) : Le mois (trois modes, HT et TTC), L’année, l’onglet Compromis ; chaque partie d’une tuile a sa rangée', async () => {
+    const { CSS_TRANSACTION } = await import('./commun');
+    const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
+    for (const r of ['.trx-tuiles-alignees>li{display:grid;grid-row:span 5;grid-template-rows:subgrid;', '.trx-tuiles-alignees>li>.tdb-tuile{grid-row:1 / -1;display:grid;grid-template-rows:subgrid;',
+      '.tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;', '.tdb-tuile>.tdb-tuile-valeur{grid-row:2}', '.tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}', '.tdb-tuile>.trx-tuile-autre{grid-row:3;',
+      '.tdb-tuile>.tdb-tuile-n1{grid-row:4;', '.tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;']) expect([r, css.includes(r)]).toEqual([r, true]);
+    // chaque enfant d'une tuile est rangé (titre, chiffre, montant entre parenthèses, ligne du bas) : aucun ne tombe hors de sa rangée
+    const ranges = ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-tuile-autre', 'trx-tuile-montants', 'tdb-tuile-n1'];
+    const verifier = (ou: string) => {
+      const uls = [...container.querySelectorAll('ul.tdb-tuiles')];
+      expect([ou, uls.length > 0, uls.every((u) => u.classList.contains('trx-tuiles-alignees'))]).toEqual([ou, true, true]);
+      for (const t of container.querySelectorAll('ul.tdb-tuiles > li > .tdb-tuile')) {
+        for (const e of t.children) expect([ou, t.getAttribute('data-tuile'), e.className, ranges.some((c) => e.classList.contains(c))]).toEqual([ou, t.getAttribute('data-tuile'), e.className, true]);
+      }
+    };
+    for (const u of ['ht', 'ttc'] as const) {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      for (const m of ['vendu', 'compromis', 'tous']) {
+        const fin = await ouvrirSur([deux], 'criterimmo', `/?vue=mois&annee=2025&mois=1&mode=${m}`);
+        try { verifier(`mois ${m} ${u}`); } finally { fin(); }
+      }
+    }
+    let fin = await ouvrirSur([deux], 'criterimmo', '/?vue=annee');
+    try { verifier('annee'); } finally { fin(); }
+    fin = await ouvrirSur([deux], 'criterimmo', '/?vue=compromis');
+    try { verifier('onglet compromis'); } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
   });
 
   it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {

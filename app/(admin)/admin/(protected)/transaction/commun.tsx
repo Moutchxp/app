@@ -317,6 +317,22 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}
+/* LOT DB — les rangées de tuiles (Le mois, L'année, onglet Compromis, CA global) : dans une même ligne de tuiles, le titre occupe une zone de hauteur
+   commune (celle du plus long, titre aligné en bas), puis le gros chiffre, le montant entre parenthèses et la ligne du bas sont chacun sur la même
+   ligne horizontale ; une tuile sans montant entre parenthèses garde sa place vide. La grille de la rangée porte les lignes ; chaque tuile les
+   reprend (subgrid) : toutes ont la même hauteur. Au téléphone (2 puis 1 par ligne) : la même règle, ligne par ligne. */
+.trx-tuiles-alignees{row-gap:0;margin-bottom:-14px}
+/* l'espace entre deux lignes de tuiles est porté par chaque tuile (14 px) ; la rangée le reprend en bas : l'espace sous les tuiles ne change pas */
+.trx-onglet-compromis > .trx-tuiles-alignees{margin-bottom:2px}
+.trx-tuiles-alignees>li{display:grid;grid-row:span 5;grid-template-rows:subgrid;row-gap:0;margin-bottom:14px;min-width:0}
+.trx-tuiles-alignees>li>.tdb-tuile{grid-row:1 / -1;display:grid;grid-template-rows:subgrid;row-gap:0;justify-items:center;align-items:start;height:auto;min-height:0}
+.trx-tuiles-alignees .tdb-tuile>*{grid-column:1;min-width:0;max-width:100%}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;padding-bottom:8px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-valeur{grid-row:2}
+.trx-tuiles-alignees .tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}
+.trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:4px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1{grid-row:4;padding-top:8px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;padding-top:4px}
 /* LOT CW — la définition du CA net, en petit, sous le graphique. */
 .trx-note-ca-net{margin:6px 0 0;font-size:.8rem}
 /* LOT CW — trois onglets « CA | CA net | Nombre de ventes » dans la colonne de 270 px de l'encadré : un peu moins d'espace autour de chacun. */

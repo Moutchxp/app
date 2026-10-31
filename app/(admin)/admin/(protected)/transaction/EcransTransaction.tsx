@@ -488,7 +488,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
     {/* 🔴 LOT CQ — la ligne « Période : … » sous les mois est RETIRÉE (accord d'Arno) : les titres des blocs disent la période. Reste le petit
         message du dernier mois, qui ne se retire pas. */}
     {enPeriode && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
-    <ul className="tdb-tuiles" aria-label={`L’essentiel ${duMois}`} data-mode-ecran={mode}>
+    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel ${duMois}`} data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ca-mois">
         <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
         {/* 🔴 LOT CH — le CA de la tuile = celui du Résultat (la somme des cartes, au centime). */}
@@ -1004,7 +1004,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee, filtreNegoci
   const apporteurs = parApporteur([...retrosSaisiesP, ...retrosLieesP.filter((r) => !retrosSaisiesP.some((x) => x.id === r.id))], d.ventes);
   return <>
     <p className="tdb-periode">Période : <strong>{libelle}</strong></p>
-    <ul className="tdb-tuiles" aria-label={`L’essentiel — ${libelle}`}>
+    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${libelle}`}>
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ca-periode">
         <span className="tdb-tuile-mot">CA {U.MOT} <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{U.e(T.caHt)}</strong><Autre ht={T.caHt} />
         <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${U.e(TP.caHt)} · ${ecartEur(U.en(T.caHt - TP.caHt))} (${signePct(variation(T.caHt, TP.caHt))})`}</span></button></li>
@@ -1231,7 +1231,7 @@ export function EcranGlobal() {
           <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
             onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
       </form>
-      <ul className="tdb-tuiles" aria-label={`L’essentiel — ${annee}`}>
+      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${annee}`}>
         <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global HT ({annee})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>
           <span className="tdb-tuile-n1">{eur(A1.totalHt)} en {annee - 1} ({signePct(variation(A.totalHt, A1.totalHt))})</span></div></li>
         <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO HT <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>
@@ -1400,7 +1400,7 @@ export function EcranGestion() {
           <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
             onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
       </form>
-      <ul className="tdb-tuiles" aria-label={`La gestion — ${annee}`}>
+      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`La gestion — ${annee}`}>
         <li><div className="tdb-tuile" data-tuile="gestion-honoraires"><span className="tdb-tuile-mot">Honoraires de gestion HT ({annee})</span><strong className="tdb-tuile-valeur">{manque(H)}</strong>
           <span className="tdb-tuile-n1">{manque(N1)} en {annee - 1}{H !== null && N1 !== null ? ` (${signePct(variation(H, N1))})` : ''}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="gestion-reste"><span className="tdb-tuile-mot">Reste HT ({annee})</span><strong className="tdb-tuile-valeur">{manque(somme(deLAnnee(annee), 'resteHt'))}</strong>

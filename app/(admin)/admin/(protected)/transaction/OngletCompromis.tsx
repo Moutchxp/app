@@ -194,7 +194,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
           au survol) ; le solde net (CA HT − commissions HT, négatif tel quel). Le mot accompagne toujours la couleur. */}
       {/* 🔴 LOT CR (Arno) — la ligne « N compromis sans date (en cours) — pas dans cette vue » de la vue « Du mois » est RETIRÉE (accord d'Arno) ;
           les compromis sans date restent dans la vue « En cours ». */}
-      <ul className="tdb-tuiles trx-tuiles4" aria-label={vueListe === 'mois' ? 'Les compromis du mois' : 'Les compromis en cours'} data-totaux-compromis data-totaux-vue={vueListe}>
+      <ul className="tdb-tuiles trx-tuiles4 trx-tuiles-alignees" aria-label={vueListe === 'mois' ? 'Les compromis du mois' : 'Les compromis en cours'} data-totaux-compromis data-totaux-vue={vueListe}>
         <li><div className="tdb-tuile" data-tuile="nombre"><span className="tdb-tuile-mot">{vueListe === 'mois' ? 'Compromis du mois' : 'Compromis en cours'}</span><strong className="tdb-tuile-valeur" data-nb-compromis>{tu.nb}</strong>
           <span className="tdb-tuile-n1">{vueListe === 'mois' ? `signés en ${moisEnLettres(d.aujourdhui)}, hors annulés` : 'acte non signé, hors annulés'}</span></div></li>
         {/* 🔴 LOT AN / AO (Arno) — la tuile « Chiffre d'affaires » : le titre et le total (grand / petit selon « HT | TTC ») ; elle n'ouvre plus
