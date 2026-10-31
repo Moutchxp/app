@@ -1883,6 +1883,86 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
+  describe('🔴 LOT DD — l’encadré de 2 à 5 négociateurs : les lignes par valeur décroissante de la mesure affichée', () => {
+    // aujourd'hui : 27/10/2025 ; sélection : Arnaud (couleur 1), Cédric (2), Julien (3)
+    const ld = (negociateur: string, montantTtc: number, role: LigneVente['role'] = 'part'): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+      origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (): Vente[] => [
+      vente(180, { societe: 'criterimmo', libelle: 'A JANV', honorairesTtc: 6000, annee: 2025, mois: 1, lignes: [ld('ARNAUD', 6000)] }),
+      vente(181, { societe: 'criterimmo', libelle: 'C MARS 1', honorairesTtc: 3000, annee: 2025, mois: 3, lignes: [ld('CEDRIC', 3000)] }),
+      vente(182, { societe: 'criterimmo', libelle: 'C MARS 2', honorairesTtc: 1200, annee: 2025, mois: 3, lignes: [ld('CEDRIC', 1200)] }),
+      // CA 9 000, CA net 4 000 (sa commission de 5 000 retirée)
+      vente(183, { societe: 'criterimmo', libelle: 'J JUIL', honorairesTtc: 9000, annee: 2025, mois: 7, lignes: [ld('JULIEN', 5000, 'negociateur')] }),
+    ];
+    const ordre = () => [...container.querySelectorAll('[data-histo-detail] [data-detail-serie]')].map((x) => x.getAttribute('data-detail-serie'));
+    const legende = () => [...container.querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'));
+    const survoler = async (k: number) => { await act(async () => { container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"]`)!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); };
+    const ouvrirD = async () => {
+      const avant = donnees.nomsNegociateurs; donnees.nomsNegociateurs = { ARNAUD: 'Arnaud JOREL', CEDRIC: 'Cédric JULLIEN', JULIEN: 'Julien' };
+      const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=3&negociateur=Arnaud%20JOREL&negociateur=C%C3%A9dric%20JULLIEN&negociateur=Julien');
+      return () => { fin(); donnees.nomsNegociateurs = avant; };
+    };
+
+    it('au repos (Cumul) et au survol d’un mois où l’ordre change ; les trois onglets ; égalité : ordre alphabétique ; HT et TTC', async () => {
+      for (const u of ['ht', 'ttc'] as const) {
+        window.localStorage.setItem('trx-affichage-montants', u);
+        const fin = await ouvrirD();
+        try {
+          await cliquer('[data-cumul-bouton]');
+          // CA cumulé à fin octobre : Julien 9 000, Arnaud 6 000, Cédric 4 200
+          expect([u, ordre()]).toEqual([u, ['3', '1', '2']]);
+          expect([...container.querySelectorAll('[data-detail-serie] .tdb-bulle-montant')].map((x) => (x.textContent ?? '').replace(/\s/g, ' ')))
+            .toEqual(u === 'ttc' ? ['9 000,00 € · 1', '6 000,00 € · 1', '4 200,00 € · 2'] : ['7 500,00 € · 1', '5 000,00 € · 1', '3 500,00 € · 2']);
+          // au survol de mars (cumul) : Arnaud 6 000, Cédric 4 200, Julien 0 — l'ordre change
+          await survoler(3);
+          expect(ordre()).toEqual(['1', '2', '3']);
+          await act(async () => { container.querySelector('[data-bloc="histogramme-mois"] .tdb-histo-zone')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); });
+          expect(texte('[data-titre-detail]')).toBe('Cumul 2025 jusqu’à aujourd’hui');
+          // CA net cumulé : Arnaud 6 000, Cédric 4 200, Julien 4 000
+          await cliquer('[data-mesure-bouton="net"]');
+          expect(ordre()).toEqual(['1', '2', '3']);
+          // Nombre : Cédric 2 ; Arnaud et Julien 1 chacun — égalité : ordre alphabétique
+          await cliquer('[data-mesure-bouton="nombre"]');
+          expect(ordre()).toEqual(['2', '1', '3']);
+          // la légende et les couleurs : l'ordre de sélection, inchangé
+          expect(legende()).toEqual(['1', '2', '3']);
+        } finally { fin(); }
+      }
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+    });
+
+    it('Mensuel : la valeur du mois (repos à 0 : alphabétique ; mars : Cédric en tête ; juillet : Julien) ; l’ensemble, l’année précédente et la note restent en dessous ; chaque ligne garde sa couleur', async () => {
+      const fin = await ouvrirD();
+      try {
+        expect(ordre()).toEqual(['1', '2', '3']); // octobre : tous à 0
+        await survoler(3);
+        expect(ordre()).toEqual(['2', '1', '3']); // Cédric 4 200 ; Arnaud et Julien 0 : alphabétique
+        await survoler(7);
+        expect(ordre()).toEqual(['3', '1', '2']);
+        await cliquer('[data-mesure-bouton="net"]');
+        await survoler(7);
+        expect(ordre()).toEqual(['3', '1', '2']); // Julien : 4 000 net
+        // chaque ligne : la pastille de sa couleur
+        expect([...container.querySelectorAll('[data-histo-detail] [data-detail-serie]')].map((x) => [x.getAttribute('data-detail-serie'), x.querySelector('.trx-pastille-serie')!.classList.contains(`trx-serie--${x.getAttribute('data-detail-serie')}`), x.textContent!.split(/\d/)[0]]))
+          .toEqual([['3', true, 'Julien'], ['1', true, 'Arnaud JOREL'], ['2', true, 'Cédric JULLIEN']]);
+        // sous les lignes : l'ensemble, puis la note
+        const bulle = [...container.querySelector('[data-histo-detail] .tdb-bulle')!.children];
+        const rang = (sel: string) => bulle.findIndex((x) => x.matches(sel));
+        expect(rang('[data-detail-ensemble]')).toBeGreaterThan(Math.max(...bulle.map((x, i) => (x.matches('[data-detail-serie]') ? i : -1))));
+        expect(rang('.trx-serie-note')).toBe(bulle.length - 1);
+        expect(legende()).toEqual(['1', '2', '3']);
+      } finally { fin(); }
+    });
+
+    it('ordreEncadre : décroissant ; égalité au centime affiché : alphabétique ; Nombre', async () => {
+      const { ordreEncadre } = await import('./GrapheNegociateurs');
+      const l = [{ nom: 'Zoé', ca: 100.001, nb: 1 }, { nom: 'Élise', ca: 100, nb: 3 }, { nom: 'Bruno', ca: 250, nb: 1 }];
+      expect(ordreEncadre(l, false).map((x) => x.nom)).toEqual(['Bruno', 'Élise', 'Zoé']);
+      expect(ordreEncadre(l, true).map((x) => x.nom)).toEqual(['Élise', 'Bruno', 'Zoé']);
+      expect(l.map((x) => x.nom)).toEqual(['Zoé', 'Élise', 'Bruno']); // l'entrée n'est pas modifiée
+    });
+  });
+
   it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {
     const grosse = vente(90, { societe: 'criterimmo', libelle: 'GROSSE', honorairesTtc: 300000, annee: 2025, mois: 1 });
     const fin = await ouvrirSur([grosse], 'criterimmo');

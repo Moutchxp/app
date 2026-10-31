@@ -16,7 +16,15 @@ import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 export interface SerieGraphe { nom: string; couleur: number; ca: readonly number[]; nb: readonly number[] }
 export const MAX_NEGOCIATEURS = 5;
 
-const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
+/**
+ * 🔴 LOT DD (Arno, 31/10/2026) — les lignes des négociateurs de l'encadré : par valeur DÉCROISSANTE de la mesure affichée (CA, CA net ou Nombre)
+ * au point montré (le repos, le mois survolé ou cliqué ; Mensuel ou Cumul) — le plus haut sur le graphique en haut ; égalité : ordre alphabétique.
+ * La couleur reste celle du négociateur ; la légende garde l'ordre de sélection.
+ */
+export const ordreEncadre = <T extends { nom: string; ca: number; nb: number }>(lignes: readonly T[], nombre: boolean): T[] =>
+  [...lignes].sort((a, b) => (nombre ? b.nb - a.nb : Math.round(b.ca * 100) - Math.round(a.ca * 100)) || a.nom.localeCompare(b.nom, 'fr')); // au centime affiché
+
+const cumuler =(xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombre, dernierMois, choisi, onChoisir, motCa, motNb, aria, annee }: {
@@ -100,7 +108,7 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
           <div className="tdb-bulle tdb-bulle--sous" data-bulle="sous">
             <p className="tdb-bulle-titre" data-titre-detail>{titre}</p>
             <p className="tdb-bulle-ligne trx-serie-entete"><span /><span className="tdb-bulle-montant">{motCa} · {motNb}</span></p>
-            {s.map((x0) => ligne(x0.nom, x0.couleur, val(x0.caV), val(x0.nbV), String(x0.couleur)))}
+            {ordreEncadre(s.map((x0) => ({ ...x0, ca: val(x0.caV), nb: val(x0.nbV) })), nombre).map((x0) => ligne(x0.nom, x0.couleur, x0.ca, x0.nb, String(x0.couleur)))}
             <p className="tdb-bulle-pied" data-detail-ensemble><span>Ensemble de la sélection</span>
               <span className="tdb-bulle-montant">{montant(val(t.ca))} · {val(t.nb)}</span></p>
             {/* 🔴 LOT DC — sous l'ensemble : la même sélection l'année précédente (même mois, ou même cumul) et l'écart. */}
