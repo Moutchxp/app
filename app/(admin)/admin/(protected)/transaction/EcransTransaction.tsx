@@ -18,10 +18,9 @@ import { BoutonAffichage, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPAC
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
-import { partAgenceRattacheeHt } from '../../../../lib/transaction/partAgence';
 import { classeCommission, libelleStatut } from '../../../../lib/admin/statut';
 import { DessinTriangle } from '../_composants/TriangleDepliage';
-import { resultatDesCartes, retrosSansVenteAffichee, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
+import { espaceNegociateurs, resultatDesCartes, retrosSansVenteAffichee, type LigneEspace, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 
 /** 🔴 LOT Q — la paye NON déduite du reste à l'agence, à part : internes (associés, salariés), puis statut à renseigner (signalé). */
@@ -374,7 +373,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
 
     <BlocReplie id="trx-negos" section="negociateurs" titre={<>Espace par négociateur — {libMois}</>}
       resume={`${parNegociateur(listeMode, retrosMode, d.societe).length} négociateur(s)`} donnees={{ 'data-bloc': 'negociateurs-mois' }}>
-      <TableNegociateurs lignes={parNegociateur(listeMode, retrosMode, d.societe, resolveurDe(d.statutsNegociateurs))} rattache={partAgenceRattacheeHt(listeMode, d.societe)} onDetail={onDetail} periode={libMois} />
+      <TableNegociateurs lignes={parNegociateur(listeMode, retrosMode, d.societe, resolveurDe(d.statutsNegociateurs))}
+        espace={espaceNegociateurs(listeMode, d.societe, { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) })} onDetail={onDetail} periode={libMois} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs" data-bloc="apporteurs-mois">
@@ -567,28 +567,59 @@ function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }
 }
 
 /**
- * 🔴 LOT AY (Arno) — « CA généré HT » : ses commissions (la paye) + ce qui est rattaché à son CA. 🔴 LOT BI — côté par côté : un associé compte
- * 100 % des honoraires nets des côtés qu'il tient (sa paye d'un tel côté n'est pas ajoutée deux fois). Une mesure : ni le CA de la société, ni le
- * reste à l'agence n'en changent.
+ * 🔴 LOT CL (Arno) — « ESPACE PAR NÉGOCIATEUR » : Négociateur · Statut · Ventes · CA généré · Com · Rétrocessions · CA net, dans l'unité choisie.
+ * Les montants sont ceux de ses cartes (`espaceNegociateurs`) : CA généré (ses honoraires, sa part en entrée / sortie), Com (en rouge si
+ * comptabilisée), Rétrocessions (en rouge), CA net = CA généré − Com comptabilisée − Rétrocessions = la somme des « reste » de ses cartes (en vert).
+ * Une ligne de total ; son CA net = le Reste à l'agence du Résultat, au centime. (L'ancienne colonne « CA généré » — paye + part rattachée, lots
+ * AY / BI — est remplacée, accord d'Arno.) Les libellés d'une même personne (« CEDRIC », « Cédric JULLIEN ») se regroupent sous son nom affiché.
  */
-function TableNegociateurs({ lignes, rattache, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; rattache: ReadonlyMap<string, number>; onDetail: (x: Detail) => void; periode: string }) {
+function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; espace: readonly LigneEspace[]; onDetail: (x: Detail) => void; periode: string }) {
   const MOT = MOT_UNITE[useAffichage()];
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
-  if (lignes.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
+  if (espace.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
+  const somme = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
+  const nul = (x: MontantC): boolean => x.htC === 0 && x.ttcC === 0;
+  const m = (x: MontantC) => ({ ht: x.htC / 100, ttc: x.ttcC / 100 });
+  // regroupées par nom affiché (une personne, une ligne), dans l'ordre du CA généré
+  const groupes = [...espace.reduce((acc, e) => {
+    const cle = nommer(e.negociateur);
+    const a = acc.get(cle);
+    acc.set(cle, a === undefined ? { cle, libelles: [e.negociateur], ids: e.ids, ca: e.ca, com: e.com, comDeduite: e.comDeduite, retro: e.retro, net: e.net }
+      : { cle, libelles: [...a.libelles, e.negociateur], ids: [...new Set([...a.ids, ...e.ids])], ca: somme([a.ca, e.ca]), com: somme([a.com, e.com]), comDeduite: somme([a.comDeduite, e.comDeduite]),
+        retro: somme([a.retro, e.retro]), net: somme([a.net, e.net]) });
+    return acc;
+  }, new Map<string, { cle: string; libelles: string[]; ids: number[]; ca: MontantC; com: MontantC; comDeduite: MontantC; retro: MontantC; net: MontantC }>()).values()]
+    .sort((a, b) => b.ca.htC - a.ca.htC || a.cle.localeCompare(b.cle, 'fr'));
+  const total = { ca: somme(groupes.map((g) => g.ca)), com: somme(groupes.map((g) => g.com)), retro: somme(groupes.map((g) => g.retro)), net: somme(groupes.map((g) => g.net)) };
   return (
     <table className="tdb-table tdb-table--large" data-table-negociateurs>
-      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA {MOT} porté</th><th scope="col">Paye {MOT}</th><th scope="col">CA généré {MOT}</th><th scope="col">Rétrocessions {MOT}</th></tr></thead>
-      <tbody>{lignes.map((l) => (
-        <tr key={l.negociateur} data-negociateur={l.negociateur}>
-          <th scope="row">{nommer(l.negociateur)}</th>
-          {/* LOT Q — son statut et ce que devient sa paye dans le reste à l'agence. */}
-          <td data-mot="Statut" data-statut-negociateur={l.negociateur} className={l.payeHt > 0 && classeCommission(l.statut) === 'a_renseigner' ? 'trx-alerte' : undefined}>{libelleStatut(l.statut)}
-            {l.payeHt > 0 && <>{' — '}{classeCommission(l.statut) === 'independant' ? 'paye déduite' : classeCommission(l.statut) === 'interne' ? 'paye interne, non déduite' : 'paye non déduite'}</>}</td>
-          <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${nommer(l.negociateur)} — ${periode}`, ids: l.ids })} disabled={l.ids.length === 0}>{l.nbVentes}</button></td>
-          <td data-mot={`CA ${MOT} porté`}><Mt ht={l.caHt} /></td><td data-mot={`Paye ${MOT}`}><Mt ht={l.payeHt} /></td>
-          <td data-mot={`CA généré ${MOT}`}><Mt ht={l.payeHt + (rattache.get(l.negociateur) ?? 0)} donnees={{ 'data-ca-genere': l.negociateur }} /></td><td data-mot={`Rétrocessions ${MOT}`}><Mt ht={l.retroHt} /></td>
-        </tr>
-      ))}</tbody>
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA {MOT} généré</th><th scope="col">Com {MOT}</th>
+        <th scope="col">Rétrocessions {MOT}</th><th scope="col">CA net {MOT}</th></tr></thead>
+      <tbody>{groupes.map((g) => {
+        // LOT Q — son statut et ce que devient sa commission dans le reste à l'agence (le premier libellé qui en a un).
+        const ls = lignes.filter((l) => g.libelles.includes(l.negociateur));
+        const statut = ls.map((l) => l.statut).find((x) => x !== null) ?? null;
+        const payeHt = ls.reduce((t, l) => t + l.payeHt, 0);
+        return (
+          <tr key={g.cle} data-negociateur={g.libelles[0]}>
+            <th scope="row">{g.cle}</th>
+            <td data-mot="Statut" data-statut-negociateur={g.libelles[0]} className={payeHt > 0 && classeCommission(statut) === 'a_renseigner' ? 'trx-alerte' : undefined}>{libelleStatut(statut)}
+              {payeHt > 0 && <>{' — '}{classeCommission(statut) === 'independant' ? 'paye déduite' : classeCommission(statut) === 'interne' ? 'paye interne, non déduite' : 'paye non déduite'}</>}</td>
+            <td data-mot="Ventes"><button type="button" className="tdb-chiffre" onClick={() => onDetail({ titre: `${g.cle} — ${periode}`, ids: g.ids })} disabled={g.ids.length === 0}>{g.ids.length}</button></td>
+            <td data-mot={`CA ${MOT} généré`}><Mt {...m(g.ca)} donnees={{ 'data-ca-genere': g.libelles[0] }} /></td>
+            <td data-mot={`Com ${MOT}`} className={nul(g.comDeduite) ? 'trx-espace-gris' : undefined}><Mt {...m(g.com)} cout={!nul(g.comDeduite)} donnees={{ 'data-com-espace': g.libelles[0] }} /></td>
+            <td data-mot={`Rétrocessions ${MOT}`}><Mt {...m(g.retro)} cout donnees={{ 'data-retro-espace': g.libelles[0] }} /></td>
+            <td data-mot={`CA net ${MOT}`} className="trx-vert"><Mt {...m(g.net)} donnees={{ 'data-ca-net': g.libelles[0] }} /></td>
+          </tr>
+        );
+      })}</tbody>
+      <tfoot><tr className="trx-somme-ligne trx-espace-total" data-total-espace>
+        <th scope="row">Total</th><td data-mot="Statut" /><td data-mot="Ventes">{new Set(groupes.flatMap((g) => g.ids)).size}</td>
+        <td data-mot={`CA ${MOT} généré`}><Mt {...m(total.ca)} donnees={{ 'data-total-ca-genere': '' }} /></td>
+        <td data-mot={`Com ${MOT}`}><Mt {...m(total.com)} cout donnees={{ 'data-total-com': '' }} /></td>
+        <td data-mot={`Rétrocessions ${MOT}`}><Mt {...m(total.retro)} cout donnees={{ 'data-total-retro': '' }} /></td>
+        <td data-mot={`CA net ${MOT}`} className="trx-vert"><Mt {...m(total.net)} donnees={{ 'data-total-ca-net': '' }} /></td>
+      </tr></tfoot>
     </table>
   );
 }
@@ -764,7 +795,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
 
     <BlocReplie id="trx-negos-annee" section="negociateurs" titre={<>Les négociateurs — {libelle}</>} resume={`${negos.length} négociateur(s) · CA ${U.MOT} ${eur(sommeAffichee(negos.map((l) => U.en(l.caHt))))}`}
       donnees={{ 'data-bloc': 'negociateurs-periode' }}>
-      <TableNegociateurs lignes={negos} rattache={partAgenceRattacheeHt(ventesP, d.societe)} onDetail={onDetail} periode={libelle} />
+      <TableNegociateurs lignes={negos} espace={espaceNegociateurs(ventesP, d.societe, { retros: d.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) })} onDetail={onDetail} periode={libelle} />
     </BlocReplie>
 
     <BlocReplie id="trx-apporteurs-annee" section="apporteurs" titre={<>{periode.length > 1 ? 'Apporteur des années' : 'Apporteur de l’année'} — {libelle}</>}

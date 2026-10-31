@@ -297,6 +297,9 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-entete-gauche h3{margin:0}
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
 .trx-listes-mois{display:contents}
+/* LOT CL — Espace par négociateur : une Com non comptabilisée en gris ; la ligne de total sur la trame. */
+.trx-espace-gris .trx-mt-liste{color:var(--color-svv-muted)}
+.trx-espace-total > th,.trx-espace-total > td{background:var(--trx-trame);font-weight:700}
 /* LOT CH — sous le Résultat : les rétrocessions saisies sans vente affichée, en ORANGE (jeton d'alerte), dépliables. */
 .trx-hors-resultat{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding:8px 10px;border:1px solid var(--color-svv-orange);border-radius:10px;background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
 .trx-hors-tete{appearance:none;display:flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}

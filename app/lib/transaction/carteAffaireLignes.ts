@@ -1,4 +1,4 @@
-import { LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, type Retrocession, type Societe, type Vente } from './modele';
+import { caHtPortePar, LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, TVA, type Retrocession, type Societe, type Vente } from './modele';
 import { depuisTtc, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
 import { entreeEtSortie } from './lignesNegociateur';
 import type { StatutDuLibelle } from './statutLigne';
@@ -24,6 +24,8 @@ export interface LigneCarte {
   com: MontantC; comptabilisee: boolean;
   /** 🔴 LOT CF — la part de `com` déduite du reste (règle actuelle : celle d'un indépendant ; la commission d'une répartie, comme sa carte). */
   comDeduite: MontantC;
+  /** 🔴 LOT CL — sa part des rétrocessions saisies au mois rattachées à la vente (déjà retirée de `honoraires`). */
+  retro: MontantC;
   reste: MontantC;
   /** L'inter-cabinet versé à l'autre société sur ce côté (la porteuse) : remplace com négo / reste. */
   reverse: { vers: string; m: MontantC } | null;
@@ -58,7 +60,7 @@ function ligneDe(nom: string, cote: 'entree' | 'sortie' | null, xs: readonly Ven
     nom, cote,
     // 🔴 LOT CF — nettes aussi de SA part des rétrocessions saisies au mois (l'apporteur de la répartition l'est déjà : lot BB).
     honoraires: moins(somme(xs.map((x) => x.base)), retro),
-    com, comptabilisee: true, comDeduite: com,
+    com, comptabilisee: true, comDeduite: com, retro,
     reste: moins(somme(xs.map((x) => x.agence)), retro),
     reverse: versees.length === 0 ? null : { vers: LIBELLE_SOCIETE[versees[0].vers], m: somme(versees.map((y) => y.m)) },
     exterieures: xs.flatMap((x) => x.quoteParts.filter((q) => q.cle === 'exterieure').map((q) => ({ nom: q.nom ?? 'agence extérieure', m: q.m }))),
@@ -96,7 +98,7 @@ export function lignesCarteAffaire(v: Vente, vue: Societe | null, o: { retros?: 
     const honoraires = moins(depuisTtc(v.honorairesTtc), retroC);
     const comDeduite = depuisTtc(classes.independant);
     return { apporteur: null, retro, lignes: [{ nom: nomUnique(v, nommer), cote: null, honoraires, com: depuisTtc(payeTtcDe(v, vue)),
-      comptabilisee: classes.independant > 0, comDeduite, reste: moins(honoraires, comDeduite), reverse: null, exterieures: [] }] };
+      comptabilisee: classes.independant > 0, comDeduite, retro: retroC, reste: moins(honoraires, comDeduite), reverse: null, exterieures: [] }] };
   }
   const apporteurs = somme((e ?? s)!.apporteurs.map((a) => a.m));
   const apporteur = nul(apporteurs) ? null : apporteurs;
@@ -156,3 +158,54 @@ export function resultatDesCartes(ventes: readonly Vente[], vue: Societe | null,
  *  montrées à part, jamais déduites du Résultat. PUR. */
 export const retrosSansVenteAffichee = (saisies: readonly Retrocession[], ids: readonly number[]): Retrocession[] =>
   saisies.filter((x) => x.venteId === null || !ids.includes(x.venteId));
+
+/**
+ * ══ 🔴 LOT CL (Arno, 31/10/2026) — « ESPACE PAR NÉGOCIATEUR » : PAR NÉGOCIATEUR, LES MÊMES MONTANTS QUE SES CARTES (PUR) ═══════════════════════════
+ * Pour chaque négociateur (libellé tel qu'en base) : CA généré, Com (et sa part comptabilisée), Rétrocessions, CA net = CA généré − Com comptabilisée
+ * − Rétrocessions = la somme des « reste » de ses lignes de cartes, au centime, en HT et en TTC ; la somme des CA nets = le Reste à l'agence du
+ * Résultat (`resultatDesCartes`).
+ *   · vente répartie (ou ligne miroir) : chaque ligne de sa carte (`lignesCarteAffaire`) — CA généré = ses honoraires nets avant les rétrocessions
+ *     du mois, moins l'inter-cabinet reversé (ce qui reste à la société vue) ;
+ *   · vente sans répartition : la vente partagée comme aujourd'hui (`caHtPortePar`, l'écart d'arrondi au dernier), sa commission à lui, les
+ *     rétrocessions rattachées qui le nomment (les autres au premier négociateur).
+ */
+export interface LigneEspace { negociateur: string; ids: number[]; ca: MontantC; com: MontantC; comDeduite: MontantC; retro: MontantC; net: MontantC }
+
+export function espaceNegociateurs(ventes: readonly Vente[], vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): LigneEspace[] {
+  const retros = o.retros ?? [];
+  const lignes = new Map<string, LigneEspace>();
+  const ajouter = (nom: string, id: number, x: Omit<LigneEspace, 'negociateur' | 'ids'>): void => {
+    const a = lignes.get(nom) ?? { negociateur: nom, ids: [], ca: RIEN, com: RIEN, comDeduite: RIEN, retro: RIEN, net: RIEN };
+    lignes.set(nom, { negociateur: nom, ids: a.ids.includes(id) ? a.ids : [...a.ids, id], ca: plus(a.ca, x.ca), com: plus(a.com, x.com), comDeduite: plus(a.comDeduite, x.comDeduite),
+      retro: plus(a.retro, x.retro), net: plus(a.net, x.net) });
+  };
+  for (const v of ventes) {
+    const vent = ventilationVente(v, vue);
+    if (vent.entree !== undefined || vent.sortie !== undefined) {
+      for (const x of lignesCarteAffaire(v, vue, o).lignes) {
+        const ca = moins(plus(x.honoraires, x.retro), x.reverse?.m ?? RIEN);
+        ajouter(x.nom, v.id, { ca, com: x.com, comDeduite: x.comDeduite, retro: x.retro, net: x.reste });
+      }
+      continue;
+    }
+    const negos = negociateursDe(v);
+    const liees = retros.filter((r) => r.venteId === v.id);
+    // Les totaux de la vente, comme sa carte (centimes) ; le dernier négociateur prend l'écart d'arrondi de chaque colonne.
+    let resteCa = depuisTtc(v.honorairesTtc);
+    let resteDed = depuisTtc(payeParClasseTtc(v, o.statutDuLibelle, vue).independant);
+    let resteRetro = depuisTtc(retroTtcDe(v, retros));
+    negos.forEach((n, i) => {
+      const dernier = i === negos.length - 1;
+      const caHt = caHtPortePar(v, n, vue);
+      const ca = dernier ? resteCa : { htC: Math.round(caHt * 100), ttcC: Math.round(caHt * TVA * 100) };
+      const classes = payeParClasseTtc({ ...v, lignes: v.lignes.filter((l) => l.negociateur === n) }, o.statutDuLibelle, vue);
+      const com = depuisTtc(classes.independant + classes.interne + classes.a_renseigner);
+      const comDeduite = dernier ? resteDed : depuisTtc(classes.independant);
+      const retroTtc = liees.filter((r) => r.negociateur === n || (i === 0 && !negos.includes(r.negociateur))).reduce((t, r) => t + r.montantTtc, 0);
+      const retro = dernier ? resteRetro : depuisTtc(retroTtc);
+      resteCa = moins(resteCa, ca); resteDed = moins(resteDed, comDeduite); resteRetro = moins(resteRetro, retro);
+      ajouter(n, v.id, { ca, com, comDeduite, retro, net: moins(moins(ca, comDeduite), retro) });
+    });
+  }
+  return [...lignes.values()].sort((a, b) => b.ca.htC - a.ca.htC || a.negociateur.localeCompare(b.negociateur, 'fr'));
+}

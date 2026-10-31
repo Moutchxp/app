@@ -348,7 +348,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
   });
 });
 
-describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA généré HT » (commissions + part de l’agence rattachée)', () => {
+describe('🔴 LOT AY / CL — « Espace par négociateur » : CA généré, Com, Rétrocessions, CA net (= la somme des « reste » de ses cartes)', () => {
   // HEIDIDON signée en janvier 2025 : CRITERIMMO (Arnaud, associé non commissionné, entrée — comme en recette) porte 4 000 TTC ; MACJ (Pierre,
   // indépendant) reçoit 50 % et touche 1 000 TTC.
   const parties = [
@@ -359,7 +359,7 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
     lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
   const ouvrirEspace = async () => { await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); }); };
 
-  it('CRITERIMMO : Arnaud (associé) — la part de l’agence de sa carte, 1 666,66 € HT (centimes du lot AH), rattachée à son CA ; le reste à l’agence ne change pas', async () => {
+  it('CRITERIMMO : Arnaud (associé) — sa part 1 666,66 € HT (centimes du lot AH), CA net = reste ; Pierre (MACJ) : 0 € (reversé) ; total CA net = Reste à l’agence', async () => {
     const [avant, avantS, retros] = [donnees.ventes, donnees.societe, donnees.retrocessions];
     donnees.ventes = [heididon]; donnees.societe = 'criterimmo'; donnees.retrocessions = [];
     try {
@@ -367,14 +367,16 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
       await calmer(); await ouvrirEspace();
       expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent))
-        .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT porté', 'Paye HT', 'CA généré HT', 'Rétrocessions HT']);
+        .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré', 'Com HT', 'Rétrocessions HT', 'CA net HT']); // 🔴 LOT CL
       expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,66 €'); // LOT BA : la part de l'entrée au centime du lot AH (celle de la Répartition)
-      expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('0 €');
-      expect(texte('[data-reste-agence]')).toBe('1 666,66 €'); // 🔴 LOT CH : la somme des cartes (centimes du lot AH);
+      expect(texte('[data-ca-net="Arnaud Jorel"]')).toBe('1 666,66 €');
+      expect([texte('[data-ca-genere="Pierre Thevenin"]'), texte('[data-ca-net="Pierre Thevenin"]')]).toEqual(['0 €', '0 €']); // reversé à MACJ
+      expect(texte('[data-reste-agence]')).toBe('1 666,66 €'); // 🔴 LOT CH : la somme des cartes (centimes du lot AH)
+      expect(texte('[data-total-ca-net]')).toBe(texte('[data-reste-agence]'));
     } finally { donnees.ventes = avant; donnees.societe = avantS; donnees.retrocessions = retros; }
   });
 
-  it('MACJ (ligne miroir) : Pierre (indépendant) — sa commission seule (833,33 € HT) ; aucune part rattachée', async () => {
+  it('MACJ (ligne miroir) : Pierre (indépendant) — CA généré 1 666,67 € HT, Com 833,33 € (rouge, comptabilisée), CA net 833,34 € = reste', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
     const [avant, retros] = [donnees.ventes, donnees.retrocessions];
     donnees.ventes = [venteDansSociete(heididon, 'macj')!]; donnees.retrocessions = [];
@@ -382,8 +384,10 @@ describe('🔴 LOT AY — « Espace par négociateur » : la colonne « CA gén�
       window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1');
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); });
       await calmer(); await ouvrirEspace();
-      expect(texte('[data-ca-genere="Pierre Thevenin"]')).toBe('833,33 €');
-      expect(texte('[data-reste-agence]')).toBe('833,34 €'); // 🔴 LOT CH : la somme des cartes, au centime);
+      expect([texte('[data-ca-genere="Pierre Thevenin"]'), texte('[data-com-espace="Pierre Thevenin"]'), texte('[data-ca-net="Pierre Thevenin"]')]).toEqual(['1 666,67 €', '833,33 €', '833,34 €']);
+      expect(container.querySelector('[data-com-espace="Pierre Thevenin"]')!.closest('.trx-rouge')).not.toBeNull();
+      expect(texte('[data-reste-agence]')).toBe('833,34 €'); // 🔴 LOT CH : la somme des cartes, au centime
+      expect(texte('[data-total-ca-net]')).toBe(texte('[data-reste-agence]'));
     } finally { donnees.ventes = avant; donnees.retrocessions = retros; }
   });
 });
@@ -1036,5 +1040,39 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect([mode, montant('[data-reste-agence]')]).toEqual([mode, cartes]);
       } finally { fin(); }
     }
+  });
+  it('🔴 LOT CL — Espace par négociateur, juillet 2026 : CA net = CA généré − Com comptabilisée − Rétrocessions = la somme de ses cartes ; total = Reste à l’agence (HT et TTC)', async () => {
+    const r = (id: number, venteId: number, negociateur: string, montantTtc: number) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur, montantTtc,
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: negociateur, sourceCellule: 'J3' });
+    const lc = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'negociateur', montantTtc, nature: 'vente', compte: true, origine: 'import',
+      sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, lignes: [{ ...lc('CEDRIC', 0), role: 'part', montantTtc: 40000 }] });
+    const millecamps = vente(61, { societe: 'criterimmo', libelle: 'MILLECAMPS', honorairesTtc: 29423, lignes: [lc('MYLENE', 23538)] /* une indépendante (le jeu d'essai), comme Catherine TARRISSE */ });
+    const basu = vente(62, { societe: 'criterimmo', libelle: 'BASUYEAUX', honorairesTtc: 11000, lignes: [{ ...lc('ARNAUD', 0), role: 'part', montantTtc: 11000 }] });
+    const fin = await ouvrirSur([zemmor, millecamps, basu, deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(1, 60, 'CEDRIC', 3333), r(2, 62, 'ARNAUD', 500)]);
+    try {
+      await cliquer('[data-bloc="negociateurs-mois"] button');
+      expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent)).toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré', 'Com HT', 'Rétrocessions HT', 'CA net HT']);
+      await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+      expect([texte('[data-ca-net="CEDRIC"]'), texte('[data-ca-net="MYLENE"]'), texte('[data-ca-net="ARNAUD"]')]).toEqual(['36 667 €', '5 885 €', '10 500 €']);
+      expect(container.querySelector('[data-com-espace="MYLENE"]')!.closest('.trx-rouge')).not.toBeNull(); // comptabilisée (indépendante)
+      expect(container.querySelector('[data-com-espace="CEDRIC"]')!.closest('.trx-rouge')).toBeNull();
+      // la vente à deux négociateurs : une ligne chacun (JB, Cédric JULLIEN)
+      expect([...container.querySelectorAll('[data-table-negociateurs] tbody tr')].map((x) => x.getAttribute('data-negociateur'))).toEqual(expect.arrayContaining(['Jean-Baptiste PONS', 'Cédric JULLIEN']));
+      for (const u of ['ttc', 'ht'] as const) {
+        if (u === 'ht') await cliquer('[data-affichage-montants] [data-afficher="ht"]');
+        expect(montant('[data-total-ca-net]')).toBe(montant('[data-reste-agence]'));
+        const nets = [...container.querySelectorAll('[data-table-negociateurs] tbody [data-ca-net]')].reduce((t, x) => t + centimes(x.textContent!), 0);
+        expect(nets).toBe(montant('[data-total-ca-net]'));
+      }
+    } finally { fin(); }
+  });
+
+  it('🔴 LOT CL — un mois sans vente : « Aucune vente sur la période. »', async () => {
+    const fin = await ouvrirSur([], 'criterimmo');
+    try {
+      await cliquer('[data-bloc="negociateurs-mois"] button');
+      expect(texte('[data-bloc="negociateurs-mois"]')).toContain('Aucune vente sur la période.');
+    } finally { fin(); }
   });
 });
