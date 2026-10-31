@@ -575,9 +575,31 @@ function CartesVentes({ ventes, retros, vide, societe, statutDuLibelle, fiches }
  * Une ligne de total ; son CA net = le Reste à l'agence du Résultat, au centime. (L'ancienne colonne « CA généré » — paye + part rattachée, lots
  * AY / BI — est remplacée, accord d'Arno.) Les libellés d'une même personne (« CEDRIC », « Cédric JULLIEN ») se regroupent sous son nom affiché.
  */
+/**
+ * 🔴 LOT CO (Arno) — TRI de l'Espace par négociateur sur « CA généré » ou « CA net » : 1er clic décroissant, puis croissant, et ainsi de suite ;
+ * l'autre colonne repart en décroissant ; le dernier clic décide. Retenu pendant la visite (changement de mois, de mode, Le mois ↔ L'année),
+ * perdu au rechargement : une variable du module, sans stockage. Rien cliqué : l'ordre par défaut.
+ */
+type ColonneTriEspace = 'ca' | 'net';
+type TriEspace = { col: ColonneTriEspace; sens: 'desc' | 'asc' } | null;
+let triEspaceRetenu: TriEspace = null;
+/** Pour les tests : l'ordre par défaut (comme au rechargement). */
+export function oublierTriEspace(): void { triEspaceRetenu = null; }
+function useTriEspace(): [TriEspace, (col: ColonneTriEspace) => void] {
+  const [tri, poser] = useState<TriEspace>(triEspaceRetenu);
+  const trier = (col: ColonneTriEspace) => {
+    const suivant: TriEspace = tri?.col === col ? { col, sens: tri.sens === 'desc' ? 'asc' : 'desc' } : { col, sens: 'desc' };
+    triEspaceRetenu = suivant;
+    poser(suivant);
+  };
+  return [tri, trier];
+}
+
 function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; espace: readonly LigneEspace[]; onDetail: (x: Detail) => void; periode: string }) {
-  const MOT = MOT_UNITE[useAffichage()];
+  const unite = useAffichage();
+  const MOT = MOT_UNITE[unite];
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
+  const [tri, trier] = useTriEspace(); // 🔴 LOT CO
   if (espace.length === 0) return <p className="loc-muet">Aucune vente sur la période.</p>;
   const somme = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
   const nul = (x: MontantC): boolean => x.htC === 0 && x.ttcC === 0;
@@ -592,12 +614,30 @@ function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: Retu
     return acc;
   }, new Map<string, { cle: string; libelles: string[]; ids: number[]; ca: MontantC; com: MontantC; comDeduite: MontantC; retro: MontantC; net: MontantC }>()).values()]
     .sort((a, b) => b.ca.htC - a.ca.htC || a.cle.localeCompare(b.cle, 'fr'));
+  // 🔴 LOT CO (Arno) — le tri choisi (sinon l'ordre par défaut ci-dessus), sur les montants de l'unité affichée ; égalité → nom.
+  const enCentimes = (x: MontantC): number => (unite === 'ht' ? x.htC : x.ttcC);
+  const lignesTriees = tri === null ? groupes : [...groupes].sort((a, b) =>
+    (tri.sens === 'desc' ? enCentimes(b[tri.col]) - enCentimes(a[tri.col]) : enCentimes(a[tri.col]) - enCentimes(b[tri.col])) || a.cle.localeCompare(b.cle, 'fr'));
   const total = { ca: somme(groupes.map((g) => g.ca)), com: somme(groupes.map((g) => g.com)), retro: somme(groupes.map((g) => g.retro)), net: somme(groupes.map((g) => g.net)) };
+  const ariaSort = (col: ColonneTriEspace): 'ascending' | 'descending' | 'none' => (tri?.col !== col ? 'none' : tri.sens === 'desc' ? 'descending' : 'ascending');
+  const bouton = (col: ColonneTriEspace, libelle: ReactNode, mobile = false) => (
+    <button type="button" className="trx-tri" onClick={() => trier(col)} data-tri={col} {...(mobile ? { 'data-tri-mobile': col, 'aria-pressed': tri?.col === col } : {})}
+      aria-label={`Trier par ${col === 'ca' ? `CA ${MOT} généré` : `CA net ${MOT}`}${tri?.col === col ? (tri.sens === 'desc' ? ' (décroissant)' : ' (croissant)') : ''}`}>
+      <span>{libelle}</span>
+      <span className="trx-tri-fleches" aria-hidden="true">
+        <span className={tri?.col === col && tri.sens === 'asc' ? 'trx-tri-on' : undefined} data-fleche="asc">▲</span>
+        <span className={tri?.col === col && tri.sens === 'desc' ? 'trx-tri-on' : undefined} data-fleche="desc">▼</span>
+      </span>
+    </button>
+  );
   return (
+    <>
+    {/* 🔴 LOT CO — sur téléphone l'en-tête du tableau est replié en cartes : les deux tris restent visibles et touchables ici. */}
+    <div className="trx-tri-mobile" role="group" aria-label="Trier l'espace par négociateur">{bouton('ca', <>CA {MOT} généré</>, true)}{bouton('net', <>CA net {MOT}</>, true)}</div>
     <table className="tdb-table tdb-table--large" data-table-negociateurs>
-      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col">CA {MOT} généré</th><th scope="col">Com {MOT}</th>
-        <th scope="col">Rétrocessions {MOT}</th><th scope="col">CA net {MOT}</th></tr></thead>
-      <tbody>{groupes.map((g) => {
+      <thead><tr><th scope="col">Négociateur</th><th scope="col">Statut</th><th scope="col">Ventes</th><th scope="col" aria-sort={ariaSort('ca')} data-entete-tri="ca">{bouton('ca', <>CA {MOT} généré</>)}</th><th scope="col">Com {MOT}</th>
+        <th scope="col">Rétrocessions {MOT}</th><th scope="col" aria-sort={ariaSort('net')} data-entete-tri="net">{bouton('net', <>CA net {MOT}</>)}</th></tr></thead>
+      <tbody>{lignesTriees.map((g) => {
         // LOT Q — son statut et ce que devient sa commission dans le reste à l'agence (le premier libellé qui en a un).
         const ls = lignes.filter((l) => g.libelles.includes(l.negociateur));
         const statut = ls.map((l) => l.statut).find((x) => x !== null) ?? null;
@@ -623,6 +663,7 @@ function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: Retu
         <td data-mot={`CA net ${MOT}`} className="trx-vert"><Mt {...m(total.net)} donnees={{ 'data-total-ca-net': '' }} /></td>
       </tr></tfoot>
     </table>
+    </>
   );
 }
 

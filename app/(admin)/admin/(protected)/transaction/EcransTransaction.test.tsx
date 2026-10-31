@@ -367,7 +367,7 @@ describe('🔴 LOT AY / CL — « Espace par négociateur » : CA généré, Com
       await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
       await calmer(); await ouvrirEspace();
       expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent))
-        .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré', 'Com HT', 'Rétrocessions HT', 'CA net HT']); // 🔴 LOT CL
+        .toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré▲▼', 'Com HT', 'Rétrocessions HT', 'CA net HT▲▼']); // 🔴 LOT CL (▲▼ : le tri du lot CO)
       expect(texte('[data-ca-genere="Arnaud Jorel"]')).toBe('1 666,66 €'); // LOT BA : la part de l'entrée au centime du lot AH (celle de la Répartition)
       expect(texte('[data-ca-net="Arnaud Jorel"]')).toBe('1 666,66 €');
       expect([texte('[data-ca-genere="Pierre Thevenin"]'), texte('[data-ca-net="Pierre Thevenin"]')]).toEqual(['0 €', '0 €']); // reversé à MACJ
@@ -1052,7 +1052,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const fin = await ouvrirSur([zemmor, millecamps, basu, deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(1, 60, 'CEDRIC', 3333), r(2, 62, 'ARNAUD', 500)]);
     try {
       await cliquer('[data-bloc="negociateurs-mois"] button');
-      expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent)).toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré', 'Com HT', 'Rétrocessions HT', 'CA net HT']);
+      expect([...container.querySelectorAll('[data-table-negociateurs] thead th')].map((x) => x.textContent)).toEqual(['Négociateur', 'Statut', 'Ventes', 'CA HT généré▲▼', 'Com HT', 'Rétrocessions HT', 'CA net HT▲▼']);
       await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
       expect([texte('[data-ca-net="CEDRIC"]'), texte('[data-ca-net="MYLENE"]'), texte('[data-ca-net="ARNAUD"]')]).toEqual(['36 667 €', '5 885 €', '10 500 €']);
       expect(container.querySelector('[data-com-espace="MYLENE"]')!.closest('.trx-rouge')).not.toBeNull(); // comptabilisée (indépendante)
@@ -1073,7 +1073,89 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     try {
       await cliquer('[data-bloc="negociateurs-mois"] button');
       expect(texte('[data-bloc="negociateurs-mois"]')).toContain('Aucune vente sur la période.');
+      expect(container.querySelector('[data-bloc="negociateurs-mois"] [data-tri]')).toBeNull(); // 🔴 LOT CO : rien à trier
     } finally { fin(); }
+  });
+
+  describe('🔴 LOT CO — tri de l’Espace par négociateur sur « CA généré » et « CA net »', () => {
+    const lcp = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true, origine: 'import',
+      sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = () => [
+      vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, lignes: [lcp('CEDRIC', 40000)] }),
+      vente(61, { societe: 'criterimmo', libelle: 'MILLECAMPS', honorairesTtc: 29423, lignes: [{ ...lcp('MYLENE', 23538), role: 'negociateur' }] }),
+      vente(62, { societe: 'criterimmo', libelle: 'BASUYEAUX', honorairesTtc: 11000, lignes: [lcp('ARNAUD', 11000)] }), deux];
+    const corps = () => [...container.querySelectorAll('[data-table-negociateurs] tbody tr')];
+    const colonne = (attr: string) => corps().map((tr) => centimes(tr.querySelector(`[${attr}]`)!.textContent!));
+    const verts = () => [...container.querySelectorAll('[data-table-negociateurs] thead .trx-tri-on')].map((x) => `${x.closest('[data-tri]')!.getAttribute('data-tri')}:${x.getAttribute('data-fleche')}`);
+    const aria = () => [...container.querySelectorAll('[data-table-negociateurs] thead [data-entete-tri]')].map((x) => x.getAttribute('aria-sort'));
+    const decroissant = (xs: number[]) => xs.every((x, i) => i === 0 || xs[i - 1] >= x);
+    const croissant = (xs: number[]) => xs.every((x, i) => i === 0 || xs[i - 1] <= x);
+    beforeEach(async () => { const { oublierTriEspace } = await import('./EcransTransaction'); oublierTriEspace(); });
+
+    it('par défaut : ordre actuel, flèches grises, aria-sort none ; CA généré : décroissant puis croissant ; CA net : décroissant d’abord ; une seule flèche verte ; Total en bas ; HT et TTC', async () => {
+      const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=1', []);
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        const defaut = corps().map((tr) => tr.getAttribute('data-negociateur'));
+        expect([verts(), aria()]).toEqual([[], ['none', 'none']]);
+        for (const u of ['ht', 'ttc'] as const) {
+          if (u === 'ttc') await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
+          await cliquer('[data-table-negociateurs] thead [data-tri="ca"]');
+          if (u === 'ttc') await cliquer('[data-table-negociateurs] thead [data-tri="ca"]'); // repartir en décroissant (le tri était resté sur CA, croissant)
+          expect([u, decroissant(colonne('data-ca-genere')), verts(), aria()]).toEqual([u, true, ['ca:desc'], ['descending', 'none']]);
+          await cliquer('[data-table-negociateurs] thead [data-tri="ca"]');
+          expect([u, croissant(colonne('data-ca-genere')), verts(), aria()]).toEqual([u, true, ['ca:asc'], ['ascending', 'none']]);
+          await cliquer('[data-table-negociateurs] thead [data-tri="net"]');
+          expect([u, decroissant(colonne('data-ca-net')), verts(), aria()]).toEqual([u, true, ['net:desc'], ['none', 'descending']]);
+          await cliquer('[data-table-negociateurs] thead [data-tri="net"]');
+          expect([u, croissant(colonne('data-ca-net')), verts(), aria()]).toEqual([u, true, ['net:asc'], ['none', 'ascending']]);
+          await cliquer('[data-table-negociateurs] thead [data-tri="ca"]'); // l'autre colonne : décroissant d'abord
+          expect(verts()).toEqual(['ca:desc']);
+          // la ligne Total reste en bas, hors tri ; la barre du téléphone dit la même chose
+          expect(container.querySelector('[data-table-negociateurs] tbody [data-total-espace]')).toBeNull();
+          expect(container.querySelector('[data-table-negociateurs] tfoot tr')!.hasAttribute('data-total-espace')).toBe(true);
+          expect([...container.querySelectorAll('.trx-tri-mobile .trx-tri-on')].map((x) => x.getAttribute('data-fleche'))).toEqual(['desc']);
+          expect(container.querySelector('.trx-tri-mobile [data-tri-mobile="ca"]')!.getAttribute('aria-pressed')).toBe('true');
+        }
+        expect(new Set(corps().map((tr) => tr.getAttribute('data-negociateur')))).toEqual(new Set(defaut)); // même lignes, autre ordre
+      } finally { fin(); }
+    });
+
+    it('égalités → ordre alphabétique du nom (décroissant comme croissant) ; la barre du téléphone trie aussi', async () => {
+      const fin = await ouvrirSur([vente(70, { societe: 'criterimmo', libelle: 'B', honorairesTtc: 5000, lignes: [lcp('ZOE', 5000)] }),
+        vente(71, { societe: 'criterimmo', libelle: 'A', honorairesTtc: 5000, lignes: [lcp('ALAIN', 5000)] })], 'criterimmo', '/?vue=mois&annee=2025&mois=1', []);
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        await cliquer('.trx-tri-mobile [data-tri-mobile="ca"]');
+        expect(corps().map((tr) => tr.getAttribute('data-negociateur'))).toEqual(['ALAIN', 'ZOE']);
+        expect(verts()).toEqual(['ca:desc']);
+        await cliquer('.trx-tri-mobile [data-tri-mobile="ca"]');
+        expect(corps().map((tr) => tr.getAttribute('data-negociateur'))).toEqual(['ALAIN', 'ZOE']);
+        expect(verts()).toEqual(['ca:asc']);
+      } finally { fin(); }
+    });
+
+    it('le choix est retenu en changeant de mois / de mode (l’écran remonté), et perdu au rechargement', async () => {
+      let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=1', []);
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        await cliquer('[data-table-negociateurs] thead [data-tri="net"]');
+      } finally { fin(); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=1&mode=tous', []);
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        expect([verts(), decroissant(colonne('data-ca-net'))]).toEqual([['net:desc'], true]);
+        const boutons = container.querySelectorAll('[data-table-negociateurs] thead button[data-tri]');
+        expect([...boutons].map((b) => b.getAttribute('type'))).toEqual(['button', 'button']); // vrais boutons : Entrée / Espace au clavier
+      } finally { fin(); }
+      const { oublierTriEspace } = await import('./EcransTransaction');
+      oublierTriEspace(); // = rechargement de la page
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=1', []);
+      try {
+        await cliquer('[data-bloc="negociateurs-mois"] button');
+        expect([verts(), aria()]).toEqual([[], ['none', 'none']]);
+      } finally { fin(); }
+    });
   });
   it('🔴 LOT CM — un coût nul en GRIS (le grand et le petit), un coût non nul en rouge : Espace par négociateur, son total, Résultat de l’agence ; HT et TTC', async () => {
     const { classeSens, montantNul } = await import('./commun');

@@ -309,6 +309,19 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 [data-table-retrocessions] .trx-retro-negociateur{text-align:left;font-weight:400}
 .trx-retro-nego-pile{display:inline-flex;flex-direction:column;gap:2px}
 @media (max-width:1024px){ .trx-retro-nego-pile{align-items:flex-end;text-align:right} }
+/* LOT CO — tri de l'Espace par négociateur : l'intitulé est un bouton, deux flèches grises, celle du tri en cours en vert ; sur téléphone
+   (en-tête replié en cartes) les deux tris passent au-dessus du tableau. */
+.trx-tri{appearance:none;border:0;background:transparent;padding:4px 2px;margin:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:6px;min-height:32px}
+.trx-tri:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-tri-fleches{display:inline-flex;flex-direction:column;line-height:1;font-size:.62rem;color:var(--color-svv-muted)}
+.trx-tri-fleches .trx-tri-on{color:var(--color-svv-green-ink)}
+.trx-tri-mobile{display:none}
+@media (max-width:1024px){
+  .trx-tri-mobile{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+  .trx-tri-mobile .trx-tri{border:1px solid var(--color-svv-line);padding:6px 12px;min-height:44px;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+  .trx-tri-mobile .trx-tri[aria-pressed="true"]{border-color:var(--color-svv-green-ink)}
+  .trx-tri-mobile .trx-tri-fleches{font-size:.75rem}
+}
 /* LOT CM — un coût nul : gris (le grand et le petit), comme une com à 0. */
 .trx-cout-nul,.trx-cout-nul .trx-mt-petit,.trx-cout-nul .trx-montant-autre{color:var(--color-svv-muted)}
 /* LOT CL — Espace par négociateur : une Com non comptabilisée en gris ; la ligne de total sur la trame. */
