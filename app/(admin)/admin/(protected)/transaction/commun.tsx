@@ -304,6 +304,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-entete-gauche h3{margin:0}
 .trx-compteur{font-weight:700;color:var(--color-svv-muted)}
 .trx-listes-mois{display:contents}
+/* LOT CN — Apporteurs du mois : « Apporteur non nommé » en gris italique ; le négociateur en taille normale, à gauche, sa source dessous. */
+.trx-apporteur-non-nomme{font-style:italic;font-weight:400}
+[data-table-retrocessions] .trx-retro-negociateur{text-align:left;font-weight:400}
+.trx-retro-nego-pile{display:inline-flex;flex-direction:column;gap:2px}
+@media (max-width:1024px){ .trx-retro-nego-pile{align-items:flex-end;text-align:right} }
 /* LOT CM — un coût nul : gris (le grand et le petit), comme une com à 0. */
 .trx-cout-nul,.trx-cout-nul .trx-mt-petit,.trx-cout-nul .trx-montant-autre{color:var(--color-svv-muted)}
 /* LOT CL — Espace par négociateur : une Com non comptabilisée en gris ; la ligne de total sur la trame. */

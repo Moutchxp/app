@@ -1097,4 +1097,23 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       expect(CSS_TRANSACTION).toContain('.trx-cout-nul,.trx-cout-nul .trx-mt-petit,.trx-cout-nul .trx-montant-autre{color:var(--color-svv-muted)}');
     } finally { fin(); }
   });
+  it('🔴 LOT CN — « Apporteurs du mois » : Apporteur en premier (nommé en gras, sinon « Apporteur non nommé » gris italique), Négociateur et sa source dessous ; rattacher et Historique fonctionnent', async () => {
+    const r = (id: number, venteId: number | null, apporteur: string | null) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'CEDRIC', montantTtc: 500,
+      apporteur, venteId, libelle: 'montant saisi', origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3' });
+    const avant = donnees.nomsNegociateurs;
+    donnees.nomsNegociateurs = { CEDRIC: 'Cédric JULLIEN' };
+    const fin = await ouvrirSur([deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(71, null, 'Gardien Dacquet'), r(72, null, null)]);
+    try {
+      const table = container.querySelector('[data-table-retrocessions]')!;
+      expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Apporteur', 'Négociateur', 'Montant TTC', 'Vente', 'Historique']);
+      expect(texte('[data-apporteur-retro="71"]')).toBe('Gardien Dacquet');
+      expect(container.querySelector('[data-apporteur-retro="71"]')!.tagName).toBe('TH');
+      expect(container.querySelector('[data-apporteur-retro="72"] .trx-apporteur-non-nomme')!.textContent).toBe('Apporteur non nommé');
+      expect(texte('[data-negociateur-retro="71"]')).toBe('Cédric JULLIENCEDRIC › J3 · montant saisi');
+      expect(container.querySelector('[data-rattacher="71"]')).not.toBeNull();
+      await cliquer('[data-retrocession="71"] [data-mot="Historique"] button');
+      expect(texte('[data-retrocession="71"] [data-mot="Historique"] button')).toBe('Masquer');
+      expect(container.querySelector('[data-saisir-retro]')).not.toBeNull();
+    } finally { fin(); donnees.nomsNegociateurs = avant; }
+  });
 });

@@ -662,15 +662,18 @@ function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, 
     {motif !== null && <p className="trx-erreur" role="alert">{motif}</p>}
     {retros.length === 0 ? <p className="loc-muet">Aucune rétrocession ce mois.</p> : (
       <table className="tdb-table tdb-table--large" data-table-retrocessions>
-        <thead><tr><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Apporteur</th><th scope="col">Vente</th><th scope="col">Historique</th></tr></thead>
+        {/* 🔴 LOT CN (Arno) — le tableau parle des apporteurs : Apporteur · Négociateur · Montant TTC · Vente · Historique. */}
+        <thead><tr><th scope="col">Apporteur</th><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Vente</th><th scope="col">Historique</th></tr></thead>
         <tbody>{retros.map((r) => {
           const p = ventesProposees(r, ventes);
           const options = [...p.duMois, ...p.autres].map((v) => ({ id: v.id, libelle: `${v.libelle} — ${eur(v.honorairesTtc)} TTC${v.mois === null ? ` (${v.annee})` : ` (${moisCourt(v.annee, v.mois)})`}` }));
           return (
             <tr key={r.id} data-retrocession={r.id}>
-              <th scope="row">{nommer(r.negociateur)}{r.sourceCellule !== null && <><br /><span className="trx-source">{r.sourceOnglet} › {r.sourceCellule}{r.libelle ? ` · ${r.libelle}` : ''}</span></>}</th>
+              <th scope="row" data-apporteur-retro={r.id}>{(() => { const a = r.apporteur ?? (r.venteId !== null ? parId.get(r.venteId)?.apporteur : null);
+                return a ? a : <span className="loc-muet trx-apporteur-non-nomme">{APPORTEUR_NON_NOMME}</span>; })()}</th>
+              <td data-mot="Négociateur" className="trx-retro-negociateur" data-negociateur-retro={r.id}><span className="trx-retro-nego-pile"><span>{nommer(r.negociateur)}</span>
+                {r.sourceCellule !== null && <span className="trx-source">{r.sourceOnglet} › {r.sourceCellule}{r.libelle ? ` · ${r.libelle}` : ''}</span>}</span></td>
               <td data-mot="Montant TTC">{eur(r.montantTtc)}</td>
-              <td data-mot="Apporteur">{r.apporteur ?? (r.venteId !== null ? parId.get(r.venteId)?.apporteur : null) ?? <span className="loc-muet">{APPORTEUR_NON_NOMME}</span>}</td>
               <td data-mot="Vente">
                 <ListeChoix options={options} valeur={r.venteId === null ? '' : String(r.venteId)} vide="À répartir" libelle={`Vente de la rétrocession de ${eur(r.montantTtc)}`}
                   desactive={!disponible} onChange={(v) => void rattacher(r.id, v === '' ? null : Number(v))} donnees={{ 'data-rattacher': String(r.id) }} />
