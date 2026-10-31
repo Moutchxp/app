@@ -1796,7 +1796,7 @@ export function EcranGestion() {
             tableAnnees={enTout ? <section className="tdb-section" aria-labelledby="trx-gestion-annees" data-bloc="gestion-annees">
               <h3 id="trx-gestion-annees">Année par année <small className="loc-muet">({MOT_UNITE[unite]})</small></h3>
         <table className="tdb-table tdb-table--large" data-table-gestion-annees>
-          <thead><tr><th scope="col">Année</th><th scope="col">Mois saisis</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salarié</th><th scope="col">Reste</th><th scope="col">Évolution</th></tr></thead>
+          <thead><tr><th scope="col">Année</th><th scope="col">Mois saisis</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}</th><th scope="col">Reste</th><th scope="col">Évolution</th></tr></thead>
           <tbody>{annees.map((a, i) => {
             const h = somme(deLAnnee(a), 'honorairesHt');
             const p = i === 0 ? null : somme(deLAnnee(annees[i - 1]), 'honorairesHt');
@@ -1804,7 +1804,7 @@ export function EcranGestion() {
               <tr key={a} className={a === choixA.annee ? 'tdb-fort' : undefined} data-annee-gestion={a}>
                 <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnneeSeule(a)}>{a}</button></th>
                 <td data-mot="Mois saisis">{deLAnnee(a).length}</td><td data-mot="Honoraires">{manque(h)}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(a), 'adhocHt'))}</td>
-                <td data-mot="MONGA">{manque(somme(deLAnnee(a), 'mongaHt'))}</td><td data-mot="Salarié">{manque(somme(deLAnnee(a), 'salarieHt'))}</td><td data-mot="Reste">{manque(somme(deLAnnee(a), 'resteHt'))}</td>
+                <td data-mot="MONGA">{manque(somme(deLAnnee(a), 'mongaHt'))}</td><td data-mot={LIBELLE_SALAIRES}>{manque(somme(deLAnnee(a), 'salarieHt'))}</td><td data-mot="Reste">{manque(somme(deLAnnee(a), 'resteHt'))}</td>
                 <td data-mot="Évolution">{h === null || p === null ? '—' : signePct(variation(h, p))}</td>
               </tr>
             );
@@ -1820,6 +1820,8 @@ export function EcranGestion() {
   );
 }
 
+/** 🔴 LOT GE5 (Arno) — le libellé des salaires (sans TVA) : tuile, colonnes des tableaux, encadré et titre du graphique, fenêtre « Modifier » ; l'onglet garde « Salaires ». */
+const LIBELLE_SALAIRES = 'Coûts salariaux chargés';
 /** 🔴 LOT GE1 — « Gestion » : les tuiles, le graphique (deux échelles sur « L'année ») et le tableau des mois choisis. */
 function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mois, moisChoisis, lignesTableau, titreTableau, onMois, toutes = null, echelleAnnees = null, tableAnnees = null }: {
   gestion: readonly GestionMois[]; jour: string; disponible: boolean; onSaisir: (m: MoisChoisi) => void;
@@ -1851,7 +1853,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
   const tuile = (cle: string, mot: string, m: Exclude<MesureGestion, 'lots'>, couleur: string, lotsEnPlus = false) => {
     const c = centimesGestion(T, m, u); const c1 = centimesGestion(T1, m, u);
     return (
-      <li><div className="tdb-tuile" data-tuile={cle}><span className="tdb-tuile-mot">{mot} {MOT} — {lib}</span>
+      <li><div className="tdb-tuile" data-tuile={cle}><span className="tdb-tuile-mot">{m === 'salaries' ? mot : `${mot} ${MOT}`} — {lib}</span>
         <strong className={`tdb-tuile-valeur ${couleur}`} data-tuile-valeur={cle}>{eur(c / 100)}</strong>
         {/* une seule ligne entre parenthèses (la rangée commune des tuiles alignées) : l'autre unité, et les lots pour le CA net */}
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({m === 'salaries' ? 'sans TVA' : `${eur(centimesGestion(T, m, AUTRE) / 100)}${ESPACE}${MOT_UNITE[AUTRE]}`}{lotsEnPlus && <> · <span data-gestion-lots>{lots}</span></>})</small>
@@ -1878,7 +1880,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
       {tuile('gestion-honoraires', 'Honoraires de gestion', 'honoraires', 'tdb-signe tdb-signe--positif')}
       {tuile('gestion-adhoc', 'Coût ADHOC', 'adhoc', classeSens('verse', T.adhocC, T.adhocC))}
       {tuile('gestion-monga', 'Coût MONGA', 'monga', classeSens('verse', T.mongaC, T.mongaC))}
-      {tuile('gestion-salaries', 'Coût des salariés', 'salaries', classeSens('verse', T.salariesC, T.salariesC))}
+      {tuile('gestion-salaries', LIBELLE_SALAIRES, 'salaries', classeSens('verse', T.salariesC, T.salariesC))}
       {tuile('gestion-net', 'CA net', 'net', `tdb-signe tdb-signe--${sensDe(centimesGestion(T, 'net', u))}`, true)}
     </ul>
     {echelleAnnees !== null && echelle === 'annees'
@@ -1886,9 +1888,9 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
       : <GrapheGestionMois gestion={gestion} jour={jour} u={u} annee={annee} mois={mois} moisChoisis={moisChoisis} onMois={onMois} entete={choixEchelle} />}
     {tableAnnees ?? (
       <section className="tdb-section" aria-labelledby="trx-gestion-mois" data-bloc="gestion-mois">
-        <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, salariés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
+        <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, coûts salariaux chargés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
         <table className="tdb-table tdb-table--large" data-table-gestion>
-          <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salarié</th><th scope="col">Reste</th>
+          <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}</th><th scope="col">Reste</th>
             <th scope="col">Honoraires {plusieursAnnees ? 'un an plus tôt' : annee - 1}</th><th scope="col">Saisie</th></tr></thead>
           <tbody>
             {lignesTableau.map((m) => {
@@ -1898,7 +1900,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
                 <tr key={`${m.annee}-${m.mois}`} data-mois-gestion={m.mois} data-annee-mois-gestion={`${m.annee}-${m.mois}`} className={mois !== 0 && m.mois === mois && m.annee === annee ? 'trx-ligne-choisie' : undefined}>
                   <th scope="row">{NOMS_MOIS[m.mois - 1]}{plusieursAnnees ? ` ${m.annee}` : ''}{g?.origine === 'import' && <span className="loc-pastille" title="Repris du fichier importé"> import</span>}</th>
                   <td data-mot="Lots">{g?.nbLots == null ? '—' : nombreFr(g.nbLots)}</td><td data-mot="Honoraires" data-gestion-honoraires={m.mois}>{manque(l.honoraires)}</td>
-                  <td data-mot="ADHOC">{manque(l.adhoc)}</td><td data-mot="MONGA">{manque(l.monga)}</td><td data-mot="Salarié">{manque(l.salarie)}</td><td data-mot="Reste">{manque(l.reste)}</td>
+                  <td data-mot="ADHOC">{manque(l.adhoc)}</td><td data-mot="MONGA">{manque(l.monga)}</td><td data-mot={LIBELLE_SALAIRES}>{manque(l.salarie)}</td><td data-mot="Reste">{manque(l.reste)}</td>
                   <td data-mot={`Honoraires ${m.annee - 1}`}>{manque(l1.honoraires)}</td>
                   <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" onClick={() => onSaisir(m)} disabled={!disponible} data-saisir-gestion={m.mois}
                     data-saisir-gestion-mois={`${m.annee}-${m.mois}`}>{g === null ? 'Saisir' : 'Modifier'}</button></td>
@@ -1906,7 +1908,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
               );
             })}
             <tr className="tdb-fort trx-ligne-total" data-total-gestion><th scope="row">Total — {titreTableau ?? lib}</th><td data-mot="Lots">—</td>
-              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot="Salarié">{manque(somme('salarie'))}</td>
+              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot={LIBELLE_SALAIRES}>{manque(somme('salarie'))}</td>
               <td data-mot="Reste">{manque(somme('reste'))}</td><td data-mot="Honoraires N−1">{total.nbMois === 0 ? '—' : manque(somme('honoraires', unAnPlusTot(lignesTableau)))}</td><td data-mot="Saisie" /></tr>
           </tbody>
         </table>
@@ -1917,7 +1919,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
 
 /** Les mots d'une mesure de la gestion (l'onglet du graphique, l'encadré). */
 // 🔴 LOT GE4 — dans le graphique et son encadré : « CA » (les honoraires) et « Salaires » (les tuiles et le tableau gardent leurs libellés)
-const motMesureGestion = (m: MesureGestion, u: UniteGestion): string => (m === 'lots' ? 'Lots' : m === 'salaries' ? 'Salaires (sans TVA)'
+const motMesureGestion = (m: MesureGestion, u: UniteGestion): string => (m === 'lots' ? 'Lots' : m === 'salaries' ? LIBELLE_SALAIRES
   : `${({ honoraires: 'CA', adhoc: 'ADHOC', monga: 'MONGA', net: 'CA net' } as const)[m]} ${MOT_UNITE[u]}`);
 function useMesureGestion(): [MesureGestion, (m: MesureGestion) => void] {
   const [mesure, setMesure] = useState<MesureGestion>(() => { const x = parametre('mesure'); return estMesureGestion(x) ? x : 'honoraires'; });
@@ -2052,7 +2054,7 @@ function SaisieGestion({ annee, mois, actuelle, onFermer, onFait, onRelire, mong
             {/* 🔴 LOT GE3 — MONGA, entre ADHOC et Salarié : même format et mêmes contrôles qu'ADHOC ; il diminue le reste d'autant */}
             <label>MONGA HT<input value={v.mongaHt} inputMode="decimal" onChange={(x) => changerMonga(x.target.value)} disabled={!monga} data-champ-gestion="mongaHt" />
               <span className="loc-muet">{monga ? 'retranché du reste' : 'après la mise à jour de la base (migration 446)'}</span></label>
-            {champ('salarieHt', 'Salarié HT')}
+            {champ('salarieHt', `${LIBELLE_SALAIRES} (HT)`)}
             <label>Reste HT<input value={v.resteHt} inputMode="decimal" onChange={(x) => setV((y) => ({ ...y, resteHt: x.target.value }))} data-champ-gestion="resteHt" />
               <span className="loc-muet">{propose === null ? '' : <>Proposé : {eur(propose)} <button type="button" className="trx-bouton-lien" onClick={() => setV((y) => ({ ...y, resteHt: String(propose).replace('.', ',') }))}>Reprendre</button></>}</span></label>
             <label className="trx-plein">Note<textarea value={v.note} onChange={(x) => setV((y) => ({ ...y, note: x.target.value }))} /></label>
