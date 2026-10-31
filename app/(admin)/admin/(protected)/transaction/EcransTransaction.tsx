@@ -14,7 +14,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
+import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -23,6 +23,8 @@ import { DessinTriangle } from '../_composants/TriangleDepliage';
 import { espaceNegociateurs, resultatDesCartes, retrosSansVenteAffichee, type LigneEspace, type ResultatCartes } from '../../../../lib/transaction/carteAffaireLignes';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
+import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
+import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { basculerMois, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
@@ -141,8 +143,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const [debut, setDebut] = useState<number | null>(() => entier(parametre('debut'), 2000, 2100));
   const [fin, setFin] = useState<number | null>(() => entier(parametre('fin'), 2000, 2100));
   // 🔴 LOT CQ — le filtre « Négociateur » : une PERSONNE (son nom affiché), gardé dans l'adresse (&negociateur=…) ; un ancien lien qui porte un
-  // libellé (« ARNAUD ») ouvre la même personne.
-  const [negociateur, setNegociateur] = useState(() => parametre('negociateur') ?? '');
+  // libellé (« ARNAUD ») ouvre la même personne. 🔴 LOT CU — de 0 (« Tous ») à 5 personnes (&negociateur=A&negociateur=B ; un lien à une valeur
+  // s'ouvre comme avant).
+  const [negociateurs, setNegociateurs] = useState<string[]>(() => parametres('negociateur'));
   // 🔴 LOT BS (Arno) — « Le mois » : Vendu | Compromis | Vendu + compromis. L'adresse (&mode=…) d'abord (un lien partagé), sinon le choix retenu
   // par le navigateur, sinon « Vendu » (l'écran d'avant, à l'identique).
   const [mode, setModeEtat] = useState<ModeMois>(() => modeInitial(parametre('mode')));
@@ -159,7 +162,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       : vue === 'compromis' ? { vue: null, annee: null, mois: null, debut: null, fin: null, mode: null, mesure: null, periode: null, 'vue-mois': null }
       : { vue: 'annee', annee: null, mois: null, debut: debut === null ? null : String(debut), fin: fin === null ? null : String(fin), mode: null, mesure: null, periode: null, 'vue-mois': null });
   }, [vue, annee, mois, debut, fin, mode, periode, decoupage]);
-  useEffect(() => { ecrireAdresse({ negociateur: vue === 'compromis' || negociateur === '' ? null : negociateur }); }, [vue, negociateur]);
+  useEffect(() => { ecrireAdresseListe('negociateur', vue === 'compromis' ? [] : negociateurs); }, [vue, negociateurs]);
 
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
@@ -168,9 +171,13 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const negos = [...new Set([...d.ventes.flatMap(negociateursDe), ...d.retrocessions.map((r) => r.negociateur)])].sort((a, b) => a.localeCompare(b, 'fr'));
   // 🔴 LOT CQ — une entrée par PERSONNE (lot CG : « ARNAUD » et « Arnaud Jorel » = « Arnaud JOREL ») ; elle choisit toutes ses ventes, tous libellés confondus.
   const personnes = personnesNegociateurs(negos, (x) => d.nomsNegociateurs?.[x] ?? x);
-  const filtre = negociateur === '' ? null : libellesDuFiltre(personnes, negociateur);
-  const filtrees: DonneesSociete = filtre === null ? d : { ...d, ventes: d.ventes.filter((v) => negociateursDe(v).some((l) => filtre.libelles.includes(l))),
-    retrocessions: d.retrocessions.filter((r) => filtre.libelles.includes(r.negociateur)), aRattacher: d.aRattacher.filter((x) => filtre.libelles.includes(x.negociateur)) };
+  const choisis = negociateurs.map((x) => libellesDuFiltre(personnes, x)).filter((c, i, t) => t.findIndex((y) => y.nom === c.nom) === i).slice(0, MAX_NEGOCIATEURS);
+  /** Les données des ventes, rétrocessions et montants à rattacher de ces libellés (une affaire de plusieurs d'entre eux : une fois). */
+  const filtrer = (libelles: readonly string[]): DonneesSociete => ({ ...d, ventes: d.ventes.filter((v) => negociateursDe(v).some((l) => libelles.includes(l))),
+    retrocessions: d.retrocessions.filter((r) => libelles.includes(r.negociateur)), aRattacher: d.aRattacher.filter((x) => libelles.includes(x.negociateur)) });
+  const filtrees: DonneesSociete = choisis.length === 0 ? d : filtrer(choisis.flatMap((c) => c.libelles));
+  // 🔴 LOT CU — de 2 à 5 négociateurs : une série par négociateur (ses ventes seules), dans l'ordre de la sélection (sa couleur).
+  const seriesNegos = choisis.length >= 2 ? choisis.map((c, i) => ({ nom: c.nom, couleur: i + 1, d: filtrer(c.libelles) })) : null;
   const fini = (): void => { setEdition(null); relire(); };
   const references = refs.lu.etat === 'ok' ? refs.lu.data : null;
   /** LOT D — une vente répartie (ou avec son dossier) se modifie dans le formulaire du dossier ; les autres, comme avant. */
@@ -202,8 +209,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
             <ListeChoix options={annees.filter((a) => a >= (debut ?? annees[0])).map((a) => ({ id: a, libelle: String(a) }))} valeur={String(fin ?? annees.at(-1))} vide={null}
               libelle="Fin" onChange={(v) => setFin(Number(v))} donnees={{ 'data-filtre': 'fin' }} /></label>
         </>}
-        <label className="tdb-champ">Négociateur
-          <ListeChoix options={personnes.map((p) => ({ id: p.nom, libelle: p.nom }))} valeur={filtre?.nom ?? ''} vide="Tous" libelle="Négociateur" onChange={setNegociateur} donnees={{ 'data-filtre': 'negociateur' }} /></label>
+        {/* 🔴 LOT CU — un bloc (pas un <label>) : un clic dans la liste ne doit pas rouvrir / refermer le champ. */}
+        <div className="tdb-champ">Négociateur
+          <FiltreNegociateurs personnes={personnes.map((p) => p.nom)} choisis={choisis.map((c) => c.nom)} onChange={setNegociateurs} /></div>
         {/* 🔴 LOT BS — ce que « Le mois » additionne : les ventes signées (date de l'acte), les compromis (date du compromis), ou les deux. */}
         {vue === 'mois' && <div className="tdb-champ trx-champ-mode"><span id="trx-mode-mot">Compter</span>
           <div className="trx-unites trx-modes" role="group" aria-labelledby="trx-mode-mot" data-filtre="mode">
@@ -218,7 +226,7 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       <FournisseurAffichage value={unite}><FournisseurNoms value={d.nomsNegociateurs ?? {}}>
       {vue === 'mois'
         ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={choisirMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references}
-            periode={periodeVue} decoupage={decoupage} refusPeriode={refusPeriode} onDecoupage={choisirDecoupage} />
+            periode={periodeVue} decoupage={decoupage} refusPeriode={refusPeriode} onDecoupage={choisirDecoupage} series={seriesNegos} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
             onAnnee={(a) => { setDebut(a); setFin(a); }} />}
       </FournisseurNoms></FournisseurAffichage>
@@ -238,6 +246,8 @@ export function EcranSociete({ societe }: { societe: Societe }) {
 
 /** 🔴 LOT BS — le choix du mode retenu par le navigateur (et repris de l'adresse). */
 export const CLE_MODE_MOIS = 'trx-mois-mode';
+/** 🔴 LOT CU — la mention des tuiles quand plusieurs négociateurs sont choisis. */
+const SANS_N1_PLUSIEURS = 'comparaison N−1 : choisir un seul négociateur';
 /** 🔴 LOT CT — la ligne des mois : un mois, une période (des mois choisis) ou l'année (ses 12 mois). */
 export type Decoupage = 'mois' | 'periode' | 'annee';
 export const DECOUPAGES: readonly Decoupage[] = ['mois', 'periode', 'annee'];
@@ -260,7 +270,7 @@ const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; 
 type MesureTrx = 'ca' | 'nombre';
 const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 
-function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage }: {
+function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage, series = null }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois; onMois: (m: number) => void;
   onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
   /** 🔴 LOT BU — les références (négociateurs, apporteurs, personnes…) de la fiche dépliée d'une vente ; null : pas encore lues (lecture seule). */
@@ -269,11 +279,14 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   periode?: readonly MoisChoisi[] | null; refusPeriode?: boolean; onDecoupage?: (x: Decoupage) => void;
   /** 🔴 LOT CT — « Mois | Période | Année » ; « Année » : `periode` = les 12 mois de l'année. */
   decoupage?: Decoupage;
+  /** 🔴 LOT CU — de 2 à 5 négociateurs : leurs données une à une (le graphique, une série chacun) ; null : un seul ou « Tous » (l'écran d'avant). */
+  series?: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null;
 }) {
   // 🔴 LOT CP — en Période, chaque grandeur du mois devient la somme de ses mois (`periodeMois` : les fonctions du mois, mois après mois).
   const nommer = useNommer(); // 🔴 LOT CQ — le compteur de l'Espace compte des PERSONNES
   const enPeriode = periode !== null;
   const enAnnee = decoupage === 'annee';
+  const plusieurs = series !== null; // 🔴 LOT CU — de 2 à 5 négociateurs : les tuiles cumulent, sans comparaison N−1
   const ms: readonly MoisChoisi[] = periode ?? [{ annee, mois }];
   const anneesP = [...new Set(ms.map((m) => m.annee))];
   const moisPeriodeAnnee = ms.filter((m) => m.annee === annee).map((m) => m.mois);
@@ -409,13 +422,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="tdb-tuile-mot">{M.ca} — {moisMot}</span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
         {/* 🔴 LOT CH — le CA de la tuile = celui du Résultat (la somme des cartes, au centime). */}
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur((U.u === 'ht' ? Rc.ca.ttcC : Rc.ca.htC) / 100)}{ESPACE}{U.autre.mot})</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="ca">{sansN1P ? motSansN1P : `${n1Ca} ${enN1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="ca">{plusieurs ? SANS_N1_PLUSIEURS : sansN1P ? motSansN1P : `${n1Ca} ${enN1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ventes-mois">
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
-        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{plusieurs ? SANS_N1_PLUSIEURS : sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
         <span className="tdb-tuile-mot">{mode === 'vendu' ? `CA ${U.MOT}` : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} (à fin {moisFin})</span><strong className="tdb-tuile-valeur">{U.e(cumulN[mois - 1])}</strong><Autre ht={cumulN[mois - 1]} />
-        <span className="tdb-tuile-n1">{sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="cumul">{plusieurs ? SANS_N1_PLUSIEURS : sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
         <span className="tdb-tuile-mot">Compromis en cours ({annee}, {U.MOT})</span><strong className="tdb-tuile-valeur">{U.e(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={comp.reduce((s, v) => s + caHt(v, d.societe), 0)} />
         <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
@@ -434,7 +447,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
         mesures={[{ cle: 'ca', mot: 'CA' }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
-      {cumul ? (
+      {/* 🔴 LOT CU — de 2 à 5 négociateurs : une série par négociateur (sa couleur), sans N−1 ; Mensuel en barres groupées, Cumul en courbes. */}
+      {series !== null ? (
+        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, ca: caHtParMoisMode(x.d.ventes, annee, d.societe, mode).map(U.en), nb: nombreParMoisMode(x.d.ventes, annee, mode) }))}
+          total={{ ca: sc(parMois), nb: nbParMois }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
+          choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
+          motCa={`CA ${U.MOT}`} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par mois, ${annee}, un négociateur par série`} />
+      ) : cumul ? (
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
           aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} />
       ) : (
@@ -443,7 +462,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
             ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}
-      {mode === 'tous' && !cumul && <p className="loc-muet trx-legende-empile" data-legende-empile>
+      {mode === 'tous' && !cumul && series === null && <p className="loc-muet trx-legende-empile" data-legende-empile>
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>
 

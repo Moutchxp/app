@@ -835,7 +835,8 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
   const bas = Math.min(0, ...valeurs);
   const pasEntier = Math.max(1, Math.ceil((haut - bas) / 4));
   const min = entier ? Math.floor(bas / pasEntier) * pasEntier : bas;
-  const max = entier ? min + pasEntier * 4 : haut;
+  // 🔴 LOT CU (Arno) — l'axe VIDE (toutes les valeurs à 0) : « 0 € … 1 k€ » au lieu de « 1 € » répété (en nombre : 0, 1, 2… déjà distincts).
+  const max = entier ? min + pasEntier * 4 : valeurs.every((v) => v === 0) ? 1000 : haut;
   const x = (i: number): number => m.g + (i * (L - m.g - m.d)) / Math.max(1, n - 1);
   const y = (v: number): number => H - m.b - ((v - min) * (H - m.h - m.b)) / (max - min);
   const trace = (vals: readonly number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
@@ -1048,7 +1049,8 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   const plusBas = Math.min(0, ...barres.map((b) => Math.min(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
   const pasEntier = Math.max(1, Math.ceil((plusHaut - plusBas) / 4));
   const min = entier ? Math.floor(plusBas / pasEntier) * pasEntier : plusBas;
-  const max = entier ? min + pasEntier * 4 : plusHaut;
+  // 🔴 LOT CU (Arno) — l'axe VIDE (toutes les valeurs à 0) : « 0 € … 1 k€ » au lieu de « 1 € » répété (en nombre : 0, 1, 2… déjà distincts).
+  const max = entier ? min + pasEntier * 4 : barres.every((b) => (b.valeur ?? 0) === 0 && (!avecN1 || (b.n1 ?? 0) === 0)) ? 1000 : plusHaut;
   const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v)); // 🔴 LOT CR — en abrégé
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
   m.g = margeAxe(graduations.map(etiquette)); // 🔴 LOT CR — la marge de l'axe suit sa plus longue graduation

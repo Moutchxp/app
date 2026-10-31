@@ -179,6 +179,21 @@ export function ecrireAdresse(p: Record<string, string | null>): void {
   window.history.replaceState(window.history.state, '', `${u.pathname}${q === '' ? '' : `?${q}`}${u.hash}`);
 }
 
+/** 🔴 LOT CU — un paramètre à plusieurs valeurs (« &negociateur=A&negociateur=B ») ; aucun : []. */
+export function parametres(nom: string): string[] {
+  return typeof window === 'undefined' ? [] : new URLSearchParams(window.location.search).getAll(nom).filter((x) => x !== '');
+}
+/** 🔴 LOT CU — réécrit un paramètre à plusieurs valeurs (vide : retiré), sans recharger. */
+export function ecrireAdresseListe(nom: string, valeurs: readonly string[]): void {
+  const u = new URL(window.location.href);
+  const avant = u.searchParams.toString();
+  u.searchParams.delete(nom);
+  for (const v of valeurs) u.searchParams.append(nom, v);
+  if (u.searchParams.toString() === avant) return;
+  const q = u.searchParams.toString();
+  window.history.replaceState(window.history.state, '', `${u.pathname}${q === '' ? '' : `?${q}`}${u.hash}`);
+}
+
 /** Les classes propres à la tuile (les autres viennent du Suivi de la Location : `tdb-*`, `loc-*`). Jetons de couleur seulement. */
 export const CSS_TRANSACTION = `
 ${CSS_TRIANGLE}
@@ -302,6 +317,30 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* LOT CA — un en-tête de liste : le titre, son sélecteur et le compteur « (N) » ensemble à gauche ; les boutons à droite (au téléphone, dessous). */
 .trx-entete-gauche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
 .trx-entete-gauche h3{margin:0}
+/* LOT CU — de 2 à 5 négociateurs : la palette fixe des séries (clair ; sombre plus bas), une couleur par négociateur dans l'ordre de la sélection. */
+.tdb{--trx-serie-1:#2563eb;--trx-serie-2:#c2410c;--trx-serie-3:#047857;--trx-serie-4:#7c3aed;--trx-serie-5:#be185d}
+.svv-adm-root[data-theme='dark'] .tdb{--trx-serie-1:#60a5fa;--trx-serie-2:#fb923c;--trx-serie-3:#34d399;--trx-serie-4:#a78bfa;--trx-serie-5:#f472b6}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .tdb{--trx-serie-1:#60a5fa;--trx-serie-2:#fb923c;--trx-serie-3:#34d399;--trx-serie-4:#a78bfa;--trx-serie-5:#f472b6} }
+.trx-serie--1{--trx-serie:var(--trx-serie-1)} .trx-serie--2{--trx-serie:var(--trx-serie-2)} .trx-serie--3{--trx-serie:var(--trx-serie-3)}
+.trx-serie--4{--trx-serie:var(--trx-serie-4)} .trx-serie--5{--trx-serie:var(--trx-serie-5)}
+.trx-serie-barre,.trx-serie-point{fill:var(--trx-serie)}
+.trx-serie-trait{fill:none;stroke:var(--trx-serie);stroke-width:2.5;stroke-linejoin:round}
+.trx-pastille-serie{display:inline-block;flex:0 0 auto;width:12px;height:12px;border-radius:3px;background:var(--trx-serie);margin-right:6px}
+.trx-legende-series{display:flex;flex-wrap:wrap;gap:6px 16px}
+.trx-legende-serie{display:inline-flex;align-items:center;white-space:nowrap;color:var(--color-svv-ink);font-weight:600}
+.trx-serie-ligne{gap:8px}
+.trx-serie-ligne>span:first-child{display:inline-flex;align-items:center;flex:1 1 auto;min-width:0}
+.trx-serie-ligne .tdb-bulle-montant,.trx-graphe-negos [data-detail-ensemble] .tdb-bulle-montant{flex:0 0 auto}
+.trx-graphe-negos .tdb-histo-detail .tdb-bulle--sous{font-size:.8rem}
+.trx-serie-entete{color:var(--color-svv-muted);font-size:.75rem}
+.trx-serie-note{font-size:.75rem;margin-top:4px !important}
+/* LOT CU — le filtre « Négociateur » à choix multiple : des cases à cocher dans la liste ; « 5 au maximum » dessous. */
+.trx-filtre-negos .trx-filtre-negos-panneau{right:auto;min-width:100%;width:max-content;max-width:min(340px,90vw);max-height:min(480px,70vh)}
+@media (max-width:720px){ .trx-filtre-negos .trx-filtre-negos-panneau{left:auto;right:0;width:min(300px,calc(100vw - 32px));max-width:none} }
+.trx-filtre-negos-liste:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.trx-case{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;box-sizing:border-box;border:1.5px solid var(--color-svv-line-strong);border-radius:4px;font-size:.72rem;font-weight:800}
+.trx-case--cochee{background:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);color:var(--color-svv-surface)}
+.trx-filtre-negos-max{margin:2px 8px 4px;font-size:.78rem}
 /* LOT CS — le tri des cartes de l'onglet Compromis : un petit menu texte, gris, sans cadre ; au téléphone, sous le titre, à gauche. */
 .trx-tri-compromis{display:inline-flex;align-items:center;gap:2px;color:var(--color-svv-muted);font-size:.85rem}
 .trx-tri-compromis .lch{width:auto}
