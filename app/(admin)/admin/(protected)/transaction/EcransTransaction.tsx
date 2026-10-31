@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compromisDeLAnnee, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
+  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois, totaux,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente, TVA,
@@ -25,6 +25,7 @@ import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
+import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
@@ -229,9 +230,9 @@ export function EcranSociete({ societe }: { societe: Societe }) {
       <FournisseurAffichage value={unite}><FournisseurNoms value={d.nomsNegociateurs ?? {}}>
       {vue === 'mois'
         ? <VueMois d={filtrees} tout={d} annee={annee} mois={mois} jour={jour} mode={mode} onMois={choisirMois} onDetail={setDetail} onEdition={setEdition} onRelire={relire} references={references}
-            periode={periodeVue} decoupage={decoupage} refusPeriode={refusPeriode} onDecoupage={choisirDecoupage} series={seriesNegos} />
+            periode={periodeVue} decoupage={decoupage} refusPeriode={refusPeriode} onDecoupage={choisirDecoupage} series={seriesNegos} filtreNegociateurs={choisis.map((c) => c.nom)} />
         : <VueAnnee d={filtrees} annees={annees} debut={debut ?? annees[0]} fin={fin ?? annees.at(-1)!} jour={jour} onDetail={setDetail}
-            onAnnee={(a) => { setDebut(a); setFin(a); }} />}
+            onAnnee={(a) => { setDebut(a); setFin(a); }} filtreNegociateurs={choisis.map((c) => c.nom)} />}
       </FournisseurNoms></FournisseurAffichage>
       </>}
       {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs (onglet Compromis : après la synthèse et les annulés ;
@@ -252,6 +253,18 @@ export function EcranSociete({ societe }: { societe: Societe }) {
 
 /** 🔴 LOT BS — le choix du mode retenu par le navigateur (et repris de l'adresse). */
 export const CLE_MODE_MOIS = 'trx-mois-mode';
+/** 🔴 LOT CY — la tuile « Compromis en cours (TTC) » de « Le mois » et « L'année » : le total de la règle unique, l'autre unité dessous, le nombre ;
+ *  le filtre « Négociateur » actif, en petit. */
+function TuileCompromisEnCours({ cec, filtre }: { cec: TotalCompromisEnCours; filtre: readonly string[] }) {
+  const U = useUnite();
+  const [grand, petit] = U.u === 'ht' ? [cec.htC, cec.ttcC] : [cec.ttcC, cec.htC];
+  return <>
+    <span className="tdb-tuile-mot">Compromis en cours ({U.MOT}){filtre.length > 0 && <small className="trx-tuile-filtre" data-tuile-filtre> — {filtre.length === 1 ? 'Négociateur' : 'Négociateurs'} : {filtre.join(', ')}</small>}</span>
+    <strong className="tdb-tuile-valeur" data-compromis-en-cours>{eur(grand / 100)}</strong>
+    <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(petit / 100)}{ESPACE}{U.autre.mot})</small>
+    <span className="tdb-tuile-n1">{cec.nb} compromis — le prévisionnel</span>
+  </>;
+}
 /** 🔴 LOT CU — la mention des tuiles quand plusieurs négociateurs sont choisis. */
 const SANS_N1_PLUSIEURS = 'comparaison N−1 : choisir un seul négociateur';
 /** 🔴 LOT CT — la ligne des mois : un mois, une période (des mois choisis) ou l'année (ses 12 mois). */
@@ -277,7 +290,7 @@ const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; 
 type MesureTrx = 'ca' | 'net' | 'nombre';
 const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 
-function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage, series = null }: {
+function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage, series = null, filtreNegociateurs = [] }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois; onMois: (m: number) => void;
   onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
   /** 🔴 LOT BU — les références (négociateurs, apporteurs, personnes…) de la fiche dépliée d'une vente ; null : pas encore lues (lecture seule). */
@@ -288,6 +301,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   decoupage?: Decoupage;
   /** 🔴 LOT CU — de 2 à 5 négociateurs : leurs données une à une (le graphique, une série chacun) ; null : un seul ou « Tous » (l'écran d'avant). */
   series?: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null;
+  /** 🔴 LOT CY — les négociateurs du filtre (dits en petit sur la tuile « Compromis en cours ») ; [] : « Tous ». */
+  filtreNegociateurs?: readonly string[];
 }) {
   // 🔴 LOT CP — en Période, chaque grandeur du mois devient la somme de ses mois (`periodeMois` : les fonctions du mois, mois après mois).
   const nommer = useNommer(); // 🔴 LOT CQ — le compteur de l'Espace compte des PERSONNES
@@ -359,7 +374,11 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const retrosLiees = d.retrocessions.filter((r) => r.venteId !== null && Rc.ids.includes(r.venteId));
   const horsResultat = retrosSansVenteAffichee(retros, Rc.ids);
   const retrosMode = retrosLiees;
-  const comp = compromisDeLAnnee(d.ventes, annee);
+  // 🔴 LOT CY (Arno) — « Compromis en cours » : la règle unique (`compromisEnCours`, `totalCompromisEnCours`) — tous les compromis non actés de la
+  // société, quels que soient leur mois ou leur année, dates absentes comprises ; le même chiffre que l'onglet « Compromis » (« En cours »).
+  // Ne dépend ni du mois, ni de l'année, ni de la période : seulement du filtre « Négociateur » (`d` filtrées) et de « HT | TTC ».
+  const comp = compromisEnCours(d.ventes, d.societe);
+  const cec = totalCompromisEnCours(d.ventes, d.societe, resolveurDe(d.statutsNegociateurs));
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => estChoisi(ms, { annee: x.annee, mois: x.mois }));
   const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode)].map((v) => v.id);
@@ -461,9 +480,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee}`, Array.from({ length: mois }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul">
         <span className="tdb-tuile-mot">{mode === 'vendu' ? `CA ${U.MOT}` : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} (à fin {moisFin})</span><strong className="tdb-tuile-valeur">{U.e(cumulN[mois - 1])}</strong><Autre ht={cumulN[mois - 1]} />
         <span className="tdb-tuile-n1" data-tuile-n1="cumul">{plusieurs ? SANS_N1_PLUSIEURS : sansN1 ? motSansN1 : `${U.e(cumulN1[mois - 1])} en ${annee - 1} (${signePct(variation(cumulN[mois - 1], cumulN1[mois - 1]))})`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Compromis en cours — ${annee}`, comp.map((v) => v.id))} data-tuile="compromis">
-        <span className="tdb-tuile-mot">Compromis en cours ({annee}, {U.MOT})</span><strong className="tdb-tuile-valeur">{U.e(comp.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={comp.reduce((s, v) => s + caHt(v, d.societe), 0)} />
-        <span className="tdb-tuile-n1">{comp.length} compromis — le prévisionnel</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={ouvrir('Compromis en cours', cec.ids)} data-tuile="compromis">
+        <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
     </ul>
     {/* 🔴 LOT CR (Arno) — la mention « N compromis sans date — non placés dans un mois » est RETIRÉE (accord d'Arno) : un compromis sans
         date n'a toujours pas de mois (jamais compté dans un mois) ; il reste visible dans l'onglet « Compromis », vue « En cours ». */}
@@ -546,7 +564,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       </section>
     )}
 
-    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours — {annee}</>} resume={`${comp.length} · ${eur(sommeAffichee(comp.map((v) => U.en(caHt(v, d.societe)))))} ${U.MOT}`}
+    <BlocReplie id="trx-compromis" section="compromis" titre={<>Compromis en cours</>} resume={`${cec.nb} · ${eur((U.u === 'ht' ? cec.htC : cec.ttcC) / 100)} ${U.MOT}`}
       donnees={{ 'data-bloc': 'compromis' }}>
       <TableVentes ventes={comp} retros={tout.retrocessions} onModifier={onEdition} vide="Aucun compromis en cours." societe={d.societe} statutDuLibelle={resolveurDe(d.statutsNegociateurs)} />
     </BlocReplie>
@@ -909,8 +927,9 @@ function SaisieRetro({ societe, annee, mois, onFait }: { societe: Societe; annee
 
 // ── L'année ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
+function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee, filtreNegociateurs = [] }: {
   d: DonneesSociete; annees: readonly number[]; debut: number; fin: number; jour: string; onDetail: (x: Detail) => void; onAnnee: (a: number) => void;
+  filtreNegociateurs?: readonly string[];
 }) {
   const [cumul, setCumul] = useState(false);
   const U = useUnite();
@@ -937,7 +956,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
   const precedente = annees.filter((a) => a >= debut - duree && a <= debut - 1);
   const TP = precedente.length === 0 ? null : totaux(d.ventes.filter((v) => v.statut === 'vendue' && precedente.includes(v.annee) && compteDansSociete(v)), d.retrocessions.filter((r) => precedente.includes(r.annee)), d.societe, resolveurDe(d.statutsNegociateurs));
   const libPrec = precedente.length === 0 ? '' : duree === 1 ? String(debut - 1) : `${debut - duree} → ${debut - 1}`;
-  const compFin = compromisDeLAnnee(d.ventes, fin);
+  // 🔴 LOT CY — « Compromis en cours » : la règle unique, comme « Le mois » et l'onglet « Compromis » (ni la période, ni l'année).
+  const cec = totalCompromisEnCours(d.ventes, d.societe, resolveurDe(d.statutsNegociateurs));
   const parMois = caHtParMois(d.ventes, fin, d.societe);
   const parMoisN1 = caHtParMois(d.ventes, fin - 1, d.societe);
   const sansN1 = !d.ventes.some((v) => v.annee === fin - 1);
@@ -955,9 +975,8 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
       <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Ventes — ${libelle}`, ids: T.ids })} data-tuile="ventes-periode">
         <span className="tdb-tuile-mot">Ventes <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1">{TP === null ? 'Période précédente : —' : `${libPrec} : ${TP.nbVentes}`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: `Compromis en cours — ${fin}`, ids: compFin.map((v) => v.id) })} data-tuile="compromis-periode">
-        <span className="tdb-tuile-mot">Compromis en cours <small>({fin}, {U.MOT})</small></span><strong className="tdb-tuile-valeur">{U.e(compFin.reduce((s, v) => s + caHt(v, d.societe), 0))}</strong><Autre ht={compFin.reduce((s, v) => s + caHt(v, d.societe), 0)} />
-        <span className="tdb-tuile-n1">{compFin.length} compromis — le prévisionnel</span></button></li>
+      <li><button type="button" className="tdb-tuile" onClick={() => onDetail({ titre: 'Compromis en cours', ids: cec.ids })} data-tuile="compromis-periode">
+        <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
       <li><div className="tdb-tuile" data-tuile="reste-periode">
         <span className="tdb-tuile-mot">Reste à l’agence {U.MOT} <small>({libelle})</small></span><strong className="tdb-tuile-valeur">{U.e(Rp.reste.htC / 100)}</strong><Autre ht={Rp.reste.htC / 100} />
         <span className="tdb-tuile-n1">après {U.e(Rp.retro.htC / 100)} de rétrocessions{Rp.interCabinet.htC + Rp.exterieur.htC > 0 ? `, ${U.e((Rp.interCabinet.htC + Rp.exterieur.htC) / 100)} d’inter-cabinet` : ''} et {U.e(Rp.com.htC / 100)} de paye (indépendants)</span>
@@ -991,7 +1010,7 @@ function VueAnnee({ d, annees, debut, fin, jour, onDetail, onAnnee }: {
         <dt>Ventes</dt><dd>{T.nbVentes}</dd>
         <LignesResultat R={Rp} T={T} suffixe="periode"
           apresCa={<><dt>dont ventes « mois à confirmer »</dt><dd>{eur(sommeAffichee(HP.map((h) => U.en(h.moisAConfirmerHt))))} ({HP.reduce((s, h) => s + h.nbMoisAConfirmer, 0)})</dd></>} />
-        <dt>Compromis en cours ({fin}, {U.MOT})</dt><dd><Mt ht={compFin.reduce((s, v) => s + caHt(v, d.societe), 0)} /></dd>
+        <dt>Compromis en cours ({U.MOT})</dt><dd><Mt ht={cec.htC / 100} ttc={cec.ttcC / 100} donnees={{ 'data-compromis-en-cours-resume': '' }} /></dd>
       </dl>
       <RetrosHorsResultat retros={horsP} ventes={d.ventes} quand="sur la période" />
     </section>
@@ -1122,7 +1141,20 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
 
 // ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null }
+interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
+  /** 🔴 LOT CY — les compromis en cours (la règle unique, calculée par la route avec `totalCompromisEnCours`) : nos deux sociétés et chacune. */
+  compromisEnCours?: CompromisEnCoursGlobal }
+type CompromisEnCoursGlobal = Record<'tous' | Societe, TotalCompromisEnCours>;
+/**
+ * 🔴 LOT CY — le prévisionnel du CA global = les compromis EN COURS (la règle unique : tous, quel que soit leur mois ou leur année), en HT : chaque
+ * société, et nos deux sociétés (chaque affaire une fois) ; l'inter-cabinet entre elles = ce qui est compté deux fois. Sans ces totaux (une base
+ * d'avant) : le prévisionnel de l'année, comme avant. PUR.
+ */
+export function previsionnelEnCours(e: Pick<EntreesGlobal, 'ventes'>, annee: number, cec?: CompromisEnCoursGlobal): ReturnType<typeof previsionnel> {
+  if (cec === undefined) return previsionnel(e, annee);
+  const criterimmoHt = cec.criterimmo.htC / 100; const macjHt = cec.macj.htC / 100; const totalHt = cec.tous.htC / 100;
+  return { criterimmoHt, macjHt, interCabinetHt: Math.round((criterimmoHt + macjHt - totalHt) * 100) / 100, totalHt };
+}
 
 export function EcranGlobal() {
   const jour = aujourdhuiParis();
@@ -1141,13 +1173,13 @@ export function EcranGlobal() {
   const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const A = celluleGlobal(e, annee, null);
   const A1 = celluleGlobal(e, annee - 1, null);
-  const P = previsionnel(e, annee);
+  const P = previsionnelEnCours(e, annee, d.compromisEnCours); // 🔴 LOT CY — la règle unique
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
   const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
     .reduce((t, v) => t + caHt(v, s), 0);
   // 🔴 LOT L — LA SYNTHÈSE PAR SOCIÉTÉ, puis le global : CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = les deux
   // (+ les ventes à attribuer, comptées une fois dans aucune société). Face à N−1, prévisionnel des compromis compris.
-  const synthese = syntheseGlobal(e, annee);
+  const synthese = syntheseGlobal(e, annee, d.compromisEnCours);
   return (
     <div className="tdb loc-page" data-ca-global>
       <style>{CSS}</style>
@@ -1170,7 +1202,7 @@ export function EcranGlobal() {
           <span className="tdb-tuile-n1">{eur(A1.criterimmoHt)} en {annee - 1} ({signePct(variation(A.criterimmoHt, A1.criterimmoHt))})</span></div></li>
         <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ HT <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>
           <span className="tdb-tuile-n1">{eur(A1.macjHt)} en {annee - 1} ({signePct(variation(A.macjHt, A1.macjHt))})</span></div></li>
-        <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel HT <small>(compromis en cours {annee})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>
+        <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel HT <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
 
@@ -1280,10 +1312,10 @@ export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'i
  * 🔴 LOT L — LA SYNTHÈSE DU CA GLOBAL : CRITERIMMO (vente + location + gestion), MACJ (vente), les ventes à attribuer (s'il y en a : une
  * fois, dans aucune société), puis le GLOBAL = la somme des lignes au-dessus. Les cellules de `celluleGlobal`, telles quelles. PUR.
  */
-export function syntheseGlobal(e: EntreesGlobal, annee: number): LigneSynthese[] {
+export function syntheseGlobal(e: EntreesGlobal, annee: number, cec?: CompromisEnCoursGlobal): LigneSynthese[] {
   const A = celluleGlobal(e, annee, null);
   const A1 = celluleGlobal(e, annee - 1, null);
-  const P = previsionnel(e, annee);
+  const P = previsionnelEnCours(e, annee, cec); // 🔴 LOT CY — les compromis en cours (la règle unique)
   const lignes: LigneSynthese[] = [
     { cle: 'criterimmo', libelle: 'CRITERIMMO', venteHt: A.venteCriterimmoHt, locationHt: A.locationHt, gestionHt: A.gestionHt, totalHt: A.criterimmoHt, totalN1Ht: A1.criterimmoHt, previsionnelHt: P.criterimmoHt },
     { cle: 'macj', libelle: 'MACJ', venteHt: A.venteMacjHt, locationHt: null, gestionHt: null, totalHt: A.macjHt, totalN1Ht: A1.macjHt, previsionnelHt: P.macjHt },

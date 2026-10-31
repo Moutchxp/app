@@ -1668,6 +1668,63 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
+  it('🔴 LOT CY — « Compromis en cours » : le même chiffre au centime (HT et TTC) dans Le mois, L’année (tuile, Résumé), l’onglet Compromis « En cours » et le CA global ; sans date et toutes années comptés ; inter-cabinet ; filtre négociateur', async () => {
+    const { compromisEnCours, totalCompromisEnCours } = await import('../../../../lib/transaction/compromisEnCours');
+    const lc = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true, origine: 'import',
+      sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+    const jeu = (): Vente[] => [
+      vente(150, { societe: 'criterimmo', libelle: 'DATE 2025', statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-10-02', honorairesTtc: 6000.01, lignes: [lc('ARNAUD', 6000.01)] }),
+      vente(151, { societe: 'criterimmo', libelle: 'IMPORT 2019 SANS DATE', statut: 'compromis', annee: 2019, mois: null, dateCompromis: null, honorairesTtc: 3000, lignes: [lc('CEDRIC', 3000)] }),
+      vente(152, { societe: 'criterimmo', libelle: 'ACTE EN 2027', statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2025-09-20', honorairesTtc: 7500, lignes: [lc('ARNAUD', 7500)] }),
+      { ...ic, id: 153, statut: 'compromis', annee: 2019, mois: null, dateCompromis: null }, // inter-cabinet CRITERIMMO → MACJ
+      vente(154, { societe: 'criterimmo', libelle: 'VENDUE', annee: 2025, mois: 3, honorairesTtc: 9000 }),
+    ];
+    const t = totalCompromisEnCours(jeu(), 'criterimmo');
+    expect(t.nb).toBe(4);
+    const lire = (sel: string) => montant(sel);
+    for (const u of ['ht', 'ttc'] as const) {
+      const attendu = u === 'ht' ? t.htC : t.ttcC;
+      window.localStorage.setItem('trx-affichage-montants', u);
+      let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10');
+      try {
+        expect([u, lire('[data-tuile="compromis"] [data-compromis-en-cours]'), texte('[data-tuile="compromis"] .tdb-tuile-n1'), texte('[data-tuile="compromis"] .tdb-tuile-mot')])
+          .toEqual([u, attendu, '4 compromis — le prévisionnel', `Compromis en cours (${u.toUpperCase()})`]);
+      } finally { fin(); }
+      fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=annee');
+      try {
+        expect([lire('[data-tuile="compromis-periode"] [data-compromis-en-cours]'), lire('[data-compromis-en-cours-resume]')]).toEqual([attendu, attendu]);
+      } finally { fin(); }
+      // l'onglet « Compromis », vue « En cours » : la liste de la route (la même règle), sa tuile « Chiffre d'affaires »
+      const lu = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('vue=compromis') && init?.method !== 'POST'
+        ? { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { disponible: true, aujourdhui: '2025-10-27', societe: 'criterimmo', compromis: compromisEnCours(jeu(), 'criterimmo'),
+          actesDuMois: [], annules: [], lotD: true, negociateurs: [], apporteurs: [], personnes: [] } }) }
+        : lu(url, init))) as unknown as typeof fetch;
+      try {
+        window.localStorage.setItem('trx-compromis-vue', 'encours');
+        fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=compromis');
+        try { expect([u, lire(`[data-tuile="ca"] [data-ca-${u}]`), texte('[data-nb-compromis]')]).toEqual([u, attendu, '4']); } finally { fin(); }
+      } finally { globalThis.fetch = lu; }
+    }
+    // le filtre « Négociateur » : seulement ses compromis, dit en petit
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=10&negociateur=CEDRIC');
+    try {
+      expect([lire('[data-tuile="compromis"] [data-compromis-en-cours]'), texte('[data-tuile="compromis"] [data-tuile-filtre]')]).toEqual([300000, ' — Négociateur : CEDRIC']);
+    } finally { fin(); }
+    // le CA global : la tuile « Prévisionnel » et la synthèse, sur les totaux de la route (la même fonction)
+    const tousV = jeu();
+    donneesGlobal.ventes = tousV.map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle, repartition: v.repartition ?? null }));
+    (donneesGlobal as unknown as { compromisEnCours: unknown }).compromisEnCours = { tous: totalCompromisEnCours(tousV, null), criterimmo: t, macj: totalCompromisEnCours(tousV, 'macj') };
+    try {
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?annee=2025');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      expect(lire('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe(totalCompromisEnCours(tousV, null).htC);
+      expect([lire('[data-synthese="criterimmo"] [data-mot="Prévisionnel"]'), lire('[data-synthese="global"] [data-mot="Prévisionnel"]')]).toEqual([t.htC, totalCompromisEnCours(tousV, null).htC]);
+    } finally { delete (donneesGlobal as unknown as { compromisEnCours?: unknown }).compromisEnCours; }
+  });
+
   it('🔴 LOT CR — « Mois par mois » : l’axe en abrégé (HT et TTC, Mensuel et Cumul) ; l’encart garde le montant complet', async () => {
     const grosse = vente(90, { societe: 'criterimmo', libelle: 'GROSSE', honorairesTtc: 300000, annee: 2025, mois: 1 });
     const fin = await ouvrirSur([grosse], 'criterimmo');

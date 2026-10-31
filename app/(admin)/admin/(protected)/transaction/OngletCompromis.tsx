@@ -15,6 +15,7 @@ import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, Cham
   texteTaux, versModele, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
+import { totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { CSS_MODALE_ARCHIVAGE } from '../location/ModaleArchivage';
 import { BlocReplie } from '../location/BlocReplie';
 import { lignesCarteAffaire, type LignesCarte } from '../../../../lib/transaction/carteAffaireLignes';
@@ -127,6 +128,8 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
   const dc = detailCommissions(pourCalcul, vue, statutDuLibelle);
   // 🔴 LOT AN — le détail du « Chiffre d'affaires » ; la tuile en affiche le total : la somme, au centime, des montants des cartes (règle du lot AH).
   const dca = detailCa(pourCalcul, vue, statutDuLibelle);
+  // 🔴 LOT CY — « En cours » : le chiffre de la règle unique (`totalCompromisEnCours`), celui de « Le mois », « L'année » et du CA global.
+  const cec = vueListe === 'encours' ? totalCompromisEnCours(d.compromis, vue, statutDuLibelle) : null;
   const soldeHtC = dca.totalHtC - dc.totalHtC;
   const soldeTtcC = dca.totalTtcC - dc.totalTtcC;
   // LOT AA — la commission d'un négociateur de l'autre société est payée et comptée chez elle seule (mention de la fenêtre).
@@ -198,7 +201,7 @@ export function OngletCompromis({ societe }: { societe: Societe | 'tous' }) {
             de fenêtre (« Voir le détail » et la fenêtre « Chiffre d'affaires » retirés, accord d'Arno : leur contenu est dans « Solde net »). */}
         <li><div className="tdb-tuile" data-tuile="ca">
           <span className="tdb-tuile-mot">Chiffre d’affaires</span>
-          <Montants ht={dca.totalHtC / 100} ttc={dca.totalTtcC / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-ca-ht': '' }} donneesTtc={{ 'data-ca-ttc': '' }} />
+          <Montants ht={(cec?.htC ?? dca.totalHtC) / 100} ttc={(cec?.ttcC ?? dca.totalTtcC) / 100} sens="recu" classe="trx-tuile-montants" donneesHt={{ 'data-ca-ht': '' }} donneesTtc={{ 'data-ca-ttc': '' }} />
         </div></li>
         {/* 🔴 LOT AL (Arno) — la tuile garde le titre, le total en rouge, le HT et « Voir le détail » ; toute la tuile ouvre la fenêtre (souris,
             Entrée / Espace, toucher). Les lignes du détail et la bulle au survol l'ont quittée : tout leur contenu est dans la fenêtre. */}

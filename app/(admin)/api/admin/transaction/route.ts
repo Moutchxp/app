@@ -2,6 +2,8 @@ import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
+import { compromisEnCours, pourLaVue, totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
+import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
@@ -73,8 +75,14 @@ export async function GET(request: Request): Promise<Response> {
     if (vue === 'global') {
       const location = await lireCaLocation().catch(() => null);
       if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location } });
-      const [ventes, gestion] = await Promise.all([lireVentes(null), lireGestion()]);
-      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location,
+      const [ventes, gestion, ventesC, ventesM] = await Promise.all([lireVentes(null), lireGestion(), lireVentes('criterimmo'), lireVentes('macj')]);
+      // 🔴 LOT CY — les compromis en cours (la règle unique, `totalCompromisEnCours`) : nos deux sociétés, et chacune (ses lignes miroir comprises).
+      const total = async (vs: readonly Vente[], vueC: 'criterimmo' | 'macj' | null) => {
+        const statuts = await lireStatutsNegociateurs(libellesDePaye(compromisEnCours(vs, vueC))).catch(() => ({}));
+        return totalCompromisEnCours(vs, vueC, resolveurDe(statuts));
+      };
+      const compromisEnCoursTotaux = { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') };
+      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, compromisEnCours: compromisEnCoursTotaux,
         ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
           double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne, repartition: v.repartition ?? null })) } });
     }
@@ -86,8 +94,10 @@ export async function GET(request: Request): Promise<Response> {
       if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis: [], annules: [], ...ref } });
       const ventes = await lireVentes(societe === 'tous' ? null : societe);
       // 🔴 LOT R — une société : les ventes qu'elle porte et ses LIGNES MIROIR (sa part reçue en inter-cabinet), déjà triées par `lireVentes`.
-      const pourVue = (v: Vente): boolean => (societe === 'tous' ? concerne(v, 'criterimmo') || concerne(v, 'macj') || v.repartition != null : v.miroir != null || concerne(v, societe));
-      const compromis = ventes.filter((v) => v.statut === 'compromis' && pourVue(v));
+      // 🔴 LOT CY — la règle unique des compromis en cours (`compromisEnCours`), celle de « Le mois », « L'année » et du CA global.
+      const vueC = societe === 'tous' ? null : societe;
+      const pourVue = (v: Vente): boolean => pourLaVue(v, vueC);
+      const compromis = compromisEnCours(ventes, vueC);
       // 🔴 LOT BY — « Du mois » : les compromis signés ce mois-ci (mois calendaire d'aujourd'hui) et déjà passés en acte (étiquette « acte signé »).
       const actesDuMois = ventes.filter((v) => v.statut === 'vendue' && (v.dateCompromis ?? '').slice(0, 7) === aujourdhui.slice(0, 7) && pourVue(v));
       // LOT G — les compromis ANNULÉS par le bouton « Annulation » (motif enregistré) : consultables, rétablissables.
