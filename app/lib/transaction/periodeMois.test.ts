@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { additionnerTotaux, totauxMoisMode, type DonneesSociete, type Vente } from './modele';
 import { basculerMois, sommeDesMoisAffiches, compromisPeriode, contigus, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode } from './periodeMois';
+/** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
+const JOUR_DQ = '2025-10-27';
 
 /** 🔴 LOT CP (Arno) — « Le mois » en Période : la somme exacte des mois choisis, par les fonctions du mois. */
 const vente = (id: number, o: Partial<Vente>): Vente => ({ id, societe: 'macj', libelle: `V${id}`, honorairesTtc: 12000, statut: 'vendue', annee: 2026, mois: 7,
@@ -45,12 +47,12 @@ describe('🔴 LOT CP — la période de « Le mois »', () => {
   });
   it('les totaux de la période = la somme des totaux de chaque mois, dans tous les modes ; N−1 = les mêmes mois, un an plus tôt', () => {
     for (const mode of ['vendu', 'compromis', 'tous'] as const) {
-      const p = totauxPeriode(d, [sep, jul], mode);
-      const somme = additionnerTotaux(totauxMoisMode(d, 2026, 7, mode), totauxMoisMode(d, 2026, 9, mode));
+      const p = totauxPeriode(d, [sep, jul], mode, JOUR_DQ);
+      const somme = additionnerTotaux(totauxMoisMode(d, 2026, 7, mode, JOUR_DQ), totauxMoisMode(d, 2026, 9, mode, JOUR_DQ));
       expect([mode, p]).toEqual([mode, somme]);
     }
     expect(unAnPlusTot([jul, sep])).toEqual([{ annee: 2025, mois: 7 }, { annee: 2025, mois: 9 }]);
-    expect(totauxPeriode(d, unAnPlusTot([jul, sep]), 'vendu').ids).toEqual([4]);
+    expect(totauxPeriode(d, unAnPlusTot([jul, sep]), 'vendu', JOUR_DQ).ids).toEqual([4]);
   });
   it('un montant décimal : la somme de ce que chaque mois AFFICHE (arrondi au centime), en HT et en TTC', () => {
     // 0,004 + 0,004 : chaque mois affiche 0,00 (TTC 0,0048 → 0,00) → la période 0,00, et non 0,01 ; TTC : 1,2 × 10,005 = 12,006 → 12,01 chaque mois
@@ -60,7 +62,7 @@ describe('🔴 LOT CP — la période de « Le mois »', () => {
   });
   it('les listes : ventes mois après mois, compromis triés par date du compromis, rétrocessions des mois choisis', () => {
     expect(ventesPeriode(d.ventes, [sep, jul]).map((v) => v.id)).toEqual([1, 2]);
-    expect(compromisPeriode(d.ventes, [jul, sep], 'compromis').map((v) => v.id)).toEqual([6, 5]);
+    expect(compromisPeriode(d.ventes, [jul, sep], 'compromis', JOUR_DQ).map((v) => v.id)).toEqual([6, 5]);
     expect(retrosPeriode(d.retrocessions, [jul, sep]).map((r) => r.id)).toEqual([9, 10]);
     expect(retrosPeriode(d.retrocessions, [aou])).toEqual([]);
   });

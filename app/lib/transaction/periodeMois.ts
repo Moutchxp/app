@@ -61,13 +61,13 @@ export function libellePeriode(ms: readonly MoisChoisi[]): string {
 
 type DonneesPeriode = Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe' | 'statutsNegociateurs'>>;
 /** Les totaux de la période = la somme des totaux de chaque mois (`totauxMoisMode`, `additionnerTotaux`). */
-export const totauxPeriode = (d: DonneesPeriode, ms: readonly MoisChoisi[], mode: ModeMois): Totaux =>
-  ordonner(ms).map((m) => totauxMoisMode(d, m.annee, m.mois, mode)).reduce(additionnerTotaux);
+export const totauxPeriode = (d: DonneesPeriode, ms: readonly MoisChoisi[], mode: ModeMois, jour: string): Totaux =>
+  ordonner(ms).map((m) => totauxMoisMode(d, m.annee, m.mois, mode, jour)).reduce(additionnerTotaux);
 /** Les ventes signées de la période (`ventesDuMois`, mois après mois). */
 export const ventesPeriode = (ventes: readonly Vente[], ms: readonly MoisChoisi[]): Vente[] => ordonner(ms).flatMap((m) => ventesDuMois(ventes, m.annee, m.mois));
 /** Les compromis de la période selon le mode (`compromisDuMode`, mois après mois), triés par date du compromis (tri stable). */
-export const compromisPeriode = (ventes: readonly Vente[], ms: readonly MoisChoisi[], mode: ModeMois): Vente[] =>
-  ordonner(ms).flatMap((m) => compromisDuMode(ventes, m.annee, m.mois, mode)).sort((a, b) => (a.dateCompromis ?? '').localeCompare(b.dateCompromis ?? ''));
+export const compromisPeriode = (ventes: readonly Vente[], ms: readonly MoisChoisi[], mode: ModeMois, jour: string): Vente[] =>
+  ordonner(ms).flatMap((m) => compromisDuMode(ventes, m.annee, m.mois, mode, jour)).sort((a, b) => (a.dateCompromis ?? '').localeCompare(b.dateCompromis ?? ''));
 /** Les rétrocessions saisies sur les mois de la période (`retrosDuMois`). */
 export const retrosPeriode = (retros: readonly Retrocession[], ms: readonly MoisChoisi[]): Retrocession[] => ordonner(ms).flatMap((m) => retrosDuMois(retros, m.annee, m.mois));
 

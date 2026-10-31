@@ -3,6 +3,8 @@ import { caNetParMoisMode, caNetVente, ecartsCarte, lignesCarteAffaire, resultat
 import type { Retrocession } from './modele';
 import type { Partie, Vente } from './modele';
 import { venteDansSociete } from './interCabinet';
+/** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
+const JOUR_DQ = '2025-10-27';
 
 /** 🔴 LOT CC (Arno, 31/10/2026) — les lignes de négociateur de la carte repliée : les cadres de la fiche ; honoraires + apporteur = la commission. */
 const partie = (sorte: Partie['sorte'], compteId: number, negociateur: string, societe: Partie['societe'], pourcentage: number): Partie =>
@@ -104,9 +106,9 @@ describe('🔴 LOT CW — le CA net d’une vente (ce qu’elle rapporte réelle
     const v2 = vente({ id: 2, repartition: null, dossier: null, statut: 'vendue', annee: 2026, mois: 7, honorairesTtc: 2400, lignes: [] });
     const c = vente({ id: 3, repartition: null, dossier: null, statut: 'compromis', annee: 2026, mois: null, dateCompromis: '2026-09-02', honorairesTtc: 600, lignes: [] });
     const o = { statutDuLibelle: () => 'independant' as const };
-    const vendu = caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'vendu', o);
+    const vendu = caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'vendu', JOUR_DQ, o);
     expect(vendu.map((m) => m.ttcC)).toEqual([0, 0, 108000, 0, 0, 0, 240000, 0, 0, 0, 0, 0]);
     expect(vendu.reduce((t, m) => t + m.ttcC, 0)).toBe(caNetVente(v1, 'criterimmo', o).ttcC + caNetVente(v2, 'criterimmo', o).ttcC);
-    expect(caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'tous', o)[8].ttcC).toBe(60000);
+    expect(caNetParMoisMode([v1, v2, c], 2026, 'criterimmo', 'tous', JOUR_DQ, o)[8].ttcC).toBe(60000);
   });
 });

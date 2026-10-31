@@ -20,17 +20,17 @@ export const aConfirmerDesAnnees = (ventes: readonly Vente[], annees: readonly n
 export const ventesDesAnnees = (ventes: readonly Vente[], annees: readonly number[]): Vente[] =>
   [...annees].sort((a, b) => a - b).flatMap((a) => [...ventesPeriode(ventes, moisDesAnnees([a])), ...aConfirmerDesAnnees(ventes, [a])]);
 /** Les compromis des années selon le mode (à la date du compromis). */
-export const compromisDesAnnees = (ventes: readonly Vente[], annees: readonly number[], mode: ModeMois): Vente[] => compromisPeriode(ventes, moisDesAnnees(annees), mode);
+export const compromisDesAnnees = (ventes: readonly Vente[], annees: readonly number[], mode: ModeMois, jour: string): Vente[] => compromisPeriode(ventes, moisDesAnnees(annees), mode, jour);
 /** Ce que l'année additionne selon le mode : les ventes signées, les compromis, ou les deux (chaque affaire une fois, règle du mois). */
-export const listeDesAnnees = (ventes: readonly Vente[], annees: readonly number[], mode: ModeMois): Vente[] =>
-  (mode === 'vendu' ? ventesDesAnnees(ventes, annees) : mode === 'compromis' ? compromisDesAnnees(ventes, annees, mode) : [...ventesDesAnnees(ventes, annees), ...compromisDesAnnees(ventes, annees, mode)]);
+export const listeDesAnnees = (ventes: readonly Vente[], annees: readonly number[], mode: ModeMois, jour: string): Vente[] =>
+  (mode === 'vendu' ? ventesDesAnnees(ventes, annees) : mode === 'compromis' ? compromisDesAnnees(ventes, annees, mode, jour) : [...ventesDesAnnees(ventes, annees), ...compromisDesAnnees(ventes, annees, mode, jour)]);
 /** Les rétrocessions saisies sur les années. */
 export const retrosDesAnnees = (retros: readonly Retrocession[], annees: readonly number[]): Retrocession[] => retros.filter((r) => annees.includes(r.annee));
 
 type DonneesTotaux = Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe' | 'statutsNegociateurs'>>;
 /** Les totaux des années = la somme de leurs mois (`totauxPeriode`) + leurs ventes « mois à confirmer ». */
-export function totauxDesAnnees(d: DonneesTotaux, annees: readonly number[], mode: ModeMois): Totaux {
-  const t = totauxPeriode(d, moisDesAnnees(annees), mode);
+export function totauxDesAnnees(d: DonneesTotaux, annees: readonly number[], mode: ModeMois, jour: string): Totaux {
+  const t = totauxPeriode(d, moisDesAnnees(annees), mode, jour);
   const c = aConfirmerDesAnnees(d.ventes, annees, mode);
   return c.length === 0 ? t : additionnerTotaux(t, totaux(c, [], d.societe ?? null, resolveurDe(d.statutsNegociateurs)));
 }
@@ -71,10 +71,10 @@ export const cumulA = (cumules: readonly number[], fin: number): number => (fin 
  * « À date » : une année passée = l'année complète (ses « mois à confirmer » compris) ; l'année en cours = ses mois de janvier au mois d'aujourd'hui
  * (`nbMois`), sans les « mois à confirmer » (non datés). La même règle pour l'année précédente : les MÊMES mois (`nbMois` de l'année affichée).
  */
-export const listeADate = (ventes: readonly Vente[], annee: number, nbMois: number, mode: ModeMois): Vente[] => {
-  if (nbMois >= 12) return listeDesAnnees(ventes, [annee], mode);
+export const listeADate = (ventes: readonly Vente[], annee: number, nbMois: number, mode: ModeMois, jour: string): Vente[] => {
+  if (nbMois >= 12) return listeDesAnnees(ventes, [annee], mode, jour);
   const ms = Array.from({ length: nbMois }, (_, i) => ({ annee, mois: i + 1 }));
-  return mode === 'vendu' ? ventesPeriode(ventes, ms) : mode === 'compromis' ? compromisPeriode(ventes, ms, mode) : [...ventesPeriode(ventes, ms), ...compromisPeriode(ventes, ms, mode)];
+  return mode === 'vendu' ? ventesPeriode(ventes, ms) : mode === 'compromis' ? compromisPeriode(ventes, ms, mode, jour) : [...ventesPeriode(ventes, ms), ...compromisPeriode(ventes, ms, mode, jour)];
 };
 
 /** Les années de l'adresse (« 2024,2026 »), parmi celles disponibles, croissantes, sans doublon ; null : absentes ou aucune valable. */

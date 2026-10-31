@@ -938,7 +938,10 @@ export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: C
   /** 🔴 LOT BW (Transaction, « HT | TTC ») — le mot du montant (« CA TTC ») ; absent : « CA HT », comme avant. */
   motCa?: string;
   /** 🔴 LOT BW — l'autre unité, en petit entre parenthèses après chaque montant (`facteur` : de l'unité affichée vers l'autre) ; absent : rien. */
-  autre?: { mot: string; facteur: number } }
+  autre?: { mot: string; facteur: number };
+  /** 🔴 LOT DQ (Transaction, « Vendu + compromis ») — une mention en petit sous l'en-tête (« 8 compromis non datés ou antérieurs, comptés au mois
+   *  en cours ») ; absent : rien, comme avant. */
+  note?: string }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre;
   /** 🔴 LOT BS (Transaction, « Vendu + compromis ») — la part du BAS de la barre (le vendu, couleur pleine) ; le reste (les compromis) se pose
    *  au-dessus, plus clair ; `basN1` : idem pour la barre hachurée de N−1. Absent : une barre, comme avant. */
@@ -969,6 +972,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
   return (
     <div className={sous ? 'tdb-bulle tdb-bulle--sous' : 'tdb-bulle'} data-bulle={sous ? 'sous' : 'survol'}>
       <p className="tdb-bulle-titre">{info.titre}</p>
+      {info.note !== undefined && <p className="tdb-bulle-note" data-bulle-note>{info.note}</p>}
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
       <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? info.sansN1 ?? 'N−1 non importée'
@@ -1023,6 +1027,7 @@ function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
   return (
     <div className={sous ? 'tdb-bulle tdb-bulle--sous' : 'tdb-bulle'} data-bulle={sous ? 'sous' : 'survol'} data-bulle-compte>
       <p className="tdb-bulle-titre">{info.titre}</p>
+      {info.note !== undefined && <p className="tdb-bulle-note" data-bulle-note>{info.note}</p>}
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
       <p className="tdb-bulle-pied" data-bulle-pied>{p === null ? info.sansN1 ?? 'N−1 non importée'
@@ -1468,6 +1473,7 @@ export const CSS_TABLEAU_BORD = `
 .tdb-bulle--sous{display:inline-block;margin-top:6px;box-shadow:none}
 .tdb-bulle p{margin:0}
 .tdb-bulle-titre{font-weight:800;margin-bottom:4px !important}
+.tdb-bulle-note{font-size:.78rem;color:var(--color-svv-muted);margin:-2px 0 4px !important}
 .tdb-bulle-bloc{padding:2px 0}
 .tdb-bulle-annee{font-weight:800}
 .tdb-bulle-bloc--courant{color:var(--color-svv-red)}

@@ -179,8 +179,8 @@ export function caNetVente(v: Vente, vue: Societe | null, o: { retros?: readonly
   return somme(lignesCarteAffaire(v, vue, o).lignes.map((x) => moins(x.reste, moins(x.com, x.comDeduite))));
 }
 /** 🔴 LOT CW — le CA net de chaque mois (12 valeurs), selon le mode : les mêmes ventes que le CA du mois (`ventesDuMois`, `compromisDuMode`). PUR. */
-export function caNetParMoisMode(ventes: readonly Vente[], annee: number, vue: Societe | null, mode: ModeMois, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): MontantC[] {
-  return Array.from({ length: 12 }, (_, i) => somme([...(mode === 'compromis' ? [] : ventesDuMois(ventes, annee, i + 1)), ...compromisDuMode(ventes, annee, i + 1, mode)]
+export function caNetParMoisMode(ventes: readonly Vente[], annee: number, vue: Societe | null, mode: ModeMois, jour: string, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): MontantC[] {
+  return Array.from({ length: 12 }, (_, i) => somme([...(mode === 'compromis' ? [] : ventesDuMois(ventes, annee, i + 1)), ...compromisDuMode(ventes, annee, i + 1, mode, jour)]
     .map((v) => caNetVente(v, vue, o))));
 }
 

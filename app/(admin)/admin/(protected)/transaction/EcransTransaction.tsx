@@ -7,7 +7,7 @@ import {
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente, TVA,
-  aDesCompromisDates, caHtParMoisMode, compromisDuMode, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
+  aDesCompromisDates, caHtParMoisMode, compromisDuMode, compromisReportes, mentionReportes, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
 import { CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
 import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
@@ -213,7 +213,7 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
     // 🔴 LOT DH (Arno) — la ligne des années et l'axe : seulement les années qui ont une donnée comptée dans le mode affiché (une vente, un compromis
     // à sa date) ou une rétrocession saisie ; l'année montrée et les années cochées restent toujours (ex. 2027, présente par la seule date butoir
     // d'un compromis : absente). « Toute l'histoire » garde toutes les années.
-    (a) => lu.etat === 'ok' && (listeDesAnnees(lu.data.ventes, [a], mode).length > 0 || lu.data.retrocessions.some((x) => x.annee === a)));
+    (a) => lu.etat === 'ok' && (listeDesAnnees(lu.data.ventes, [a], mode, jour).length > 0 || lu.data.retrocessions.some((x) => x.annee === a)));
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   // 🔴 LOT BW (Arno) — « HT | TTC » sur « Le mois » et « L'année » : le choix retenu de l'onglet « Compromis » (même composant, même mémoire,
@@ -282,7 +282,7 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
           </div>
           {/* 🔴 LOT BT — la règle du mode combiné, dite sous le sélecteur. 🔴 LOT CZ (affichage conditionnel autorisé par Arno) — seulement en
               « Vendu + compromis » ; dans les autres modes, rien (ni texte, ni place réservée). */}
-          {mode === 'tous' && <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire n’est comptée qu’une fois — à la date de l’acte si elle est signée, sinon à la date du compromis.</small>}</div>}
+          {mode === 'tous' && <small className="loc-muet trx-mode-regle" data-regle-mode>Vendu + compromis : chaque affaire une seule fois — à la date de l’acte si elle est signée ; sinon, compromis en cours comptés dans l’année en cours (au mois du compromis, ou au mois en cours s’il n’est pas daté de l’année).</small>}</div>}
         {/* 🔴 LOT BW — les montants en grand : HT ou TTC (à droite de « Compter » ; sur « L'année », au même endroit de ses filtres). */}
         <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </form>
@@ -327,6 +327,11 @@ function TuileCompromisEnCours({ cec, filtre }: { cec: TotalCompromisEnCours; fi
     <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(petit / 100)}{ESPACE}{U.autre.mot})</small>
     <span className="tdb-tuile-n1">{cec.nb} compromis — le prévisionnel</span>
   </>;
+}
+/** 🔴 LOT DQ — sous le titre d'une liste de « Vendu + compromis » : « N compromis non datés ou antérieurs, comptés au mois en cours » ; rien sinon. */
+function MentionReportes({ ventes, jour }: { ventes: readonly Vente[]; jour: string }) {
+  const m = mentionReportes(compromisReportes(ventes, jour).length);
+  return m === null ? null : <small className="loc-muet trx-mention-reportes" data-mention-reportes> — {m}</small>;
 }
 /** 🔴 LOT CT — la ligne des mois : un mois, une période (des mois choisis) ou l'année (ses 12 mois). */
 export type Decoupage = 'mois' | 'periode' | 'annee';
@@ -382,14 +387,14 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
   const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
-  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode);
-  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode);
+  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
+  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
   const vendusN = caHtParMois(d.ventes, annee, d.societe);
   const vendusN1 = caHtParMois(d.ventes, annee - 1, d.societe);
-  const nbParMois = nombreParMoisMode(d.ventes, annee, mode);
-  const nbParMoisN1 = nombreParMoisMode(d.ventes, annee - 1, mode);
-  const nbVendusN = nombreParMoisMode(d.ventes, annee, 'vendu');
-  const nbVendusN1 = nombreParMoisMode(d.ventes, annee - 1, 'vendu');
+  const nbParMois = nombreParMoisMode(d.ventes, annee, mode, jour);
+  const nbParMoisN1 = nombreParMoisMode(d.ventes, annee - 1, mode, jour);
+  const nbVendusN = nombreParMoisMode(d.ventes, annee, 'vendu', jour);
+  const nbVendusN1 = nombreParMoisMode(d.ventes, annee - 1, 'vendu', jour);
   const sansN1 = sansN1Pour(series !== null ? tout.ventes : d.ventes, annee, mode);
   const motSansN1 = motSansN1Pour(annee, mode);
   const cumulN = cumuler(parMois);
@@ -402,14 +407,22 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   const sc = (xs: readonly number[]): number[] => xs.map(U.en);
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
   const optsNet = { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) };
-  const netDe = (ventesX: readonly Vente[], a: number, m: ModeMois): number[] => (mesure === 'net' ? caNetParMoisMode(ventesX, a, d.societe, m, optsNet).map(enUnite) : Array(12).fill(0));
+  const netDe = (ventesX: readonly Vente[], a: number, m: ModeMois): number[] => (mesure === 'net' ? caNetParMoisMode(ventesX, a, d.societe, m, jour, optsNet).map(enUnite) : Array(12).fill(0));
   const netN = netDe(d.ventes, annee, mode);
   const netN1 = netDe(d.ventes, annee - 1, mode);
   const netVenduN = mode === 'tous' ? netDe(d.ventes, annee, 'vendu') : netN;
   const netVenduN1 = mode === 'tous' ? netDe(d.ventes, annee - 1, 'vendu') : netN1;
   // 🔴 LOT CV (Arno) — le titre cite TOUJOURS l'année du graphique (« Cumul 2026 à fin mai », « Mai 2026 ») ; un mois à venir : « — à venir », à 0
   // (plus de case vide). `nbCumule` : le nombre cumulé (l'encadré « au repos » : le cumul de l'année) ; sinon le nombre du mois, comme avant.
+  // 🔴 LOT DQ — « Vendu + compromis », année en cours : les compromis en cours non datés de l'année, comptés au mois en cours (la mention).
+  const nbReportes = mode === 'tous' && annee === anneeEnCours ? compromisReportes(compromisDuMode(d.ventes, annee, null, 'tous', jour), jour).length : 0;
+  const moisDuJour = Number(jour.slice(5, 7));
   const info = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
+    const note = nbReportes > 0 && (cumule ? k >= moisDuJour : k === moisDuJour) ? mentionReportes(nbReportes) : null;
+    const i = infoSansNote(k, cumule, nbCumule);
+    return note === null ? i : { ...i, note };
+  };
+  const infoSansNote = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
     const aVenir = k > dernierMois;
     const titre = `${cumule ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${aVenir ? ' — à venir' : ''}`;
     if (mesure === 'nombre') {
@@ -465,9 +478,9 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
           « Tous » ou un négociateur, n'est jamais pâli ; « Période » garde son atténuation). */}
       {/* 🔴 LOT CU — de 2 à 5 négociateurs : une série par négociateur (sa couleur), sans N−1 ; Mensuel en barres groupées, Cumul en courbes. */}
       {series !== null ? (
-        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: nombreParMoisMode(x.d.ventes, annee, mode),
+        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: nombreParMoisMode(x.d.ventes, annee, mode, jour),
           // 🔴 LOT CW — « CA net » : le CA net des ventes de CE négociateur
-          ca: net ? netDe(x.d.ventes, annee, mode) : caHtParMoisMode(x.d.ventes, annee, d.societe, mode).map(U.en) }))}
+          ca: net ? netDe(x.d.ventes, annee, mode) : caHtParMoisMode(x.d.ventes, annee, d.societe, mode, jour).map(U.en) }))}
           total={{ ca: net ? netN : sc(parMois), nb: nbParMois }}
           totalN1={sansN1 ? null : { ca: net ? netN1 : sc(parMoisN1), nb: nbParMoisN1, annee: annee - 1 }} cumul={cumul} nombre={nombre} dernierMois={dernierMois} annee={annee}
           choisi={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? mois) : mois} onChoisir={onMois}
@@ -576,19 +589,19 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
   const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   // Le mode change ce qu'on additionne (vendu, compromis à leur date, ou les deux), jamais comment (`caHt`, `totaux`).
-  const T = enPeriode ? totauxPeriode(d, ms, mode) : totauxMoisMode(d, annee, mois, mode);
-  const T1 = enPeriode ? totauxPeriode(d, unAnPlusTot(ms), mode) : totauxMoisMode(d, annee - 1, mois, mode);
+  const T = enPeriode ? totauxPeriode(d, ms, mode, jour) : totauxMoisMode(d, annee, mois, mode, jour);
+  const T1 = enPeriode ? totauxPeriode(d, unAnPlusTot(ms), mode, jour) : totauxMoisMode(d, annee - 1, mois, mode, jour);
   // 🔴 LOT CP — les montants décimaux (HT sans arrondi) que l'écran montre : en Période, la somme de ce que chaque mois affiche, au centime.
-  const T1parMois = enPeriode ? unAnPlusTot(ms).map((m) => totauxMoisMode(d, m.annee, m.mois, mode)) : [];
-  const TparMois = enPeriode ? ms.map((m) => totauxMoisMode(d, m.annee, m.mois, mode)) : [];
+  const T1parMois = enPeriode ? unAnPlusTot(ms).map((m) => totauxMoisMode(d, m.annee, m.mois, mode, jour)) : [];
+  const TparMois = enPeriode ? ms.map((m) => totauxMoisMode(d, m.annee, m.mois, mode, jour)) : [];
   const n1CaAffiche = enPeriode ? sommeDesMoisAffiches(T1parMois.map((t) => t.caHt)) : null;
   const n1Ca = n1CaAffiche === null ? U.e(T1.caHt) : eur(U.u === 'ht' ? n1CaAffiche.ht : n1CaAffiche.ttc);
   const nonDeduits: NonDeduitsMontants = !enPeriode ? T : (() => {
     const i = sommeDesMoisAffiches(TparMois.map((t) => t.internesHt)); const r = sommeDesMoisAffiches(TparMois.map((t) => t.aRenseignerHt));
     return { internesHt: i.ht, internesTtc: i.ttc, aRenseignerHt: r.ht, aRenseignerTtc: r.ttc };
   })();
-  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode);
-  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode);
+  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
+  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
   const vendusN = caHtParMois(d.ventes, annee, d.societe);
   // 🔴 LOT DC — plusieurs négociateurs : « N−1 non importé » se juge sur TOUTES les données (une personne sans activité l'année précédente compte
   // pour 0 dans la sélection) ; un seul négociateur ou « Tous » : comme avant, à l'identique.
@@ -606,7 +619,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const cumulN1 = cumuler(parMoisN1);
   const ventes = enPeriode ? ventesPeriode(d.ventes, ms) : ventesDuMois(d.ventes, annee, mois);
   // 🔴 LOT BT — « vendu + compromis » : seulement les compromis pas encore passés en acte (une affaire signée est déjà dans les ventes).
-  const compDuMois = enPeriode ? compromisPeriode(d.ventes, ms, mode) : compromisDuMode(d.ventes, annee, mois, mode);
+  const compDuMois = enPeriode ? compromisPeriode(d.ventes, ms, mode, jour) : compromisDuMode(d.ventes, annee, mois, mode, jour);
   const listeMode = mode === 'vendu' ? ventes : mode === 'compromis' ? compDuMois : [...ventes, ...compDuMois];
   const retros = enPeriode ? retrosPeriode(d.retrocessions, ms) : retrosDuMois(d.retrocessions, annee, mois);
   // 🔴 LOT CH (Arno) — le Résultat de l'agence = la SOMME DES CARTES affichées (`resultatDesCartes`, la fonction des cartes) ; les rétrocessions
@@ -629,12 +642,12 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   // choisi ; « Année » → l'année complète (année terminée) ou le mois en cours — jamais le mois de l'adresse. N−1 : la même borne.
   const borne = borneCumul(decoupage, annee, mois, moisPeriodeAnnee, jour);
   const fin = borne.fin;
-  const netCumul = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee, d.societe, 'vendu', optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
-  const netCumulN1 = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee - 1, d.societe, 'vendu', optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
+  const netCumul = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
+  const netCumulN1 = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee - 1, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
   const idsVendusCumul = Array.from({ length: fin }, (_, i) => ventesDuMois(d.ventes, annee, i + 1)).flat().map((v) => v.id);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => estChoisi(ms, { annee: x.annee, mois: x.mois }));
-  const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode)].map((v) => v.id);
+  const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode, jour)].map((v) => v.id);
   /** 🔴 LOT DA — un montant en centimes dans l'autre unité ; le prévisionnel « Vendu + compromis » (les montants tels qu'affichés, au centime). */
   const enAutre = (m: MontantC): number => (U.u === 'ht' ? m.ttcC : m.htC) / 100;
   const auCentime = (x: number): number => Math.round(x * 100) / 100;
@@ -707,7 +720,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       retros={tout.retrocessions} vide={enPeriode ? `Aucune vente ${surLaPeriode}.` : 'Aucune vente ce mois.'} motAucun="Aucune vente ne correspond." societe={d.societe}
       statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
     {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-mois" bloc="compromis-du-mois" titre={`${mode === 'tous' ? `Les compromis en cours ${duMois}` : `Les compromis ${duMois}`} — ${enPeriode ? nomPeriode : libMois}`}
-      apres={<small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>} ventes={compDuMois} retros={tout.retrocessions}
+      apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>{mode === 'tous' && <MentionReportes ventes={compDuMois} jour={jour} />}</>} ventes={compDuMois} retros={tout.retrocessions}
       vide={enPeriode ? `Aucun compromis signé ${surLaPeriode}.` : 'Aucun compromis signé ce mois.'} motAucun="Aucun compromis ne correspond." societe={d.societe}
       statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
     </div>
@@ -1194,12 +1207,12 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
   /** La valeur d'une année (la mesure affichée) : le CA des cartes, le CA net, ou le nombre ; `m` : le mode (« vendu » : la part du bas). */
   const valeur = (dx: DonneesSociete, a: number, m: ModeMois = mode): number => {
-    const l = listeDesAnnees(dx.ventes, [a], m);
+    const l = listeDesAnnees(dx.ventes, [a], m, jour);
     return nombre ? l.length : net ? enUnite(sommeMontants(l.map((v) => caNetVente(v, d.societe, opts)))) : enUnite(resultatDesCartes(l, d.societe, opts).ca);
   };
   const vals = annees.map((a) => valeur(d, a));
   const valsN1 = annees.map((a) => valeur(d, a - 1));
-  const nbs = annees.map((a) => listeDesAnnees(d.ventes, [a], mode).length);
+  const nbs = annees.map((a) => listeDesAnnees(d.ventes, [a], mode, jour).length);
   const bas = mode === 'tous' ? annees.map((a) => valeur(d, a, 'vendu')) : vals;
   const dernier = annees.filter((a) => a <= anneeEnCours).length;
   const motGraphe = nombre ? M.onglet.toLowerCase() : net ? cons(`CA net ${U.MOT}`) : M.graphe;
@@ -1208,7 +1221,14 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
   const cumule = (xs: readonly number[], k: number): number => xs.slice(0, k + 1).reduce((t, x) => t + x, 0);
   /** L'encadré d'une année (ou du cumul jusqu'à elle) : l'année, puis l'année d'avant. */
+  // 🔴 LOT DQ — la mention de l'année en cours (« Vendu + compromis »)
+  const nbReportesAn = mode === 'tous' ? compromisReportes(compromisDuMode(d.ventes, anneeEnCours, null, 'tous', jour), jour).length : 0;
   const info = (a: number, enCumul: boolean): InfoBarre => {
+    const note = nbReportesAn > 0 && (enCumul ? a >= anneeEnCours : a === anneeEnCours) ? mentionReportes(nbReportesAn) : null;
+    const i = infoSansNote(a, enCumul);
+    return note === null ? i : { ...i, note };
+  };
+  const infoSansNote = (a: number, enCumul: boolean): InfoBarre => {
     const k = rang(a);
     const titre = enCumul ? `Cumul ${annees[0]} → ${a}` : `${a}${a === anneeEnCours ? ' — en cours' : ''}`;
     const v = enCumul ? cumule(vals, k) : vals[k]; const vb = enCumul ? cumule(bas, k) : bas[k];
@@ -1232,8 +1252,8 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {entete}
       {series !== null ? (
-        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: annees.map((a) => listeDesAnnees(x.d.ventes, [a], mode).length), ca: annees.map((a) => valeur(x.d, a)) }))}
-          total={{ ca: vals, nb: nbs }} totalN1={comparaison !== null ? null : { ca: valsN1, nb: annees.map((a) => listeDesAnnees(d.ventes, [a - 1], mode).length), annee: annee - 1 }}
+        <GrapheNegociateurs series={series.map((x) => ({ nom: x.nom, couleur: x.couleur, nb: annees.map((a) => listeDesAnnees(x.d.ventes, [a], mode, jour).length), ca: annees.map((a) => valeur(x.d, a)) }))}
+          total={{ ca: vals, nb: nbs }} totalN1={comparaison !== null ? null : { ca: valsN1, nb: annees.map((a) => listeDesAnnees(d.ventes, [a - 1], mode, jour).length), annee: annee - 1 }}
           cumul={cumul} nombre={nombre} dernierMois={dernier} annee={annee} choisi={rang(annee) + 1} onChoisir={(r) => onAnnee(annees[r - 1])}
           motCa={cons(net ? `CA net ${U.MOT}` : `CA ${U.MOT}`)} motNb={M.compte} aria={`${motGraphe}${cumul ? ' cumulé' : ''} par année, un négociateur par série`}
           axe={{ etiquettes: annees.map(String), cles: annees, attribut: 'data-barre-annee', libelleN1: (r) => String(annees[r - 1] - 1), attenuer: !enPeriode,
@@ -1290,11 +1310,11 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   const enAutre = (m: MontantC): number => (U.u === 'ht' ? m.ttcC : m.htC) / 100;
   // Ce que les années additionnent (les fonctions de « Le mois », mois après mois, + les « mois à confirmer »)
   const ventesSel = mode === 'compromis' ? [] : ventesDesAnnees(d.ventes, sel);
-  const compSel = mode === 'vendu' ? [] : compromisDesAnnees(d.ventes, sel, mode);
+  const compSel = mode === 'vendu' ? [] : compromisDesAnnees(d.ventes, sel, mode, jour);
   const liste = [...ventesSel, ...compSel];
   const Rc = cartes(liste);
-  const R1 = cartes(listeDesAnnees(d.ventes, sel1, mode));
-  const T = totauxDesAnnees(d, sel, mode);
+  const R1 = cartes(listeDesAnnees(d.ventes, sel1, mode, jour));
+  const T = totauxDesAnnees(d, sel, mode, jour);
   const aConfirmer = aConfirmerDesAnnees(d.ventes, sel, mode);
   // N−1 : les mêmes années, un an plus tôt (plusieurs négociateurs : jugé sur toutes les données, lot DC)
   const baseN1 = series !== null ? tout.ventes : d.ventes;
@@ -1303,8 +1323,8 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   const motSansN1 = anneeSansN1 === undefined ? '' : motSansN1Pour(anneeSansN1, mode);
   const enN1 = sel.length === 1 ? `en ${sel[0] - 1}` : 'un an plus tôt';
   // « À date » : l'année en cours jusqu'au mois d'aujourd'hui, une année passée complète ; N−1 sur les mêmes mois.
-  const aDate = sel.flatMap((a) => listeADate(d.ventes, a, moisADate(a, jour), mode));
-  const aDateN1 = sel.flatMap((a) => listeADate(d.ventes, a - 1, moisADate(a, jour), mode));
+  const aDate = sel.flatMap((a) => listeADate(d.ventes, a, moisADate(a, jour), mode, jour));
+  const aDateN1 = sel.flatMap((a) => listeADate(d.ventes, a - 1, moisADate(a, jour), mode, jour));
   const [Rd, Rd1] = [cartes(aDate), cartes(aDateN1)];
   // 🔴 LOT DN — la borne unique (`borneCumul`, « Année ») : année terminée = complète, année en cours = jusqu'au mois en cours.
   const motADate = sel.length > 1 ? '' : ` (${borneCumul('annee', annee, 0, null, jour).mot})`;
@@ -1349,7 +1369,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         <span className="tdb-tuile-n1" data-tuile-n1="ca">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ventes-annee">
         <span className="tdb-tuile-mot">{M.nombre} — {lib}</span><strong className="tdb-tuile-valeur">{liste.length}</strong>
-        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode).length} ${enN1}`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode, jour).length} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} à date — ${lib}`, aDate.map((v) => v.id))} data-tuile="ca-a-date">
         <span className="tdb-tuile-mot">{enTout ? <>{M.ca} — à date (toutes les années)</> : <>{M.ca} — {lib} à date<small>{motADate}</small></>}</span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rd.ca))}{ESPACE}{U.autre.mot})</small>
@@ -1381,7 +1401,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         ventes={ventesSel} retros={tout.retrocessions} vide={`Aucune vente ${surLaPeriode}.`} motAucun="Aucune vente ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
       {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-annee" bloc="compromis-annee"
         titre={enTout ? (mode === 'tous' ? 'Les compromis en cours — toutes les années' : 'Les compromis — toutes les années') : mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}
-        apres={<small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>} ventes={compSel} retros={tout.retrocessions}
+        apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>{mode === 'tous' && <MentionReportes ventes={compSel} jour={jour} />}</>} ventes={compSel} retros={tout.retrocessions}
         vide={`Aucun compromis signé ${surLaPeriode}.`} motAucun="Aucun compromis ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
     </div>
     {fenetres}
