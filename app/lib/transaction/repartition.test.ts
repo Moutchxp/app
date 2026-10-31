@@ -62,7 +62,7 @@ describe('vérifier la répartition (avant tout enregistrement)', () => {
     expect(verifierRepartition(partiesParDefaut({ ...JB, societe: null }, null), 12000, 0)).toMatch(/n’a pas de société/);
   });
   it('une rétrocession supérieure à la commission est refusée', () => {
-    expect(verifierRepartition(partiesParDefaut(JB, MY), 12000, 12001)).toMatch(/dépasse la commission/);
+    expect(verifierRepartition(partiesParDefaut(JB, MY), 12000, 12001)).toMatch(/dépasse les honoraires de la vente/);
   });
 });
 

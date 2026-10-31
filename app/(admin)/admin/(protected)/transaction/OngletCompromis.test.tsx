@@ -511,8 +511,8 @@ describe('🔴 LOT H — retouches de l’onglet Compromis', () => {
     listeCompromis = [{ ...compromis, prixVente: 240000 }, importe];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41); await deplier(12);
     const intitules = (id: number) => [...container.querySelectorAll(`[data-compromis="${id}"] [data-informations-communes] dt`)].map((x) => x.textContent);
-    expect(intitules(41)).toEqual(['Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']); // LOT BN : le prix de vente // LOT K : « Dates » (compromis signé + vente définitive)
-    expect(intitules(12)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']);
+    expect(intitules(41)).toEqual(['Prix de vente', 'Taux d’honoraires', 'Dates', 'Apporteur']); // LOT BN : le prix de vente // LOT K : « Dates » (compromis signé + vente définitive)
+    expect(intitules(12)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux d’honoraires', 'Dates', 'Apporteur']);
     expect(texte('[data-compromis="41"] [data-info="taux"] dd')).toBe('5,00 % du prix de vente');
     expect(texte('[data-compromis="12"] [data-info="taux"] dd')).toBe('calculé dès la saisie du prix de vente');
     // ce qui est en tête de carte n'est pas répété dans le corps
@@ -686,7 +686,7 @@ describe('🔴 LOT J — taux de commission, montant de l’apporteur, part du n
   it('taux en direct dans le formulaire, au prix comme à la commission', async () => {
     await carte({ ...compromis, prixVente: null });
     await cliquer('[data-modifier-compromis="41"]');
-    expect(texte('[data-taux-direct]')).toBe('Taux de commission : calculé dès la saisie du prix de vente');
+    expect(texte('[data-taux-direct]')).toBe('Taux d’honoraires : calculé dès la saisie du prix de vente');
     await saisir('[data-champ="prix-vente"]', '300 000');
     expect(texte('[data-taux-direct]')).toBe('soit 4,00 % du prix');
     await saisirTtc('[data-champ="commission"]', '15000');
@@ -4764,7 +4764,7 @@ describe('🔴 LOT BN — « Prix de vente » dans les informations communes ; l
   it('prix présent : « 240 000 € » (espaces des milliers, sans « ,00 »), avant le taux de commission ; même rubrique que les autres', async () => {
     listeCompromis = [{ ...compromis, prixVente: 240000 }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
-    expect(rubriques().slice(0, 2)).toEqual([['Prix de vente', '240 000 €'], ['Taux de commission', '5,00 % du prix de vente']]);
+    expect(rubriques().slice(0, 2)).toEqual([['Prix de vente', '240 000 €'], ['Taux d’honoraires', '5,00 % du prix de vente']]);
     expect(container.querySelector('[data-info="prix"]')!.className).toBe('trx-info');
     expect(container.querySelector('[data-compromis="41"] .trx-grille')!.className).toBe('trx-grille');
   });
@@ -4775,7 +4775,7 @@ describe('🔴 LOT BN — « Prix de vente » dans les informations communes ; l
     listeCompromis = [importe];
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(12);
-    expect([...container.querySelectorAll('[data-compromis="12"] .trx-grille dt')].map((x) => x.textContent)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux de commission', 'Dates', 'Apporteur']);
+    expect([...container.querySelectorAll('[data-compromis="12"] .trx-grille dt')].map((x) => x.textContent)).toEqual(['Libellé du fichier', 'Prix de vente', 'Taux d’honoraires', 'Dates', 'Apporteur']);
     expect(container.querySelector('[data-compromis="12"] .trx-grille')!.className).toBe('trx-grille trx-grille--quatre');
     const { CSS_TRANSACTION } = await import('./commun');
     const css = CSS_TRANSACTION.replace(/\s+/g, ' ');

@@ -56,7 +56,7 @@ const pct = (x: number): string => pctFr(x);
  */
 export function verifierRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number): string | null {
   if (retroApporteurTtc < 0) return 'La rétrocession de l’apporteur ne peut pas être négative.';
-  if (retroApporteurTtc > honorairesTtc) return 'La rétrocession de l’apporteur dépasse la commission : les honoraires nets seraient négatifs.';
+  if (retroApporteurTtc > honorairesTtc) return 'La rétrocession de l’apporteur dépasse les honoraires de la vente : les honoraires nets seraient négatifs.';
   if (parties.length === 0) return 'Choisissez au moins le négociateur d’entrée ou de sortie du mandat.';
   for (const p of parties) {
     const quoi = p.sorte === 'exterieure' ? `la partie extérieure${p.nom ? ` « ${p.nom} »` : ''}` : `« ${LIBELLE_PARTIE[p.sorte]} »`;

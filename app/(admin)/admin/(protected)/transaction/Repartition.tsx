@@ -262,7 +262,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
-      <legend className="loc-muet">{seulementParts ? 'Répartition de la commission' : 'Apporteur et répartition de la commission'}</legend>
+      <legend className="loc-muet">{seulementParts ? 'Répartition des honoraires' : 'Apporteur et répartition des honoraires'}</legend>
       {!seulementParts && apporteurEnLigne !== undefined && <div className="trx-form"><div className="trx-plein" data-apporteur-formulaire>
         <span className="loc-muet">Apporteur d’affaires</span> {apporteurEnLigne}</div></div>}
       {!seulementParts && <div className="trx-form">

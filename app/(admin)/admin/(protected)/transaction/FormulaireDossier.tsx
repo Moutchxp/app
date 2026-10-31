@@ -191,7 +191,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
               <input value={forme('prixVente', champs.prixVente)} onChange={champ('prixVente')} onFocus={() => setEnSaisie('prixVente')} onBlur={() => setEnSaisie(null)} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
               {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}
               {/* LOT J — le taux de commission, recalculé à chaque frappe du prix ou de la commission. */}
-              {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux de commission : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
+              {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux d’honoraires : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
             <label>Commission {MOT_UNITE[unite]}
               <input value={forme('commission', commissionAffichee)} onChange={(e) => saisirCommission(e.target.value)} onFocus={() => setEnSaisie('commission')} onBlur={() => setEnSaisie(null)} inputMode="decimal" required data-champ="commission" />
               <span className="loc-muet" data-equivalent-commission>{!Number.isFinite(commission) ? (unite === 'ttc' ? 'HT = TTC ÷ 1,2' : 'TTC = HT × 1,2')

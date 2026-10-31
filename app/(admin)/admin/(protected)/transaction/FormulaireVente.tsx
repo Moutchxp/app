@@ -156,7 +156,7 @@ interface Geste { id: number; action: string; avant: unknown; apres: unknown; co
 const LIBELLE_ACTION: Record<string, string> = { saisie: 'Saisie', modification: 'Modification', retrait: 'Retrait', retablissement: 'Rétablissement',
   rattachement: 'Rattachement', annulation: 'Annulation', import_fichier: 'Import du fichier', attribution: 'Attribution',
   // LOT D (434)
-  repartition: 'Répartition de la commission', personnes: 'Vendeurs et acquéreurs', acte_signe: 'Acte signé', retour_compromis: 'Retour en compromis',
+  repartition: 'Répartition des honoraires', personnes: 'Vendeurs et acquéreurs', acte_signe: 'Acte signé', retour_compromis: 'Retour en compromis',
   // LOT G (436)
   annulation_compromis: 'Annulation du compromis', retablissement_compromis: 'Compromis rétabli',
   // LOT I (437)

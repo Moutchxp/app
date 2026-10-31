@@ -558,7 +558,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
               Avec le libellé du fichier, la grille passe à 4 colonnes (grand écran) : « Dates » reste sur la première ligne. */}
           {info('Prix de vente', c.prix === null ? <span className="trx-a-renseigner">{A_RENSEIGNER}</span> : eur(c.prix), 'prix')}
           {/* LOT J — calculé : commission TTC ÷ prix de vente ; sans prix, « calculé dès la saisie du prix de vente ». */}
-          {info('Taux de commission', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
+          {info('Taux d’honoraires', <span className={c.pctPrix === null ? 'trx-a-renseigner' : undefined}>{libelleTaux(c.pctPrix)}</span>, 'taux')}
           {/* 🔴 LOT K (Arno) — UNE case « Dates », l'une au-dessus de l'autre : le compromis signé, puis la vente définitive au plus
               tard (rouge et « dépassée » si la date est passée) ; chacune « à renseigner » si absente. (Accord d'Arno : la date
               butoir revient ici malgré la règle « zéro doublon » du lot H.) */}
@@ -603,7 +603,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
           const apporteur = r.retroApporteurTtc > 0 || v.apporteur != null;
           return (
           <div data-repartition-compromis>
-          <table className="tdb-table trx-table-repartition" aria-label="Répartition de la commission">
+          <table className="tdb-table trx-table-repartition" aria-label="Répartition des honoraires">
             <thead><tr><th scope="col">Partie</th><th scope="col">Société</th><th scope="col">%</th><th scope="col" data-colonne-montants>{colonneEur}</th></tr></thead>
             <tbody>
               {ligne('commission', <>Honoraires de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse du mandat)</>, LIBELLE_SOCIETE[porteuse], pct(100),
@@ -1125,7 +1125,7 @@ function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onE
         aria-expanded={ouvert} data-societe-cote={cote}>{societe} · {pctFr(part)} %</button>
     </div>
     {etat !== null && (
-      <div className="trx-choix-negociateur trx-reglage-repartition" role="group" aria-label={`Répartition de la commission — ${titre}`} data-reglage-repartition={cote}>
+      <div className="trx-choix-negociateur trx-reglage-repartition" role="group" aria-label={`Répartition des honoraires — ${titre}`} data-reglage-repartition={cote}>
         <div className="trx-form-affichage" data-affichage-panneau={`repartition-${cote}`}><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
         {/* Dans `.trx-form`, comme dans « Modifier » : les mêmes champs (44 px), une colonne sur téléphone. */}
         <div className="trx-form">

@@ -329,7 +329,7 @@ describe('🔴 LOT I (437) — les commissions versées, en HT ou en TTC', () =>
     // 2 000 HT = 2 400 TTC > la commission ? non (12 000) ; une rétrocession HT qui la dépasse est refusée sur son équivalent TTC.
     appels.length = 0;
     const r = await repo.enregistrerDossier(null, dossier({ retroApporteurTtc: 10500, retroUnite: 'ht' }), '2026-10-27', A);
-    expect(r.ok ? '' : r.motif).toMatch(/dépasse la commission/);
+    expect(r.ok ? '' : r.motif).toMatch(/dépasse les honoraires de la vente/);
   });
 
   it('une saisie qui ne parle pas des commissions (formulaire d’avant) ne touche à aucune ligne ; une commission sans négociateur est refusée', async () => {
