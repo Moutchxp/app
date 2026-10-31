@@ -231,7 +231,10 @@ describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
     const janvier = container.querySelector('[data-mois-gestion="1"]')!;
     expect(janvier.querySelector('[data-mot="ADHOC"]')!.textContent!.replace(/\s/g, ' ')).toBe('6 437 €');
     expect(janvier.querySelector('[data-mot="Reste"]')!.textContent!.replace(/\s/g, ' ')).toBe('7 690 €');
+    // 🔴 LOT GE1 : « Année par année » est dans « L'année » › « Tout »
+    await act(async () => { (container.querySelector('[data-decouper-annees="tout"]') as HTMLElement).click(); }); await calmer();
     expect(texte('[data-annee-gestion="2025"] [data-mot="Honoraires"]')).toBe('14 127 €');
+    await act(async () => { (container.querySelector('[data-decouper-annees="annee"]') as HTMLElement).click(); }); await calmer();
     await act(async () => { (container.querySelector('[data-saisir-gestion="2"]') as HTMLElement).click(); });
     expect(container.querySelector('[data-saisie-gestion]')).not.toBeNull();
     await act(async () => { (container.querySelector('[data-enregistrer-gestion]') as HTMLElement).click(); });
@@ -243,6 +246,104 @@ describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
     await calmer();
     expect(texte('[data-mois-global="1"] [data-mot="Gestion"]')).toBe('14 127 €');
     expect(container.querySelector('[data-lien-gestion] a')!.getAttribute('href')).toBe('/admin/transaction/gestion?annee=2025');
+  });
+});
+
+describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuiles, graphique, tableau', () => {
+  const g = (id: number, annee: number, mois: number, o: Record<string, unknown>) => ({ id, annee, mois, nbLots: null, honorairesHt: null, adhocHt: null, salarieHt: null, resteHt: null, note: null, origine: 'saisie', ...o });
+  // janvier 2025 (le jeu commun : 14 127 − 6 437), mars 2025 (avec salarié et lots), janvier 2024 (N−1)
+  const jeu = () => [donneesGlobal.gestion[0], g(2, 2025, 3, { honorairesHt: 16184.63, adhocHt: 2449, salarieHt: 2688.91, resteHt: 13735.63, nbLots: 310 }),
+    g(3, 2024, 1, { honorairesHt: 10000, adhocHt: 5000, salarieHt: 0, resteHt: 5000, nbLots: 280 })];
+  let avant: typeof donneesGlobal.gestion;
+  beforeEach(() => { avant = donneesGlobal.gestion; donneesGlobal.gestion = jeu() as typeof donneesGlobal.gestion; });
+  afterEach(() => { donneesGlobal.gestion = avant; });
+  const ouvrirG = async (q: string) => { window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGestion)); }); await calmer(); };
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const valeur = (cle: string) => centimesDe(texte(`[data-tuile-valeur="${cle}"]`));
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const adresse = () => new URLSearchParams(window.location.search);
+
+  it('Le mois (janvier 2025) : 4 tuiles — honoraires, ADHOC (rouge), salariés (gris à 0), CA net = honoraires − ADHOC − salariés au centime ; N−1 et écart ; pas de HT | TTC ni de Négociateur', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=1');
+    expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-salaries', 'gestion-net']);
+    expect([valeur('gestion-honoraires'), valeur('gestion-adhoc'), valeur('gestion-salaries'), valeur('gestion-net')]).toEqual([1412700, 643700, 0, 769000]);
+    expect(valeur('gestion-honoraires') - valeur('gestion-adhoc') - valeur('gestion-salaries')).toBe(valeur('gestion-net'));
+    expect([container.querySelector('[data-tuile-valeur="gestion-adhoc"]')!.className, container.querySelector('[data-tuile-valeur="gestion-salaries"]')!.className])
+      .toEqual([expect.stringContaining('trx-rouge'), expect.stringContaining('trx-cout-nul')]);
+    expect(texte('[data-tuile-n1="gestion-honoraires"]')).toBe('10 000 € en 2024 (+41,3 %)');
+    expect([texte('[data-tuile="gestion-net"] .tdb-tuile-mot'), texte('[data-gestion-lots]')]).toEqual(['CA net HT — janvier 2025', '(lots : —)']);
+    expect([container.querySelector('[data-affichage-montants]'), container.querySelector('[data-filtre="negociateur"]'), container.querySelector('[data-filtre="annee"]') !== null]).toEqual([null, null, true]);
+    // le tableau : les 12 mois de l'année, son titre et son total disent l'année
+    expect([texte('[data-bloc="gestion-mois"] h3'), texte('[data-total-gestion] th')]).toEqual(['2025 mois par mois (HT ; envoyé chaque mois par le comptable)', 'Total — 2025']);
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION).toContain('[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;'); // les cinq onglets, aucun coupé
+    // mars : avec salariés et lots
+    await cliquer('[data-onglet-mois="3"]');
+    expect([valeur('gestion-net'), texte('[data-gestion-lots]'), adresse().get('mois')]).toEqual([1618463 - 244900 - 268891, '(310 lots)', '3']);
+  });
+
+  it('Mois | Période | Année : les sommes des mois, les lots en moyenne, le tableau des mois concernés et sa ligne de total ; un mois non saisi : « — » et « mois non saisi » dans l’encadré', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=2');
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Février 2025 — mois non saisi');
+    expect([valeur('gestion-honoraires'), texte('[data-mois-gestion="2"] [data-mot="Honoraires"]'), texte('[data-saisir-gestion="2"]')]).toEqual([0, '—', 'Saisir']);
+    expect(container.querySelectorAll('[data-table-gestion] tbody tr[data-mois-gestion]').length).toBe(12);
+    await cliquer('[data-decouper="periode"]');
+    await cliquer('[data-onglet-mois="1"]'); await cliquer('[data-onglet-mois="3"]');
+    expect([adresse().get('vue-mois'), adresse().get('periode')]).toEqual(['periode', '2025-01,2025-02,2025-03']);
+    expect([valeur('gestion-honoraires'), valeur('gestion-net'), texte('[data-gestion-lots]')]).toEqual([1412700 + 1618463, 769000 + 1618463 - 244900 - 268891, '(310 lots en moyenne)']);
+    expect([...container.querySelectorAll('[data-table-gestion] tbody tr[data-mois-gestion]')].map((x) => x.getAttribute('data-mois-gestion'))).toEqual(['1', '2', '3']);
+    expect([texte('[data-total-gestion] th'), texte('[data-total-gestion] [data-mot="Honoraires"]'), container.querySelector('[data-total-gestion]')!.classList.contains('trx-ligne-total')])
+      .toEqual(['Total — janvier → mars 2025', '30 311,63 €', true]);
+    expect(texte('[data-bloc="histogramme-mois"] style')).toContain('[data-periode-graphe] g[data-barre-mois]{opacity:.35}');
+    await cliquer('[data-decouper="annee"]');
+    expect([valeur('gestion-honoraires'), container.querySelectorAll('[data-table-gestion] tbody tr[data-mois-gestion]').length]).toEqual([1412700 + 1618463, 12]);
+  });
+
+  it('le graphique : Honoraires | ADHOC | Salariés | CA net | Lots ; Mensuel (N−1 hachurée, le mois en rouge, aucun mois pâle) / Cumul', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=3');
+    expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent)).toEqual(['Honoraires', 'ADHOC', 'Salariés', 'CA net', 'Lots']);
+    const barre = (k: number) => Number(container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"] .tdb-barre`)!.getAttribute('data-valeur'));
+    expect([barre(1), barre(3), container.querySelector('[data-barre-mois="3"] .tdb-barre--courante') !== null, container.querySelector('[data-barre-n1="1"]') !== null,
+      container.querySelectorAll('.tdb-barre-annee--pale').length]).toEqual([14127, 16184.63, true, true, 0]);
+    await cliquer('[data-mesure-bouton="net"]');
+    expect([barre(3), adresse().get('mesure')]).toEqual([(1618463 - 244900 - 268891) / 100, 'net']);
+    await cliquer('[data-mesure-bouton="lots"]');
+    expect(barre(3)).toBe(310);
+    await cliquer('[data-mesure-bouton="honoraires"]');
+    await cliquer('[data-cumul-bouton]');
+    expect(Number(container.querySelector('[data-point-cumul="3"]')!.getAttribute('data-valeur'))).toBeCloseTo(14127 + 16184.63, 6);
+    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2025 à fin mars');
+  });
+
+  it('L’année : ligne des années, Année | Période | Tout ; « Année par année » et « Mois par mois — 2025 » ; Tout : le tableau année par année, sans N−1 ; l’ancien lien ?annee=2025', async () => {
+    await ouvrirG('/?annee=2025');
+    expect([container.querySelector('[data-vue="annee"]')!.getAttribute('aria-selected'), [...container.querySelectorAll('[data-onglet-annee]')].map((b) => b.textContent)]).toEqual(['true', ['2024', '2025']]);
+    expect([valeur('gestion-honoraires'), texte('[data-tuile-n1="gestion-honoraires"]')]).toEqual([1412700 + 1618463, '10 000 € en 2024 (+203,1 %)']);
+    expect(container.querySelector('[data-bloc="graphe-annees"] [data-barre-annee="2025"] .tdb-barre--courante')).not.toBeNull();
+    await cliquer('[data-echelle="mois"]');
+    expect([texte('[data-bloc="histogramme-mois"] h3'), adresse().get('graphe')]).toEqual(['Mois par mois — 2025 (Honoraires HT)', 'mois']);
+    await cliquer('[data-echelle="annees"]');
+    await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
+    expect([adresse().get('vue-annee'), adresse().get('annees'), valeur('gestion-honoraires'), container.querySelectorAll('[data-table-gestion] tbody tr[data-mois-gestion]').length])
+      .toEqual(['periode', '2024,2025', 1000000 + 1412700 + 1618463, 24]);
+    await cliquer('[data-decouper-annees="tout"]');
+    expect([texte('[data-tuile-n1="gestion-net"]'), container.querySelector('[data-table-gestion]'), texte('[data-annee-gestion="2024"] [data-mot="Honoraires"]')])
+      .toEqual(['Toutes les années (2024 → 2025)', null, '10 000 €']);
+    expect(container.querySelector('[data-bloc="graphe-annees"] [data-bulle-bloc="n1"]')).toBeNull();
+  });
+
+  it('« Modifier » : la saisie du comptable, enregistrée, et la page se met à jour aussitôt ; le téléphone', async () => {
+    await ouvrirG('/?vue=mois&annee=2025&mois=1');
+    await cliquer('[data-saisir-gestion="1"]');
+    expect(container.querySelector('[data-saisie-gestion]')).not.toBeNull();
+    // ce que la base rendra après l'enregistrement
+    donneesGlobal.gestion = [{ ...donneesGlobal.gestion[0], honorairesHt: 15000 }, ...donneesGlobal.gestion.slice(1)] as typeof donneesGlobal.gestion;
+    await cliquer('[data-enregistrer-gestion]');
+    expect(posts.at(-1)).toMatchObject({ action: 'gestion-enregistrer', annee: 2025, mois: 1 });
+    expect([container.querySelector('[data-saisie-gestion]'), valeur('gestion-honoraires'), texte('[data-mois-gestion="1"] [data-mot="Honoraires"]')]).toEqual([null, 1500000, '15 000 €']);
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION).toContain('.trx-ligne-total th,.trx-ligne-total td{background:var(--color-svv-field)}');
+    expect(container.querySelector('.trx-rangee-mois')).not.toBeNull(); // la ligne des mois de la Transaction (mêmes règles au téléphone)
   });
 });
 

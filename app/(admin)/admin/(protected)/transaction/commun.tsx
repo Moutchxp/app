@@ -416,6 +416,11 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-hors-liste{list-style:none;margin:0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:6px;font-size:.88rem}
 .trx-hors-liste li{display:flex;flex-direction:column}
 .trx-liste-affaires > .trx-entete-gauche{margin-bottom:12px}
+/* LOT GE1 — Gestion : la ligne de total du tableau (trame grise) ; le mois choisi, legerement surligne. */
+.trx-ligne-total th,.trx-ligne-total td{background:var(--color-svv-field)}
+.trx-ligne-choisie th,.trx-ligne-choisie td{background:color-mix(in srgb, var(--color-svv-red) 7%, transparent)}
+/* LOT GE1 — les cinq onglets du graphique de la Gestion (Honoraires, ADHOC, Salaries, CA net, Lots) : sur deux lignes si besoin, aucun coupe. */
+[data-ecran-gestion] .tdb-histo-entete-detail .tdb-mesures{flex-wrap:wrap;justify-content:flex-start;column-gap:2px}
 /* LOT DJ — la recherche d'une liste de cartes : discrete, a droite de la ligne du titre ; au telephone, sous le titre, pleine largeur. */
 .trx-recherche-liste{margin-left:auto;position:relative;display:inline-flex;align-items:center}
 .trx-recherche-champ{height:36px;width:min(260px,100%);padding:0 30px 0 12px;border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem}
