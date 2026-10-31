@@ -108,13 +108,11 @@ export function vueInitiale(vue: string | null, avecMois: boolean): 'compromis' 
   return avecMois ? 'mois' : 'compromis';
 }
 
-export function EcranSociete({ societe }: { societe: Societe }) {
-  const jour = aujourdhuiParis();
-  const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
-  // LOT D — trois onglets : « Compromis », « Le mois », « L'année ». LOT L (Arno) — à l'ouverture : « Compromis ». Une ANCIENNE adresse
-  // du mois (« ?annee=…&mois=… » sans « vue », écrite avant ce lot) rouvre toujours « Le mois » : aucun lien ne se perd.
-  const [vue, setVue] = useState<'compromis' | 'mois' | 'annee'>(() => vueInitiale(parametre('vue'), parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null));
-  const refs = useTransaction<References>('vue=references');
+/**
+ * 🔴 LOT GE1 — LA LIGNE DES MOIS (« Mois | Période | Année ») de « Le mois », en un crochet : Transaction et Gestion la partagent (déplacée
+ * d'`EcranSociete`, à l'identique).
+ */
+function useLigneDesMois(jour: string) {
   // 🔴 LOT CP (Arno) — « Mensuel | Période » : null = Mensuel (l'écran d'avant) ; sinon les mois choisis, repris de l'adresse (&periode=2026-07,2026-09)
   // et retenus pendant la visite (changement d'onglet, de mode, d'unité). Sans « mois » dans l'adresse, le dernier mois de la période est le mois montré.
   // 🔴 LOT CT (Arno) — trois positions « Mois | Période | Année » (&vue-mois=mois|periode|annee ; un ancien lien sans « vue-mois » : « &periode=… »
@@ -148,13 +146,18 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   const decoupage: Decoupage = anneeEntiere ? 'annee' : periode !== null ? 'periode' : 'mois';
   const periodeVue: MoisChoisi[] | null = anneeEntiere ? douzeMois(annee) : periodeA;
   const periodeTexte = periodeA === null ? null : ecrirePeriode(periodeA);
-  // 🔴 LOT DG (Arno) — « L'année » : la ligne des années (Année | Période | Tout), lue de l'adresse à l'arrivée (anciens liens « Début / Fin »
-  // compris : `anneesInitiales`) dès que les années disponibles sont connues ; null : pas encore touchée (l'état de l'adresse).
-  const [arrivee] = useState(() => ({ vueAnnee: parametre('vue-annee'), annees: parametre('annees'), annee: vueInitiale(parametre('vue'), false) === 'annee' ? parametre('annee') : null,
+  return { periode, setPeriode, setAnneeEntiere, annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte };
+}
+
+/**
+ * 🔴 LOT GE1 — LA LIGNE DES ANNÉES (« Année | Période | Tout ») de « L'année », en un crochet (déplacée d'`EcranSociete`, à l'identique) ;
+ * `compte(a)` : l'année a-t-elle une donnée comptée (lot DH) ; `vueAnnee` : l'adresse ouvre « L'année » (son « annee » y est l'année montrée).
+ */
+function useLigneDesAnnees(jour: string, anneesDispo: readonly number[] | null, vueAnnee: boolean, compte: (a: number) => boolean) {
+  const [arrivee] = useState(() => ({ vueAnnee: parametre('vue-annee'), annees: parametre('annees'), annee: vueAnnee ? parametre('annee') : null,
     debut: parametre('debut'), fin: parametre('fin') }));
   const [choixAnnees, setChoixAnnees] = useState<ChoixAnnees | null>(null);
   const [refusAnnees, setRefusAnnees] = useState(false);
-  const anneesDispo = lu.etat === 'ok' ? anneesDe(lu.data, jour) : null;
   const choixA: ChoixAnnees | null = choixAnnees ?? (anneesDispo === null ? null : anneesInitiales(arrivee, anneesDispo, jour));
   const choisirAnnee = (a: number): void => {
     if (choixA === null || anneesDispo === null) return;
@@ -174,6 +177,21 @@ export function EcranSociete({ societe }: { societe: Societe }) {
     else setChoixAnnees({ decoupage: 'periode', annees: choixA.decoupage === 'tout' ? [...(anneesVisibles ?? anneesDispo)] : choixA.annees, annee: choixA.annee });
   };
   const cleChoixA = choixA === null ? null : `${choixA.decoupage}|${choixA.annees.join(',')}|${choixA.annee}`;
+  const anneesVisibles = anneesDispo === null ? null : anneesDispo.filter((a) => compte(a)
+    || (choixA !== null && (a === choixA.annee || (choixA.decoupage === 'periode' && choixA.annees.includes(a)))));
+  return { choixA, setChoixAnnees, refusAnnees, setRefusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles };
+}
+
+export function EcranSociete({ societe }: { societe: Societe }) {
+  const jour = aujourdhuiParis();
+  const { lu, relire } = useTransaction<DonneesSociete>(`vue=societe&societe=${societe}`);
+  // LOT D — trois onglets : « Compromis », « Le mois », « L'année ». LOT L (Arno) — à l'ouverture : « Compromis ». Une ANCIENNE adresse
+  // du mois (« ?annee=…&mois=… » sans « vue », écrite avant ce lot) rouvre toujours « Le mois » : aucun lien ne se perd.
+  const [vue, setVue] = useState<'compromis' | 'mois' | 'annee'>(() => vueInitiale(parametre('vue'), parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null));
+  const refs = useTransaction<References>('vue=references');
+  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour);
+  // 🔴 LOT DG (Arno) — « L'année » : la ligne des années (Année | Période | Tout), lue de l'adresse à l'arrivée (anciens liens « Début / Fin »
+  // compris : `anneesInitiales`) dès que les années disponibles sont connues ; null : pas encore touchée (l'état de l'adresse).
   // 🔴 LOT CQ — le filtre « Négociateur » : une PERSONNE (son nom affiché), gardé dans l'adresse (&negociateur=…) ; un ancien lien qui porte un
   // libellé (« ARNAUD ») ouvre la même personne. 🔴 LOT CU — de 0 (« Tous ») à 5 personnes (&negociateur=A&negociateur=B ; un lien à une valeur
   // s'ouvre comme avant).
@@ -182,11 +200,13 @@ export function EcranSociete({ societe }: { societe: Societe }) {
   // par le navigateur, sinon « Vendu » (l'écran d'avant, à l'identique).
   const [mode, setModeEtat] = useState<ModeMois>(() => modeInitial(parametre('mode')));
   const setMode = (m: ModeMois): void => { setModeEtat(m); try { window.localStorage.setItem(CLE_MODE_MOIS, m); } catch { /* sans stockage */ } };
-  // 🔴 LOT DH (Arno) — la ligne des années et l'axe : seulement les années qui ont une donnée comptée dans le mode affiché (une vente, un compromis
-  // à sa date) ou une rétrocession saisie ; l'année montrée et les années cochées restent toujours (ex. 2027, présente par la seule date butoir
-  // d'un compromis : absente). « Toute l'histoire » garde toutes les années.
-  const anneesVisibles = lu.etat !== 'ok' || anneesDispo === null ? null : anneesDispo.filter((a) => listeDesAnnees(lu.data.ventes, [a], mode).length > 0
-    || lu.data.retrocessions.some((x) => x.annee === a) || (choixA !== null && (a === choixA.annee || (choixA.decoupage === 'periode' && choixA.annees.includes(a)))));
+  const anneesDispo = lu.etat === 'ok' ? anneesDe(lu.data, jour) : null;
+  const { choixA, setChoixAnnees, refusAnnees, setRefusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles } = useLigneDesAnnees(jour, anneesDispo,
+    vueInitiale(parametre('vue'), false) === 'annee',
+    // 🔴 LOT DH (Arno) — la ligne des années et l'axe : seulement les années qui ont une donnée comptée dans le mode affiché (une vente, un compromis
+    // à sa date) ou une rétrocession saisie ; l'année montrée et les années cochées restent toujours (ex. 2027, présente par la seule date butoir
+    // d'un compromis : absente). « Toute l'histoire » garde toutes les années.
+    (a) => lu.etat === 'ok' && (listeDesAnnees(lu.data.ventes, [a], mode).length > 0 || lu.data.retrocessions.some((x) => x.annee === a)));
   const [detail, setDetail] = useState<Detail>(null);
   const [edition, setEdition] = useState<Vente | 'nouvelle' | null>(null);
   // 🔴 LOT BW (Arno) — « HT | TTC » sur « Le mois » et « L'année » : le choix retenu de l'onglet « Compromis » (même composant, même mémoire,
@@ -456,6 +476,54 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   </>;
 }
 
+/** 🔴 LOT GE1 — LA LIGNE DES MOIS et « Mois | Période | Année » (déplacée de `VueMois`, à l'identique) : Transaction et Gestion. */
+function LigneDesMois({ annee, mois, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number; decoupage: Decoupage;
+  /** En Période / Année : les mois choisis de l'année (boutons à bascule) ; null : un mois. */
+  moisChoisis: readonly number[] | null; onMois: (m: number) => void; onDecoupage?: (x: Decoupage) => void }) {
+  return (
+  <div className="trx-rangee-mois" data-decoupage={decoupage}>
+    {moisChoisis !== null ? (
+      <div className="tdb-onglets trx-onglets-periode" role="group" aria-label={`Mois de ${annee} choisis pour la période`}>
+        {NOMS_MOIS.map((m, i) => (
+          <button key={m} type="button" aria-pressed={moisChoisis.includes(i + 1)} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
+        ))}
+      </div>
+    ) : (
+      <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`}>
+        {NOMS_MOIS.map((m, i) => (
+          <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
+        ))}
+      </div>
+    )}
+    {/* 🔴 LOT CT — trois positions : « Mois » (l'ancien « Mensuel ») | « Période » | « Année ». */}
+    {onDecoupage && <div className="trx-unites trx-choix-periode" role="group" aria-label="Un mois, une période ou l’année" data-choix-periode={decoupage}>
+      {DECOUPAGES.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={decoupage === x} onClick={() => onDecoupage(x)} data-decouper={x}>{LIBELLE_DECOUPAGE[x]}</button>)}
+    </div>}
+  </div>
+  );
+}
+
+/** 🔴 LOT GE1 — LA LIGNE DES ANNÉES et « Année | Période | Tout » (déplacée de `VueAnnee`, à l'identique) : Transaction et Gestion. */
+function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
+  choisies: readonly number[]; onAnnee: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void }) {
+  return (
+  <div className="trx-rangee-mois trx-rangee-annees" data-decoupage-annees={decoupage}>
+    {decoupage === 'annee' ? (
+      <div className="tdb-onglets" role="tablist" aria-label="Les années">
+        {annees.map((a) => <button key={a} type="button" role="tab" aria-selected={a === annee} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
+      </div>
+    ) : (
+      <div className="tdb-onglets trx-onglets-periode" role="group" aria-label="Les années choisies">
+        {annees.map((a) => <button key={a} type="button" aria-pressed={choisies.includes(a)} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
+      </div>
+    )}
+    <div className="trx-unites trx-choix-periode" role="group" aria-label="Une année, plusieurs années ou toutes" data-choix-annees={decoupage}>
+      {DECOUPAGES_ANNEES.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={decoupage === x} onClick={() => onDecoupage(x)} data-decouper-annees={x}>{LIBELLE_DECOUPAGE_ANNEES[x]}</button>)}
+    </div>
+  </div>
+  );
+}
+
 function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition, onRelire, references, periode = null, decoupage = periode === null ? 'mois' : 'periode', refusPeriode = false, onDecoupage, series = null, filtreNegociateurs = [] }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois; onMois: (m: number) => void;
   onDetail: (x: Detail) => void; onEdition: (v: Vente) => void; onRelire: () => void;
@@ -573,25 +641,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   return <>
     {/* 🔴 LOT CP — la ligne des mois et, à droite, « Mensuel | Période » (au téléphone : au-dessus, à droite). En Période, chaque mois est un
         bouton à bascule : plusieurs mois soulignés, le dernier ne se retire pas. */}
-    <div className="trx-rangee-mois" data-decoupage={decoupage}>
-      {enPeriode ? (
-        <div className="tdb-onglets trx-onglets-periode" role="group" aria-label={`Mois de ${annee} choisis pour la période`}>
-          {NOMS_MOIS.map((m, i) => (
-            <button key={m} type="button" aria-pressed={moisPeriodeAnnee.includes(i + 1)} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
-          ))}
-        </div>
-      ) : (
-        <div className="tdb-onglets" role="tablist" aria-label={`Mois de ${annee}`}>
-          {NOMS_MOIS.map((m, i) => (
-            <button key={m} type="button" role="tab" aria-selected={mois === i + 1} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
-          ))}
-        </div>
-      )}
-      {/* 🔴 LOT CT — trois positions : « Mois » (l'ancien « Mensuel ») | « Période » | « Année ». */}
-      {onDecoupage && <div className="trx-unites trx-choix-periode" role="group" aria-label="Un mois, une période ou l’année" data-choix-periode={decoupage}>
-        {DECOUPAGES.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={decoupage === x} onClick={() => onDecoupage(x)} data-decouper={x}>{LIBELLE_DECOUPAGE[x]}</button>)}
-      </div>}
-    </div>
+    <LigneDesMois annee={annee} mois={mois} decoupage={decoupage} moisChoisis={enPeriode ? moisPeriodeAnnee : null} onMois={onMois} onDecoupage={onDecoupage} />
     {/* 🔴 LOT CQ — la ligne « Période : … » sous les mois est RETIRÉE (accord d'Arno) : les titres des blocs disent la période. Reste le petit
         message du dernier mois, qui ne se retire pas. */}
     {enPeriode && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
@@ -1259,20 +1309,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   );
   return <>
     {/* La ligne des années (comme la ligne des mois) et, à droite, « Année | Période | Tout ». */}
-    <div className="trx-rangee-mois trx-rangee-annees" data-decoupage-annees={choix.decoupage}>
-      {choix.decoupage === 'annee' ? (
-        <div className="tdb-onglets" role="tablist" aria-label="Les années">
-          {annees.map((a) => <button key={a} type="button" role="tab" aria-selected={a === annee} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
-        </div>
-      ) : (
-        <div className="tdb-onglets trx-onglets-periode" role="group" aria-label="Les années choisies">
-          {annees.map((a) => <button key={a} type="button" aria-pressed={sel.includes(a)} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
-        </div>
-      )}
-      <div className="trx-unites trx-choix-periode" role="group" aria-label="Une année, plusieurs années ou toutes" data-choix-annees={choix.decoupage}>
-        {DECOUPAGES_ANNEES.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={choix.decoupage === x} onClick={() => onDecoupage(x)} data-decouper-annees={x}>{LIBELLE_DECOUPAGE_ANNEES[x]}</button>)}
-      </div>
-    </div>
+    <LigneDesAnnees annees={annees} decoupage={choix.decoupage} annee={annee} choisies={sel} onAnnee={onAnnee} onDecoupage={onDecoupage} />
     {enPeriode && refus && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
 
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`} data-mode-ecran={mode}>
