@@ -17,6 +17,8 @@ export interface PeriodeSuivi extends ChoixPeriode {
   debutDate: string; finDate: string;
   anneeDebut: number; anneeFin: number;
   libelle: string;
+  /** 🔴 LOT LO3 (Arno) — l'année en cours seule, jusqu'à aujourd'hui (« 2026 (à date) ») : sa période précédente est « 2025 à la même date ». */
+  aDate?: boolean;
 }
 
 export const PERIODE_DEFAUT: ChoixPeriode = { debut: 'origine', fin: 'aujourdhui' };
@@ -48,7 +50,9 @@ export function periodeDe(c: ChoixPeriode, origine: number, jour: string): Perio
   const jusquAujourdhui = finDate === jour;
   const droite = jusquAujourdhui ? 'aujourd’hui' : typeof c.fin === 'string' && c.fin !== 'aujourdhui' ? `fin ${COURT[Number(c.fin.slice(5, 7)) - 1]} ${anneeFin}` : String(anneeFin);
   const precision = c.debut === 'origine' || jusquAujourdhui ? ` (${anneeDebut} → ${dateFr(finDate)})` : '';
-  return { ...c, debutDate, finDate, anneeDebut, anneeFin, libelle: `${gauche} → ${droite}${precision}` };
+  // 🔴 LOT LO3 (Arno) — l'année en cours seule (Début = l'année, Fin = cette année ou « Aujourd'hui ») : « 2026 (à date) », jusqu'à aujourd'hui.
+  const aDate = typeof c.debut === 'number' && anneeDebut === enCours && anneeFin === enCours && jusquAujourdhui;
+  return { ...c, debutDate, finDate, anneeDebut, anneeFin, libelle: aDate ? `${anneeDebut} (à date)` : `${gauche} → ${droite}${precision}`, ...(aDate ? { aDate } : {}) };
 }
 
 /** Début > Fin ? */
@@ -115,7 +119,8 @@ export function periodePrecedente(p: PeriodeSuivi, origine: number): { debutDate
   if (Number(debutDate.slice(0, 4)) < origine) return null;
   const finDate = reculer(p.finDate, k);
   const entiere = finDate.slice(5) === '12-31';
-  const libelle = k === 1 && entiere ? debutDate.slice(0, 4)
+  // 🔴 LOT LO3 — l'année en cours à date : face à l'année d'avant « à la même date » (les mêmes dates, un an plus tôt)
+  const libelle = p.aDate === true ? `${debutDate.slice(0, 4)} à la même date` : k === 1 && entiere ? debutDate.slice(0, 4)
     : entiere ? `${debutDate.slice(0, 4)} → ${finDate.slice(0, 4)}` : `${dateFr(debutDate)} → ${dateFr(finDate)}`;
   return { debutDate, finDate, libelle };
 }

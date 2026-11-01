@@ -153,12 +153,13 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(n1('gestion')).toBe('récurrent +0,00 € / −0,00 € par mois');
     });
 
-    it('2026 → aujourd’hui : face au 01/01 → 22/10/2025 (mêmes dates, un an plus tôt), écart en valeur et en %', async () => {
+    it('2026 (à date) : face à « 2025 à la même date » (01/01 → 22/10/2025), écart en valeur et en %', async () => {
       await monter('annee');
       await choisir('debut', '2026');
-      expect(mot('ca-annee')).toBe('CA HT (2026 → aujourd’hui (2026 → 22/10/2026))');
+      // 🔴 LOT LO3 — « 2026 (à date) » ; la période précédente : « 2025 à la même date » (les mêmes dates, un an plus tôt)
+      expect(mot('ca-annee')).toBe('CA HT (2026 (à date))');
       expect(val('ca-annee')).toBe('94 612,61 €');
-      expect(n1('ca-annee')).toBe('01/01/2025 → 22/10/2025 : 3 000,00 € · +91 612,61 € (+3 053,8 %)');
+      expect(n1('ca-annee')).toBe('2025 à la même date : 3 000,00 € · +91 612,61 € (+3 053,8 %)');
       expect(val('ca-net-annee')).toBe('90 538,16 €');
     });
 
@@ -182,12 +183,13 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
         await act(async () => { (container.querySelector(`[data-filtre="${f}"]`) as HTMLElement).click(); });
         return o;
       };
-      expect(await options('debut')).toEqual(['origine', '2023', '2024', '2025', '2026']);
-      expect(await options('fin')).toEqual(['aujourdhui', '2023', '2024', '2025', '2026']);
+      // 🔴 LOT LO3 — les années de la plus récente à la plus ancienne (l'année en cours « (à date) » en vue, juste sous Origine / Aujourd'hui)
+      expect(await options('debut')).toEqual(['origine', '2026', '2025', '2024', '2023']);
+      expect(await options('fin')).toEqual(['aujourdhui', '2026', '2025', '2024', '2023']);
       await choisir('debut', '2025');
-      expect(await options('fin')).toEqual(['aujourdhui', '2025', '2026']);
+      expect(await options('fin')).toEqual(['aujourdhui', '2026', '2025']);
       await choisir('fin', '2025');
-      expect(await options('debut')).toEqual(['origine', '2023', '2024', '2025']);
+      expect(await options('debut')).toEqual(['origine', '2025', '2024', '2023']);
       expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2025 → 2025');
       expect(new URLSearchParams(window.location.search).toString()).toBe('debut=2025&fin=2025');
     });
@@ -216,12 +218,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       ] };
       await monter('annee');
       await choisir('debut', '2026');
-      expect(gestion()).toEqual({ periode: '2026 → aujourd’hui (2026 → 22/10/2026) :', nouveaux: '+1', sortis: '−1', solde: '0', sens: 'nul' });   // novembre : hors période
+      expect(gestion()).toEqual({ periode: '2026 (à date) :', nouveaux: '+1', sortis: '−1', solde: '0', sens: 'nul' });   // novembre : hors période
       expect(n1('gestion')).toBe('récurrent +66,00 € / −40,00 € par mois');
       await choisir('gestion', 'sans');
       const filtrees = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-') && !a.avecGestion);
       expect(val('ca-annee')).toBe(nbsp(`${filtrees.reduce((t, a) => t + a.honoProprietaireHt + a.honoLocataireHt, 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`));
-      expect(n1('ca-annee')).toMatch(/^01\/01\/2025 → 22\/10\/2025 : /);
+      expect(n1('ca-annee')).toMatch(/^2025 à la même date : /); // 🔴 LOT LO3
     });
   });
 
@@ -2678,5 +2680,43 @@ describe('🔴 LOT LO2 — le Suivi annuel en « Montants HT | TTC » (le sélec
     expect(css).toContain('.sv-champ-unite{display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:4px;min-width:max-content;justify-self:end}');
     expect(css).toContain('@media (max-width:1100px){ .tdb-filtres.sv-filtres-unite{grid-template-columns:repeat(3,minmax(0,1fr))} .sv-champ-unite{grid-column:1/-1;grid-row:1} }');
     expect(css).toContain(".trx-unite[aria-pressed='true']{background:var(--color-svv-ink);color:var(--color-svv-surface)}");
+  });
+});
+
+describe('🔴 LOT LO3 — l’année en cours dans « Début » / « Fin » : « 2026 (à date) », face à « 2025 à la même date »', () => {
+  const options = async (f: string) => {
+    await act(async () => { (container.querySelector(`[data-filtre="${f}"]`) as HTMLElement).click(); });
+    const o = [...container.querySelector(`[data-filtre="${f}"]`)!.closest('.lch')!.querySelectorAll('li[data-option]')].map((li) => [li.getAttribute('data-option'), (li.textContent ?? '').replace('✓', '').trim()]);
+    await act(async () => { (container.querySelector(`[data-filtre="${f}"]`) as HTMLElement).click(); });
+    return o;
+  };
+  const centimes = (t: string) => Math.round(Number(nbsp(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
+  it('Début et Fin proposent 2026 « (à date) », en tête des années ; avec une Fin 2025 (ancien lien), la Fin propose toujours 2026', async () => {
+    await monter('annee');
+    expect((await options('debut')).slice(0, 2)).toEqual([['origine', 'Origine (2025)'], ['2026', '2026 (à date)']]);
+    expect((await options('fin')).slice(0, 2)).toEqual([['aujourdhui', 'Aujourd’hui'], ['2026', '2026 (à date)']]);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', '/?fin=2025');
+    await monter('annee');
+    expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : Origine → 2025 (2025 → 31/12/2025)');
+    expect((await options('fin')).map((x) => x[0])).toContain('2026');
+    expect(new URLSearchParams(window.location.search).get('fin')).toBe('2025'); // l'ancien lien reste tel quel
+  });
+  it('2026 seule = toutes les lignes de 2026 (jusqu’à aujourd’hui) ; Origine → 2026 = Origine → 2025 + 2026, au centime, HT et TTC', async () => {
+    const ca = async (q: string, u: 'ht' | 'ttc') => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', q);
+      await monter('annee');
+      return centimes((container.querySelector('[data-tuile-ca-valeur] .sv-mt-grand')?.textContent ?? '').replace(/ (HT|TTC)$/, ''));
+    };
+    for (const u of ['ht', 'ttc'] as const) {
+      const a2026 = await ca('/?debut=2026&fin=2026', u);
+      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2026 (à date)');
+      const tout = await ca('/?fin=2026', u);
+      const jusqua2025 = await ca('/?fin=2025', u);
+      expect([u, tout]).toEqual([u, jusqua2025 + a2026]);
+    }
+    expect(await ca('/?debut=2026&fin=2026', 'ht')).toBe(9461261); // les 94 612,61 € HT du suivi 2026
   });
 });

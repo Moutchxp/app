@@ -27,7 +27,11 @@ describe('🔴 le choix et son libellé', () => {
   });
   it('des années : du 1er janvier au 31 décembre ; l’année en cours en fin = jusqu’à aujourd’hui', () => {
     expect(periodeDe({ debut: 2023, fin: 2025 }, 2019, JOUR)).toMatchObject({ debutDate: '2023-01-01', finDate: '2025-12-31', libelle: '2023 → 2025' });
-    expect(periodeDe({ debut: 2026, fin: 2026 }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 → aujourd’hui (2026 → 25/10/2026)' });
+    // 🔴 LOT LO3 — l'année en cours seule : « 2026 (à date) », jusqu'à aujourd'hui (Fin « 2026 » ou « Aujourd'hui »)
+    expect(periodeDe({ debut: 2026, fin: 2026 }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (à date)', aDate: true });
+    expect(periodeDe({ debut: 2026, fin: 'aujourdhui' }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (à date)', aDate: true });
+    expect(periodeDe({ debut: 'origine', fin: 2026 }, 2019, JOUR).aDate).toBeUndefined();
+    expect(periodeDe({ debut: 2026, fin: '2026-03' }, 2019, JOUR)).toMatchObject({ libelle: '2026 → fin mars 2026' });
     expect(choixDeLAdresse('?debut=2023&fin=2025', 2019, JOUR).choix).toEqual({ debut: 2023, fin: 2025 });
     expect(parametresDe({ debut: 2023, fin: 2025 })).toEqual({ debut: '2023', fin: '2025' });
   });
@@ -54,7 +58,7 @@ describe('🔴 le choix et son libellé', () => {
 describe('🔴 2a — la période précédente : mêmes dates, autant d’années plus tôt', () => {
   const prec = (debut: number | 'origine', fin: number | 'aujourdhui') => periodePrecedente(periodeDe({ debut, fin }, 2019, JOUR), 2019);
   it('2026 → aujourd’hui : 01/01 → 25/10/2025 (même nombre de jours) ; 2024 → 2025 : 2022 → 2023 ; 2025 → 2025 : 2024', () => {
-    expect(prec(2026, 'aujourdhui')).toEqual({ debutDate: '2025-01-01', finDate: '2025-10-25', libelle: '01/01/2025 → 25/10/2025' });
+    expect(prec(2026, 'aujourdhui')).toEqual({ debutDate: '2025-01-01', finDate: '2025-10-25', libelle: '2025 à la même date' }); // 🔴 LOT LO3
     expect(prec(2024, 2025)).toEqual({ debutDate: '2022-01-01', finDate: '2023-12-31', libelle: '2022 → 2023' });
     expect(prec(2025, 2025)).toEqual({ debutDate: '2024-01-01', finDate: '2024-12-31', libelle: '2024' });
     expect(prec(2025, 'aujourdhui')).toEqual({ debutDate: '2023-01-01', finDate: '2024-10-25', libelle: '01/01/2023 → 25/10/2024' });

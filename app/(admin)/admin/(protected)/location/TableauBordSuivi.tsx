@@ -361,13 +361,15 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           const finAnnee = P.anneeFin;
           const finMois = typeof choix.fin === 'string' && choix.fin !== 'aujourdhui' ? choix.fin : null;
           return <>
+            {/* 🔴 LOT LO3 (Arno) — les années de la plus RÉCENTE à la plus ancienne (comme les autres listes d'années) : la liste s'ouvre sur l'année
+                choisie et l'année en cours reste en vue juste au-dessus (auparavant, la dernière de la liste, sous le bord du menu). */}
             <label className="tdb-champ">Début
-              <ListeChoix options={[{ id: 'origine', libelle: `Origine (${origine})` }, ...annees.filter((a) => a <= finAnnee).map((a) => ({ id: a, libelle: String(a) }))]}
+              <ListeChoix options={[{ id: 'origine', libelle: `Origine (${origine})` }, ...annees.filter((a) => a <= finAnnee).reverse().map((a) => ({ id: a, libelle: a === Number(jour.slice(0, 4)) ? `${a} (à date)` : String(a) }))]}
                 valeur={String(choix.debut)} vide={null} libelle="Début" donnees={{ 'data-filtre': 'debut' }}
                 onChange={(v) => choisirPeriode({ ...choix, debut: v === 'origine' ? 'origine' : Number(v) })} /></label>
             <label className="tdb-champ">Fin
               <ListeChoix options={[{ id: 'aujourdhui', libelle: 'Aujourd’hui' }, ...(finMois === null ? [] : [{ id: finMois, libelle: `Fin ${COURT[Number(finMois.slice(5, 7)) - 1]} ${finMois.slice(0, 4)}` }]),
-                ...annees.filter((a) => a >= P.anneeDebut).map((a) => ({ id: a, libelle: String(a) }))]}
+                ...annees.filter((a) => a >= P.anneeDebut).reverse().map((a) => ({ id: a, libelle: a === Number(jour.slice(0, 4)) ? `${a} (à date)` : String(a) }))]}
                 valeur={String(choix.fin)} vide={null} libelle="Fin" donnees={{ 'data-filtre': 'fin' }}
                 onChange={(v) => choisirPeriode({ ...choix, fin: v === 'aujourdhui' ? 'aujourdhui' : /^\d{4}$/.test(v) ? Number(v) : v })} /></label>
           </>;
