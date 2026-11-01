@@ -24,7 +24,7 @@ import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FenetreCaLocation, FenetreCoutsLocation, FenetreNetLocation, Reperes } from './FenetresLocation';
 import { Montant } from './FenetreCommissions';
 import { useColonnesNegociateurs } from './OngletCompromis';
-import { horsSelecteur, SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
+import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
 
 /**
  * ══ 🔴 LOT LO1 (Arno, 01/11/2026) — « SUIVI CHIFFRE D'AFFAIRES › LOCATION » : L'ACTIVITÉ ÉCONOMIQUE DE LA LOCATION ═══════════════════════════════════
@@ -267,7 +267,7 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
     }, 0);
   };
   return <>
-    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${infobulle ?? libComplet}`} title={infobulle} data-ecran-location-tuiles>
+    <ul className={`tdb-tuiles trx-tuiles-alignees ${CLASSE_TUILES_CHOIX}`} aria-label={`L’essentiel — ${infobulle ?? libComplet}`} title={infobulle} data-ecran-location-tuiles>
       {/* 🔴 LOT LO13 (Arno) — tuiles épurées : titre, explication, montant, montant entre parenthèses ; le reste passe dans la fenêtre de la tuile */}
       <li><button type="button" className="tdb-tuile" data-tuile="location-ca" aria-haspopup="dialog" aria-expanded={fenetre === 'ca'} ref={tuileCa} onClick={() => setFenetre('ca')}>
         <span className="tdb-tuile-mot">CA brut — {lib}{explication(EXPLICATION.ca)}</span>
@@ -280,8 +280,10 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
         <span className="tdb-tuile-n1" data-tuile-n1="location-baux">{nbN1}</span></div></li>
       <li><div role="button" tabIndex={0} className="tdb-tuile" data-tuile="location-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts}
         onClick={ouvrirCouts} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrirCouts(e); } }}>
-        <span className="tdb-tuile-mot">Coûts{hors(avec)} — {lib}{explication(avec ? EXPLICATION.couts : EXPLICATION.coutsSans)}<SelecteurSalaires salaires={avec} onChange={ctxC.onSalaires} /></span>
+        <span className="tdb-tuile-mot">Coûts{hors(avec)} — {lib}{explication(avec ? EXPLICATION.couts : EXPLICATION.coutsSans)}</span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.couts.htC, T.couts.ttcC)}`} data-location-couts>{eur(U.en(T.couts))}</strong>{autre(T.couts)}
+        {/* 🔴 LOT LG6 — le sélecteur sous le montant converti, dans sa rangée propre (les montants restent alignés) */}
+        <ChoixSalairesTuile salaires={avec} onChange={ctxC.onSalaires} />
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="couts">Voir le détail</span></div></li>
       <li><button type="button" className="tdb-tuile" data-tuile="location-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
         <span className="tdb-tuile-mot">CA net{hors(avec)} — {lib}{explication(avec ? EXPLICATION.net : EXPLICATION.netSans)}</span>

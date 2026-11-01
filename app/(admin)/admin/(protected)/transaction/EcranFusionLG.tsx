@@ -16,7 +16,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
-import { horsSelecteur, SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
+import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
 import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
 
 /**
@@ -211,14 +211,14 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   const familles = FAMILLES_COUTS.filter((f) => (f.activite === 'location' ? avecL : avecG));
   // 🔴 LOT LG2 — la tuile « Coûts » s'ouvre au clic, à Entrée ou Espace ; son sélecteur « Avec | Sans salaires » n'ouvre rien
   const ouvrirCouts = (e: { target: EventTarget }): void => { if (horsSelecteur(e)) setFenetre('couts'); };
-  const choixSalaires = <SelecteurSalaires salaires={salaires} onChange={onSalaires} />;
+  const choixSalaires = <ChoixSalairesTuile salaires={salaires} onChange={onSalaires} />;
   // 🔴 LOT LG5 — ce qui a quitté la tuile « CA brut » (montré dans sa fenêtre) : la part de chaque activité ; le CA brut mois par mois (ou année par année)
   const partsCa = deux ? <>dont location {eur(U.en(T.location.ca))} · gestion {eur(U.en(T.gestion.ca))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`;
   const parAnnee = new Set(ms.map((m) => m.annee)).size > 1;
   const detailCa = parAnnee ? [...new Set(ms.map((m) => m.annee))].map((a) => ({ cle: String(a), mot: String(a), ca: tf(lignes, gestion, ms.filter((m) => m.annee === a), activite, salaires).ca }))
     : ms.map((m) => ({ cle: `${m.annee}-${m.mois}`, mot: moisLib(m), ca: tf(lignes, gestion, [m], activite, salaires).ca }));
   return <>
-    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${infobulle ?? lib}`} title={infobulle} data-ecran-fusion-tuiles>
+    <ul className={`tdb-tuiles trx-tuiles-alignees ${CLASSE_TUILES_CHOIX}`} aria-label={`L’essentiel — ${infobulle ?? lib}`} title={infobulle} data-ecran-fusion-tuiles>
       {/* 🔴 LOT LG5 (Arno) — tuiles épurées : titre, explication, montant, montant entre parenthèses ; le reste passe dans la fenêtre de la tuile */}
       <li><button type="button" className="tdb-tuile" data-tuile="fusion-ca" aria-haspopup="dialog" aria-expanded={fenetre === 'ca'} ref={tuileCa} onClick={() => setFenetre('ca')}>
         <span className="tdb-tuile-mot">CA brut — {lib}{explication(EXPLICATION.ca)}</span>
@@ -231,8 +231,10 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
         <span className="tdb-tuile-n1" data-tuile-n1="fusion-volume">{toutes !== null ? toutes : sansN1 ? `${anneesN1.join(', ')} : aucune activité` : `${volume(T1) || '—'} ${enN1}`}</span></div></li>
       <li><div role="button" tabIndex={0} className="tdb-tuile" data-tuile="fusion-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts}
         onClick={ouvrirCouts} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrirCouts(e); } }}>
-        <span className="tdb-tuile-mot">Coûts{hors(salaires)} — {lib}{explication(!salaires ? EXPLICATION.coutsSans : EXPLICATION.couts)}{choixSalaires}</span>
+        <span className="tdb-tuile-mot">Coûts{hors(salaires)} — {lib}{explication(!salaires ? EXPLICATION.coutsSans : EXPLICATION.couts)}</span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.coutsTotal.htC, T.coutsTotal.ttcC)}`} data-fusion-couts>{eur(U.en(T.coutsTotal))}</strong>{autre(T.coutsTotal)}
+        {/* 🔴 LOT LG6 — le sélecteur sous le montant converti, dans sa rangée propre (les montants restent alignés) */}
+        {choixSalaires}
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-fusion="couts">Voir le détail</span></div></li>
       <li><button type="button" className="tdb-tuile" data-tuile="fusion-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
         <span className="tdb-tuile-mot">CA net{hors(salaires)} — {lib}{explication(salaires ? EXPLICATION.net : EXPLICATION.netSans)}</span>

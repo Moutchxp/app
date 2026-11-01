@@ -43,7 +43,7 @@ function NonDeduits({ T }: { T: NonDeduitsMontants }) {
   </>;
 }
 import { FormulaireDossier, type References } from './FormulaireDossier';
-import { SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
+import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, useChoixSalaires } from './ChoixSalaires';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION » (Arno, 27/10/2026) — LES ÉCRANS ═══════════════════════════════════════════════════════════════════
@@ -1987,10 +1987,12 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
     // 🔴 LOT LO12 — « Sans salaires » : la tuile des salaires en gris, « non comptés » ; le CA net « hors salaires »
     const gris = m === 'salaries' && !salaires;
     return (
-      <li><div className={`tdb-tuile${gris ? ' trx-tuile-grise' : ''}`} data-tuile={cle}><span className="tdb-tuile-mot">{m === 'salaries' ? `${mot}${gris ? ' — non comptés' : ''}` : `${mot}${m === 'net' && !salaires ? ' hors salaires' : ''} ${MOT}`} — {lib}{sous}</span>
+      <li><div className={`tdb-tuile${gris ? ' trx-tuile-grise' : ''}`} data-tuile={cle}><span className="tdb-tuile-mot">{m === 'salaries' ? `${mot}${gris ? ' — non comptés' : ''}` : `${mot}${m === 'net' && !salaires ? ' hors salaires' : ''} ${MOT}`} — {lib}</span>
         <strong className={`tdb-tuile-valeur ${gris ? 'loc-muet' : couleur}`} data-tuile-valeur={cle}>{eur(c / 100)}</strong>
         {/* une seule ligne entre parenthèses (la rangée commune des tuiles alignées) : l'autre unité, et les lots pour le CA net */}
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({m === 'salaries' ? 'sans TVA' : `${eur(centimesGestion(T, m, AUTRE) / 100)}${ESPACE}${MOT_UNITE[AUTRE]}`}{lotsEnPlus && <> · <span data-gestion-lots>{lots}</span></>})</small>
+        {/* 🔴 LOT LG6 — le sélecteur sous le montant converti, dans sa rangée propre (les montants restent alignés) */}
+        {sous}
         <span className="tdb-tuile-n1" data-tuile-n1={cle}>{n1(c, c1)}</span></div></li>
     );
   };
@@ -2013,11 +2015,11 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
   const reste = (r: number | null, sal: number | null): number | null => (r === null || salaires ? r : (Math.round(r * 100) + Math.round((sal ?? 0) * 100)) / 100);
   const grisS = salaires ? undefined : 'loc-muet';
   return <>
-    <ul className="tdb-tuiles trx-tuiles-alignees trx-tuiles-gestion" aria-label={`La gestion — ${libTitre ?? lib}`} title={libTitre}>
+    <ul className={`tdb-tuiles trx-tuiles-alignees trx-tuiles-gestion ${CLASSE_TUILES_CHOIX}`} aria-label={`La gestion — ${libTitre ?? lib}`} title={libTitre}>
       {tuile('gestion-honoraires', 'Honoraires de gestion', 'honoraires', 'tdb-signe tdb-signe--positif')}
       {tuile('gestion-adhoc', 'Coût ADHOC', 'adhoc', classeSens('verse', T.adhocC, T.adhocC))}
       {tuile('gestion-monga', 'Coût MONGA', 'monga', classeSens('verse', T.mongaC, T.mongaC))}
-      {tuile('gestion-salaries', LIBELLE_SALAIRES, 'salaries', classeSens('verse', T.salariesC, T.salariesC), false, <SelecteurSalaires salaires={salaires} onChange={onSalaires} />)}
+      {tuile('gestion-salaries', LIBELLE_SALAIRES, 'salaries', classeSens('verse', T.salariesC, T.salariesC), false, <ChoixSalairesTuile salaires={salaires} onChange={onSalaires} />)}
       {tuile('gestion-net', 'CA net', 'net', `tdb-signe tdb-signe--${sensDe(centimesGestion(T, 'net', u))}`, true)}
     </ul>
     {echelleAnnees !== null && echelle === 'annees'

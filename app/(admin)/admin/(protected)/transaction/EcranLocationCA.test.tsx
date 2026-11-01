@@ -522,7 +522,7 @@ describe('🔴 LOT LO12 — Location : avec / sans salaires, Espace, période co
       const netAvec = centimes(texte('[data-location-net]'));
       expect(netAvec).toBe(Math.round(100000 * f) - Math.round(9000 * f) - 40000);
       // le sélecteur sous le titre de la tuile « Coûts » : un clic ne l'ouvre pas, l'adresse et la mémoire suivent
-      expect(container.querySelector('[data-tuile="location-couts"] .tdb-tuile-mot [data-salaires-choix="avec"]')).not.toBeNull();
+      expect(container.querySelector('[data-tuile="location-couts"] > [data-tuile-choix] [data-salaires-choix="avec"]')).not.toBeNull();
       await cliquer('[data-tuile="location-couts"] [data-salaires="sans"]');
       expect([document.querySelector('[data-fenetre-couts-location]'), new URLSearchParams(window.location.search).get('salaires'), window.localStorage.getItem('trx-fusion-salaires')]).toEqual([null, 'sans', 'sans']);
       // Sans : aucun salaire compté, primes et variable déduits
@@ -597,7 +597,7 @@ describe('🔴 LOT LO13 — tuiles épurées, fenêtre « CA brut »', () => {
       expect(lignesTuile()).toEqual([
         ['location-ca', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
         ['location-baux', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
-        ['location-couts', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
+        ['location-couts', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'trx-tuile-choix', 'tdb-tuile-n1']], // 🔴 LOT LG6 — le sélecteur sous le montant
         ['location-net', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
       ]);
       expect([...container.querySelectorAll('[data-voir-detail-location]')].map((x) => x.getAttribute('data-voir-detail-location'))).toEqual(['ca', 'couts', 'net']);

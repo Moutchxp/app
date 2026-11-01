@@ -262,7 +262,7 @@ describe('🔴 LOT LG5 — FUSION : tuiles épurées, fenêtre « CA brut »', (
     it(`titre, montant, parenthèse (Volume : N−1) et « Voir le détail » seulement — ${q}`, async () => {
       await ouvrir(q);
       const garde = ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1'];
-      expect(tuiles()).toEqual([['fusion-ca', garde], ['fusion-volume', garde], ['fusion-couts', garde], ['fusion-net', garde]]);
+      expect(tuiles()).toEqual([['fusion-ca', garde], ['fusion-volume', garde], ['fusion-couts', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'trx-tuile-choix', 'tdb-tuile-n1']], ['fusion-net', garde]]); // 🔴 LOT LG6
       for (const x of ['[data-fusion-ca-parts]', '[data-fusion-cumul]', '[data-fusion-volume-detail]', '[data-fusion-couts-familles]', '[data-fusion-inclus]', '[data-fusion-net-parts]',
         '[data-tuile-n1="fusion-ca"]', '[data-tuile-n1="fusion-couts"]', '[data-tuile-n1="fusion-net"]']) expect([x, document.querySelector(x)]).toEqual([x, null]);
       expect([...document.querySelectorAll('[data-voir-detail-fusion]')].map((x) => x.getAttribute('data-voir-detail-fusion'))).toEqual(['ca', 'couts', 'net']);
@@ -302,4 +302,36 @@ describe('🔴 LOT LG5 — FUSION : tuiles épurées, fenêtre « CA brut »', (
     expect(centimes(parts[1]) + centimes(parts[2])).toBe(net);
     expect(texte('[data-fenetre-net-fusion] [data-tuile-n1="fusion-net"]')).toContain('en 2025');
   });
+});
+
+/**
+ * 🔴 LOT LG6 — les trois tuiles qui portent « Avec salaires | Sans salaires » (Location « Coûts », Gestion « Salaires chargés », FUSION « Coûts ») :
+ * titre, explication, montant, montant converti, PUIS le sélecteur (sa rangée propre de la grille alignée : rangée 4), puis N−1 et « Voir le détail » ;
+ * un clic dans le sélecteur n'ouvre rien. (L'alignement au pixel est mesuré dans Chrome : rapport du lot.)
+ */
+describe('🔴 LOT LG6 — le sélecteur sous le montant, dans sa rangée propre', () => {
+  const ecrans = [
+    { nom: 'Location', tuile: 'location-couts', ecran: () => createElement(EcranLocationCA) },
+    { nom: 'Gestion', tuile: 'gestion-salaries', ecran: () => createElement(EcranGestion) },
+    { nom: 'FUSION', tuile: 'fusion-couts', ecran: () => createElement(EcranFusionLocationGestion) },
+  ];
+  afterEach(() => { window.localStorage.removeItem('trx-fusion-salaires'); window.localStorage.setItem('trx-affichage-montants', 'ht'); });
+  for (const e of ecrans) for (const q of ['/?vue=mois&annee=2026&mois=9&vue-mois=mois', '/?vue=annee&annee=2026']) for (const sal of ['avec', 'sans']) for (const u of ['ht', 'ttc'] as const) {
+    it(`${e.nom} — ${q} — ${sal} salaires — ${u.toUpperCase()}`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir(`${q}&salaires=${sal}`, e.ecran);
+      const t = document.querySelector(`[data-tuile="${e.tuile}"]`)!;
+      const ordre = [...t.children].map((x) => x.className.split(' ')[0]);
+      expect(ordre.slice(0, 4)).toEqual(['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'trx-tuile-choix']);
+      expect([t.querySelector('.tdb-tuile-mot [data-salaires-choix]'), t.querySelector(':scope > [data-tuile-choix] [data-salaires-choix]')!.getAttribute('data-salaires-choix')]).toEqual([null, sal]);
+      expect(t.closest('ul')!.classList.contains('trx-tuiles-choix')).toBe(true);
+      // la grille : le sélecteur dans la rangée 4 de toutes les tuiles de la liste ; N−1 en 5 ; « Voir le détail » en 7
+      const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+      for (const r of ['ul.trx-tuiles-alignees.trx-tuiles-choix>li{grid-row:span 7}', 'ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.trx-tuile-choix{grid-row:4;',
+        'ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.tdb-tuile-n1{grid-row:5}', 'ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir{grid-row:7}']) expect(css).toContain(r);
+      // un clic dans le sélecteur : le choix change, aucune fenêtre ne s'ouvre
+      await cliquer(`[data-tuile="${e.tuile}"] [data-salaires="${sal === 'avec' ? 'sans' : 'avec'}"]`);
+      expect([document.querySelector('[role="dialog"]'), new URLSearchParams(window.location.search).get('salaires')]).toEqual([null, sal === 'avec' ? 'sans' : 'avec']);
+    });
+  }
 });

@@ -591,7 +591,7 @@ describe('🔴 LOT LO12 — « Gestion » : avec / sans salaires', () => {
         await act(async () => { root.render(createElement(EcranGestion)); }); await calmer();
         const avec = { net: valeur('gestion-net'), reste: centimesDe(texte('[data-gestion-reste="2025-3"]')), total: centimesDe(texte('[data-total-gestion-reste]')) };
         expect([u, avec.net, avec.reste, avec.total, new URLSearchParams(window.location.search).get('salaires')]).toEqual([u, u === 'ht' ? 1104672 : 1379385, avec.net, avec.net, 'avec']);
-        expect(container.querySelector('[data-tuile="gestion-salaries"] .tdb-tuile-mot [data-salaires-choix="avec"]')).not.toBeNull();
+        expect(container.querySelector('[data-tuile="gestion-salaries"] > [data-tuile-choix] [data-salaires-choix="avec"]')).not.toBeNull();
         await cliquer('[data-tuile="gestion-salaries"] [data-salaires="sans"]');
         const sans = { net: valeur('gestion-net'), reste: centimesDe(texte('[data-gestion-reste="2025-3"]')), total: centimesDe(texte('[data-total-gestion-reste]')) };
         expect([sans.net - avec.net, sans.reste - avec.reste, sans.total - avec.total]).toEqual([268891, 268891, 268891]);
