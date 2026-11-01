@@ -1,5 +1,5 @@
 import { depuisTtc, ventilationVente, type MontantC } from './partAgence';
-import type { GestionMois, Retrocession, Vente } from './modele';
+import type { GestionMois, Retrocession, Societe, Vente } from './modele';
 import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { caNetVente, lignesCarteAffaire } from './carteAffaireLignes';
 import type { StatutDuLibelle } from './statutLigne';
@@ -38,16 +38,18 @@ const somme = (xs: readonly MontantC[]): MontantC => xs.reduce(plus, RIEN);
 const sansTva = (c: number): MontantC => ({ htC: c, ttcC: c });
 
 /** Les coûts de ventes (la page FUSION, vue « les deux sociétés ») : sur les lignes de chaque carte, aucune copie de calcul. PUR. */
-export function coutsVente(ventes: readonly Vente[], o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): CoutsVente {
+export function coutsVente(ventes: readonly Vente[], o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {},
+  /** 🔴 LOT CG9 — la vue d'une société (ses lignes de carte : la page CRITERIMMO ou MACJ) ; null : la page FUSION, comme avant. */
+  vue: Societe | null = null): CoutsVente {
   let r: CoutsVente = { ca: RIEN, commissions: RIEN, apporteurs: RIEN, exterieures: RIEN, net: RIEN, nb: 0 };
   for (const v of ventes) {
-    const l = lignesCarteAffaire(v, null, o);
-    const vent = ventilationVente(v, null);
+    const l = lignesCarteAffaire(v, vue, o);
+    const vent = ventilationVente(v, vue);
     r = { ca: plus(r.ca, (vent.entree ?? vent.sortie)?.commissionVente ?? depuisTtc(v.honorairesTtc)),
       commissions: plus(r.commissions, somme(l.lignes.map((x) => x.com))),
       apporteurs: plus(plus(r.apporteurs, l.apporteur ?? RIEN), l.retro ?? RIEN),
       exterieures: plus(r.exterieures, somme(l.lignes.flatMap((x) => x.exterieures.map((y) => y.m)))),
-      net: plus(r.net, caNetVente(v, null, o)), nb: r.nb + 1 };
+      net: plus(r.net, caNetVente(v, vue, o)), nb: r.nb + 1 };
   }
   return r;
 }
