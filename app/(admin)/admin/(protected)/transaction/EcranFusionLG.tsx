@@ -58,7 +58,7 @@ export function EcranFusionLocationGestion() {
   const { lu: luG } = useTransaction<DonneesGestion>('vue=global');
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
   // 🔴 comme le lot LO7 : sans vue du mois dans l'adresse, « Année » de l'année en cours
-  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour, { anneeParDefaut: true });
+  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour);
   const [activite, setActivite] = useState<ActiviteFusion>(() => { const x = parametre('activite'); return estActiviteFusion(x) ? x : 'deux'; });
   // 🔴 LOT LG2 — « Avec salaires | Sans salaires » : l'adresse (&salaires=avec|sans), sinon le choix retenu dans le navigateur, sinon « Avec »
   const [salaires, setSalaires] = useChoixSalaires(); // 🔴 LOT LO12 — le choix partagé (Location, Gestion, FUSION)

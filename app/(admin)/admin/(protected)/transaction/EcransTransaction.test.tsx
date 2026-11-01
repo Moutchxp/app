@@ -254,6 +254,34 @@ describe('🔴 LOT L — l’arborescence', () => {
     await act(async () => { (container.querySelector('[data-vue="mois"]') as HTMLElement).click(); });
     expect(new URLSearchParams(window.location.search).get('vue')).toBe('mois');
   });
+  it('Arno (01/11/2026) — CRITERIMMO, MACJ, FUSION : à l’arrivée, « Le mois » est sur « Année » ; « Mois » choisi reste en changeant de mois et de mode', async () => {
+    const choix = () => container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode');
+    const vueMois = () => new URLSearchParams(window.location.search).get('vue-mois');
+    try {
+      for (const societe of ['criterimmo', 'macj', 'tous'] as const) {
+        act(() => { root.unmount(); }); root = createRoot(container);
+        // l'adresse d'arrivée des tuiles, du fil d'Ariane et de « ← Retour » : sans paramètre
+        window.history.replaceState(null, '', '/');
+        await act(async () => { root.render(createElement(EcranSociete, { societe })); });
+        await calmer();
+        await act(async () => { (container.querySelector('[data-vue="mois"]') as HTMLElement).click(); }); await calmer();
+        expect([societe, choix(), container.querySelector('[data-decouper="annee"]')!.getAttribute('aria-pressed'), vueMois()]).toEqual([societe, 'annee', 'true', 'annee']);
+        // les trois boutons restent là
+        expect([...container.querySelectorAll('[data-choix-periode] button')].map((x) => x.textContent)).toEqual(['Mois', 'Période', 'Année']);
+        // le choix de la visite reste
+        await act(async () => { (container.querySelector('[data-decouper="mois"]') as HTMLElement).click(); }); await calmer();
+        await act(async () => { (container.querySelector('[data-onglet-mois="3"]') as HTMLElement).click(); }); await calmer();
+        await act(async () => { (container.querySelector('[data-mode-mois="compromis"]') as HTMLElement).click(); }); await calmer();
+        expect([societe, choix(), vueMois(), new URLSearchParams(window.location.search).get('mois')]).toEqual([societe, 'mois', 'mois', '3']);
+      }
+      // un lien qui précise « Mois » le garde
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&vue-mois=mois');
+      await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); });
+      await calmer();
+      expect([choix(), vueMois()]).toEqual(['mois', 'mois']);
+    } finally { window.localStorage.removeItem('trx-mois-mode'); } // « Compromis » cliqué est retenu par le navigateur : les épreuves suivantes ne doivent pas en hériter
+  });
 });
 
 describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {

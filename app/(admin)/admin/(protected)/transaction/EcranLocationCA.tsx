@@ -76,7 +76,7 @@ export function EcranLocationCA() {
   const { lu, relire } = useTransaction<DonneesLocationCa>('vue=location');
   const [saisie, setSaisie] = useState<MoisChoisi | null>(null);
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
-  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour, { anneeParDefaut: true }); // 🔴 LOT LO7 — sans vue du mois dans l'adresse : « Année »
+  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour); // 🔴 LOT LO7 — sans vue du mois dans l'adresse : « Année »
   const [compter, setCompter] = useState<CompterLocation>(compterInitial);
   const [negociateurs, setNegociateurs] = useState<string[]>(() => parametres('negociateur'));
   const toutes = lu.etat === 'ok' ? lu.data.lignes : [];
