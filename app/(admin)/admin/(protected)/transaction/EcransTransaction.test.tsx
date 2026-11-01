@@ -2183,7 +2183,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const { CSS_TRANSACTION } = await import('./commun');
     const css = CSS_TRANSACTION.replace(/\s+/g, ' ');
     for (const r of ['.trx-tuiles-alignees>li{display:grid;grid-row:span 5;grid-template-rows:subgrid;', '.trx-tuiles-alignees>li>.tdb-tuile{grid-row:1 / -1;display:grid;grid-template-rows:subgrid;',
-      '.tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;', '.tdb-tuile>.tdb-tuile-valeur{grid-row:2}', '.tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}', '.tdb-tuile>.trx-tuile-autre{grid-row:3;',
+      '.tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;', '.tdb-tuile>.tdb-tuile-valeur{grid-row:2;', '.tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}', '.tdb-tuile>.trx-tuile-autre{grid-row:3;',
       '.tdb-tuile>.tdb-tuile-n1{grid-row:4;', '.tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;']) expect([r, css.includes(r)]).toEqual([r, true]);
     // chaque enfant d'une tuile est rangé (titre, chiffre, montant entre parenthèses, ligne du bas) : aucun ne tombe hors de sa rangée
     const ranges = ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-tuile-autre', 'trx-tuile-montants', 'tdb-tuile-n1'];
@@ -3505,4 +3505,21 @@ describe('🔴 LOT DZ — « Le mois », mode « Compromis » : CA brut (cumul e
       } finally { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; window.localStorage.removeItem('trx-mois-mode'); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
     });
   }
+});
+
+/**
+ * 🔴 LOT UI1 — le composant partagé des tuiles alignées (vente : Le mois, L'année, Compromis ; CA global ; Location ; Gestion ; FUSION) : le
+ * montant converti collé sous le montant (2 px), le montant posé au bas de sa rangée, moins de marge en haut et en bas ; les tailles de texte
+ * ne changent pas. (Hauteurs et alignement au pixel : mesurés dans Chrome, rapport du lot.)
+ */
+describe('🔴 LOT UI1 — tuiles compactes, montant converti collé', () => {
+  it('les règles du composant partagé', async () => {
+    const { CSS_TRANSACTION } = await import('./commun');
+    for (const r of ['.trx-tuiles-alignees>li>.tdb-tuile{padding:12px 20px}', '@media (max-width:640px){ .trx-tuiles-alignees>li>.tdb-tuile{padding:11px 16px} }',
+      '.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-valeur{grid-row:2;align-self:end;line-height:1.1}', '.trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:2px}',
+      '.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;padding-bottom:5px}', '.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1{grid-row:4;padding-top:5px}'])
+      expect(CSS_TRANSACTION).toContain(r);
+    // aucune taille de texte des tuiles alignées n'est touchée
+    expect(CSS_TRANSACTION.split('\n').filter((l) => l.includes('trx-tuiles-alignees') && /font-size/.test(l))).toEqual([]);
+  });
 });

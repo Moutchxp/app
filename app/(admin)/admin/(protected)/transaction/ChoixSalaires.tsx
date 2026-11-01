@@ -44,7 +44,7 @@ export const horsSelecteur = (e: { target: EventTarget }): boolean => !(e.target
 export const CSS_SELECTEUR_SALAIRES = `
 .trx-salaires{display:flex;width:max-content;max-width:100%;margin:6px auto 0;border-radius:8px}
 ul.trx-tuiles-alignees.trx-tuiles-choix>li{grid-row:span 7}
-ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.trx-tuile-choix{grid-row:4;justify-self:stretch;display:flex;justify-content:center;padding-top:8px}
+ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.trx-tuile-choix{grid-row:4;justify-self:stretch;display:flex;justify-content:center;padding-top:5px}
 ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.trx-tuile-choix .trx-salaires{margin:0 auto}
 ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.tdb-tuile-n1{grid-row:5}
 ul.trx-tuiles-alignees.trx-tuiles-choix .tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:6}

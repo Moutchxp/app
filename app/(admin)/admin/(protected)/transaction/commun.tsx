@@ -339,23 +339,29 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-onglet-compromis > .trx-tuiles-alignees{margin-bottom:2px}
 .trx-tuiles-alignees>li{display:grid;grid-row:span 5;grid-template-rows:subgrid;row-gap:0;margin-bottom:14px;min-width:0}
 .trx-tuiles-alignees>li>.tdb-tuile{grid-row:1 / -1;display:grid;grid-template-rows:subgrid;row-gap:0;justify-items:center;align-items:start;height:auto;min-height:0}
+/* 🔴 LOT UI1 (Arno) — tuiles plus compactes : moins de marge intérieure en haut et en bas (les textes et la largeur utile gardent leur taille) */
+.trx-tuiles-alignees>li>.tdb-tuile{padding:12px 20px}
 .trx-tuiles-alignees .tdb-tuile>*{grid-column:1;min-width:0;max-width:100%}
-.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;padding-bottom:8px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;padding-bottom:5px}
 /* 🔴 LOT DU — la ligne d'explication sous le titre d'une tuile (petite, grise, sur une ou deux lignes) : dans la rangée du titre, les montants restent alignés */
 .tdb-tuile-mot>.trx-tuile-explication{display:block;margin-top:2px;font-weight:600;line-height:1.25}
 /* 🔴 LOT LO1 — une ligne du bas d'une tuile qui porte deux phrases (« cumul … » puis N−1) : une phrase par ligne */
 .tdb-tuile-n1 .trx-ligne-bloc{display:block}
+/* 🔴 LOT UI1 — au téléphone, la même logique : marge intérieure réduite */
+@media (max-width:640px){ .trx-tuiles-alignees>li>.tdb-tuile{padding:11px 16px} }
 /* 🔴 LOT LO1 — « Compter » de la Location (4 choix) : au téléphone, les choix passent à la ligne au lieu de déborder ; la ligne « dont … » de la tuile Baux aussi */
 @media (max-width:760px){ .trx-modes[data-filtre="compter"]{flex-wrap:wrap} .trx-modes[data-filtre="compter"] .trx-unite{flex:1 1 auto} }
 [data-ecran-location-tuiles] .trx-tuile-autre{white-space:normal;overflow-wrap:anywhere}
-.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-valeur{grid-row:2}
+/* 🔴 LOT UI1 — le montant principal posé au BAS de sa rangée : le montant converti est collé dessous (2 px), un seul bloc ; d'une tuile à l'autre, les
+   montants (leur dernière ligne) et les montants convertis restent sur la même ligne */
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-valeur{grid-row:2;align-self:end;line-height:1.1}
 .trx-tuiles-alignees .tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}
-.trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:4px}
-.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1{grid-row:4;padding-top:8px}
-.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;padding-top:4px}
+.trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:2px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1{grid-row:4;padding-top:5px}
+.trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;padding-top:3px}
 /* 🔴 LOT LO6 — Location : « Voir le détail » des tuiles 3 et 4, une sixième ligne commune à la rangée (sous leurs deux lignes du bas) */
 .trx-tuiles-alignees[data-ecran-location-tuiles]>li,.trx-tuiles-alignees[data-ecran-fusion-tuiles]>li{grid-row:span 6}
-.trx-tuiles-alignees[data-ecran-location-tuiles] .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir,.trx-tuiles-alignees[data-ecran-fusion-tuiles] .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir{grid-row:6;padding-top:6px}
+.trx-tuiles-alignees[data-ecran-location-tuiles] .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir,.trx-tuiles-alignees[data-ecran-fusion-tuiles] .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir{grid-row:6;padding-top:4px}
 [data-ecran-fusion-tuiles] .trx-tuile-autre{white-space:normal;overflow-wrap:anywhere}
 /* LOT CW — la définition du CA net, en petit, sous le graphique. */
 .trx-note-ca-net{margin:6px 0 0;font-size:.8rem}
