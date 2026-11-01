@@ -5,13 +5,13 @@ import { libellesDePaye, lireGestion, lireNotesDoubles, lireRetrocessions, lireS
 import { resolveurDe } from './statutLigne';
 import { celluleGlobalAnnees } from './globalUnite';
 import { coutsGlobaux } from './coutsGlobal';
-import { atomesDuPoint, atomesHorsMois, FILTRES_GRAPHE_DEFAUT as D, seriesDuPoint, type FiltresGraphe } from './grapheGlobal';
+import { atomesDesMois, atomesDuPoint, FILTRES_GRAPHE_DEFAUT as D, seriesDuPoint, type FiltresGraphe } from './grapheGlobal';
 
 /**
  * 🔴 LOT CG11 (Arno, 01/11/2026) — LE CONTRÔLE PERMANENT SUR LA BASE DE RECETTE, EN LECTURE SEULE (les lectures de la page CA global : SELECT
  * seulement). Pour chaque année de 2019 à 2026, chaque structure seule et les deux, chaque mesure (CA, coûts, résultat), HT et TTC, avec et sans
  * salaires, Location & Gestion séparées et réunies, et chaque comparaison (total, activités, structures) : la fin d'année du graphique (les 12 mois
- * + « Mois à confirmer ») = le total de l'année = les tuiles / le Bilan (hors ventes à attribuer, lot CG10), au centime ; et la somme des séries =
+ * + « Mois à confirmer » ; lot CG12 : l'écart d'arrondi reporté sur le dernier mois affiché, sans point « arrondi ») = le total de l'année = les tuiles / le Bilan (hors ventes à attribuer, lot CG10), au centime ; et la somme des séries =
  * le total. Les écarts sont listés ; aucun n'est attendu.
  * Se lance seul : npx vitest run --config vitest.integration.config.ts app/lib/transaction/grapheGlobal.itest.ts
  */
@@ -27,8 +27,13 @@ describe('🔴 LOT CG11 — le graphique du CA global : fin d’année = tuiles 
     const c = (x: number): number => Math.round(x * 100);
     const ecarts: string[] = []; let n = 0;
     for (let a = 2019; a <= 2026; a++) for (const sal of [true, false]) {
-      const mois = Array.from({ length: 12 }, (_, i) => atomesDuPoint(eG, eC, a, i + 1, sal)); const an = atomesDuPoint(eG, eC, a, null, sal);
-      const hors = atomesHorsMois(an, mois);
+      // 🔴 LOT CG12 — les points du graphique : les 12 mois (l'écart d'arrondi reporté sur le dernier mois affiché), puis « Mois à confirmer »
+      const ajd = new Date().toISOString(); const enCours = Number(ajd.slice(0, 4));
+      const dernier = a < enCours ? 12 : a > enCours ? 0 : Number(ajd.slice(5, 7));
+      const { mois, aConfirmer: hors } = atomesDesMois(eG, eC, a, sal, dernier); const an = atomesDuPoint(eG, eC, a, null, sal);
+      // sans vente signée sans mois, « Mois à confirmer » est vide (plus de point « arrondi » : l'écart de centime est dans le dernier mois)
+      const sansMois = ventes.some((v) => v.statut === 'vendue' && v.annee === a && v.mois === null);
+      if (!sansMois && hors.some((x) => x.m.htC !== 0 || x.m.ttcC !== 0)) ecarts.push(`${a} : « Mois à confirmer » non vide sans vente sans mois`);
       const cel = { htC: celluleGlobalAnnees(eG, [a], 'ht'), ttcC: celluleGlobalAnnees(eG, [a], 'ttc') };
       const couts = coutsGlobaux(eC, a, null, sal).total;
       for (const structures of [['criterimmo'], ['macj'], ['criterimmo', 'macj']] as const) for (const mesure of ['ca', 'couts', 'net'] as const)

@@ -61,14 +61,11 @@ describe('🔴 LOT CG9 — grapheGlobal', () => {
 });
 
 describe('🔴 LOT CG11 — « Mois à confirmer » : l’année − la somme de ses mois', () => {
-  it('par atome (structure, activité, famille) ; une vente sans mois ; les ventes doubles non retenues ne comptent pas', async () => {
-    const { atomesHorsMois, aDesVentesSansMois } = await import('./grapheGlobal');
+  it('par atome (structure, activité, famille)', async () => {
+    const { atomesHorsMois } = await import('./grapheGlobal');
     const a = (c: number, famille: AtomeGraphe['famille'] = null): AtomeGraphe => ({ structure: 'criterimmo', activite: 'vente', famille, m: m(c) });
     const r = atomesHorsMois([a(1500), a(300, 'commissions')], [[a(1000), a(200, 'commissions')], [a(250)]]);
     expect(r.map((x) => [x.famille, x.m.htC])).toEqual([[null, 250], ['commissions', 100]]);
     expect(seriesDuPoint(r, { ...D, mesure: 'net' }).total.htC).toBe(150);
-    expect(aDesVentesSansMois([{ statut: 'vendue', annee: 2024, mois: null }], 2024)).toBe(true);
-    expect(aDesVentesSansMois([{ statut: 'vendue', annee: 2024, mois: 3 }, { statut: 'compromis', annee: 2024, mois: null }], 2024)).toBe(false);
-    expect(aDesVentesSansMois([{ statut: 'vendue', annee: 2024, mois: null, double: { cle: 'd', attribution: 'ecartee' } as never }], 2024)).toBe(false);
   });
 });

@@ -538,7 +538,8 @@ describe('🔴 LOT GE4 — « Gestion » : les onglets du graphique en grille 3 
     expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('CA HT');
     await cliquer('[data-mesure-bouton="salaries"]');
     expect([onglets().filter((x) => x.getAttribute('aria-pressed') === 'true').map((x) => x.textContent), new URLSearchParams(window.location.search).get('mesure')]).toEqual([['Salaires'], 'salaries']);
-    expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('Salaires chargés'); // 🔴 LOT GE5 : l'onglet garde « Salaires »
+    // 🔴 LOT CG12 — aucun salaire saisi (ni N−1) : le message à la place du graphique ; l'onglet garde « Salaires » (lot GE5)
+    expect(texte('[data-bloc="histogramme-mois"] [data-aucune-donnee]')).toBe('Aucune donnée pour ces filtres');
     // les tuiles et le tableau gardent leurs libellés
     expect([texte('[data-tuile="gestion-honoraires"] .tdb-tuile-mot'), titreSansChoix('[data-tuile="gestion-salaries"] .tdb-tuile-mot'), [...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent)[2]])
       .toEqual(['Honoraires de gestion HT — janvier 2025', 'Salaires chargés — janvier 2025', 'Honoraires']); // 🔴 LOT GE5 : sans HT ni TTC ; 🔴 LOT LO12 : le sélecteur sous le titre
@@ -1132,7 +1133,7 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
     expect(graphe().querySelector('[data-courbe]')).not.toBeNull();
     expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (3 actifs)');
     await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="structures"]');
-    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['criterimmo', 'macj']); // 🔴 LOT CG10 — plus de « Ventes à attribuer » dans le graphique
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['criterimmo']); // 🔴 LOT CG10 — plus de « Ventes à attribuer » ; 🔴 LOT CG12 — MACJ (aucune location ni gestion : tout à 0) ni tracée ni dans la légende
     await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
     expect([...graphe().querySelectorAll('[data-point-global]')].map((x) => x.getAttribute('data-point-global'))).toEqual(['2024', '2025']);
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
@@ -1216,7 +1217,7 @@ describe('🔴 LOT CG11 — le graphique : « Mois à confirmer », fin d’ann�
         // Cumul : au repos, la fin d'année (mois à confirmer compris) = la tuile
         await cliquer('[data-filtre-graphe="Période"] [data-choix-graphe="cumul"]');
         expect(cents(graphe().querySelector('[data-point-cumul="13"]'))).toBe(tuile);
-        expect(texte('[data-bloc="global-graphe"] .tdb-bulle-titre')).toBe('Cumul 2024 — fin d’année (mois à confirmer compris)');
+        expect(texte('[data-bloc="global-graphe"] .tdb-bulle-titre')).toBe(`Cumul 2024 — fin d’année (mois à confirmer compris) (${u.toUpperCase()})`); // 🔴 LOT CG12 — l'unité
         // plusieurs séries, en cumul : la fin d'année de chaque structure, et le total
         await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="structures"]');
         const fin = [...graphe().querySelectorAll('[data-point-global="13"] [data-point-serie]')].reduce((t, x) => t + cents(x), 0);
@@ -1245,6 +1246,67 @@ describe('🔴 LOT CG11 — le graphique : « Mois à confirmer », fin d’ann�
       const v = (c: string) => lignes().find((x) => x.cle === c)!.v; return v(b) - v(a) || a.localeCompare(b, 'fr');
     }));
     expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['vente', 'location', 'gestion']);
+  });
+});
+
+/**
+ * 🔴 LOT CG12 (Arno) — présentation des graphiques du Suivi CA : une série toute à 0 ni tracée ni dans la légende ; l'encadré sans ligne à 0 (les
+ * négatives restent ; Total et N−1 toujours) ; « Aucune donnée pour ces filtres » ; « Réinitialiser » sur la ligne « Affichage » ; +15 % de hauteur ;
+ * l'unité dans le titre de l'encadré.
+ */
+describe('🔴 LOT CG12 — graphiques : zéros masqués, réinitialiser, hauteur, unité', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const val = (x: Element) => Number(x.getAttribute('data-valeur'));
+  it('Familles de coûts : la légende et les barres sans famille toute à 0 ; l’encadré sans ligne à 0 ; Total en bas ; le titre avec l’unité', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.history.replaceState(null, '', '/?annee=2025&g-mesure=couts&g-comparer=familles');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    const legende = [...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie')!);
+    expect(legende.length).toBeGreaterThan(0);
+    expect(legende.length).toBeLessThan(10); // des familles à 0 toute l'année : retirées
+    for (const c of legende) expect([c, [...graphe().querySelectorAll(`[data-barre-serie="${c}"]`)].some((x) => val(x) !== 0)]).toEqual([c, true]);
+    expect(graphe().querySelectorAll('[data-barre-serie]').length).toBe([...graphe().querySelectorAll('[data-point-global]')].reduce((t, p) => t + p.querySelectorAll('[data-barre-serie]').length, 0));
+    await act(async () => { graphe().querySelector('[data-point-global="1"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); await calmer();
+    const lignes = [...graphe().querySelectorAll('[data-detail-serie] .tdb-bulle-montant')].map((x) => x.textContent!);
+    expect(lignes.length).toBeGreaterThan(0);
+    for (const l of lignes) expect(l).not.toBe('0 €');
+    expect(graphe().querySelector('[data-bulle="sous"]')!.lastElementChild!.hasAttribute('data-detail-total-global')).toBe(true);
+    expect(texte('[data-bloc="global-graphe"] [data-titre-detail]')).toBe('Janvier 2025 (HT)');
+    await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
+    expect(texte('[data-bloc="global-graphe"] [data-titre-detail]')).toMatch(/\(TTC\)$/);
+  });
+  it('une valeur négative reste (ligne et barre) ; plus aucune valeur : « Aucune donnée pour ces filtres »', async () => {
+    const avant = donneesGlobal.ventes;
+    donneesGlobal.ventes = [...avant, { id: 9921, societe: 'macj', statut: 'vendue', annee: 2023, mois: 5, honorairesTtc: -1200, libelle: 'AVOIR' }] as typeof avant;
+    try {
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      window.history.replaceState(null, '', '/?annee=2023&g-structures=macj&g-activites=vente&g-comparer=structures');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      await act(async () => { graphe().querySelector('[data-point-global="5"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); await calmer();
+      expect(graphe().querySelector('[data-point-global="5"] [data-barre-serie="macj"]')!.getAttribute('data-valeur')).toBe('-1000');
+      expect(texte('[data-bloc="global-graphe"] [data-detail-serie="macj"] .tdb-bulle-montant')).toBe('-1 000 €');
+    } finally { donneesGlobal.ventes = avant; }
+    // aucune famille de coûts cochée : plus aucune valeur — le message, à la place du graphique ; le panneau des filtres reste
+    await act(async () => { root.render(createElement('div')); }); // un nouvel écran : les filtres relus dans l'adresse
+    window.history.replaceState(null, '', '/?annee=2025&g-mesure=couts&g-comparer=familles');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await cliquer('[data-familles-aucun]');
+    expect(texte('[data-bloc="global-graphe"] [data-aucune-donnee]')).toBe('Aucune donnée pour ces filtres');
+    expect(graphe().querySelector('[data-filtres-graphe]')).not.toBeNull();
+  });
+  it('« Réinitialiser les filtres » sur la ligne « Affichage », à droite ; la zone de tracé +15 % ; plus de point « arrondi »', async () => {
+    window.history.replaceState(null, '', '/?annee=2025&g-comparer=activites');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(graphe().querySelector('[data-famille-filtre="affichage"] [data-reinitialiser-filtres]')).not.toBeNull();
+    expect(graphe().querySelector('[data-filtres-graphe] > [data-reinitialiser-filtres]')).toBeNull();
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.trx-gf-reinit{margin-left:auto;font-size:.8rem}');
+    expect(css).toContain('.trx-gf-reinit{margin-left:0;align-self:flex-end}'); // téléphone : sous les boutons, à droite
+    const { HAUSSE_TRACE } = await import('../location/TableauBordSuivi');
+    expect(HAUSSE_TRACE).toBe(1.15);
+    expect(graphe().querySelector('svg')!.getAttribute('viewBox')).toBe(`0 0 640 ${16 + 28 + 186 * 1.15}`);
+    expect([...graphe().querySelectorAll('.tdb-axe')].map((x) => x.textContent)).not.toContain('arrondi');
   });
 });
 
@@ -1563,7 +1625,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
   it('la Location ne change pas : sans `mesures`, l’en-tête garde CA · Baux · Gestion ; sans `empile`, une barre simple', async () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/TableauBordSuivi.tsx', 'utf8');
     expect(src).toContain("(mesures ?? (MESURES_MOIS as unknown as readonly { cle: M; mot: string }[]))");
-    expect(src).toContain('{b.valeur !== null && (b.empile !== undefined');
+    expect(src).toContain('{avecCourant && b.valeur !== null && (b.empile !== undefined'); // 🔴 LOT CG12 — une série toute à 0 n'est pas tracée
     const L = await import('../location/TableauBordSuivi');
     expect(L.MESURES_MOIS.map((x) => x.mot)).toEqual(['CA', 'Baux', 'Gestion']);
   });
@@ -2505,7 +2567,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect(caTuile()).toBe(antoine + cedric - partagee);
           await act(async () => { container.querySelector('[data-barre-mois="2"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer();
           expect(centimes(texte('[data-detail-ensemble] .tdb-bulle-montant').split('·')[0])).toBe(caTuile());
-          expect([...container.querySelectorAll('[data-detail-serie]')].map((x) => x.getAttribute('data-detail-serie'))).toEqual(['1', '2', '3']);
+          // 🔴 LOT CG12 — l'encadré : seulement les lignes non nulles (février : le 3e négociateur à 0)
+          expect([...container.querySelectorAll('[data-detail-serie]')].map((x) => x.getAttribute('data-detail-serie'))).toEqual(['1', '2']);
           // janvier (aucune affaire partagée) : la somme des séries = les totaux de la page
           await cliquer('[data-onglet-mois="1"]');
           expect([1, 2, 3].reduce((t, c) => t + Math.round(serieMois(c, 1) * 100), 0)).toBe(caTuile());
@@ -2543,10 +2606,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       } finally { fin(); }
       const { Histogramme } = await import('../location/TableauBordSuivi');
       const zero = Array.from({ length: 3 }, (_, i) => ({ cle: i + 1, libelle: `m${i + 1}`, valeur: 0, info: { titre: 'x', courant: { libelle: '2026', ca: 0, nb: 0 }, precedent: null } }));
+      // 🔴 LOT CG12 (Arno) — plus aucune série n'a de valeur : le message, à la place du graphique (montant et nombre)
       await act(async () => { root.render(createElement(Histogramme, { barres: zero, courante: 1, onChoisir: () => undefined, attribut: 'data-barre-mois', aria: 'CA' })); });
-      expect([...container.querySelectorAll('svg text.tdb-axe')].filter((x) => x.getAttribute('text-anchor') === 'end').map((x) => x.textContent)).toEqual(['0 €', '250 €', '500 €', '750 €', '1 k€']);
+      expect([container.querySelector('svg'), texte('[data-aucune-donnee]')]).toEqual([null, 'Aucune donnée pour ces filtres']);
       await act(async () => { root.render(createElement(Histogramme, { barres: zero, courante: 1, onChoisir: () => undefined, attribut: 'data-barre-mois', aria: 'Nombre', entier: true })); });
-      expect([...container.querySelectorAll('svg text.tdb-axe')].filter((x) => x.getAttribute('text-anchor') === 'end').map((x) => x.textContent)).toEqual(['0', '1', '2', '3', '4']);
+      expect([container.querySelector('svg'), texte('[data-aucune-donnee]')]).toEqual([null, 'Aucune donnée pour ces filtres']);
     });
   });
 
@@ -2569,9 +2633,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('au repos : année en cours (Mensuel « Octobre 2025 — en cours », Cumul « jusqu’à aujourd’hui »), passée (décembre, « année complète »), future (« aucune vente », 0) ; HT et TTC', async () => {
       let fin = await ouvrirV('/?vue=mois&annee=2025&mois=3&vue-mois=annee'); // 🔴 LOT DE : en « Mois », le repos = le mois choisi ; le lot CV vaut en Année / Période
       try {
-        expect([titre(), courant()]).toEqual(['Octobre 2025 — en cours', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
+        expect([titre(), courant()]).toEqual(['Octobre 2025 — en cours (HT)', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
         await cliquer('[data-cumul-bouton]');
-        expect([titre(), courant()]).toEqual(['Cumul 2025 jusqu’à aujourd’hui', '2025CA HT15 000,00 € (18 000,00 € TTC)Ventes2']); // 10 000 + 5 000 HT, 2 ventes
+        expect([titre(), courant()]).toEqual(['Cumul 2025 jusqu’à aujourd’hui (HT)', '2025CA HT15 000,00 € (18 000,00 € TTC)Ventes2']); // 10 000 + 5 000 HT, 2 ventes
         expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="n1"]')).toBe('2024CA HT4 000,00 € (4 800,00 € TTC)Ventes1'); // même période : à fin octobre 2024
         await cliquer('[data-affichage-montants] [data-afficher="ttc"]');
         expect(courant()).toBe('2025CA TTC18 000,00 € (15 000,00 € HT)Ventes2');
@@ -2579,15 +2643,15 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       window.localStorage.setItem('trx-affichage-montants', 'ht');
       fin = await ouvrirV('/?vue=mois&annee=2024&mois=3&vue-mois=annee');
       try {
-        expect([titre(), courant()]).toEqual(['Décembre 2024', '2024CA HT2 000,00 € (2 400,00 € TTC)Ventes1']);
+        expect([titre(), courant()]).toEqual(['Décembre 2024 (HT)', '2024CA HT2 000,00 € (2 400,00 € TTC)Ventes1']);
         await cliquer('[data-cumul-bouton]');
-        expect([titre(), courant()]).toEqual(['Cumul 2024 — année complète', '2024CA HT6 000,00 € (7 200,00 € TTC)Ventes2']);
+        expect([titre(), courant()]).toEqual(['Cumul 2024 — année complète (HT)', '2024CA HT6 000,00 € (7 200,00 € TTC)Ventes2']);
       } finally { fin(); }
       fin = await ouvrirV('/?vue=mois&annee=2026&mois=3&vue-mois=annee');
       try {
-        expect([titre(), courant()]).toEqual(['Janvier 2026 — aucune vente', '2026CA HT0,00 € (0,00 € TTC)Ventes0']);
+        expect([titre(), courant()]).toEqual(['Janvier 2026 — aucune vente (HT)', '2026CA HT0,00 € (0,00 € TTC)Ventes0']);
         await cliquer('[data-cumul-bouton]');
-        expect([titre(), courant()]).toEqual(['Cumul 2026 — aucune vente', '2026CA HT0,00 € (0,00 € TTC)Ventes0']);
+        expect([titre(), courant()]).toEqual(['Cumul 2026 — aucune vente (HT)', '2026CA HT0,00 € (0,00 € TTC)Ventes0']);
       } finally { fin(); }
     });
 
@@ -2595,14 +2659,14 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const fin = await ouvrirV('/?vue=mois&annee=2025&mois=7');
       try {
         await survoler('[data-barre-mois="3"]');
-        expect([titre(), courant()]).toEqual(['Mars 2025', '2025CA HT10 000,00 € (12 000,00 € TTC)Ventes1']);
+        expect([titre(), courant()]).toEqual(['Mars 2025 (HT)', '2025CA HT10 000,00 € (12 000,00 € TTC)Ventes1']);
         await survoler('[data-barre-mois="11"]');
-        expect([titre(), courant()]).toEqual(['Novembre 2025 — à venir', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
+        expect([titre(), courant()]).toEqual(['Novembre 2025 — à venir (HT)', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
         await cliquer('[data-cumul-bouton]');
         await survoler('[data-mois-cumul="3"]');
-        expect(titre()).toBe('Cumul 2025 à fin mars');
+        expect(titre()).toBe('Cumul 2025 à fin mars (HT)');
         await survoler('[data-mois-cumul="12"]');
-        expect([titre(), courant()]).toEqual(['Cumul 2025 à fin décembre — à venir', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
+        expect([titre(), courant()]).toEqual(['Cumul 2025 à fin décembre — à venir (HT)', '2025CA HT0,00 € (0,00 € TTC)Ventes0']);
       } finally { fin(); }
     });
 
@@ -2611,14 +2675,14 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const fin = await ouvrirV('/?vue=mois&annee=2025&mois=3&vue-mois=annee&negociateur=C%C3%A9dric%20JULLIEN&negociateur=Arnaud%20JOREL');
       try {
         const t = () => texte('[data-titre-detail]');
-        expect(t()).toBe('Octobre 2025 — en cours');
+        expect(t()).toBe('Octobre 2025 — en cours (HT)');
         await cliquer('[data-cumul-bouton]');
-        expect(t()).toBe('Cumul 2025 jusqu’à aujourd’hui');
+        expect(t()).toBe('Cumul 2025 jusqu’à aujourd’hui (HT)');
         expect([...container.querySelectorAll('[data-detail-serie] .tdb-bulle-montant')].map((x) => (x.textContent ?? '').replace(/\s/g, ' '))).toEqual(['10 000,00 € · 1', '5 000,00 € · 1']);
         expect(texte('[data-detail-ensemble] .tdb-bulle-montant')).toBe('15 000,00 € · 2');
         await cliquer('[data-cumul-bouton]');
         await survoler('[data-barre-mois="12"]');
-        expect([t(), texte('[data-detail-ensemble] .tdb-bulle-montant')]).toEqual(['Décembre 2025 — à venir', '0,00 € · 0']);
+        expect([t(), texte('[data-detail-ensemble] .tdb-bulle-montant')]).toEqual(['Décembre 2025 — à venir (HT)', '0,00 € · 0']);
       } finally { fin(); donnees.nomsNegociateurs = avant; }
     });
 
@@ -2680,7 +2744,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         await cliquer('[data-cumul-bouton]');
         const points = [...container.querySelectorAll('[data-bloc="histogramme-mois"] [data-point-cumul]')].map((x) => Number(x.getAttribute('data-valeur')));
         expect(points.at(-1)).toBe(12000); // 7 000 + 5 000
-        expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2025 à fin octobre');
+        expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2025 à fin octobre (HT)');
         // le mois choisi, comme au survol : le CA cumulé, le nombre du MOIS (aucune vente en octobre — la règle de l'encart, inchangée)
         expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toBe('2025CA net HT12 000,00 € (14 400,00 € TTC)Ventes0');
       } finally { fin(); }
@@ -3013,9 +3077,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect([container.querySelectorAll(`${G} .tdb-barre--courante`).length, container.querySelector(`${G} [data-barre-annee="2024"] .tdb-barre--courante`) !== null, container.querySelectorAll(`${G} .tdb-barre-annee--pale`).length]).toEqual([1, true, 0]);
         expect(Number(container.querySelector(`${G} [data-barre-annee="2024"] .tdb-barre`)!.getAttribute('data-valeur'))).toBeCloseTo(4000, 6);
         // l'encadré au repos : l'année choisie ; au survol, une autre
-        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2024');
+        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2024 (HT)');
         await act(async () => { container.querySelector(`${G} [data-barre-annee="2025"]`)!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2025 — en cours');
+        expect(texte(`${G} [data-histo-detail] .tdb-bulle-titre`)).toBe('2025 — en cours (HT)');
         // un clic sur une barre choisit l'année
         await act(async () => { container.querySelector(`${G} [data-barre-annee="2023"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer();
         expect(presses()).toEqual(['2023']);
@@ -3035,9 +3099,9 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         const G = '[data-bloc="graphe-annees"]';
         expect(container.querySelector(`${G} [data-courbe="negociateurs"]`)!.getAttribute('data-series')).toBe('3');
         expect([...container.querySelectorAll(`${G} g[data-barre-annee]`)].filter((g) => !g.classList.contains('tdb-barre-annee--pale')).map((g) => g.getAttribute('data-barre-annee'))).toEqual(['2025']);
-        expect(texte(`${G} [data-titre-detail]`)).toBe('2025');
-        // 2025 : Arnaud 6 000 + 1 200, Cédric 3 000,01 + 2 400, Julien 0
-        expect([...container.querySelectorAll(`${G} [data-detail-serie]`)].map((x) => x.getAttribute('data-detail-serie'))).toEqual(['1', '2', '3']);
+        expect(texte(`${G} [data-titre-detail]`)).toBe('2025 (HT)');
+        // 2025 : Arnaud 6 000 + 1 200, Cédric 3 000,01 + 2 400, Julien 0 (🔴 LOT CG12 : à 0, hors de l'encadré)
+        expect([...container.querySelectorAll(`${G} [data-detail-serie]`)].map((x) => x.getAttribute('data-detail-serie'))).toEqual(['1', '2']);
         expect(texte(`${G} [data-detail-ensemble-n1]`)).toContain('2024');
         expect(texte('[data-tuile-n1="ca"]')).toContain('en 2024');
       } finally { fin(); }
@@ -3296,7 +3360,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         expect(tuile()).toEqual(['CA TTC cumulé 2024 (à fin octobre)', '9 000 €', '3 600 € en 2023 (+150 %)']);
         // l'encadré du Cumul au repos : la même borne
         await cliquer('[data-cumul-bouton]');
-        expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2024 à fin octobre');
+        expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] .tdb-bulle-titre')).toBe('Cumul 2024 à fin octobre (TTC)');
       } finally { fin(); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
     });
 
@@ -3519,19 +3583,19 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       for (const q of ['', TROIS]) {
         const fin = await ouvrirE(`/?vue=mois&annee=2025&mois=5${q}`);
         try {
-          expect([q, titre()]).toEqual([q, 'Mai 2025']);
+          expect([q, titre()]).toEqual([q, 'Mai 2025 (HT)']);
           await survoler(11);
-          expect(titre()).toBe('Novembre 2025 — à venir');
+          expect(titre()).toBe('Novembre 2025 — à venir (HT)');
           await sortir();
-          expect(titre()).toBe('Mai 2025');
+          expect(titre()).toBe('Mai 2025 (HT)');
           await cliquer('[data-cumul-bouton]');
-          expect(titre()).toBe('Cumul 2025 à fin mai');
+          expect(titre()).toBe('Cumul 2025 à fin mai (HT)');
           await survoler(3);
-          expect(titre()).toBe('Cumul 2025 à fin mars');
+          expect(titre()).toBe('Cumul 2025 à fin mars (HT)');
           await sortir();
-          expect(titre()).toBe('Cumul 2025 à fin mai');
+          expect(titre()).toBe('Cumul 2025 à fin mai (HT)');
           await cliquer('[data-onglet-mois="7"]');
-          expect(titre()).toBe('Cumul 2025 à fin juillet');
+          expect(titre()).toBe('Cumul 2025 à fin juillet (HT)');
         } finally { fin(); }
       }
     });
@@ -3539,11 +3603,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('Période et Année : inchangés (aucun mois pâle par le lot DE ; l’encadré au repos du lot CV) ; la règle pâle vaut en clair et en sombre', async () => {
       let fin = await ouvrirE('/?vue=mois&annee=2025&mois=5&vue-mois=periode&periode=2025-03,2025-05');
       try {
-        expect([pales(), titre()]).toEqual([0, 'Octobre 2025 — en cours']);
+        expect([pales(), titre()]).toEqual([0, 'Octobre 2025 — en cours (HT)']);
         expect(texte(`${G} style`)).toContain('[data-periode-graphe] g[data-barre-mois]{opacity:.35}');
       } finally { fin(); }
       fin = await ouvrirE(`/?vue=mois&annee=2025&mois=5&vue-mois=annee${TROIS}`);
-      try { expect([pales(), titre()]).toEqual([0, 'Octobre 2025 — en cours']); } finally { fin(); }
+      try { expect([pales(), titre()]).toEqual([0, 'Octobre 2025 — en cours (HT)']); } finally { fin(); }
       // la même atténuation qu'en Période (opacité .35), sans couleur propre : la couleur pleine du thème, claire ou sombre, pâlie
       const { CSS_TABLEAU_BORD } = await import('../location/TableauBordSuivi');
       expect(CSS_TABLEAU_BORD).toContain('.tdb-barre-annee--pale{opacity:.35}');
@@ -3580,11 +3644,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect([u, ordre()]).toEqual([u, ['3', '1', '2']]);
           expect([...container.querySelectorAll('[data-detail-serie] .tdb-bulle-montant')].map((x) => (x.textContent ?? '').replace(/\s/g, ' ')))
             .toEqual(u === 'ttc' ? ['9 000,00 € · 1', '6 000,00 € · 1', '4 200,00 € · 2'] : ['7 500,00 € · 1', '5 000,00 € · 1', '3 500,00 € · 2']);
-          // au survol de mars (cumul) : Arnaud 6 000, Cédric 4 200, Julien 0 — l'ordre change
+          // au survol de mars (cumul) : Arnaud 6 000, Cédric 4 200, Julien 0 — l'ordre change (🔴 LOT CG12 : Julien, à 0, sort de l'encadré)
           await survoler(3);
-          expect(ordre()).toEqual(['1', '2', '3']);
+          expect(ordre()).toEqual(['1', '2']);
           await act(async () => { container.querySelector('[data-bloc="histogramme-mois"] .tdb-histo-zone')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); });
-          expect(texte('[data-titre-detail]')).toBe('Cumul 2025 à fin octobre'); // 🔴 LOT DE : en quittant, le mois choisi
+          expect(texte('[data-titre-detail]')).toBe(`Cumul 2025 à fin octobre (${u.toUpperCase()})`); // 🔴 LOT DE : en quittant, le mois choisi
           // CA net cumulé : Arnaud 6 000, Cédric 4 200, Julien 4 000
           await cliquer('[data-mesure-bouton="net"]');
           expect(ordre()).toEqual(['1', '2', '3']);
@@ -3601,17 +3665,18 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('Mensuel : la valeur du mois (repos à 0 : alphabétique ; mars : Cédric en tête ; juillet : Julien) ; l’ensemble, l’année précédente et la note restent en dessous ; chaque ligne garde sa couleur', async () => {
       const fin = await ouvrirD();
       try {
-        expect(ordre()).toEqual(['1', '2', '3']); // octobre : tous à 0
+        // 🔴 LOT CG12 — l'encadré : seulement les lignes non nulles au point montré
+        expect(ordre()).toEqual([]); // octobre : tous à 0
         await survoler(3);
-        expect(ordre()).toEqual(['2', '1', '3']); // Cédric 4 200 ; Arnaud et Julien 0 : alphabétique
+        expect(ordre()).toEqual(['2']); // Cédric 4 200 ; Arnaud et Julien 0
         await survoler(7);
-        expect(ordre()).toEqual(['3', '1', '2']);
+        expect(ordre()).toEqual(['3']);
         await cliquer('[data-mesure-bouton="net"]');
         await survoler(7);
-        expect(ordre()).toEqual(['3', '1', '2']); // Julien : 4 000 net
+        expect(ordre()).toEqual(['3']); // Julien : 4 000 net
         // chaque ligne : la pastille de sa couleur
         expect([...container.querySelectorAll('[data-histo-detail] [data-detail-serie]')].map((x) => [x.getAttribute('data-detail-serie'), x.querySelector('.trx-pastille-serie')!.classList.contains(`trx-serie--${x.getAttribute('data-detail-serie')}`), x.textContent!.split(/\d/)[0]]))
-          .toEqual([['3', true, 'Julien'], ['1', true, 'Arnaud JOREL'], ['2', true, 'Cédric JULLIEN']]);
+          .toEqual([['3', true, 'Julien']]);
         // sous les lignes : l'ensemble, puis la note
         const bulle = [...container.querySelector('[data-histo-detail] .tdb-bulle')!.children];
         const rang = (sel: string) => bulle.findIndex((x) => x.matches(sel));

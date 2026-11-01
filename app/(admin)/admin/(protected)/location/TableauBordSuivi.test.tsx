@@ -933,14 +933,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await survoler(2025);
     expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
     const bulle = () => container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
-    expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2025');
+    expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2025 (HT)');
     // 🔴 LOT LO2 — l'encart dit aussi l'autre unité, exacte (la somme TTC des lignes de l'année)
     expect(nbsp(bulle().querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2025CA HT3 400,00 € (4 080,00 € TTC)Baux3');
     expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2024CA HT2 500,00 € (3 000,00 € TTC)Baux2');
     expect(nbsp(bulle().querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+900,00 € (+36 %)');
     // 🔴 La dernière année, partielle (au 22/10) : face à 2025 au 22/10 (3 000 €, pas les 3 400 € de l'année entière).
     await survoler(2026);
-    expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2026 (janv. → oct.)');
+    expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2026 (janv. → oct.) (HT)');
     expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025 (janv. → oct.)CA HT3 000,00 € (3 600,00 € TTC)Baux2');
     expect(nbsp(bulle().querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+91 612,61 € (+3 053,8 %)');
     await survoler(2024);
@@ -1029,13 +1029,13 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       const centimes = (x: number) => Math.round(x * 100);
       expect(centimes(points()[2])).toBe(ca.reduce((t, x) => t + centimes(x), 0));
       const det = h().querySelector('[data-histo-detail]')!;
-      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin 2026 (janv. → oct.)');
+      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin 2026 (janv. → oct.) (HT)');
       expect(nbsp(det.querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+94 612,61 € (+1 720,2 %)');
       // 🔴 Le cumul part du DÉBUT choisi : 2025 → aujourd'hui commence à 3 000 €.
       await choisir('debut', '2025');
       expect(points()).toEqual([3000, 3000 + 94612.61]);
       await act(async () => { h().querySelector('[data-annee-cumul="2025"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
-      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin 2025');
+      expect(det.querySelector('.tdb-bulle-titre')?.textContent).toBe('Cumul à fin 2025 (HT)');
       await choisir('debut', 'origine');
       await clic(h().querySelector('[data-mesure-bouton="gestion"]')!);
       expect(points()).toEqual([2, 3, 3]);

@@ -1,6 +1,6 @@
 import type { MontantC } from './partAgence';
 import type { Vente } from './modele';
-import { compteDansSociete, estVendue, ventesDeLAnnee, ventesDuMois } from './modele';
+import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { venteDansSociete } from './interCabinet';
 import { celluleGlobalEn, type EntreesGlobalUnite } from './globalUnite';
 import { coutsGlobaux, coutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
@@ -180,6 +180,25 @@ export function atomesHorsMois(annee: readonly AtomeGraphe[], mois: readonly (re
   for (const xs of mois) for (const x of xs) somme.set(cle(x), plus(somme.get(cle(x)) ?? RIEN, x.m));
   return annee.map((x) => ({ ...x, m: moins(x.m, somme.get(cle(x)) ?? RIEN) }));
 }
-/** Des ventes signées sans mois dans l'année (celles qui comptent) : le point s'appelle « Mois à confirmer » ; sinon, un pur écart d'arrondi. PUR. */
-export const aDesVentesSansMois = (ventes: readonly (Pick<Vente, 'statut' | 'annee' | 'mois'> & Partial<Pick<Vente, 'double'>>)[], annee: number): boolean =>
-  ventes.some((v) => estVendue(v) && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null })); // = ventesDeLAnnee sans mois
+/**
+ * 🔴 LOT CG12 (Arno) — les points de l'axe des mois : les 12 mois, puis « Mois à confirmer » = les cellules d'un 13e « mois » qui ne contient que les
+ * ventes signées sans mois (les mêmes règles et le même arrondi au centime qu'un mois) ; l'écart d'arrondi qui reste (l'année − la somme de ces
+ * 13 points) est REPORTÉ, poste par poste, sur le dernier mois affiché (`dernier`, 1 → 12) qui a une valeur pour ce poste, sans point à part : la fin d'année = le total de l'année, au centime. PUR.
+ */
+export function atomesDesMois(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, avecSalaires: boolean, dernier: number): { mois: AtomeGraphe[][]; aConfirmer: AtomeGraphe[] } {
+  const mois = Array.from({ length: 12 }, (_, i) => atomesDuPoint(eG, eC, annee, i + 1, avecSalaires));
+  const treize = <V extends { annee: number; mois: number | null }>(vs: readonly V[]): V[] => vs.map((v) => (v.annee === annee && v.mois === null ? { ...v, mois: MOIS_A_CONFIRMER } : v));
+  const aConfirmer = atomesDuPoint({ ...eG, ventes: treize(eG.ventes) }, { ...eC, ventes: treize(eC.ventes) }, annee, MOIS_A_CONFIRMER, avecSalaires);
+  const reste = atomesHorsMois(atomesDuPoint(eG, eC, annee, null, avecSalaires), [...mois, aConfirmer]);
+  // chaque poste (structure, activité, famille) : sur le dernier mois affiché où il a une valeur (un mois vide reste à 0) ; à défaut, le dernier mois affiché
+  const fin = Math.min(12, Math.max(1, dernier)) - 1;
+  reste.forEach((r, j) => {
+    if (r.m.htC === 0 && r.m.ttcC === 0) return;
+    let i = fin; while (i > 0 && mois[i][j].m.htC === 0 && mois[i][j].m.ttcC === 0) i -= 1;
+    if (mois[i][j].m.htC === 0 && mois[i][j].m.ttcC === 0) i = fin;
+    mois[i][j] = { ...mois[i][j], m: plus(mois[i][j].m, r.m) };
+  });
+  return { mois, aConfirmer };
+}
+/** Le « mois » des ventes signées sans mois, après décembre (aucun mois réel : ni location ni gestion n'y tombent). */
+const MOIS_A_CONFIRMER = 13;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { eurAxe, margeAxe } from '../location/TableauBordSuivi';
+import { AucuneDonnee, eurAxe, HAUSSE_TRACE, margeAxe } from '../location/TableauBordSuivi';
 import { COURT } from './commun';
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 
@@ -51,12 +51,14 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
 }) {
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
-  const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
+  // 🔴 LOT CG12 (Arno) — la zone de tracé : +15 % de hauteur (174 → 200,1 unités).
+  const L = 640; const m = { g: 56, d: 12, h: 18, b: 28 }; const H = m.h + m.b + 174 * HAUSSE_TRACE;
   const prepare = (xs: readonly number[]): number[] => (cumul ? cumuler(xs) : [...xs]);
-  const s = series.map((x) => ({ ...x, caV: prepare(x.ca), nbV: prepare(x.nb) }));
+  const dessine = (x: { caV: number[]; nbV: number[] }): number[] => (nombre ? x.nbV : x.caV);
+  // 🔴 LOT CG12 — un négociateur dont toutes les valeurs de la période valent 0 : ni tracé ni dans la légende (ni dans l'encadré)
+  const s = series.map((x) => ({ ...x, caV: prepare(x.ca), nbV: prepare(x.nb) })).filter((x) => dessine(x).slice(0, dernierMois).some((v) => v !== 0));
   const t = { ca: prepare(total.ca), nb: prepare(total.nb) };
   const t1 = totalN1 === null ? null : { ca: prepare(totalN1.ca), nb: prepare(totalN1.nb) };
-  const dessine = (x: { caV: number[]; nbV: number[] }): number[] => (nombre ? x.nbV : x.caV);
   const visibles = s.flatMap((x) => dessine(x).slice(0, dernierMois));
   const plusHaut = Math.max(0, ...visibles);
   // L'axe vide (toutes les valeurs à 0) : des graduations distinctes — 0 → 1 k€, ou 0 → 4 en nombre.
@@ -84,11 +86,14 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
         : (cumul ? `Cumul ${annee} jusqu’à aujourd’hui` : `${nomMois} ${annee} — en cours`))
     : `${cumul ? `Cumul ${annee} à fin ${nomMois.toLowerCase()}` : `${nomMois} ${annee}`}${aVenir ? ' — à venir' : ''}`;
   const val = (xs: readonly number[]): number => (aVenir ? 0 : xs[mois - 1]);
+  // 🔴 LOT CG12 — l'unité du sélecteur « HT | TTC » dans le titre de l'encadré (celle du mot du montant)
+  const unite = /\b(HT|TTC)\b/.exec(motCa)?.[1] ?? null;
   const ligne = (nom: string, couleur: number | null, ca: number, nb: number, cle: string) => (
     <p className="tdb-bulle-ligne trx-serie-ligne" key={cle} data-detail-serie={cle}>
       <span>{couleur !== null && <span className={`trx-pastille-serie trx-serie--${couleur}`} aria-hidden="true" />}{nom}</span>
       <span className="tdb-bulle-montant">{montant(ca)} · {nb}</span></p>
   );
+  if (s.length === 0) return <AucuneDonnee courbe={cumul ? 'negociateurs-cumul' : 'negociateurs'} />;
   return (
     <figure className="tdb-courbe tdb-histo trx-graphe-negos" data-courbe={cumul ? 'negociateurs-cumul' : 'negociateurs'} data-series={s.length}>
       <div className="tdb-histo-rangee" data-histo-rangee>
@@ -123,9 +128,10 @@ export function GrapheNegociateurs({ series, total, totalN1 = null, cumul, nombr
         </div>
         <div className="tdb-histo-detail" data-histo-detail aria-live="polite">
           <div className="tdb-bulle tdb-bulle--sous" data-bulle="sous">
-            <p className="tdb-bulle-titre" data-titre-detail>{titre}</p>
+            <p className="tdb-bulle-titre" data-titre-detail>{unite === null ? titre : `${titre} (${unite})`}</p>
             <p className="tdb-bulle-ligne trx-serie-entete"><span /><span className="tdb-bulle-montant">{motCa} · {motNb}</span></p>
-            {ordreEncadre(s.map((x0) => ({ ...x0, ca: val(x0.caV), nb: val(x0.nbV) })), nombre).map((x0) => ligne(x0.nom, x0.couleur, x0.ca, x0.nb, String(x0.couleur)))}
+            {/* 🔴 LOT CG12 — seulement les lignes non nulles au point montré */}
+            {ordreEncadre(s.map((x0) => ({ ...x0, ca: val(x0.caV), nb: val(x0.nbV) })), nombre).filter((x0) => (nombre ? x0.nb : x0.ca) !== 0).map((x0) => ligne(x0.nom, x0.couleur, x0.ca, x0.nb, String(x0.couleur)))}
             <p className="tdb-bulle-pied" data-detail-ensemble><span>Ensemble de la sélection</span>
               <span className="tdb-bulle-montant">{montant(val(t.ca))} · {val(t.nb)}</span></p>
             {/* 🔴 LOT DC — sous l'ensemble : la même sélection l'année précédente (même mois, ou même cumul) et l'écart. */}

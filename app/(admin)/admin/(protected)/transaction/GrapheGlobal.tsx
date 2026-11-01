@@ -8,12 +8,12 @@ import { aSaisirFusion } from '../../../../lib/transaction/fusionLocationGestion
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
-  ACTIVITES_GRAPHE, aDesVentesSansMois, atomesDuPoint, atomesHorsMois, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
+  ACTIVITES_GRAPHE, atomesDesMois, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
   raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur,
 } from '../../../../lib/transaction/grapheGlobal';
 import { COURT, ecrireAdresse, eur, MOT_UNITE, parametre, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
-import { CourbeCumul, eurAxe, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
+import { AucuneDonnee, CourbeCumul, eurAxe, HAUSSE_TRACE, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 
 /**
  * ══ 🔴 LOT CG9 (Arno) — LE GRAPHIQUE DU CA GLOBAL, SOUS LES TUILES ═══════════════════════════════════════════════════════════════════════════════
@@ -41,22 +41,20 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
     : Array.from({ length: 12 }, (_, i) => ({ cle: i + 1, libelle: COURT[i], annee, mois: i + 1 as number | null, horsMois: false }));
   const clePoints = parAnnees ? annees.join(',') : String(annee);
   const atomes = useMemo(() => {
-    const xs = base.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires) }));
-    // 🔴 LOT CG11 — « Mois à confirmer » (mois par mois seulement) : l'année − la somme de ses 12 mois, pour que la fin d'année = le total de l'année
-    const hors = parAnnees ? null : { courant: atomesHorsMois(atomesDuPoint(eG, eC, annee, null, salaires), xs.map((x) => x.courant)),
-      n1: atomesHorsMois(atomesDuPoint(eG, eC, annee - 1, null, salaires), xs.map((x) => x.n1)) };
-    return { xs, hors };
+    if (parAnnees) return { xs: base.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires) })), hors: null };
+    // 🔴 LOT CG11 / CG12 — mois par mois : les 12 mois, puis « Mois à confirmer » (les ventes signées sans mois) ; l'écart d'arrondi au centime,
+    // reporté sur le dernier mois affiché (plus de point « arrondi ») : la fin d'année = le total de l'année
+    const c = atomesDesMois(eG, eC, annee, salaires, moisADate(annee, jour)); const p = atomesDesMois(eG, eC, annee - 1, salaires, 12);
+    return { xs: c.mois.map((x, i) => ({ courant: x, n1: p.mois[i] })), hors: { courant: c.aConfirmer, n1: p.aConfirmer } };
   },
     // les données de la page (stables d'un rendu à l'autre), pas les objets d'entrée recréés à chaque rendu
-    [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints]); // eslint-disable-line react-hooks/exhaustive-deps
+    [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints, jour]); // eslint-disable-line react-hooks/exhaustive-deps
   const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f), n1: seriesDuPoint(x.n1, f) }));
   const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f), n1: seriesDuPoint(atomes.hors.n1, f) };
   const nonNul = (s: { total: MontantC; series: readonly SerieValeur[] }): boolean => s.total[k] !== 0 || s.series.some((x) => x.m[k] !== 0);
   // présent seulement quand il est non nul (l'année montrée ; ou N−1 quand on la compare)
   const avecHors = valHors !== null && (nonNul(valHors.c) || (f.comparer === 'n1' && nonNul(valHors.n1)));
-  /** Des ventes sans mois cette année (ou en N−1 comparée) : « Mois à confirmer » ; sinon, un pur écart d'arrondi au centime. */
-  const sansMois = aDesVentesSansMois(eG.ventes, annee) || (f.comparer === 'n1' && aDesVentesSansMois(eG.ventes, annee - 1));
-  const points = avecHors ? [...base, { cle: 13, libelle: sansMois ? 'à conf.' : 'arrondi', annee, mois: null as number | null, horsMois: true }] : base;
+  const points = avecHors ? [...base, { cle: 13, libelle: 'à conf.', annee, mois: null as number | null, horsMois: true }] : base;
   const vals = avecHors && valHors !== null ? [...valsBase, valHors] : valsBase;
   const dernier = parAnnees ? points.length : moisADate(annee, jour);
   const anneeEnCours = Number(jour.slice(0, 4));
@@ -76,15 +74,14 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
     const ms = idx.flatMap((j) => (points[j].mois === null ? Array.from({ length: 12 }, (_, m) => ({ annee: points[j].annee, mois: m + 1 })) : [{ annee: points[j].annee, mois: points[j].mois as number }]));
     const loc = f.activites.includes('location'); const ges = f.activites.includes('gestion');
     const saisir = salaires && f.mesure !== 'ca' && (loc || ges) && ms.length > 0 ? aSaisirFusion(eC.gestion, eC.location?.salaires ?? null, ms, loc && ges ? 'deux' : loc ? 'location' : 'gestion', jour).mot : '';
-    const hors = points[i].horsMois ? (sansMois ? 'Ventes signées sans mois (« mois à confirmer ») : comptées dans l’année, dans aucun mois.'
-      : 'Écart d’arrondi au centime entre la somme des mois et le total de l’année.') : '';
+    const hors = points[i].horsMois ? 'Ventes signées sans mois (« mois à confirmer ») : comptées dans l’année, dans aucun mois.' : '';
     const mots = [hors, saisir].filter((x) => x !== '');
     return mots.length === 0 ? undefined : mots.join(' ');
   };
   const titreDe = (i: number, c: boolean): string => {
     const p = points[i];
     if (parAnnees) return c ? `Cumul ${points[0].annee} → ${p.annee}` : `${p.annee}${p.annee === anneeEnCours ? ' — en cours' : ''}`;
-    if (p.horsMois) return c ? `Cumul ${annee} — fin d’année (${sansMois ? 'mois à confirmer' : 'arrondi'} compris)` : sansMois ? `Mois à confirmer ${annee}` : `Écart d’arrondi ${annee}`;
+    if (p.horsMois) return c ? `Cumul ${annee} — fin d’année (mois à confirmer compris)` : `Mois à confirmer ${annee}`;
     return `${c ? `Cumul ${annee} à fin ${NOMS_MOIS[i].toLowerCase()}` : `${NOMS_MOIS[i]} ${annee}`}${aVenir(i) ? ' — à venir' : ''}`;
   };
   const libN1 = parAnnees ? 'Un an plus tôt' : String(annee - 1);
@@ -120,11 +117,17 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   /** Plusieurs séries : barres empilées ou côte à côte (Cumul : une courbe par série) ; couleurs fixes, légende, encadré à droite. */
   function grapheSeries(): ReactNode {
     const series0 = vals[0]?.c.series ?? [];
-    const valeurs = series0.map((s0, j) => { const xs = vals.map((x) => en(x.c.series[j]?.m ?? { htC: 0, ttcC: 0 })); return f.cumul ? cumuler(xs) : xs; });
+    const valeursTout = series0.map((s0, j) => { const xs = vals.map((x) => en(x.c.series[j]?.m ?? { htC: 0, ttcC: 0 })); return f.cumul ? cumuler(xs) : xs; });
     const totaux = f.cumul ? cumuler(vals.map((x) => en(x.c.total))) : vals.map((x) => en(x.c.total));
     const totauxAutre = f.cumul ? cumuler(vals.map((x) => x.c.total[ka] / 100)) : vals.map((x) => x.c.total[ka] / 100);
     const n = points.length; const trace = (x: number): boolean => !aVenir(x);
-    const L = 640; const H = 230; const m = { g: 56, d: 12, h: 16, b: 28 };
+    // 🔴 LOT CG12 (Arno) — une série dont toutes les valeurs de la période valent 0 : ni tracée ni dans la légende ; aucune : le message
+    const garde = valeursTout.map((xs) => xs.some((v, x) => trace(x) && v !== 0));
+    const lignes: SerieValeur[] = series0.filter((_, j) => garde[j]);
+    const valeurs = valeursTout.filter((_, j) => garde[j]);
+    if (lignes.length === 0) return <AucuneDonnee courbe="global-series" />;
+    // 🔴 LOT CG12 — la zone de tracé : +15 % de hauteur (186 → 213,9 unités)
+    const L = 640; const m = { g: 56, d: 12, h: 16, b: 28 }; const H = m.h + m.b + 186 * HAUSSE_TRACE;
     const hauts: number[] = []; const bas: number[] = [];
     for (let i = 0; i < n; i++) {
       if (!trace(i)) continue;
@@ -140,7 +143,6 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
     const iC = points.findIndex((p) => p.cle === courante);
     const i = survol ?? iC;
     const largeurCote = (pas * 0.8) / Math.max(1, valeurs.length);
-    const lignes: SerieValeur[] = series0;
     return (
       <figure className="tdb-courbe tdb-histo trx-graphe-global-series" data-graphe-global-series={f.empile && !f.cumul ? 'empile' : f.cumul ? 'cumul' : 'cote'} data-series={lignes.length}>
         <div className="tdb-histo-rangee" data-histo-rangee>
@@ -176,10 +178,11 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
           </div>
           <div className="tdb-histo-detail" data-histo-detail aria-live="polite">
             <div className="tdb-bulle tdb-bulle--sous" data-bulle="sous">
-              <p className="tdb-bulle-titre" data-titre-detail>{i >= 0 ? titreDe(i, f.cumul) : ''}</p>
+              <p className="tdb-bulle-titre" data-titre-detail>{i >= 0 ? `${titreDe(i, f.cumul)} (${MOT_UNITE[u]})` : ''}</p>
               {i >= 0 && mentions(i, f.cumul) !== undefined && <p className="tdb-bulle-note" data-bulle-note>{mentions(i, f.cumul)}</p>}
               {/* 🔴 LOT CG11 — les lignes par valeur DÉCROISSANTE au point montré (repos, survol, clic), égalité : alphabétique ; Total en bas */}
-              {ordreEncadre(lignes.map((s, j) => ({ ...s, ca: i >= 0 && !aVenir(i) ? valeurs[j][i] : 0, nb: 0 })), false).map((s) => <p key={s.cle} className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
+              {/* 🔴 LOT CG12 — seulement les lignes non nulles au point montré (les négatives restent) */}
+              {ordreEncadre(lignes.map((s, j) => ({ ...s, ca: i >= 0 && !aVenir(i) ? valeurs[j][i] : 0, nb: 0 })), false).filter((s) => s.ca !== 0).map((s) => <p key={s.cle} className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
                 <span><span className={`trx-pastille-serie trx-serie--${s.couleur}`} aria-hidden="true" />{s.nom}</span>
                 <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? eur(s.ca) : '—'}</span></p>)}
               <p className="tdb-bulle-pied" data-detail-total-global><span>Total</span>
@@ -213,7 +216,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const famille = (titre: string, contenu: ReactNode, cle: string) => <div className="trx-gf-famille" data-famille-filtre={cle}><span className="trx-gf-titre">{titre}</span>{contenu}</div>;
   const nb = nbFiltresActifs(f);
   return (
-    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': sansMois ? 'a-confirmer' : 'arrondi' } : {})}>
+    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': 'a-confirmer' } : {})}>
       <style>{CSS_GRAPHE_GLOBAL}</style>
       <div className="trx-gf-tete">
         <h3 id="trx-g-graphe">{parAnnees ? 'Année par année' : `Mois par mois — ${annee}`} <small className="loc-muet">({motMesure}{f.cumul ? ', cumulé' : ''}{f.mesure !== 'ca' ? ` ; ${salaires ? 'avec salaires' : 'hors salaires'}` : ''})</small></h3>
@@ -238,8 +241,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
             (c) => setF((v) => avecReunies(v, c === 'reunies')))}</>, 'activite')}
         {famille('Comparer', choix('Comparer', COMPARER_GRAPHE, f.comparer, (c) => changer({ comparer: c }), (c) => raisonGrise(f, { sorte: 'comparer', cle: c })), 'comparer')}
         {famille('Affichage', <>{choix('Période', [{ cle: 'mensuel', mot: parAnnees ? 'Annuel' : 'Mensuel' }, { cle: 'cumul', mot: 'Cumul' }] as const, f.cumul ? 'cumul' : 'mensuel', (c) => changer({ cumul: c === 'cumul' }))}
-          {choix('Barres', [{ cle: 'empile', mot: 'Barres empilées' }, { cle: 'cote', mot: 'Côte à côte' }] as const, f.empile ? 'empile' : 'cote', (c) => changer({ empile: c === 'empile' }), () => raisonGrise(f, { sorte: 'affichage' }))}</>, 'affichage')}
-        <button type="button" className="trx-bouton-lien trx-gf-reinit" onClick={() => setF(FILTRES_GRAPHE_DEFAUT)} disabled={nb === 0} data-reinitialiser-filtres>Réinitialiser les filtres</button>
+          {choix('Barres', [{ cle: 'empile', mot: 'Barres empilées' }, { cle: 'cote', mot: 'Côte à côte' }] as const, f.empile ? 'empile' : 'cote', (c) => changer({ empile: c === 'empile' }), () => raisonGrise(f, { sorte: 'affichage' }))}
+          {/* 🔴 LOT CG12 (Arno) — « Réinitialiser les filtres » sur la ligne « Affichage », à droite (une ligne de moins dans le panneau) */}
+          <button type="button" className="trx-bouton-lien trx-gf-reinit" onClick={() => setF(FILTRES_GRAPHE_DEFAUT)} disabled={nb === 0} data-reinitialiser-filtres>Réinitialiser les filtres</button></>, 'affichage')}
       </div>
       {graphe}
       {/* 🔴 LOT CG10 — les ventes à attribuer ne sont plus dans le graphique : leur montant sur la période, discrètement (le Bilan les compte) */}
@@ -267,7 +271,7 @@ export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-case input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 .trx-gf-case--grise{opacity:.45;cursor:not-allowed}
 .trx-gf-tout{font-size:.8rem}
-.trx-gf-reinit{align-self:flex-end;font-size:.8rem}
+.trx-gf-reinit{margin-left:auto;font-size:.8rem}
 .trx-gf-note{margin:6px 0 0;font-size:.82rem}
 .trx-axe-choisi{fill:var(--color-svv-red)}
 .trx-axe-hors-mois,.trx-graphe-global [data-barre-mois-global="13"] .tdb-axe,.trx-graphe-global[data-mois-hors] [data-courbe="global-mois-cumul"] svg>text.tdb-axe:last-of-type{font-style:italic;fill:var(--color-svv-muted)}
@@ -280,5 +284,6 @@ export const CSS_GRAPHE_GLOBAL = `
   .trx-gf-famille{flex-direction:column;align-items:flex-start}
   .trx-gf-titre{flex:none}
   .trx-gf-choix{flex-wrap:wrap}
+  .trx-gf-reinit{margin-left:0;align-self:flex-end}
 }
 `;

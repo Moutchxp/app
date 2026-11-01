@@ -885,10 +885,13 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
 }) {
   const n = etiquettes.length;
   const cle = (i: number): number => cles?.[i] ?? i + 1;
-  const L = 640; const H = 220; const m = { g: 56, d: 12, h: 12, b: 28 };
+  // 🔴 LOT CG12 (Arno) — la zone de tracé : +15 % de hauteur (180 → 207 unités).
+  const L = 640; const m = { g: 56, d: 12, h: 12, b: 28 }; const H = m.h + m.b + 180 * HAUSSE_TRACE;
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
-  const traces = courant.flatMap((v, i) => (v === null ? [] : [{ v, i }]));
+  // 🔴 LOT CG12 — une courbe dont toutes les valeurs valent 0 n'est ni tracée ni dans la légende ; aucune : le message (après les hooks).
+  const avecCourant = courant.some((v) => v !== null && v !== 0); const avecN1 = n1 !== null && n1.some((v) => v !== 0);
+  const traces = avecCourant ? courant.flatMap((v, i) => (v === null ? [] : [{ v, i }])) : [];
   const valeurs = [...traces.map((t) => t.v), ...(n1 ?? [])];
   const haut = Math.max(1, ...valeurs);
   const bas = Math.min(0, ...valeurs);
@@ -911,7 +914,7 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
           <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{etiquette(g)}</text></g>
       ))}
       {etiquettes.map((c, i) => <text key={c} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{c}</text>)}
-      {n1 !== null && <path d={trace(n1.map((v, i) => ({ v, i })))} className="tdb-trait-n1" data-trait-cumul="n1" />}
+      {n1 !== null && avecN1 && <path d={trace(n1.map((v, i) => ({ v, i })))} className="tdb-trait-n1" data-trait-cumul="n1" />}
       {traces.length > 0 && <path d={trace(traces)} className="tdb-trait" data-trait-cumul="courant" />}
       {traces.map(({ v, i }) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className="tdb-point" data-point-cumul={cle(i)} data-valeur={v} />)}
       {bulle !== undefined && etiquettes.map((c, i) => (
@@ -920,7 +923,9 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
       ))}
     </svg>
   );
-  const texteLegende = legende ?? <><span className="tdb-legende tdb-legende--courant" /> {annee}{n1 !== null && <> · <span className="tdb-legende tdb-legende--n1" /> {annee - 1}</>}</>;
+  const texteLegende = avecCourant && legende !== undefined ? legende
+    : <>{avecCourant && <><span className="tdb-legende tdb-legende--courant" /> {annee}</>}{avecCourant && avecN1 && ' · '}{avecN1 && <><span className="tdb-legende tdb-legende--n1" /> {annee - 1}</>}</>;
+  if (!avecCourant && !avecN1) return <AucuneDonnee courbe={nom} />;
   if (bulle === undefined) {
     return (
       <figure className="tdb-courbe" data-courbe="cumul">
@@ -998,6 +1003,24 @@ interface Barre { cle: number; libelle: string; valeur: number | null; n1?: numb
 export const sensDe = (x: number): 'positif' | 'negatif' | 'nul' => (x > 0 ? 'positif' : x < 0 ? 'negatif' : 'nul');
 
 
+/** 🔴 LOT CG12 (Arno) — la zone de tracé des graphiques du Suivi CA : +15 % de hauteur. */
+export const HAUSSE_TRACE = 1.15;
+/** 🔴 LOT CG12 — l'unité du sélecteur « HT | TTC » dans le titre de l'encadré (« Mai 2026 (TTC) ») : celle que l'encadré affiche, l'inverse de
+ *  `autre` ; sans sélecteur (`autre` absent) ou une mesure en nombre : le titre seul. PUR. */
+export const titreAvecUnite = (info: Pick<InfoBarre, 'titre' | 'autre' | 'compte'>): string =>
+  info.autre === undefined || info.compte !== undefined ? info.titre : `${info.titre} (${info.autre.mot === 'TTC' ? 'HT' : 'TTC'})`;
+/** 🔴 LOT CG12 — plus aucune série n'a de valeur pour ces filtres : le message, à la place du graphique. */
+export function AucuneDonnee({ courbe }: { courbe: string }) {
+  return <figure className="tdb-courbe tdb-aucune-donnee" data-courbe={courbe} data-aucune-donnee><p className="loc-muet">Aucune donnée pour ces filtres</p></figure>;
+}
+/** La légende de l'histogramme : seulement les séries tracées (🔴 LOT CG12). */
+function LegendeHisto({ legende, courant, n1 }: { legende: { courant: string; n1: string | null }; courant: boolean; n1: boolean }) {
+  return (
+    <figcaption className="loc-muet tdb-histo-legende">{courant && <><span className="tdb-legende tdb-legende--barre" /> {legende.courant}</>}
+      {courant && n1 && legende.n1 !== null && ' · '}{n1 && legende.n1 !== null && <><span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>
+  );
+}
+
 /** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
   if (info.compte !== undefined) return <BulleCompte info={info} sous={sous} />;
@@ -1008,7 +1031,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
       <p className="tdb-bulle-annee">{x.libelle}</p>
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p> : (
         <>
-          {x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
+          {x.parts?.filter((p) => p.ca !== 0).map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
           <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? info.motCa ?? 'CA HT' : `Total ${(info.motCa ?? 'CA HT').replace(/^CA /, '')}`}</span><span className="tdb-bulle-montant">{eur(x.ca)}
             {info.autre !== undefined && <small className="tdb-bulle-autre" data-bulle-autre> ({eur(x.caAutre ?? x.ca * info.autre.facteur)} {info.autre.mot})</small>}</span></p>
           {info.sansNombre !== true && <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>}
@@ -1018,7 +1041,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
   );
   return (
     <div className={sous ? 'tdb-bulle tdb-bulle--sous' : 'tdb-bulle'} data-bulle={sous ? 'sous' : 'survol'}>
-      <p className="tdb-bulle-titre">{info.titre}</p>
+      <p className="tdb-bulle-titre">{titreAvecUnite(info)}</p>
       {info.note !== undefined && <p className="tdb-bulle-note" data-bulle-note>{info.note}</p>}
       {bloc(c, 'courant')}
       {p !== null && bloc(p, 'n1')}
@@ -1067,7 +1090,7 @@ function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
     <div className={`tdb-bulle-bloc tdb-bulle-bloc--${sorte}`} data-bulle-bloc={sorte}>
       <p className="tdb-bulle-annee">{x.libelle}</p>
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p>
-        : <>{x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{p.ca}</span></p>)}
+        : <>{x.parts?.filter((p) => p.ca !== 0).map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{p.ca}</span></p>)}
           <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? mot : 'Total'}</span><span className="tdb-bulle-montant">{x.ca}</span></p></>}
     </div>
   );
@@ -1110,10 +1133,13 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
    *  la barre choisie, comme avant. */
   repos?: InfoBarre;
 }) {
-  const L = 640; const H = 220; const m = { g: 56, d: 12, h: 18, b: 28 };
+  // 🔴 LOT CG12 (Arno) — la zone de tracé : +15 % de hauteur (174 → 200,1 unités) ; les axes, la légende et l'encadré suivent.
+  const L = 640; const m = { g: 56, d: 12, h: 18, b: 28 }; const H = m.h + m.b + 174 * HAUSSE_TRACE;
   const [clic, setClic] = useState<number | null>(null);
   const [survol, setSurvol] = useState<number | null>(null);
-  const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null);
+  // 🔴 LOT CG12 — une série dont toutes les valeurs valent 0 n'est ni tracée ni dans la légende (N−1 reste dans l'encadré) ; aucune : le message.
+  const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null && b.n1 !== 0);
+  const avecCourant = barres.some((b) => b.valeur !== null && b.valeur !== 0);
   // L'échelle est calculée sur TOUTES les barres, défilement ou non.
   const plusHaut = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
   // Un nombre : quatre pas ENTIERS (0, 1, 2… jamais 0,75 bail) ; un montant : l'échelle d'avant.
@@ -1188,6 +1214,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   // 🔴 LOT CV — avec `repos` : la barre survolée, sinon la barre cliquée dans le graphique, sinon le repos.
   const iClic = clic === null ? -1 : barres.findIndex((b) => b.cle === clic);
   const detail: { info: InfoBarre } | undefined = iSurvol >= 0 ? barres[iSurvol] : repos === undefined ? choisie : iClic >= 0 ? barres[iClic] : { info: repos };
+  if (!avecCourant && !avecN1) return <AucuneDonnee courbe={attribut.replace(/^data-barre-/, '')} />;
   if (defile) {
     // Le dessin des barres commence à 0 : l'axe des montants est dessiné À PART, fixe à gauche, à la même échelle.
     const yD = y;
@@ -1221,7 +1248,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
                           {avecN1 && b.n1 !== undefined && b.n1 !== null && (
                             <rect x={x0 + largeur} {...barreY(b.n1, yD)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
                           )}
-                          {b.valeur !== null && <rect x={x0} {...barreY(b.valeur, yD)} width={largeur}
+                          {avecCourant && b.valeur !== null && <rect x={x0} {...barreY(b.valeur, yD)} width={largeur}
                             className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />}
                           <text x={i * pas + pas / 2} y={H - 8} textAnchor="middle" className="tdb-axe">{b.libelle}</text>
                         </g>
@@ -1236,8 +1263,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
           </div>
         </div>
         {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
-        {legende && <figcaption className="loc-muet tdb-histo-legende"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
-          {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
+        {legende && <LegendeHisto legende={legende} courant={avecCourant} n1={avecN1} />}
         </div>
       </figure>
     );
@@ -1263,7 +1289,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
                   ? <BarreEmpilee x={x0 + largeur} largeur={largeur} total={b.n1} bas={b.empile.basN1} y={y} fill={`url(#hachures-${attribut})`} classe="tdb-barre-n1" donnees={{ 'data-barre-n1': b.cle }} />
                   : <rect x={x0 + largeur} {...barreY(b.n1, y)} width={largeur} fill={`url(#hachures-${attribut})`} className="tdb-barre-n1" data-barre-n1={b.cle} />
                 )}
-                {b.valeur !== null && (b.empile !== undefined
+                {avecCourant && b.valeur !== null && (b.empile !== undefined
                   ? <BarreEmpilee x={x0} largeur={largeur} total={b.valeur} bas={b.empile.bas} y={y} classe={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} donnees={{ 'data-valeur': b.valeur }} />
                   : <rect x={x0} {...barreY(b.valeur, y)} width={largeur}
                   className={b.cle === courante ? 'tdb-barre tdb-barre--courante' : 'tdb-barre'} data-valeur={b.valeur} />)}
@@ -1275,8 +1301,7 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
       </div>
       </div>
       {detail && <div className="tdb-histo-detail" data-histo-detail aria-live="polite"><BulleBarre info={detail.info} sous /></div>}
-      {legende && <figcaption className="loc-muet tdb-histo-legende"><span className="tdb-legende tdb-legende--barre" /> {legende.courant}
-        {legende.n1 !== null && <> · <span className="tdb-legende tdb-legende--barre-n1" /> {legende.n1}</>}</figcaption>}
+      {legende && <LegendeHisto legende={legende} courant={avecCourant} n1={avecN1} />}
       </div>
     </figure>
   );
