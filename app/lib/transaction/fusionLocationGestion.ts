@@ -31,6 +31,9 @@ const RIEN: MontantC = { htC: 0, ttcC: 0 };
 export interface PartFusion { ca: MontantC; couts: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC }
 export interface TotauxFusion {
   activite: ActiviteFusion;
+  /** 🔴 LOT LG2 — les coûts salariaux chargés sont-ils comptés (« Avec salaires ») ? Sinon (« Sans salaires ») : ni dans les coûts, ni déduits du
+   *  CA net ; leur montant reste dans `couts.salaries` (montré à part, « non comptés »). */
+  salaires: boolean;
   location: PartFusion; gestion: PartFusion;
   /** Les totaux des parts comptées (la somme des deux, ou une seule). */
   ca: MontantC; couts: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC;
@@ -57,13 +60,23 @@ const somme = (a: PartFusion, b: PartFusion): Omit<PartFusion, never> => ({
   couts: Object.fromEntries(FAMILLES_COUTS.map((f) => [f.cle, plusC(a.couts[f.cle], b.couts[f.cle])])) as Record<FamilleCout, MontantC>,
 });
 
+/**
+ * 🔴 LOT LG2 — « Sans salaires » : la part gestion SANS les coûts salariaux chargés — ses coûts sans eux, son CA net augmenté d'eux (le même montant
+ * en HT et en TTC : sans TVA). Les autres familles et les CA ne changent pas. PUR.
+ */
+export function horsSalaires(p: PartFusion): PartFusion {
+  const s = p.couts.salaries;
+  return { ...p, coutsTotal: { htC: p.coutsTotal.htC - s.htC, ttcC: p.coutsTotal.ttcC - s.ttcC }, net: plusC(p.net, s) };
+}
+
 /** Les totaux de la fusion sur des mois : la part de chaque page, puis leur somme (la part non comptée par « Activité » : 0). PUR. */
-export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux'): TotauxFusion {
+export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true): TotauxFusion {
   const tLocation = totauxLocation(lignesDesMois(lignes, ms));
   const tGestion = totauxGestion(gestion, ms);
   const location = activite === 'gestion' ? VIDE : partLocation(tLocation);
-  const gest = activite === 'location' ? VIDE : partGestion(tGestion);
-  return { activite, location, gestion: gest, ...somme(location, gest), tLocation, tGestion,
+  const gestionAvec = activite === 'location' ? VIDE : partGestion(tGestion);
+  const gest = salaires ? gestionAvec : horsSalaires(gestionAvec);
+  return { activite, salaires, location, gestion: gest, ...somme(location, gest), tLocation, tGestion,
     baux: activite === 'gestion' ? null : tLocation.nb, lots: activite === 'location' ? null : tGestion.lots };
 }
 

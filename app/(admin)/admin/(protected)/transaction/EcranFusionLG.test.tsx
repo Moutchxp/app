@@ -36,7 +36,7 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   window.localStorage.setItem('trx-affichage-montants', 'ht');
-  window.localStorage.removeItem('trx-fusion-couts-mode'); window.localStorage.removeItem('trx-fusion-net-mode');
+  window.localStorage.removeItem('trx-fusion-couts-mode'); window.localStorage.removeItem('trx-fusion-net-mode'); window.localStorage.removeItem('trx-fusion-salaires');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: String(url).includes('vue=location')
     ? { disponible: true, aujourdhui: '2026-11-01', lignes } : { disponible: true, aujourdhui: '2026-11-01', ventes: [], gestion, location: null, monga: true } }) })) as unknown as typeof fetch;
@@ -122,6 +122,54 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     expect(lignesT.map((r) => r.getAttribute('data-rangee-fusion'))).toEqual(['2025', '2026']);
     expect(lignesT.reduce((s, r) => s + centimes(r.querySelector('[data-mot="Total CA"]')!.textContent!), 0)).toBe(centimes(texte('[data-fusion-ca]')));
     expect(document.querySelector('[data-deplier="histoire-fusion"]')).not.toBeNull();
+  });
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`🔴 LOT LG2 (${u.toUpperCase()}) — « Sans salaires » : coûts − salaires, CA net + salaires, titres « hors salaires », la même définition partout ; le choix n’ouvre pas la fenêtre`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois');
+      const lire = () => ['[data-fusion-ca]', '[data-fusion-couts]', '[data-fusion-net]'].map((x) => centimes(texte(x)));
+      const [ca, couts, net] = lire();
+      expect(document.querySelector('[data-salaires="avec"]')!.getAttribute('aria-pressed')).toBe('true');
+      expect(new URLSearchParams(window.location.search).get('salaires')).toBe('avec');
+      await cliquer('[data-salaires="sans"]');
+      expect(document.querySelector('[data-fenetre-couts-fusion]')).toBeNull(); // le choix n'ouvre pas la fenêtre
+      const salaires = 268891; // septembre : 2 688,91 € (sans TVA : le même en HT et en TTC)
+      expect(lire()).toEqual([ca, couts - salaires, net + salaires]);
+      expect(texte('[data-tuile="fusion-couts"] .tdb-tuile-mot')).toContain('Coûts hors salaires — septembre 2026');
+      expect(texte('[data-tuile="fusion-net"] .tdb-tuile-mot')).toContain('CA net hors salaires — septembre 2026');
+      expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires (non comptés)');
+      expect(document.querySelector('[data-famille-tuile="salaries"]')!.className).toContain('loc-muet');
+      expect([new URLSearchParams(window.location.search).get('salaires'), window.localStorage.getItem('trx-fusion-salaires')]).toEqual(['sans', 'sans']);
+      // le Résultat, le tableau, le graphique
+      expect(centimes(texte('[data-resultat-fusion="net"]'))).toBe(net + salaires);
+      expect(document.querySelector('[data-resultat-fusion="salaries"]')!.closest('dd')!.className).toContain('loc-muet');
+      expect(centimes(texte('[data-rangee-fusion="2026-9"] [data-mot="Total net"]'))).toBe(net + salaires);
+      await cliquer('[data-mesure-bouton="couts"]');
+      expect(texte('[data-bloc="histogramme-mois"] h3')).toContain('Coûts hors salaires');
+      // les fenêtres : salaires en gris, non comptés / non déduits ; totaux = tuiles
+      await cliquer('[data-tuile="fusion-couts"]');
+      expect(texte('[data-fenetre-couts-fusion] h2')).toBe('Coûts hors salaires par famille — septembre 2026');
+      expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts - salaires);
+      expect(texte('[data-categorie-fusion="salaries"] h3')).toContain('non comptés');
+      await cliquer('[data-fermer-fenetre]');
+      await cliquer('[data-tuile="fusion-net"]');
+      expect(grand('[data-fenetre-net-fusion] [data-fenetre-total]')).toBe(net + salaires);
+      expect(texte('[data-ligne-net-fusion="salaries"]')).toContain('non déduite');
+      expect(grand('[data-net-fusion-ca]') - grand('[data-net-fusion-couts]')).toBe(net + salaires);
+      await cliquer('[data-fermer-fenetre]');
+      // retour « Avec salaires » : les chiffres d'avant
+      await cliquer('[data-salaires="avec"]');
+      expect(lire()).toEqual([ca, couts, net]);
+    });
+  }
+  it('🔴 LOT LG2 — le choix retenu dans le navigateur ; l’adresse l’emporte (&salaires=avec) ; la tuile s’ouvre au clavier', async () => {
+    window.localStorage.setItem('trx-fusion-salaires', 'sans');
+    await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois');
+    expect(document.querySelector('[data-salaires="sans"]')!.getAttribute('aria-pressed')).toBe('true');
+    await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois&salaires=avec');
+    expect(document.querySelector('[data-salaires="avec"]')!.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { document.querySelector('[data-tuile="fusion-couts"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(document.querySelector('[data-fenetre-couts-fusion]')).not.toBeNull();
   });
   it('la page : l’écran, sous le droit « Transaction » (plus « En construction »)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/transaction/location-gestion/fusion/page.tsx', 'utf8');

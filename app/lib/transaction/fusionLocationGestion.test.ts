@@ -60,3 +60,27 @@ describe('🔴 LOT LG1 — la fusion = la somme des deux pages, au centime', () 
     expect(anneesFusion(lignes, gestion, '2026-11-01')).toEqual([2025, 2026]);
   });
 });
+
+/**
+ * 🔴 LOT LG2 — « Sans salaires » : les coûts SANS les coûts salariaux chargés (sans TVA : le même montant HT et TTC) ; le CA net augmenté d'eux ;
+ * rien d'autre ne change ; tuile 4 = tuile 1 − tuile 3 dans les deux modes.
+ */
+describe('🔴 LOT LG2 — Avec | Sans salaires', () => {
+  for (const ms of [sept, annee]) {
+    it(`Sans = Avec − coûts salariaux chargés, au centime, HT et TTC ; CA net hors salaires = CA net + salaires (${ms.length} mois)`, () => {
+      const avec = totauxFusion(lignes, gestion, ms); const sans = totauxFusion(lignes, gestion, ms, 'deux', false);
+      const s = avec.couts.salaries;
+      expect(s.htC).toBe(s.ttcC);
+      expect([sans.coutsTotal.htC, sans.coutsTotal.ttcC]).toEqual([avec.coutsTotal.htC - s.htC, avec.coutsTotal.ttcC - s.ttcC]);
+      expect([sans.net.htC, sans.net.ttcC]).toEqual([avec.net.htC + s.htC, avec.net.ttcC + s.ttcC]);
+      expect([sans.net.htC, sans.net.ttcC]).toEqual([sans.ca.htC - sans.coutsTotal.htC, sans.ca.ttcC - sans.coutsTotal.ttcC]);
+      expect([sans.ca, sans.location, sans.couts, sans.salaires, avec.salaires]).toEqual([avec.ca, avec.location, avec.couts, false, true]);
+      expect(sans.gestion.net).toEqual({ htC: avec.gestion.net.htC + s.htC, ttcC: avec.gestion.net.ttcC + s.ttcC });
+    });
+  }
+  it('la location seule ne change pas ; la gestion seule : la même règle', () => {
+    expect(totauxFusion(lignes, gestion, annee, 'location', false).net).toEqual(totauxFusion(lignes, gestion, annee, 'location').net);
+    const g1 = totauxFusion(lignes, gestion, annee, 'gestion'); const g2 = totauxFusion(lignes, gestion, annee, 'gestion', false);
+    expect(g2.net.htC - g1.net.htC).toBe(g1.couts.salaries.htC);
+  });
+});
