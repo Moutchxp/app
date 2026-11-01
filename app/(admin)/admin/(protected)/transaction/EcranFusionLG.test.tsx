@@ -51,6 +51,8 @@ const ouvrir = async (q: string, ecran: () => ReturnType<typeof createElement> =
 const cliquer = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
 const texte = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+/** 🔴 LOT LG3 — les catégories des fenêtres sont fermées à l'ouverture : les ouvrir avant de lire leurs lignes. */
+const deplierCategories = async () => { for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-deplier-categorie][aria-expanded="false"]')]) await act(async () => { b.click(); }); };
 const grand = (sel: string): number => centimes(texte(`${sel} strong`));
 
 describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
@@ -78,13 +80,13 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(texte('[data-fusion-volume]')).toBe('1 bail · 300 lots');
       expect(document.querySelector('[data-fusion-couts]')!.className).toContain('trx-rouge');
       // la fenêtre « Coûts par famille » : total = tuile 3 ; les familles
-      await cliquer('[data-tuile="fusion-couts"]');
+      await cliquer('[data-tuile="fusion-couts"]'); await deplierCategories();
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
       expect(['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]']
         .reduce((s, x) => s + grand(x), 0)).toBe(couts);
       await cliquer('[data-fermer-fenetre]');
       // la fenêtre « CA net » : ordre comptable, total = tuile 4 ; dont location + dont gestion = total
-      await cliquer('[data-tuile="fusion-net"]');
+      await cliquer('[data-tuile="fusion-net"]'); await deplierCategories();
       expect(grand('[data-fenetre-net-fusion] [data-fenetre-total]')).toBe(net);
       expect(grand('[data-net-fusion-ca]') - grand('[data-net-fusion-couts]')).toBe(net);
       expect(grand('[data-net-fusion-location-net]') + grand('[data-net-fusion-gestion-net]')).toBe(net);
@@ -147,12 +149,12 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       await cliquer('[data-mesure-bouton="couts"]');
       expect(texte('[data-bloc="histogramme-mois"] h3')).toContain('Coûts hors salaires');
       // les fenêtres : salaires en gris, non comptés / non déduits ; totaux = tuiles
-      await cliquer('[data-tuile="fusion-couts"]');
+      await cliquer('[data-tuile="fusion-couts"]'); await deplierCategories();
       expect(texte('[data-fenetre-couts-fusion] h2')).toBe('Coûts hors salaires par famille — septembre 2026');
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts - salaires);
-      expect(texte('[data-categorie-fusion="salaries"] h3')).toContain('non comptés');
+      expect(texte('[data-categorie-fusion="salaries"] [data-titre-categorie]')).toContain('non comptés');
       await cliquer('[data-fermer-fenetre]');
-      await cliquer('[data-tuile="fusion-net"]');
+      await cliquer('[data-tuile="fusion-net"]'); await deplierCategories();
       expect(grand('[data-fenetre-net-fusion] [data-fenetre-total]')).toBe(net + salaires);
       expect(texte('[data-ligne-net-fusion="salaries"]')).toContain('non déduite');
       expect(grand('[data-net-fusion-ca]') - grand('[data-net-fusion-couts]')).toBe(net + salaires);
@@ -171,6 +173,46 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     await act(async () => { document.querySelector('[data-tuile="fusion-couts"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
     expect(document.querySelector('[data-fenetre-couts-fusion]')).not.toBeNull();
   });
+  for (const [u, sal] of [['ht', 'avec'], ['ttc', 'sans']] as const) {
+    it(`🔴 LOT LG3 (${u.toUpperCase()}, ${sal} salaires) — « Coûts par famille » : chaque catégorie FERMÉE à l’ouverture (triangle, nom, sous-total) ; un clic l’ouvre, un autre la ferme ; plusieurs ouvertes ; totaux inchangés ; rien de retenu`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir(`/?vue=mois&annee=2026&mois=9&vue-mois=mois&salaires=${sal}`);
+      const couts = centimes(texte('[data-fusion-couts]'));
+      await cliquer('[data-tuile="fusion-couts"]');
+      const boutons = () => [...document.querySelectorAll<HTMLButtonElement>('[data-fenetre-couts-fusion] [data-deplier-categorie]')];
+      expect(boutons().map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded'), b.tagName, b.getAttribute('type')]))
+        .toEqual(['primes', 'apporteurs', 'adhoc', 'monga', 'salaries'].map((k) => [k, 'false', 'BUTTON', 'button']));
+      expect(document.querySelectorAll('[data-fenetre-couts-fusion] [data-detail-categorie]')).toHaveLength(0);
+      expect(boutons().every((b) => b.querySelector('.svv-triangle-boite') !== null && b.querySelector('[data-titre-categorie]') !== null)).toBe(true);
+      // les sous-totaux restent sur la ligne fermée ; total haut = total bas = tuile
+      const sous = ['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]']
+        .reduce((x, y) => x + grand(y), 0) + (sal === 'avec' ? grand('[data-sous-total-fusion="salaries"]') : 0);
+      expect([sous, grand('[data-fenetre-couts-fusion] [data-fenetre-total]'), centimes(texte('[data-fenetre-couts-fusion] [data-fenetre-total-haut] strong'))]).toEqual([couts, couts, couts]);
+      // un clic ouvre, plusieurs ouvertes, un nouveau clic ferme
+      await cliquer('[data-deplier-categorie="adhoc"]');
+      await cliquer('[data-deplier-categorie="primes"]');
+      expect([...document.querySelectorAll('[data-detail-categorie]')].map((x) => x.getAttribute('data-detail-categorie'))).toEqual(['primes', 'adhoc']);
+      expect(document.querySelector('[data-ligne-fusion="adhoc-2026-9"]')).not.toBeNull();
+      expect(document.querySelector('[data-deplier-categorie="adhoc"]')!.getAttribute('aria-expanded')).toBe('true');
+      await cliquer('[data-deplier-categorie="adhoc"]');
+      expect([...document.querySelectorAll('[data-detail-categorie]')].map((x) => x.getAttribute('data-detail-categorie'))).toEqual(['primes']);
+      expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
+      // rien n'est retenu : refermée puis rouverte, la fenêtre a tout fermé
+      await cliquer('[data-fermer-fenetre]');
+      await cliquer('[data-tuile="fusion-couts"]');
+      expect(document.querySelectorAll('[data-detail-categorie]')).toHaveLength(0);
+      await cliquer('[data-fermer-fenetre]');
+      // « CA net » : CA brut et coûts fermés ; = CA net et ses « dont » toujours visibles
+      await cliquer('[data-tuile="fusion-net"]');
+      expect([...document.querySelectorAll('[data-fenetre-net-fusion] [data-deplier-categorie]')].map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded')])).toEqual([['ca', 'false'], ['couts', 'false']]);
+      expect(grand('[data-net-fusion-ca]') - grand('[data-net-fusion-couts]')).toBe(grand('[data-fenetre-net-fusion] [data-fenetre-total]'));
+      expect(document.querySelector('[data-net-fusion-location-net]')).not.toBeNull();
+      // « Par mois » : inchangé (ouvert)
+      await cliquer('[data-mode-fenetre="transaction"]');
+      expect(document.querySelectorAll('[data-fenetre-net-fusion] [data-deplier-categorie]')).toHaveLength(0);
+      expect(document.querySelector('[data-net-mois="2026-9"]')).not.toBeNull();
+    });
+  }
   it('la page : l’écran, sous le droit « Transaction » (plus « En construction »)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/transaction/location-gestion/fusion/page.tsx', 'utf8');
     expect([src.includes('<EcranFusionLocationGestion />'), src.includes('accesTransaction()'), src.includes('EnConstruction')]).toEqual([true, true, false]);

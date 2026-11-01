@@ -15,7 +15,7 @@ import { BlocReplie } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
-import { CoqueFenetre, Montant } from './FenetreCommissions';
+import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { CSS_FENETRES_LOCATION, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
 
 /**
@@ -483,13 +483,14 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
   const sectionG = (k: (typeof famillesG)[number]) => {
     const mois = ms.filter((m) => duMois(k, m).htC !== 0);
     return (
-      <section key={k} className="trx-fc-section" data-categorie-fusion={k} aria-label={libG[k]}>
-        <div className="trx-fc-tete trx-somme"><h3 className={nonCompte(k) ? 'loc-muet' : undefined}>{libG[k]}{nonCompte(k) ? ' — non comptés' : ''}</h3>
-          <Montant htC={T.couts[k].htC} ttcC={T.couts[k].ttcC} versee={!nonCompte(k)} donnees={{ 'data-sous-total-fusion': k }} /></div>
+      // 🔴 LOT LG3 — fermée à l'ouverture : le nom et le sous-total ; un clic montre les mois
+      <CategorieRepliable key={k} cle={k} donnees={{ 'data-categorie-fusion': k, 'aria-label': libG[k] }} classeTitre={nonCompte(k) ? 'loc-muet' : undefined}
+        titre={<>{libG[k]}{nonCompte(k) ? ' — non comptés' : ''}</>}
+        montant={<Montant htC={T.couts[k].htC} ttcC={T.couts[k].ttcC} versee={!nonCompte(k)} donnees={{ 'data-sous-total-fusion': k }} />}>
         {mois.length === 0 ? <p className="trx-fc-aucune" data-aucune={k}>Aucune</p> : <ul className="trx-fc-lignes">{mois.map((m) => (
           <li key={`${m.annee}-${m.mois}`} className="trx-fc-ligne" data-ligne-fusion={`${k}-${m.annee}-${m.mois}`}><span className="trx-fc-quoi">{moisLib(m)}</span>
             <Montant htC={duMois(k, m).htC} ttcC={duMois(k, m).ttcC} versee={!nonCompte(k)} /></li>))}</ul>}
-      </section>
+      </CategorieRepliable>
     );
   };
   const blocs = ms.map((m) => ({ m, t: totauxFusion(lignes, gestion, [m], activite, salaires) })).filter((x) => x.t.coutsTotal.htC !== 0 || x.t.coutsTotal.ttcC !== 0 || x.t.couts.salaries.htC !== 0).reverse();
@@ -534,20 +535,20 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
     <CoqueFenetre titre={`CA net${hors(salaires)} — ${lib}`} donnee="fenetre-net-fusion" totalHtC={T.net.htC} totalTtcC={T.net.ttcC} sens="recu"
       dossiers={`${blocs.length} mois`} cleMode="trx-fusion-net-mode" motTransaction="Par mois" onFermer={onFermer} pied={total}
       corps={(mode) => (mode === 'categorie' ? <>
-        <section className="trx-fc-section" data-net-fusion="ca" aria-label="CA brut">
-          <div className="trx-fc-tete trx-somme"><h3>CA brut</h3><Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-net-fusion-ca': '' }} /></div>
+        <CategorieRepliable cle="ca" donnees={{ 'data-net-fusion': 'ca', 'aria-label': 'CA brut' }} titre="CA brut"
+          montant={<Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-net-fusion-ca': '' }} />}>
           <ul className="trx-fc-lignes">
             {avecL && ligneM('location-ca', <>Location <small className="trx-fc-sous">dont propriétaire {eur(U.en(T.tLocation.proprietaire))} · locataire {eur(U.en(T.tLocation.locataire))}</small></>, T.location.ca, 'recu', { 'data-net-fusion-location-ca': '' })}
             {avecG && ligneM('gestion-ca', 'Gestion (honoraires)', T.gestion.ca, 'recu', { 'data-net-fusion-gestion-ca': '' })}
           </ul>
-        </section>
-        <section className="trx-fc-section" data-net-fusion="couts" aria-label="Coûts">
-          <div className="trx-fc-tete trx-somme"><h3>− Coûts{hors(salaires)}</h3><Montant htC={T.coutsTotal.htC} ttcC={T.coutsTotal.ttcC} versee donnees={{ 'data-net-fusion-couts': '' }} /></div>
+        </CategorieRepliable>
+        <CategorieRepliable cle="couts" donnees={{ 'data-net-fusion': 'couts', 'aria-label': 'Coûts' }} titre={<>− Coûts{hors(salaires)}</>}
+          montant={<Montant htC={T.coutsTotal.htC} ttcC={T.coutsTotal.ttcC} versee donnees={{ 'data-net-fusion-couts': '' }} />}>
           <ul className="trx-fc-lignes">{familles.map((f) => (f.cle === 'salaries' && !salaires
             ? ligneM(f.cle, <span className="loc-muet">{f.libelle} (sans TVA) — non déduite <small className="trx-fc-sous">gestion</small></span>, T.couts[f.cle], 'info', { 'data-net-fusion-famille': f.cle })
             : ligneM(f.cle, <>− {f.libelle}{f.cle === 'salaries' ? ' (sans TVA)' : ''} <small className="trx-fc-sous">{f.activite === 'location' ? 'location' : 'gestion'}</small></>,
               T.couts[f.cle], 'verse', { 'data-net-fusion-famille': f.cle })))}</ul>
-        </section>
+        </CategorieRepliable>
         <div className="trx-fc-total-ca trx-somme--finale" data-total-net-fusion>{total}</div>
         {activite === 'deux' && <ul className="trx-fc-lignes trx-fusion-dont">
           {ligneM('location-net', '= dont CA net location', T.location.net, 'recu', { 'data-net-fusion-location-net': '' })}

@@ -5,7 +5,7 @@ import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { detailCoutsLocation, parDateDecroissante, titreBail, totauxLocation, type LigneLocationCa } from '../../../../lib/transaction/locationCa';
 import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage } from './commun';
-import { CoqueFenetre, Montant } from './FenetreCommissions';
+import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 
 /**
  * ══ 🔴 LOT LO6 (Arno, 01/11/2026) — « SUIVI CHIFFRE D'AFFAIRES › LOCATION » : LES FENÊTRES DES TUILES 3 ET 4 ═══════════════════════════════════
@@ -39,25 +39,26 @@ export function useLienBail(onAller: (id: number) => void): (l: LigneLocationCa)
 const sep = <span className="trx-fc-sep" aria-hidden="true"> · </span>;
 
 /** La catégorie « Primes de nouvelle gestion » : le sous-total en rouge, puis un bail par ligne (bien · locataire · négociateur · montant). */
-export function SectionPrimes({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
+export function SectionPrimes({ lignes, total, lien, moins, ouverte = false }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean; ouverte?: boolean }) {
   return (
-    <section className="trx-fc-section" data-categorie-location="primes" aria-label="Primes de nouvelle gestion">
-      <div className="trx-fc-tete trx-somme"><h3>{moins ? '− ' : ''}Primes de nouvelle gestion</h3><Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'primes' }} /></div>
+    // 🔴 LOT LG3 — fermée à l'ouverture de la fenêtre : le nom et le sous-total ; un clic montre les baux
+    <CategorieRepliable cle="primes" donnees={{ 'data-categorie-location': 'primes', 'aria-label': 'Primes de nouvelle gestion' }} titre={<>{moins ? '− ' : ''}Primes de nouvelle gestion</>}
+      montant={<Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'primes' }} />} ouverteInitiale={ouverte}>
       {lignes.length === 0 ? aucune('primes') : <ul className="trx-fc-lignes">{lignes.map((l) => (
         <li key={l.id} className="trx-fc-ligne" data-ligne-prime={l.id}>
           <span className="trx-fc-quoi">{lien(l)}{sep}<span data-locataire>{l.locataire || 'locataire à renseigner'}</span>{sep}<span data-nego>{l.negociateur.nom}</span></span>
           <Montant htC={l.primeC.htC} ttcC={l.primeC.ttcC} versee />
         </li>))}</ul>}
-    </section>
+    </CategorieRepliable>
   );
 }
 
 /** La catégorie « Commissions d'apporteurs » : le sous-total en rouge, puis un apporteur par ligne (son cumul ; dessous, en petit, ses baux). */
-export function SectionApporteurs({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
+export function SectionApporteurs({ lignes, total, lien, moins, ouverte = false }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean; ouverte?: boolean }) {
   const groupes = detailCoutsLocation(lignes).groupesApporteurs;
   return (
-    <section className="trx-fc-section" data-categorie-location="apporteurs" aria-label="Commissions d’apporteurs">
-      <div className="trx-fc-tete trx-somme"><h3>{moins ? '− ' : ''}Commissions d’apporteurs</h3><Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'apporteurs' }} /></div>
+    <CategorieRepliable cle="apporteurs" donnees={{ 'data-categorie-location': 'apporteurs', 'aria-label': 'Commissions d’apporteurs' }} titre={<>{moins ? '− ' : ''}Commissions d’apporteurs</>}
+      montant={<Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'apporteurs' }} />} ouverteInitiale={ouverte}>
       {groupes.length === 0 ? aucune('apporteurs') : <ul className="trx-fc-lignes">{groupes.map((g) => (
         <li key={g.nom} className="trx-fc-ligne" data-groupe-apporteur={g.nom}>
           <span className="trx-fc-quoi"><strong data-qui>{g.nom}</strong><small className="trx-fc-sous">{motBaux(g.lignes.length, false)}</small>
@@ -65,7 +66,7 @@ export function SectionApporteurs({ lignes, total, lien, moins }: { lignes: read
               <li key={l.id} data-bail-apporteur={l.id}>{lien(l)}{sep}<MontantPetit m={l.apporteurC} /></li>))}</ul></span>
           <Montant htC={g.total.htC} ttcC={g.total.ttcC} versee donnees={{ 'data-cumul-apporteur': g.nom }} />
         </li>))}</ul>}
-    </section>
+    </CategorieRepliable>
   );
 }
 
@@ -143,10 +144,10 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller }: { lignes:
       corps={(mode) => <>
         <style>{CSS_FENETRES_LOCATION}</style>
         {mode === 'categorie' ? <>
-          <section className="trx-fc-section" data-net-ca aria-label="CA brut">
-            <div className="trx-fc-tete trx-somme"><h3>CA brut</h3><Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-net-ca-montant': '' }} /></div>
+          <CategorieRepliable cle="ca" donnees={{ 'data-net-ca': '', 'aria-label': 'CA brut' }} titre="CA brut"
+            montant={<Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-net-ca-montant': '' }} />}>
             <p className="trx-fc-mention" data-net-parts>dont propriétaire {en(T.proprietaire)} · locataire {en(T.locataire)}</p>
-          </section>
+          </CategorieRepliable>
           <SectionApporteurs lignes={lignes} total={d.apporteurs} lien={lien} moins />
           <div className="trx-fc-total-ca trx-somme" data-net-apporteurs><span>= CA net d’apporteurs</span>
             <Montant htC={T.netApporteurs.htC} ttcC={T.netApporteurs.ttcC} versee={false} recu donnees={{ 'data-net-apporteurs-montant': '' }} /></div>

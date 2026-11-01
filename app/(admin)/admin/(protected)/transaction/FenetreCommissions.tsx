@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { dossiersConcernes, ETIQUETTE, estVersee, type AffaireCout, type AffaireSolde, type CategorieCout, type DetailCommissions, type DetailSolde,
   type LigneCout, type SectionCa } from '../../../../lib/transaction/detailCommissions';
 import { LIBELLE_SOCIETE, type Societe } from '../../../../lib/transaction/modele';
 import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage, useConsolide, useNommer, type UniteAffichage } from './commun';
+import { CSS_TRIANGLE, CSS_TRIANGLE_BOITE, DessinTriangle } from '../_composants/TriangleDepliage';
 
 /**
  * ══ 🔴 LOT AL (Arno, 29/10/2026) — LA FENÊTRE « COMMISSIONS VERSÉES » ══════════════════════════════════════════════════════════════════
@@ -96,6 +97,44 @@ export function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTota
     document.querySelector('.svv-adm-root') ?? document.body,
   );
 }
+
+/**
+ * ══ 🔴 LOT LG3 (Arno, 01/11/2026) — UNE CATÉGORIE DE FENÊTRE, REPLIÉE À L'OUVERTURE (partagée : fenêtres « Primes et rétrocessions » et « CA net » du
+ * Suivi CA › Location, « Coûts par famille » et « CA net » de la FUSION Location & Gestion, mode « Par catégorie ») ══════════════════════════════
+ * Une ligne : le triangle rouge partagé (lot BN), le nom de la catégorie et son sous-total (le `montant` de toujours : grand / petit selon HT | TTC,
+ * ses couleurs, la trame des sommes). Un clic (Entrée / Espace : un vrai bouton) ouvre ses lignes, un nouveau clic les referme ; plusieurs ouvertes à
+ * la fois ; rien n'est retenu (fermée à chaque ouverture de la fenêtre) ; `ouverteInitiale` : ouverte d'emblée (une ligne visée). Rien n'est retiré :
+ * ouverte, le détail d'avant, inchangé.
+ */
+export function CategorieRepliable({ cle, titre, montant, children, donnees, classeTitre, ouverteInitiale = false, classe = 'trx-fc-section' }: {
+  cle: string; titre: ReactNode; montant: ReactNode; children: ReactNode; donnees?: Record<string, string>; classeTitre?: string; ouverteInitiale?: boolean; classe?: string;
+}) {
+  const [ouverte, setOuverte] = useState(ouverteInitiale);
+  const id = useId();
+  return (
+    <section className={`${classe} trx-fc-categorie${ouverte ? ' trx-fc-categorie--ouverte' : ''}`} data-categorie-repliee={ouverte ? 'ouverte' : 'fermee'} {...donnees}>
+      <style>{CSS_CATEGORIE_REPLIABLE}</style>
+      <h3 className="trx-fc-h">
+        <button type="button" className="trx-fc-tete trx-somme trx-fc-bascule" aria-expanded={ouverte} aria-controls={`${id}-detail`} onClick={() => setOuverte((o) => !o)} data-deplier-categorie={cle}>
+          <span className="trx-fc-nom"><span className="svv-triangle-boite trx-fc-triangle" aria-hidden="true"><DessinTriangle ouvert={ouverte} /></span>
+            <span className={classeTitre} data-titre-categorie>{titre}</span></span>
+          {montant}
+        </button>
+      </h3>
+      {ouverte && <div className="trx-fc-detail" id={`${id}-detail`} data-detail-categorie={cle}>{children}</div>}
+    </section>
+  );
+}
+/** AUCUN ACCENT GRAVE DANS CE LITTERAL. */
+export const CSS_CATEGORIE_REPLIABLE = `${CSS_TRIANGLE}${CSS_TRIANGLE_BOITE}
+.trx-fc-h{margin:0;font-size:.98rem;font-weight:800;line-height:1.3}
+.trx-fc-bascule{appearance:none;align-items:center;width:calc(100% + 12px);min-height:44px;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer;border-radius:8px}
+.trx-fc-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-fc-categorie:not(.trx-fc-categorie--ouverte) .trx-fc-bascule{margin-bottom:-4px}
+.trx-fc-nom{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
+.trx-fc-triangle{margin-left:-8px;margin-right:-10px}
+.trx-fc-detail{display:flex;flex-direction:column;gap:6px}
+`;
 
 /** Le nom d'une affaire : un lien qui ferme la fenêtre et déplie sa carte. */
 function lienAffaire(titres: Record<number, string>, onAller: (id: number) => void): (id: number) => ReactNode {
