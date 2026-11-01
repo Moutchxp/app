@@ -241,6 +241,31 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
   });
 });
 
+describe('🔴 LOT LO7 — « Le mois » : ouverture sans paramètre sur « Année »', () => {
+  const rouvrir = async (q: string) => { act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(q); };
+  it('sans paramètre (tuile « Location » de Location & Gestion, menu) : Année 2026, les 12 mois, le cumul de l’année ; le choix de la visite reste', async () => {
+    vi.setSystemTime(new Date('2026-11-01T10:00:00Z'));
+    await ouvrir('/');
+    expect(container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode')).toBe('annee');
+    expect(texte('[data-filtre="annee"]')).toContain('2026');
+    expect(container.querySelectorAll('[data-onglet-mois][aria-pressed="true"]')).toHaveLength(12);
+    expect(texte('[data-tuile="location-ca"] .tdb-tuile-mot')).toContain('CA brut — 2026');
+    expect(new URLSearchParams(window.location.search).get('vue-mois')).toBe('annee');
+    await cliquer('[data-decouper="mois"]');
+    await cliquer('[data-onglet-mois="9"]');
+    expect(container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode')).toBe('mois');
+  });
+  it('un lien qui précise une vue la garde : &vue-mois=mois, &mois=…, &periode=… ; « L’année » inchangée', async () => {
+    for (const [q, attendu] of [['/?vue=mois&annee=2025&vue-mois=mois', 'mois'], ['/?vue=mois&annee=2025&mois=9', 'mois'], ['/?vue=mois&annee=2025&periode=2025-08,2025-09', 'periode'],
+      ['/?vue=mois&annee=2025&vue-mois=annee', 'annee']] as const) {
+      await rouvrir(q);
+      expect([q, container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode')]).toEqual([q, attendu]);
+    }
+    await rouvrir('/?vue=annee&annee=2025');
+    expect(container.querySelector('[data-vue="annee"]')!.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
 describe('🔴 LOT LO1 — « Location » : L’année', () => {
   it('Tout : « toutes les années », sans N−1 ; « Toute l’histoire » année par année ; une année s’ouvre', async () => {
     await ouvrir('/?vue=annee&annee=2025&vue-annee=tout');

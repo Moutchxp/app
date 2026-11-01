@@ -129,13 +129,17 @@ export function vueInitiale(vue: string | null, avecMois: boolean): 'compromis' 
  * 🔴 LOT GE1 — LA LIGNE DES MOIS (« Mois | Période | Année ») de « Le mois », en un crochet : Transaction et Gestion la partagent (déplacée
  * d'`EcranSociete`, à l'identique).
  */
-export function useLigneDesMois(jour: string) {
+export function useLigneDesMois(jour: string, { anneeParDefaut = false }: { anneeParDefaut?: boolean } = {}) {
   // 🔴 LOT CP (Arno) — « Mensuel | Période » : null = Mensuel (l'écran d'avant) ; sinon les mois choisis, repris de l'adresse (&periode=2026-07,2026-09)
   // et retenus pendant la visite (changement d'onglet, de mode, d'unité). Sans « mois » dans l'adresse, le dernier mois de la période est le mois montré.
   // 🔴 LOT CT (Arno) — trois positions « Mois | Période | Année » (&vue-mois=mois|periode|annee ; un ancien lien sans « vue-mois » : « &periode=… »
   // ouvre la Période, sinon le Mois). « Année » = les 12 mois de l'année du filtre, cumulés par les fonctions de la Période.
   const [periode, setPeriode] = useState<MoisChoisi[] | null>(() => (parametre('vue-mois') === 'mois' || parametre('vue-mois') === 'annee' ? null : lirePeriode(parametre('periode'))));
-  const [anneeEntiere, setAnneeEntiere] = useState(() => parametre('vue-mois') === 'annee');
+  // 🔴 LOT LO7 (Arno) — Location et Gestion (`anneeParDefaut`) : une adresse qui ne précise aucune vue du mois (ni « vue-mois », ni « mois », ni
+  // « periode » : la tuile de « Location & Gestion », le menu) ouvre « Année », l'année en cours ; un lien qui en précise une la garde. Seulement à
+  // l'ouverture : le choix fait pendant la visite reste. La Transaction vente n'est pas concernée.
+  const [anneeEntiere, setAnneeEntiere] = useState(() => parametre('vue-mois') === 'annee'
+    || (anneeParDefaut && parametre('vue-mois') === null && parametre('mois') === null && parametre('periode') === null));
   const [refusPeriode, setRefusPeriode] = useState(false);
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? lirePeriode(parametre('periode'))?.at(-1)?.annee ?? Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? lirePeriode(parametre('periode'))?.at(-1)?.mois ?? Number(jour.slice(5, 7)));
@@ -1844,7 +1848,7 @@ export function EcranGestion() {
   // « Le mois » | « L'année » ; un ANCIEN lien « ?annee=2026 » (sans vue ni mois) ouvre « L'année » de cette année, comme avant.
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' || (parametre('vue') === null && parametre('annee') !== null && parametre('mois') === null
     && parametre('vue-mois') === null && parametre('periode') === null) ? 'annee' : 'mois'));
-  const { annee, setAnnee, mois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte } = useLigneDesMois(jour);
+  const { annee, setAnnee, mois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte } = useLigneDesMois(jour, { anneeParDefaut: true });
   const anneesDispo = lu.etat === 'ok' ? anneesGestion(lu.data.gestion, jour) : null;
   const { choixA, setChoixAnnees, refusAnnees, setRefusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles } = useLigneDesAnnees(jour, anneesDispo,
     vue === 'annee', (a) => lu.etat === 'ok' && lu.data.gestion.some((g) => g.annee === a));

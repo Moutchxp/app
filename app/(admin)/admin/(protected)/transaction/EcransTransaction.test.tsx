@@ -290,6 +290,24 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
   const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
   const adresse = () => new URLSearchParams(window.location.search);
 
+  // 🔴 LOT LO7 — sans vue du mois dans l'adresse (tuile « Gestion » de Location & Gestion, menu) : « Année », l'année en cours ; un lien qui en précise une la garde
+  it('🔴 LOT LO7 — ouverture sans paramètre : « Le mois » sur « Année » (année en cours, 12 mois) ; &vue-mois=mois, &mois=…, &periode=… gardent leur choix', async () => {
+    const an = new Date().getFullYear();
+    await ouvrirG('/');
+    expect([container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode'), container.querySelector('[data-decouper="annee"]')!.getAttribute('aria-pressed')]).toEqual(['annee', 'true']);
+    expect(container.querySelectorAll('[data-onglet-mois][aria-pressed="true"]')).toHaveLength(12);
+    expect([adresse().get('vue-mois'), adresse().get('annee')]).toEqual(['annee', String(an)]);
+    // le choix de la visite reste : « Mois » choisi, il y reste en changeant de mois
+    await cliquer('[data-decouper="mois"]');
+    await cliquer('[data-onglet-mois="3"]');
+    expect(container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode')).toBe('mois');
+    for (const [q, attendu] of [['/?vue=mois&annee=2025&vue-mois=mois', 'mois'], ['/?vue=mois&annee=2025&mois=3', 'mois'], ['/?vue=mois&annee=2025&periode=2025-01,2025-03', 'periode']] as const) {
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await ouvrirG(q);
+      expect([q, container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode')]).toEqual([q, attendu]);
+    }
+  });
+
   it('Le mois (janvier 2025) : 4 tuiles — honoraires, ADHOC (rouge), salariés (gris à 0), CA net = honoraires − ADHOC − salariés au centime ; N−1 et écart ; pas de HT | TTC ni de Négociateur', async () => {
     await ouvrirG('/?vue=mois&annee=2025&mois=1');
     expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaries', 'gestion-net']); // 🔴 LOT GE3 : MONGA

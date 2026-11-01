@@ -46,7 +46,7 @@ export function EcranLocationCA() {
   const jour = aujourdhuiParis();
   const { lu } = useTransaction<DonneesLocationCa>('vue=location');
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
-  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour);
+  const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour, { anneeParDefaut: true }); // 🔴 LOT LO7 — sans vue du mois dans l'adresse : « Année »
   const [compter, setCompter] = useState<CompterLocation>(compterInitial);
   const [negociateurs, setNegociateurs] = useState<string[]>(() => parametres('negociateur'));
   const toutes = lu.etat === 'ok' ? lu.data.lignes : [];
