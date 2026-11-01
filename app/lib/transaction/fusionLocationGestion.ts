@@ -2,12 +2,12 @@ import type { GestionMois } from './modele';
 import type { MontantC } from './partAgence';
 import type { MoisChoisi } from './periodeMois';
 import { moisGestion, totauxGestion, type MoisGestionVu, type TotauxGestion } from './gestionVue';
-import { lignesDesMois, plusC, totauxLocation, type LigneLocationCa, type TotauxLocationCa } from './locationCa';
+import { coutsLocationMois, lignesDesMois, plusC, salairesLocationDuMois, totauxLocation, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa } from './locationCa';
 
 /**
  * ══ 🔴 LOT LG1 (Arno, 01/11/2026) — « FUSION LOCATION & GESTION » : LE CUMUL DES DEUX ACTIVITÉS (PUR) ═════════════════════════════════════════════
  * AUCUN CALCUL PROPRE : la part LOCATION est `totauxLocation` (la page Location : chaque ligne au centime, `sommesLocation`), la part GESTION est
- * `totauxGestion` (la page Gestion : chaque mois au centime, TTC à ses taux, coûts salariaux chargés sans TVA). La fusion n'additionne que leurs
+ * `totauxGestion` (la page Gestion : chaque mois au centime, TTC à ses taux, salaires chargés sans TVA). La fusion n'additionne que leurs
  * centimes : chaque part = sa page d'origine, et CA net = CA brut − coûts, au centime, en HT et en TTC (vrai dans chaque page, donc dans la somme).
  * « Activité » : les deux (défaut), la location seule, la gestion seule — une partition exacte (l'autre part compte 0).
  */
@@ -16,82 +16,89 @@ export const ACTIVITES_FUSION: readonly ActiviteFusion[] = ['deux', 'location', 
 export const LIBELLE_ACTIVITE_FUSION: Record<ActiviteFusion, string> = { deux: 'Les deux', location: 'Location', gestion: 'Gestion' };
 export const estActiviteFusion = (x: unknown): x is ActiviteFusion => x === 'deux' || x === 'location' || x === 'gestion';
 
-/** Les familles de coûts, dans l'ordre comptable : la location (primes, apporteurs), puis la gestion (ADHOC, MONGA, coûts salariaux chargés). */
-export type FamilleCout = 'primes' | 'apporteurs' | 'adhoc' | 'monga' | 'salaries';
+/**
+ * Les familles de coûts, dans l'ordre comptable : la location (primes, apporteurs, variable du négociateur, ses salaires chargés), puis la gestion
+ * (ADHOC, MONGA, ses salaires chargés). 🔴 LOT LO11 — « Coûts salariaux chargés » devient « Salaires chargés » ; le variable et les salaires de la
+ * Location s'ajoutent.
+ */
+export type FamilleCout = 'primes' | 'apporteurs' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salaries';
 export const FAMILLES_COUTS: readonly { cle: FamilleCout; libelle: string; activite: 'location' | 'gestion' }[] = [
   { cle: 'primes', libelle: 'Primes de nouvelle gestion', activite: 'location' },
   { cle: 'apporteurs', libelle: 'Commissions d’apporteurs', activite: 'location' },
+  { cle: 'variable', libelle: 'Variable du négociateur', activite: 'location' },
+  { cle: 'salairesLocation', libelle: 'Salaires chargés — location', activite: 'location' },
   { cle: 'adhoc', libelle: 'Coût ADHOC', activite: 'gestion' },
   { cle: 'monga', libelle: 'Coût MONGA', activite: 'gestion' },
-  { cle: 'salaries', libelle: 'Coûts salariaux chargés', activite: 'gestion' },
+  { cle: 'salaries', libelle: 'Salaires chargés — gestion', activite: 'gestion' },
 ];
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
-/** Une part d'activité : CA brut, ses coûts, son CA net (centimes HT et TTC). */
-export interface PartFusion { ca: MontantC; couts: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC }
+const familles0 = (): Record<FamilleCout, MontantC> => ({ primes: RIEN, apporteurs: RIEN, variable: RIEN, salairesLocation: RIEN, adhoc: RIEN, monga: RIEN, salaries: RIEN });
+/**
+ * Une part d'activité : CA brut ; `couts` : le montant de chaque famille (montré) ; `deduits` : ce qui en est déduit (🔴 LOT LO11 : les primes et le
+ * variable d'un mois avec salaires chargés sont « inclus dans les salaires », non déduits ; en « Sans salaires », les salaires ne sont pas comptés) ;
+ * `coutsTotal` = Σ `deduits` ; CA net = CA − `coutsTotal` (centimes HT et TTC).
+ */
+export interface PartFusion { ca: MontantC; couts: Record<FamilleCout, MontantC>; deduits: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC }
 export interface TotauxFusion {
   activite: ActiviteFusion;
-  /** 🔴 LOT LG2 — les coûts salariaux chargés sont-ils comptés (« Avec salaires ») ? Sinon (« Sans salaires ») : ni dans les coûts, ni déduits du
-   *  CA net ; leur montant reste dans `couts.salaries` (montré à part, « non comptés »). */
+  /** 🔴 LOT LG2 — « Avec salaires » : les salaires chargés sont comptés ; « Sans salaires » : ni dans les coûts, ni déduits (montrés « non comptés »). */
   salaires: boolean;
-  /**
-   * 🔴 LOT LG4 (règle d'Arno, 01/11/2026) — les primes de nouvelle gestion sont payées DANS les salaires : en « Avec salaires », quand la gestion est
-   * comptée (« Les deux »), elles sont déjà dans les coûts salariaux chargés et ne se retirent pas une seconde fois. Leur montant (null : la règle ne
-   * s'applique pas) ; la part location est alors celle AVANT primes. Vérifié en recette : toutes les primes vont à un négociateur salarié.
-   */
-  primesEnPaie: MontantC | null;
   location: PartFusion; gestion: PartFusion;
   /** Les totaux des parts comptées (la somme des deux, ou une seule). */
-  ca: MontantC; couts: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC;
+  ca: MontantC; couts: Record<FamilleCout, MontantC>; deduits: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC;
+  /** 🔴 LOT LO11 — les primes et le variable montrés mais NON déduits (« inclus dans les salaires ») : leur montant, et le nombre de mois concernés. */
+  inclus: { primes: MontantC; variable: MontantC; mois: number };
   /** Les détails des pages d'origine (pour le volume, les parts propriétaire / locataire, les mois saisis). */
   tLocation: TotauxLocationCa; tGestion: TotauxGestion;
   /** Baux signés (location) ; lots gérés (gestion : ceux du mois, ou leur moyenne) ; null : activité non comptée. */
   baux: number | null; lots: number | null;
 }
+const somme = (a: Record<FamilleCout, MontantC>, b: Record<FamilleCout, MontantC>): Record<FamilleCout, MontantC> =>
+  Object.fromEntries(FAMILLES_COUTS.map((f) => [f.cle, plusC(a[f.cle], b[f.cle])])) as Record<FamilleCout, MontantC>;
+const total = (r: Record<FamilleCout, MontantC>): MontantC => FAMILLES_COUTS.reduce((s, f) => plusC(s, r[f.cle]), RIEN);
+const part = (ca: MontantC, couts: Record<FamilleCout, MontantC>, deduits: Record<FamilleCout, MontantC>): PartFusion => {
+  const coutsTotal = total(deduits);
+  return { ca, couts, deduits, coutsTotal, net: { htC: ca.htC - coutsTotal.htC, ttcC: ca.ttcC - coutsTotal.ttcC } };
+};
+const VIDE: PartFusion = part(RIEN, familles0(), familles0());
+const additionner = (a: PartFusion, b: PartFusion): PartFusion => part(plusC(a.ca, b.ca), somme(a.couts, b.couts), somme(a.deduits, b.deduits));
 
-/** La part location : la page Location, telle quelle (`totauxLocation`). PUR. */
-export function partLocation(t: TotauxLocationCa): PartFusion {
-  const couts = { primes: t.primes, apporteurs: t.apporteurs, adhoc: RIEN, monga: RIEN, salaries: RIEN };
-  return { ca: t.ca, couts, coutsTotal: plusC(t.primes, t.apporteurs), net: t.net };
+/** La part gestion d'un mois : la page Gestion (`moisGestion` : ADHOC, MONGA, salaires chargés sans TVA) ; « Sans salaires » : salaires non comptés. PUR. */
+export function partGestionMois(g: MoisGestionVu, salaires = true): PartFusion {
+  const couts = { ...familles0(), adhoc: { htC: g.adhocC, ttcC: g.adhocTtcC }, monga: { htC: g.mongaC, ttcC: g.mongaTtcC }, salaries: { htC: g.salariesC, ttcC: g.salariesC } };
+  return part({ htC: g.honorairesC, ttcC: g.honorairesTtcC }, couts, salaires ? couts : { ...couts, salaries: RIEN });
 }
-/** La part gestion : la page Gestion, telle quelle (`totauxGestion` ; les coûts salariaux chargés : sans TVA). PUR. */
-export function partGestion(t: Pick<TotauxGestion, 'honorairesC' | 'honorairesTtcC' | 'adhocC' | 'adhocTtcC' | 'mongaC' | 'mongaTtcC' | 'salariesC' | 'netC' | 'netTtcC'>): PartFusion {
-  const adhoc = { htC: t.adhocC, ttcC: t.adhocTtcC }; const monga = { htC: t.mongaC, ttcC: t.mongaTtcC }; const salaries = { htC: t.salariesC, ttcC: t.salariesC };
-  return { ca: { htC: t.honorairesC, ttcC: t.honorairesTtcC }, couts: { primes: RIEN, apporteurs: RIEN, adhoc, monga, salaries },
-    coutsTotal: plusC(plusC(adhoc, monga), salaries), net: { htC: t.netC, ttcC: t.netTtcC } };
-}
-const VIDE: PartFusion = { ca: RIEN, couts: { primes: RIEN, apporteurs: RIEN, adhoc: RIEN, monga: RIEN, salaries: RIEN }, coutsTotal: RIEN, net: RIEN };
-const somme = (a: PartFusion, b: PartFusion): Omit<PartFusion, never> => ({
-  ca: plusC(a.ca, b.ca), coutsTotal: plusC(a.coutsTotal, b.coutsTotal), net: plusC(a.net, b.net),
-  couts: Object.fromEntries(FAMILLES_COUTS.map((f) => [f.cle, plusC(a.couts[f.cle], b.couts[f.cle])])) as Record<FamilleCout, MontantC>,
-});
 
 /**
- * 🔴 LOT LG2 — « Sans salaires » : la part gestion SANS les coûts salariaux chargés — ses coûts sans eux, son CA net augmenté d'eux (le même montant
- * en HT et en TTC : sans TVA). Les autres familles et les CA ne changent pas. PUR.
+ * ══ 🔴 LOT LO11 (règle d'Arno) — LES TOTAUX DE LA FUSION, MOIS PAR MOIS ═════════════════════════════════════════════════════════════════════
+ * Chaque mois, la location à la règle de sa page (`coutsLocationMois` : apporteurs + primes + variable, ou apporteurs + ses salaires chargés) et la
+ * gestion à celle de la sienne (`moisGestion`). « Avec salaires », les deux activités : les primes et le variable ne sont déduits QUE les mois sans
+ * salaires chargés saisis (ni location, ni gestion) — sinon ils sont montrés, « inclus dans les salaires » (remplace la règle du lot LG4). « Sans
+ * salaires » : aucun salaire compté, primes et variable toujours déduits. « Location » seule = la page Location ; « Gestion » seule = la page Gestion.
+ * Une période = la somme de ses mois. PUR.
  */
-export function horsSalaires(p: PartFusion): PartFusion {
-  const s = p.couts.salaries;
-  return { ...p, coutsTotal: { htC: p.coutsTotal.htC - s.htC, ttcC: p.coutsTotal.ttcC - s.ttcC }, net: plusC(p.net, s) };
-}
-
-/** 🔴 LOT LG4 — la part location SANS ses primes (payées dans les salaires) : ses coûts sans elles, son CA net augmenté d'elles. PUR. */
-export function primesHorsCouts(p: PartFusion): PartFusion {
-  const pr = p.couts.primes;
-  return { ...p, coutsTotal: { htC: p.coutsTotal.htC - pr.htC, ttcC: p.coutsTotal.ttcC - pr.ttcC }, net: plusC(p.net, pr) };
-}
-
-/** Les totaux de la fusion sur des mois : la part de chaque page, puis leur somme (la part non comptée par « Activité » : 0). PUR. */
-export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true): TotauxFusion {
+export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true,
+  loc: { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null } = { retros: [], salaires: null }): TotauxFusion {
+  let location = VIDE; let gest = VIDE;
+  const inclus = { primes: RIEN, variable: RIEN, mois: 0 };
+  for (const m of ms) {
+    const g = moisGestion(gestion, m.annee, m.mois);
+    if (activite !== 'gestion') {
+      const salL = salairesLocationDuMois(loc.salaires, m.annee, m.mois);
+      const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL);
+      const incl = salaires && (salL !== null || (activite === 'deux' && g.ligne?.salarieHt != null));
+      const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salaires };
+      const deduits = { ...couts, primes: incl ? RIEN : c.primes, variable: incl ? RIEN : c.variable, salairesLocation: salaires ? c.salaires : RIEN };
+      location = additionner(location, part(c.ca, couts, deduits));
+      if (incl && (c.primes.htC !== 0 || c.variable.htC !== 0)) { inclus.primes = plusC(inclus.primes, c.primes); inclus.variable = plusC(inclus.variable, c.variable); inclus.mois += 1; }
+    }
+    if (activite !== 'location') gest = additionner(gest, partGestionMois(g, salaires));
+  }
   const tLocation = totauxLocation(lignesDesMois(lignes, ms));
   const tGestion = totauxGestion(gestion, ms);
-  const locationPage = activite === 'gestion' ? VIDE : partLocation(tLocation);
-  // 🔴 LOT LG4 — « Avec salaires » et la gestion comptée : les primes sont dans les coûts salariaux chargés (pas deux fois)
-  const enPaie = salaires && activite === 'deux';
-  const location = enPaie ? primesHorsCouts(locationPage) : locationPage;
-  const gestionAvec = activite === 'location' ? VIDE : partGestion(tGestion);
-  const gest = salaires ? gestionAvec : horsSalaires(gestionAvec);
-  return { activite, salaires, primesEnPaie: enPaie ? locationPage.couts.primes : null, location, gestion: gest, ...somme(location, gest), tLocation, tGestion,
+  const t = additionner(location, gest);
+  return { activite, salaires, location, gestion: gest, ca: t.ca, couts: t.couts, deduits: t.deduits, coutsTotal: t.coutsTotal, net: t.net, inclus, tLocation, tGestion,
     baux: activite === 'gestion' ? null : tLocation.nb, lots: activite === 'location' ? null : tGestion.lots };
 }
 

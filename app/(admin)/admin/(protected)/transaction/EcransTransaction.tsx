@@ -1941,7 +1941,7 @@ export function EcranGestion() {
 }
 
 /** 🔴 LOT GE5 (Arno) — le libellé des salaires (sans TVA) : tuile, colonnes des tableaux, encadré et titre du graphique, fenêtre « Modifier » ; l'onglet garde « Salaires ». */
-const LIBELLE_SALAIRES = 'Coûts salariaux chargés';
+const LIBELLE_SALAIRES = 'Salaires chargés'; // 🔴 LOT LO11 — ex « Coûts salariaux chargés »
 /** 🔴 LOT GE1 — « Gestion » : les tuiles, le graphique (deux échelles sur « L'année ») et le tableau des mois choisis. */
 function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mois, moisChoisis, lignesTableau, titreTableau, onMois, toutes = null, echelleAnnees = null, tableAnnees = null }: {
   gestion: readonly GestionMois[]; jour: string; disponible: boolean; onSaisir: (m: MoisChoisi) => void;
@@ -2008,7 +2008,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, ms, lib, annee, mo
       : <GrapheGestionMois gestion={gestion} jour={jour} u={u} annee={annee} mois={mois} moisChoisis={moisChoisis} onMois={onMois} entete={choixEchelle} />}
     {tableAnnees ?? (
       <section className="tdb-section" aria-labelledby="trx-gestion-mois" data-bloc="gestion-mois">
-        <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, coûts salariaux chargés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
+        <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, salaires chargés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
         <table className="tdb-table tdb-table--large" data-table-gestion>
           <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}</th><th scope="col">Reste</th>
             <th scope="col">Honoraires {plusieursAnnees ? 'un an plus tôt' : annee - 1}</th><th scope="col">Saisie</th></tr></thead>
