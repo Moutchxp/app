@@ -1334,7 +1334,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   // 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis », 4ᵉ tuile : le CA net de la tuile du mode Vendu (`netA`) + le CA net des
   // compromis en cours comptés dans les années (`compSel`, règle du lot DQ), même définition (`caNetVente`, lot CW). N−1 : les mêmes années, un an plus tôt.
   const netComp = sommeMontants(compSel.map((v) => caNetVente(v, d.societe, opts)));
-  const netComp1 = mode === 'tous' ? sommeMontants(compromisDesAnnees(d.ventes, sel1, 'tous', jour).map((v) => caNetVente(v, d.societe, opts))) : { htC: 0, ttcC: 0 };
+  const netComp1 = mode !== 'vendu' ? sommeMontants(compromisDesAnnees(d.ventes, sel1, mode, jour).map((v) => caNetVente(v, d.societe, opts))) : { htC: 0, ttcC: 0 };
   const netPrev = { htC: netA.htC + netComp.htC, ttcC: netA.ttcC + netComp.ttcC };
   const netPrev1 = { htC: netA1.htC + netComp1.htC, ttcC: netA1.ttcC + netComp1.ttcC };
   const ca = (m: MontantC): string => eur(enUnite(m));
@@ -1367,17 +1367,28 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
 
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`} data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ca-annee">
-        <span className="tdb-tuile-mot">{M.ca} — {lib}</span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
+        {/* 🔴 LOT DS (changement autorisé par Arno) — « Compromis » : « CA brut des compromis — 2026 » ; montant et ligne du bas inchangés. */}
+        <span className="tdb-tuile-mot">{mode === 'compromis' ? `CA brut des compromis — ${lib}` : `${M.ca} — ${lib}`}</span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rc.ca))}{ESPACE}{U.autre.mot})</small>
         <span className="tdb-tuile-n1" data-tuile-n1="ca">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
+      {/* 🔴 LOT DS (Arno) — « Compromis » : la 2ᵉ tuile = le CA des mêmes compromis − les commissions versées (`caNetVente`, la définition du « CA net
+          des compromis » du lot DR = le « Solde net » de l'onglet Compromis), en vert ; N−1 sur la même définition. La tuile « … à date » est retirée
+          de ce mode (accord d'Arno : elle répétait la 1ʳᵉ). */}
+      {mode === 'compromis' && (
+        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — ${lib}`, compSel.map((v) => v.id))} data-tuile="ca-net-compromis-annee">
+          <span className="tdb-tuile-mot">{cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — {lib}<small> (CA − commissions versées)</small></span>
+          <strong className="tdb-tuile-valeur trx-vert" data-ca-net-compromis>{ca(netComp)}</strong>
+          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netComp))}{ESPACE}{U.autre.mot})</small>
+          <span className="tdb-tuile-n1" data-tuile-n1="ca-net-compromis">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netComp1)} ${enN1} (${pct(netComp, netComp1)})`}</span></button></li>
+      )}
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ventes-annee">
         <span className="tdb-tuile-mot">{M.nombre} — {lib}</span><strong className="tdb-tuile-valeur">{liste.length}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode, jour).length} ${enN1}`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} à date — ${lib}`, aDate.map((v) => v.id))} data-tuile="ca-a-date">
+      {mode !== 'compromis' && <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} à date — ${lib}`, aDate.map((v) => v.id))} data-tuile="ca-a-date">
         {/* 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis » : « Prévisionnel CA 2026 (vendu + compromis) » ; montant et ligne du bas inchangés. */}
         <span className="tdb-tuile-mot">{mode === 'tous' ? <>Prévisionnel {cons('CA')} {lib} (vendu + compromis)<small>{enTout ? ' (à date)' : motADate}</small></> : enTout ? <>{M.ca} — à date (toutes les années)</> : <>{M.ca} — {lib} à date<small>{motADate}</small></>}</span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rd.ca))}{ESPACE}{U.autre.mot})</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="a-date">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="a-date">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>}
       {mode === 'vendu' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net — ${lib}`, ventesSel.map((v) => v.id))} data-tuile="ca-net-annee">
           <span className="tdb-tuile-mot">{cons(`CA net ${U.MOT}`)} — {lib}<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
