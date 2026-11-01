@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { libellePeriode, libellePeriodeComplet, MOT_A_SAISIR, motSalairesASaisir, nbMoisSalairesASaisir, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { correspond, CLE_TRI_LISTE, estTriListe, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, type TriListe } from '../../../../lib/transaction/listeCartes';
 import {
@@ -18,7 +18,7 @@ import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { Journal } from './FormulaireVente';
-import { CSS, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
+import { CSS, attributMoisRouges, StyleMoisRouges, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FenetreCaLocation, FenetreCoutsLocation, FenetreNetLocation, Reperes } from './FenetresLocation';
@@ -145,7 +145,8 @@ export function EcranLocationCA() {
           libComplet={decoupage === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : decoupage === 'annee' ? `l’année ${annee}` : libellePeriode(periodeVue ?? [])}
           infobulle={decoupage === 'periode' ? libellePeriodeComplet(periodeVue ?? []) : undefined}
           borne={borneCumul(decoupage, annee, mois, decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null, jour)} toutesAnnees={null} historique={null} series={series}
-          graphe={{ sorte: 'mois', mois: decoupage === 'mois' ? mois : 0, moisChoisis: decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null, moisSeul: decoupage === 'mois', onMois: choisirMois }} />
+          graphe={{ sorte: 'mois', mois: decoupage === 'mois' ? mois : 0, moisChoisis: decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null,
+            rouges: decoupage === 'mois' ? null : moisSoulignes(decoupage, annee, mois, (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois), jour), moisSeul: decoupage === 'mois', onMois: choisirMois }} />
       </> : choixA !== null && anneesVisibles !== null && <>
         <form className="tdb-filtres" aria-label="Filtres" onSubmit={(x) => x.preventDefault()}>{champsCommuns}</form>
         <LigneDesAnnees annees={anneesVisibles} decoupage={choixA.decoupage} annee={choixA.annee} choisies={choixA.decoupage === 'tout' ? anneesVisibles : choixA.annees}
@@ -182,10 +183,10 @@ function VueAnneeLocation({ lignes, toutes, jour, choix, anneesVisibles, series,
     toutesAnnees={enTout ? `Toutes les années (${anneesVisibles[0]} → ${anneesVisibles.at(-1)})` : null} series={series}
     historique={{ annees: anneesVisibles, choisie: choix.annee, onAnnee: onAnneeSeule }}
     graphe={echelle === 'annees' ? { sorte: 'annees', annees: anneesVisibles, selection: sel, decoupage: choix.decoupage, onAnnee, entete: choixEchelle }
-      : { sorte: 'mois', mois: 0, moisChoisis: null, moisSeul: false, onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
+      : { sorte: 'mois', mois: 0, moisChoisis: null, rouges: null, moisSeul: false, onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
 }
 
-type Graphe = { sorte: 'mois'; mois: number; moisChoisis: readonly number[] | null; moisSeul: boolean; onMois: (m: number) => void; entete?: ReactNode }
+type Graphe = { sorte: 'mois'; mois: number; moisChoisis: readonly number[] | null; rouges: readonly number[] | null; moisSeul: boolean; onMois: (m: number) => void; entete?: ReactNode }
   | { sorte: 'annees'; annees: readonly number[]; selection: readonly number[]; decoupage: DecoupageAnnees; onAnnee: (a: number) => void; entete: ReactNode };
 
 /** Un montant (centimes) dans l'unité affichée, en euros. */
@@ -424,8 +425,9 @@ function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes
   const motGraphe = motMesure(mesure, U.MOT, useContext(ContexteCouts).avecSalaires);
   return (
     <section className="tdb-section" aria-labelledby="trx-location-histo" data-bloc="histogramme-mois" data-mesure={mesure}
-      {...(g.moisChoisis !== null ? { 'data-periode-graphe': g.moisChoisis.join(',') } : {})}>
-      {g.moisChoisis !== null && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${g.moisChoisis.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributMoisRouges(g.rouges)}>
+      {/* Arno (01/11/2026) — Période / Année : les mois en rouge (`moisSoulignes`), la règle partagée des graphiques « mois par mois » */}
+      <StyleMoisRouges mois={g.rouges} />
       <EnteteGraphe<Mesure> id="trx-location-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel" mesures={MESURES}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
       {g.entete}

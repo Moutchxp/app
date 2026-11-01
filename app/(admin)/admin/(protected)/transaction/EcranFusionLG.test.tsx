@@ -350,3 +350,38 @@ describe('🔴 LOT LG6 — le sélecteur sous le montant, dans sa rangée propre
     });
   }
 });
+
+describe('Arno (01/11/2026) — les graphiques « mois par mois » : en rouge, exactement les mois soulignés de la rangée des mois', () => {
+  // ⚠️ jsdom garde en cache le style calculé d'une feuille retirée avec son ancêtre (le démontage de React) : un test précédent « peignait »
+  // encore les barres du suivant. On lit donc les règles du <style> que porte le graphique lui-même, et les barres qu'elles visent.
+  const regles = (): CSSStyleRule[] => [...document.querySelectorAll('[data-bloc="histogramme-mois"] style')]
+    .flatMap((x) => [...((x as HTMLStyleElement).sheet?.cssRules ?? [])]).filter((r): r is CSSStyleRule => 'selectorText' in r);
+  const barres = (): Element[] => [...document.querySelectorAll('[data-bloc="histogramme-mois"] g[data-barre-mois]')];
+  /** Les mois en rouge : la barre de l'année (pas la N−1) courante, ou visée par une règle qui la peint en rouge. */
+  const rouges = (): number[] => barres().filter((g) => [...g.querySelectorAll('rect.tdb-barre')]
+    .some((r) => r.classList.contains('tdb-barre--courante') || regles().some((x) => x.style.fill.includes('svv-red') && r.matches(x.selectorText))))
+    .map((g) => Number(g.getAttribute('data-barre-mois')));
+  const avecBarre = (): number[] => barres().filter((g) => g.querySelector('rect.tdb-barre') !== null).map((g) => Number(g.getAttribute('data-barre-mois')));
+  /** Les mois estompés : la dernière règle d'opacité qui vise le groupe (barres et libellé) le met à 0,35. */
+  const estompes = (): number[] => barres().filter((g) => regles().filter((x) => x.style.opacity !== '' && g.matches(x.selectorText)).at(-1)?.style.opacity === '0.35')
+    .map((g) => Number(g.getAttribute('data-barre-mois')));
+  const soulignes = (): number[] => [...document.querySelectorAll('.trx-rangee-mois [data-onglet-mois]')]
+    .filter((b) => b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true').map((b) => Number(b.getAttribute('data-onglet-mois')));
+  const tous = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const ecrans = [['FUSION Location & Gestion', () => createElement(EcranFusionLocationGestion)], ['Location', () => createElement(EcranLocationCA)], ['Gestion', () => createElement(EcranGestion)]] as const;
+  // le 01/11/2026 (date injectée) : l'année en cours s'arrête à novembre
+  const cas = [['Mois', '/?vue=mois&annee=2026&mois=9&vue-mois=mois', [9]], ['Période', '/?vue=mois&annee=2026&mois=5&vue-mois=periode&periode=2026-03,2026-05', [3, 5]],
+    ['Année en cours', '/?vue=mois&annee=2026&mois=9&vue-mois=annee', tous.slice(0, 11)], ['Année passée', '/?vue=mois&annee=2025&mois=9&vue-mois=annee', tous],
+    ['Année future', '/?vue=mois&annee=2027&mois=9&vue-mois=annee', []]] as const;
+  for (const [nom, ecran] of ecrans) for (const [mode, q, attendu] of cas) {
+    it(`${nom} — ${mode}`, async () => {
+      await ouvrir(q, ecran);
+      expect(soulignes()).toEqual(attendu);
+      // en rouge : les mois soulignés qui ont une barre (un mois à venir n'en a pas)
+      expect(rouges()).toEqual(soulignes().filter((k) => avecBarre().includes(k)));
+      expect(rouges().length).toBeGreaterThan(mode === 'Année future' ? -1 : 0);
+      // hors sélection : estompés (libellés compris) en Période / Année ; « Mois » : jamais estompé (lots DE / DF)
+      expect(estompes()).toEqual(mode === 'Mois' ? [] : barres().map((g) => Number(g.getAttribute('data-barre-mois'))).filter((k) => !(attendu as readonly number[]).includes(k)));
+    });
+  }
+});

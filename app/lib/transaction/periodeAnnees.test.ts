@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compromisDuMode, MODES_MOIS, totauxMoisMode, ventesDuMois, type DonneesSociete, type ModeMois, type Vente } from './modele';
 import { resultatDesCartes } from './carteAffaireLignes';
-import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
 /** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
 const JOUR_DQ = '2025-10-27';
 
@@ -115,5 +115,17 @@ describe('Arno (01/11/2026) — les mois écoulés d’une année (le souligneme
     for (const [a, j] of [[2026, '2026-11-15'], [2025, '2026-11-15'], [2027, '2026-11-15'], [2027, '2027-01-03'], [2026, '2026-12-02']] as const) {
       expect([a, j, moisEcoules(a, j).at(-1) ?? 0]).toEqual([a, j, borneCumul('annee', a, 0, null, j).fin]);
     }
+  });
+});
+
+describe('Arno (01/11/2026) — moisSoulignes : la sélection unique (rangée des mois et graphiques « mois par mois »)', () => {
+  it('Mois : le mois choisi ; Période : les mois choisis, triés, sans doublon ; Année : les mois écoulés (en cours, passée, future)', () => {
+    expect(moisSoulignes('mois', 2026, 9, null, '2026-11-15')).toEqual([9]);
+    expect(moisSoulignes('periode', 2026, 5, [5, 3, 5], '2026-11-15')).toEqual([3, 5]);
+    expect(moisSoulignes('annee', 2026, 9, null, '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(moisSoulignes('annee', 2025, 9, null, '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(moisSoulignes('annee', 2027, 9, null, '2026-11-15')).toEqual([]);
+    // « Année » ne dépend ni du mois de l'adresse ni des mois passés : la même réponse que moisEcoules
+    expect(moisSoulignes('annee', 2026, 12, [1, 12], '2026-11-15')).toEqual(moisEcoules(2026, '2026-11-15'));
   });
 });

@@ -2441,7 +2441,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
           expect(texte('[data-bloc="apporteurs-mois"] h3')).toContain('Apporteurs de l’année — 2025');
           expect(texte('[data-tuile="ca-mois"] .tdb-tuile-mot')).toBe('CA HT — année');
           expect(texte('[data-tuile-n1="ca"]')).toMatch(/ en 2024 \(/);
-          expect(container.querySelector('[data-bloc="histogramme-mois"]')!.getAttribute('data-periode-graphe')).toBe('1,2,3,4,5,6,7,8,9,10,11,12');
+          expect(container.querySelector('[data-bloc="histogramme-mois"]')!.getAttribute('data-periode-graphe')).toBe('1,2,3,4,5,6,7,8,9,10'); // Arno (01/11/2026) — en rouge : les mois soulignés (écoulés), plus les 12
           // changer d'année : les 12 mois de la nouvelle
           await cliquer('[data-filtre="annee"]');
           const o = [...document.querySelectorAll('[role="option"]')].find((x) => (x.textContent ?? '').replace('✓', '') === '2024') as HTMLElement;
@@ -4334,4 +4334,36 @@ describe('Arno (01/11/2026) — « Année » : seuls les mois écoulés sont sou
     await rendre(2026, '2026-11-01', 'mois', null);
     expect(container.querySelector('[data-onglet-mois][aria-selected="true"]')!.getAttribute('data-onglet-mois')).toBe('3');
   });
+});
+
+describe('Arno (01/11/2026) — CRITERIMMO, MACJ, FUSION VENTES : le graphique « mois par mois » en rouge = exactement les mois soulignés', () => {
+  // ⚠️ jsdom garde en cache le style calculé d'une feuille retirée avec son ancêtre : on lit les règles du <style> du graphique lui-même.
+  const regles = (): CSSStyleRule[] => [...container.querySelectorAll('[data-bloc="histogramme-mois"] style')]
+    .flatMap((x) => [...((x as HTMLStyleElement).sheet?.cssRules ?? [])]).filter((r): r is CSSStyleRule => 'selectorText' in r);
+  const barres = (): Element[] => [...container.querySelectorAll('[data-bloc="histogramme-mois"] g[data-barre-mois]')];
+  const rouges = (): number[] => barres().filter((g) => [...g.querySelectorAll('rect.tdb-barre')]
+    .some((r) => r.classList.contains('tdb-barre--courante') || regles().some((x) => x.style.fill.includes('svv-red') && r.matches(x.selectorText))))
+    .map((g) => Number(g.getAttribute('data-barre-mois')));
+  const avecBarre = (): number[] => barres().filter((g) => g.querySelector('rect.tdb-barre') !== null).map((g) => Number(g.getAttribute('data-barre-mois')));
+  const estompes = (): number[] => barres().filter((g) => regles().filter((x) => x.style.opacity !== '' && g.matches(x.selectorText)).at(-1)?.style.opacity === '0.35')
+    .map((g) => Number(g.getAttribute('data-barre-mois')));
+  const soulignes = (): number[] => [...container.querySelectorAll('.trx-rangee-mois [data-onglet-mois]')]
+    .filter((b) => b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true').map((b) => Number(b.getAttribute('data-onglet-mois')));
+  const tous = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  // le 15/11/2026 (date injectée) : l'année en cours s'arrête à novembre
+  const cas = [['Mois', '/?vue=mois&annee=2026&mois=9&vue-mois=mois', [9]], ['Période', '/?vue=mois&annee=2026&mois=5&vue-mois=periode&periode=2026-03,2026-05', [3, 5]],
+    ['Année en cours', '/?vue=mois&annee=2026&mois=9&vue-mois=annee', tous.slice(0, 11)], ['Année passée', '/?vue=mois&annee=2025&mois=9&vue-mois=annee', tous],
+    ['Année future', '/?vue=mois&annee=2027&mois=9&vue-mois=annee', []]] as const;
+  for (const societe of ['criterimmo', 'macj', 'tous'] as const) for (const [mode, q, attendu] of cas) {
+    it(`${societe} — ${mode}`, async () => {
+      vi.setSystemTime(new Date('2026-11-15T10:00:00Z'));
+      window.history.replaceState(null, '', q);
+      await act(async () => { root.render(createElement(EcranSociete, { societe })); });
+      await calmer();
+      expect(soulignes()).toEqual(attendu);
+      expect(rouges()).toEqual(soulignes().filter((k) => avecBarre().includes(k)));
+      // hors sélection : estompés (libellés compris) en Période / Année ; « Mois » : jamais estompé (lots DE / DF)
+      expect(estompes()).toEqual(mode === 'Mois' ? [] : barres().map((g) => Number(g.getAttribute('data-barre-mois'))).filter((k) => !(attendu as readonly number[]).includes(k)));
+    });
+  }
 });

@@ -46,6 +46,16 @@ export const moisADate = (annee: number, jour: string): number => {
  */
 export const moisEcoules = (annee: number, jour: string): number[] => Array.from({ length: moisADate(annee, jour) }, (_, i) => i + 1);
 /**
+ * Arno (01/11/2026) — LES MOIS DE LA SÉLECTION de l'année affichée (1 → 12, triés) : ceux que souligne la rangée des mois ET que les graphiques
+ * « mois par mois » montrent en rouge — une seule réponse pour tous les écrans. « Mois » : le mois choisi ; « Période » : les mois choisis de
+ * l'année ; « Année » : les mois écoulés (`moisEcoules`). PUR.
+ */
+export function moisSoulignes(decoupage: DecoupageCumul, annee: number, mois: number, moisChoisis: readonly number[] | null, jour: string): number[] {
+  if (decoupage === 'mois') return [mois];
+  if (decoupage === 'annee') return moisEcoules(annee, jour);
+  return [...new Set(moisChoisis ?? [])].filter((m) => m >= 1 && m <= 12).sort((a, b) => a - b);
+}
+/**
  * ══ 🔴 LOT DN (Arno, 31/10/2026) — LA BORNE DE FIN DU CUMUL : UNE SEULE FONCTION, PARTOUT (PUR) ══════════════════════════════════════════════════
  * Les tuiles de cumul (« CA … cumulé [année] », « CA net … cumulé », « Prévisionnel … »), l'encadré du graphique en Cumul au repos et « L'année »
  * (« à date ») cumulent de janvier au mois `fin` de cette borne ; N−1 : la MÊME borne sur l'année précédente.

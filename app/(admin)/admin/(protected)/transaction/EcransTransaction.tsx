@@ -35,7 +35,7 @@ import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGloba
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
 import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
-import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisEcoules, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisSoulignes, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { carteCompromis } from '../../../../lib/transaction/compromisCarte';
 import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, moisCommence, MOT_A_SAISIR, motSalairesASaisir, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
@@ -410,13 +410,15 @@ export const sansN1Pour = (ventes: readonly Vente[], a: number, mode: ModeMois):
 };
 /** Ce que dit une tuile ou l'encadré sans année précédente. */
 export const motSansN1Pour = (a: number, mode: ModeMois): string => (mode === 'compromis' ? `${a - 1} : aucun compromis daté` : `${a - 1} : non importé`);
-function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, finPeriode = null, entete }: {
+function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, rouges = null, finPeriode = null, entete }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois;
   series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onMois: (m: number) => void;
   /** 🔴 LOT DE — le mode « Mois » (l'encadré au repos = le mois choisi). */
   moisSeul: boolean;
   /** 🔴 LOT CP — en Période : les mois choisis de l'année (surlignés) ; null : pas de période. */
   periodeAnnee: readonly number[] | null;
+  /** Arno (01/11/2026) — Période / Année : les mois en rouge (`moisSoulignes`, ceux de la rangée des mois), les autres estompés ; null : rien. */
+  rouges?: readonly number[] | null;
   /** 🔴 LOT DN — « Période » : la borne du cumul (`borneCumul` : le dernier mois choisi) — l'encadré du Cumul au repos s'y arrête ; null : la règle CV. */
   finPeriode?: number | null;
   entete?: ReactNode;
@@ -508,10 +510,10 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
         onglets de mesure à droite), ses barres (N pleines, N−1 hachurées), sa légende, son encart à droite ; un mois s'ouvre d'un clic. « Vendu +
         compromis » : la barre EMPILÉE (vendu en bas, compromis au-dessus, plus clair ; N−1 hachurée, même empilement). */}
     <section className="tdb-section" aria-labelledby="trx-histo" data-bloc="histogramme-mois" data-mesure={mesure}
-      {...(enPeriode ? { 'data-periode-graphe': moisPeriodeAnnee.join(',') } : {})}>
-      {/* 🔴 LOT CP — en Période : les mois choisis de l'année surlignés (rouge), les autres atténués ; une règle de la Transaction, le graphique
-          partagé de la Location n'est pas touché. */}
-      {enPeriode && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${moisPeriodeAnnee.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributMoisRouges(rouges)}>
+      {/* 🔴 LOT CP — en Période : les mois choisis de l'année surlignés (rouge), les autres atténués. Arno (01/11/2026) — en Année aussi : les mois
+          écoulés ; la règle partagée des graphiques « mois par mois » (`StyleMoisRouges`, `moisSoulignes`). */}
+      <StyleMoisRouges mois={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
         mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
@@ -532,7 +534,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
           aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={moisSeul ? undefined : repos(true)} />
       ) : (
-        <Histogramme attribut="data-barre-mois" courante={enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
+        <Histogramme attribut="data-barre-mois" courante={rouges !== null ? (rouges.includes(mois) ? mois : rouges.at(-1) ?? 0) : enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
           legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
           repos={moisSeul ? undefined : repos(false)}
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
@@ -547,21 +549,33 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   </>;
 }
 
+/**
+ * Arno (01/11/2026) — LES MOIS EN ROUGE D'UN GRAPHIQUE « MOIS PAR MOIS » (les quatre graphiques : Transaction vente, Gestion, Location, FUSION
+ * Location & Gestion) : en « Période » et en « Année », les mois de `moisSoulignes` (ceux que souligne la rangée des mois) en rouge, les autres
+ * estompés, libellés compris ; null : rien (« Mois » : la barre courante est en rouge, le graphique n'est pas estompé — lots DE / DF).
+ * L'attribut et la règle, écrits une fois.
+ */
+export const attributMoisRouges = (mois: readonly number[] | null): Record<string, string> => (mois === null ? {} : { 'data-periode-graphe': mois.join(',') });
+export function StyleMoisRouges({ mois }: { mois: readonly number[] | null }) {
+  if (mois === null) return null;
+  return <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${mois.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>;
+}
+
 /** 🔴 LOT GE1 — LA LIGNE DES MOIS et « Mois | Période | Année » (déplacée de `VueMois`, à l'identique) : Transaction et Gestion. */
 export function LigneDesMois({ annee, mois, jour, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number;
-  /** Le jour (AAAA-MM-JJ, Europe/Paris) : en « Année », seuls les mois écoulés (`moisEcoules`) sont soulignés. */
+  /** Le jour (AAAA-MM-JJ, Europe/Paris) : en « Année », seuls les mois écoulés sont soulignés (`moisSoulignes`). */
   jour: string; decoupage: Decoupage;
   /** En Période / Année : les mois choisis de l'année (boutons à bascule) ; null : un mois. */
   moisChoisis: readonly number[] | null; onMois: (m: number) => void; onDecoupage?: (x: Decoupage) => void }) {
-  // Arno (01/11/2026) — « Année » : l'année en cours soulignée jusqu'au mois du jour, une année passée en entier, une année future pas du tout.
-  // Seul le soulignement change : les 12 mois restent là et cliquables, et les montants gardent leur règle.
-  const ecoules = decoupage === 'annee' ? moisEcoules(annee, jour) : null;
+  // Arno (01/11/2026) — les mois soulignés : `moisSoulignes`, la réponse unique partagée avec les graphiques « mois par mois » (« Année » : l'année
+  // en cours jusqu'au mois du jour, une année passée en entier, une année future pas du tout). Les 12 mois restent là et cliquables.
+  const soulignes = moisChoisis === null ? null : moisSoulignes(decoupage, annee, mois, moisChoisis, jour);
   return (
   <div className="trx-rangee-mois" data-decoupage={decoupage}>
-    {moisChoisis !== null ? (
+    {soulignes !== null ? (
       <div className="tdb-onglets trx-onglets-periode" role="group" aria-label={`Mois de ${annee} choisis pour la période`}>
         {NOMS_MOIS.map((m, i) => (
-          <button key={m} type="button" aria-pressed={moisChoisis.includes(i + 1) && (ecoules === null || ecoules.includes(i + 1))} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
+          <button key={m} type="button" aria-pressed={soulignes.includes(i + 1)} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
         ))}
       </div>
     ) : (
@@ -780,7 +794,8 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         date n'a toujours pas de mois (jamais compté dans un mois) ; il reste visible dans l'onglet « Compromis », vue « En cours ». */}
 
     <GrapheMois d={d} tout={tout} annee={annee} mois={mois} jour={jour} mode={mode} series={series} onMois={onMois} moisSeul={moisSeul}
-      periodeAnnee={enPeriode ? moisPeriodeAnnee : null} finPeriode={decoupage === 'periode' ? fin : null} />
+      periodeAnnee={enPeriode ? moisPeriodeAnnee : null} rouges={moisSeul ? null : moisSoulignes(decoupage, annee, mois, moisPeriodeAnnee, jour)}
+      finPeriode={decoupage === 'periode' ? fin : null} />
 
     <div ref={listes} className="trx-listes-mois">
     {/* 🔴 LOT CA — l'en-tête : le titre puis le nombre « (3) » ; les ventes en CARTES (celles de l'onglet « Compromis »). */}
@@ -2077,6 +2092,7 @@ export function EcranGestion() {
         {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
         <VueGestion {...commun} ms={periodeVue ?? [{ annee, mois }]} libTitre={decoupage === 'periode' ? libellePeriodeComplet(periodeVue ?? []) : undefined} lib={decoupage === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : decoupage === 'annee' ? String(annee)
           : libellePeriode(periodeVue ?? [])} annee={annee} mois={decoupage === 'mois' ? mois : 0} moisChoisis={decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null}
+          rouges={decoupage === 'mois' ? null : moisSoulignes(decoupage, annee, mois, (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois), jour)}
           lignesTableau={decoupage === 'periode' ? periodeVue ?? [] : douzeMois(annee)} titreTableau={decoupage === 'periode' ? undefined : String(annee)} onMois={choisirMois} />
       </> : choixA !== null && anneesVisibles !== null && <>
         <form className="tdb-filtres" aria-label="Montants" onSubmit={(x) => x.preventDefault()}>{champUnite}</form>
@@ -2129,7 +2145,7 @@ function caseSalairesGestion(x: number | null, aSaisir: number, manque: (x: numb
 /** 🔴 LOT GE5 (Arno) — le libellé des salaires (sans TVA) : tuile, colonnes des tableaux, encadré et titre du graphique, fenêtre « Modifier » ; l'onglet garde « Salaires ». */
 const LIBELLE_SALAIRES = 'Salaires chargés'; // 🔴 LOT LO11 — ex « Coûts salariaux chargés »
 /** 🔴 LOT GE1 — « Gestion » : les tuiles, le graphique (deux échelles sur « L'année ») et le tableau des mois choisis. */
-function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalaires, ms, lib, libTitre, annee, mois, moisChoisis, lignesTableau, titreTableau, onMois, toutes = null, echelleAnnees = null, tableAnnees = null }: {
+function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalaires, ms, lib, libTitre, annee, mois, moisChoisis, rouges = null, lignesTableau, titreTableau, onMois, toutes = null, echelleAnnees = null, tableAnnees = null }: {
   gestion: readonly GestionMois[]; jour: string; disponible: boolean; onSaisir: (m: MoisChoisi) => void;
   /** 🔴 LOT LO12 — « Avec salaires » (true) | « Sans salaires » (false) : les salaires chargés déduits du CA net, ou montrés en gris, « non comptés ». */
   salaires: boolean; onSalaires: (avec: boolean) => void;
@@ -2139,6 +2155,8 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
   u: UniteGestion;
   /** Les mois comptés (tuiles) ; `lib` : leur nom ; `annee` / `mois` : l'année et le mois montrés (0 : aucun mois choisi). */
   ms: readonly MoisChoisi[]; lib: string; annee: number; mois: number; moisChoisis: readonly number[] | null;
+  /** Arno (01/11/2026) — Période / Année : les mois en rouge du graphique (`moisSoulignes`) ; null : rien. */
+  rouges?: readonly number[] | null;
   lignesTableau: readonly MoisChoisi[]; onMois: (m: number) => void;
   /** Le nom des lignes du tableau (« 2026 » : ses 12 mois, en « Mois ») ; absent : `lib`. */
   titreTableau?: string;
@@ -2202,7 +2220,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
     </ul>
     {echelleAnnees !== null && echelle === 'annees'
       ? <GrapheGestionAnnees gestion={gestion} jour={jour} u={u} salaires={salaires} annee={annee} {...echelleAnnees} toutes={toutes} entete={choixEchelle} />
-      : <GrapheGestionMois gestion={gestion} jour={jour} u={u} salaires={salaires} annee={annee} mois={mois} moisChoisis={moisChoisis} onMois={onMois} entete={choixEchelle} />}
+      : <GrapheGestionMois gestion={gestion} jour={jour} u={u} salaires={salaires} annee={annee} mois={mois} moisChoisis={moisChoisis} rouges={rouges} onMois={onMois} entete={choixEchelle} />}
     {tableAnnees ?? (
       <section className="tdb-section" aria-labelledby="trx-gestion-mois" data-bloc="gestion-mois">
         <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, salaires chargés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
@@ -2257,8 +2275,8 @@ function infoGestion(titre: string, mesure: MesureGestion, u: UniteGestion, libe
 const cumulGestion = (gestion: readonly GestionMois[], annee: number, k: number, salaires = true): TotauxGestion => totauxGestion(gestion, Array.from({ length: k }, (_, i) => ({ annee, mois: i + 1 })), salaires);
 
 /** 🔴 LOT GE1 — « Mois par mois » de la gestion : Mensuel (barres, N−1 hachurée) / Cumul ; le mois choisi en rouge ; Période atténuée. */
-function GrapheGestionMois({ gestion, jour, u, salaires, annee, mois, moisChoisis, onMois, entete }: { gestion: readonly GestionMois[]; jour: string; u: UniteGestion; salaires: boolean; annee: number; mois: number;
-  moisChoisis: readonly number[] | null; onMois: (m: number) => void; entete: ReactNode }) {
+function GrapheGestionMois({ gestion, jour, u, salaires, annee, mois, moisChoisis, rouges, onMois, entete }: { gestion: readonly GestionMois[]; jour: string; u: UniteGestion; salaires: boolean; annee: number; mois: number;
+  moisChoisis: readonly number[] | null; rouges: readonly number[] | null; onMois: (m: number) => void; entete: ReactNode }) {
   const [mesure, setMesure] = useMesureGestion();
   const [cumul, setCumul] = useState(false);
   const dernier = moisADate(annee, jour);
@@ -2282,8 +2300,9 @@ function GrapheGestionMois({ gestion, jour, u, salaires, annee, mois, moisChoisi
   const motGraphe = motMesureGestion(mesure, u, salaires);
   return (
     <section className="tdb-section" aria-labelledby="trx-gestion-histo" data-bloc="histogramme-mois" data-mesure={mesure}
-      {...(moisChoisis !== null ? { 'data-periode-graphe': moisChoisis.join(',') } : {})}>
-      {moisChoisis !== null && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${moisChoisis.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributMoisRouges(rouges)}>
+      {/* Arno (01/11/2026) — Période / Année : la règle partagée des mois en rouge */}
+      <StyleMoisRouges mois={rouges} />
       <EnteteGraphe<MesureGestion> id="trx-gestion-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
         mesures={MESURES_GESTION} titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? (mesure === 'lots' ? ', moyenne depuis janvier' : ', cumulé depuis janvier') : ''})</small></>} />
       {entete}

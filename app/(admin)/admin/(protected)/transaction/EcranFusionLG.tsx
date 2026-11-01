@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation, type GestionMois } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { lignesDesMois, moinsC, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
 import {
@@ -14,7 +14,7 @@ import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre 
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
-import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
+import { CSS, attributMoisRouges, StyleMoisRouges, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
 import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
@@ -118,7 +118,8 @@ export function EcranFusionLocationGestion() {
           lib={decoupage === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : decoupage === 'annee' ? String(annee) : libellePeriode(periodeVue ?? [])}
           borne={borneCumul(decoupage, annee, mois, decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null, jour)} toutes={null} historique={null}
           tableau={{ titre: decoupage === 'periode' ? libellePeriode(periodeVue ?? []) : String(annee), lignes: (decoupage === 'periode' ? periodeVue ?? [] : douzeMois(annee)).map(ligneMois) }}
-          graphe={{ sorte: 'mois', mois: decoupage === 'mois' ? mois : 0, moisChoisis: decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null, onMois: choisirMois }} />
+          graphe={{ sorte: 'mois', mois: decoupage === 'mois' ? mois : 0, moisChoisis: decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null,
+            rouges: decoupage === 'mois' ? null : moisSoulignes(decoupage, annee, mois, (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois), jour), onMois: choisirMois }} />
       </> : choixA !== null && anneesVisibles !== null && <>
         <form className="tdb-filtres" aria-label="Filtres" onSubmit={(x) => x.preventDefault()}>{champsCommuns}</form>
         {note}
@@ -172,13 +173,13 @@ function VueAnneeFusion({ choix, anneesVisibles, onAnnee, onAnneeSeule, onOuvrir
     historique={{ annees: anneesVisibles, choisie: choix.annee, onAnnee: onAnneeSeule }}
     tableau={enTout ? { titre: 'Année par année', lignes: sel.map(ligneAnnee) } : { titre: lib, lignes: moisDesAnnees(sel).map((m) => ({ ...ligneMois(m), libelle: sel.length > 1 ? `${NOMS_MOIS[m.mois - 1]} ${m.annee}` : NOMS_MOIS[m.mois - 1] })) }}
     graphe={echelle === 'annees' ? { sorte: 'annees', annees: anneesVisibles, selection: sel, decoupage: choix.decoupage, onAnnee, entete: choixEchelle }
-      : { sorte: 'mois', mois: 0, moisChoisis: null, onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
+      : { sorte: 'mois', mois: 0, moisChoisis: null, rouges: null, onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
 }
 
 interface Commun { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; jour: string; activite: ActiviteFusion; liens: { location: string; gestion: string };
   /** 🔴 LOT LG2 — « Avec salaires » (true) | « Sans salaires » (false). */
   salaires: boolean; onSalaires: (avec: boolean) => void }
-type Graphe = { sorte: 'mois'; mois: number; moisChoisis: readonly number[] | null; onMois: (m: number) => void; entete?: ReactNode }
+type Graphe = { sorte: 'mois'; mois: number; moisChoisis: readonly number[] | null; rouges: readonly number[] | null; onMois: (m: number) => void; entete?: ReactNode }
   | { sorte: 'annees'; annees: readonly number[]; selection: readonly number[]; decoupage: DecoupageAnnees; onAnnee: (a: number) => void; entete: ReactNode };
 
 /** Les tuiles, le graphique, le Résultat, le tableau et « Toute l'histoire » d'un ensemble de mois. */
@@ -464,8 +465,9 @@ function GrapheFusionMois({ lignes, gestion, jour, activite, salaires, annee, g 
   const motGraphe = motMesure(mesure, U.MOT, salaires);
   return (
     <section className="tdb-section" aria-labelledby="trx-fusion-histo" data-bloc="histogramme-mois" data-mesure={mesure}
-      {...(g.moisChoisis !== null ? { 'data-periode-graphe': g.moisChoisis.join(',') } : {})}>
-      {g.moisChoisis !== null && <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${g.moisChoisis.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributMoisRouges(g.rouges)}>
+      {/* Arno (01/11/2026) — Période / Année : les mois en rouge (`moisSoulignes`), la règle partagée des graphiques « mois par mois » */}
+      <StyleMoisRouges mois={g.rouges} />
       <EnteteGraphe<Mesure> id="trx-fusion-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel" mesures={MESURES}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
       {g.entete}
