@@ -687,7 +687,7 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
     expect(container.querySelector('[data-ca-global] form.tdb-filtres')).toBeNull();
     const lireTout = () => ({
       titre: texte('[data-tuile="global"] .tdb-tuile-mot'), grand: centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')), petit: texte('[data-tuile="global"] [data-montant-autre]'),
-      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG5 — le titre seul (sans le total replié)
+      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3:not(.trx-bilan-titre)')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG8 — sans les titres des cadres « Bilan » // 🔴 LOT CG5 — le titre seul (sans le total replié)
     const ht = lireTout();
     expect(ht.titre).toBe('CA global HT (2025)');
     expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Résultat net 2025 (HT ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
@@ -1021,6 +1021,50 @@ describe('🔴 LOT CG7 — le CA global : Résultat net', () => {
     verifier('tout', [['global-resultat-periode', 'global-annees-periode', 'global-couts-periode']]);
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.trx-resultat-net{border-color:var(--color-svv-line-strong);box-shadow:inset 0 0 0 1px var(--color-svv-line-strong);background:color-mix(in srgb, var(--color-svv-ink) 7%, var(--color-svv-surface))}');
+    window.localStorage.removeItem('trx-fusion-salaires');
+  });
+});
+
+/**
+ * 🔴 LOT CG8 (Arno) — deux cadres « Bilan » : [période] (CA global · Coûts globaux · Résultat net) et « année par année » (les mêmes, toutes les
+ * années) ; « − » et « = » discrets entre les lignes ; « Ventes à attribuer » hors des cadres, en bas ; repli, salaires et colonne des totaux inchangés.
+ */
+describe('🔴 LOT CG8 — le CA global : les cadres « Bilan »', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const cadre = (b: string) => container.querySelector(`[data-ca-global] [data-bilan="${b}"]`)!;
+  const contenu = (b: string) => [...cadre(b).children].filter((x) => x.tagName !== 'STYLE').map((x) => x.getAttribute('data-bilan-signe') ?? x.getAttribute('data-bloc') ?? x.className);
+  it('deux cadres et leurs trois lignes dans l’ordre ; titres en Année / Période / Tout ; HT et TTC ; avec et sans salaires ; « Ventes à attribuer » dehors', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    const verifier = (titre: string, p: [string, string, string]) => {
+      expect(texte('#trx-g-bilan')).toBe(titre);
+      expect(contenu('periode')).toEqual(['trx-bilan-titre', p[0], 'moins', p[1], 'egal', p[2]]);
+      expect(texte('#trx-g-bilan-annees')).toBe('Bilan — année par année');
+      expect(contenu('annees')).toEqual(['trx-bilan-titre', 'global-annees', 'moins', 'global-couts-annees', 'egal', 'global-resultat-annees']);
+      expect([...cadre('periode').querySelectorAll('[data-bilan-signe]')].map((x) => x.textContent)).toEqual(['−', '=']);
+      // les six lignes gardent la même grille de totaux (lot CG6)
+      expect(container.querySelectorAll('[data-ca-global] [data-bilan] .lr-ligne--colonne').length).toBe(6);
+      // « Ventes à attribuer » (s'il y en a) : hors des cadres, après eux
+      expect(container.querySelector('[data-bilan] [data-groupe-double]')).toBeNull();
+      const groupe = container.querySelector('[data-ca-global] [data-groupe-double]');
+      if (groupe !== null) expect(cadre('annees').compareDocumentPosition(groupe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    };
+    const annee: [string, string, string] = ['global-mois', 'global-couts', 'global-resultat'];
+    verifier('Bilan 2025 — mois par mois', annee);
+    await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]'); verifier('Bilan 2025 — mois par mois', annee);
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="sans"]'); verifier('Bilan 2025 — mois par mois', annee);
+    await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
+    verifier('Bilan 2024 → 2025', ['global-annees-periode', 'global-couts-periode', 'global-resultat-periode']);
+    await cliquer('[data-decouper-annees="tout"]');
+    verifier('Bilan — toutes les années', ['global-annees-periode', 'global-couts-periode', 'global-resultat-periode']);
+    // le repli et le sélecteur des salaires : inchangés dans le cadre
+    expect(container.querySelector('[data-deplier-liste="global-couts-periode"]')!.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-a-droite-liste="global-couts-periode"] [data-salaires="avec"]')).not.toBeNull();
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.trx-bilan{display:flex;flex-direction:column;border:1px solid var(--color-svv-line-strong);border-radius:16px;');
+    expect(css).toContain('background:color-mix(in srgb, var(--color-svv-ink) 3%, var(--color-svv-surface))}');
     window.localStorage.removeItem('trx-fusion-salaires');
   });
 });

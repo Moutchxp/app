@@ -1788,6 +1788,9 @@ export function EcranGlobal() {
         </table>
       </section>
 
+      {/* 🔴 LOT CG8 (Arno) — LE CADRE « Bilan [période] » : Chiffre d'affaires global − Coûts globaux = Résultat net, rapprochés */}
+      <section className="trx-bilan" aria-labelledby="trx-g-bilan" data-bilan="periode">
+      <h3 className="trx-bilan-titre" id="trx-g-bilan">{enAnnee ? `Bilan ${annee} — mois par mois` : enTout ? 'Bilan — toutes les années' : `Bilan ${lib}`}</h3>
       {enAnnee ? <ListeRepliable colonneTotal id="trx-g-mois" section="global-mois" ouvert={ouverts['global-mois'] === true} onOuvert={ouvrir('global-mois')} donnees={{ 'data-bloc': 'global-mois' }}
         compteur={null} titre={<>Chiffre d’affaires global {annee} mois par mois <small className="loc-muet">({MOT})</small></>} total={totalCa(sel)}>
         {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
@@ -1864,6 +1867,7 @@ export function EcranGlobal() {
         <p className="loc-muet" data-note-periode-global>Le total de chaque année : ventes à attribuer comprises, inter-cabinet entre nos sociétés retiré une fois (comme la synthèse).</p>
       </ListeRepliable>}
 
+      <div className="trx-bilan-signe" aria-hidden="true" data-bilan-signe="moins">−</div>
       {/* 🔴 LOT CG2 — « Coûts globaux [année] mois par mois », juste sous le CA (le même « HT | TTC », « Avec | Sans salaires » partagé) */}
       {enAnnee ? <TableauCoutsGlobaux key="couts-mois" {...coutsCommun} idTitre="trx-g-couts" donnee="global-couts" titre={<>Coûts globaux {annee} mois par mois</>}
         rangees={NOMS_MOIS.map((nom, i) => ({ cle: `${annee}-${i + 1}`, libelle: nom, annee, mois: i + 1 }))} total={{ cle: String(annee), libelle: `Année ${annee}`, annee, mois: null }} />
@@ -1871,6 +1875,7 @@ export function EcranGlobal() {
           rangees={sel.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
           total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
 
+      <div className="trx-bilan-signe" aria-hidden="true" data-bilan-signe="egal">=</div>
       {/* 🔴 LOT CG7 — « Résultat net [période] » : le CA global − les coûts globaux de la même période (les totaux des deux tableaux au-dessus) */}
       {enAnnee ? <LigneResultatNet key="resultat-mois" {...resultatCommun} idTitre="trx-g-resultat" donnee="global-resultat" titre={<>Résultat net {annee}</>}
         rangees={NOMS_MOIS.map((nom, i) => ({ cle: `${annee}-${i + 1}`, libelle: nom, annee, mois: i + 1 }))} total={{ cle: String(annee), libelle: `Année ${annee}`, annee, mois: null }} />
@@ -1878,6 +1883,11 @@ export function EcranGlobal() {
           rangees={sel.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
           total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
 
+      </section>
+
+      {/* 🔴 LOT CG8 — LE CADRE « Bilan — année par année » : les trois lignes de toutes les années */}
+      <section className="trx-bilan" aria-labelledby="trx-g-bilan-annees" data-bilan="annees">
+      <h3 className="trx-bilan-titre" id="trx-g-bilan-annees">Bilan — année par année</h3>
       {/* 🔴 LOT CG5 — « Année par année » devient « Chiffre d'affaires année par année » ; replié à l'arrivée, le réalisé de toutes les années à droite */}
       <ListeRepliable colonneTotal id="trx-g-annees" section="global-annees" ouvert={ouverts['global-annees'] === true} onOuvert={ouvrir('global-annees')} donnees={{ 'data-bloc': 'global-annees' }}
         compteur={null} titre={<>Chiffre d’affaires année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></>} total={totalCa(annees)}>
@@ -1900,14 +1910,18 @@ export function EcranGlobal() {
         </table>
       </ListeRepliable>
 
+      <div className="trx-bilan-signe" aria-hidden="true" data-bilan-signe="moins">−</div>
       {/* 🔴 LOT CG2 — le même tableau des coûts, année par année */}
       <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts-annees" donnee="global-couts-annees" titre={<>Coûts globaux année par année</>}
         rangees={annees.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))} total={null} />
 
+      <div className="trx-bilan-signe" aria-hidden="true" data-bilan-signe="egal">=</div>
       {/* 🔴 LOT CG7 — « Résultat net année par année » : le réalisé de toutes les années − leurs coûts */}
       <LigneResultatNet {...resultatCommun} idTitre="trx-g-resultat-annees" donnee="global-resultat-annees" titre={<>Résultat net année par année</>} motN1="Un an plus tôt"
         rangees={annees.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
         total={{ cle: 'toutes', libelle: `Total ${annees[0]} → ${annees.at(-1)}`, annee: Math.max(...annees), mois: null, annees, sansComparaison: true }} />
+
+      </section>
 
       {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs ; replié, compteur, contenu et attribution inchangés. */}
       <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
@@ -1924,6 +1938,13 @@ const CSS_BARRE_GLOBAL = `
 .trx-unite-onglets{display:flex;align-items:center;gap:8px;margin-left:auto;padding-bottom:4px}
 .trx-unite-onglets-mot{font-size:.78rem;color:var(--color-svv-muted)}
 @media (max-width:640px){ .trx-unite-onglets-mot{display:none} }
+/* LOT CG8 - les cadres « Bilan » : bordure, fond legerement teinte (l'encre a 3 % : distinct de la page et des lignes), marges regulieres ; les lignes
+   rapprochees ; « - » et « = » discrets entre elles, a gauche. Les lignes gardent leur largeur commune : les totaux restent alignes au pixel. */
+.trx-bilan{display:flex;flex-direction:column;border:1px solid var(--color-svv-line-strong);border-radius:16px;padding:12px 14px 14px;background:color-mix(in srgb, var(--color-svv-ink) 3%, var(--color-svv-surface))}
+.trx-bilan-titre{margin:0 0 8px 2px;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-bilan>.tdb-section{margin:0}
+.trx-bilan-signe{height:14px;line-height:14px;padding-left:18px;font-size:.95rem;font-weight:800;color:var(--color-svv-muted)}
+@media (max-width:640px){ .trx-bilan{padding:10px 8px 10px} }
 `;
 /** 🔴 LOT CG3 — les années du CA global (vente, gestion, location, et l'année en cours) ; une année « a des données » si l'une des trois en a. PUR. */
 const anneesDuGlobal = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, jour: string): number[] => [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee),
