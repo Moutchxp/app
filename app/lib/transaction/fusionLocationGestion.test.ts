@@ -4,7 +4,9 @@ import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import type { GestionMois } from './modele';
 import { coutsLocation, ligneLocationCa, lignesDesMois, totauxLocation } from './locationCa';
 import { totauxGestion } from './gestionVue';
-import { anneesFusion, FAMILLES_COUTS, totauxFusion } from './fusionLocationGestion';
+import { anneesFusion, aSaisirFusion, FAMILLES_COUTS, totauxFusion } from './fusionLocationGestion';
+import { aSaisirGestion } from './gestionVue';
+import { moisCommence, motSalairesASaisir, nbMoisSalairesASaisir } from './periodeMois';
 
 /**
  * 🔴 LOT LG1 — la FUSION Location & Gestion n'a aucun calcul propre : la part location = `totauxLocation` (page Location), la part gestion =
@@ -32,17 +34,17 @@ const RIEN = { htC: 0, ttcC: 0 };
 const plus = (x: { htC: number; ttcC: number }, y: { htC: number; ttcC: number }) => ({ htC: x.htC + y.htC, ttcC: x.ttcC + y.ttcC });
 
 describe('🔴 LOT LG1 / LO11 — la fusion = la somme des deux pages, mois par mois, au centime', () => {
-  it('septembre 2026 (salaires de gestion saisis) : CA = les deux pages ; « Avec salaires » : primes et variable montrés, « inclus », non déduits', () => {
+  it('septembre 2026 (salaires de gestion saisis, aucun de location) : CA = les deux pages ; 🔴 LOT LO15 — primes et variable DÉDUITS (les salaires de la gestion n’y jouent pas)', () => {
     const t = totauxFusion(lignes, gestion, sept);
     const L = totauxLocation(lignesDesMois(lignes, sept)); const G = totauxGestion(gestion, sept); const C = coutsLocation(lignes, sept, [], null);
-    // 🔴 LOT LO11 — le mois a des salaires (gestion) : la location ne déduit que ses apporteurs ; primes et variable montrés, « inclus dans les salaires »
-    expect([t.location.ca, t.location.couts.primes, t.location.couts.variable, t.location.deduits.primes, t.location.deduits.variable]).toEqual([L.ca, L.primes, C.variable, RIEN, RIEN]);
-    expect(t.location.net).toEqual({ htC: L.ca.htC - L.apporteurs.htC, ttcC: L.ca.ttcC - L.apporteurs.ttcC });
-    expect([t.inclus.primes, t.inclus.variable, t.inclus.mois]).toEqual([L.primes, C.variable, 1]);
+    // 🔴 LOT LO15 — seuls les salaires de la LOCATION rendent primes et variable « inclus » : ici aucun, ils sont déduits (la page Location)
+    expect([t.location.ca, t.location.couts.primes, t.location.couts.variable, t.location.deduits.primes, t.location.deduits.variable]).toEqual([L.ca, L.primes, C.variable, L.primes, C.variable]);
+    expect(t.location.net).toEqual(C.net);
+    expect([t.inclus.primes, t.inclus.variable, t.inclus.mois]).toEqual([RIEN, RIEN, 0]);
     expect([t.gestion.ca, t.gestion.net]).toEqual([{ htC: G.honorairesC, ttcC: G.honorairesTtcC }, { htC: G.netC, ttcC: G.netTtcC }]);
     expect([t.gestion.couts.adhoc, t.gestion.couts.monga, t.gestion.couts.salaries]).toEqual([{ htC: G.adhocC, ttcC: G.adhocTtcC }, { htC: G.mongaC, ttcC: G.mongaTtcC }, { htC: 268891, ttcC: 268891 }]);
     expect(t.ca).toEqual({ htC: L.ca.htC + G.honorairesC, ttcC: L.ca.ttcC + G.honorairesTtcC });
-    expect(t.coutsTotal).toEqual({ htC: L.apporteurs.htC + G.adhocC + G.mongaC + G.salariesC, ttcC: L.apporteurs.ttcC + G.adhocTtcC + G.mongaTtcC + G.salariesC });
+    expect(t.coutsTotal).toEqual({ htC: C.couts.htC + G.adhocC + G.mongaC + G.salariesC, ttcC: C.couts.ttcC + G.adhocTtcC + G.mongaTtcC + G.salariesC });
     expect([t.baux, t.lots]).toEqual([1, 300]);
   });
   for (const ms of [sept, annee]) {
@@ -55,13 +57,12 @@ describe('🔴 LOT LG1 / LO11 — la fusion = la somme des deux pages, mois par 
       }
     });
   }
-  it('« Activité » : « Sans salaires » = partition exacte ; « Avec » : location + gestion = les deux + primes et variable inclus (les deux ne les comptent qu’une fois)', () => {
+  it('« Activité » : partition exacte, « Avec » comme « Sans salaires » (🔴 LOT LO15 : plus de primes « inclus » dans les salaires de la gestion)', () => {
     const d = totauxFusion(lignes, gestion, annee, 'deux'); const l = totauxFusion(lignes, gestion, annee, 'location'); const gg = totauxFusion(lignes, gestion, annee, 'gestion');
     // la location seule = la page Location (aucun salaire de location saisi : primes et variable déduits)
     const C = coutsLocation(lignes, annee, [], null);
     expect([l.net, l.coutsTotal, l.inclus.mois]).toEqual([C.net, C.couts, 0]);
-    const inc = plus(d.inclus.primes, d.inclus.variable);
-    for (const u of ['htC', 'ttcC'] as const) { expect(l.coutsTotal[u] + gg.coutsTotal[u]).toBe(d.coutsTotal[u] + inc[u]); expect(l.net[u] + gg.net[u]).toBe(d.net[u] - inc[u]); }
+    for (const u of ['htC', 'ttcC'] as const) { expect(l.coutsTotal[u] + gg.coutsTotal[u]).toBe(d.coutsTotal[u]); expect(l.net[u] + gg.net[u]).toBe(d.net[u]); }
     const ds = totauxFusion(lignes, gestion, annee, 'deux', false); const ls = totauxFusion(lignes, gestion, annee, 'location', false); const gs = totauxFusion(lignes, gestion, annee, 'gestion', false);
     for (const k of ['ca', 'coutsTotal', 'net'] as const) expect([ls[k].htC + gs[k].htC, ls[k].ttcC + gs[k].ttcC]).toEqual([ds[k].htC, ds[k].ttcC]);
     expect([l.gestion.ca.htC, gg.location.ca.htC, l.lots, gg.baux]).toEqual([0, 0, null, null]);
@@ -124,9 +125,8 @@ describe('🔴 LOT LO11 — salaires de la Location, rétrocessions', () => {
 });
 
 /**
- * 🔴 LOT LO12 — FUSION = Location + Gestion, dans les deux modes : « Sans salaires », exactement la somme des deux pages (chacune en « Sans ») ;
- * « Avec », la somme des deux pages, sauf les primes et le variable des mois où seule la gestion a des salaires (inclus dans ses salaires : règle
- * des lots LG4 / LO11, montrés « inclus »). Aucun coût compté deux fois.
+ * 🔴 LOT LO12 / LO15 — FUSION = Location + Gestion, dans les deux modes : exactement la somme des deux pages (chacune dans le même mode). 🔴 LOT
+ * LO15 — l'écart d'avant (les primes et le variable des mois où seule la gestion avait des salaires, « inclus ») disparaît.
  */
 describe('🔴 LOT LO12 — FUSION = Location + Gestion, avec et sans salaires', () => {
   const sal = [{ annee: 2026, mois: 8, salairesHt: 1000, note: null }];
@@ -136,19 +136,12 @@ describe('🔴 LOT LO12 — FUSION = Location + Gestion, avec et sans salaires',
       const L = coutsLocation(lignes, annee, [], sal, avecS);
       const G = totauxGestion(gestion, annee, avecS);
       expect(f.gestion.net).toEqual({ htC: G.netC, ttcC: G.netTtcC });
-      // la location : sa page, plus (Avec) les primes et le variable des mois où seule la gestion a des salaires
+      // la location : sa page, au centime, dans les deux modes (🔴 LOT LO15)
       const fl = totauxFusion(lignes, gestion, annee, 'location', avecS, { retros: [], salaires: sal });
-      expect(fl.net).toEqual(L.net);
-      const ecart = { htC: f.location.net.htC - L.net.htC, ttcC: f.location.net.ttcC - L.net.ttcC };
-      expect(ecart).toEqual(avecS ? moinsInclusGestion() : RIEN);
+      expect([fl.net, f.location.net, f.location.coutsTotal]).toEqual([L.net, L.net, L.couts]);
       expect(f.net).toEqual(plus(f.location.net, f.gestion.net));
       expect(f.coutsTotal).toEqual(plus(f.location.coutsTotal, f.gestion.coutsTotal));
     });
-  }
-  /** Les primes et le variable des mois de 2026 où la location n'a pas de salaires mais la gestion en a : inclus (non déduits) en FUSION. */
-  function moinsInclusGestion() {
-    return annee.filter((m) => !sal.some((s) => s.annee === m.annee && s.mois === m.mois) && gestion.some((x) => x.annee === m.annee && x.mois === m.mois && x.salarieHt != null))
-      .reduce((t, m) => { const c = coutsLocation(lignes, [m], [], null); return plus(t, plus(c.primes, c.variable)); }, RIEN);
   }
   it('Sans = Avec + salaires − primes et variable inclus, page Location seule (coutsLocation)', () => {
     const avec = coutsLocation(lignes, annee, [], sal); const sans = coutsLocation(lignes, annee, [], sal, false);
@@ -182,4 +175,50 @@ describe('🔴 LOT LO14 — primes et apporteurs sans TVA', () => {
       expect(fl.net).toEqual(L.net);
     });
   }
+});
+
+/**
+ * 🔴 LOT LO15 (règle d'Arno) — les primes et le variable sont payés au négociateur de la location, dont le salaire est saisi dans les salaires chargés
+ * de la LOCATION : « Avec salaires », ils ne sont « inclus » (non déduits) que les mois où les salaires de la LOCATION sont saisis ; les salaires de
+ * la Gestion n'y jouent plus. FUSION = Location + Gestion au centime, chaque mois et la période, HT et TTC, avec et sans salaires.
+ */
+describe('🔴 LOT LO15 — FUSION = Location + Gestion ; salaires « à saisir »', () => {
+  // août : salaires de location saisis ; septembre : seuls ceux de la gestion
+  const sal = [{ annee: 2026, mois: 8, salairesHt: 1000, note: null }];
+  const loc = { retros: [], salaires: sal };
+  for (const avecS of [true, false]) {
+    it(`${avecS ? 'Avec' : 'Sans'} salaires : chaque mois de 2025-2026 et l’année, FUSION = page Location + page Gestion, HT et TTC`, () => {
+      const mois = [...Array.from({ length: 12 }, (_, i) => ({ annee: 2025, mois: i + 1 })), ...annee];
+      for (const ms of [...mois.map((m) => [m]), annee, mois]) {
+        const f = totauxFusion(lignes, gestion, ms, 'deux', avecS, loc);
+        const L = coutsLocation(lignes, ms, [], sal, avecS); const G = totauxGestion(gestion, ms, avecS);
+        expect(f.location.net).toEqual(L.net);
+        expect(f.gestion.net).toEqual({ htC: G.netC, ttcC: G.netTtcC });
+        expect(f.net).toEqual({ htC: L.net.htC + G.netC, ttcC: L.net.ttcC + G.netTtcC });
+        expect(f.ca).toEqual({ htC: L.ca.htC + G.honorairesC, ttcC: L.ca.ttcC + G.honorairesTtcC });
+        expect(f.coutsTotal).toEqual({ htC: L.couts.htC + G.honorairesC - G.netC, ttcC: L.couts.ttcC + G.honorairesTtcC - G.netTtcC });
+      }
+    });
+  }
+  it('un mois AVEC salaires de location saisis (août) : primes et variable « inclus » ; un mois avec seulement ceux de la gestion (septembre) : déduits', () => {
+    const aout = totauxFusion(lignes, gestion, [{ annee: 2026, mois: 8 }], 'deux', true, loc);
+    expect([aout.location.deduits.primes, aout.location.deduits.variable, aout.location.deduits.salairesLocation]).toEqual([RIEN, RIEN, { htC: 100000, ttcC: 100000 }]);
+    expect(aout.inclus.mois).toBe(aout.location.couts.primes.htC !== 0 || aout.location.couts.variable.htC !== 0 ? 1 : 0);
+    const sep = totauxFusion(lignes, gestion, sept, 'deux', true, loc);
+    expect(gestion.find((x) => x.annee === 2026 && x.mois === 9)?.salarieHt).not.toBeNull();
+    expect([sep.location.deduits.primes, sep.location.deduits.variable, sep.inclus.mois]).toEqual([sep.location.couts.primes, sep.location.couts.variable, 0]);
+    expect(sep.location.couts.primes.htC + sep.location.couts.variable.htC).toBeGreaterThan(0);
+  });
+  it('« à saisir » : les mois commencés sans salaires saisis (Location : ses salaires ; Gestion : la case salarié, le mois non saisi compris)', () => {
+    const jour = '2026-09-15';
+    expect([moisCommence({ annee: 2026, mois: 9 }, jour), moisCommence({ annee: 2026, mois: 10 }, jour), moisCommence({ annee: 2025, mois: 12 }, jour)]).toEqual([true, false, true]);
+    // 2026 : 9 mois commencés ; août saisi (location) → 8 à saisir ; la gestion : août et septembre saisis → 7
+    expect(nbMoisSalairesASaisir(annee, (m) => sal.some((x) => x.annee === m.annee && x.mois === m.mois), jour)).toBe(8);
+    expect(aSaisirGestion(gestion, annee, jour)).toBe(7);
+    expect(aSaisirGestion([g(2026, 9, { salarieHt: null })], sept, jour)).toBe(1);
+    expect(aSaisirFusion(gestion, sal, annee, 'deux', jour)).toEqual({ location: 8, gestion: 7, mot: 'location : 8 mois de salaires à saisir · gestion : 7 mois de salaires à saisir' });
+    expect(aSaisirFusion(gestion, sal, annee, 'location', jour)).toEqual({ location: 8, gestion: 0, mot: '8 mois de salaires à saisir' });
+    expect(aSaisirFusion(gestion, sal, [{ annee: 2026, mois: 8 }], 'location', jour).mot).toBe('');
+    expect(motSalairesASaisir(1)).toBe('1 mois de salaires à saisir');
+  });
 });

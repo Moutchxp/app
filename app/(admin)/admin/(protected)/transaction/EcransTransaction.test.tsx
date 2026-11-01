@@ -606,6 +606,27 @@ describe('🔴 LOT LO12 — « Gestion » : avec / sans salaires', () => {
   });
 });
 
+/** 🔴 LOT LO15 (Arno) — Gestion : une case de salaires vide = « pas encore saisi » : « à saisir » (gris, italique) ; un mois à venir garde « — ». */
+describe('🔴 LOT LO15 — « Gestion » : salaires « à saisir »', () => {
+  it('2025 (le 27/10) : janvier saisi sans salarié et février non saisi → « à saisir » ; mars saisi → son montant ; novembre → « — » ; le total et l’encadré', async () => {
+    const avant = donneesGlobal.gestion;
+    donneesGlobal.gestion = [...avant, { id: 2, annee: 2025, mois: 3, nbLots: null, honorairesHt: 16184.63, adhocHt: 2449, salarieHt: 2688.91, resteHt: 11046.72, note: null, origine: 'saisie' }] as unknown as typeof donneesGlobal.gestion;
+    try {
+      window.history.replaceState(null, '', '/?vue=mois&annee=2025&mois=1&mesure=salaries');
+      await act(async () => { root.render(createElement(EcranGestion)); }); await calmer();
+      for (const m of [1, 2]) {
+        const e = container.querySelector(`[data-gestion-salaires="2025-${m}"] [data-salaires-a-saisir]`) as HTMLElement;
+        expect([m, e.tagName, e.textContent, e.className]).toEqual([m, 'EM', 'à saisir', 'loc-muet trx-a-saisir']);
+      }
+      expect(texte('[data-gestion-salaires="2025-3"]')).toBe('2 688,91 €');
+      expect(texte('[data-gestion-salaires="2025-11"]')).toBe('—');
+      // janvier → octobre commencés, mars seul saisi : 9 mois à saisir sous le total
+      expect(texte('[data-total-gestion] [data-salaires-a-saisir-nb]')).toBe('9 mois à saisir');
+      expect(texte('[data-bloc="histogramme-mois"] [data-bulle-note]')).toBe('1 mois de salaires à saisir');
+    } finally { donneesGlobal.gestion = avant; }
+  });
+});
+
 describe('🔴 LOT L — le CA global : synthèse par société, puis le global', () => {
   it('CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = la somme des sociétés (et des ventes à attribuer)', async () => {
     const e = { ventes: donneesGlobal.ventes, location: donneesGlobal.location, gestion: donneesGlobal.gestion };

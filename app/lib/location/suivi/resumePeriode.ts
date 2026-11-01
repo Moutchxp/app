@@ -5,7 +5,7 @@ import {
   type GestionDepuisJanvier, type LigneGestion, type TotauxPeriode, type BeneficiaireCommission, type CollegueDuMois, type CumulAffaires, type ResultatNetAgence, type ResumeDuMois, type VentilationCommissions,
 } from './tableauBord';
 import { gliDuMois, type GliComptee, type GliPeriode } from './margeGli';
-import { montantsLigne, sansTva, ttcCentimes } from '../../transaction/locationCa';
+import { montantsLigne, sansTva } from '../../transaction/locationCa';
 
 /**
  * ══ 🔴 Arno (25/10/2026) — LE « RÉSUMÉ » D'UNE PÉRIODE : UN MOIS (Suivi du mois) OU UNE ANNÉE (Suivi annuel) ═══════════════════════════════
@@ -86,8 +86,8 @@ function commissionsAuCentime<A extends { commission: number; recurrente: number
 
 /**
  * 🔴 LOT LO8 — le TTC de la ventilation, à la règle de la page : chaque commission = la somme du TTC de ses lignes au centime (`montantsLigne`),
- * plus son dû « Récurrent » au centime ; externes = total − internes (comme le HT) ; collègues : × 1,20 au centime, comme avant. 🔴 LOT LO14 — les
- * commissions d'apporteurs sont SANS TVA (TTC = HT), récurrent compris. PUR.
+ * plus son dû « Récurrent » au centime ; externes = total − internes (comme le HT). 🔴 LOT LO14 — les commissions d'apporteurs sont SANS TVA
+ * (TTC = HT), récurrent compris ; 🔴 LOT LO15 — la rémunération des collègues aussi. PUR.
  */
 function ttcDeLaVentilation(v: VentilationCommissions, ac: { apporteurs: readonly { apporteurId: number | null; nom: string; sorte?: string | null; recurrente: number; ids: (number | string)[] }[]; sans: CumulAffaires },
   t: TotauxPeriode, duMois: readonly ActiviteLue[], ctx: ContexteCalcul): VentilationCommissions {
@@ -102,7 +102,8 @@ function ttcDeLaVentilation(v: VentilationCommissions, ac: { apporteurs: readonl
   return {
     externes: { ...v.externes, ttcC: total - internes, detail: v.externes.detail.map((b) => avec(b, 'e')) },
     internes: { ...v.internes, ttcC: internes, detail: v.internes.detail.map((b) => avec(b, 'i')) },
-    collegues: { ...v.collegues, ttcC: ttcCentimes(v.collegues.centimes / 100), detail: v.collegues.detail.map((b) => ({ ...b, ttcC: ttcCentimes(b.centimes / 100) })) },
+    // 🔴 LOT LO15 — la rémunération des collègues : sans TVA (TTC = HT), chaque bénéficiaire compris
+    collegues: { ...v.collegues, ttcC: sansTva(v.collegues.centimes / 100).ttcC, detail: v.collegues.detail.map((b) => ({ ...b, ttcC: sansTva(b.centimes / 100).ttcC })) },
   };
 }
 
@@ -114,9 +115,9 @@ function sommerVentilation(vs: readonly VentilationCommissions[]): VentilationCo
     const parCle = new Map<string, { cle: string; nom: string; centimes: number; ttcC: number }>();
     for (const v of vs) for (const b of v[k].detail) {
       const x = parCle.get(b.cle) ?? { cle: b.cle, nom: b.nom, centimes: 0, ttcC: 0 };
-      x.centimes += b.centimes; x.ttcC += b.ttcC ?? ttcCentimes(b.centimes / 100); parCle.set(b.cle, x);
+      x.centimes += b.centimes; x.ttcC += b.ttcC ?? sansTva(b.centimes / 100).ttcC; parCle.set(b.cle, x);
     }
-    return { centimes: vs.reduce((s, v) => s + v[k].centimes, 0), ttcC: vs.reduce((s, v) => s + (v[k].ttcC ?? ttcCentimes(v[k].centimes / 100)), 0),
+    return { centimes: vs.reduce((s, v) => s + v[k].centimes, 0), ttcC: vs.reduce((s, v) => s + (v[k].ttcC ?? sansTva(v[k].centimes / 100).ttcC), 0),
       detail: [...parCle.values()].filter((b) => b.centimes !== 0).sort((p, q) => q.centimes - p.centimes || p.nom.localeCompare(q.nom)) };
   };
   return { externes: ligne('externes'), internes: ligne('internes'), collegues: ligne('collegues') };

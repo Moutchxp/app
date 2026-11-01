@@ -1,5 +1,5 @@
 import { TVA, type GestionMois } from './modele';
-import type { MoisChoisi } from './periodeMois';
+import { nbMoisSalairesASaisir, type MoisChoisi } from './periodeMois';
 
 /**
  * ══ 🔴 LOT GE1 (Arno, 31/10/2026) — L'ÉCRAN « GESTION » : LES MONTANTS DU COMPTABLE, MOIS PAR MOIS (PUR) ═══════════════════════════════════════
@@ -96,3 +96,7 @@ export function ligneGestionEnUnite(g: Pick<GestionMois, 'honorairesHt' | 'adhoc
 /** Les années de la gestion (et l'année en cours), croissantes. PUR. */
 export const anneesGestion = (gestion: readonly GestionMois[], jour: string): number[] =>
   [...new Set([Number(jour.slice(0, 4)), ...gestion.map((g) => g.annee)])].sort((a, b) => a - b);
+
+/** 🔴 LOT LO15 — les mois commencés sans salarié saisi (le mois entier non saisi compris) : « à saisir » (`nbMoisSalairesASaisir`). PUR. */
+export const aSaisirGestion = (gestion: readonly GestionMois[], ms: readonly MoisChoisi[], jour: string): number =>
+  nbMoisSalairesASaisir(ms, (m) => gestion.find((g) => g.annee === m.annee && g.mois === m.mois)?.salarieHt != null, jour);

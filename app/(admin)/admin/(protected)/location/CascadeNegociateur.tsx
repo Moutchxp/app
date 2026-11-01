@@ -3,24 +3,28 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { CascadeNegociateur, ResultatNetAgence } from '../../../../lib/location/suivi/tableauBord';
 import { NOMS_MOIS } from '../../../../lib/location/suivi/tableauBord';
-import { ttcCentimes } from '../../../../lib/transaction/locationCa';
-import { useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
+import { sansTva, ttcCentimes } from '../../../../lib/transaction/locationCa';
+import { sansTvaSuivi, useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
 
 /**
- * 🔴 LOT LO2 — LE NET DE TOUTES VARIABLES DANS L'UNITÉ (Suivi annuel « HT | TTC ») : CA = la somme TTC des dossiers ; chaque commission, chaque
- * variable × 1,20 au centime ; le net = la différence de ces montants affichés. Sans unité : le net d'avant (centimes HT). PUR.
+ * 🔴 LOT LO2 — LE NET DE TOUTES VARIABLES DANS L'UNITÉ (Suivi annuel « HT | TTC ») : CA = la somme TTC des dossiers ; le net = la différence des
+ * montants affichés. Sans unité : le net d'avant (centimes HT). 🔴 LOT LO15 (Arno) — les commissions (apporteurs, collègues) et le variable des
+ * négociateurs sont SANS TVA (TTC = HT) : seuls les honoraires de location portent 20 %. PUR.
  */
 export function netEnUnite(x: ResultatNetAgence, dossiers: readonly { ca: number }[]): MontantSuivi {
   const caT = dossiers.reduce((t, d) => t + ttcCentimes(d.ca), 0);
   const v = x.ventilation;
-  // 🔴 LOT LO8 — une commission ventilée : son TTC de la somme de ses lignes s'il est connu, sinon × 1,20 au centime (comme avant)
-  const tv = (b: { centimes: number; ttcC?: number }): number => b.ttcC ?? ttcCentimes(b.centimes / 100);
+  // 🔴 LOT LO8 — une commission ventilée : son TTC de la somme de ses lignes s'il est connu ; 🔴 LOT LO15 — sinon sans TVA (son HT)
+  const tv = (b: { centimes: number; ttcC?: number }): number => b.ttcC ?? b.centimes;
   const t = caT - tv(v.externes) - tv(v.internes) - tv(v.collegues)
-    - x.variables.reduce((s, y) => s + ttcCentimes(y.variable / 100), 0);
+    - x.variables.reduce((s, y) => s + sansTva(y.variable / 100).ttcC, 0);
   return { ht: (x.net ?? 0) / 100, ttcC: t };
 }
 
 const eur = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+/** 🔴 LOT LO15 — un montant HT écrit tel quel (la base du variable est toujours le HT, même affichée en TTC). */
+const euros = eur;
+const SANS_TVA = ' (sans TVA)';
 const pct = (x: number): string => `${(x * 100).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %`;
 /** Un montant au centime, comme à l'affichage (les opérations des « i » sont faites sur les montants AFFICHÉS). */
 const c = (x: number): number => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -59,17 +63,22 @@ function useInfoOuvert<K extends string>() {
 
 export function CascadeNegociateurMois({ x, mois, plusieurs, mots = MOTS_MOIS }: { x: CascadeNegociateur; mois: string; plusieurs: boolean; mots?: MotsPeriode }) {
   const { id, ouvert, setOuvert } = useInfoOuvert<Cle>();
-  // 🔴 LOT LO2 — dans l'unité du Suivi annuel ; sans unité (Suivi du mois) : comme avant. CA, commissions, primes, rétrocessions : la somme TTC de
-  // chaque dossier ; le variable × 1,20 ; les « = » : la différence des montants affichés (le résultat commercial = variable − primes + rétrocessions).
+  // 🔴 LOT LO2 — dans l'unité du Suivi annuel ; sans unité (Suivi du mois) : comme avant. Le CA : la somme TTC de chaque dossier (20 %) ;
+  // 🔴 LOT LO15 (Arno) — les commissions déduites, les primes, les rétrocessions et le variable : SANS TVA (TTC = HT au
+  // centime, le montant HT affiché) ; les « = » : la différence des montants affichés (le résultat commercial = variable − primes + rétrocessions).
   const U = useMontantSuivi();
   const T = (() => {
-    const s = (f: (d: CascadeNegociateur['dossiers'][number]) => number): number => x.dossiers.reduce((t, d) => t + ttcCentimes(f(d)), 0);
-    const ca = s((d) => d.ca); const ded = s((d) => d.deductions); const primes = s((d) => d.prime);
-    const retro = x.retroDetail.reduce((t, r) => t + ttcCentimes(r.montant), 0); const variable = ttcCentimes(x.variable);
+    const st = (ht: number): number => sansTva(ht).ttcC;
+    const ca = x.dossiers.reduce((t, d) => t + ttcCentimes(d.ca), 0); const ded = st(x.deductions); const primes = st(x.primes);
+    const retro = st(x.retrocessions); const variable = st(x.variable);
     return { ca: { ht: x.ca, ttcC: ca }, ded: { ht: x.deductions, ttcC: ded }, net: { ht: x.net, ttcC: ca - ded }, primes: { ht: x.primes, ttcC: primes },
       retro: { ht: x.retrocessions, ttcC: retro }, variable: { ht: x.variable, ttcC: variable }, resultat: { ht: x.resultat, ttcC: variable - primes + retro } };
   })();
   const eur = (y: MontantSuivi | number): string => U.g(y);
+  // 🔴 LOT LO15 — un montant sans TVA (commission, prime, rétrocession, résultat, variable) : TTC = HT
+  const st = (ht: number): string => U.g(sansTvaSuivi(ht));
+  // la base du variable (CA − commissions) et le taux s'appliquent au HT : en TTC, la base est écrite en HT
+  const base = (ht: number): string => (U.u === 'ttc' ? `${euros(ht)} HT` : eur(ht));
   const [annee, m] = mois.split('-');
   const nomMois = mots.libelle ?? `${NOMS_MOIS[Number(m) - 1]} ${annee}`;
   const ligne = (cle: Cle | null, signe: string, mot: ReactNode, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
@@ -96,33 +105,33 @@ export function CascadeNegociateurMois({ x, mois, plusieurs, mots = MOTS_MOIS }:
       {ligne('ca', '', U.mot('CA HT global'), eur(T.ca), <>
         <p className="fnc-op">Somme des {x.dossiers.length} dossier{x.dossiers.length > 1 ? 's' : ''} {mots.du} = {eur(T.ca)}</p>
         {liste(x.dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.ca)}</span></li>))}</>)}
-      {ligne('commissions', '−', 'Commissions déduites (apporteurs et collègues, hors récurrent gestion)', eur(T.ded), <>
+      {ligne('commissions', '−', `Commissions déduites (apporteurs et collègues, hors récurrent gestion)${SANS_TVA}`, eur(T.ded), <>
         <p className="fnc-op">Part location et part gestion « One shot » de l’apporteur, et ce qui est dû au collègue à la signature = {eur(T.ded)}</p>
         {deduits.length === 0 ? <p className="fnc-op">Aucune commission sur les dossiers {mots.du}.</p> : liste(deduits.map((d) => (
           <li key={String(d.id)}><span>{d.libelle}
-            {d.partLocation !== 0 && <small>apporteur {d.apporteur ?? '—'} · part location {eur(c(d.partLocation))}</small>}
-            {d.gestionOneShot !== 0 && <small>apporteur {d.apporteur ?? '—'} · part gestion « One shot » {eur(c(d.gestionOneShot))}</small>}
-            {d.collegueSignature !== 0 && <small>collègue {d.collegue ?? '—'} · à la signature {eur(c(d.collegueSignature))}</small>}
-          </span><span>{eur(c(d.deductions))}</span></li>)))}</>)}
+            {d.partLocation !== 0 && <small>apporteur {d.apporteur ?? '—'} · part location {st(c(d.partLocation))}</small>}
+            {d.gestionOneShot !== 0 && <small>apporteur {d.apporteur ?? '—'} · part gestion « One shot » {st(c(d.gestionOneShot))}</small>}
+            {d.collegueSignature !== 0 && <small>collègue {d.collegue ?? '—'} · à la signature {st(c(d.collegueSignature))}</small>}
+          </span><span>{st(c(d.deductions))}</span></li>)))}</>)}
       {ligne('net', '=', U.mot('CA HT net de commissions'), eur(T.net),
         <p className="fnc-op">{eur(T.ca)} − {eur(T.ded)} = {eur(T.net)}</p>, { attrs: { 'data-base-negociateur': x.libelle } })}
       {ligne(null, '×', x.taux === null ? `Taux commercial (${tauxMot})` : 'Taux commercial', x.taux === null ? '' : pct(x.taux), null)}
-      {ligne('resultat', '=', 'Résultat commercial', eur(T.resultat), <>
-        <p className="fnc-op">Dossier par dossier : (CA − commissions déduites) × taux à la date de signature = {eur(c(x.resultatCalcule))}</p>
-        {x.taux !== null && <p className="fnc-op">{eur(T.net)} × {pct(x.taux)} = {eur({ ht: c(x.net * x.taux), ttcC: Math.round(T.net.ttcC * x.taux) })}</p>}
-        {liste(x.dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}<small>{eur(c(d.base))} × {pct(d.taux)}</small></span><span>{eur(c(d.resultat))}</span></li>))}</>)}
-      {ligne('primes', '+', 'Primes de gestion', eur(T.primes), <>
+      {ligne('resultat', '=', `Résultat commercial${SANS_TVA}`, eur(T.resultat), <>
+        <p className="fnc-op">Dossier par dossier : (CA − commissions déduites) × taux à la date de signature = {st(c(x.resultatCalcule))}</p>
+        {x.taux !== null && <p className="fnc-op">{base(x.net)} × {pct(x.taux)} = {st(c(x.net * x.taux))}</p>}
+        {liste(x.dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}<small>{base(c(d.base))} × {pct(d.taux)}</small></span><span>{st(c(d.resultat))}</span></li>))}</>)}
+      {ligne('primes', '+', `Primes de gestion${SANS_TVA}`, eur(T.primes), <>
         <p className="fnc-op">Somme des primes des dossiers = {eur(T.primes)}</p>
-        {x.dossiers.some((d) => d.prime !== 0) ? liste(x.dossiers.filter((d) => d.prime !== 0).map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{eur(d.prime)}</span></li>))
+        {x.dossiers.some((d) => d.prime !== 0) ? liste(x.dossiers.filter((d) => d.prime !== 0).map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{st(d.prime)}</span></li>))
           : <p className="fnc-op">Aucune prime {mots.ceMoisCi}.</p>}</>, { attrs: plusieurs ? {} : { 'data-total': 'primes' } })}
-      {x.retrocessions !== 0 && ligne('retrocessions', '−', 'Rétrocessions', eur(T.retro), <>
+      {x.retrocessions !== 0 && ligne('retrocessions', '−', `Rétrocessions${SANS_TVA}`, eur(T.retro), <>
         <p className="fnc-op">Somme des rétrocessions {mots.du} = {eur(T.retro)}</p>
-        {liste(x.retroDetail.map((r, i) => <li key={i}><span>{r.libelle || 'Rétrocession'}</span><span>{eur(r.montant)}</span></li>))}</>,
+        {liste(x.retroDetail.map((r, i) => <li key={i}><span>{r.libelle || 'Rétrocession'}</span><span>{st(r.montant)}</span></li>))}</>,
         { attrs: plusieurs ? {} : { 'data-total': 'retrocessions' } })}
-      {ligne('variable', '=', `${U.mot('Variable HT dû')} — ${nomMois}`, eur(T.variable),
+      {ligne('variable', '=', `${U.mot('Variable HT dû')}${SANS_TVA} — ${nomMois}`, eur(T.variable),
         <p className="fnc-op">{eur(T.resultat)} + {eur(T.primes)}{x.retrocessions !== 0 ? ` − ${eur(T.retro)}` : ''} = {eur(T.variable)}</p>,
         { fort: true, attrs: { 'data-total-commission': x.libelle } })}
-      {c(x.recurrents) !== 0 && <p className="fnc-info" data-recurrents-non-deduits>Commissions récurrentes de gestion versées {mots.ceMois} (non déduites) : {eur(c(x.recurrents))}</p>}
+      {c(x.recurrents) !== 0 && <p className="fnc-info" data-recurrents-non-deduits>Commissions récurrentes de gestion versées {mots.ceMois} (non déduites) : {st(c(x.recurrents))}</p>}
     </div>
   );
 }
@@ -159,7 +168,8 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
   // 🔴 LOT LO2 — dans l'unité du Suivi annuel (sans unité : comme avant) : chaque montant affiché × 1,20 au centime ; le CA = la somme TTC des
   // dossiers ; le net = la différence des montants affichés (`netEnUnite`).
   const U = useMontantSuivi();
-  const e = (centimes: number): string => U.g(centimes / 100);
+  // 🔴 LOT LO15 — le variable des négociateurs (et le récurrent des collègues) : sans TVA (TTC = HT)
+  const e = (centimes: number): string => U.g(sansTvaSuivi(centimes / 100));
   // 🔴 LOT LO8 — une commission ventilée (ou un bénéficiaire) : HT et TTC de ses lignes
   const ev = (b: { centimes: number; ttcC?: number }): string => U.g({ ht: b.centimes / 100, ttcC: b.ttcC });
   const caT: MontantSuivi = { ht: x.ca / 100, ttcC: dossiers.reduce((t, d) => t + ttcCentimes(d.ca), 0) };
@@ -186,7 +196,7 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
   const beneficiaires = (b: { centimes: number; ttcC?: number; detail: { cle: string; nom: string; centimes: number; ttcC?: number }[] }, vide: string): ReactNode => {
     if (b.detail.length === 0) return <p className="fnc-op">{vide}</p>;
     // l'écart d'arrondi, dans l'unité : le total affiché − la somme des montants affichés
-    const enU = (y: { centimes: number; ttcC?: number }): number => (U.u === 'ttc' ? y.ttcC ?? ttcCentimes(y.centimes / 100) : y.centimes);
+    const enU = (y: { centimes: number; ttcC?: number }): number => (U.u === 'ttc' ? y.ttcC ?? y.centimes : y.centimes);
     const ecart = enU(b) - b.detail.reduce((s, y) => s + enU(y), 0);
     return liste([...b.detail.map((y) => <li key={y.cle} data-beneficiaire={y.nom}><span>{y.nom}</span><span>{ev(y)}</span></li>),
       ...(ecart !== 0 ? [<li key="arrondi" data-arrondi><span>Arrondi au centime (somme des montants bruts)</span><span>{ecart > 0 ? '+' : '−'}{eur(Math.abs(ecart) / 100)}</span></li>] : [])]);
@@ -197,26 +207,26 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
         <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} {mots.du} = {U.g(caT)}</p>
         {liste(dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{U.g(d.ca)}</span></li>))}</>, { attrs: { 'data-net': 'ca' } })}
       {/* 🔴 Arno (25/10/2026, suite) — les commissions VENTILÉES (externes, internes, collègues) ; chaque « i » liste ses bénéficiaires. */}
-      {ligne('externes', '−', 'Commissions apporteurs externes (sans accès à l’interface)', ev(v.externes), <>
+      {ligne('externes', '−', `Commissions apporteurs externes (sans accès à l’interface)${SANS_TVA}`, ev(v.externes), <>
         <p className="fnc-op">Parts location et gestion « One shot » à la signature, et part gestion « Récurrent » {mots.dueCeMois}, des apporteurs
           sans accès à l’interface = {ev(v.externes)}</p>
         {beneficiaires(v.externes, `Aucune commission d’apporteur externe ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'externes' } })}
-      {ligne('internes', '−', 'Commissions apporteurs internes (collègues qui apportent en direct)', ev(v.internes), <>
+      {ligne('internes', '−', `Commissions apporteurs internes (collègues qui apportent en direct)${SANS_TVA}`, ev(v.internes), <>
         <p className="fnc-op">Les apporteurs liés à un compte et les collègues qui apportent en direct = {ev(v.internes)}</p>
         {beneficiaires(v.internes, `Aucune commission d’apporteur interne ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'internes' } })}
-      {ligne('collegues', '−', 'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', ev(v.collegues), <>
+      {ligne('collegues', '−', `Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)${SANS_TVA}`, ev(v.collegues), <>
         <p className="fnc-op">Ce qui est dû aux collègues à la signature
           {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ${mots.ceMois} (${e(x.colleguesRecurrents)})` : ''} = {ev(v.collegues)}</p>
         {beneficiaires(v.collegues, `Aucune rémunération de collègue ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'collegues' } })}
       {x.net !== null && (plusieurs
-        ? x.variables.map((y) => ligne(`variable-${y.cle}`, '−', `Variable — ${y.libelle}`, e(y.variable),
+        ? x.variables.map((y) => ligne(`variable-${y.cle}`, '−', `Variable — ${y.libelle}${SANS_TVA}`, e(y.variable),
           <p className="fnc-op">Le « Variable HT dû » de la cascade de {y.libelle}, ci-dessous = {e(y.variable)}</p>, { attrs: { 'data-net-variable': y.libelle } }))
-        : ligne('variables', '−', 'Variable des négociateurs', e(sommeVariables), x.variables.length === 0
+        : ligne('variables', '−', `Variable des négociateurs${SANS_TVA}`, e(sommeVariables), x.variables.length === 0
           ? <p className="fnc-op">Aucun négociateur {mots.ceMoisCi}.</p>
           : <p className="fnc-op">Le « {U.mot('Variable HT dû')} » de la cascade de {x.variables[0].libelle}, ci-dessous = {e(sommeVariables)}</p>,
         { attrs: x.variables.length === 1 ? { 'data-net-variable': x.variables[0].libelle } : {} }))}
       {x.net !== null && ligne('net', '=', 'CA net de toutes variables', U.g(netEnUnite(x, dossiers)),
-        <p className="fnc-op">{U.g(caT)} − {ev(v.externes)} − {ev(v.internes)} − {ev(v.collegues)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : U.g({ ht: sommeVariables / 100, ttcC: x.variables.reduce((s2, y) => s2 + ttcCentimes(y.variable / 100), 0) })} = {U.g(netEnUnite(x, dossiers))}</p>,
+        <p className="fnc-op">{U.g(caT)} − {ev(v.externes)} − {ev(v.internes)} − {ev(v.collegues)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : U.g({ ht: sommeVariables / 100, ttcC: x.variables.reduce((s2, y) => s2 + sansTva(y.variable / 100).ttcC, 0) })} = {U.g(netEnUnite(x, dossiers))}</p>,
         { fort: true, attrs: { 'data-net': 'net' } })}
       {x.net !== null && x.part !== null && (
         <p className="fnc-info fnc-part" data-net-part>soit {pctResultatNet(x.part)} du {U.mot('CA HT global')}</p>)}

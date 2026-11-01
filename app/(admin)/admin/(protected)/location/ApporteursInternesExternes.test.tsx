@@ -148,7 +148,7 @@ describe('🔴 Suivi du mois : la commission du collègue', () => {
     expect([...container.querySelectorAll('[data-detail-ligne="2"] dt')].some((x) => x.textContent === 'Commission collègue (apport)')).toBe(false);
     const bas = container.querySelector('[data-bloc="bas-de-feuille"]')!;
     expect(n(bas.querySelector('[data-total="collegues"]')?.textContent)).toBe('55,00 €');   // 50 € (signature) + 5 € (octobre)
-    expect(bas.querySelector('[data-total="collegues"]')?.previousElementSibling?.textContent).toBe('− Rémunération des collègues sur leurs apporteurs');   // 🔴 25/10/2026 : la cascade du « Résumé du mois »
+    expect(bas.querySelector('[data-total="collegues"]')?.previousElementSibling?.textContent).toBe('− Rémunération des collègues sur leurs apporteurs (sans TVA)');   // 🔴 LOT LO15   // 🔴 25/10/2026 : la cascade du « Résumé du mois »
     // Les totaux existants : les honoraires d'apporteurs ne comprennent PAS la commission du collègue.
     // Externe : 10 % × 1 000 € (one shot, gestion 0 %) = 100 € ; interne : 5 % × 1 000 € + 10 % × 50 € (récurrent d'octobre) = 55 €.
     // 🔴 25/10/2026 (suite) — VENTILÉS : externes 100 € + internes 55 € = les 155 € d'avant.
@@ -158,5 +158,24 @@ describe('🔴 Suivi du mois : la commission du collègue', () => {
     await clic(net.querySelector('[data-deplier="resultat-net"]')!);   // 🔴 26/10/2026 : replié par défaut
     expect([n(net.querySelector('[data-net="externes"]')?.textContent), n(net.querySelector('[data-net="internes"]')?.textContent), n(net.querySelector('[data-net="collegues"]')?.textContent)])
       .toEqual(['100,00 €', '55,00 €', '55,00 €']);
+  });
+  // 🔴 LOT LO15 (Arno) — la rémunération des collègues sur leurs apporteurs est SANS TVA : TTC = HT, au total et pour chaque bénéficiaire ; le HT ne change pas
+  it('🔴 LOT LO15 — la rémunération du collègue : TTC = HT (55,00 €), sa ligne et son bénéficiaire ; le net TTC la déduit telle quelle', async () => {
+    const { resumeDuMoisComplet } = await import('../../../../lib/location/suivi/resumePeriode');
+    const { netEnUnite } = await import('./CascadeNegociateur');
+    const lignes = [ligne({}), ligne({ id: 2, apporteurId: 9, apporteurNom: 'Arnaud Jorel' })];
+    const regles = [{ depuis: '2019-01-01', tauxNegociateur: 0.15, primeLogement: 150, primeParking: 15 }];
+    const ctx: ContexteCalcul = { regles, apporteurs: [EXTERNE, INTERNE], retrocessions: [], recurrents: lignes, aujourdhui: '2026-10-24' };
+    const d = { disponible: true, annee: 2026, annees: [2026], aujourdhui: '2026-10-24', activites: lignes, regles, apporteurs: [EXTERNE, INTERNE], retrocessions: [],
+      negociateurs: [], gestion: { transitions: [], stock: 0, disponible: true }, preavis: {}, voirCommissions: true, gestionLignes: [], collegues: [], annuaire: true, ecartsFichier: [] } as DonneesTableau;
+    const r = resumeDuMoisComplet(d, lignes, ctx, '2026-10', null);
+    expect([r.ventilation.collegues.centimes, r.ventilation.collegues.ttcC]).toEqual([5500, 5500]);
+    expect(r.ventilation.collegues.detail.map((b) => [b.centimes, b.ttcC])).toEqual([[5500, 5500]]);
+    // le net TTC : CA TTC (20 %) − commissions et collègues (sans TVA) − variable (sans TVA)
+    const caTtc = lignes.reduce((t, a) => t + Math.round((a.honoProprietaireHt + a.honoLocataireHt) * 1.2 * 100), 0);
+    const v = r.net.ventilation;
+    expect(netEnUnite(r.net, lignes.map((a) => ({ ca: a.honoProprietaireHt + a.honoLocataireHt }))).ttcC)
+      .toBe(caTtc - (v.externes.ttcC ?? 0) - (v.internes.ttcC ?? 0) - 5500 - r.net.variables.reduce((t, x) => t + Math.round(x.variable), 0));
+    expect([v.externes.ttcC, v.internes.ttcC]).toEqual([v.externes.centimes, v.internes.centimes]);
   });
 });

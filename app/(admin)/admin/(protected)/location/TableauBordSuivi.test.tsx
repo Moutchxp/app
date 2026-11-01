@@ -1071,7 +1071,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       donnees = { ...donnees, annees: annees(2019, 2026) };
       await monter('annee');
       expect(rangees()).toEqual(['2026']);
-      expect(container.querySelector('[data-historique-annees] thead')?.textContent).toBe('AnnéeBauxCA HTApporteursCA netCommission bruteÉvolution du CA');
+      expect(container.querySelector('[data-historique-annees] thead')?.textContent).toBe('AnnéeBauxCA HTApporteursCA netCommission brute (sans TVA)Évolution du CA'); // 🔴 LOT LO15
       expect(container.querySelector('[data-annee-historique="2026"]')?.classList.contains('tdb-fort')).toBe(true);
       // L'évolution de l'année en cours reste calculée sur l'année d'avant (2025 : 3 000 €), même repliée.
       expect(nbsp(container.querySelector('[data-annee-historique="2026"] td[data-mot="Évolution du CA"]')?.textContent)).toBe('+3 053,8 %');
@@ -1674,7 +1674,7 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect(bureau).toContain('.fdm-colonne > .fdm-famille:last-child{flex:1 1 auto;justify-content:flex-start}');
     expect([...bas().querySelectorAll('.fdm-colonne > .fdm-famille:last-child')].map((f) => f.getAttribute('data-famille'))).toEqual(['statuts', 'gestion']);
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
-      .toEqual(['CA HT global', '− Commissions apporteurs externes (sans TVA)', '− Commissions apporteurs internes (sans TVA)', '− Rémunération des collègues sur leurs apporteurs', '= CA HT net']); // 🔴 LOT LO14
+      .toEqual(['CA HT global', '− Commissions apporteurs externes (sans TVA)', '− Commissions apporteurs internes (sans TVA)', '− Rémunération des collègues sur leurs apporteurs (sans TVA)', '= CA HT net']); // 🔴 LOT LO14 / LO15
     expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
       .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
   });
@@ -1748,7 +1748,7 @@ describe('🔴 Arno (25/10/2026) — l’encadré « Négociateur » : le variab
     expect([...cascade().querySelectorAll('[data-cascade-ligne]')].map((l) => l.getAttribute('data-cascade-ligne'))).toEqual(['ca', 'commissions', 'net', 'taux', 'resultat', 'primes', 'variable']);
     expect(nbsp(cascade().querySelector('[data-cascade-ligne="taux"] .fnc-mot')?.textContent)).toBe('Taux commercial');
     expect(nbsp(montant('taux'))).toBe('15 %');
-    expect(nbsp(cascade().querySelector('[data-cascade-ligne="variable"] .fnc-mot')?.textContent)).toBe('Variable HT dû — Septembre 2026');
+    expect(nbsp(cascade().querySelector('[data-cascade-ligne="variable"] .fnc-mot')?.textContent)).toBe('Variable HT dû (sans TVA) — Septembre 2026'); // 🔴 LOT LO15
     expect(euros(montant('net'))).toBe(euros(montant('ca')) - euros(montant('commissions')));
     expect(euros(montant('resultat')) + euros(montant('primes'))).toBe(euros(montant('variable')));
     expect(nbsp(montant('variable'))).toBe('2 670,42 €');
@@ -2060,8 +2060,8 @@ describe('🔴 Arno (25/10/2026) — « Résultat net de l’agence » : après 
     expect(bloc.querySelector('h4 .tdb-replie-mot')?.textContent).toBe('Résultat net de l’agence — Septembre 2026');
     await deplierNet();
     expect([...bloc.querySelectorAll('[data-net-ligne] .fnc-mot')].map((e) => e.textContent))
-      .toEqual(['CA HT global', 'Commissions apporteurs externes (sans accès à l’interface)', 'Commissions apporteurs internes (collègues qui apportent en direct)',
-        'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', 'Variable des négociateurs', 'CA net de toutes variables']);
+      .toEqual(['CA HT global', 'Commissions apporteurs externes (sans accès à l’interface) (sans TVA)', 'Commissions apporteurs internes (collègues qui apportent en direct) (sans TVA)',
+        'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré) (sans TVA)', 'Variable des négociateurs (sans TVA)', 'CA net de toutes variables']); // 🔴 LOT LO15
   });
 
   it('les montants sont ceux des autres blocs ; net = CA − apporteurs − collègues − variables au centime ; sa part du CA', async () => {
@@ -2280,7 +2280,7 @@ describe('🔴 Arno (25/10/2026, suite) — Suivi annuel vu par un négociateur 
     const lignesF = [...f.querySelectorAll('[data-negociateur-ligne]')].map((e) => e.getAttribute('data-negociateur-ligne')!.split('|')[0]);
     expect(lignesF.length).toBeGreaterThan(0);
     expect(new Set(lignesF)).toEqual(new Set(['Jean-Baptiste PONS']));
-    expect(container.querySelector('[data-historique-annees] th:nth-of-type(6)')?.textContent).toBe('Commission brute — Jean-Baptiste PONS');
+    expect(container.querySelector('[data-historique-annees] th:nth-of-type(6)')?.textContent).toBe('Commission brute — Jean-Baptiste PONS (sans TVA)'); // 🔴 LOT LO15
     expect(container.querySelector('[data-commission-propre="2026"]')?.textContent).not.toBe('—');
     expect(container.querySelector('[data-ligne-a="commission"]')).toBeNull();
   });
@@ -2317,7 +2317,7 @@ describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : de
       const b = s.querySelector(`[data-deplier="${k}"]`) as HTMLButtonElement;
       expect([b.tagName, b.getAttribute('aria-expanded'), b.closest('h3') !== null]).toEqual(['BUTTON', 'false', true]);   // un vrai bouton : Entrée / Espace
     }
-    expect(nbsp(container.querySelector('[data-section="F"] h3')?.textContent)).toMatch(/^Les négociateurs — .+\d+ lignes? · commission brute [\d ]+,\d\d €▸$/);
+    expect(nbsp(container.querySelector('[data-section="F"] h3')?.textContent)).toMatch(/^Les négociateurs — .+\d+ lignes? · commission brute [\d ]+,\d\d € \(sans TVA\)▸$/); // 🔴 LOT LO15
     expect(nbsp(container.querySelector('[data-section="C"] h3')?.textContent)).toMatch(/^Les apporteurs — .+\d+ apporteurs? · CA apporté [\d ]+,\d\d €▸$/);
   });
 
@@ -2328,7 +2328,7 @@ describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : de
     expect(f.getAttribute('data-replie')).toBe('ouvert');
     expect(f.querySelector('[data-deplier="F"]')?.getAttribute('aria-expanded')).toBe('true');
     expect(f.querySelector('[data-contenu-replie="F"]')?.className).toBe('tdb-h-cadre tdb-h-cadre--ouvert tdb-replie-cadre');
-    expect([...f.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Négociateur', 'Mois', 'Baux', 'CA HT', 'Apporteurs', 'CA − apporteurs', 'Primes', 'Rétrocessions', 'Commission brute']);
+    expect([...f.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Négociateur', 'Mois', 'Baux', 'CA HT', 'Apporteurs', 'CA − apporteurs', 'Primes', 'Rétrocessions (sans TVA)', 'Commission brute (sans TVA)']); // 🔴 LOT LO15
     expect(f.textContent).toContain('Commission brute = taux × (CA HT − commissions des apporteurs)');
     await deplier('C');
     expect([...container.querySelectorAll('[data-section="C"] thead th')].map((t) => t.textContent)).toEqual(['Apporteur', 'Baux', 'CA apporté HT', 'Commissions', 'Reste à l’agence', 'Coût pour 1 € de CA']);
@@ -2345,7 +2345,7 @@ describe('🔴 Arno (25/10/2026, accord explicite) — Suivi annuel épuré : de
     await deplier('C');
     const lignesF = [...container.querySelectorAll('[data-negociateur-ligne]')];
     const commission = lignesF.reduce((t, l) => t + centimes(l.querySelector('td[data-mot="Commission brute"]')?.textContent), 0);
-    expect(resumeDe('F')).toBe(`${lignesF.length} ligne${lignesF.length > 1 ? 's' : ''} · commission brute ${nbsp(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(commission / 100))}`);
+    expect(resumeDe('F')).toBe(`${lignesF.length} ligne${lignesF.length > 1 ? 's' : ''} · commission brute ${nbsp(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(commission / 100))} (sans TVA)`); // 🔴 LOT LO15
     const lignesC = [...container.querySelectorAll('[data-apporteur-ligne]')];
     expect(lignesC.length).toBeGreaterThan(0);
     const ca = lignesC.reduce((t, l) => t + centimes(l.querySelector('td[data-mot="CA apporté HT"]')?.textContent), 0);
@@ -2787,5 +2787,63 @@ describe('🔴 LOT LO5 — les mêmes chiffres que la page Location du Suivi Chi
       expect([u, lire('[data-tuile-ca-net-valeur]').startsWith(eur(t.netApporteurs[k]))]).toEqual([u, true]);
       expect([u, lire('[data-tuile-ca-net-primes]').startsWith(`CA net après primes : ${eur(t.net[k])}`)]).toEqual([u, true]);
     }
+  });
+});
+
+/**
+ * 🔴 LOT LO15 (Arno) — dans le module Location, SANS TVA (TTC = HT, mention « (sans TVA) ») : la rémunération des collègues ; le variable, les
+ * rétrocessions et la commission brute du négociateur (tableaux et cascade) ; les primes et les commissions déduites de la cascade. Seuls les
+ * honoraires de location gardent 20 %. Le HT ne change pas.
+ */
+describe('🔴 LOT LO15 — Suivi annuel en TTC : variable, rétrocessions, commission brute, commissions et primes de la cascade sans TVA', () => {
+  const brut = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/[  ]/g, ' ');
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[\s€]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  /** « 1 234,56 € TTC (1 234,56 € HT) » → [TTC, HT] en centimes. */
+  const deux = (e: Element | null | undefined): [number, number] => {
+    const m = brut(e).match(/^\s*([−-]?[\d ]+,\d\d) € TTC \(([−-]?[\d ]+,\d\d) € HT\)/);
+    expect(m, brut(e)).not.toBeNull();
+    return [centimesDe(m![1]), centimesDe(m![2])];
+  };
+  it('les tableaux : commission brute (historique, négociateurs) et rétrocessions — TTC = HT ; le CA garde ses 20 %', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    window.history.replaceState(null, '', '/?debut=2026&fin=2026');
+    await monter('annee');
+    const [cTtc, cHt] = deux(container.querySelector('[data-historique-annees] [data-annee-historique="2026"] td[data-mot="Commission brute"]'));
+    expect([cTtc, cHt > 0]).toEqual([cHt, true]);
+    const [caTtc, caHt] = deux(container.querySelector('[data-historique-ca="2026"]'));
+    expect(caTtc).toBeGreaterThan(caHt);
+    await act(async () => { (container.querySelector('[data-deplier="F"]') as HTMLButtonElement).click(); });
+    const lignesF = [...container.querySelectorAll('[data-negociateur-ligne]')];
+    expect(lignesF.length).toBeGreaterThan(0);
+    for (const l of lignesF) for (const k of ['Rétrocessions', 'Commission brute', 'Primes', 'Apporteurs']) {
+      const [t, h] = deux(l.querySelector(`td[data-mot="${k}"]`)); expect([k, t]).toEqual([k, h]);
+    }
+    expect(brut(container.querySelector('[data-section="F"] h3'))).toContain('(sans TVA)');
+  });
+  it('la cascade du négociateur et le Résultat net : en TTC, commissions déduites, résultat, primes, rétrocessions et variable = leur HT ; CA net TTC = CA TTC − commissions − variable', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    window.history.replaceState(null, '', '/?debut=2026&fin=2026');
+    await monter('annee');
+    await deplierNegos();
+    const casc = () => container.querySelector('[data-bloc="resume-periode"] [data-cascade-negociateur="Jean-Baptiste PONS"]') as HTMLElement;
+    const lire = () => Object.fromEntries([...casc().querySelectorAll('[data-cascade-ligne]')].filter((l) => l.getAttribute('data-cascade-ligne') !== 'taux')
+      .map((l) => [l.getAttribute('data-cascade-ligne')!, centimesDe(brut(l.querySelector('.fnc-montant')))]));
+    const ttc = lire();
+    expect(brut(casc().querySelector('[data-cascade-ligne="primes"] .fnc-mot'))).toBe('Primes de gestion (sans TVA)');
+    expect(brut(casc().querySelector('[data-cascade-ligne="commissions"] .fnc-mot'))).toContain('(sans TVA)');
+    expect(ttc.resultat + ttc.primes - (ttc.retrocessions ?? 0)).toBe(ttc.variable);
+    expect(ttc.net).toBe(ttc.ca - ttc.commissions);
+    await deplierNet();
+    const net = container.querySelector('[data-bloc="resume-periode"] [data-resultat-net]') as HTMLElement;
+    const ligneNet = (k: string) => centimesDe(brut(net.querySelector(`[data-net="${k}"]`)));
+    const variableTtc = [...net.querySelectorAll('[data-net-ligne^="variable"] .fnc-montant')].reduce((s, e) => s + centimesDe(brut(e)), 0);
+    expect(ligneNet('net')).toBe(ligneNet('ca') - ligneNet('externes') - ligneNet('internes') - ligneNet('collegues') - variableTtc);
+    // en HT : les mêmes montants pour tout ce qui est sans TVA ; le CA, lui, change
+    await act(async () => { (container.querySelector('[data-afficher="ht"]') as HTMLButtonElement).click(); }); await calmer();
+    await deplierNegos();
+    const ht = lire();
+    for (const k of ['commissions', 'resultat', 'primes', 'variable', ...('retrocessions' in ttc ? ['retrocessions'] : [])]) expect([k, ttc[k]]).toEqual([k, ht[k]]);
+    expect(ttc.ca).toBeGreaterThan(ht.ca);
+    expect(variableTtc).toBe(ht.variable);
   });
 });

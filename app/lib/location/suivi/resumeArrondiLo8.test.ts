@@ -42,10 +42,10 @@ describe('🔴 LOT LO8 — le Résumé = la page Suivi CA › Location, au centi
     expect(v.internes.detail.map((b) => [b.nom, b.centimes, b.ttcC])).toEqual([['Paul Interne', 2002, 2002]]);
     expect(Math.round(r.r.resultat.apporteurs * 100)).toBe(page.apporteurs.htC);
     expect(Math.round(r.r.resultat.caNet * 100)).toBe(page.netApporteurs.htC);
-    // Résultat net de l'agence : ses commissions = la page ; en TTC, CA TTC − commissions TTC des lignes − variable TTC
+    // Résultat net de l'agence : ses commissions = la page ; en TTC, CA TTC − commissions TTC des lignes − variable (🔴 LOT LO15 : sans TVA, TTC = HT)
     expect(r.net.apporteurs).toBe(page.apporteurs.htC);
     expect(r.net.ventilation.externes.ttcC).toBe(3003);
-    const variable = r.net.variables.reduce((s, x) => s + Math.round(x.variable * 1.2), 0);
+    const variable = r.net.variables.reduce((s, x) => s + Math.round(x.variable), 0);
     expect(netEnUnite(r.net, r.dossiers.map((a) => ({ ca: a.honoProprietaireHt + a.honoLocataireHt }))).ttcC).toBe(page.ca.ttcC - page.apporteurs.ttcC - variable);
   });
   it('l’année (la somme de ses mois) = la page sur l’année, HT et TTC', () => {

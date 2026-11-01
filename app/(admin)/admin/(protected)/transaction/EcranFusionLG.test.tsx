@@ -78,9 +78,10 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       const ges = { ca: v('gestion-honoraires'), net: v('gestion-net'), couts: v('gestion-adhoc') + v('gestion-monga') + v('gestion-salaries') };
       await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois');
       const [ca, couts, net] = ['[data-fusion-ca]', '[data-fusion-couts]', '[data-fusion-net]'].map((s) => centimes(texte(s)));
-      // 🔴 LOT LG4 — « Avec salaires » : les primes sont dans les salaires de la gestion — la location AVANT primes (son CA net d'apporteurs)
-      expect([ca, couts, net]).toEqual([loc.ca + ges.ca, loc.ca - loc.netApporteurs + ges.couts, loc.netApporteurs + ges.net]);
-      expect(loc.netApporteurs - loc.net).toBeGreaterThan(0); // les primes du mois
+      // 🔴 LOT LO15 — FUSION = Location + Gestion au centime : les salaires de la gestion ne rendent plus les primes « inclus » (aucun salaire de
+      // location saisi en septembre : primes et variable déduits, comme sur la page Location)
+      expect([ca, couts, net]).toEqual([loc.ca + ges.ca, loc.couts + ges.couts, loc.net + ges.net]);
+      expect(loc.netApporteurs - loc.net).toBeGreaterThan(0); // les primes et le variable du mois, déduits
       expect(net).toBe(ca - couts);
       expect(texte('[data-fusion-volume]')).toBe('1 bail · 300 lots');
       expect(document.querySelector('[data-fusion-couts]')!.className).toContain('trx-rouge');
@@ -92,9 +93,11 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       await cliquer('[data-fermer-fenetre]');
       // la fenêtre « Coûts par famille » : total = tuile 3 ; les familles
       await cliquer('[data-tuile="fusion-couts"]'); await deplierCategories();
-      // 🔴 LOT LO11 — le mois a des salaires (gestion) : primes et variable montrés, « inclus dans les salaires », non déduits (🔴 LOT LG5 : dans la fenêtre)
-      expect(centimes(texte('[data-famille-tuile="primes"]'))).toBe(0);
-      expect(texte('[data-fusion-inclus]')).toContain('inclus dans les salaires');
+      // 🔴 LOT LO15 — les salaires de la gestion n'incluent plus les primes : déduites (15 000 c sans TVA) ; rien « inclus dans les salaires »
+      expect(centimes(texte('[data-famille-tuile="primes"]'))).toBe(15000);
+      expect(document.querySelector('[data-fusion-inclus]')).toBeNull();
+      // 🔴 LOT LO15 — septembre : les salaires de la location ne sont pas saisis (la gestion, oui)
+      expect(texte('[data-reperes="couts"] [data-salaires-a-saisir-nb]')).toBe('location : 1 mois de salaires à saisir');
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion');
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
       expect(['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="salairesLocation"]',
@@ -105,8 +108,9 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(grand('[data-fenetre-net-fusion] [data-fenetre-total]')).toBe(net);
       expect(grand('[data-net-fusion-ca]') - grand('[data-net-fusion-couts]')).toBe(net);
       expect(grand('[data-net-fusion-location-net]') + grand('[data-net-fusion-gestion-net]')).toBe(net);
-      expect([grand('[data-net-fusion-location-net]'), grand('[data-net-fusion-gestion-net]')]).toEqual([loc.netApporteurs, ges.net]);
-      expect(texte('[data-ligne-net-fusion="primes"]')).toContain('inclus dans les salaires');
+      expect([grand('[data-net-fusion-location-net]'), grand('[data-net-fusion-gestion-net]')]).toEqual([loc.net, ges.net]);
+      expect(texte('[data-ligne-net-fusion="primes"]')).not.toContain('inclus dans les salaires');
+      expect(texte('[data-reperes="net"] [data-salaires-a-saisir-nb]')).toBe('location : 1 mois de salaires à saisir');
       await cliquer('[data-mode-fenetre="transaction"]');
       expect(grand('[data-net-mois="2026-9"]')).toBe(net);
     });
@@ -121,8 +125,8 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]'));
     await cliquer('[data-fermer-fenetre]');
     await cliquer('[data-activite="gestion"]'); const gg = lire();
-    // 🔴 LOT LO11 — la location seule (la page Location) déduit primes et variable ; les deux, les mois avec salaires de gestion, ne les déduisent pas
-    expect([l[0] + gg[0], l[1] + gg[1] - primes - variable, l[2] + gg[2] + primes + variable]).toEqual(deux);
+    // 🔴 LOT LO15 — une partition exacte : la location seule (la page Location) + la gestion seule = les deux, au centime
+    expect([l[0] + gg[0], l[1] + gg[1], l[2] + gg[2]]).toEqual(deux);
     expect([primes, variable > 0]).toEqual([15000, true]);
     expect(texte('[data-fusion-volume]')).toBe('305 lots en moyenne');
   });
@@ -161,9 +165,10 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       await cliquer('[data-salaires="sans"]');
       expect(document.querySelector('[data-fenetre-couts-fusion]')).toBeNull(); // le choix n'ouvre pas la fenêtre
       const salaires = 268891; // septembre : 2 688,91 € (sans TVA : le même en HT et en TTC)
-      // 🔴 LOT LO11 — primes et variable : inclus dans les salaires en « Avec » (mois avec salaires), déduits en « Sans »
+      // 🔴 LOT LO15 — aucun salaire de LOCATION saisi en septembre : primes et variable déduits dans les deux modes (plus rien « inclus »)
       await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
-      const primes = 15000 + centimes(texte('[data-famille-tuile="variable"]')); // 🔴 LOT LO14 — primes sans TVA (TTC = HT)
+      expect(centimes(texte('[data-famille-tuile="primes"]'))).toBe(15000); // 🔴 LOT LO14 — primes sans TVA (TTC = HT)
+      const primes = 0;
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion (non comptés)'); // 🔴 LOT LO11 — deux familles de salaires (location, gestion)
       expect(document.querySelector('[data-famille-tuile="salaries"]')!.className).toContain('loc-muet');
       await cliquer('[data-fermer-fenetre]');

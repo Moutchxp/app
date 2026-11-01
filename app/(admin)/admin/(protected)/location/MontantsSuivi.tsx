@@ -39,7 +39,10 @@ export const CSS_MONTANTS_SUIVI = `
 
 /** Un montant : son HT, et — quand il est la somme de lignes — son TTC exact (centimes). */
 export interface MontantSuivi { ht: number; ttcC?: number }
-/** 🔴 LOT LO14 — un coût sans TVA (commissions d'apporteurs, primes de nouvelle gestion) : son TTC = son HT, au centime. */
+/**
+ * 🔴 LOT LO14 / LO15 — un coût sans TVA (commissions d'apporteurs, primes de nouvelle gestion ; rémunération des collègues, variable, rétrocessions,
+ * commission brute du négociateur) : son TTC = son HT, au centime. Seuls les honoraires de location portent 20 %.
+ */
 export const sansTvaSuivi = (ht: number): MontantSuivi => ({ ht, ttcC: Math.round((ht + Number.EPSILON) * 100) });
 
 export function useMontantSuivi() { return formateurSuivi(useContext(Contexte)); }

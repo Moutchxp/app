@@ -5,7 +5,7 @@ import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
-import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
+import { libellePeriode, libellePeriodeComplet, MOT_A_SAISIR, motSalairesASaisir, nbMoisSalairesASaisir, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { correspond, CLE_TRI_LISTE, estTriListe, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, type TriListe } from '../../../../lib/transaction/listeCartes';
 import {
   anneesLocation, apporteursLocation, COMPTER_LOCATION, estCompterLocation, ficheRechercheLocation, filtrerLocation, LIBELLE_COMPTER_LOCATION,
@@ -222,6 +222,9 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
   const coutsF = { total: T.c, mois: ms.map((m) => ({ m, c: coutsLocation(lignes, [m], ctxC.retros, ctxC.salaires, ctxC.avecSalaires) })), sans: !ctxC.avecSalaires };
   const avec = ctxC.avecSalaires;
   const espace = espaceLocationRegle(lignes, ms, ctxC.retros, ctxC.salaires, avec);
+  // 🔴 LOT LO15 — les mois commencés de la période sans salaires chargés saisis : « N mois de salaires à saisir » (fenêtres, Résultat, encadré)
+  const aSaisir = useASaisir(jour)(ms);
+  const repereASaisir = aSaisir === 0 ? [] : [{ cle: 'a-saisir', mot: 'Salaires chargés', valeur: <span className="trx-fl-texte loc-muet trx-a-saisir" data-salaires-a-saisir-nb>{motSalairesASaisir(aSaisir)}</span> }];
   const ms1 = unAnPlusTot(ms);
   const T1 = tot(lignes, ms1);
   const anneesN1 = [...new Set(ms1.map((m) => m.annee))];
@@ -313,12 +316,14 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
         // 🔴 LOT LO13 — ce qui a quitté la tuile « Coûts » : les familles (ce qui est déduit ; « inclus » ; salaires non comptés) et N−1
         { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(T.c.variableDeduit))} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
           {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(T.c.variable, T.c.variableDeduit)))} inclus dans les salaires</span>}</span> },
+        ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span> },
       ]} />} />}
     {fenetre === 'net' && <FenetreNetLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }}
       reperes={<Reperes donnee="net" lignes={[
         // 🔴 LOT LO13 — ce qui a quitté la tuile « CA net » : le CA net d'apporteurs (lot LO5, `sommesLocation`) et N−1
         { cle: 'apporteurs', mot: 'CA net d’apporteurs', valeur: <Montant htC={T.netApporteurs.htC} ttcC={T.netApporteurs.ttcC} versee={false} recu donnees={{ 'data-location-net-apporteurs': '' }} /> },
+        ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span> },
       ]} />} />}
 
@@ -331,7 +336,7 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
       <TableauLocation lignes={lignes} rangees={historique !== null && toutesAnnees !== null ? historique.annees.map((a) => ({ cle: String(a), libelle: String(a), ms: douzeMoisDe(a), mois: null }))
         : historique !== null ? [...new Set(ms.map((m) => m.annee))].map((a) => ({ cle: String(a), libelle: String(a), ms: douzeMoisDe(a), mois: null }))
         : douzeMoisDe(annee).map((m) => ({ cle: `${m.annee}-${m.mois}`, libelle: NOMS_MOIS[m.mois - 1], ms: [m], mois: m }))}
-        titre={historique !== null ? 'Année par année' : `${annee} mois par mois`} annee={annee} />
+        titre={historique !== null ? 'Année par année' : `${annee} mois par mois`} annee={annee} jour={jour} />
     </section>
 
     <div ref={listes} className="trx-listes-mois">
@@ -340,7 +345,7 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
 
     <section className="tdb-section" aria-labelledby="trx-resultat-location" data-bloc="resultat-location">
       <h3 id="trx-resultat-location" title={infobulle} {...(infobulle !== undefined ? { 'aria-label': `Résultat de la location — ${infobulle}` } : {})}>Résultat de la location — {libComplet}</h3>
-      <ResultatLocation T={T} />
+      <ResultatLocation T={T} aSaisir={aSaisir} />
     </section>
 
     <BlocReplie id="trx-negos-location" section="negociateurs-location" titre={<>Espace par négociateur — {libComplet}</>} resume={`${espace.length} négociateur(s)`}
@@ -376,6 +381,15 @@ function infoLocation(titre: string, mesure: Mesure, U: ReturnType<typeof useEnU
     courant: { libelle, ca: valeurDe(t, mesure, U.en), nb: t.nb, caAutre: autreDe(t), ...parts(t) },
     precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: valeurDe(t1, mesure, U.en), nb: t1.nb, caAutre: autreDe(t1), ...parts(t1) } };
 }
+/**
+ * 🔴 LOT LO15 — le nombre de mois « à saisir » d'un ensemble de mois (les mois commencés sans salaires chargés saisis) ; un filtre actif (salaires
+ * non comptés) : aucun. L'encadré du CA net le dit, en note. PUR (hors contexte).
+ */
+function useASaisir(jour: string): (ms: readonly MoisChoisi[]) => number {
+  const x = useContext(ContexteCouts);
+  return (ms) => (x.filtre ? 0 : nbMoisSalairesASaisir(ms, (m) => salairesLocationDuMois(x.salaires, m.annee, m.mois) !== null, jour));
+}
+const avecASaisir = (info: InfoBarre, mesure: Mesure, n: number): InfoBarre => (mesure === 'net' && n > 0 ? { ...info, note: motSalairesASaisir(n) } : info);
 function useMesure(): [Mesure, (m: Mesure) => void] {
   const [mesure, setMesure] = useState<Mesure>(() => { const x = parametre('mesure'); return x === 'net' || x === 'nombre' ? x : 'ca'; });
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
@@ -388,6 +402,7 @@ function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes
   g: Extract<Graphe, { sorte: 'mois' }>; series: readonly { nom: string; couleur: number; lignes: LigneLocationCa[] }[] | null }) {
   const U = useEnUnite();
   const tot = useTotaux(); // 🔴 LOT LO11 — le CA net à la règle (mois par mois)
+  const aSaisir = useASaisir(jour); // 🔴 LOT LO15
   const [mesure, setMesure] = useMesure();
   const [cumul, setCumul] = useState(false);
   const dernier = moisADate(annee, jour);
@@ -396,7 +411,8 @@ function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes
     tot(ls, cumul ? Array.from({ length: k }, (_, i) => ({ annee: a, mois: i + 1 })) : [{ annee: a, mois: k }]);
   const info = (k: number): InfoBarre => {
     const titre = `${cumul ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${k > dernier ? ' — à venir' : ''}`;
-    return infoLocation(titre, mesure, U, String(annee), pt(lignes, annee, k), sansN1 ? null : String(annee - 1), sansN1 ? null : pt(lignes, annee - 1, k), `${annee - 1} : aucune location au Suivi`);
+    return avecASaisir(infoLocation(titre, mesure, U, String(annee), pt(lignes, annee, k), sansN1 ? null : String(annee - 1), sansN1 ? null : pt(lignes, annee - 1, k), `${annee - 1} : aucune location au Suivi`),
+      mesure, aSaisir(cumul ? Array.from({ length: k }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois: k }]));
   };
   const parMois = (ls: readonly LigneLocationCa[], a: number): number[] => Array.from({ length: 12 }, (_, i) => valeurDe(tot(ls, [{ annee: a, mois: i + 1 }]), mesure, U.en));
   const vals = parMois(lignes, annee); const vals1 = parMois(lignes, annee - 1);
@@ -437,6 +453,7 @@ function GrapheLocationAnnees({ lignes, jour, annee, g, series, toutesAnnees }: 
   g: Extract<Graphe, { sorte: 'annees' }>; series: readonly { nom: string; couleur: number; lignes: LigneLocationCa[] }[] | null; toutesAnnees: string | null }) {
   const U = useEnUnite();
   const tot = useTotaux(); // 🔴 LOT LO11 — le CA net à la règle (mois par mois)
+  const aSaisir = useASaisir(jour); // 🔴 LOT LO15
   const [mesure, setMesure] = useMesure();
   const [cumul, setCumul] = useState(false);
   const enCours = Number(jour.slice(0, 4));
@@ -446,7 +463,8 @@ function GrapheLocationAnnees({ lignes, jour, annee, g, series, toutesAnnees }: 
   const info = (a: number): InfoBarre => {
     const avant = toutesAnnees === null && annees.includes(a - 1);
     const titre = cumul ? `Cumul ${annees[0]} → ${a}` : `${a}${a === enCours ? ' — en cours' : ''}`;
-    return infoLocation(titre, mesure, U, String(a), pt(lignes, a), avant ? String(a - 1) : null, avant ? pt(lignes, a - 1) : null, toutesAnnees ?? `${a - 1} : aucune location au Suivi`);
+    return avecASaisir(infoLocation(titre, mesure, U, String(a), pt(lignes, a), avant ? String(a - 1) : null, avant ? pt(lignes, a - 1) : null, toutesAnnees ?? `${a - 1} : aucune location au Suivi`),
+      mesure, aSaisir(moisDesAnnees(cumul ? annees.filter((x) => x <= a) : [a])));
   };
   const vals = annees.map((a) => valeurDe(pt(lignes, a), mesure, U.en));
   const entier = mesure === 'nombre';
@@ -580,7 +598,7 @@ export function CarteBail({ l, ouvertInitial = false }: { l: LigneLocationCa; ou
 }
 
 /** « Résultat de la location » : CA brut − primes − rétrocessions = CA net (la trame des sommes). */
-function ResultatLocation({ T }: { T: TotauxRegle }) {
+function ResultatLocation({ T, aSaisir }: { T: TotauxRegle; aSaisir: number }) {
   const MOT = MOT_UNITE[useAffichage()];
   const m = (x: MontantC) => ({ ht: x.htC / 100, ttc: x.ttcC / 100 });
   const c = T.c;
@@ -595,8 +613,8 @@ function ResultatLocation({ T }: { T: TotauxRegle }) {
       <dt>− Primes de nouvelle gestion (sans TVA){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
       <dt>− Variable du négociateur (sans TVA){inclus(c.variable, c.variableDeduit)}</dt><dd><Mt {...m(c.variableDeduit)} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi, en gris, « non comptés » (non déduit) */}
-      {avec ? <><dt>− Salaires chargés (sans TVA)</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
-        : <><dt className="loc-muet">Salaires chargés (sans TVA) — non comptés</dt><dd className="loc-muet" data-resultat-salaires-non-comptes>{eur((MOT === 'TTC' ? c.salairesSaisis.ttcC : c.salairesSaisis.htC) / 100)}</dd></>}
+      {avec ? <><dt>− Salaires chargés (sans TVA){aSaisir > 0 && <small className="loc-muet trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
+        : <><dt className="loc-muet">Salaires chargés (sans TVA) — non comptés{aSaisir > 0 && <small className="trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd className="loc-muet" data-resultat-salaires-non-comptes>{eur((MOT === 'TTC' ? c.salairesSaisis.ttcC : c.salairesSaisis.htC) / 100)}</dd></>}
       <dt className="trx-total">= CA net{hors(avec)} ({MOT})</dt><dd className="trx-total trx-vert"><Mt {...m(T.net)} donnees={{ 'data-resultat-net': '' }} /></dd>
     </dl>
   );
@@ -610,15 +628,19 @@ const LIBELLE_SALAIRES_LOCATION = 'Salaires chargés';
  * primes, commissions d'apporteurs, variable du négociateur, salaires chargés (saisis), CA net, honoraires un an plus tôt, « Saisir / Modifier ».
  * Les primes et le variable d'un mois avec salaires : montrés, « inclus dans les salaires » (non déduits). La ligne de total = la somme des lignes.
  */
-function TableauLocation({ lignes, rangees, titre, annee }: { lignes: readonly LigneLocationCa[];
-  rangees: readonly { cle: string; libelle: string; ms: readonly MoisChoisi[]; mois: MoisChoisi | null }[]; titre: string; annee: number }) {
+function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: readonly LigneLocationCa[];
+  rangees: readonly { cle: string; libelle: string; ms: readonly MoisChoisi[]; mois: MoisChoisi | null }[]; titre: string; annee: number; jour: string }) {
   const U = useEnUnite();
   const tot = useTotaux();
   const x = useContext(ContexteCouts);
+  const nbASaisir = useASaisir(jour);
   const montant = (m: MontantC, o: { cout?: boolean; gris?: boolean } = {}) => <span className={o.gris ? 'loc-muet' : o.cout ? classeSens('verse', m.htC, m.ttcC) : undefined}>{eur(U.en(m))}</span>;
   const cellules = (t: TotauxRegle, ms: readonly MoisChoisi[]) => {
     const t1 = tot(lignes, ms.map((m) => ({ annee: m.annee - 1, mois: m.mois })));
     const inclus = t.c.moisAvecSalaires > 0 && t.c.moisAvecSalaires === t.c.nbMois;
+    // 🔴 LOT LO15 — une case vide = « pas encore saisi » : « à saisir » (gris, italique) ; une année en partie saisie : « N mois à saisir » sous le montant
+    const aSaisir = nbASaisir(ms);
+    const motASaisir = aSaisir > 0 ? <small className="loc-muet trx-ligne-bloc trx-a-saisir" data-salaires-a-saisir-nb>{aSaisir} mois {MOT_A_SAISIR}</small> : null;
     return <>
       <td data-mot="Baux">{t.nb}</td>
       <td data-mot="Honoraires" data-location-honoraires>{montant(t.ca)}</td>
@@ -626,8 +648,9 @@ function TableauLocation({ lignes, rangees, titre, annee }: { lignes: readonly L
       <td data-mot="Commissions d’apporteurs">{montant(t.apporteurs, { cout: true })}</td>
       <td data-mot="Variable négociateur" data-location-variable>{montant(t.c.variable, { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi en gris, « non comptés » */}
-      <td data-mot={LIBELLE_SALAIRES_LOCATION} data-location-salaires>{t.c.moisSaisis === 0 ? '—' : x.avecSalaires ? montant(t.c.salaires, { cout: true })
-        : <>{montant(t.c.salairesSaisis, { gris: true })}<small className="loc-muet trx-ligne-bloc" data-salaires-non-comptes>non comptés</small></>}</td>
+      <td data-mot={LIBELLE_SALAIRES_LOCATION} data-location-salaires>{t.c.moisSaisis === 0 ? (aSaisir > 0 ? <em className="loc-muet trx-a-saisir" data-salaires-a-saisir>{MOT_A_SAISIR}</em> : '—')
+        : x.avecSalaires ? <>{montant(t.c.salaires, { cout: true })}{motASaisir}</>
+        : <>{montant(t.c.salairesSaisis, { gris: true })}<small className="loc-muet trx-ligne-bloc" data-salaires-non-comptes>non comptés</small>{motASaisir}</>}</td>
       <td data-mot={`CA net${hors(x.avecSalaires)}`} data-location-net-mois className={t.net.htC < 0 ? 'trx-rouge' : 'trx-vert'}>{eur(U.en(t.net))}</td>
       <td data-mot="Honoraires un an plus tôt">{montant(t1.ca)}</td>
     </>;

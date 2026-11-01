@@ -356,7 +356,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
       {lignes.length === 0 ? <p className="loc-muet">Aucune affaire {motVide}.</p> : (
         <div className="fdm-deux">
           <table className="fdm-table fdm-apporteurs">
-            <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
+            <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur <small className="loc-muet">(sans TVA)</small></th></tr></thead>
             <tbody>{[...ac.apporteurs.filter((x) => x.sorte !== 'non_nomme'), ...ac.apporteurs.filter((x) => x.sorte === 'non_nomme')].map((x) => (
               <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom} className={x.meilleur ? 'fdm-meilleur' : undefined}>
                 <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}
@@ -378,7 +378,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
           {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
               deux existent ; triés par CA total ; le meilleur badgé ; Total = somme des totaux des collègues. */}
           <table className="fdm-table fdm-collegues">
-            <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur</th></tr></thead>
+            <thead><tr><th scope="col">Collègues (via leurs apporteurs et en direct)</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur <small className="loc-muet">(sans TVA)</small></th></tr></thead>
             {/* 🔴 Arno (25/10/2026) — UNE ligne par collègue, REPLIÉE au chargement : ses TOTAUX (gras) et, en petit sous le nom, les origines
                 présentes. S'il y a plus d'une ligne de détail (deux origines, ou plusieurs apporteurs), un chevron : la ligne se déplie en
                 sous-lignes empilées et alignées d'une colonne à l'autre (via ses apporteurs, un apporteur par sous-ligne dès deux, en direct,
@@ -421,7 +421,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                       </span></th>
                     <td data-mot="Affaires">{pile((l) => lien(String(l.nb), titre(l), l.ids, `${repere(l)}-nb`))}</td>
                     <td data-mot="CA apporté">{pile((l) => lien(U.m(caIds(l.caCentimes / 100, l.ids)), titre(l), l.ids, `${repere(l)}-ca`))}</td>
-                    <td data-mot="Hono. d’apporteur">{pile((l) => U.m(l.commissionCentimes / 100))}</td>
+                    <td data-mot="Hono. d’apporteur">{pile((l) => U.m(sansTvaSuivi(l.commissionCentimes / 100)))}</td>
                   </tr>
                 );
               }
@@ -431,7 +431,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                     <small className="fdm-origine-collegue" data-origines-collegue>{det.mention}</small></th>
                   <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(total.nb), titre(total), total.ids, 'total-nb')}</td>
                   <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(U.m(caIds(total.caCentimes / 100, total.ids)), titre(total), total.ids, 'total-ca')}</td>
-                  <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{U.m(total.commissionCentimes / 100)}</td>
+                  <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{U.m(sansTvaSuivi(total.commissionCentimes / 100))}</td>
                 </tr>
               );
             })}</tbody>
@@ -442,7 +442,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                 <td data-mot="CA apporté" data-total-collegues-ca>{U.m({ ht: collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100,
                   ttcC: collegues.reduce((t2, c2) => t2 + U.ttcC(caIds(0, c2.det.lignes[c2.det.lignes.length - 1].ids)), 0) })}</td>
                 <td data-mot="Hono. d’apporteur">{U.m({ ht: collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100,
-                  ttcC: collegues.reduce((t2, c2) => t2 + U.ttcC(c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes / 100), 0) })}</td>
+                  ttcC: collegues.reduce((t2, c2) => t2 + U.ttcC(sansTvaSuivi(c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes / 100)), 0) })}</td>
               </tr></tfoot>
             )}
           </table>
@@ -508,7 +508,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               <div><dt>− Commissions apporteurs externes <small className="loc-muet">(sans TVA)</small></dt><dd data-total="apporteurs-externes">{U.m(vent(ventilation.externes))}</dd></div>
               <div><dt>− Commissions apporteurs internes <small className="loc-muet">(sans TVA)</small></dt><dd data-total="apporteurs-internes">{U.m(vent(ventilation.internes))}</dd></div>
               {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
-              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{U.m(vent(ventilation.collegues))}</dd></div>
+              <div><dt>− Rémunération des collègues sur leurs apporteurs <small className="loc-muet">(sans TVA)</small></dt><dd data-total="collegues">{U.m(vent(ventilation.collegues))}</dd></div>
               <div className="fdm-fort fdm-egal"><dt>= {U.mot('CA HT net')}</dt><dd data-total="ca-net">{U.m(caNetT)}</dd></div>
             </dl>
           </section>
@@ -643,7 +643,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               {d.voirCommissions && resume.negociateurs.length > 1 && (
                 <dl className="fdm-cascade-mois fdm-famille">
                   <div><dt>Primes de gestion — tous négociateurs <small className="loc-muet">(sans TVA)</small></dt><dd data-total="primes">{U.m(sansTvaSuivi(r.primes))}</dd></div>
-                  <div><dt>Rétrocessions — tous négociateurs</dt><dd data-total="retrocessions">{U.m(r.retrocessions)}</dd></div>
+                  <div><dt>Rétrocessions — tous négociateurs <small className="loc-muet">(sans TVA)</small></dt><dd data-total="retrocessions">{U.m(sansTvaSuivi(r.retrocessions))}</dd></div>
                 </dl>
               )}
             </div>

@@ -26,11 +26,11 @@ import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transac
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
-import { anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
+import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { carteCompromis } from '../../../../lib/transaction/compromisCarte';
-import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
+import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, moisCommence, MOT_A_SAISIR, motSalairesASaisir, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 
 /** 🔴 LOT CP — en Période, le TTC de chaque ligne est la somme des TTC affichés mois par mois (absent : HT × 1,2, comme avant). */
 type NonDeduitsMontants = { internesHt: number; aRenseignerHt: number; internesTtc?: number; aRenseignerTtc?: number };
@@ -1932,7 +1932,7 @@ export function EcranGestion() {
               <tr key={a} className={a === choixA.annee ? 'tdb-fort' : undefined} data-annee-gestion={a}>
                 <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnneeSeule(a)}>{a}</button></th>
                 <td data-mot="Mois saisis">{deLAnnee(a).length}</td><td data-mot="Honoraires">{manque(h)}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(a), 'adhocHt'))}</td>
-                <td data-mot="MONGA">{manque(somme(deLAnnee(a), 'mongaHt'))}</td><td data-mot={LIBELLE_SALAIRES} className={avecSalaires ? undefined : 'loc-muet'}>{manque(somme(deLAnnee(a), 'salarieHt'))}</td><td data-mot="Reste">{manque(resteAnnee(deLAnnee(a)))}</td>
+                <td data-mot="MONGA">{manque(somme(deLAnnee(a), 'mongaHt'))}</td><td data-mot={LIBELLE_SALAIRES} className={avecSalaires ? undefined : 'loc-muet'}>{caseSalairesGestion(somme(deLAnnee(a), 'salarieHt'), aSaisirGestion(d.gestion, douzeMois(a), jour), manque)}</td><td data-mot="Reste">{manque(resteAnnee(deLAnnee(a)))}</td>
                 <td data-mot="Évolution">{h === null || p === null ? '—' : signePct(variation(h, p))}</td>
               </tr>
             );
@@ -1948,6 +1948,14 @@ export function EcranGestion() {
   );
 }
 
+/**
+ * ══ 🔴 LOT LO15 (Arno) — UNE CASE DE SALAIRES VIDE = « PAS ENCORE SAISI » : les mois commencés sans salarié saisi (le mois entier non saisi compris)
+ * sont « à saisir » ; la case dit « à saisir » (gris, italique) au lieu de « — » ; une somme en partie saisie : « N mois à saisir » sous le montant. PUR.
+ */
+function caseSalairesGestion(x: number | null, aSaisir: number, manque: (x: number | null) => string): ReactNode {
+  if (x === null) return aSaisir > 0 ? <em className="loc-muet trx-a-saisir" data-salaires-a-saisir>{MOT_A_SAISIR}</em> : manque(x);
+  return <>{manque(x)}{aSaisir > 0 && <small className="loc-muet trx-ligne-bloc trx-a-saisir" data-salaires-a-saisir-nb>{aSaisir} mois {MOT_A_SAISIR}</small>}</>;
+}
 /** 🔴 LOT GE5 (Arno) — le libellé des salaires (sans TVA) : tuile, colonnes des tableaux, encadré et titre du graphique, fenêtre « Modifier » ; l'onglet garde « Salaires ». */
 const LIBELLE_SALAIRES = 'Salaires chargés'; // 🔴 LOT LO11 — ex « Coûts salariaux chargés »
 /** 🔴 LOT GE1 — « Gestion » : les tuiles, le graphique (deux échelles sur « L'année ») et le tableau des mois choisis. */
@@ -2039,7 +2047,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
                 <tr key={`${m.annee}-${m.mois}`} data-mois-gestion={m.mois} data-annee-mois-gestion={`${m.annee}-${m.mois}`} className={mois !== 0 && m.mois === mois && m.annee === annee ? 'trx-ligne-choisie' : undefined}>
                   <th scope="row">{NOMS_MOIS[m.mois - 1]}{plusieursAnnees ? ` ${m.annee}` : ''}{g?.origine === 'import' && <span className="loc-pastille" title="Repris du fichier importé"> import</span>}</th>
                   <td data-mot="Lots">{g?.nbLots == null ? '—' : nombreFr(g.nbLots)}</td><td data-mot="Honoraires" data-gestion-honoraires={m.mois}>{manque(l.honoraires)}</td>
-                  <td data-mot="ADHOC">{manque(l.adhoc)}</td><td data-mot="MONGA">{manque(l.monga)}</td><td data-mot={LIBELLE_SALAIRES} className={grisS} data-gestion-salaires={`${m.annee}-${m.mois}`}>{manque(l.salarie)}</td><td data-mot="Reste" data-gestion-reste={`${m.annee}-${m.mois}`}>{manque(reste(l.reste, l.salarie))}</td>
+                  <td data-mot="ADHOC">{manque(l.adhoc)}</td><td data-mot="MONGA">{manque(l.monga)}</td><td data-mot={LIBELLE_SALAIRES} className={grisS} data-gestion-salaires={`${m.annee}-${m.mois}`}>{caseSalairesGestion(l.salarie, l.salarie === null && moisCommence(m, jour) ? 1 : 0, manque)}</td><td data-mot="Reste" data-gestion-reste={`${m.annee}-${m.mois}`}>{manque(reste(l.reste, l.salarie))}</td>
                   <td data-mot={`Honoraires ${m.annee - 1}`}>{manque(l1.honoraires)}</td>
                   <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" onClick={() => onSaisir(m)} disabled={!disponible} data-saisir-gestion={m.mois}
                     data-saisir-gestion-mois={`${m.annee}-${m.mois}`}>{g === null ? 'Saisir' : 'Modifier'}</button></td>
@@ -2047,7 +2055,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
               );
             })}
             <tr className="tdb-fort trx-ligne-total" data-total-gestion><th scope="row">Total — {titreTableau ?? lib}</th><td data-mot="Lots">—</td>
-              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot={LIBELLE_SALAIRES} className={grisS}>{manque(somme('salarie'))}</td>
+              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot={LIBELLE_SALAIRES} className={grisS}>{caseSalairesGestion(somme('salarie'), aSaisirGestion(gestion, lignesTableau, jour), manque)}</td>
               <td data-mot="Reste" data-total-gestion-reste>{manque(reste(somme('reste'), somme('salarie')))}</td><td data-mot="Honoraires N−1">{total.nbMois === 0 ? '—' : manque(somme('honoraires', unAnPlusTot(lignesTableau)))}</td><td data-mot="Saisie" /></tr>
           </tbody>
         </table>
@@ -2066,11 +2074,14 @@ function useMesureGestion(): [MesureGestion, (m: MesureGestion) => void] {
   return [mesure, setMesure];
 }
 /** L'encadré d'un point : la valeur et le nombre de mois saisis, N−1 (sauf « Tout ») ; « mois non saisi » dans le titre d'un mois vide. */
-function infoGestion(titre: string, mesure: MesureGestion, u: UniteGestion, libelle: string, t: TotauxGestion, libelleN1: string | null, t1: TotauxGestion | null, sansN1: string, salaires = true): InfoBarre {
+function infoGestion(titre: string, mesure: MesureGestion, u: UniteGestion, libelle: string, t: TotauxGestion, libelleN1: string | null, t1: TotauxGestion | null, sansN1: string, salaires = true,
+  aSaisir = 0): InfoBarre {
   const v = valeurGestion(t, mesure, u); const v1 = t1 === null ? 0 : valeurGestion(t1, mesure, u);
   if (mesure === 'lots') return { titre, compte: 'Lots', sansN1, courant: { libelle, ca: v, nb: null }, precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: v1, nb: null } };
   return { titre, motCa: motMesureGestion(mesure, u, salaires), motNb: 'Mois saisis', sansN1, courant: { libelle, ca: v, nb: t.nbSaisis },
-    precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: v1, nb: t1.nbSaisis } };
+    precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: v1, nb: t1.nbSaisis },
+    // 🔴 LOT LO15 — l'encadré des salaires et du CA net : « N mois de salaires à saisir »
+    ...((mesure === 'salaries' || mesure === 'net') && aSaisir > 0 ? { note: motSalairesASaisir(aSaisir) } : {}) };
 }
 /** Le cumul d'une mesure de janvier au mois `k` (les lots : leur moyenne). */
 const cumulGestion = (gestion: readonly GestionMois[], annee: number, k: number, salaires = true): TotauxGestion => totauxGestion(gestion, Array.from({ length: k }, (_, i) => ({ annee, mois: i + 1 })), salaires);
@@ -2087,7 +2098,8 @@ function GrapheGestionMois({ gestion, jour, u, salaires, annee, mois, moisChoisi
     const t = pt(annee, k);
     const nonSaisi = !cumul && t.nbSaisis === 0 && k <= dernier;
     const titre = `${cumul ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${k > dernier ? ' — à venir' : nonSaisi ? ' — mois non saisi' : ''}`;
-    return infoGestion(titre, mesure, u, String(annee), t, sansN1 ? null : String(annee - 1), sansN1 ? null : pt(annee - 1, k), `${annee - 1} : non saisi`, salaires);
+    return infoGestion(titre, mesure, u, String(annee), t, sansN1 ? null : String(annee - 1), sansN1 ? null : pt(annee - 1, k), `${annee - 1} : non saisi`, salaires,
+      aSaisirGestion(gestion, cumul ? Array.from({ length: k }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois: k }], jour));
   };
   const vals = Array.from({ length: 12 }, (_, i) => valeurGestion(pt(annee, i + 1), mesure, u));
   const vals1 = Array.from({ length: 12 }, (_, i) => valeurGestion(pt(annee - 1, i + 1), mesure, u));
@@ -2128,7 +2140,8 @@ function GrapheGestionAnnees({ gestion, jour, u, salaires, annee, annees, select
   const info = (a: number): InfoBarre => {
     const avant = toutes === null && annees.includes(a - 1);
     const titre = cumul ? `Cumul ${annees[0]} → ${a}` : `${a}${a === enCours ? ' — en cours' : ''}`;
-    return infoGestion(titre, mesure, u, String(a), pt(a), avant ? String(a - 1) : null, avant ? pt(a - 1) : null, toutes ?? `${a - 1} : non saisi`, salaires);
+    return infoGestion(titre, mesure, u, String(a), pt(a), avant ? String(a - 1) : null, avant ? pt(a - 1) : null, toutes ?? `${a - 1} : non saisi`, salaires,
+      aSaisirGestion(gestion, moisDesAnnees(cumul ? annees.filter((x) => x <= a) : [a]), jour));
   };
   const vals = annees.map((a) => valeurGestion(pt(a), mesure, u));
   const entier = mesure === 'lots';

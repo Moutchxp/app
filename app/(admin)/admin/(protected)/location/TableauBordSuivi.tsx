@@ -647,8 +647,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <div className={`tdb-h-cadre${histoOuvert ? ' tdb-h-cadre--ouvert' : ''}`} ref={cadreHisto} id="tdb-h-cadre" data-historique-cadre={histoOuvert ? 'ouvert' : 'replie'}>
           <table className="tdb-table tdb-table--mois" data-historique-annees>
             <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">{U.mot('CA HT')}</th><th scope="col">Apporteurs</th><th scope="col">CA net</th>
-              {d.voirCommissions && <th scope="col">Commission brute</th>}
-              {propre !== undefined && <th scope="col">Commission brute — {propre.libelle}</th>}<th scope="col">Évolution du CA</th></tr></thead>
+              {d.voirCommissions && <th scope="col">Commission brute <small className="loc-muet">(sans TVA)</small></th>}
+              {propre !== undefined && <th scope="col">Commission brute — {propre.libelle} <small className="loc-muet">(sans TVA)</small></th>}<th scope="col">Évolution du CA</th></tr></thead>
             <tbody>
               {toutes.map((h, i, t) => {
                 if (!histoOuvert && h.annee !== enCours) return null;
@@ -664,9 +664,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => ouvrirAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
                     <td data-mot="Baux">{h.nbBaux}</td><td data-mot={U.mot('CA HT')} data-historique-ca={h.annee}>{U.m(caM(h.ca, h.ids ?? []))}</td><td data-mot="Apporteurs">{U.m(sansTvaSuivi(h.apporteurs))}</td>
                     <td data-mot="CA net" data-historique-ca-net={h.annee}>{U.m(netM(h.caNet, h.ids ?? []))}</td>
-                    {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : U.m(h.commission)}</td>}
+                    {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : U.m(sansTvaSuivi(h.commission))}</td>}
                     {propre !== undefined && (() => { const x = propre.historique.find((y) => y.annee === h.annee);
-                      return <td data-mot={`Commission brute — ${propre.libelle}`} data-commission-propre={h.annee}>{x === undefined ? '—' : U.m(x.commission)}</td>; })()}
+                      return <td data-mot={`Commission brute — ${propre.libelle}`} data-commission-propre={h.annee}>{x === undefined ? '—' : U.m(sansTvaSuivi(x.commission))}</td>; })()}
                     <td data-mot="Évolution du CA">{evol === null ? '—' : signe(evol)}</td>
                   </tr>
                 );
@@ -700,11 +700,11 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
         /* 🔴 Arno (25/10/2026) — À LA PLACE du cumul mois par mois (déplacé, pas copié ; calculs et confidentialité inchangés), REPLIÉ PAR
            DÉFAUT sur une ligne : titre, nombre de lignes et commission brute totale (le bloc n'existe que pour qui a le droit de la voir). */
         <BlocReplie id="tdb-f" section="F" donnees={{ 'data-section': 'F' }} titre={<>{propre !== undefined ? `Négociateur — ${propre.libelle}` : 'Les négociateurs'} — {libellePeriode}</>}
-          resume={<>{F.length} ligne{F.length > 1 ? 's' : ''} · commission brute {U.m({ ht: sommeAffichee(F.map((l) => l.totaux.commission)), ttcC: F.reduce((t, l) => t + ttcCentimes(l.totaux.commission), 0) })}</>}>
+          resume={<>{F.length} ligne{F.length > 1 ? 's' : ''} · commission brute {U.m(sansTvaSuivi(sommeAffichee(F.map((l) => l.totaux.commission))))} <small className="loc-muet">(sans TVA)</small></>}>
           <p className="loc-muet tdb-note">Commission brute = taux × (CA HT − commissions des apporteurs) + primes de nouvelle gestion − rétrocessions — la formule du suivi mensuel.</p>
           {F.length === 0 ? <p className="loc-muet">Aucune activité sur la période.</p> : (
             <table className="tdb-table tdb-table--large">
-              <thead><tr><th scope="col">Négociateur</th><th scope="col">Mois</th><th scope="col">Baux</th><th scope="col">{U.mot('CA HT')}</th><th scope="col">Apporteurs</th><th scope="col">CA − apporteurs</th><th scope="col">Primes</th><th scope="col">Rétrocessions</th><th scope="col">Commission brute</th></tr></thead>
+              <thead><tr><th scope="col">Négociateur</th><th scope="col">Mois</th><th scope="col">Baux</th><th scope="col">{U.mot('CA HT')}</th><th scope="col">Apporteurs</th><th scope="col">CA − apporteurs</th><th scope="col">Primes</th><th scope="col">Rétrocessions <small className="loc-muet">(sans TVA)</small></th><th scope="col">Commission brute <small className="loc-muet">(sans TVA)</small></th></tr></thead>
               <tbody>
                 {F.map((l) => (
                   <tr key={`${l.cle}-${l.mois}`} data-negociateur-ligne={`${l.libelle}|${l.mois}`}>
@@ -715,8 +715,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     <td data-mot="Apporteurs">{U.m(sansTvaSuivi(l.totaux.apporteurs))}</td>
                     <td data-mot="CA − apporteurs">{U.m(netM(l.totaux.caNet, l.totaux.ids))}</td>
                     <td data-mot="Primes">{U.m(sansTvaSuivi(l.totaux.primes))}</td>
-                    <td data-mot="Rétrocessions">{U.m(l.totaux.retrocessions)}</td>
-                    <td data-mot="Commission brute" className="tdb-fort">{U.m(l.totaux.commission)}</td>
+                    <td data-mot="Rétrocessions">{U.m(sansTvaSuivi(l.totaux.retrocessions))}</td>
+                    <td data-mot="Commission brute" className="tdb-fort">{U.m(sansTvaSuivi(l.totaux.commission))}</td>
                   </tr>
                 ))}
               </tbody>

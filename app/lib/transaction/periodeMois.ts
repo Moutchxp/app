@@ -94,3 +94,14 @@ export function sommeDesMoisAffiches(htParMois: readonly number[]): { ht: number
   const c = (x: number): number => Math.round(x * 100);
   return { ht: htParMois.reduce((t, x) => t + c(x), 0) / 100, ttc: htParMois.reduce((t, x) => t + c(x * TVA), 0) / 100 };
 }
+
+/**
+ * ══ 🔴 LOT LO15 (Arno) — UNE CASE DE SALAIRES VIDE = « PAS ENCORE SAISI », PAS « PAS DE SALAIRE » ═══════════════════════════════════════════
+ * Un mois commencé (jusqu'au mois du jour) sans salaires saisis est « à saisir » ; un mois à venir ne l'est pas encore. Location (ses salaires
+ * chargés) et Gestion (la case « salarié » du comptable) : la même règle. Tant qu'un mois n'est pas saisi, sa règle reste (primes et variable déduits).
+ */
+export const moisCommence = (m: { annee: number; mois: number }, jour: string): boolean => m.annee * 100 + m.mois <= Number(jour.slice(0, 4)) * 100 + Number(jour.slice(5, 7));
+export const nbMoisSalairesASaisir = <M extends { annee: number; mois: number }>(ms: readonly M[], saisi: (m: M) => boolean, jour: string): number =>
+  ms.filter((m) => moisCommence(m, jour) && !saisi(m)).length;
+export const motSalairesASaisir = (n: number): string => `${n} mois de salaires à saisir`;
+export const MOT_A_SAISIR = 'à saisir';

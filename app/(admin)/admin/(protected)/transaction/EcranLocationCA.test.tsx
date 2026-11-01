@@ -404,6 +404,31 @@ describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négoc
     globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => ({ ok: true, status: 200, json: async () => (init?.method === 'POST' ? { etat: 'ok', data: null }
       : { etat: 'ok', data: { disponible: true, aujourdhui: '2025-10-27', lignes, retrocessions: [], salaires } }) })) as unknown as typeof fetch;
   };
+  // 🔴 LOT LO15 (Arno) — une case de salaires vide = « pas encore saisi » : « à saisir » (gris, italique) ; un mois à venir garde « — » ; fenêtres,
+  // Résultat et encadré : « N mois de salaires à saisir »
+  it('🔴 LOT LO15 — « à saisir » : le tableau (mois commencés sans saisie), le total, les fenêtres, le Résultat et l’encadré du CA net', async () => {
+    avecSalaires([{ id: 1, annee: 2025, mois: 9, salairesHt: 400, note: null }]);
+    await ouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=annee&mesure=net');
+    const aout = container.querySelector('[data-rangee-location="2025-8"] [data-salaires-a-saisir]') as HTMLElement;
+    expect([aout.tagName, aout.textContent, aout.className]).toEqual(['EM', 'à saisir', 'loc-muet trx-a-saisir']);
+    expect(texte('[data-rangee-location="2025-11"] [data-location-salaires]')).toBe('—'); // novembre : à venir (le 27/10/2025)
+    expect(centimes(texte('[data-rangee-location="2025-9"] [data-location-salaires]'))).toBe(40000);
+    expect(container.querySelector('[data-rangee-location="2025-9"] [data-salaires-a-saisir]')).toBeNull();
+    // janvier → octobre commencés, septembre saisi : 9 mois à saisir
+    expect(texte('[data-total-location] [data-salaires-a-saisir-nb]')).toBe('9 mois à saisir');
+    expect(texte('[data-resultat-a-saisir]')).toContain('9 mois de salaires à saisir');
+    await cliquer('[data-tuile="location-couts"]');
+    expect(doc('[data-reperes="couts"] [data-salaires-a-saisir-nb]')).toBe('9 mois de salaires à saisir');
+    await fermer();
+    await cliquer('[data-tuile="location-net"]');
+    expect(doc('[data-reperes="net"] [data-salaires-a-saisir-nb]')).toBe('9 mois de salaires à saisir');
+    await fermer();
+    // l'encadré du graphique (CA net) : au repos, octobre — non saisi
+    expect(texte('[data-bloc="histogramme-mois"] [data-bulle-note]')).toBe('1 mois de salaires à saisir');
+    // un mois saisi : rien « à saisir »
+    await rouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=mois');
+    expect(container.querySelector('[data-resultat-a-saisir]')).toBeNull();
+  });
   for (const u of ['ht', 'ttc'] as const) {
     it(`septembre 2025 avec 400 € de salaires saisis (${u.toUpperCase()}) : coûts = apporteurs + salaires ; primes et variable « inclus » ; CA net = CA − coûts`, async () => {
       avecSalaires([{ id: 1, annee: 2025, mois: 9, salairesHt: 400, note: null }]);

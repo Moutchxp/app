@@ -1,7 +1,7 @@
 import type { GestionMois } from './modele';
 import type { MontantC } from './partAgence';
-import type { MoisChoisi } from './periodeMois';
-import { moisGestion, totauxGestion, type MoisGestionVu, type TotauxGestion } from './gestionVue';
+import { motSalairesASaisir, nbMoisSalairesASaisir, type MoisChoisi } from './periodeMois';
+import { aSaisirGestion, moisGestion, totauxGestion, type MoisGestionVu, type TotauxGestion } from './gestionVue';
 import { coutsLocationMois, lignesDesMois, plusC, salairesLocationDuMois, totauxLocation, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa } from './locationCa';
 
 /**
@@ -73,10 +73,11 @@ export function partGestionMois(g: MoisGestionVu, salaires = true): PartFusion {
 /**
  * ══ 🔴 LOT LO11 (règle d'Arno) — LES TOTAUX DE LA FUSION, MOIS PAR MOIS ═════════════════════════════════════════════════════════════════════
  * Chaque mois, la location à la règle de sa page (`coutsLocationMois` : apporteurs + primes + variable, ou apporteurs + ses salaires chargés) et la
- * gestion à celle de la sienne (`moisGestion`). « Avec salaires », les deux activités : les primes et le variable ne sont déduits QUE les mois sans
- * salaires chargés saisis (ni location, ni gestion) — sinon ils sont montrés, « inclus dans les salaires » (remplace la règle du lot LG4). « Sans
- * salaires » : aucun salaire compté, primes et variable toujours déduits. « Location » seule = la page Location ; « Gestion » seule = la page Gestion.
- * Une période = la somme de ses mois. PUR.
+ * gestion à celle de la sienne (`moisGestion`). 🔴 LOT LO15 (règle d'Arno) — les primes et le variable sont payés au négociateur de la location, dont
+ * le salaire est saisi dans les salaires chargés de la LOCATION : « Avec salaires », ils ne sont « inclus dans les salaires » (non déduits) QUE les
+ * mois où les salaires de la LOCATION sont saisis ; les salaires de la Gestion (d'autres personnes) restent un coût de la Gestion, sans effet sur eux
+ * (remplace les règles des lots LG4 / LO11). « Sans salaires » : aucun salaire compté, primes et variable toujours déduits. Ainsi la FUSION = la
+ * page Location + la page Gestion, au centime, chaque mois. Une période = la somme de ses mois. PUR.
  */
 export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true,
   loc: { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null } = { retros: [], salaires: null }): TotauxFusion {
@@ -86,10 +87,12 @@ export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readon
     const g = moisGestion(gestion, m.annee, m.mois);
     if (activite !== 'gestion') {
       const salL = salairesLocationDuMois(loc.salaires, m.annee, m.mois);
-      const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL);
-      const incl = salaires && (salL !== null || (activite === 'deux' && g.ligne?.salarieHt != null));
+      // 🔴 LOT LO15 — la règle de la page Location, telle quelle (`coutsLocationMois`, « Avec | Sans salaires ») : primes et variable « inclus » les
+      // seuls mois où les salaires chargés de la LOCATION sont saisis ; les salaires de la Gestion n'y jouent plus
+      const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL, salaires);
+      const incl = c.moisAvecSalaires > 0;
       const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salairesSaisis };
-      const deduits = { ...couts, primes: incl ? RIEN : c.primes, variable: incl ? RIEN : c.variable, salairesLocation: salaires ? c.salairesSaisis : RIEN };
+      const deduits = { ...couts, primes: c.primesDeduites, variable: c.variableDeduit, salairesLocation: c.salaires };
       location = additionner(location, part(c.ca, couts, deduits));
       if (incl && (c.primes.htC !== 0 || c.variable.htC !== 0)) { inclus.primes = plusC(inclus.primes, c.primes); inclus.variable = plusC(inclus.variable, c.variable); inclus.mois += 1; }
     }
@@ -108,3 +111,15 @@ export const moisDeGestion = (gestion: readonly GestionMois[], m: MoisChoisi): M
 /** Les années de la fusion : celles de la location et de la gestion, et l'année en cours, croissantes. PUR. */
 export const anneesFusion = (lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], jour: string): number[] =>
   [...new Set([Number(jour.slice(0, 4)), ...lignes.map((l) => l.annee), ...gestion.map((g) => g.annee)])].sort((a, b) => a - b);
+
+/**
+ * 🔴 LOT LO15 — les mois « à saisir » d'une période de la FUSION : ceux de la Location (ses salaires chargés) et ceux de la Gestion (la case
+ * salarié), selon l'activité comptée ; et le mot de l'encadré et des fenêtres (vide : rien à saisir). PUR.
+ */
+export function aSaisirFusion(gestion: readonly GestionMois[], salairesLoc: readonly SalairesLocation[] | null, ms: readonly MoisChoisi[], activite: ActiviteFusion, jour: string): { location: number; gestion: number; mot: string } {
+  const location = activite === 'gestion' ? 0 : nbMoisSalairesASaisir(ms, (m) => salairesLocationDuMois(salairesLoc, m.annee, m.mois) !== null, jour);
+  const gest = activite === 'location' ? 0 : aSaisirGestion(gestion, ms, jour);
+  const mot = activite === 'deux' ? [location > 0 ? `location : ${motSalairesASaisir(location)}` : '', gest > 0 ? `gestion : ${motSalairesASaisir(gest)}` : ''].filter(Boolean).join(' · ')
+    : location + gest > 0 ? motSalairesASaisir(location + gest) : '';
+  return { location, gestion: gest, mot };
+}

@@ -8,7 +8,7 @@ import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnee
 import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { lignesDesMois, moinsC, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
 import {
-  ACTIVITES_FUSION, anneesFusion, estActiviteFusion, FAMILLES_COUTS, LIBELLE_ACTIVITE_FUSION, moisDeGestion, totauxFusion, type ActiviteFusion, type FamilleCout, type TotauxFusion,
+  ACTIVITES_FUSION, anneesFusion, aSaisirFusion, estActiviteFusion, FAMILLES_COUTS, LIBELLE_ACTIVITE_FUSION, moisDeGestion, totauxFusion, type ActiviteFusion, type FamilleCout, type TotauxFusion,
 } from '../../../../lib/transaction/fusionLocationGestion';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
@@ -30,7 +30,7 @@ import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLi
 interface DonneesLocation { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[]; retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null }
 interface DonneesGestion { disponible: boolean; gestion: GestionMois[] }
 
-const EXPLICATION = { ca: 'honoraires de location + honoraires de gestion', volume: 'baux signés · lots gérés', couts: 'apporteurs, ADHOC, MONGA, salaires chargés ; primes et variable les mois sans salaires',
+const EXPLICATION = { ca: 'honoraires de location + honoraires de gestion', volume: 'baux signés · lots gérés', couts: 'apporteurs, ADHOC, MONGA, salaires chargés ; primes et variable les mois sans salaires de location',
   net: 'CA brut − coûts', coutsSans: 'primes, apporteurs, variable, ADHOC, MONGA — salaires chargés non comptés', netSans: 'CA brut − coûts hors salaires' } as const;
 /** 🔴 LOT LG2 — « hors salaires » après un mot (titres, graphique, fenêtres) en mode « Sans salaires ». */
 const hors = (salaires: boolean): string => (salaires ? '' : ' hors salaires');
@@ -136,6 +136,12 @@ export function EcranFusionLocationGestion() {
 
 /** 🔴 LOT LO11 — les données de la Location pour la règle des coûts (rétrocessions, salaires chargés saisis), et le calcul qui les prend. */
 const ContexteLoc = createContext<{ retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null }>({ retros: [], salaires: null });
+/** 🔴 LOT LO15 — le mot « N mois de salaires à saisir » d'un ensemble de mois (Location : ses salaires chargés ; Gestion : la case salarié). */
+function useASaisir(gestion: readonly GestionMois[], activite: ActiviteFusion, jour: string): (ms: readonly MoisChoisi[]) => string {
+  const loc = useContext(ContexteLoc);
+  return (ms) => aSaisirFusion(gestion, loc.salaires, ms, activite, jour).mot;
+}
+const avecASaisir = (info: InfoBarre, mesure: Mesure, mot: string): InfoBarre => (mesure !== 'ca' && mot !== '' ? { ...info, note: mot } : info);
 function useTF(): (l: readonly LigneLocationCa[], g: readonly GestionMois[], ms: readonly MoisChoisi[], a: ActiviteFusion, s: boolean) => TotauxFusion {
   const loc = useContext(ContexteLoc);
   return (l, g, ms, a, s) => totauxFusion(l, g, ms, a, s, loc);
@@ -212,6 +218,9 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   // 🔴 LOT LG2 — la tuile « Coûts » s'ouvre au clic, à Entrée ou Espace ; son sélecteur « Avec | Sans salaires » n'ouvre rien
   const ouvrirCouts = (e: { target: EventTarget }): void => { if (horsSelecteur(e)) setFenetre('couts'); };
   const choixSalaires = <ChoixSalairesTuile salaires={salaires} onChange={onSalaires} />;
+  // 🔴 LOT LO15 — « N mois de salaires à saisir » dans les fenêtres Coûts et CA net
+  const motASaisir = useASaisir(gestion, activite, jour)(ms);
+  const repereASaisir = motASaisir === '' ? [] : [{ cle: 'a-saisir', mot: 'Salaires chargés', valeur: <span className="trx-fl-texte loc-muet trx-a-saisir" data-salaires-a-saisir-nb>{motASaisir}</span> }];
   // 🔴 LOT LG5 — ce qui a quitté la tuile « CA brut » (montré dans sa fenêtre) : la part de chaque activité ; le CA brut mois par mois (ou année par année)
   const partsCa = deux ? <>dont location {eur(U.en(T.location.ca))} · gestion {eur(U.en(T.gestion.ca))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`;
   const parAnnee = new Set(ms.map((m) => m.annee)).size > 1;
@@ -264,12 +273,14 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
           return <span key={f.cle} className={gris ? 'loc-muet' : undefined} data-famille-tuile={f.cle}>{i > 0 ? ' · ' : ''}{gris ? `${motFamille(f.cle)} (non comptés)` : motFamille(f.cle)} {eur(U.en(gris ? T.couts[f.cle] : T.deduits[f.cle]))}</span>;
         })}
           {T.inclus.mois > 0 && <span className="trx-ligne-bloc loc-muet" data-fusion-inclus>primes {eur(U.en(T.inclus.primes))} et variable {eur(U.en(T.inclus.variable))} inclus dans les salaires</span>}</span> },
+        ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="fusion-couts">{n1(T.coutsTotal, T1.coutsTotal)}</span> },
       ]} />} />}
     {fenetre === 'net' && <FenetreNetFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }}
       reperes={<Reperes donnee="net" lignes={[
         // 🔴 LOT LG5 — ce qui a quitté la tuile « CA net » : dont location · gestion, et N−1
         { cle: 'parts', mot: 'Location · gestion', valeur: <span className="trx-fl-texte" data-fusion-net-parts>{deux ? <>dont location {eur(U.en(T.location.net))} · gestion {eur(U.en(T.gestion.net))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`}</span> },
+        ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="fusion-net">{n1(T.net, T1.net)}</span> },
       ]} />} />}
 
@@ -434,12 +445,14 @@ function GrapheFusionMois({ lignes, gestion, jour, activite, salaires, annee, g 
   const dernier = moisADate(annee, jour);
   const sansN1 = !lignes.some((l) => l.annee === annee - 1) && !gestion.some((x) => x.annee === annee - 1);
   const tf = useTF(); // 🔴 LOT LO11 — les totaux avec les données de la Location (rétrocessions, salaires saisis)
+  const aSaisir = useASaisir(gestion, activite, jour); // 🔴 LOT LO15
   const pt = (a: number, k: number): TotauxFusion => tf(lignes, gestion, cumul ? Array.from({ length: k }, (_, i) => ({ annee: a, mois: i + 1 })) : [{ annee: a, mois: k }], activite, salaires);
   const info = (k: number): InfoBarre => {
     const t = pt(annee, k);
     const nonSaisi = !cumul && activite !== 'location' && k <= dernier && !moisDeGestion(gestion, { annee, mois: k }).saisi;
     const titre = `${cumul ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${k > dernier ? ' — à venir' : nonSaisi ? ' — mois de gestion non saisi' : ''}`;
-    return infoFusion(titre, mesure, U, String(annee), t, sansN1 ? null : String(annee - 1), sansN1 ? null : pt(annee - 1, k), `${annee - 1} : aucune activité`);
+    return avecASaisir(infoFusion(titre, mesure, U, String(annee), t, sansN1 ? null : String(annee - 1), sansN1 ? null : pt(annee - 1, k), `${annee - 1} : aucune activité`),
+      mesure, aSaisir(cumul ? Array.from({ length: k }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois: k }]));
   };
   const tous = (a: number) => Array.from({ length: 12 }, (_, i) => tf(lignes, gestion, [{ annee: a, mois: i + 1 }], activite, salaires));
   const ts = tous(annee); const ts1 = tous(annee - 1);
@@ -479,12 +492,14 @@ function GrapheFusionAnnees({ lignes, gestion, jour, activite, salaires, annee, 
   const enCours = Number(jour.slice(0, 4));
   const { annees } = g;
   const tf = useTF(); // 🔴 LOT LO11 — les totaux avec les données de la Location (rétrocessions, salaires saisis)
+  const aSaisir = useASaisir(gestion, activite, jour); // 🔴 LOT LO15
   const de = (as: readonly number[]): TotauxFusion => tf(lignes, gestion, moisDesAnnees(as), activite, salaires);
   const pt = (a: number): TotauxFusion => (cumul ? de(annees.filter((x) => x <= a)) : de([a]));
   const info = (a: number): InfoBarre => {
     const avant = toutes === null && annees.includes(a - 1);
     const titre = cumul ? `Cumul ${annees[0]} → ${a}` : `${a}${a === enCours ? ' — en cours' : ''}`;
-    return infoFusion(titre, mesure, U, String(a), pt(a), avant ? String(a - 1) : null, avant ? pt(a - 1) : null, toutes ?? `${a - 1} : aucune activité`);
+    return avecASaisir(infoFusion(titre, mesure, U, String(a), pt(a), avant ? String(a - 1) : null, avant ? pt(a - 1) : null, toutes ?? `${a - 1} : aucune activité`),
+      mesure, aSaisir(moisDesAnnees(cumul ? annees.filter((x) => x <= a) : [a])));
   };
   const ts = annees.map((a) => pt(a));
   const vals = ts.map((t) => valeurDe(t, mesure, U.en));
