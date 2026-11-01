@@ -217,18 +217,20 @@ ${CSS_TRIANGLE_BOITE}
    de césure. Toutes les cases à la même hauteur, 178 px (2 lignes de titre + 2 × 60,5 px + bordures), sur les trois pages ; rangées égales,
    aussi empilées au téléphone. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
 .loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:60.5px;grid-auto-rows:1fr;gap:16px}
-/* Arno (01/11/2026) — LE HAUT DES CASES À UNE HAUTEUR FIXE DE LA FENÊTRE (bureau et tablette, ≥ 768 px), la même sur les trois pages :
-   --trx-cases-haut, une valeur du gabarit. Repère d'Arno, mesuré UNE FOIS au banc (1440 × 900) : le haut du libellé « Sources de données »
-   du menu — un repère seulement, aucune dépendance au menu. --trx-page-haut : où commence la page dans la fenêtre (le bandeau + la marge de
-   la zone principale), mesuré au même banc. Une cale invisible (::before) partage la 1re rangée de la page avec l'en-tête : la rangée vaut
-   le plus grand des deux ; les cases suivent, 16 px plus bas. Leur haut = max(--trx-cases-haut, bas du fil d'Ariane + 32 px) : jamais de
-   chevauchement, jamais moins de 32 px. Téléphone : pas de hauteur fixe, 32 px sous le fil d'Ariane. */
+/* Arno (01/11/2026) — LA LIGNE DES CASES CENTRÉE DANS LA FENÊTRE (bureau et tablette, ≥ 768 px), sans aucune valeur fixe de position (la
+   hauteur fixe du commit 2b60519, mesurée sur un banc, tombait trop bas sur l'écran réel) :
+   · la page de ces écrans (et elle seule, :has) remplit la hauteur de la zone principale, et le bloc des cases ce qui reste sous l'en-tête ;
+   · la ligne des cases est « collante » (sticky) à calc(50dvh − sa demi-hauteur) : le navigateur la DESCEND jusqu'à ce que son centre soit
+     au centre de la fenêtre (100dvh, mesuré depuis le haut de la fenêtre), quel que soit le zoom ; il ne la remonte jamais au-dessus de sa
+     place ordinaire, 32 px sous le fil d'Ariane (16 px de l'en-tête + 16 px du bloc) : si la fenêtre est trop basse pour centrer, elle y
+     reste, sans chevauchement. Le bloc s'arrête au bas de la zone principale : aucun défilement créé.
+   Téléphone : rien de tout cela, 32 px sous le fil d'Ariane, cases empilées. */
 .trx-cases-zone{padding-top:16px} /* + les 16 px sous l'en-tête (.svv-page-head) = 32 px sous le fil d'Ariane */
 @media (min-width:768px){
-  .gst-page:has(> .trx-cases-zone){--trx-cases-haut:34.25rem;--trx-page-haut:4.51171875rem;display:grid;grid-template-columns:minmax(0,1fr);align-content:start}
-  .gst-page:has(> .trx-cases-zone)::before{content:"";grid-area:1 / 1;height:calc(var(--trx-cases-haut) - var(--trx-page-haut) - 16px)}
-  .gst-page:has(> .trx-cases-zone) > .svv-page-head{grid-area:1 / 1;align-self:start}
-  .gst-page:has(> .trx-cases-zone) > .trx-cases-zone{grid-area:2 / 1}
+  .svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}
+  .svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}
+  .gst-page > .trx-cases-zone{flex:1 0 auto}
+  .trx-cases-zone > .loc-cases.trx-cases-nav{position:sticky;top:calc(50dvh - (var(--trx-case-titre) * var(--trx-case-interligne) + var(--trx-case-marge) + 1px))}
 }
 .loc-cases.trx-cases-nav > li{display:flex;min-width:0}
 .loc-cases.trx-cases-nav .loc-case{flex:1 1 auto;height:auto;justify-content:center;align-items:center;text-align:center;gap:0;padding:var(--trx-case-marge) 24px;border-radius:20px;

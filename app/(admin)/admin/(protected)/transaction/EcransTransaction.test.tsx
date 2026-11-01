@@ -119,16 +119,20 @@ describe('l’accueil de la tuile', () => {
     expect(css).not.toContain('trx-cases-nav .loc-case-phrase');
     // l'accueil de la Location (.loc-cases--accueil seule) ne change pas
     expect(css).toContain('.loc-cases--accueil .loc-case{min-height:18rem');
-    // Arno (01/11/2026) — encore +30 % : marge intérieure 60,5 px → 2 × 22 × 1,25 + 2 × 60,5 + 2 = 178 px. Le haut des cases à une hauteur FIXE
-    // de la fenêtre (≥ 768 px) : --trx-cases-haut (34,25rem = 548 px, le repère « Sources de données » mesuré au banc 1440 × 900), une cale qui
-    // partage la 1re rangée avec l'en-tête (jamais moins de 32 px sous le fil d'Ariane) ; plus de centrage. Téléphone : 32 px sous le fil.
+    // Arno (01/11/2026) — 178 px : marge intérieure 60,5 px → 2 × 22 × 1,25 + 2 × 60,5 + 2. La ligne des cases CENTRÉE DANS LA FENÊTRE (≥ 768 px) :
+    // la page remplit la zone principale (:has), la ligne est collante à calc(50dvh − sa demi-hauteur) — jamais au-dessus de sa place, 32 px
+    // sous le fil d'Ariane. Téléphone : 16 px + les 16 px de l'en-tête = 32 px sous le fil.
     expect(container.querySelector('.loc-page')!.className).toBe('loc-page trx-cases-zone');
-    for (const f of ['--trx-case-marge:60.5px', '.trx-cases-zone{padding-top:16px}',
-      '.gst-page:has(> .trx-cases-zone){--trx-cases-haut:34.25rem;--trx-page-haut:4.51171875rem;display:grid;grid-template-columns:minmax(0,1fr);align-content:start}',
-      '.gst-page:has(> .trx-cases-zone)::before{content:"";grid-area:1 / 1;height:calc(var(--trx-cases-haut) - var(--trx-page-haut) - 16px)}',
-      '.gst-page:has(> .trx-cases-zone) > .svv-page-head{grid-area:1 / 1;align-self:start}', '.gst-page:has(> .trx-cases-zone) > .trx-cases-zone{grid-area:2 / 1}']) expect(css).toContain(f);
-    expect(css).toMatch(/@media \(min-width:768px\)\{ \.gst-page:has\(> \.trx-cases-zone\)\{/);
-    expect(css).not.toContain('.svv-adm-main:has(.trx-cases-zone)');
+    for (const f of ['--trx-case-marge:60.5px', '.trx-cases-zone{padding-top:16px}', '.svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}',
+      '.svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}', '.gst-page > .trx-cases-zone{flex:1 0 auto}',
+      '.trx-cases-zone > .loc-cases.trx-cases-nav{position:sticky;top:calc(50dvh - (var(--trx-case-titre) * var(--trx-case-interligne) + var(--trx-case-marge) + 1px))}']) expect(css).toContain(f);
+    expect(css).toMatch(/@media \(min-width:768px\)\{ \.svv-adm-main:has\(\.trx-cases-zone\)/);
+    // AUCUNE valeur fixe de POSITION (commit 2b60519 abandonné) : ni --trx-cases-haut / --trx-page-haut, ni cale ; le « top » de la ligne ne se
+    // compose que de dvh et des variables de TAILLE des cases (le 1px : la bordure)
+    expect(css).not.toMatch(/--trx-cases-haut|--trx-page-haut|trx-cases-zone\)::before/);
+    const regle = css.match(/\.trx-cases-zone > \.loc-cases\.trx-cases-nav\{([^}]*)\}/)![1];
+    const top = regle.match(/top:(calc\(.*\))$/)![1];
+    expect(top.replace(/var\(--trx-case-(titre|interligne|marge)\)/g, '').replace(/50dvh|1px/g, '')).not.toMatch(/\d+(\.\d+)?(px|rem|em)/);
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b[^}]*\}[^{]*trx-cases-nav|trx-cases-nav[^}]*#[0-9a-f]{3,6}\b/i);
   });
 });
