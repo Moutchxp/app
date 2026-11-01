@@ -47,6 +47,9 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const ouvrir = async (q: string) => { window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranLocationCA)); }); await calmer(); };
 const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+/** 🔴 LOT LO13 — les fenêtres sont rendues hors du conteneur : lire et fermer au niveau du document. */
+const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+const fermer = async () => { await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }); await calmer(); };
 /** 🔴 LOT LG3 — les catégories des fenêtres sont fermées à l'ouverture : les ouvrir avant de lire leurs lignes. */
 const deplierCategories = async () => { for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-deplier-categorie][aria-expanded="false"]')]) await act(async () => { b.click(); }); };
 /** 🔴 LOT LO11 — le variable du négociateur de septembre 2025 (15 % × (900 − 90) + 15 % × 100), sans TVA. */
@@ -67,15 +70,26 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
       const [ca, couts, net] = ['[data-location-ca]', '[data-location-couts]', '[data-location-net]'].map((s) => centimes(texte(s)));
       expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(390 * f * 100) + VARIABLE_SEPT, Math.round(1000 * f * 100) - Math.round(390 * f * 100) - VARIABLE_SEPT]);
       expect(net).toBe(ca - couts);
-      // 🔴 LOT LO5 — sous le CA net : le « CA net d'apporteurs » du Suivi annuel (CA − apporteurs : 1 000 − 90), le même chiffre
-      expect(texte('[data-location-net-apporteurs]')).toBe(`CA net d’apporteurs : ${u === 'ht' ? '910 €' : '1 092 €'}`);
       expect(texte('[data-location-nb]')).toBe('3');
-      expect(texte('[data-location-mandats]')).toBe('dont 1 mandat de gestion seul');
       expect(container.querySelector('[data-location-couts]')!.className).toContain('trx-rouge');
       expect(container.querySelector('[data-location-net]')!.className).toContain('trx-vert');
-      expect(texte('[data-location-cumul]')).toBe(`cumul 2025 à fin septembre : ${u === 'ht' ? '1 300 €' : '1 560 €'}`);
-      expect(texte('[data-tuile-n1="location-ca"]')).toContain(`${u === 'ht' ? '600 €' : '720 €'} en 2024`);
-      expect(texte('[data-location-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € · locataire 450 €' : 'dont propriétaire 660 € · locataire 540 €');
+      // 🔴 LOT LO13 — tuiles épurées : seule la tuile « Baux » garde une ligne (N−1) ; le reste est dans les fenêtres
+      expect(texte('[data-tuile-n1="location-baux"]')).toBe('1 en 2024');
+      for (const x of ['[data-location-parts]', '[data-location-cumul]', '[data-location-mandats]', '[data-location-couts-detail]', '[data-location-net-apporteurs]', '[data-tuile-n1="location-ca"]', '[data-tuile-n1="location-couts"]', '[data-tuile-n1="location-net"]'])
+        expect([x, container.querySelector(x)]).toEqual([x, null]);
+      // la fenêtre « CA brut » : les anciennes lignes de la tuile, au centime
+      await cliquer('[data-tuile="location-ca"]');
+      expect(doc('[data-fenetre-ca-location] h2')).toBe('CA brut — septembre 2025');
+      expect(doc('[data-location-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € · locataire 450 €' : 'dont propriétaire 660 € · locataire 540 €');
+      expect([doc('[data-location-mandats]'), doc('[data-repere-nb]'), doc('[data-repere-nb-n1]')]).toEqual(['1 mandat de gestion seul', '3', '1 en 2024']);
+      expect([doc('[data-location-cumul-mot]'), centimes(doc('[data-location-cumul] strong'))]).toEqual(['Cumul 2025 à fin septembre', Math.round(1300 * f * 100)]);
+      expect([centimes(doc('[data-repere-n1="ca"] strong')), doc('[data-repere-ecart="ca"]')]).toEqual([Math.round(600 * f * 100), ' +66,7 %']);
+      expect(centimes(doc('[data-fenetre-total] strong'))).toBe(ca);
+      await fermer();
+      // 🔴 LOT LO5 — dans la fenêtre « CA net » : le « CA net d'apporteurs » du Suivi annuel (CA − apporteurs : 1 000 − 90), le même chiffre
+      await cliquer('[data-tuile="location-net"]');
+      expect([centimes(doc('[data-location-net-apporteurs] strong')), doc('[data-tuile-n1="location-net"]')]).toEqual([Math.round(910 * f * 100), expect.stringContaining('en 2024')]);
+      await fermer();
     });
   }
   it('« Compter » : Avec gestion | Sans gestion | Mandat seul = une partition exacte de « Tous » ; gardé dans l’adresse', async () => {
@@ -137,9 +151,10 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       // 🔴 LOT LO12 — une tuile cliquable qui porte le sélecteur « Avec | Sans salaires » (un bouton ne peut pas contenir de boutons)
       expect([tuile.tagName, tuile.getAttribute('role'), tuile.getAttribute('tabindex')]).toEqual(['DIV', 'button', '0']);
       expect(texte('[data-voir-detail-location="couts"]')).toBe('Voir le détail');
-      // rien n'est retiré de la tuile
-      for (const x of ['[data-location-couts]', '[data-location-couts-detail]', '[data-tuile-n1="location-couts"]', '[data-tuile-explication-location]']) expect(tuile.querySelector(x)).not.toBeNull();
+      // la tuile garde montant et explication ; 🔴 LOT LO13 — les familles et N−1 sont dans la fenêtre
+      for (const x of ['[data-location-couts]', '[data-tuile-explication-location]']) expect(tuile.querySelector(x)).not.toBeNull();
       await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
+      expect([document.querySelector('[data-fenetre-couts-location] [data-location-couts-detail]') !== null, document.querySelector('[data-fenetre-couts-location] [data-tuile-n1="location-couts"]') !== null]).toEqual([true, true]);
       expect(doc('[data-fenetre-couts-location] h2')).toBe('Coûts — septembre 2025');
       expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-couts]')));
       expect(grand('[data-fenetre-total]')).toBe(Math.round(390 * f * 100) + VARIABLE_SEPT);
@@ -170,8 +185,8 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       window.localStorage.setItem('trx-affichage-montants', u);
       await ouvrir('/?vue=mois&annee=2025&mois=9');
       expect(container.querySelector('[data-tuile="location-net"]')!.tagName).toBe('BUTTON');
-      expect(container.querySelector('[data-tuile="location-net"] [data-location-net-apporteurs]')).not.toBeNull();
       await cliquer('[data-tuile="location-net"]'); await deplierCategories();
+      expect(document.querySelector('[data-fenetre-net-location] [data-location-net-apporteurs]')).not.toBeNull(); // 🔴 LOT LO13 — quitte la tuile
       expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
       const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
       expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent))
@@ -398,7 +413,9 @@ describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négoc
       await ouvrir('/?vue=mois&annee=2025&mois=9');
       const [ca, couts, net] = ['[data-location-ca]', '[data-location-couts]', '[data-location-net]'].map((x) => centimes(texte(x)));
       expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(90 * f * 100) + 40000, Math.round(1000 * f * 100) - Math.round(90 * f * 100) - 40000]);
-      expect(texte('[data-location-inclus]')).toContain('inclus dans les salaires');
+      await cliquer('[data-tuile="location-couts"]');
+      expect(doc('[data-location-inclus]')).toContain('inclus dans les salaires'); // 🔴 LOT LO13 — dans la fenêtre « Coûts »
+      await fermer();
       expect([centimes(texte('[data-resultat-primes]')), centimes(texte('[data-resultat-variable]')), centimes(texte('[data-resultat-salaires]'))]).toEqual([0, 0, 40000]);
       expect(texte('[data-resultat-location] [data-inclus-salaires]')).toContain('inclus dans les salaires');
       // le tableau : la ligne de septembre — primes et variable montrés, « inclus » ; salaires 400 ; « Modifier »
@@ -458,7 +475,10 @@ describe('🔴 LOT LO1 — « Location » : L’année', () => {
   it('Tout : « toutes les années », sans N−1 ; « Toute l’histoire » année par année ; une année s’ouvre', async () => {
     await ouvrir('/?vue=annee&annee=2025&vue-annee=tout');
     expect(texte('[data-tuile="location-ca"] .tdb-tuile-mot')).toContain('CA brut — toutes les années');
-    expect(texte('[data-tuile-n1="location-ca"]')).toBe('Toutes les années (2024 → 2025)');
+    expect(texte('[data-tuile-n1="location-baux"]')).toBe('Toutes les années (2024 → 2025)');
+    await cliquer('[data-tuile="location-ca"]'); // 🔴 LOT LO13 — N−1 du CA brut : dans la fenêtre
+    expect([doc('[data-repere-n1="ca"]'), document.querySelectorAll('[data-repere-ca-mois]').length]).toEqual(['Toutes les années (2024 → 2025)', 2]);
+    await fermer();
     await cliquer('[data-deplier="histoire-location"]');
     expect([...container.querySelectorAll('[data-annee-location]')].map((x) => [x.getAttribute('data-annee-location'), texte(`[data-histoire-ca="${x.getAttribute('data-annee-location')}"]`)]))
       .toEqual([['2024', '600 €'], ['2025', '1 300 €']]);
@@ -511,7 +531,7 @@ describe('🔴 LOT LO12 — Location : avec / sans salaires, Espace, période co
       expect(netSans).toBe(Math.round(61000 * f) - VARIABLE_SEPT);
       expect(texte('[data-tuile="location-couts"] .tdb-tuile-mot')).toContain('Coûts hors salaires — septembre');
       expect(texte('[data-tuile="location-net"] .tdb-tuile-mot')).toContain('CA net hors salaires — septembre');
-      expect(texte('[data-location-salaires-non-comptes]')).toContain('salaires (non comptés) 400');
+
       expect([centimes(texte('[data-resultat-net]')), centimes(texte('[data-resultat-salaires-non-comptes]')), container.querySelector('[data-resultat-salaires]')]).toEqual([netSans, 40000, null]);
       const sept = '[data-rangee-location="2025-9"]';
       expect([centimes(texte(`${sept} [data-location-net-mois]`)), texte(`${sept} [data-salaires-non-comptes]`), container.querySelector(`${sept} [data-location-salaires] .loc-muet`) !== null]).toEqual([netSans, 'non comptés', true]);
@@ -521,6 +541,7 @@ describe('🔴 LOT LO12 — Location : avec / sans salaires, Espace, période co
       await cliquer('[data-tuile="location-couts"]');
       expect(doc('[data-fenetre-couts-location] h2, [data-fenetre-couts-location] h3')).toContain('Coûts hors salaires');
       expect(centimes(doc('[data-sous-total-location="salaires-non-comptes"]'))).toBe(40000);
+      expect(doc('[data-fenetre-couts-location] [data-location-salaires-non-comptes]')).toContain('salaires (non comptés) 400'); // 🔴 LOT LO13
       expect(centimes(doc('[data-fenetre-total] strong'))).toBe(centimes(texte('[data-location-couts]')));
       await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await calmer();
       // de retour en « Avec » : l'Espace montre les salaires (non répartis), son total retombe sur le CA net ; primes et variable « inclus »
@@ -559,5 +580,58 @@ describe('🔴 LOT LO12 — Location : avec / sans salaires, Espace, période co
     await rouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=periode&periode=2025-08,2025-09');
     expect([texte('#trx-baux-location-titre'), container.querySelector('#trx-baux-location-titre')!.getAttribute('title')]).toEqual(['Les baux de août → sept. 2025', 'août → sept. 2025']);
     expect([...container.querySelector('[data-liste-repliee="baux-location"] .lr-entete')!.children].map((x) => x.className)).toEqual(['lr-h', 'lr-outils']);
+  });
+});
+
+/**
+ * 🔴 LOT LO13 — tuiles épurées sur « Le mois » et « L'année » ; la fenêtre « CA brut » (nouvelle) ; les fenêtres « Coûts » et « CA net » portent ce
+ * qui a quitté leurs tuiles (familles, CA net d'apporteurs, N−1), en HT et en TTC, avec et sans salaires.
+ */
+describe('🔴 LOT LO13 — tuiles épurées, fenêtre « CA brut »', () => {
+  const lignesTuile = () => [...container.querySelectorAll('[data-ecran-location-tuiles] .tdb-tuile')].map((t) => [t.getAttribute('data-tuile'),
+    [...t.children].filter((x) => !x.matches('style')).map((x) => x.className.split(' ')[0])]);
+  afterEach(() => { window.localStorage.removeItem('trx-location-ca-mode'); window.localStorage.removeItem('trx-fusion-salaires'); });
+  for (const q of ['/?vue=mois&annee=2025&mois=9', '/?vue=annee&annee=2025', '/?vue=mois&annee=2025&mois=9&vue-mois=periode&periode=2025-08,2025-09']) {
+    it(`les quatre tuiles ne gardent que titre, montant, parenthèse (Baux : N−1) et « Voir le détail » — ${q}`, async () => {
+      await ouvrir(q);
+      expect(lignesTuile()).toEqual([
+        ['location-ca', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
+        ['location-baux', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
+        ['location-couts', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
+        ['location-net', ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1']],
+      ]);
+      expect([...container.querySelectorAll('[data-voir-detail-location]')].map((x) => x.getAttribute('data-voir-detail-location'))).toEqual(['ca', 'couts', 'net']);
+    });
+  }
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`L’année 2025 (${u.toUpperCase()}) : « CA brut » = la tuile ; propriétaire + locataire = CA brut ; Par bail = la somme des baux ; mois par mois = l’année`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir('/?vue=annee&annee=2025');
+      const ca = centimes(texte('[data-location-ca]'));
+      await cliquer('[data-tuile="location-ca"]');
+      expect([doc('[data-fenetre-ca-location] h2'), document.querySelector('[data-fenetre-ca-location] [data-mode-fenetre="categorie"]') !== null]).toEqual(['CA brut — 2025', true]);
+      await act(async () => { (document.querySelector('[data-mode-fenetre="categorie"]') as HTMLElement).click(); }); await calmer();
+      const sous = (k: string) => centimes(doc(`[data-sous-total-location="${k}"] strong`));
+      expect(sous('proprietaire') + sous('locataire')).toBe(ca);
+      expect(centimes(doc('[data-fenetre-total] strong'))).toBe(ca);
+      // l'année : pas de cumul (« L'année ») ; le CA brut mois par mois = l'année
+      expect(document.querySelector('[data-location-cumul]')).toBeNull();
+      expect([...document.querySelectorAll('[data-repere-ca-mois] strong')].reduce((x, n) => x + centimes(n.textContent!), 0)).toBe(ca);
+      await act(async () => { (document.querySelector('[data-mode-fenetre="transaction"]') as HTMLElement).click(); }); await calmer();
+      expect([...document.querySelectorAll('[data-ca-bail] strong')].reduce((x, n) => x + centimes(n.textContent!), 0)).toBe(ca);
+      // le nom d'un bail ferme la fenêtre
+      await act(async () => { (document.querySelector('[data-aller-bail]') as HTMLElement).click(); }); await calmer();
+      expect(document.querySelector('[data-fenetre-ca-location]')).toBeNull();
+    });
+  }
+  it('Sans salaires : la fenêtre « Coûts hors salaires » porte les familles (salaires non comptés) et N−1 ; « CA net » son CA net d’apporteurs', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9&salaires=sans');
+    await cliquer('[data-tuile="location-couts"]');
+    expect(doc('[data-fenetre-couts-location] [data-location-couts-detail]')).toContain('variable 136,50 €');
+    expect(doc('[data-fenetre-couts-location] [data-tuile-n1="location-couts"]')).toContain('en 2024');
+    await fermer();
+    await cliquer('[data-tuile="location-net"]');
+    expect(doc('[data-fenetre-net-location] h2')).toBe('CA net hors salaires — septembre 2025');
+    expect(centimes(doc('[data-fenetre-net-location] [data-location-net-apporteurs] strong'))).toBe(91000);
   });
 });

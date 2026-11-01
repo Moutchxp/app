@@ -146,7 +146,9 @@ function BlocsHorsBail({ couts }: { couts: CoutsFenetre }) {
 }
 
 /** Tuile 3 — « Coûts — [période] » (🔴 LOT LO11 : ex « Primes et rétrocessions ») : primes, apporteurs, variable, salaires chargés, à la règle. */
-export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts }: { lignes: readonly LigneLocationCa[]; lib: string; onFermer: () => void; onAller: (id: number) => void; couts: CoutsFenetre }) {
+export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts, reperes }: { lignes: readonly LigneLocationCa[]; lib: string; onFermer: () => void; onAller: (id: number) => void; couts: CoutsFenetre;
+  /** 🔴 LOT LO13 — ce qui a quitté la tuile (les familles, N−1), montré dans les deux modes. */
+  reperes?: ReactNode }) {
   const d = detailCoutsLocation(lignes);
   const lien = useLienBail(onAller);
   const u = useAffichage();
@@ -194,12 +196,15 @@ export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts }: 
               <Montant htC={-retroDeduit.htC} ttcC={-retroDeduit.ttcC} versee={false} recu donnees={{ 'data-retro-hors-bail': '' }} /></li></ul></section>}
           <BlocsHorsBail couts={couts} />
         </>}
+        {reperes}
       </>} />
   );
 }
 
 /** Tuile 4 — « CA net — [période] », ordre comptable : CA brut − apporteurs = CA net d'apporteurs − primes − variable − salaires chargés = CA net. */
-export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts }: { lignes: readonly LigneLocationCa[]; lib: string; onFermer: () => void; onAller: (id: number) => void; couts: CoutsFenetre }) {
+export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts, reperes }: { lignes: readonly LigneLocationCa[]; lib: string; onFermer: () => void; onAller: (id: number) => void; couts: CoutsFenetre;
+  /** 🔴 LOT LO13 — ce qui a quitté la tuile (CA net d'apporteurs, N−1), montré dans les deux modes. */
+  reperes?: ReactNode }) {
   const T = totauxLocation(lignes);
   const d = detailCoutsLocation(lignes);
   const lien = useLienBail(onAller);
@@ -257,7 +262,65 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts }: { 
             <ul className="trx-fc-lignes">{couts.mois.filter((x) => x.c.moisAvecSalaires > 0).map(({ m, c }) => (
               <li key={`${m.annee}-${m.mois}`} className="trx-fc-ligne"><span className="trx-fc-quoi">{moisFr(m)}</span><Montant htC={c.salaires.htC} ttcC={c.salaires.ttcC} versee /></li>))}</ul></section>}
         </>}
+        {reperes}
       </>} />
+  );
+}
+
+/**
+ * ══ 🔴 LOT LO13 (Arno) — Tuile 1 — « CA brut — [période] » : la même coque (croix, Échap, clic dehors, plein écran au téléphone, « Par bail | Par
+ * catégorie »). Par catégorie : honoraires propriétaire, honoraires locataire, = CA brut ; par bail : les deux honoraires de chaque bail. Dessous,
+ * dans les deux modes, `reperes` : ce qui a quitté les tuiles 1 et 2 (baux, cumul, même période un an plus tôt, CA brut mois par mois). Aucun
+ * calcul : les montants des lignes et les totaux de la page (`totauxLocation`).
+ */
+export const CLE_MODE_CA_LOCATION = 'trx-location-ca-mode';
+export function FenetreCaLocation({ lignes, lib, onFermer, onAller, reperes }: { lignes: readonly LigneLocationCa[]; lib: string; onFermer: () => void; onAller: (id: number) => void; reperes?: ReactNode }) {
+  const T = totauxLocation(lignes);
+  const lien = useLienBail(onAller);
+  const total = <><span>= CA brut</span><Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  const parts = [{ cle: 'proprietaire', mot: 'Honoraires propriétaire', m: (l: LigneLocationCa) => l.proprietaireC, t: T.proprietaire },
+    { cle: 'locataire', mot: 'Honoraires locataire', m: (l: LigneLocationCa) => l.locataireC, t: T.locataire }] as const;
+  const baux = parDateDecroissante(lignes);
+  return (
+    <CoqueFenetre titre={`CA brut — ${lib}`} donnee="fenetre-ca-location" totalHtC={T.ca.htC} totalTtcC={T.ca.ttcC} sens="recu"
+      dossiers={motBaux(T.nb, false)} cleMode={CLE_MODE_CA_LOCATION} motTransaction="Par bail" onFermer={onFermer} pied={total}
+      corps={(mode) => <>
+        <style>{CSS_FENETRES_LOCATION}</style>
+        {mode === 'categorie' ? <>
+          {parts.map((p) => (
+            <CategorieRepliable key={p.cle} cle={p.cle} donnees={{ 'data-categorie-location': p.cle, 'aria-label': p.mot }} titre={p.mot}
+              montant={<Montant htC={p.t.htC} ttcC={p.t.ttcC} versee={false} recu donnees={{ 'data-sous-total-location': p.cle }} />}>
+              {baux.filter((l) => nonNul(p.m(l))).length === 0 ? aucune(p.cle) : <ul className="trx-fc-lignes">{baux.filter((l) => nonNul(p.m(l))).map((l) => (
+                <li key={l.id} className="trx-fc-ligne" data-ligne-ca={`${p.cle}-${l.id}`}>
+                  <span className="trx-fc-quoi">{lien(l)}{sep}<span data-qui>{p.cle === 'proprietaire' ? l.proprietaire || '—' : l.locataire || 'locataire à renseigner'}</span></span>
+                  <Montant htC={p.m(l).htC} ttcC={p.m(l).ttcC} versee={false} recu /></li>))}</ul>}
+            </CategorieRepliable>
+          ))}
+          <div className="trx-fc-total-ca trx-somme--finale" data-total-ca>{total}</div>
+        </> : baux.length === 0 ? <p className="trx-fc-aucune" data-aucun-bail>Aucun bail sur la période.</p> : baux.map((l) => (
+          <section key={l.id} className="trx-fc-section" data-bail-ca={l.id} aria-label={titreBail(l)}>
+            <TeteBail l={l} lien={lien} />
+            <ul className="trx-fc-lignes">
+              <li className="trx-fc-ligne"><span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>Propriétaire</span><span data-qui>{l.proprietaire || '—'}</span></span>
+                <Montant htC={l.proprietaireC.htC} ttcC={l.proprietaireC.ttcC} versee={false} recu /></li>
+              <li className="trx-fc-ligne"><span className="trx-fc-quoi"><span className="trx-fc-etiquette" data-etiquette>Locataire</span><span data-qui>{l.locataire || 'locataire à renseigner'}</span></span>
+                <Montant htC={l.locataireC.htC} ttcC={l.locataireC.ttcC} versee={false} recu /></li>
+            </ul>
+          </section>
+        ))}
+        {reperes}
+      </>} />
+  );
+}
+
+/** 🔴 LOT LO13 — le bloc « Repères » d'une fenêtre : ce qui a quitté la tuile, une ligne par information (le mot à gauche, la valeur à droite). */
+export function Reperes({ titre = 'Repères', lignes, donnee }: { titre?: string; donnee: string; lignes: readonly { cle: string; mot: ReactNode; valeur: ReactNode }[] }) {
+  return (
+    <section className="trx-fc-section trx-fl-reperes" data-reperes={donnee} aria-label={titre}>
+      <div className="trx-fc-tete"><h3>{titre}</h3></div>
+      <ul className="trx-fc-lignes">{lignes.map((x) => (
+        <li key={x.cle} className="trx-fc-ligne" data-repere={x.cle}><span className="trx-fc-quoi">{x.mot}</span>{x.valeur}</li>))}</ul>
+    </section>
   );
 }
 
@@ -267,4 +330,8 @@ export const CSS_FENETRES_LOCATION = `
 .trx-fl-sous-lignes .trx-fc-affaire{font-weight:600;min-height:32px}
 .trx-fl-petit-montant{white-space:nowrap}
 .trx-fc-total-ca.trx-somme{border-radius:10px}
+.trx-fl-reperes .trx-fc-ligne{grid-template-columns:minmax(6.5rem,max-content) minmax(0,1fr)}
+.trx-fl-reperes .trx-fc-quoi{color:var(--color-svv-ink)}
+.trx-fl-reperes .trx-fc-ligne>:last-child{justify-self:end;text-align:right;min-width:0}
+.trx-fl-texte{font-weight:600;overflow-wrap:anywhere}
 `;

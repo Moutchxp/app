@@ -68,8 +68,11 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       window.localStorage.setItem('trx-affichage-montants', u);
       // les pages d'origine, sur les mêmes données
       await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois', () => createElement(EcranLocationCA));
+      // 🔴 LOT LO13 — le « CA net d'apporteurs » a quitté la tuile : il est dans la fenêtre « CA net »
+      await cliquer('[data-tuile="location-net"]');
       const loc = { ca: centimes(texte('[data-location-ca]')), net: centimes(texte('[data-location-net]')), couts: centimes(texte('[data-location-couts]')),
-        netApporteurs: centimes(texte('[data-location-net-apporteurs]')) };
+        netApporteurs: centimes(texte('[data-location-net-apporteurs] strong')) };
+      await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
       await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois', () => createElement(EcranGestion));
       const v = (k: string) => centimes(texte(`[data-tuile-valeur="${k}"]`));
       const ges = { ca: v('gestion-honoraires'), net: v('gestion-net'), couts: v('gestion-adhoc') + v('gestion-monga') + v('gestion-salaries') };

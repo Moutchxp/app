@@ -21,7 +21,8 @@ import { Journal } from './FormulaireVente';
 import { CSS, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
-import { FenetreCoutsLocation, FenetreNetLocation } from './FenetresLocation';
+import { FenetreCaLocation, FenetreCoutsLocation, FenetreNetLocation, Reperes } from './FenetresLocation';
+import { Montant } from './FenetreCommissions';
 import { useColonnesNegociateurs } from './OngletCompromis';
 import { horsSelecteur, SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
 
@@ -235,7 +236,15 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
   const autre = (m: MontantC) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({U.autre(m)})</small>;
   // 🔴 LOT LO6 — les tuiles 3 et 4 ouvrent leur fenêtre (les lignes de la période, filtres de la page compris) ; le nom d'un bail y ferme la
   // fenêtre et déplie sa carte dans « Les baux ».
-  const [fenetre, setFenetre] = useState<'couts' | 'net' | null>(null);
+  const [fenetre, setFenetre] = useState<'ca' | 'couts' | 'net' | null>(null);
+  const tuileCa = useRef<HTMLButtonElement | null>(null);
+  // 🔴 LOT LO13 — ce qui a quitté les tuiles 1 et 2 (montré dans la fenêtre « CA brut »)
+  const mandats = T.nbGestionSeule > 0 || T.nbAvenants > 0
+    ? [T.nbGestionSeule > 0 ? `${T.nbGestionSeule} mandat${T.nbGestionSeule > 1 ? 's' : ''} de gestion seul${T.nbGestionSeule > 1 ? 's' : ''}` : '', T.nbAvenants > 0 ? `${T.nbAvenants} avenant${T.nbAvenants > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') : '';
+  const nbN1 = toutesAnnees !== null ? toutesAnnees : sansN1 ? motSansN1 : `${T1.nb} ${enN1}`;
+  const parAnnee = new Set(ms.map((m) => m.annee)).size > 1;
+  const detailCa = parAnnee ? [...new Set(ms.map((m) => m.annee))].map((a) => ({ cle: String(a), mot: String(a), ca: totauxLocation(lignesDesMois(lignes, ms.filter((m) => m.annee === a))).ca }))
+    : ms.map((m) => ({ cle: `${m.annee}-${m.mois}`, mot: `${NOMS_MOIS[m.mois - 1]} ${m.annee}`, ca: totauxLocation(lignesDesMois(lignes, [m])).ca }));
   const tuileCouts = useRef<HTMLDivElement | null>(null);
   // 🔴 LOT LO12 — la tuile « Coûts » s'ouvre au clic, à Entrée ou Espace ; son sélecteur « Avec | Sans salaires » n'ouvre rien
   const ouvrirCouts = (e: { target: EventTarget }): void => { if (horsSelecteur(e)) setFenetre('couts'); };
@@ -259,37 +268,57 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
   };
   return <>
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${infobulle ?? libComplet}`} title={infobulle} data-ecran-location-tuiles>
-      <li><div className="tdb-tuile" data-tuile="location-ca">
+      {/* 🔴 LOT LO13 (Arno) — tuiles épurées : titre, explication, montant, montant entre parenthèses ; le reste passe dans la fenêtre de la tuile */}
+      <li><button type="button" className="tdb-tuile" data-tuile="location-ca" aria-haspopup="dialog" aria-expanded={fenetre === 'ca'} ref={tuileCa} onClick={() => setFenetre('ca')}>
         <span className="tdb-tuile-mot">CA brut — {lib}{explication(EXPLICATION.ca)}</span>
         <strong className="tdb-tuile-valeur" data-location-ca>{eur(U.en(T.ca))}</strong>{autre(T.ca)}
-        <span className="tdb-tuile-n1" data-location-parts>dont propriétaire {eur(U.en(T.proprietaire))} · locataire {eur(U.en(T.locataire))}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-ca">{cumul !== null && <span className="trx-ligne-bloc" data-location-cumul>{motCumul} : {eur(U.en(cumul.ca))}</span>}
-          <span className="trx-ligne-bloc">{n1(T.ca, T1.ca)}</span></span></div></li>
+        <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="ca">Voir le détail</span></button></li>
       <li><div className="tdb-tuile" data-tuile="location-baux">
         <span className="tdb-tuile-mot">Baux signés — {lib}</span>
         <strong className="tdb-tuile-valeur" data-location-nb>{T.nb}</strong>
-        <small className="trx-montant-autre trx-tuile-autre" data-location-mandats>{T.nbGestionSeule > 0 || T.nbAvenants > 0
-          ? `dont ${[T.nbGestionSeule > 0 ? `${T.nbGestionSeule} mandat${T.nbGestionSeule > 1 ? 's' : ''} de gestion seul${T.nbGestionSeule > 1 ? 's' : ''}` : '', T.nbAvenants > 0 ? `${T.nbAvenants} avenant${T.nbAvenants > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')}` : ' '}</small>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-baux">{toutesAnnees !== null ? toutesAnnees : sansN1 ? motSansN1 : `${T1.nb} ${enN1}`}</span></div></li>
+        <small className="trx-montant-autre trx-tuile-autre" aria-hidden="true">{' '}</small>
+        <span className="tdb-tuile-n1" data-tuile-n1="location-baux">{nbN1}</span></div></li>
       <li><div role="button" tabIndex={0} className="tdb-tuile" data-tuile="location-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts}
         onClick={ouvrirCouts} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrirCouts(e); } }}>
         <span className="tdb-tuile-mot">Coûts{hors(avec)} — {lib}{explication(avec ? EXPLICATION.couts : EXPLICATION.coutsSans)}<SelecteurSalaires salaires={avec} onChange={ctxC.onSalaires} /></span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.couts.htC, T.couts.ttcC)}`} data-location-couts>{eur(U.en(T.couts))}</strong>{autre(T.couts)}
-        {/* 🔴 LOT LO11 — les familles : ce qui est déduit ; les primes et le variable des mois avec salaires : « inclus dans les salaires » */}
-        <span className="tdb-tuile-n1" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(T.c.variableDeduit))} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
-          {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(T.c.variable, T.c.variableDeduit)))} inclus dans les salaires</span>}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="couts">Voir le détail</span></div></li>
       <li><button type="button" className="tdb-tuile" data-tuile="location-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
         <span className="tdb-tuile-mot">CA net{hors(avec)} — {lib}{explication(avec ? EXPLICATION.net : EXPLICATION.netSans)}</span>
         <strong className="tdb-tuile-valeur trx-vert" data-location-net>{eur(U.en(T.net))}</strong>{autre(T.net)}
-        {/* 🔴 LOT LO5 — le « CA net d'apporteurs » du Suivi annuel de la Location (avant primes), le même chiffre (`sommesLocation`) */}
-        <span className="tdb-tuile-n1" data-location-net-apporteurs>CA net d’apporteurs : {eur(U.en(T.netApporteurs))}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="net">Voir le détail</span></button></li>
     </ul>
-    {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }} />}
-    {fenetre === 'net' && <FenetreNetLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }} />}
+    {fenetre === 'ca' && <FenetreCaLocation lignes={periode} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCa.current?.focus(); }} reperes={<>
+      {/* 🔴 LOT LO13 — ce qui a quitté les tuiles 1 et 2 : les baux (dont mandats seuls, avenants ; N−1), le cumul, la même période un an plus tôt */}
+      <Reperes titre="Baux" donnee="baux" lignes={[
+        { cle: 'nb', mot: 'Baux signés', valeur: <strong className="trx-fl-texte" data-repere-nb>{T.nb}</strong> },
+        ...(mandats === '' ? [] : [{ cle: 'mandats', mot: 'Dont', valeur: <span className="trx-fl-texte" data-location-mandats>{mandats}</span> }]),
+        { cle: 'nb-n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-repere-nb-n1>{nbN1}</span> },
+      ]} />
+      <Reperes donnee="ca" lignes={[
+        { cle: 'parts', mot: 'Propriétaire · locataire', valeur: <span className="trx-fl-texte" data-location-parts>dont propriétaire {eur(U.en(T.proprietaire))} · locataire {eur(U.en(T.locataire))}</span> },
+        ...(cumul === null ? [] : [{ cle: 'cumul', mot: <span data-location-cumul-mot>{motCumul.charAt(0).toUpperCase() + motCumul.slice(1)}</span>,
+          valeur: <Montant htC={cumul.ca.htC} ttcC={cumul.ca.ttcC} versee={false} recu donnees={{ 'data-location-cumul': '' }} /> }]),
+        { cle: 'n1', mot: toutesAnnees !== null || sansN1 ? 'Un an plus tôt' : `Même période ${enN1}`, valeur: toutesAnnees !== null || sansN1
+          ? <span className="trx-fl-texte" data-repere-n1="ca">{n1(T.ca, T1.ca)}</span>
+          : <Montant htC={T1.ca.htC} ttcC={T1.ca.ttcC} versee={false} recu donnees={{ 'data-repere-n1': 'ca' }} apres={<small data-repere-ecart="ca"> {signePct(variation(T.ca.htC, T1.ca.htC))}</small>} /> },
+      ]} />
+      {detailCa.length > 1 && <Reperes titre={parAnnee ? 'CA brut année par année' : 'CA brut mois par mois'} donnee="ca-mois" lignes={detailCa.map((x) => ({ cle: x.cle, mot: x.mot,
+        valeur: <Montant htC={x.ca.htC} ttcC={x.ca.ttcC} versee={false} recu donnees={{ 'data-repere-ca-mois': x.cle }} /> }))} />}
+    </>} />}
+    {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }}
+      reperes={<Reperes donnee="couts" lignes={[
+        // 🔴 LOT LO13 — ce qui a quitté la tuile « Coûts » : les familles (ce qui est déduit ; « inclus » ; salaires non comptés) et N−1
+        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(T.c.variableDeduit))} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
+          {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(T.c.variable, T.c.variableDeduit)))} inclus dans les salaires</span>}</span> },
+        { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span> },
+      ]} />} />}
+    {fenetre === 'net' && <FenetreNetLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }}
+      reperes={<Reperes donnee="net" lignes={[
+        // 🔴 LOT LO13 — ce qui a quitté la tuile « CA net » : le CA net d'apporteurs (lot LO5, `sommesLocation`) et N−1
+        { cle: 'apporteurs', mot: 'CA net d’apporteurs', valeur: <Montant htC={T.netApporteurs.htC} ttcC={T.netApporteurs.ttcC} versee={false} recu donnees={{ 'data-location-net-apporteurs': '' }} /> },
+        { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span> },
+      ]} />} />}
 
     {graphe.sorte === 'mois'
       ? <GrapheLocationMois lignes={lignes} toutes={toutes} jour={jour} annee={annee} g={graphe} series={series} />
