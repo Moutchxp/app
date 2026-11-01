@@ -5,6 +5,9 @@ import { annexeNonComptee, compteCommeGestion, SANS_REGLE_ANNEXES, type AnnexeLo
 import { auCentime, montantPrime, baremeADate, type BaremeApporteur, type ModeApporteur, interneADate, remunerationADate, type RemunerationCollegue,
   type Apporteur, type CategoriePrime, collegueADate, libelleOrigineContact, type ModePrime, type Origine, type OrigineContact, type RegleCommission, type TypeActivite, versionADate,
 } from './suivi';
+// 🔴 LOT LO9 — la commission d'apporteur d'une ligne au centime : LA fonction de la page Suivi CA › Location (appelée seulement dans les calculs,
+// jamais au chargement : l'import réciproque de `locationCa` est sans effet).
+import { montantsLigne } from '../../transaction/locationCa';
 
 /**
  * ══ LOCATION — « OUTILS DE SUIVI » : LES CALCULS DU TABLEAU DE BORD (Arno, 22/10/2026) ════════════════════════════════════════
@@ -559,6 +562,8 @@ export interface Totaux {
    * 🔴 Arno (25/10/2026, accord écrit) — LA BASE DU NÉGOCIATEUR, dossier par dossier : CA HT − TOUTES les commissions versées sauf les
    * récurrentes de gestion (part location de l'apporteur, sa part gestion « One shot », ce qui est dû au collègue à la signature :
    * location + gestion « One shot »). `deductions` : ces commissions ; `baseNegociateur` : Σ (CA − déductions).
+   * 🔴 LOT LO9 (Arno, 01/11/2026) — la commission d'apporteur d'un dossier (part location + gestion « One shot ») y est celle de `montantsLigne`,
+   * arrondie au centime (la règle du Résumé, lot LO8) : la base est toujours égale au « CA HT net » du Résumé.
    */
   deductions: number;
   baseNegociateur: number;
@@ -583,7 +588,7 @@ export function totaux(lignes: readonly ActiviteCalcul[], ctx: ContexteCalcul): 
     t.primes += prime; t.apporteurs += app + gestion; t.apporteursLocation += app; t.apporteursGestion += gestion; t.caNet += ca - app;
     // 🔴 Arno (25/10/2026, accord écrit) — avant le taux : CA − part location − gestion « One shot » − collègue à la signature (le récurrent
     // de gestion, apporteur ou collègue, n'est PAS retiré). Le reste est inchangé : taux à la date de signature, + prime du dossier.
-    const deduit = app + gestion + commissionCollegueSignatureDe(a, ctx.apporteurs);
+    const deduit = montantsLigne(a, ctx).apporteurC.htC / 100 + commissionCollegueSignatureDe(a, ctx.apporteurs); // 🔴 LOT LO9
     t.deductions += deduit; t.baseNegociateur += ca - deduit;
     t.commissionAvantRetro += tauxNegociateurDe(a, ctx.regles) * (ca - deduit) + prime;
     if (a.avecGestion) t.avecGestion += ca; else t.sansGestion += ca;
@@ -1629,7 +1634,8 @@ export function cascadeNegociateur(n: LigneNegociateur, lignesDuMois: readonly A
     const partLocation = partLocationDe(a, ctx.apporteurs);
     const gestionOneShot = partGestionSignatureDe(a, ctx.apporteurs);
     const collegueSignature = commissionCollegueSignatureDe(a, ctx.apporteurs);
-    const deductions = partLocation + gestionOneShot + collegueSignature;
+    // 🔴 LOT LO9 — la commission d'apporteur au centime (`montantsLigne`), comme `totaux` : la base de chaque dossier, celle du variable
+    const deductions = montantsLigne(a, ctx).apporteurC.htC / 100 + collegueSignature;
     const taux = tauxNegociateurDe(a, ctx.regles);
     const apporteur = a.apporteurId === null && a.apporteurNom === null ? null : (a.apporteurNom ?? ctx.apporteurs.find((x) => x.id === a.apporteurId)?.nom ?? null);
     return { id: a.id, libelle: [a.libelleProprietaire, a.libelleLocataire].filter((x) => x).join(' / ') || `Dossier ${a.id}`, ca, apporteur, partLocation, gestionOneShot,

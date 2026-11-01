@@ -55,3 +55,25 @@ describe('🔴 LOT LO8 — le Résumé = la page Suivi CA › Location, au centi
     expect(Math.round(a.r.resultat.caNet * 100)).toBe(p.netApporteurs.htC);
   });
 });
+
+/**
+ * 🔴 LOT LO9 (Arno, 01/11/2026) — LA BASE DU NÉGOCIATEUR SUIT LA MÊME RÈGLE : la commission d'apporteur de chaque dossier au centime (`montantsLigne`),
+ * puis CA − commissions : la base = le « CA HT net » du Résumé ; le variable = taux × base (+ primes). Ici : 500,25 − 5 × 10,01 = 450,20 €
+ * (l'ancienne somme en euros donnait 500,25 − 50,03 = 450,22 €) ; variable 15 % = 67,53 €.
+ */
+describe('🔴 LOT LO9 — la base du négociateur = le CA HT net du Résumé', () => {
+  const r = resumeDuMoisComplet(d, lignes, ctx, '2026-09', null);
+  it('septembre : base 450,20 € = CA HT net ; variable = 15 % de la base, dossier par dossier', () => {
+    const n = r.negociateurs[0];
+    expect([n.ca, n.deductions, n.net]).toEqual([500.25, 50.05, 450.2]);
+    expect(n.net).toBe(Math.round(r.r.resultat.caNet * 100) / 100);
+    expect(n.variable).toBe(67.53);
+    expect(n.dossiers.map((x) => Math.round(x.deductions * 100))).toEqual([1001, 1001, 1001, 1001, 1001]);
+  });
+  it('l’année : la base de chaque mois = son CA HT net', () => {
+    for (const m of ['2026-08', '2026-09']) {
+      const x = resumeDuMoisComplet(d, lignes, ctx, m, null);
+      expect(x.negociateurs.reduce((s, n) => s + Math.round(n.net * 100), 0)).toBe(Math.round(x.r.resultat.caNet * 100));
+    }
+  });
+});

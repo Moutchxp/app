@@ -283,7 +283,9 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(total('ca-net')).toBe('13 469,45 €');
     // 🔴 25/10/2026 — la base du négociateur = CA HT net de commissions (ici : les seules parts location), au centime des montants affichés.
     await deplierNegos();
-    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,44 €');
+    // 🔴 LOT LO9 — la base suit la règle du Résumé (commission d'apporteur au centime par dossier) : toujours égale au CA HT net (13 469,45 €).
+    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,45 €');
+    expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe(total('ca-net'));
     expect(total('primes')).toBe('650,00 €');
     // 🔴 Arno (27/10/2026) — avec / sans gestion / à qualifier : les statuts du bien regroupés (« CA par statut du bien »), plus la case.
     const euros = (t: string | null | undefined): number => Number((t ?? '').replace(/[\s\u00a0\u202f€]/g, '').replace('−', '-').replace(',', '.'));

@@ -33,6 +33,9 @@ const FICHIER: [string, number, number, number, number, number, number][] = [
   ['2026-09', 17, 15471.7, 650, 2002.255, 13469.445, 2670.41675],
 ];
 
+/** 🔴 LOT LO9 — les mois où le variable (commission d'apporteur au centime par dossier) diffère du fichier d'un centime. */
+const VARIABLE_LO9: Record<string, number> = { '2026-06': 1926.9 };
+
 describe('🔴 le tableau de bord = le suivi mensuel d’Arno, au centime, mois par mois', () => {
   it('neuf onglets, 112 lignes, 94 612,61 € de CA HT', () => {
     expect(mois.map((m) => m.mois)).toEqual(FICHIER.map((f) => f[0]));
@@ -48,7 +51,9 @@ describe('🔴 le tableau de bord = le suivi mensuel d’Arno, au centime, mois 
       expect(auCentime(t.primes)).toBe(auCentime(primes));
       expect(auCentime(t.apporteurs)).toBe(auCentime(app));
       expect(auCentime(t.caNet)).toBe(auCentime(net));
-      expect(auCentime(t.commission)).toBe(auCentime(coms));
+      // 🔴 LOT LO9 (Arno, 01/11/2026) — la commission d'apporteur de chaque dossier est arrondie au centime avant le taux (`montantsLigne`, la règle
+      // du Résumé) : le variable peut s'écarter du fichier d'un centime (juin : 1 926,91 € au fichier, somme en euros arrondie à la fin → 1 926,90 €).
+      expect(auCentime(t.commission)).toBe(VARIABLE_LO9[m] ?? auCentime(coms));
       // Et la lecture du fichier lui-même dit la même chose.
       const lu = mois.find((x) => x.mois === m)!.totaux;
       expect([lu.caHt, lu.primes, lu.apporteurs, lu.caNet, lu.commissionBrute].map(auCentime)).toEqual([ca, primes, app, net, coms].map(auCentime));
