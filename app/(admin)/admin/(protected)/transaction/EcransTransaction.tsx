@@ -105,7 +105,7 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
   return (
     <div className="loc-page">
       <style>{CSS}</style>
-      <ul className={`loc-cases loc-cases--accueil${deux ? ' loc-cases--deux' : ''}`} aria-label={libelle}>
+      <ul className={`loc-cases loc-cases--accueil trx-cases-nav${deux ? ' loc-cases--deux' : ''}`} aria-label={libelle}>
         {cases.map((c) => (
           <li key={c.cle}><a className="loc-case" href={c.href} data-tuile-transaction={c.cle}>
             <span className="loc-case-titre">{c.titre}</span><span className="loc-case-phrase">{c.phrase}</span></a></li>

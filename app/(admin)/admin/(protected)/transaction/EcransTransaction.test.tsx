@@ -87,7 +87,7 @@ describe('l’accueil de la tuile', () => {
         ['Gestion', '/admin/transaction/gestion', 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.'],
         ['FUSION Location & Gestion', '/admin/transaction/location-gestion/fusion', 'Les CA de la location et de la gestion réunis.']]);
     // la grille de « Transaction vente » : trois colonnes, une seule au téléphone
-    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
   });
   it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION CRITERIMMO & MACJ », vers leurs écrans', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
@@ -97,10 +97,24 @@ describe('l’accueil de la tuile', () => {
   });
   it('LOT M / DM — trois cases de même taille (la grille de l’accueil, une colonne au téléphone) ; l’accueil garde ses trois colonnes', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
-    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(AccueilTransaction)); });
-    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
+  });
+  it('Arno (01/11/2026) — les trois pages, un seul gabarit : contenu centré, rangées égales (aussi empilées), phrase ~36 caractères, lignes équilibrées ; la Location garde le sien', async () => {
+    for (const ecran of [AccueilTransaction, AccueilVentes, AccueilLocationGestion]) {
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await act(async () => { root.render(createElement(ecran)); });
+      expect([ecran.name, container.querySelectorAll('ul.trx-cases-nav > li > a.loc-case[href]').length]).toEqual([ecran.name, 3]);
+    }
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    for (const f of ['.loc-cases.trx-cases-nav{grid-auto-rows:1fr', 'justify-content:center;align-items:center;text-align:center', 'max-width:36ch;text-wrap:balance',
+      '.loc-cases.trx-cases-nav .loc-case-titre{font-size:1.5rem;line-height:1.25;max-width:100%;text-wrap:balance']) expect(css).toContain(f);
+    // plus de grande hauteur fixe pour ces cases ; celle de l'accueil de la Location (.loc-cases--accueil seule) ne change pas
+    expect(css).toMatch(/\.loc-cases\.trx-cases-nav \.loc-case\{[^}]*min-height:0/);
+    expect(css).toContain('.loc-cases--accueil .loc-case{min-height:18rem');
+    expect(css).not.toMatch(/#[0-9a-f]{3,6}\b[^}]*\}[^{]*trx-cases-nav|trx-cases-nav[^}]*#[0-9a-f]{3,6}\b/i);
   });
 });
 
