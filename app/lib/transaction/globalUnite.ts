@@ -28,6 +28,17 @@ const cle = (annee: number, mois: number): string => `${annee}-${String(mois).pa
 export function celluleGlobalEn(e: EntreesGlobalUnite, annee: number, mois: number | null, u: UniteGlobal): CelluleGlobal {
   return auCentime(u === 'ht' ? celluleGlobal(e, annee, mois) : celluleGlobalTtc(e, annee, mois));
 }
+/**
+ * 🔴 LOT CG3 — une cellule de plusieurs années (« Période », « Tout ») : la SOMME des cellules de chaque année, déjà au centime (`celluleGlobalEn`) ;
+ * null (location, gestion) seulement si aucune année n'a la part. La période = la somme des années, au centime, HT et TTC. PUR.
+ */
+export function celluleGlobalAnnees(e: EntreesGlobalUnite, annees: readonly number[], u: UniteGlobal): CelluleGlobal {
+  const cs = annees.map((a) => celluleGlobalEn(e, a, null, u));
+  const s = (k: Exclude<keyof CelluleGlobal, 'locationHt' | 'gestionHt'>): number => cs.reduce((t, c) => t + centC(c[k]), 0) / 100;
+  const n = (k: 'locationHt' | 'gestionHt'): number | null => (cs.every((c) => c[k] === null) ? null : cs.reduce((t, c) => t + centC(c[k] ?? 0), 0) / 100);
+  return { venteCriterimmoHt: s('venteCriterimmoHt'), venteMacjHt: s('venteMacjHt'), aAttribuerHt: s('aAttribuerHt'), exterieurHt: s('exterieurHt'), interCabinetHt: s('interCabinetHt'),
+    locationHt: n('locationHt'), gestionHt: n('gestionHt'), criterimmoHt: s('criterimmoHt'), macjHt: s('macjHt'), totalHt: s('totalHt') };
+}
 const cent = (x: number): number => (Math.round((x + Math.sign(x) * Number.EPSILON) * 100) || 0) / 100;
 const centC = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) || 0;
 function auCentime(c: CelluleGlobal): CelluleGlobal {

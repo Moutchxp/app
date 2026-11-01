@@ -721,13 +721,14 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
     expect(texte('#trx-g-mois')).toBe('Chiffre d’affaires global 2025 mois par mois (HT)');
     expect(texte('#trx-g-couts')).toBe('Coûts globaux 2025 mois par mois (HT)');
     const table = container.querySelector('[data-table-couts="global-couts"]')!;
-    expect([...table.querySelectorAll('[data-groupe-couts]')].map((x) => x.getAttribute('data-groupe-couts'))).toEqual(['vente', 'location', 'gestion']);
-    expect([...table.querySelectorAll('thead tr:first-child th')].map((x) => x.textContent)).toEqual(['Mois', 'Vente (CRITERIMMO + MACJ)', 'Location', 'Gestion', 'Total coûts', '2024', 'Écart']);
+    expect([...table.querySelectorAll('[data-groupe-couts]')].map((x) => x.getAttribute('data-groupe-couts'))).toEqual(['vente', 'location', 'gestion', 'total']); // 🔴 LOT CG3
+    expect([...table.querySelectorAll('thead tr:first-child th')].map((x) => x.textContent)).toEqual(['Mois', 'Vente (CRITERIMMO + MACJ)', 'Location', 'Gestion', 'Total et comparaison']); // 🔴 LOT CG3 — le 4ᵉ bloc
+    expect([...table.querySelectorAll('thead tr:last-child th')].slice(-3).map((x) => x.textContent)).toEqual(['Total coûts', '2024', 'Écart']);
     expect([...table.querySelectorAll('tbody tr')].map((x) => x.getAttribute('data-rangee-couts'))).toEqual([...Array.from({ length: 12 }, (_, i) => `2025-${i + 1}`), '2025']);
     expect(table.querySelector('[data-total-couts]')!.className).toBe('tdb-fort trx-ligne-total');
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.trx-couts-defile{overflow-x:auto;');
-    expect(css).toContain('.trx-table-couts thead tr:first-child th:first-child,.trx-table-couts tbody th:first-child{position:sticky;left:0;');
+    expect(css).toContain('.trx-table-groupes thead tr:first-child th:first-child,.trx-table-groupes tbody th:first-child{position:sticky;left:0;'); // 🔴 LOT CG3
     const total = (r: Element) => centimesDe(r.querySelector('[data-cout="total"]')!.textContent!);
     const colonnes = (r: Element) => ['vente-commissions', 'vente-apporteurs', 'vente-exterieures', 'location-apporteurs', 'location-primes', 'location-variable', 'location-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaires']
       .reduce((t, k) => { const c = r.querySelector(`[data-cout="${k}"] > span:not(.loc-muet)`); return t + (c === null ? 0 : centimesDe(c.textContent!)); }, 0);
@@ -748,6 +749,79 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
     // année par année : une ligne par année
     expect([...container.querySelectorAll('[data-table-couts="global-couts-annees"] tbody tr')].map((x) => x.getAttribute('data-rangee-couts'))).toEqual(['2024', '2025']);
     window.localStorage.removeItem('trx-fusion-salaires');
+  });
+});
+
+/**
+ * 🔴 LOT CG3 (Arno) — le CA global : la ligne des années et « Année | Période | Tout » de la vente (anciens liens « ?annee= » compris) ; Période = la
+ * somme des années, au centime ; les tableaux « … [période] année par année » ; le titre des coûts et « Avec | Sans salaires » sur une ligne ; les blocs.
+ */
+describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () => {
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const valeur = (k: string) => centimesDe(texte(`[data-tuile="${k}"] .tdb-tuile-valeur`));
+  it('un ancien lien « ?annee=2025 » : Année 2025, les tableaux mois par mois ; Période 2024 + 2025 = la somme des années (HT et TTC, avec et sans salaires) ; Tout : sans comparaison', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(container.querySelector('[data-choix-annees]')!.getAttribute('data-choix-annees')).toBe('annee');
+    expect(container.querySelector('[data-onglet-annee="2025"]')!.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[data-filtre="annee"]')).toBeNull(); // le champ « Année » est remplacé (accord d'Arno)
+    expect(container.querySelector('form.tdb-filtres .trx-champ-unite [data-afficher="ht"]')).not.toBeNull();
+    expect([texte('#trx-g-mois'), texte('#trx-g-couts')]).toEqual(['Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)']);
+    const parAnnee: Record<string, Record<string, number>> = {};
+    for (const u of ['ht', 'ttc'] as const) {
+      if (u === 'ttc') await cliquer('[data-afficher="ttc"]');
+      for (const a of [2024, 2025]) {
+        await cliquer(`[data-onglet-annee="${a}"]`);
+        parAnnee[`${u}${a}`] = { global: valeur('global'), criterimmo: valeur('criterimmo'), macj: valeur('macj'),
+          couts: centimesDe(texte('[data-total-couts] [data-cout="total"]')) };
+      }
+    }
+    // Période : 2024 et 2025 choisies
+    await cliquer('[data-decouper-annees="periode"]');
+    if (container.querySelector('[data-onglet-annee="2024"]')!.getAttribute('aria-pressed') !== 'true') await cliquer('[data-onglet-annee="2024"]');
+    expect(new URLSearchParams(window.location.search).get('vue-annee')).toBe('periode');
+    expect(new URLSearchParams(window.location.search).get('annees')).toBe('2024,2025');
+    for (const u of ['ttc', 'ht'] as const) {
+      if (u === 'ht') await cliquer('[data-afficher="ht"]');
+      for (const k of ['global', 'criterimmo', 'macj'] as const) expect([u, k, valeur(k)]).toEqual([u, k, parAnnee[`${u}2024`][k] + parAnnee[`${u}2025`][k]]);
+      expect(centimesDe(texte('[data-total-couts] [data-cout="total"]'))).toBe(parAnnee[`${u}2024`].couts + parAnnee[`${u}2025`].couts);
+    }
+    expect(texte('#trx-g-annees-periode')).toBe('Chiffre d’affaires global 2024 → 2025 année par année (HT)');
+    expect(texte('#trx-g-couts')).toBe('Coûts globaux 2024 → 2025 année par année (HT)');
+    expect([...container.querySelectorAll('[data-annee-periode-global]')].map((x) => x.getAttribute('data-annee-periode-global'))).toEqual(['2024', '2025', 'total']);
+    expect(centimesDe(texte('[data-annee-periode-global="total"] [data-mot="Total"]'))).toBe(valeur('global'));
+    expect(container.querySelector('[data-bloc="global-mois"]')).toBeNull();
+    // « Sans salaires » : la période = la somme des années aussi
+    await cliquer('[data-bloc="global-couts-periode"] [data-salaires="sans"]');
+    const sansP = centimesDe(texte('[data-total-couts] [data-cout="total"]'));
+    const sansA = [...container.querySelectorAll('[data-table-couts="global-couts-periode"] tbody tr:not([data-total-couts]) [data-cout="total"]')].reduce((t, x) => t + centimesDe(x.textContent!), 0);
+    expect(sansP).toBe(sansA);
+    // Tout : aucune comparaison
+    await cliquer('[data-decouper-annees="tout"]');
+    expect(texte('[data-tuile="global"] .tdb-tuile-n1')).toBe('Toutes les années (2024 → 2025)');
+    expect([texte('[data-synthese="global"] [data-mot="Écart"]'), texte('[data-annee-periode-global="total"] [data-mot="Écart"]'), texte('[data-total-couts] [data-cout="ecart"]')]).toEqual(['—', '—', '—']);
+    window.localStorage.removeItem('trx-fusion-salaires');
+  });
+  it('le titre des coûts et « Avec | Sans salaires » sur une ligne (téléphone : dessous) ; les blocs Vente · Location · Gestion · Total dans les deux tableaux', async () => {
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    const tete = container.querySelector('[data-bloc="global-couts"] [data-couts-tete]')!;
+    expect([tete.children[0].tagName, tete.children[1].querySelector('[data-salaires-choix]') !== null]).toEqual(['H3', true]);
+    for (const t of ['[data-table-global]', '[data-table-couts="global-couts"]']) {
+      const table = container.querySelector(t)!;
+      expect([t, [...table.querySelectorAll('colgroup.trx-g')].map((x) => x.getAttribute('data-bloc-colonnes'))]).toEqual([t, ['vente', 'location', 'gestion', 'total']]);
+      expect([...table.querySelectorAll('colgroup.trx-g--fond')].map((x) => x.getAttribute('data-bloc-colonnes'))).toEqual(['vente', 'gestion']);
+      expect(table.closest('.trx-table-defile')).not.toBeNull();
+      expect(table.className).toContain('trx-table-groupes');
+    }
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.trx-table-groupes colgroup.trx-g{border-left:2px solid var(--color-svv-line-strong)}');
+    expect(css).toContain('.trx-table-groupes colgroup.trx-g--fond{background:color-mix(in srgb, var(--color-svv-ink) 4%, transparent)}');
+    expect(css).toContain('@media (max-width:640px){ .trx-couts-tete{flex-direction:column;align-items:flex-start}');
+    expect(css).toContain('.tdb-table.trx-table-groupes{display:table;width:auto}'); // téléphone : le vrai tableau, qui défile (pas de cartes)
   });
 });
 

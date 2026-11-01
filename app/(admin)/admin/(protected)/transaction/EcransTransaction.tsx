@@ -26,10 +26,10 @@ import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transac
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
-import { TableauCoutsGlobaux } from './CoutsGlobaux';
+import { CSS_TABLES_GROUPES, TableauCoutsGlobaux } from './CoutsGlobaux';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
-import { celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
+import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
@@ -1671,7 +1671,11 @@ export function previsionnelEnCours(e: Pick<EntreesGlobal, 'ventes'>, annee: num
 export function EcranGlobal() {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
-  const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
+  // 🔴 LOT CG3 (remplacement du champ « Année » autorisé par Arno) — LA ligne des années et « Année | Période | Tout » de l'onglet « L'année » de la
+  // Transaction vente (lots DG / DH : le même crochet, les mêmes règles, l'adresse partageable) ; un ancien lien « ?annee=2026 » ouvre cette année.
+  const anneesDispo = lu.etat === 'ok' ? anneesDuGlobal(lu.data, jour) : null;
+  const { choixA, setChoixAnnees, refusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles } = useLigneDesAnnees(jour, anneesDispo, true,
+    (a) => lu.etat === 'ok' && anneeAvecDonnees(lu.data, a));
   // LOT D — « Compromis » (les deux sociétés réunies) avant le CA ; à l'ouverture, le CA comme avant.
   const [onglet, setOnglet] = useState<'compromis' | 'ca'>(() => (parametre('vue') === 'compromis' ? 'compromis' : 'ca'));
   // 🔴 LOT CG1 — « HT | TTC », le choix partagé du Suivi Chiffre d'affaires ; relu à chaque onglet (l'onglet « Compromis » a pu le changer)
@@ -1679,20 +1683,34 @@ export function EcranGlobal() {
   useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [onglet]); // eslint-disable-line react-hooks/exhaustive-deps
   // 🔴 LOT CG2 — « Avec | Sans salaires » des coûts globaux : le choix partagé avec Location, Gestion et FUSION
   const [avecSalaires, setAvecSalaires] = useChoixSalaires();
-  useEffect(() => { ecrireAdresse({ annee: onglet === 'ca' ? String(annee) : null, vue: onglet === 'compromis' ? 'compromis' : null }); }, [annee, onglet]);
+  useEffect(() => {
+    ecrireAdresse(onglet === 'compromis' || choixA === null ? { annee: null, 'vue-annee': null, annees: null, vue: onglet === 'compromis' ? 'compromis' : null }
+      : { vue: null, annee: String(choixA.annee), 'vue-annee': choixA.decoupage === 'annee' ? null : choixA.decoupage, annees: choixA.decoupage === 'periode' ? ecrireAnnees(choixA.annees) : null });
+  }, [cleChoixA, onglet]); // eslint-disable-line react-hooks/exhaustive-deps
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
   const e: EntreesGlobalUnite = { ventes: d.ventes, location: d.location, gestion: d.gestion, locationTtcC: d.locationTtcC };
-  const annees = [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee), ...d.gestion.map((g) => g.annee),
-    ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
+  const annees = anneesDuGlobal(d, jour);
+  // 🔴 LOT CG3 — l'année montrée ; « Période » / « Tout » : les années choisies (les tuiles et la synthèse les additionnent, au centime)
+  const annee = choixA?.annee ?? Number(jour.slice(0, 4));
+  const enAnnee = choixA === null || choixA.decoupage === 'annee';
+  const enTout = choixA?.decoupage === 'tout';
+  const sel = enTout ? [...(anneesVisibles ?? annees)] : [...(choixA?.annees ?? [annee])].sort((a, b) => a - b);
+  const plage = sel.length > 1 ? `${sel[0]} → ${sel.at(-1)}` : String(sel[0]);
+  const lib = enAnnee ? String(annee) : enTout ? plage : libelleAnnees({ decoupage: 'periode', annees: sel });
+  const toutes = `Toutes les années (${plage})`;
+  const enN1 = sel.length === 1 ? `en ${sel[0] - 1}` : 'un an plus tôt';
+  const setAnnee = (a: number): void => setChoixAnnees({ decoupage: 'annee', annees: [a], annee: a });
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
   const autreU: UniteAffichage = unite === 'ht' ? 'ttc' : 'ht';
   const MOT = MOT_UNITE[unite];
   const cel = (a: number, m: number | null, u: UniteAffichage = unite) => celluleGlobalEn(e, a, m, u);
-  const A = cel(annee, null); const A1 = cel(annee - 1, null);
-  const Aa = cel(annee, null, autreU);
+  const A = celluleGlobalAnnees(e, sel, unite); const A1 = celluleGlobalAnnees(e, sel.map((a) => a - 1), unite);
+  const Aa = celluleGlobalAnnees(e, sel, autreU);
+  /** La ligne du bas d'une tuile : N−1 (les mêmes années, un an plus tôt) ; « Tout » : aucune comparaison (lot DH). */
+  const n1Tuile = (x: number, x1: number): string => (enTout ? toutes : `${eur(x1)} ${enN1} (${signePct(variation(x, x1))})`);
   const P = previsionnelEn(e, annee, d.compromisEnCours, unite); // 🔴 LOT CY — la règle unique
   const Pa = previsionnelEn(e, annee, d.compromisEnCours, autreU);
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
@@ -1701,7 +1719,7 @@ export function EcranGlobal() {
     .reduce((t, v) => t + caHt(v, s), 0);
   // 🔴 LOT L — LA SYNTHÈSE PAR SOCIÉTÉ, puis le global : CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = les deux
   // (+ les ventes à attribuer, comptées une fois dans aucune société). Face à N−1, prévisionnel des compromis compris.
-  const synthese = syntheseGlobal(e, annee, d.compromisEnCours, unite);
+  const synthese = syntheseGlobal(e, sel, d.compromisEnCours, unite);
   /** Une tuile : le grand montant dans l'unité, l'autre unité en petit entre parenthèses (comme les autres pages). */
   const autre = (x: number) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(x)}{ESPACE}{MOT_UNITE[autreU]})</small>;
   const champUnite = <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
@@ -1709,9 +1727,14 @@ export function EcranGlobal() {
   const eCouts: EntreesCoutsGlobaux = { ventes: d.ventes as Vente[], retrocessions: d.retrocessions ?? [], statutDuLibelle: resolveurDe(d.statutsNegociateurs),
     location: d.locationCa ?? null, gestion: d.gestion };
   const coutsCommun = { e: eCouts, jour, salaires: avecSalaires, onSalaires: setAvecSalaires };
+  // 🔴 LOT CG3 — les blocs du tableau du CA : Vente · Location · Gestion · Total et comparaison (les styles des tableaux des coûts)
+  const colonnesCa = <><colgroup><col /></colgroup><colgroup span={2} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={1} className="trx-g" data-bloc-colonnes="location" />
+    <colgroup span={1} className="trx-g trx-g--fond" data-bloc-colonnes="gestion" /><colgroup span={3} className="trx-g" data-bloc-colonnes="total" /></>;
+  const groupesCa = (premier: string) => <tr><th scope="col" rowSpan={2}>{premier}</th><th scope="colgroup" colSpan={2} data-groupe-ca="vente">Vente</th>
+    <th scope="colgroup" data-groupe-ca="location">Location</th><th scope="colgroup" data-groupe-ca="gestion">Gestion</th><th scope="colgroup" colSpan={3} data-groupe-ca="total">Total et comparaison</th></tr>;
   return (
     <div className="tdb loc-page" data-ca-global data-unite-global={unite}>
-      <style>{CSS}</style>
+      <style>{CSS + CSS_TABLES_GROUPES}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
         <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
@@ -1719,35 +1742,34 @@ export function EcranGlobal() {
       </div>
       {onglet === 'compromis' ? <OngletCompromis societe="tous" selecteurUnite /> : <FournisseurAffichage value={unite}>
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
-      <form className="tdb-filtres" aria-label="Année et montants" onSubmit={(x) => x.preventDefault()}>
-        <label className="tdb-champ">Année
-          <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
-            onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
-        {champUnite}
-      </form>
-      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${annee}`}>
-        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global {MOT} ({annee})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>{autre(Aa.totalHt)}
-          <span className="tdb-tuile-n1">{eur(A1.totalHt)} en {annee - 1} ({signePct(variation(A.totalHt, A1.totalHt))})</span></div></li>
+      {/* 🔴 LOT CG3 — « Montants HT | TTC » reste à droite de la barre ; dessous, la ligne des années et « Année | Période | Tout » (la vente) */}
+      <form className="tdb-filtres" aria-label="Montants" onSubmit={(x) => x.preventDefault()}>{champUnite}</form>
+      {choixA !== null && anneesVisibles !== null && <LigneDesAnnees annees={anneesVisibles} decoupage={choixA.decoupage} annee={choixA.annee}
+        choisies={enTout ? anneesVisibles : choixA.annees} onAnnee={choisirAnnee} onDecoupage={choisirDecoupageAnnees} />}
+      {choixA?.decoupage === 'periode' && refusAnnees && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
+      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`}>
+        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global {MOT} ({lib})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>{autre(Aa.totalHt)}
+          <span className="tdb-tuile-n1">{n1Tuile(A.totalHt, A1.totalHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO {MOT} <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>{autre(Aa.criterimmoHt)}
-          <span className="tdb-tuile-n1">{eur(A1.criterimmoHt)} en {annee - 1} ({signePct(variation(A.criterimmoHt, A1.criterimmoHt))})</span></div></li>
+          <span className="tdb-tuile-n1">{n1Tuile(A.criterimmoHt, A1.criterimmoHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ {MOT} <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>{autre(Aa.macjHt)}
-          <span className="tdb-tuile-n1">{eur(A1.macjHt)} en {annee - 1} ({signePct(variation(A.macjHt, A1.macjHt))})</span></div></li>
+          <span className="tdb-tuile-n1">{n1Tuile(A.macjHt, A1.macjHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel {MOT} <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>{autre(Pa.totalHt)}
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
-        <h3 id="trx-g-synthese">Synthèse {annee} par société, puis le global <small className="loc-muet">({MOT})</small></h3>
+        <h3 id="trx-g-synthese">Synthèse {lib} par société, puis le global <small className="loc-muet">({MOT})</small></h3>
         <table className="tdb-table tdb-table--large" data-table-synthese>
-          <thead><tr><th scope="col">Société</th><th scope="col">Vente</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total {annee}</th>
-            <th scope="col">{annee - 1}</th><th scope="col">Écart</th><th scope="col">Prévisionnel</th></tr></thead>
+          <thead><tr><th scope="col">Société</th><th scope="col">Vente</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total {lib}</th>
+            <th scope="col">{sel.length === 1 ? sel[0] - 1 : 'Un an plus tôt'}</th><th scope="col">Écart</th><th scope="col">Prévisionnel</th></tr></thead>
           <tbody>
             {synthese.map((l) => (
               <tr key={l.cle} className={l.cle === 'global' ? 'tdb-fort' : undefined} data-synthese={l.cle}>
                 <th scope="row">{l.libelle}</th>
                 <td data-mot="Vente">{l.venteHt === null ? '—' : eur(l.venteHt)}</td><td data-mot="Location">{manque(l.locationHt)}</td><td data-mot="Gestion">{manque(l.gestionHt)}</td>
-                <td data-mot={`Total ${annee}`} className="trx-total" data-synthese-total>{eur(l.totalHt)}</td><td data-mot={String(annee - 1)}>{eur(l.totalN1Ht)}</td>
-                <td data-mot="Écart" className={`tdb-signe tdb-signe--${sensDe(l.totalHt - l.totalN1Ht)}`}>{`${ecartEur(l.totalHt - l.totalN1Ht)} (${signePct(variation(l.totalHt, l.totalN1Ht))})`}</td>
+                <td data-mot={`Total ${lib}`} className="trx-total" data-synthese-total>{eur(l.totalHt)}</td><td data-mot={sel.length === 1 ? String(sel[0] - 1) : 'Un an plus tôt'}>{enTout ? '—' : eur(l.totalN1Ht)}</td>
+                <td data-mot="Écart" className={enTout ? undefined : `tdb-signe tdb-signe--${sensDe(l.totalHt - l.totalN1Ht)}`}>{enTout ? '—' : `${ecartEur(l.totalHt - l.totalN1Ht)} (${signePct(variation(l.totalHt, l.totalN1Ht))})`}</td>
                 <td data-mot="Prévisionnel">{l.previsionnelHt === null ? '—' : eur(l.previsionnelHt)}</td>
               </tr>
             ))}
@@ -1755,12 +1777,14 @@ export function EcranGlobal() {
         </table>
       </section>
 
-      <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
+      {enAnnee ? <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
         <h3 id="trx-g-mois">Chiffre d’affaires global {annee} mois par mois <small className="loc-muet">({MOT})</small></h3>
         {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
         <p className="loc-muet" data-lien-gestion>La gestion se saisit mois par mois dans l’écran <a className="trx-lien" href={`${ADRESSES_TRANSACTION.gestion}?annee=${annee}`}>Gestion</a>.</p>
-        <table className="tdb-table tdb-table--large" data-table-global>
-          <thead><tr><th scope="col">Mois</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Vente MACJ</th><th scope="col">Location</th><th scope="col">Gestion</th>
+        <div className="trx-table-defile">
+        <table className="tdb-table trx-table-groupes trx-table-ca-global" data-table-global>
+          {colonnesCa}
+          <thead>{groupesCa('Mois')}<tr><th scope="col">Vente CRITERIMMO</th><th scope="col">Vente MACJ</th><th scope="col">Location</th><th scope="col">Gestion</th>
             <th scope="col">Total</th><th scope="col">{annee - 1}</th><th scope="col">Écart</th></tr></thead>
           <tbody>
             {NOMS_MOIS.map((nom, i) => {
@@ -1803,11 +1827,38 @@ export function EcranGlobal() {
               <td data-mot={String(annee - 1)}>{eur(A1.totalHt)}</td><td data-mot="Écart">{`${ecartEur(A.totalHt - A1.totalHt)} (${signePct(variation(A.totalHt, A1.totalHt))})`}</td></tr>
           </tbody>
         </table>
+        </div>
       </section>
+      : <section className="tdb-section" aria-labelledby="trx-g-annees-periode" data-bloc="global-annees-periode">
+        {/* 🔴 LOT CG3 — « Période » / « Tout » : une ligne par année choisie, puis le total (la somme des années, au centime) */}
+        <h3 id="trx-g-annees-periode">Chiffre d’affaires global {lib} année par année <small className="loc-muet">({MOT})</small></h3>
+        <div className="trx-table-defile">
+        <table className="tdb-table trx-table-groupes trx-table-ca-global" data-table-global-periode>
+          {colonnesCa}
+          <thead>{groupesCa('Année')}<tr><th scope="col">Vente CRITERIMMO</th><th scope="col">Vente MACJ</th><th scope="col">Location</th><th scope="col">Gestion</th>
+            <th scope="col">Total</th><th scope="col">Un an plus tôt</th><th scope="col">Écart</th></tr></thead>
+          <tbody>
+            {[...sel.map((a) => ({ cle: String(a), libelle: String(a), c: cel(a, null), c1: cel(a - 1, null), comparer: true, total: false })),
+              { cle: 'total', libelle: `Total ${lib}`, c: A, c1: A1, comparer: !enTout, total: true }].map((r) => (
+              <tr key={r.cle} className={r.total ? 'tdb-fort trx-ligne-total' : undefined} data-annee-periode-global={r.cle}>
+                <th scope="row">{r.libelle}</th>
+                <td data-mot="Vente CRITERIMMO">{eur(r.c.venteCriterimmoHt)}</td><td data-mot="Vente MACJ">{eur(r.c.venteMacjHt)}</td>
+                <td data-mot="Location">{manque(r.c.locationHt)}</td><td data-mot="Gestion">{manque(r.c.gestionHt)}</td>
+                <td data-mot="Total" className="trx-total">{eur(r.c.totalHt)}</td><td data-mot="Un an plus tôt">{r.comparer ? eur(r.c1.totalHt) : '—'}</td>
+                <td data-mot="Écart" className={r.comparer ? `tdb-signe tdb-signe--${sensDe(r.c.totalHt - r.c1.totalHt)}` : undefined}>{r.comparer ? `${ecartEur(r.c.totalHt - r.c1.totalHt)} (${signePct(variation(r.c.totalHt, r.c1.totalHt))})` : '—'}</td>
+              </tr>))}
+          </tbody>
+        </table>
+        </div>
+        <p className="loc-muet" data-note-periode-global>Le total de chaque année : ventes à attribuer comprises, inter-cabinet entre nos sociétés retiré une fois (comme la synthèse).</p>
+      </section>}
 
       {/* 🔴 LOT CG2 — « Coûts globaux [année] mois par mois », juste sous le CA (le même « HT | TTC », « Avec | Sans salaires » partagé) */}
-      <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts" donnee="global-couts" titre={<>Coûts globaux {annee} mois par mois</>}
+      {enAnnee ? <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts" donnee="global-couts" titre={<>Coûts globaux {annee} mois par mois</>}
         rangees={NOMS_MOIS.map((nom, i) => ({ cle: `${annee}-${i + 1}`, libelle: nom, annee, mois: i + 1 }))} total={{ cle: String(annee), libelle: `Année ${annee}`, annee, mois: null }} />
+        : <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts" donnee="global-couts-periode" titre={<>Coûts globaux {lib} année par année</>} motN1="Un an plus tôt"
+          rangees={sel.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
+          total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
 
       <section className="tdb-section" aria-labelledby="trx-g-annees" data-bloc="global-annees">
         <h3 id="trx-g-annees">Année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></h3>
@@ -1842,6 +1893,12 @@ export function EcranGlobal() {
   );
 }
 
+/** 🔴 LOT CG3 — les années du CA global (vente, gestion, location, et l'année en cours) ; une année « a des données » si l'une des trois en a. PUR. */
+const anneesDuGlobal = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, jour: string): number[] => [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee),
+  ...d.gestion.map((g) => g.annee), ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
+const anneeAvecDonnees = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, a: number): boolean =>
+  d.ventes.some((v) => v.annee === a) || d.gestion.some((g) => g.annee === a) || Object.keys(d.location ?? {}).some((k) => k.startsWith(`${a}-`));
+
 /** Une ligne de la synthèse du CA global (dans l'unité choisie : 🔴 LOT CG1) ; null : sans objet pour cette ligne (« — »). */
 export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'inter_cabinet' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;
   totalHt: number; totalN1Ht: number; previsionnelHt: number | null }
@@ -1851,9 +1908,12 @@ export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'i
  * fois, dans aucune société), puis le GLOBAL = la somme des lignes au-dessus. Les cellules de `celluleGlobal`, telles quelles ; 🔴 LOT CG1 — dans
  * l'unité `u` (`celluleGlobalEn`, `previsionnelEn` : en TTC, la règle de chaque page d'origine). PUR.
  */
-export function syntheseGlobal(e: EntreesGlobalUnite, annee: number, cec?: CompromisEnCoursGlobal, u: UniteAffichage = 'ht'): LigneSynthese[] {
-  const A = celluleGlobalEn(e, annee, null, u);
-  const A1 = celluleGlobalEn(e, annee - 1, null, u);
+export function syntheseGlobal(e: EntreesGlobalUnite, anneeOuAnnees: number | readonly number[], cec?: CompromisEnCoursGlobal, u: UniteAffichage = 'ht'): LigneSynthese[] {
+  // 🔴 LOT CG3 — une année, ou plusieurs (« Période », « Tout ») : la somme des années au centime ; N−1 : les mêmes années, un an plus tôt
+  const annees = typeof anneeOuAnnees === 'number' ? [anneeOuAnnees] : [...anneeOuAnnees];
+  const annee = Math.max(...annees);
+  const A = celluleGlobalAnnees(e, annees, u);
+  const A1 = celluleGlobalAnnees(e, annees.map((a) => a - 1), u);
   const P = previsionnelEn(e, annee, cec, u); // 🔴 LOT CY — les compromis en cours (la règle unique)
   const lignes: LigneSynthese[] = [
     { cle: 'criterimmo', libelle: 'CRITERIMMO', venteHt: A.venteCriterimmoHt, locationHt: A.locationHt, gestionHt: A.gestionHt, totalHt: A.criterimmoHt, totalN1Ht: A1.criterimmoHt, previsionnelHt: P.criterimmoHt },

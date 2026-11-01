@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import { coutsGlobaux, type CoutsGlobaux, type EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
+import { coutsGlobaux, coutsGlobauxAnnees, type CoutsGlobaux, type EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import { MOT_A_SAISIR, moisCommence, nbMoisSalairesASaisir } from '../../../../lib/transaction/periodeMois';
 import { salairesLocationDuMois } from '../../../../lib/transaction/locationCa';
@@ -20,10 +20,16 @@ import { sensDe } from '../location/TableauBordSuivi';
  * FUSION. Couleurs : un coût en rouge, gris à 0 ; l'écart inversé (une hausse des coûts en rouge, une baisse en vert). Téléphone : défilement
  * horizontal dans le tableau, la première colonne fixe.
  */
-export interface RangeeCouts { cle: string; libelle: string; annee: number; mois: number | null }
+export interface RangeeCouts { cle: string; libelle: string; annee: number; mois: number | null;
+  /** 🔴 LOT CG3 — plusieurs années (« Période », « Tout ») : la somme exacte de ces années ; N−1 : les mêmes années, un an plus tôt. */
+  annees?: readonly number[];
+  /** 🔴 LOT CG3 — « Tout » : aucune comparaison (« — »), comme l'onglet « L'année » de la vente. */
+  sansComparaison?: boolean }
 
-export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, onSalaires, idTitre, donnee }: {
+export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, onSalaires, idTitre, donnee, motN1 }: {
   e: EntreesCoutsGlobaux; rangees: readonly RangeeCouts[];
+  /** L'en-tête de la colonne N−1 ; absent : l'année avant celle du total (« 2024 »), sinon « Un an plus tôt ». */
+  motN1?: string;
   /** La ligne de total (l'année : « Année 2025 ») ; null : aucune (année par année). */
   total: RangeeCouts | null;
   titre: ReactNode; jour: string; salaires: boolean; onSalaires: (avec: boolean) => void; idTitre: string; donnee: string;
@@ -34,7 +40,8 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
   const avecLoc = e.location !== null;
   const montant = (m: MontantC, donnees: Record<string, string> = {}) => <span className={classeSens('verse', m.htC, m.ttcC)} {...donnees}>{eur(enU(m))}</span>;
   const petit = (t: ReactNode, attr: string) => <small className="loc-muet trx-ligne-bloc" {...{ [attr]: '' }}>{t}</small>;
-  const msDe = (r: RangeeCouts) => (r.mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee: r.annee, mois: i + 1 })) : [{ annee: r.annee, mois: r.mois }]);
+  const msDe = (r: RangeeCouts) => (r.mois !== null ? [{ annee: r.annee, mois: r.mois }]
+    : (r.annees ?? [r.annee]).flatMap((annee) => Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 }))));
   /** Les salaires d'une case : « à saisir » (mois commencés sans saisie), ou le montant (gris, « non comptés », en « Sans salaires »). */
   const caseSalaires = (compte: MontantC, saisi: MontantC, nbSaisis: number, aSaisir: number) => {
     const reste = aSaisir > 0 ? petit(`${aSaisir} mois ${MOT_A_SAISIR}`, 'data-salaires-a-saisir-nb') : null;
@@ -61,37 +68,44 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
       <td data-mot="MONGA" data-cout="gestion-monga">{montant(c.gestion.monga)}</td>
       <td data-mot="Salaires chargés (gestion)" data-cout="gestion-salaires">{caseSalaires(c.gestion.salaires, c.gestion.salairesSaisis, c.gestion.moisSalairesSaisis, aSaisirGestion(e.gestion, ms, jour))}</td>
       <td data-mot="Total coûts" className="trx-total" data-cout="total">{aVenir && c.total.htC === 0 ? '—' : montant(c.total)}</td>
-      <td data-mot={r.mois === null ? String(r.annee - 1) : `${NOMS_MOIS[r.mois - 1]} ${r.annee - 1}`} data-cout="n1">{montant(c1.total)}</td>
+      <td data-mot={r.mois === null ? String(r.annee - 1) : `${NOMS_MOIS[r.mois - 1]} ${r.annee - 1}`} data-cout="n1">{r.sansComparaison ? '—' : montant(c1.total)}</td>
       {/* l'écart inversé : une hausse des coûts en rouge, une baisse en vert */}
-      <td data-mot="Écart" data-cout="ecart" className={aVenir ? undefined : `tdb-signe tdb-signe--${sensDe(t1 - t)}`}>{aVenir ? '—' : <>{ecartEur(t - t1)} <span className="trx-ecart-pct">({signePct(variation(t, t1))})</span></>}</td>
+      <td data-mot="Écart" data-cout="ecart" className={aVenir || r.sansComparaison ? undefined : `tdb-signe tdb-signe--${sensDe(t1 - t)}`}>{aVenir || r.sansComparaison ? '—' : <>{ecartEur(t - t1)} <span className="trx-ecart-pct">({signePct(variation(t, t1))})</span></>}</td>
     </>;
   };
   const ligne = (r: RangeeCouts, total = false) => {
-    const c = coutsGlobaux(e, r.annee, r.mois, salaires);
-    const c1 = coutsGlobaux(e, r.annee - 1, r.mois, salaires);
+    const c = r.annees !== undefined ? coutsGlobauxAnnees(e, r.annees, salaires) : coutsGlobaux(e, r.annee, r.mois, salaires);
+    const c1 = r.annees !== undefined ? coutsGlobauxAnnees(e, r.annees.map((a) => a - 1), salaires) : coutsGlobaux(e, r.annee - 1, r.mois, salaires);
     return (
       <tr key={r.cle} className={total ? 'tdb-fort trx-ligne-total' : undefined} data-rangee-couts={r.cle} {...(total ? { 'data-total-couts': '' } : {})}>
         <th scope="row">{r.libelle}</th>{cellules(r, c, c1)}
       </tr>
     );
   };
-  const n1 = total !== null ? String(total.annee - 1) : 'Un an plus tôt';
+  const n1 = motN1 ?? (total !== null && total.annees === undefined ? String(total.annee - 1) : 'Un an plus tôt');
   return (
     <section className="tdb-section" aria-labelledby={idTitre} data-bloc={donnee}>
-      <style>{CSS_COUTS_GLOBAUX}</style>
-      <h3 id={idTitre}>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></h3>
-      <div className="trx-couts-choix"><SelecteurSalaires salaires={salaires} onChange={onSalaires} /></div>
-      <div className="trx-couts-defile" data-defile-couts>
-        <table className="tdb-table trx-table-couts" data-table-couts={donnee}>
+      <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX}</style>
+      {/* 🔴 LOT CG3 — le titre à gauche, « Avec | Sans salaires » à droite, sur la même ligne (téléphone : le sélecteur passe dessous) */}
+      <div className="trx-couts-tete" data-couts-tete>
+        <h3 id={idTitre}>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></h3>
+        <div className="trx-couts-choix"><SelecteurSalaires salaires={salaires} onChange={onSalaires} /></div>
+      </div>
+      <div className="trx-couts-defile trx-table-defile" data-defile-couts>
+        <table className="tdb-table trx-table-groupes trx-table-couts" data-table-couts={donnee}>
+          {/* 🔴 LOT CG3 — les blocs : Vente · Location · Gestion · Total et comparaison (un trait vertical au début de chacun, un fond un bloc sur deux) */}
+          <colgroup><col /></colgroup><colgroup span={3} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={4} className="trx-g" data-bloc-colonnes="location" />
+          <colgroup span={3} className="trx-g trx-g--fond" data-bloc-colonnes="gestion" /><colgroup span={3} className="trx-g" data-bloc-colonnes="total" />
           <thead>
             <tr><th scope="col" rowSpan={2}>{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th>
               <th scope="colgroup" colSpan={3} data-groupe-couts="vente">Vente <small className="loc-muet">(CRITERIMMO + MACJ)</small></th>
               <th scope="colgroup" colSpan={4} data-groupe-couts="location">Location</th>
               <th scope="colgroup" colSpan={3} data-groupe-couts="gestion">Gestion</th>
-              <th scope="col" rowSpan={2}>Total coûts</th><th scope="col" rowSpan={2}>{n1}</th><th scope="col" rowSpan={2}>Écart</th></tr>
+              <th scope="colgroup" colSpan={3} data-groupe-couts="total">Total et comparaison</th></tr>
             <tr><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th>
               <th scope="col">Apporteurs</th><th scope="col">Primes de gestion</th><th scope="col">Variable négociateur</th><th scope="col">Salaires chargés</th>
-              <th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salaires chargés</th></tr>
+              <th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salaires chargés</th>
+              <th scope="col">Total coûts</th><th scope="col">{n1}</th><th scope="col">Écart</th></tr>
           </thead>
           <tbody>
             {rangees.map((r) => ligne(r))}
@@ -104,29 +118,47 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
   );
 }
 
+/**
+ * 🔴 LOT CG3 — LES TABLEAUX EN BLOCS (le CA global et ses coûts) : un trait vertical marqué au début de chaque bloc, sur toute la hauteur (les bords des
+ * `colgroup`, tableau à bords fusionnés) ; l'en-tête de bloc souligné sur toute sa largeur, un petit espace entre deux blocs ; un fond très léger un
+ * bloc sur deux (l'encre à 4 %, lisible en clair comme en sombre). Téléphone : le vrai tableau, qui défile à l'horizontale, la première colonne fixe.
+ * AUCUN ACCENT GRAVE DANS CE LITTERAL.
+ */
+export const CSS_TABLES_GROUPES = `
+.trx-table-defile{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.trx-table-groupes{font-variant-numeric:tabular-nums}
+.trx-table-groupes colgroup.trx-g{border-left:2px solid var(--color-svv-line-strong)}
+.trx-table-groupes colgroup.trx-g--fond{background:color-mix(in srgb, var(--color-svv-ink) 4%, transparent)}
+.trx-table-groupes thead tr:first-child th[scope=colgroup]{text-align:center;border-bottom:0;padding-bottom:6px;background-image:linear-gradient(var(--color-svv-line-strong),var(--color-svv-line-strong));background-size:calc(100% - 12px) 2px;background-position:center bottom;background-repeat:no-repeat}
+.trx-table-groupes thead tr:first-child th:first-child,.trx-table-groupes tbody th:first-child{position:sticky;left:0;z-index:1;text-align:left;background:var(--color-svv-surface)}
+.trx-table-groupes tr.trx-ligne-total th:first-child,.trx-table-groupes tr.tdb-fort th:first-child{background:var(--color-svv-field)}
+@media (max-width:1024px){
+  .tdb-table.trx-table-groupes{display:table;width:auto}
+  .tdb-table.trx-table-groupes thead{display:table-header-group}
+  .tdb-table.trx-table-groupes tbody{display:table-row-group;width:auto}
+  .tdb-table.trx-table-groupes tr{display:table-row;width:auto;border:0;border-radius:0;padding:0;margin:0}
+  .tdb-table.trx-table-groupes th,.tdb-table.trx-table-groupes td{display:table-cell;width:auto;padding:6px 6px;border-bottom:1px solid var(--color-svv-line)}
+  .tdb-table.trx-table-groupes td::before{content:none}
+  .tdb-table.trx-table-ca-global{min-width:760px}
+}
+`;
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Le défilement horizontal du tableau ; la première colonne fixe ; les en-têtes de groupe. */
 export const CSS_COUTS_GLOBAUX = `
-.trx-couts-choix{display:flex;justify-content:flex-end;margin:0 0 8px}
+.trx-couts-tete{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 8px}
+.trx-couts-tete h3{margin:0}
+.trx-couts-choix{display:flex;justify-content:flex-end;margin-left:auto}
 .trx-couts-choix .trx-salaires{margin:0}
+@media (max-width:640px){ .trx-couts-tete{flex-direction:column;align-items:flex-start} .trx-couts-choix{margin-left:0} }
 .trx-couts-defile{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
 .trx-table-couts{width:100%;font-size:.76rem;font-variant-numeric:tabular-nums}
 .trx-table-couts th,.trx-table-couts td{white-space:nowrap;padding-left:4px;padding-right:4px}
 .trx-table-couts td,.trx-table-couts thead th{text-align:right}
 .trx-table-couts thead th{white-space:normal;font-size:.68rem;line-height:1.25;vertical-align:bottom}
-.trx-table-couts thead tr:first-child th[data-groupe-couts]{text-align:center;border-bottom:2px solid var(--color-svv-line-strong)}
 .trx-table-couts td[data-cout="ecart"]{white-space:normal}
+.trx-table-couts tbody th{white-space:normal;min-width:4.5rem;max-width:7rem}
 .trx-table-couts td[data-cout="ecart"] .trx-ecart-pct{display:block}
-.trx-table-couts thead tr:first-child th:first-child,.trx-table-couts tbody th:first-child{position:sticky;left:0;z-index:1;text-align:left;background:var(--color-svv-surface)}
-.trx-table-couts tr.trx-ligne-total th:first-child{background:var(--color-svv-field)}
 .trx-table-couts .trx-ligne-bloc{display:block;font-size:.78rem}
 .trx-couts-note{margin:8px 0 0;font-size:.85rem}
-/* Telephone : PAS de cartes (la regle commune des tableaux) : le vrai tableau, qui defile a l'horizontale, la colonne Mois fixe. */
-@media (max-width:1024px){
-  .tdb-table.trx-table-couts{display:table;width:auto;min-width:1100px}
-  .tdb-table.trx-table-couts thead{display:table-header-group}
-  .tdb-table.trx-table-couts tbody{display:table-row-group;width:auto}
-  .tdb-table.trx-table-couts tr{display:table-row;width:auto;border:0;border-radius:0;padding:0;margin:0}
-  .tdb-table.trx-table-couts th,.tdb-table.trx-table-couts td{display:table-cell;width:auto;padding:6px 4px;border-bottom:1px solid var(--color-svv-line)}
-  .tdb-table.trx-table-couts td::before{content:none}
-}
+@media (max-width:1024px){ .tdb-table.trx-table-couts{min-width:1100px} }
 `;

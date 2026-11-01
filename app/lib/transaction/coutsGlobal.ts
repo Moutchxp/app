@@ -54,12 +54,20 @@ export function coutsVente(ventes: readonly Vente[], o: { retros?: readonly Retr
 
 /** Les coûts globaux d'un mois (1 → 12) ou d'une année (mois null : les ventes « mois à confirmer » comprises, comme le CA de l'année). PUR. */
 export function coutsGlobaux(e: EntreesCoutsGlobaux, annee: number, mois: number | null, avecSalaires = true): CoutsGlobaux {
-  const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois }];
+  return mois === null ? coutsGlobauxAnnees(e, [annee], avecSalaires) : coutsDe(e, (vs) => ventesDuMois(vs, annee, mois), [{ annee, mois }], avecSalaires);
+}
+/**
+ * 🔴 LOT CG3 — les coûts globaux de plusieurs années (« Période », « Tout ») : les ventes de chaque année (mois à confirmer compris), tous leurs mois
+ * pour la Location et la Gestion — la somme exacte des années, au centime (chaque montant s'additionne vente par vente, mois par mois). PUR.
+ */
+export function coutsGlobauxAnnees(e: EntreesCoutsGlobaux, annees: readonly number[], avecSalaires = true): CoutsGlobaux {
+  return coutsDe(e, (vs) => annees.flatMap((a) => ventesDeLAnnee(vs, a)), annees.flatMap((annee) => Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 }))), avecSalaires);
+}
+function coutsDe(e: EntreesCoutsGlobaux, choisir: (vs: Vente[]) => Vente[], ms: readonly { annee: number; mois: number }[], avecSalaires: boolean): CoutsGlobaux {
   // une vente sans note « à attribuer » : `double` null (la règle `compteDansSociete`, comme `celluleGlobal`) ; une vente lue sans ses lignes de paye
   // (une route d'avant le lot CG2) : aucune ligne
   const ventes = e.ventes.map((v) => (v.double === undefined || v.lignes === undefined ? { ...v, double: v.double ?? null, lignes: v.lignes ?? [] } : v));
-  const vente = coutsVente(mois === null ? ventesDeLAnnee(ventes, annee) : ventesDuMois(ventes, annee, mois),
-    { retros: e.retrocessions, statutDuLibelle: e.statutDuLibelle });
+  const vente = coutsVente(choisir(ventes), { retros: e.retrocessions, statutDuLibelle: e.statutDuLibelle });
   const location = e.location === null ? null : coutsLocation(e.location.lignes, ms, e.location.retrocessions, e.location.salaires, avecSalaires);
   const g = totauxGestion(e.gestion, ms, avecSalaires);
   const moisSalairesSaisis = ms.filter((m) => e.gestion.some((x) => x.annee === m.annee && x.mois === m.mois && x.salarieHt != null)).length;
