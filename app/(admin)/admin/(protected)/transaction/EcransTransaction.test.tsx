@@ -3316,10 +3316,10 @@ describe('🔴 LOT DU — la ligne d’explication sous le titre des tuiles de C
   // les tuiles de CA et de CA net de chaque écran et de chaque mode (les tuiles de nombre et « Compromis en cours » n'en ont pas)
   const attendu: Record<string, Record<string, 'ca' | 'net' | null>> = {
     'mois-vendu': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'ca-net-cumul': 'net' },
-    'mois-compromis': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', compromis: null },
+    'mois-compromis': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', compromis: 'ca' }, // 🔴 LOT DV : « Compromis en cours » — FUSION seulement (filtré plus bas)
     'mois-tous': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'previsionnel-net-mois': 'net' },
     'annee-vendu': { 'ca-annee': 'ca', 'ventes-annee': null, 'ca-a-date': 'ca', 'ca-net-annee': 'net' },
-    'annee-compromis': { 'ca-annee': 'ca', 'ventes-annee': null, compromis: null, 'ca-net-compromis-annee': 'net' },
+    'annee-compromis': { 'ca-annee': 'ca', 'ventes-annee': null, compromis: 'ca', 'ca-net-compromis-annee': 'net' },
     'annee-tous': { 'ca-annee': 'ca', 'ventes-annee': null, 'ca-a-date': 'ca', 'previsionnel-net-annee': 'net' },
   };
   for (const societe of ['macj', 'tous'] as const) for (const vue of ['mois', 'annee'] as const) for (const mode of ['vendu', 'compromis', 'tous'] as const) {
@@ -3335,11 +3335,15 @@ describe('🔴 LOT DU — la ligne d’explication sous le titre des tuiles de C
           const x = t.querySelector('.tdb-tuile-mot > [data-tuile-explication]');
           return [t.getAttribute('data-tuile'), x === null ? null : [x.getAttribute('data-tuile-explication'), x.textContent]];
         }));
-        const voulu = Object.fromEntries(Object.entries(attendu[`${vue}-${mode}`]).map(([k, s]) => [k, s === null ? null : [s, mots[s]]]));
+        const voulu = Object.fromEntries(Object.entries(attendu[`${vue}-${mode}`]).map(([k, s]) => [k, s === null || (k === 'compromis' && societe !== 'tous') ? null : [s, mots[s]]]));
         expect(lu).toEqual(voulu);
         // l'ancienne mention n'est plus nulle part dans les tuiles
         expect(container.querySelector('.tdb-tuiles')!.textContent).not.toContain('après commissions, rétrocessions et reversé');
         if (vue === 'annee' && mode === 'compromis') expect(texte('[data-tuile="ca-net-compromis-annee"] .tdb-tuile-mot')).toBe(societe === 'tous' ? 'CA net consolidé des compromis — 2025' : 'CA net des compromis — 2025');
+        // 🔴 LOT DV — FUSION : « CA consolidé des compromis » et « Compromis en cours consolidés » ; une société : « CA brut des compromis », « Compromis en cours »
+        if (vue === 'annee' && mode === 'compromis') expect(texte('[data-tuile="ca-annee"] .tdb-tuile-mot')).toBe(societe === 'tous' ? 'CA consolidé des compromis — 2025' : 'CA brut des compromis — 2025');
+        if (mode === 'compromis') expect(texte('[data-tuile="compromis"] .tdb-tuile-mot')).toBe(societe === 'tous' ? 'Compromis en cours consolidés (HT)' : 'Compromis en cours (HT)');
+        if (societe === 'tous') expect([...container.querySelectorAll('.tdb-tuile-mot, h2, h3, th')].filter((x) => /\bbrut/i.test(x.textContent ?? '')).map((x) => x.textContent)).toEqual([]);
       } finally { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; donnees.societe = avant.societe; window.localStorage.removeItem('trx-mois-mode'); }
     });
   }

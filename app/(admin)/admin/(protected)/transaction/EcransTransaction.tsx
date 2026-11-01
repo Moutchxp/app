@@ -320,9 +320,11 @@ export const CLE_MODE_MOIS = 'trx-mois-mode';
  *  le filtre « Négociateur » actif, en petit. */
 function TuileCompromisEnCours({ cec, filtre }: { cec: TotalCompromisEnCours; filtre: readonly string[] }) {
   const U = useUnite();
+  // 🔴 LOT DV (Arno) — sur FUSION : « Compromis en cours consolidés (TTC) » et la ligne d'explication du CA consolidé ; une société : inchangée.
+  const fusion = useConsolide()('CA') !== 'CA';
   const [grand, petit] = U.u === 'ht' ? [cec.htC, cec.ttcC] : [cec.ttcC, cec.htC];
   return <>
-    <span className="tdb-tuile-mot">Compromis en cours ({U.MOT}){filtre.length > 0 && <small className="trx-tuile-filtre" data-tuile-filtre> — {filtre.length === 1 ? 'Négociateur' : 'Négociateurs'} : {filtre.join(', ')}</small>}</span>
+    <span className="tdb-tuile-mot">Compromis en cours{fusion ? ' consolidés' : ''} ({U.MOT}){filtre.length > 0 && <small className="trx-tuile-filtre" data-tuile-filtre> — {filtre.length === 1 ? 'Négociateur' : 'Négociateurs'} : {filtre.join(', ')}</small>}{fusion && <Explication sorte="ca" />}</span>
     <strong className="tdb-tuile-valeur" data-compromis-en-cours>{eur(grand / 100)}</strong>
     <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(petit / 100)}{ESPACE}{U.autre.mot})</small>
     <span className="tdb-tuile-n1">{cec.nb} compromis — le prévisionnel</span>
@@ -1382,7 +1384,8 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`} data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ca-annee">
         {/* 🔴 LOT DS (changement autorisé par Arno) — « Compromis » : « CA brut des compromis — 2026 » ; montant et ligne du bas inchangés. */}
-        <span className="tdb-tuile-mot">{mode === 'compromis' ? `CA brut des compromis — ${lib}` : `${M.ca} — ${lib}`}<Explication sorte="ca" /></span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
+        {/* 🔴 LOT DV (Arno) — sur FUSION : « CA consolidé des compromis — 2026 » (CRITERIMMO / MACJ : « CA brut des compromis », inchangé). */}
+        <span className="tdb-tuile-mot">{mode === 'compromis' ? `${cons('CA') === 'CA' ? 'CA brut' : 'CA consolidé'} des compromis — ${lib}` : `${M.ca} — ${lib}`}<Explication sorte="ca" /></span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rc.ca))}{ESPACE}{U.autre.mot})</small>
         <span className="tdb-tuile-n1" data-tuile-n1="ca">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ventes-annee">
