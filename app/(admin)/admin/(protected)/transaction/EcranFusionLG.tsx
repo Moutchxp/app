@@ -17,7 +17,7 @@ import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ESPACE, eur, Fournis
 import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { horsSelecteur, SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
-import { CSS_FENETRES_LOCATION, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
+import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
 
 /**
  * ══ 🔴 LOT LG1 (Arno, 01/11/2026) — « FUSION LOCATION & GESTION » : LE CUMUL DES DEUX ACTIVITÉS ═════════════════════════════════════════════════════
@@ -198,7 +198,8 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   const n1 = (c: MontantC, c1: MontantC): string => (toutes !== null ? toutes : sansN1 ? `${anneesN1.join(', ')} : aucune activité` : `${eur(U.en(c1))} ${enN1} (${signePct(variation(U.en(c), U.en(c1)))})`);
   const cumul = borne === null ? null : tf(lignes, gestion, Array.from({ length: borne.fin }, (_, i) => ({ annee, mois: i + 1 })), activite, salaires);
   const motCumul = borne === null ? '' : `cumul ${annee} ${borne.mot.startsWith('à fin') ? borne.mot : `(${borne.mot})`}`;
-  const [fenetre, setFenetre] = useState<'couts' | 'net' | null>(null);
+  const [fenetre, setFenetre] = useState<'ca' | 'couts' | 'net' | null>(null);
+  const tuileCa = useRef<HTMLButtonElement | null>(null);
   const tuileCouts = useRef<HTMLDivElement | null>(null);
   const tuileNet = useRef<HTMLButtonElement | null>(null);
   const deux = activite === 'deux';
@@ -211,42 +212,64 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   // 🔴 LOT LG2 — la tuile « Coûts » s'ouvre au clic, à Entrée ou Espace ; son sélecteur « Avec | Sans salaires » n'ouvre rien
   const ouvrirCouts = (e: { target: EventTarget }): void => { if (horsSelecteur(e)) setFenetre('couts'); };
   const choixSalaires = <SelecteurSalaires salaires={salaires} onChange={onSalaires} />;
+  // 🔴 LOT LG5 — ce qui a quitté la tuile « CA brut » (montré dans sa fenêtre) : la part de chaque activité ; le CA brut mois par mois (ou année par année)
+  const partsCa = deux ? <>dont location {eur(U.en(T.location.ca))} · gestion {eur(U.en(T.gestion.ca))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`;
+  const parAnnee = new Set(ms.map((m) => m.annee)).size > 1;
+  const detailCa = parAnnee ? [...new Set(ms.map((m) => m.annee))].map((a) => ({ cle: String(a), mot: String(a), ca: tf(lignes, gestion, ms.filter((m) => m.annee === a), activite, salaires).ca }))
+    : ms.map((m) => ({ cle: `${m.annee}-${m.mois}`, mot: moisLib(m), ca: tf(lignes, gestion, [m], activite, salaires).ca }));
   return <>
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${infobulle ?? lib}`} title={infobulle} data-ecran-fusion-tuiles>
-      <li><div className="tdb-tuile" data-tuile="fusion-ca">
+      {/* 🔴 LOT LG5 (Arno) — tuiles épurées : titre, explication, montant, montant entre parenthèses ; le reste passe dans la fenêtre de la tuile */}
+      <li><button type="button" className="tdb-tuile" data-tuile="fusion-ca" aria-haspopup="dialog" aria-expanded={fenetre === 'ca'} ref={tuileCa} onClick={() => setFenetre('ca')}>
         <span className="tdb-tuile-mot">CA brut — {lib}{explication(EXPLICATION.ca)}</span>
         <strong className="tdb-tuile-valeur" data-fusion-ca>{eur(U.en(T.ca))}</strong>{autre(T.ca)}
-        <span className="tdb-tuile-n1" data-fusion-ca-parts>{deux ? <>dont location {eur(U.en(T.location.ca))} · gestion {eur(U.en(T.gestion.ca))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`}
-          {cumul !== null && <span className="trx-ligne-bloc" data-fusion-cumul>{motCumul} : {eur(U.en(cumul.ca))}</span>}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="fusion-ca">{n1(T.ca, T1.ca)}</span></div></li>
+        <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-fusion="ca">Voir le détail</span></button></li>
       <li><div className="tdb-tuile" data-tuile="fusion-volume">
         <span className="tdb-tuile-mot">Volume — {lib}{explication(EXPLICATION.volume)}</span>
         <strong className="tdb-tuile-valeur" data-fusion-volume>{volume(T) || '—'}</strong>
-        <small className="trx-montant-autre trx-tuile-autre" data-fusion-volume-detail>{avecL && avecG ? 'baux signés (location) · lots gérés (gestion)' : avecL ? 'baux signés' : 'lots gérés'}</small>
+        <small className="trx-montant-autre trx-tuile-autre" aria-hidden="true">{' '}</small>
         <span className="tdb-tuile-n1" data-tuile-n1="fusion-volume">{toutes !== null ? toutes : sansN1 ? `${anneesN1.join(', ')} : aucune activité` : `${volume(T1) || '—'} ${enN1}`}</span></div></li>
       <li><div role="button" tabIndex={0} className="tdb-tuile" data-tuile="fusion-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts}
         onClick={ouvrirCouts} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrirCouts(e); } }}>
         <span className="tdb-tuile-mot">Coûts{hors(salaires)} — {lib}{explication(!salaires ? EXPLICATION.coutsSans : EXPLICATION.couts)}{choixSalaires}</span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.coutsTotal.htC, T.coutsTotal.ttcC)}`} data-fusion-couts>{eur(U.en(T.coutsTotal))}</strong>{autre(T.coutsTotal)}
-        <span className="tdb-tuile-n1" data-fusion-couts-familles>{familles.map((f, i) => {
-          // 🔴 LOT LO11 — chaque famille : ce qui est déduit ; « Sans salaires » : les salaires en gris, « non comptés »
-          const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
-          const gris = salaire && !salaires;
-          return <span key={f.cle} className={gris ? 'loc-muet' : undefined} data-famille-tuile={f.cle}>{i > 0 ? ' · ' : ''}{gris ? `${motFamille(f.cle)} (non comptés)` : motFamille(f.cle)} {eur(U.en(gris ? T.couts[f.cle] : T.deduits[f.cle]))}</span>;
-        })}
-          {/* 🔴 LOT LO11 — les primes et le variable des mois avec salaires : montrés, « inclus dans les salaires », non déduits */}
-          {T.inclus.mois > 0 && <span className="trx-ligne-bloc loc-muet" data-fusion-inclus>primes {eur(U.en(T.inclus.primes))} et variable {eur(U.en(T.inclus.variable))} inclus dans les salaires</span>}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="fusion-couts">{n1(T.coutsTotal, T1.coutsTotal)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-fusion="couts">Voir le détail</span></div></li>
       <li><button type="button" className="tdb-tuile" data-tuile="fusion-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
         <span className="tdb-tuile-mot">CA net{hors(salaires)} — {lib}{explication(salaires ? EXPLICATION.net : EXPLICATION.netSans)}</span>
         <strong className={`tdb-tuile-valeur ${T.net.htC < 0 ? 'trx-rouge' : 'trx-vert'}`} data-fusion-net>{eur(U.en(T.net))}</strong>{autre(T.net)}
-        <span className="tdb-tuile-n1" data-fusion-net-parts>{deux ? <>dont location {eur(U.en(T.location.net))} · gestion {eur(U.en(T.gestion.net))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="fusion-net">{n1(T.net, T1.net)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-fusion="net">Voir le détail</span></button></li>
     </ul>
-    {fenetre === 'couts' && <FenetreCoutsFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} liens={liens} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }} />}
-    {fenetre === 'net' && <FenetreNetFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }} />}
+    {fenetre === 'ca' && <FenetreCaFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} onFermer={() => { setFenetre(null); tuileCa.current?.focus(); }}
+      reperes={<>
+        {/* 🔴 LOT LG5 — ce qui a quitté la tuile « CA brut » : dont location · gestion, le cumul, la même période un an plus tôt et l'écart */}
+        <Reperes donnee="ca" lignes={[
+          { cle: 'parts', mot: 'Location · gestion', valeur: <span className="trx-fl-texte" data-fusion-ca-parts>{partsCa}</span> },
+          ...(cumul === null ? [] : [{ cle: 'cumul', mot: <span data-fusion-cumul-mot>{motCumul.charAt(0).toUpperCase() + motCumul.slice(1)}</span>,
+            valeur: <Montant htC={cumul.ca.htC} ttcC={cumul.ca.ttcC} versee={false} recu donnees={{ 'data-fusion-cumul': '' }} /> }]),
+          { cle: 'n1', mot: toutes !== null || sansN1 ? 'Un an plus tôt' : `Même période ${enN1}`, valeur: toutes !== null || sansN1
+            ? <span className="trx-fl-texte" data-repere-n1="ca">{n1(T.ca, T1.ca)}</span>
+            : <Montant htC={T1.ca.htC} ttcC={T1.ca.ttcC} versee={false} recu donnees={{ 'data-repere-n1': 'ca' }} apres={<small data-repere-ecart="ca"> {signePct(variation(U.en(T.ca), U.en(T1.ca)))}</small>} /> },
+        ]} />
+        {detailCa.length > 1 && <Reperes titre={parAnnee ? 'CA brut année par année' : 'CA brut mois par mois'} donnee="ca-mois" lignes={detailCa.map((x) => ({ cle: x.cle, mot: x.mot,
+          valeur: <Montant htC={x.ca.htC} ttcC={x.ca.ttcC} versee={false} recu donnees={{ 'data-repere-ca-mois': x.cle }} /> }))} />}
+      </>} />}
+    {fenetre === 'couts' && <FenetreCoutsFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} liens={liens} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }}
+      reperes={<Reperes donnee="couts" lignes={[
+        // 🔴 LOT LG5 — ce qui a quitté la tuile « Coûts » : les familles (ce qui est déduit ; salaires non comptés ; « inclus dans les salaires ») et N−1
+        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-fusion-couts-familles>{familles.map((f, i) => {
+          const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
+          const gris = salaire && !salaires;
+          return <span key={f.cle} className={gris ? 'loc-muet' : undefined} data-famille-tuile={f.cle}>{i > 0 ? ' · ' : ''}{gris ? `${motFamille(f.cle)} (non comptés)` : motFamille(f.cle)} {eur(U.en(gris ? T.couts[f.cle] : T.deduits[f.cle]))}</span>;
+        })}
+          {T.inclus.mois > 0 && <span className="trx-ligne-bloc loc-muet" data-fusion-inclus>primes {eur(U.en(T.inclus.primes))} et variable {eur(U.en(T.inclus.variable))} inclus dans les salaires</span>}</span> },
+        { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="fusion-couts">{n1(T.coutsTotal, T1.coutsTotal)}</span> },
+      ]} />} />}
+    {fenetre === 'net' && <FenetreNetFusion lignes={lignes} gestion={gestion} ms={ms} activite={activite} salaires={salaires} lib={lib} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }}
+      reperes={<Reperes donnee="net" lignes={[
+        // 🔴 LOT LG5 — ce qui a quitté la tuile « CA net » : dont location · gestion, et N−1
+        { cle: 'parts', mot: 'Location · gestion', valeur: <span className="trx-fl-texte" data-fusion-net-parts>{deux ? <>dont location {eur(U.en(T.location.net))} · gestion {eur(U.en(T.gestion.net))}</> : `${LIBELLE_ACTIVITE_FUSION[activite]} seule`}</span> },
+        { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="fusion-net">{n1(T.net, T1.net)}</span> },
+      ]} />} />}
 
     {graphe.sorte === 'mois'
       ? <GrapheFusionMois lignes={lignes} gestion={gestion} jour={jour} activite={activite} salaires={salaires} annee={annee} g={graphe} />
@@ -493,8 +516,10 @@ const moisLib = (m: MoisChoisi): string => `${NOMS_MOIS[m.mois - 1]} ${m.annee}`
  * Par mois — un bloc par mois. 🔴 LOT LO11 — chaque sous-total : ce qui est déduit ; une prime ou un variable d'un mois avec salaires : montré, « inclus
  * dans les salaires » ; « Sans salaires » : les salaires en gris, « non comptés ».
  */
-function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, liens, onFermer }: { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; ms: readonly MoisChoisi[];
-  activite: ActiviteFusion; salaires: boolean; lib: string; liens: { location: string }; onFermer: () => void }) {
+function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, liens, onFermer, reperes }: { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; ms: readonly MoisChoisi[];
+  activite: ActiviteFusion; salaires: boolean; lib: string; liens: { location: string }; onFermer: () => void;
+  /** 🔴 LOT LG5 — ce qui a quitté la tuile (familles, N−1), montré dans les deux modes. */
+  reperes?: ReactNode }) {
   const tf = useTF(); // 🔴 LOT LO11 — les totaux avec les données de la Location (rétrocessions, salaires saisis)
   const T = tf(lignes, gestion, ms, activite, salaires);
   const U = useEnUnite();
@@ -553,13 +578,16 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
             <div className="trx-fc-sous-total trx-somme"><span>Coûts du mois</span><Montant htC={t.coutsTotal.htC} ttcC={t.coutsTotal.ttcC} versee donnees={{ 'data-couts-mois': `${m.annee}-${m.mois}` }} /></div>
           </section>
         ))}
+        {reperes}
       </>} />
   );
 }
 
 /** La fenêtre « CA net » (tuile 4), dans l'ordre comptable : CA brut (location, gestion), − chaque famille de coûts, = CA net (dont location, dont gestion). */
-function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFermer }: { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; ms: readonly MoisChoisi[];
-  activite: ActiviteFusion; salaires: boolean; lib: string; onFermer: () => void }) {
+function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFermer, reperes }: { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; ms: readonly MoisChoisi[];
+  activite: ActiviteFusion; salaires: boolean; lib: string; onFermer: () => void;
+  /** 🔴 LOT LG5 — ce qui a quitté la tuile (dont location · gestion, N−1), montré dans les deux modes. */
+  reperes?: ReactNode }) {
   const tf = useTF(); // 🔴 LOT LO11 — les totaux avec les données de la Location (rétrocessions, salaires saisis)
   const T = tf(lignes, gestion, ms, activite, salaires);
   const U = useEnUnite();
@@ -585,7 +613,7 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
   return (
     <CoqueFenetre titre={`CA net${hors(salaires)} — ${lib}`} donnee="fenetre-net-fusion" totalHtC={T.net.htC} totalTtcC={T.net.ttcC} sens="recu"
       dossiers={`${blocs.length} mois`} cleMode="trx-fusion-net-mode" motTransaction="Par mois" onFermer={onFermer} pied={total}
-      corps={(mode) => (mode === 'categorie' ? <>
+      corps={(mode) => <>{mode === 'categorie' ? <>
         <CategorieRepliable cle="ca" donnees={{ 'data-net-fusion': 'ca', 'aria-label': 'CA brut' }} titre="CA brut"
           montant={<Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-net-fusion-ca': '' }} />}>
           <ul className="trx-fc-lignes">
@@ -613,7 +641,58 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
           </ul>
           <div className="trx-fc-sous-total trx-somme"><span>= CA net du mois</span><Montant htC={t.net.htC} ttcC={t.net.ttcC} versee={false} recu donnees={{ 'data-net-mois': `${m.annee}-${m.mois}` }} /></div>
         </section>
-      )))} />
+      ))}{reperes}</>} />
+  );
+}
+
+/**
+ * ══ 🔴 LOT LG5 (Arno) — la fenêtre « CA brut » (tuile 1), la même que celle de la page Location (lot LO13 : la coque, les catégories, les repères) :
+ * Par catégorie — CA brut location (propriétaire, locataire), CA brut gestion (un mois par ligne), = CA brut ; Par mois — un bloc par mois. Dessous,
+ * dans les deux modes, `reperes` : ce qui a quitté la tuile. Aucun calcul : les totaux de la fusion (`totauxFusion`).
+ */
+function FenetreCaFusion({ lignes, gestion, ms, activite, salaires, lib, onFermer, reperes }: { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; ms: readonly MoisChoisi[];
+  activite: ActiviteFusion; salaires: boolean; lib: string; onFermer: () => void; reperes?: ReactNode }) {
+  const tf = useTF();
+  const T = tf(lignes, gestion, ms, activite, salaires);
+  const avecL = activite !== 'gestion'; const avecG = activite !== 'location';
+  const parMois = ms.map((m) => ({ m, t: tf(lignes, gestion, [m], activite, salaires) }));
+  const ligneM = (cle: string, mot: ReactNode, m: MontantC, donnees?: Record<string, string>) => (
+    <li key={cle} className="trx-fc-ligne" data-ligne-ca-fusion={cle}><span className="trx-fc-quoi">{mot}</span><Montant htC={m.htC} ttcC={m.ttcC} versee={false} recu donnees={donnees} /></li>
+  );
+  const total = <><span>= CA brut</span><Montant htC={T.ca.htC} ttcC={T.ca.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  const blocs = parMois.filter((x) => x.t.ca.htC !== 0 || x.t.ca.ttcC !== 0).reverse();
+  const moisG = parMois.filter((x) => x.t.gestion.ca.htC !== 0 || x.t.gestion.ca.ttcC !== 0);
+  return (
+    <CoqueFenetre titre={`CA brut — ${lib}`} donnee="fenetre-ca-fusion" totalHtC={T.ca.htC} totalTtcC={T.ca.ttcC} sens="recu"
+      dossiers={`${blocs.length} mois`} cleMode="trx-fusion-ca-mode" motTransaction="Par mois" onFermer={onFermer} pied={total}
+      corps={(mode) => <>
+        <style>{CSS_FENETRES_LOCATION}</style>
+        {mode === 'categorie' ? <>
+          {avecL && <CategorieRepliable cle="location" donnees={{ 'data-categorie-ca-fusion': 'location', 'aria-label': 'CA brut location' }} titre="CA brut location"
+            montant={<Montant htC={T.location.ca.htC} ttcC={T.location.ca.ttcC} versee={false} recu donnees={{ 'data-sous-total-ca-fusion': 'location' }} />}>
+            <ul className="trx-fc-lignes">
+              {ligneM('proprietaire', 'Honoraires propriétaire', T.tLocation.proprietaire)}
+              {ligneM('locataire', 'Honoraires locataire', T.tLocation.locataire)}
+            </ul>
+          </CategorieRepliable>}
+          {avecG && <CategorieRepliable cle="gestion" donnees={{ 'data-categorie-ca-fusion': 'gestion', 'aria-label': 'CA brut gestion' }} titre="CA brut gestion"
+            montant={<Montant htC={T.gestion.ca.htC} ttcC={T.gestion.ca.ttcC} versee={false} recu donnees={{ 'data-sous-total-ca-fusion': 'gestion' }} />}>
+            {moisG.length === 0 ? <p className="trx-fc-aucune" data-aucune="gestion">Aucun mois saisi</p>
+              : <ul className="trx-fc-lignes">{moisG.map(({ m, t }) => ligneM(`gestion-${m.annee}-${m.mois}`, moisLib(m), t.gestion.ca))}</ul>}
+          </CategorieRepliable>}
+          <div className="trx-fc-total-ca trx-somme--finale" data-total-ca-fusion>{total}</div>
+        </> : blocs.length === 0 ? <p className="trx-fc-aucune">Aucune activité sur la période.</p> : blocs.map(({ m, t }) => (
+          <section key={`${m.annee}-${m.mois}`} className="trx-fc-section" data-mois-ca-fusion={`${m.annee}-${m.mois}`} aria-label={moisLib(m)}>
+            <div className="trx-fc-tete trx-fc-tete--affaire"><span className="trx-fc-titre-affaire"><h3>{moisLib(m)}</h3></span></div>
+            <ul className="trx-fc-lignes">
+              {avecL && ligneM('l', 'CA brut location', t.location.ca)}
+              {avecG && ligneM('g', 'CA brut gestion', t.gestion.ca)}
+            </ul>
+            <div className="trx-fc-sous-total trx-somme"><span>= CA brut du mois</span><Montant htC={t.ca.htC} ttcC={t.ca.ttcC} versee={false} recu donnees={{ 'data-ca-mois': `${m.annee}-${m.mois}` }} /></div>
+          </section>
+        ))}
+        {reperes}
+      </>} />
   );
 }
 

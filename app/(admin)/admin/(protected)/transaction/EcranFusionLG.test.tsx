@@ -81,16 +81,21 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       // 🔴 LOT LG4 — « Avec salaires » : les primes sont dans les salaires de la gestion — la location AVANT primes (son CA net d'apporteurs)
       expect([ca, couts, net]).toEqual([loc.ca + ges.ca, loc.ca - loc.netApporteurs + ges.couts, loc.netApporteurs + ges.net]);
       expect(loc.netApporteurs - loc.net).toBeGreaterThan(0); // les primes du mois
-      // 🔴 LOT LO11 — le mois a des salaires (gestion) : primes et variable montrés, « inclus dans les salaires », non déduits
+      expect(net).toBe(ca - couts);
+      expect(texte('[data-fusion-volume]')).toBe('1 bail · 300 lots');
+      expect(document.querySelector('[data-fusion-couts]')!.className).toContain('trx-rouge');
+      // 🔴 LOT LG5 — la fenêtre « CA brut » : dont location · gestion (l'ancienne ligne de la tuile), location + gestion = CA brut
+      await cliquer('[data-tuile="fusion-ca"]');
+      expect(texte('[data-fusion-ca-parts]')).toContain('dont location');
+      expect([grand('[data-sous-total-ca-fusion="location"]') + grand('[data-sous-total-ca-fusion="gestion"]'), grand('[data-fenetre-ca-fusion] [data-fenetre-total]')]).toEqual([ca, ca]);
+      expect([grand('[data-sous-total-ca-fusion="location"]'), grand('[data-sous-total-ca-fusion="gestion"]')]).toEqual([loc.ca, ges.ca]);
+      await cliquer('[data-fermer-fenetre]');
+      // la fenêtre « Coûts par famille » : total = tuile 3 ; les familles
+      await cliquer('[data-tuile="fusion-couts"]'); await deplierCategories();
+      // 🔴 LOT LO11 — le mois a des salaires (gestion) : primes et variable montrés, « inclus dans les salaires », non déduits (🔴 LOT LG5 : dans la fenêtre)
       expect(centimes(texte('[data-famille-tuile="primes"]'))).toBe(0);
       expect(texte('[data-fusion-inclus]')).toContain('inclus dans les salaires');
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion');
-      expect(net).toBe(ca - couts);
-      expect(texte('[data-fusion-ca-parts]')).toContain('dont location');
-      expect(texte('[data-fusion-volume]')).toBe('1 bail · 300 lots');
-      expect(document.querySelector('[data-fusion-couts]')!.className).toContain('trx-rouge');
-      // la fenêtre « Coûts par famille » : total = tuile 3 ; les familles
-      await cliquer('[data-tuile="fusion-couts"]'); await deplierCategories();
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
       expect(['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="salairesLocation"]',
         '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]'].reduce((s, x) => s + grand(x), 0)).toBe(couts);
@@ -112,7 +117,9 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     const deux = lire();
     await cliquer('[data-activite="location"]'); const l = lire();
     expect(new URLSearchParams(window.location.search).get('activite')).toBe('location');
+    await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
     const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]'));
+    await cliquer('[data-fermer-fenetre]');
     await cliquer('[data-activite="gestion"]'); const gg = lire();
     // 🔴 LOT LO11 — la location seule (la page Location) déduit primes et variable ; les deux, les mois avec salaires de gestion, ne les déduisent pas
     expect([l[0] + gg[0], l[1] + gg[1] - primes - variable, l[2] + gg[2] + primes + variable]).toEqual(deux);
@@ -133,7 +140,11 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
   });
   it('« L’année » › « Tout » : sans N−1 ; « Toute l’histoire » ; Tout = la somme des années', async () => {
     await ouvrir('/?vue=annee&annee=2026&vue-annee=tout');
-    expect(texte('[data-tuile-n1="fusion-ca"]')).toBe('Toutes les années (2025 → 2026)');
+    expect(texte('[data-tuile-n1="fusion-volume"]')).toBe('Toutes les années (2025 → 2026)');
+    await cliquer('[data-tuile="fusion-ca"]'); // 🔴 LOT LG5 — N−1 du CA brut : dans la fenêtre
+    expect([texte('[data-repere-n1="ca"]'), document.querySelectorAll('[data-repere-ca-mois]').length]).toEqual(['Toutes les années (2025 → 2026)', 2]);
+    expect([...document.querySelectorAll('[data-repere-ca-mois] strong')].reduce((x, n) => x + centimes(n.textContent!), 0)).toBe(centimes(texte('[data-fusion-ca]')));
+    await cliquer('[data-fermer-fenetre]');
     const lignesT = [...document.querySelectorAll('[data-bloc="tableau-fusion"] [data-rangee-fusion]')];
     expect(lignesT.map((r) => r.getAttribute('data-rangee-fusion'))).toEqual(['2025', '2026']);
     expect(lignesT.reduce((s, r) => s + centimes(r.querySelector('[data-mot="Total CA"]')!.textContent!), 0)).toBe(centimes(texte('[data-fusion-ca]')));
@@ -151,12 +162,14 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(document.querySelector('[data-fenetre-couts-fusion]')).toBeNull(); // le choix n'ouvre pas la fenêtre
       const salaires = 268891; // septembre : 2 688,91 € (sans TVA : le même en HT et en TTC)
       // 🔴 LOT LO11 — primes et variable : inclus dans les salaires en « Avec » (mois avec salaires), déduits en « Sans »
+      await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
       const primes = (u === 'ht' ? 15000 : 18000) + centimes(texte('[data-famille-tuile="variable"]'));
+      expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion (non comptés)'); // 🔴 LOT LO11 — deux familles de salaires (location, gestion)
+      expect(document.querySelector('[data-famille-tuile="salaries"]')!.className).toContain('loc-muet');
+      await cliquer('[data-fermer-fenetre]');
       expect(lire()).toEqual([ca, couts - salaires + primes, net + salaires - primes]);
       expect(texte('[data-tuile="fusion-couts"] .tdb-tuile-mot')).toContain('Coûts hors salaires — septembre 2026');
       expect(texte('[data-tuile="fusion-net"] .tdb-tuile-mot')).toContain('CA net hors salaires — septembre 2026');
-      expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion (non comptés)'); // 🔴 LOT LO11 — deux familles de salaires (location, gestion)
-      expect(document.querySelector('[data-famille-tuile="salaries"]')!.className).toContain('loc-muet');
       expect([new URLSearchParams(window.location.search).get('salaires'), window.localStorage.getItem('trx-fusion-salaires')]).toEqual(['sans', 'sans']);
       // le Résultat, le tableau, le graphique
       expect(centimes(texte('[data-resultat-fusion="net"]'))).toBe(net + salaires - primes);
@@ -234,5 +247,59 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
   it('la page : l’écran, sous le droit « Transaction » (plus « En construction »)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/transaction/location-gestion/fusion/page.tsx', 'utf8');
     expect([src.includes('<EcranFusionLocationGestion />'), src.includes('accesTransaction()'), src.includes('EnConstruction')]).toEqual([true, true, false]);
+  });
+});
+
+/**
+ * 🔴 LOT LG5 — tuiles épurées (Le mois / L'année) ; la fenêtre « CA brut » (nouvelle) ; les fenêtres « Coûts » et « CA net » portent ce qui a quitté
+ * leurs tuiles (familles, « inclus dans les salaires », dont location · gestion, N−1), en HT et en TTC, avec et sans salaires.
+ */
+describe('🔴 LOT LG5 — FUSION : tuiles épurées, fenêtre « CA brut »', () => {
+  const tuiles = () => [...document.querySelectorAll('[data-ecran-fusion-tuiles] .tdb-tuile')].map((t) => [t.getAttribute('data-tuile'),
+    [...t.children].filter((x) => !x.matches('style')).map((x) => x.className.split(' ')[0])]);
+  afterEach(() => { window.localStorage.removeItem('trx-fusion-ca-mode'); window.localStorage.removeItem('trx-fusion-salaires'); window.localStorage.setItem('trx-affichage-montants', 'ht'); });
+  for (const q of ['/?vue=mois&annee=2026&mois=9&vue-mois=mois', '/?vue=annee&annee=2026', '/?vue=mois&annee=2026&mois=9&vue-mois=periode&periode=2026-08,2026-09']) {
+    it(`titre, montant, parenthèse (Volume : N−1) et « Voir le détail » seulement — ${q}`, async () => {
+      await ouvrir(q);
+      const garde = ['tdb-tuile-mot', 'tdb-tuile-valeur', 'trx-montant-autre', 'tdb-tuile-n1'];
+      expect(tuiles()).toEqual([['fusion-ca', garde], ['fusion-volume', garde], ['fusion-couts', garde], ['fusion-net', garde]]);
+      for (const x of ['[data-fusion-ca-parts]', '[data-fusion-cumul]', '[data-fusion-volume-detail]', '[data-fusion-couts-familles]', '[data-fusion-inclus]', '[data-fusion-net-parts]',
+        '[data-tuile-n1="fusion-ca"]', '[data-tuile-n1="fusion-couts"]', '[data-tuile-n1="fusion-net"]']) expect([x, document.querySelector(x)]).toEqual([x, null]);
+      expect([...document.querySelectorAll('[data-voir-detail-fusion]')].map((x) => x.getAttribute('data-voir-detail-fusion'))).toEqual(['ca', 'couts', 'net']);
+    });
+  }
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`septembre 2026 (${u.toUpperCase()}) : la fenêtre « CA brut » — location + gestion = CA brut ; cumul, même période un an plus tôt ; Par mois`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois');
+      const ca = centimes(texte('[data-fusion-ca]'));
+      // la référence : le cumul = la période janvier → septembre ; un an plus tôt = septembre 2025 (les tuiles de ces pages, mêmes totaux)
+      await cliquer('[data-tuile="fusion-ca"]');
+      expect(texte('[data-fenetre-ca-fusion] h2')).toBe('CA brut — septembre 2026');
+      await cliquer('[data-mode-fenetre="categorie"]');
+      expect(grand('[data-sous-total-ca-fusion="location"]') + grand('[data-sous-total-ca-fusion="gestion"]')).toBe(ca);
+      expect(texte('[data-fusion-ca-parts]')).toMatch(/^dont location .* · gestion /);
+      expect(texte('[data-fusion-cumul-mot]')).toBe('Cumul 2026 à fin septembre');
+      const cumul = grand('[data-fusion-cumul]'); const n1 = grand('[data-repere-n1="ca"]');
+      await cliquer('[data-mode-fenetre="transaction"]');
+      expect(grand('[data-ca-mois="2026-9"]')).toBe(ca);
+      await cliquer('[data-fermer-fenetre]');
+      await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=periode&periode=2026-01,2026-02,2026-03,2026-04,2026-05,2026-06,2026-07,2026-08,2026-09');
+      expect(centimes(texte('[data-fusion-ca]'))).toBe(cumul);
+      await ouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=mois');
+      expect(centimes(texte('[data-fusion-ca]'))).toBe(n1);
+    });
+  }
+  it('Sans salaires : « Coûts » porte les familles (salaires non comptés) et N−1 ; « CA net » dont location · gestion et N−1', async () => {
+    await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois&salaires=sans');
+    await cliquer('[data-tuile="fusion-couts"]');
+    expect([texte('[data-fenetre-couts-fusion] [data-famille-tuile="salaries"]'), texte('[data-fenetre-couts-fusion] [data-tuile-n1="fusion-couts"]')])
+      .toEqual([expect.stringContaining('(non comptés)'), expect.stringContaining('en 2025')]);
+    await cliquer('[data-fermer-fenetre]');
+    const net = centimes(texte('[data-fusion-net]'));
+    await cliquer('[data-tuile="fusion-net"]');
+    const parts = texte('[data-fenetre-net-fusion] [data-fusion-net-parts]').match(/dont location (.*) · gestion (.*)/)!;
+    expect(centimes(parts[1]) + centimes(parts[2])).toBe(net);
+    expect(texte('[data-fenetre-net-fusion] [data-tuile-n1="fusion-net"]')).toContain('en 2025');
   });
 });
