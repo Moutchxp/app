@@ -206,6 +206,8 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
       <li><div className="tdb-tuile" data-tuile="location-net">
         <span className="tdb-tuile-mot">CA net — {lib}{explication(EXPLICATION.net)}</span>
         <strong className="tdb-tuile-valeur trx-vert" data-location-net>{eur(U.en(T.net))}</strong>{autre(T.net)}
+        {/* 🔴 LOT LO5 — le « CA net d'apporteurs » du Suivi annuel de la Location (avant primes), le même chiffre (`sommesLocation`) */}
+        <span className="tdb-tuile-n1" data-location-net-apporteurs>CA net d’apporteurs : {eur(U.en(T.netApporteurs))}</span>
         <span className="tdb-tuile-n1" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span></div></li>
     </ul>
 
@@ -246,11 +248,13 @@ const valeurDe = (t: TotauxLocationCa, mesure: Mesure, en: (m: MontantC) => numb
 /** L'encadré d'un point : la mesure, le nombre de baux, et (CA) la part propriétaire / locataire ; N−1 sauf « Tout ». */
 function infoLocation(titre: string, mesure: Mesure, U: ReturnType<typeof useEnUnite>, libelle: string, t: TotauxLocationCa, libelleN1: string | null, t1: TotauxLocationCa | null, sansN1: string): InfoBarre {
   const motCa = mesure === 'net' ? `CA net ${U.MOT}` : `CA ${U.MOT}`;
+  // 🔴 LOT LO5 — l'autre unité de l'encart, exacte (ses centimes), plus le montant × 1,2 ou ÷ 1,2
+  const autreDe = (x: TotauxLocationCa): number => { const m = mesure === 'net' ? x.net : x.ca; return (U.u === 'ht' ? m.ttcC : m.htC) / 100; };
   const parts = (x: TotauxLocationCa) => (mesure === 'ca' ? { parts: [{ mot: 'Propriétaire', ca: U.en(x.proprietaire) }, { mot: 'Locataire', ca: U.en(x.locataire) }] } : {});
   if (mesure === 'nombre') return { titre, compte: 'Baux signés', sansN1, courant: { libelle, ca: t.nb, nb: null }, precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: t1.nb, nb: null } };
   return { titre, motCa, motNb: 'Baux', sansN1, autre: { mot: MOT_UNITE[U.u === 'ht' ? 'ttc' : 'ht'], facteur: U.u === 'ht' ? 1.2 : 1 / 1.2 },
-    courant: { libelle, ca: valeurDe(t, mesure, U.en), nb: t.nb, ...parts(t) },
-    precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: valeurDe(t1, mesure, U.en), nb: t1.nb, ...parts(t1) } };
+    courant: { libelle, ca: valeurDe(t, mesure, U.en), nb: t.nb, caAutre: autreDe(t), ...parts(t) },
+    precedent: libelleN1 === null || t1 === null ? null : { libelle: libelleN1, ca: valeurDe(t1, mesure, U.en), nb: t1.nb, caAutre: autreDe(t1), ...parts(t1) } };
 }
 function useMesure(): [Mesure, (m: Mesure) => void] {
   const [mesure, setMesure] = useState<Mesure>(() => { const x = parametre('mesure'); return x === 'net' || x === 'nombre' ? x : 'ca'; });

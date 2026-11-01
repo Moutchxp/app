@@ -62,6 +62,8 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
       const [ca, couts, net] = ['[data-location-ca]', '[data-location-couts]', '[data-location-net]'].map((s) => centimes(texte(s)));
       expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(390 * f * 100), Math.round(610 * f * 100)]);
       expect(net).toBe(ca - couts);
+      // 🔴 LOT LO5 — sous le CA net : le « CA net d'apporteurs » du Suivi annuel (CA − apporteurs : 1 000 − 90), le même chiffre
+      expect(texte('[data-location-net-apporteurs]')).toBe(`CA net d’apporteurs : ${u === 'ht' ? '910 €' : '1 092 €'}`);
       expect(texte('[data-location-nb]')).toBe('3');
       expect(texte('[data-location-mandats]')).toBe('dont 1 mandat de gestion seul');
       expect(container.querySelector('[data-location-couts]')!.className).toContain('trx-rouge');

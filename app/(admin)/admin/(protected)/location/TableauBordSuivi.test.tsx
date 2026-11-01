@@ -160,7 +160,8 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(mot('ca-annee')).toBe('CA HT (2026 (1er janv. → à date))');
       expect(val('ca-annee')).toBe('94 612,61 €');
       expect(n1('ca-annee')).toBe('2025 à la même date : 3 000,00 € · +91 612,61 € (+3 053,8 %)');
-      expect(val('ca-net-annee')).toBe('90 538,16 €');
+      // 🔴 LOT LO5 — la règle des deux pages : chaque commission d'apporteur au centime, ligne par ligne (90 538,16 € avant : le total arrondi une fois)
+      expect(val('ca-net-annee')).toBe('90 538,17 €');
     });
 
     it('2025 → 2025 : l’année complète ; la période précédente (2024) commence avant la première donnée : « — »', async () => {
@@ -2650,16 +2651,16 @@ describe('🔴 LOT LO2 — le Suivi annuel en « Montants HT | TTC » (le sélec
     expect(ht.replace(/ € HT \((.*) € TTC\)/, '|$1')).toBe(ttc.replace(/^(.*) € TTC \((.*) € HT\)$/, '$2|$1'));
     expect(container.querySelectorAll('[data-montant-unite="ttc"]')).toHaveLength(0);
   });
-  it('la règle TTC de la page Location (`locationCa`) : CA = Σ du TTC de chaque ligne ; CA net d’apporteurs = CA TTC − commissions × 1,20 ; au centime', async () => {
+  it('la règle TTC de la page Location (`locationCa`) : CA = Σ du TTC de chaque ligne ; CA net d’apporteurs = Σ (CA − commission) de chaque ligne (LOT LO5) ; au centime', async () => {
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     window.history.replaceState(null, '', '/?debut=2026&fin=2026');
     await monter('annee');
     const { caTtcC, ttcCentimes } = await import('../../../../lib/transaction/locationCa');
-    const { partLocationDe } = await import('../../../../lib/location/suivi/tableauBord');
+    const { partLocationDe, partGestionSignatureDe } = await import('../../../../lib/location/suivi/tableauBord');
     const de2026 = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-'));
     const attenduCa = de2026.reduce((t, a) => t + caTtcC(a), 0) / 100;
-    // le CA net = le CA (somme TTC des lignes) − les commissions d'apporteurs (leur total × 1,20)
-    const attenduNet = (de2026.reduce((t, a) => t + caTtcC(a), 0) - ttcCentimes(de2026.reduce((t, a) => t + partLocationDe(a, donnees.apporteurs), 0))) / 100;
+    // 🔴 LOT LO5 — le CA net d'apporteurs = Σ (CA TTC − commission d'apporteur TTC) de chaque ligne, chacune au centime
+    const attenduNet = de2026.reduce((t, a) => t + caTtcC(a) - ttcCentimes(partLocationDe(a, donnees.apporteurs) + partGestionSignatureDe(a, donnees.apporteurs)), 0) / 100;
     const eurFr = (x: number) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[\u00a0\u202f]/g, ' ');
     expect(brut('[data-tuile-ca-valeur]')).toMatch(new RegExp(`^${eurFr(attenduCa)} € TTC`));
     expect(brut('[data-tuile-ca-net-valeur]')).toMatch(new RegExp(`^${eurFr(attenduNet)} € TTC`));
@@ -2718,5 +2719,25 @@ describe('🔴 LOT LO3 — l’année en cours dans « Début » / « Fin » : �
       expect([u, tout]).toEqual([u, jusqua2025 + a2026]);
     }
     expect(await ca('/?debut=2026&fin=2026', 'ht')).toBe(9461261); // les 94 612,61 € HT du suivi 2026
+  });
+});
+
+describe('🔴 LOT LO5 — les mêmes chiffres que la page Location du Suivi Chiffre d’affaires (une seule fonction, `sommesLocation`)', () => {
+  it('2026 : « CA net d’apporteurs » et « CA net après primes » = ceux de la page Location (mêmes lignes), en HT et en TTC', async () => {
+    const { ligneLocationCa, sommesActivites, totauxLocation } = await import('../../../../lib/transaction/locationCa');
+    const de2026 = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-'));
+    const t = totauxLocation(de2026.map((a) => ligneLocationCa(a, { regles: donnees.regles, apporteurs: donnees.apporteurs })));
+    expect(sommesActivites(de2026, { regles: donnees.regles, apporteurs: donnees.apporteurs })).toEqual({ ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, netApporteurs: t.netApporteurs, net: t.net });
+    const eur = (c: number) => `${(c / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`.replace(/[  ]/g, ' ');
+    for (const u of ['ht', 'ttc'] as const) {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      act(() => { root.unmount(); }); root = createRoot(container);
+      window.history.replaceState(null, '', '/?debut=2026&fin=2026');
+      await monter('annee');
+      const lire = (sel: string) => (container.querySelector(sel)?.textContent ?? '').replace(/[  ]/g, ' ');
+      const k = u === 'ht' ? 'htC' : 'ttcC';
+      expect([u, lire('[data-tuile-ca-net-valeur]').startsWith(eur(t.netApporteurs[k]))]).toEqual([u, true]);
+      expect([u, lire('[data-tuile-ca-net-primes]').startsWith(`CA net après primes : ${eur(t.net[k])}`)]).toEqual([u, true]);
+    }
   });
 });

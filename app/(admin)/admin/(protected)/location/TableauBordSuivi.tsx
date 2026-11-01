@@ -20,7 +20,7 @@ import { comparaisonsAnnees, historiquePeriode, tuilesPeriode } from '../../../.
 import { ListeChoix } from './ListeChoix';
 import { BoutonAffichage, CSS_BOUTON_AFFICHAGE, useAffichageRetenu } from '../transaction/commun';
 import { CSS_MONTANTS_SUIVI, formateurSuivi, FournisseurUniteSuivi, useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
-import { caTtcC, ttcCentimes, ttcCentimesDesLignes } from '../../../../lib/transaction/locationCa';
+import { caTtcC, sommesActivites, ttcCentimes, ttcCentimesDesLignes } from '../../../../lib/transaction/locationCa';
 
 /** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
 export function anneeMoisDeLAdresse(jour: string, recherche: string = typeof window === 'undefined' ? '' : window.location.search): { annee: number; mois: number } {
@@ -320,8 +320,11 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
   // un montant « net » : la différence des montants affichés.
   const U = formateurSuivi({ u: unite, parId });
   const caM = (ht: number, ids: readonly (number | string)[]): MontantSuivi => ({ ht, ttcC: U.lignes(ids).reduce((t, a) => t + caTtcC(a), 0) });
-  // le CA net d'apporteurs = le CA (somme TTC des lignes) − les commissions (leur total × 1,20) : la différence des montants affichés, comme le Résumé
-  const netM = (ht: number, ids: readonly (number | string)[]): MontantSuivi => { const ca = caM(0, ids); return { ht, ttcC: U.ttcC(ca) - ttcCentimes(U.lignes(ids).reduce((t, a) => t + caLigne(a), 0) - ht) }; };
+  // 🔴 LOT LO5 (Arno) — « CA net d'apporteurs » et « CA net » (après primes) : LA fonction de la page Location du Suivi Chiffre d'affaires
+  // (`sommesActivites` : chaque ligne au centime, HT puis TTC, puis additionnée ; commissions d'apporteurs dues à la signature) — mêmes chiffres.
+  const sommes = (ids: readonly (number | string)[]) => sommesActivites(U.lignes(ids), ctx);
+  const enMontant = (m: { htC: number; ttcC: number }): MontantSuivi => ({ ht: m.htC / 100, ttcC: m.ttcC });
+  const netM = (_ht: number, ids: readonly (number | string)[]): MontantSuivi => enMontant(sommes(ids).netApporteurs);
   /** Un écart entre deux montants, dans l'unité : « +1 234,56 € » (sans unité : comme avant). */
   const ecartM = (c: MontantSuivi, p: MontantSuivi): ReactNode => {
     const ht = c.ht - p.ht; const t = U.ttcC(c) - U.ttcC(p);
@@ -413,6 +416,8 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
           <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net d’apporteurs — ${P.libelle}`, T.courant.ids)} data-tuile="ca-net-annee">
             <span className="tdb-tuile-mot">CA net d’apporteurs <small>({P.libelle})</small></span>
             <strong className="tdb-tuile-valeur" data-tuile-ca-net-valeur>{U.m(netM(T.courant.caNet, T.courant.ids))}</strong>
+            {/* 🔴 LOT LO5 — le « CA net » de la page Location du Suivi Chiffre d'affaires (après primes), le même chiffre */}
+            <span className="tdb-tuile-n1" data-tuile-ca-net-primes>CA net après primes : {U.m(enMontant(sommes(T.courant.ids).net))}</span>
             <span className="tdb-tuile-n1">{T.precedent === null ? 'Période précédente : —' : <>{T.libellePrecedent} : {U.m(netM(T.precedent.caNet, T.precedent.ids))} · <span className="tdb-ecart-insecable">{ecartM(netM(T.courant.caNet, T.courant.ids), netM(T.precedent.caNet, T.precedent.ids))} ({signe(T.variationCaNet)})</span></>}</span></button></li>
           {/* « Biens en gestion » : le stock à la FIN de la période, et le solde (entrées − sorties) sur la période. */}
           <li><button type="button" className="tdb-tuile" data-tuile="gestion"

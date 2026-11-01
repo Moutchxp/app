@@ -56,14 +56,35 @@ export const depuisHt = (ht: number): MontantC => ({ htC: Math.round((ht + Numbe
 /** La catégorie « Compter » d'une ligne : le mandat de gestion seul d'abord (son type), puis la case « avec gestion ». PUR. */
 export const categorieDe = (a: Pick<ActiviteLue, 'type' | 'avecGestion'>): LigneLocationCa['categorie'] => (a.type === 'gestion_seule' ? 'gestion_seule' : a.avecGestion ? 'avec' : 'sans');
 
+/**
+ * ══ 🔴 LOT LO5 (Arno) — LES MONTANTS D'UNE LIGNE, UNE SEULE FOIS, POUR LES DEUX PAGES (Suivi annuel de la Location, Suivi CA › Location) ═══════════
+ * Chaque montant de la ligne au centime, en HT puis en TTC (`depuisHt`) : le CA (`caLigne`), la prime de nouvelle gestion (`primeDe`), la
+ * commission d'apporteur DUE À LA SIGNATURE (part location + part gestion « One shot » : `partLocationDe` + `partGestionSignatureDe`).
+ * La part gestion « Récurrent » des apporteurs (due mois après mois, sur des baux d'autres périodes) et la rémunération des collègues n'y sont
+ * pas : elles ne tiennent à aucun bail de la période (le Résumé de la période du Suivi annuel les montre à part, inchangé). PUR.
+ */
+export interface MontantsLigne { caC: MontantC; primeC: MontantC; apporteurC: MontantC }
+export function montantsLigne(a: ActiviteCalcul, ctx: { regles: readonly RegleCommission[]; apporteurs: readonly Apporteur[] }): MontantsLigne {
+  return { caC: depuisHt(caLigne(a)), primeC: depuisHt(primeDe(a, ctx.regles)), apporteurC: depuisHt(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs)) };
+}
+/** Les sommes de lignes : CA, commissions d'apporteurs, primes ; « CA net d'apporteurs » = CA − commissions ; « CA net » = CA net d'apporteurs − primes. */
+export interface SommesLocation { ca: MontantC; apporteurs: MontantC; primes: MontantC; netApporteurs: MontantC; net: MontantC }
+/** 🔴 LOT LO5 — LA fonction des deux pages : la somme des centimes de chaque ligne (une seule règle d'arrondi). PUR. */
+export function sommesLocation(ms: readonly MontantsLigne[]): SommesLocation {
+  const ca = ms.reduce((t, m) => plusC(t, m.caC), RIEN); const apporteurs = ms.reduce((t, m) => plusC(t, m.apporteurC), RIEN);
+  const primes = ms.reduce((t, m) => plusC(t, m.primeC), RIEN); const netApporteurs = moinsC(ca, apporteurs);
+  return { ca, apporteurs, primes, netApporteurs, net: moinsC(netApporteurs, primes) };
+}
+/** Les sommes d'activités du Suivi (le Suivi annuel) : `sommesLocation` de leurs montants. PUR. */
+export const sommesActivites = (lignes: readonly ActiviteCalcul[], ctx: { regles: readonly RegleCommission[]; apporteurs: readonly Apporteur[] }): SommesLocation =>
+  sommesLocation(lignes.map((a) => montantsLigne(a, ctx)));
+
 /** Une ligne du Suivi → sa ligne d'activité économique (les fonctions de la Location, sans copie). PUR. */
 export function ligneLocationCa(a: ActiviteLue, ctx: { regles: readonly RegleCommission[]; apporteurs: readonly Apporteur[] }): LigneLocationCa {
-  // le CA de la ligne : celui du Suivi (`caLigne`), au centime ; la part locataire est le reste (propriétaire + locataire = CA, au centime)
-  const caC = depuisHt(caLigne(a));
+  // les montants de la ligne (`montantsLigne`, la règle des deux pages) ; la part locataire est le reste (propriétaire + locataire = CA, au centime)
+  const { caC, primeC, apporteurC } = montantsLigne(a, ctx);
   const proprietaireC = depuisHt(a.honoProprietaireHt);
   const locataireC = moinsC(caC, proprietaireC);
-  const primeC = depuisHt(primeDe(a, ctx.regles));
-  const apporteurC = depuisHt(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs));
   const app = apporteurAffiche(a, ctx.apporteurs as Apporteur[]);
   const bien = a.lots?.find((l) => l.annexeDe == null)?.libelle ?? a.lots?.[0]?.libelle ?? null;
   return {
@@ -83,20 +104,22 @@ export interface TotauxLocationCa {
   proprietaire: MontantC; locataire: MontantC; ca: MontantC; primes: MontantC; apporteurs: MontantC;
   /** Primes + apporteurs (la tuile « Primes et rétrocessions versées »). */
   couts: MontantC;
+  /** 🔴 LOT LO5 — CA − commissions d'apporteurs (le « CA net d'apporteurs » du Suivi annuel). */
+  netApporteurs: MontantC;
   net: MontantC;
   ids: number[];
 }
-/** Les totaux de lignes : la somme de leurs centimes. PUR. */
+/** Les totaux de lignes : CA, apporteurs, primes, nets par `sommesLocation` (la fonction des deux pages) ; les comptes et les parts à côté. PUR. */
 export function totauxLocation(lignes: readonly LigneLocationCa[]): TotauxLocationCa {
-  const t: TotauxLocationCa = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, proprietaire: RIEN, locataire: RIEN, ca: RIEN, primes: RIEN, apporteurs: RIEN, couts: RIEN, net: RIEN, ids: [] };
+  const s = sommesLocation(lignes);
+  const t: TotauxLocationCa = { nb: 0, nbBaux: 0, nbAvenants: 0, nbGestionSeule: 0, proprietaire: RIEN, locataire: RIEN, ca: s.ca, primes: s.primes, apporteurs: s.apporteurs,
+    couts: plusC(s.primes, s.apporteurs), netApporteurs: s.netApporteurs, net: s.net, ids: [] };
   for (const l of lignes) {
     t.nb += 1;
     if (l.type === 'bail') t.nbBaux += 1; else if (l.type === 'avenant') t.nbAvenants += 1; else t.nbGestionSeule += 1;
-    t.proprietaire = plusC(t.proprietaire, l.proprietaireC); t.locataire = plusC(t.locataire, l.locataireC); t.ca = plusC(t.ca, l.caC);
-    t.primes = plusC(t.primes, l.primeC); t.apporteurs = plusC(t.apporteurs, l.apporteurC); t.net = plusC(t.net, l.netC);
+    t.proprietaire = plusC(t.proprietaire, l.proprietaireC); t.locataire = plusC(t.locataire, l.locataireC);
     t.ids.push(l.id);
   }
-  t.couts = plusC(t.primes, t.apporteurs);
   return t;
 }
 
