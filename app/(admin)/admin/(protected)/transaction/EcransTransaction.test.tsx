@@ -89,10 +89,10 @@ describe('l’accueil de la tuile', () => {
     // la grille de « Transaction vente » : trois colonnes, une seule au téléphone
     expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
   });
-  it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION CRITERIMMO & MACJ », vers leurs écrans', async () => {
+  it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION VENTE CRITERIMMO & MACJ », vers leurs écrans', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
+      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION VENTE CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
     expect(texte('[data-tuile-transaction="fusion"] .loc-case-phrase')).toBe('Les ventes et compromis des deux sociétés réunis.');
   });
   it('LOT M / DM — trois cases de même taille (la grille de l’accueil, une colonne au téléphone) ; l’accueil garde ses trois colonnes', async () => {
@@ -246,7 +246,10 @@ describe('🔴 LOT L — l’arborescence', () => {
     expect(readFileSync('proxy.ts', 'utf8')).toContain("['/admin/transaction', 'transaction']");
     // 🔴 LOT DM : « Suivi Chiffre d'affaires » › « Transaction vente »
     expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'CRITERIMMO']);
-    expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'FUSION CRITERIMMO & MACJ']);
+    expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'FUSION VENTE CRITERIMMO & MACJ']);
+    // Arno (01/11/2026) — le titre de la page FUSION vente : le même libellé, lu de la même constante ; plus aucune copie de l'ancien nom
+    expect(readFileSync(`${T}/fusion/page.tsx`, 'utf8')).toContain('titre={TITRE_FUSION_VENTE}');
+    for (const f of ['fusion/page.tsx', 'FilAriane.tsx', 'EcransTransaction.tsx']) expect([f, readFileSync(`${T}/${f}`, 'utf8').includes('\'FUSION CRITERIMMO & MACJ\'')]).toEqual([f, false]);
     // 🔴 LOT DX : « Suivi Chiffre d'affaires » › « Location & Gestion » › Location | Gestion | FUSION Location & Gestion
     expect(ARIANE.gestion).toEqual([{ libelle: 'Suivi Chiffre d’affaires', href: '/admin/transaction' }, { libelle: 'Location & Gestion', href: '/admin/transaction/location-gestion' }, { libelle: 'Gestion' }]);
     expect(ARIANE.location.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Location & Gestion', 'Location']);
@@ -3416,7 +3419,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
-  describe('🔴 LOT DM — la FUSION CRITERIMMO & MACJ : le même écran, les deux sociétés, chaque vente une fois', () => {
+  describe('🔴 LOT DM — la FUSION VENTE CRITERIMMO & MACJ : le même écran, les deux sociétés, chaque vente une fois', () => {
     const lm = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
       origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
     const partie = (sorte: 'entree' | 'sortie', compteId: number, negociateur: string, societe: 'criterimmo' | 'macj', pourcentage: number) =>

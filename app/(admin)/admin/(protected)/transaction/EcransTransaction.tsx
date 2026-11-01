@@ -14,6 +14,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
+import { TITRE_FUSION_VENTE } from './FilAriane';
 import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
@@ -88,7 +89,7 @@ const CASES_VENTES = [
   { href: ADRESSES_TRANSACTION.criterimmo, titre: 'CRITERIMMO', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de CRITERIMMO.', cle: 'criterimmo' },
   { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
   // 🔴 LOT DM — les deux sociétés réunies (le même écran ; chaque vente une fois, l'inter-cabinet entre elles neutralisé)
-  { href: ADRESSES_TRANSACTION.fusion, titre: 'FUSION CRITERIMMO & MACJ', phrase: 'Les ventes et compromis des deux sociétés réunis.', cle: 'fusion' },
+  { href: ADRESSES_TRANSACTION.fusion, titre: TITRE_FUSION_VENTE, phrase: 'Les ventes et compromis des deux sociétés réunis.', cle: 'fusion' },
 ];
 
 /** 🔴 LOT DX — « Location & Gestion » : la Location (nouvelle), la Gestion (la page existante, inchangée) et leur FUSION. */
@@ -116,7 +117,7 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
 }
 /** L'accueil de la tuile : « Transaction », « Gestion », « CA global ». */
 export const AccueilTransaction = () => <Cases cases={CASES} libelle="Les tuiles de la Transaction" />;
-/** LOT L — « Transaction vente » : « CRITERIMMO », « MACJ » et (LOT DM) « FUSION CRITERIMMO & MACJ » — trois cases de même taille. */
+/** LOT L — « Transaction vente » : « CRITERIMMO », « MACJ » et (LOT DM) « FUSION VENTE CRITERIMMO & MACJ » (`TITRE_FUSION_VENTE`) — trois cases de même taille. */
 export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" />;
 /** 🔴 LOT DX — « Location & Gestion » : trois cases de même taille, comme « Transaction vente » (une colonne au téléphone). */
 export const AccueilLocationGestion = () => <Cases cases={CASES_LOCATION_GESTION} libelle="La location et la gestion" />;

@@ -777,7 +777,7 @@ ${CSS_BOUTON_AFFICHAGE}
 
 /**
  * ══ 🔴 LOT DO (Arno, 31/10/2026) — LA PAGE FUSION : LES INTITULÉS « CONSOLIDÉS » ═══════════════════════════════════════════════════════════════════
- * Sur la page FUSION CRITERIMMO & MACJ seulement (le fournisseur est posé par `EcranSociete` « tous ») : « Chiffre d’affaires » → « Chiffre
+ * Sur la page FUSION VENTE CRITERIMMO & MACJ seulement (le fournisseur est posé par `EcranSociete` « tous ») : « Chiffre d’affaires » → « Chiffre
  * d’affaires consolidé », « CA TTC — … » → « CA consolidé TTC — … », « CA net » → « CA net consolidé », « Solde net » → « Solde net consolidé »,
  * « Reste à l’agence » → « Reste consolidé du groupe ». CRITERIMMO, MACJ et le CA global (hors de ce fournisseur) gardent leurs intitulés.
  */
