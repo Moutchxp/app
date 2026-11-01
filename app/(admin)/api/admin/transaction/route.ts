@@ -80,7 +80,12 @@ export async function GET(request: Request): Promise<Response> {
       const loc = await lireCaLocationHtTtc().catch(() => null);
       const location = loc?.ht ?? null; const locationTtcC = loc?.ttcC ?? null;
       if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location, locationTtcC } });
-      const [ventes, gestion, ventesC, ventesM] = await Promise.all([lireVentes(null), lireGestion(), lireVentes('criterimmo'), lireVentes('macj')]);
+      const [ventes, gestion, ventesC, ventesM, retrocessions, doubles] = await Promise.all([lireVentes(null), lireGestion(), lireVentes('criterimmo'), lireVentes('macj'),
+        lireRetrocessions(null), lireNotesDoubles(null)]);
+      // 🔴 LOT CG2 — les coûts globaux : les données de la page FUSION (ventes complètes, rétrocessions, statut des négociateurs payés) et de la page
+      // « Suivi CA › Location » (lignes, rétrocessions, salaires chargés), en lecture seule
+      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
+      const locationCa = await lireLocationCa().catch(() => null);
       // 🔴 LOT CY — les compromis en cours (la règle unique, `totalCompromisEnCours`) : nos deux sociétés, et chacune (ses lignes miroir comprises).
       const total = async (vs: readonly Vente[], vueC: 'criterimmo' | 'macj' | null) => {
         const statuts = await lireStatutsNegociateurs(libellesDePaye(compromisEnCours(vs, vueC))).catch(() => ({}));
@@ -89,8 +94,9 @@ export async function GET(request: Request): Promise<Response> {
       const compromisEnCoursTotaux = { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') };
       // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
       return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, locationTtcC, compromisEnCours: compromisEnCoursTotaux, monga: await mongaDisponible().catch(() => false),
-        ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
-          double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne, repartition: v.repartition ?? null })) } });
+        retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires } : null,
+        // 🔴 LOT CG2 — les ventes COMPLÈTES (les cartes de la page FUSION : répartition, lignes, dossier), plus seulement leurs champs du CA
+        ventes } });
     }
     if (vue === 'compromis') {
       // LOT D — les compromis en cours (acte non signé) qui comptent pour la société (une part, ou la société de l'historique), ou pour les deux.

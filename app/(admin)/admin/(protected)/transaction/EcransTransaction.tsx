@@ -26,6 +26,9 @@ import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transac
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
+import { TableauCoutsGlobaux } from './CoutsGlobaux';
+import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
+import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
 import { celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
@@ -1646,7 +1649,10 @@ interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (Entr
   /** 🔴 LOT CY — les compromis en cours (la règle unique, calculée par la route avec `totalCompromisEnCours`) : nos deux sociétés et chacune. */
   compromisEnCours?: CompromisEnCoursGlobal;
   /** 🔴 LOT GE3 — la migration 446 (coût MONGA) est appliquée ; absent ou faux : MONGA vaut 0 et ne se saisit pas. */
-  monga?: boolean }
+  monga?: boolean;
+  /** 🔴 LOT CG2 — les coûts globaux : les rétrocessions et le statut des négociateurs payés (page FUSION), les données de « Suivi CA › Location ». */
+  retrocessions?: Retrocession[]; statutsNegociateurs?: DonneesSociete['statutsNegociateurs'];
+  locationCa?: { lignes: LigneLocationCa[]; retrocessions: RetroLocation[]; salaires: SalairesLocation[] | null } | null }
 /**
  * 🔴 LOT CY — le prévisionnel du CA global = les compromis EN COURS (la règle unique : tous, quel que soit leur mois ou leur année), en HT : chaque
  * société, et nos deux sociétés (chaque affaire une fois) ; l'inter-cabinet entre elles = ce qui est compté deux fois. Sans ces totaux (une base
@@ -1671,6 +1677,8 @@ export function EcranGlobal() {
   // 🔴 LOT CG1 — « HT | TTC », le choix partagé du Suivi Chiffre d'affaires ; relu à chaque onglet (l'onglet « Compromis » a pu le changer)
   const [unite, setUnite] = useAffichageRetenu();
   useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [onglet]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 🔴 LOT CG2 — « Avec | Sans salaires » des coûts globaux : le choix partagé avec Location, Gestion et FUSION
+  const [avecSalaires, setAvecSalaires] = useChoixSalaires();
   useEffect(() => { ecrireAdresse({ annee: onglet === 'ca' ? String(annee) : null, vue: onglet === 'compromis' ? 'compromis' : null }); }, [annee, onglet]);
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
@@ -1697,6 +1705,10 @@ export function EcranGlobal() {
   /** Une tuile : le grand montant dans l'unité, l'autre unité en petit entre parenthèses (comme les autres pages). */
   const autre = (x: number) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(x)}{ESPACE}{MOT_UNITE[autreU]})</small>;
   const champUnite = <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
+  // 🔴 LOT CG2 — les entrées des coûts globaux (les pages FUSION, Suivi CA › Location, Gestion)
+  const eCouts: EntreesCoutsGlobaux = { ventes: d.ventes as Vente[], retrocessions: d.retrocessions ?? [], statutDuLibelle: resolveurDe(d.statutsNegociateurs),
+    location: d.locationCa ?? null, gestion: d.gestion };
+  const coutsCommun = { e: eCouts, jour, salaires: avecSalaires, onSalaires: setAvecSalaires };
   return (
     <div className="tdb loc-page" data-ca-global data-unite-global={unite}>
       <style>{CSS}</style>
@@ -1744,7 +1756,7 @@ export function EcranGlobal() {
       </section>
 
       <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
-        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">({MOT})</small></h3>
+        <h3 id="trx-g-mois">Chiffre d’affaires global {annee} mois par mois <small className="loc-muet">({MOT})</small></h3>
         {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
         <p className="loc-muet" data-lien-gestion>La gestion se saisit mois par mois dans l’écran <a className="trx-lien" href={`${ADRESSES_TRANSACTION.gestion}?annee=${annee}`}>Gestion</a>.</p>
         <table className="tdb-table tdb-table--large" data-table-global>
@@ -1793,6 +1805,10 @@ export function EcranGlobal() {
         </table>
       </section>
 
+      {/* 🔴 LOT CG2 — « Coûts globaux [année] mois par mois », juste sous le CA (le même « HT | TTC », « Avec | Sans salaires » partagé) */}
+      <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts" donnee="global-couts" titre={<>Coûts globaux {annee} mois par mois</>}
+        rangees={NOMS_MOIS.map((nom, i) => ({ cle: `${annee}-${i + 1}`, libelle: nom, annee, mois: i + 1 }))} total={{ cle: String(annee), libelle: `Année ${annee}`, annee, mois: null }} />
+
       <section className="tdb-section" aria-labelledby="trx-g-annees" data-bloc="global-annees">
         <h3 id="trx-g-annees">Année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></h3>
         <table className="tdb-table tdb-table--large" data-table-global-annees>
@@ -1813,6 +1829,10 @@ export function EcranGlobal() {
           })}</tbody>
         </table>
       </section>
+
+      {/* 🔴 LOT CG2 — le même tableau des coûts, année par année */}
+      <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts-annees" donnee="global-couts-annees" titre={<>Coûts globaux année par année</>}
+        rangees={annees.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))} total={null} />
 
       {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs ; replié, compteur, contenu et attribution inchangés. */}
       <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
