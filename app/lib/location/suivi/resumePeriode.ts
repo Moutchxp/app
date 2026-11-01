@@ -5,7 +5,7 @@ import {
   type GestionDepuisJanvier, type LigneGestion, type TotauxPeriode, type BeneficiaireCommission, type CollegueDuMois, type CumulAffaires, type ResultatNetAgence, type ResumeDuMois, type VentilationCommissions,
 } from './tableauBord';
 import { gliDuMois, type GliComptee, type GliPeriode } from './margeGli';
-import { montantsLigne, ttcCentimes } from '../../transaction/locationCa';
+import { montantsLigne, sansTva, ttcCentimes } from '../../transaction/locationCa';
 
 /**
  * ══ 🔴 Arno (25/10/2026) — LE « RÉSUMÉ » D'UNE PÉRIODE : UN MOIS (Suivi du mois) OU UNE ANNÉE (Suivi annuel) ═══════════════════════════════
@@ -86,18 +86,19 @@ function commissionsAuCentime<A extends { commission: number; recurrente: number
 
 /**
  * 🔴 LOT LO8 — le TTC de la ventilation, à la règle de la page : chaque commission = la somme du TTC de ses lignes au centime (`montantsLigne`),
- * plus son dû « Récurrent » × 1,20 au centime ; externes = total − internes (comme le HT) ; collègues : × 1,20 au centime, comme avant. PUR.
+ * plus son dû « Récurrent » au centime ; externes = total − internes (comme le HT) ; collègues : × 1,20 au centime, comme avant. 🔴 LOT LO14 — les
+ * commissions d'apporteurs sont SANS TVA (TTC = HT), récurrent compris. PUR.
  */
 function ttcDeLaVentilation(v: VentilationCommissions, ac: { apporteurs: readonly { apporteurId: number | null; nom: string; sorte?: string | null; recurrente: number; ids: (number | string)[] }[]; sans: CumulAffaires },
   t: TotauxPeriode, duMois: readonly ActiviteLue[], ctx: ContexteCalcul): VentilationCommissions {
   const parLigne = new Map(duMois.map((a) => [String(a.id), montantsLigne(a, ctx).apporteurC.ttcC]));
-  const ttc = (ids: readonly (number | string)[], recurrente: number): number => ids.reduce<number>((s, id) => s + (parLigne.get(String(id)) ?? 0), 0) + ttcCentimes(cent(recurrente) / 100);
+  const ttc = (ids: readonly (number | string)[], recurrente: number): number => ids.reduce<number>((s, id) => s + (parLigne.get(String(id)) ?? 0), 0) + sansTva(cent(recurrente) / 100).ttcC;
   const parCle = new Map<string, number>();
   for (const x of ac.apporteurs) parCle.set(`${x.sorte === 'interne' ? 'i' : 'e'}:${x.apporteurId ?? x.nom}`, ttc(x.ids, x.recurrente));
   parCle.set('e:sans', ttc(ac.sans.ids, ac.sans.recurrente));
   const internes = ac.apporteurs.filter((x) => x.sorte === 'interne').reduce((s, x) => s + ttc(x.ids, x.recurrente), 0);
   const total = ttc(t.ids, t.apporteursRecurrents);
-  const avec = (b: BeneficiaireCommission, k: 'i' | 'e'): BeneficiaireCommission => ({ ...b, ttcC: parCle.get(`${k}:${b.cle}`) ?? ttcCentimes(b.centimes / 100) });
+  const avec = (b: BeneficiaireCommission, k: 'i' | 'e'): BeneficiaireCommission => ({ ...b, ttcC: parCle.get(`${k}:${b.cle}`) ?? b.centimes });
   return {
     externes: { ...v.externes, ttcC: total - internes, detail: v.externes.detail.map((b) => avec(b, 'e')) },
     internes: { ...v.internes, ttcC: internes, detail: v.internes.detail.map((b) => avec(b, 'i')) },

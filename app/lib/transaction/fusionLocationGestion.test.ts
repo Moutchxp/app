@@ -157,3 +157,29 @@ describe('🔴 LOT LO12 — FUSION = Location + Gestion, avec et sans salaires',
     expect(sans.net.ttcC - avec.net.ttcC).toBe(avec.salaires.ttcC - (avec.primes.ttcC - avec.primesDeduites.ttcC) - (avec.variable.ttcC - avec.variableDeduit.ttcC));
   });
 });
+
+/**
+ * 🔴 LOT LO14 (règle d'Arno) — les commissions d'apporteurs et les primes de nouvelle gestion de la location sont SANS TVA (TTC = HT) ; le HT ne
+ * change pas ; le CA garde sa TVA ; la FUSION les reprend, avec et sans salaires.
+ */
+describe('🔴 LOT LO14 — primes et apporteurs sans TVA', () => {
+  const sal = [{ annee: 2026, mois: 8, salairesHt: 1000, note: null }];
+  it('chaque ligne : prime et apporteur TTC = HT ; CA TTC = HT × 1,20 ; le reste TTC = CA TTC − prime − apporteur', () => {
+    for (const l of lignes) {
+      expect([l.primeC.ttcC, l.apporteurC.ttcC, l.caC.ttcC]).toEqual([l.primeC.htC, l.apporteurC.htC, Math.round(l.caC.htC * 1.2)]);
+      expect(l.netC).toEqual({ htC: l.caC.htC - l.primeC.htC - l.apporteurC.htC, ttcC: l.caC.ttcC - l.primeC.htC - l.apporteurC.htC });
+    }
+    expect(lignes.some((l) => l.primeC.htC !== 0) && lignes.some((l) => l.apporteurC.htC !== 0)).toBe(true);
+  });
+  for (const avecS of [true, false]) {
+    it(`${avecS ? 'Avec' : 'Sans'} salaires : la FUSION — primes et apporteurs TTC = HT ; CA net TTC = CA brut TTC − coûts TTC ; = Location + Gestion`, () => {
+      const f = totauxFusion(lignes, gestion, annee, 'deux', avecS, { retros: [], salaires: sal });
+      for (const k of ['primes', 'apporteurs', 'variable', 'salairesLocation', 'salaries'] as const) expect([k, f.couts[k].ttcC]).toEqual([k, f.couts[k].htC]);
+      expect(f.net).toEqual({ htC: f.ca.htC - f.coutsTotal.htC, ttcC: f.ca.ttcC - f.coutsTotal.ttcC });
+      const L = coutsLocation(lignes, annee, [], sal, avecS);
+      expect([L.primes.ttcC, L.apporteurs.ttcC]).toEqual([L.primes.htC, L.apporteurs.htC]);
+      const fl = totauxFusion(lignes, gestion, annee, 'location', avecS, { retros: [], salaires: sal });
+      expect(fl.net).toEqual(L.net);
+    });
+  }
+});

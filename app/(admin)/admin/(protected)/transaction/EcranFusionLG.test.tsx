@@ -163,7 +163,7 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       const salaires = 268891; // septembre : 2 688,91 € (sans TVA : le même en HT et en TTC)
       // 🔴 LOT LO11 — primes et variable : inclus dans les salaires en « Avec » (mois avec salaires), déduits en « Sans »
       await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
-      const primes = (u === 'ht' ? 15000 : 18000) + centimes(texte('[data-famille-tuile="variable"]'));
+      const primes = 15000 + centimes(texte('[data-famille-tuile="variable"]')); // 🔴 LOT LO14 — primes sans TVA (TTC = HT)
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion (non comptés)'); // 🔴 LOT LO11 — deux familles de salaires (location, gestion)
       expect(document.querySelector('[data-famille-tuile="salaries"]')!.className).toContain('loc-muet');
       await cliquer('[data-fermer-fenetre]');

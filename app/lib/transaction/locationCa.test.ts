@@ -25,13 +25,13 @@ const ligne = (o: Partial<ActiviteLue>): ActiviteLue => ({
 const ctx = { regles, apporteurs };
 
 describe('🔴 LOT LO1 — une ligne du Suivi (les fonctions de la Location)', () => {
-  it('le CA, la prime de nouvelle gestion (règle à la date), la commission d’apporteur, le reste ; HT au centime, TTC = HT × 1,20 ; propriétaire + locataire = CA', () => {
+  it('le CA, la prime de nouvelle gestion (règle à la date), la commission d’apporteur, le reste ; HT au centime ; CA TTC = HT × 1,20, prime et apporteur SANS TVA (🔴 LOT LO14 : TTC = HT) ; propriétaire + locataire = CA', () => {
     const a = ligne({ mandatGestion: true, avecGestion: true, apporteurId: 7, apporteurNom: 'Agence Martin', honoProprietaireHt: 333.33, honoLocataireHt: 333.34 });
     const l = ligneLocationCa(a, ctx);
-    expect([l.caC, l.primeC, l.apporteurC]).toEqual([{ htC: 66667, ttcC: 80000 }, { htC: 15000, ttcC: 18000 }, { htC: 6667, ttcC: 8000 }]);
+    expect([l.caC, l.primeC, l.apporteurC]).toEqual([{ htC: 66667, ttcC: 80000 }, { htC: 15000, ttcC: 15000 }, { htC: 6667, ttcC: 6667 }]);
     expect(l.caC).toEqual(depuisHt(caLigne(a)));
     expect([l.proprietaireC.htC + l.locataireC.htC, l.proprietaireC.ttcC + l.locataireC.ttcC]).toEqual([l.caC.htC, l.caC.ttcC]);
-    expect(l.netC).toEqual({ htC: 66667 - 15000 - 6667, ttcC: 80000 - 18000 - 8000 });
+    expect(l.netC).toEqual({ htC: 66667 - 15000 - 6667, ttcC: 80000 - 15000 - 6667 });
     expect([l.apporteur, l.bien, l.locataire, l.categorie, l.negociateur]).toEqual(['Agence Martin', 'Appartement — 12 rue des Lilas Puteaux', 'Léa MARTIN', 'avec', { cle: 'id:5', nom: 'Jean-Baptiste PONS' }]);
   });
   it('« Compter » : mandat de gestion seul d’abord (son type), puis la case « avec gestion » — chaque ligne dans une seule catégorie', () => {

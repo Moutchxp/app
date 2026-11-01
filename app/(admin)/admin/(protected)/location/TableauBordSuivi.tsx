@@ -19,8 +19,8 @@ import { anneesDeLaPeriode, anneesProposees, choixDeLAdresse, dansPeriode, finAn
 import { comparaisonsAnnees, historiquePeriode, tuilesPeriode } from '../../../../lib/location/suivi/suiviPeriode';
 import { ListeChoix } from './ListeChoix';
 import { BoutonAffichage, CSS_BOUTON_AFFICHAGE, useAffichageRetenu } from '../transaction/commun';
-import { CSS_MONTANTS_SUIVI, formateurSuivi, FournisseurUniteSuivi, useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
-import { caTtcC, sommesActivites, ttcCentimes, ttcCentimesDesLignes } from '../../../../lib/transaction/locationCa';
+import { CSS_MONTANTS_SUIVI, formateurSuivi, FournisseurUniteSuivi, sansTvaSuivi, useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
+import { caTtcC, sommesActivites, ttcCentimes } from '../../../../lib/transaction/locationCa';
 
 /** L'année et le mois de l'adresse de la page (?annee=2025&mois=9), sinon ceux du jour. */
 export function anneeMoisDeLAdresse(jour: string, recherche: string = typeof window === 'undefined' ? '' : window.location.search): { annee: number; mois: number } {
@@ -662,7 +662,7 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     onClick={courante ? (e) => { if ((e.target as Element).closest('.tdb-chiffre') === null) basculer(); } : undefined}
                     onKeyDown={courante ? (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); basculer(); } } : undefined}>
                     <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => ouvrirAnnee(h.annee)} aria-current={h.annee === annee ? 'true' : undefined}>{h.annee}</button></th>
-                    <td data-mot="Baux">{h.nbBaux}</td><td data-mot={U.mot('CA HT')} data-historique-ca={h.annee}>{U.m(caM(h.ca, h.ids ?? []))}</td><td data-mot="Apporteurs">{U.m(h.apporteurs)}</td>
+                    <td data-mot="Baux">{h.nbBaux}</td><td data-mot={U.mot('CA HT')} data-historique-ca={h.annee}>{U.m(caM(h.ca, h.ids ?? []))}</td><td data-mot="Apporteurs">{U.m(sansTvaSuivi(h.apporteurs))}</td>
                     <td data-mot="CA net" data-historique-ca-net={h.annee}>{U.m(netM(h.caNet, h.ids ?? []))}</td>
                     {d.voirCommissions && <td data-mot="Commission brute">{h.commission === null ? '—' : U.m(h.commission)}</td>}
                     {propre !== undefined && (() => { const x = propre.historique.find((y) => y.annee === h.annee);
@@ -712,9 +712,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                     <td data-mot="Mois">{NOMS_MOIS[Number(l.mois.slice(5, 7)) - 1]}{P.anneeDebut !== P.anneeFin ? ` ${l.mois.slice(0, 4)}` : ''}</td>
                     <td data-mot="Baux">{chiffre(String(l.totaux.nb), `${l.libelle} — ${NOMS_MOIS[Number(l.mois.slice(5, 7)) - 1]} ${l.mois.slice(0, 4)}`, l.totaux.ids)}</td>
                     <td data-mot={U.mot('CA HT')}>{U.m(caM(l.totaux.ca, l.totaux.ids))}</td>
-                    <td data-mot="Apporteurs">{U.m(l.totaux.apporteurs)}</td>
+                    <td data-mot="Apporteurs">{U.m(sansTvaSuivi(l.totaux.apporteurs))}</td>
                     <td data-mot="CA − apporteurs">{U.m(netM(l.totaux.caNet, l.totaux.ids))}</td>
-                    <td data-mot="Primes">{U.m({ ht: l.totaux.primes, ttcC: ttcCentimesDesLignes(U.lignes(l.totaux.ids), (a) => primeDe(a, ctx.regles)) })}</td>
+                    <td data-mot="Primes">{U.m(sansTvaSuivi(l.totaux.primes))}</td>
                     <td data-mot="Rétrocessions">{U.m(l.totaux.retrocessions)}</td>
                     <td data-mot="Commission brute" className="tdb-fort">{U.m(l.totaux.commission)}</td>
                   </tr>
@@ -738,9 +738,9 @@ export function TableauBordSuivi({ vue = 'annee' }: { vue?: 'mois' | 'annee'; ad
                   <th scope="row">{l.nom}{l.type && <small className="loc-muet"> · {l.type}</small>}</th>
                   <td data-mot="Baux">{chiffre(String(l.nb), `Baux apportés — ${l.nom}`, l.ids)}</td>
                   <td data-mot={U.mot('CA apporté HT')}>{chiffre(U.m(caM(l.ca, l.ids)), `CA apporté — ${l.nom}`, l.ids)}</td>
-                  <td data-mot="Commissions">{U.m(l.commissions)}</td>
+                  <td data-mot="Commissions">{U.m(sansTvaSuivi(l.commissions))}</td>
                   {/* reste = CA apporté − commissions, dans l'unité (la différence des deux montants affichés) */}
-                  <td data-mot="Reste à l’agence">{U.m({ ht: l.net, ttcC: U.ttcC(caM(l.ca, l.ids)) - U.ttcC(l.commissions) })}</td>
+                  <td data-mot="Reste à l’agence">{U.m({ ht: l.net, ttcC: U.ttcC(caM(l.ca, l.ids)) - U.ttcC(sansTvaSuivi(l.commissions)) })}</td>
                   <td data-mot="Coût pour 1 € de CA">{l.coutParEuro === null ? '—' : `${l.coutParEuro.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €`}</td>
                 </tr>
               ))}
@@ -817,8 +817,8 @@ function ListeDetail({ detail, parId, ctx, voirCommissions, liens, onFermer }: {
                     <p className="tdb-bail-chiffres">
                       <span>{dateFr(a.dateSignature)}{a.dateSupposee ? ' (supposée)' : ''}</span>
                       <span>Propriétaire {U.m(a.honoProprietaireHt)}</span><span>Locataire {U.m({ ht: a.honoLocataireHt, ttcC: caTtcC(a) - ttcCentimes(a.honoProprietaireHt) })}</span><span><strong>CA {U.m({ ht: caLigne(a), ttcC: caTtcC(a) })}</strong></span>
-                      {a.apporteurNom && <span>Apporteur {a.apporteurNom} ({U.m(commissionApporteurDe(a, ctx.apporteurs))})</span>}
-                      {voirCommissions && primeDe(a, ctx.regles) > 0 && <span>Prime {U.m(primeDe(a, ctx.regles))}</span>}
+                      {a.apporteurNom && <span>Apporteur {a.apporteurNom} ({U.m(sansTvaSuivi(commissionApporteurDe(a, ctx.apporteurs)))})</span>}
+                      {voirCommissions && primeDe(a, ctx.regles) > 0 && <span>Prime {U.m(sansTvaSuivi(primeDe(a, ctx.regles)))}</span>}
                       <span>{a.avecGestion ? 'avec gestion' : 'sans gestion'}</span>
                       {a.negociateurLibelle && <span>{a.negociateurLibelle}</span>}
                     </p>

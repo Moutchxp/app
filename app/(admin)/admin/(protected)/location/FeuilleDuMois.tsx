@@ -33,7 +33,7 @@ import { groupesFicheBien } from '../../../../lib/location/suivi/fichesBienLigne
 import { posterSuivi } from './suiviApi';
 import { useParametresSuivi } from './SuiviCommercial';
 import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
-import { useMontantSuivi } from './MontantsSuivi';
+import { sansTvaSuivi, useMontantSuivi } from './MontantsSuivi';
 import { caTtcC } from '../../../../lib/transaction/locationCa';
 import { FAMILLE_GESTION } from '../../../../lib/location/suivi/tableauBord';
 
@@ -364,7 +364,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                   {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
                 <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{x.nb}</button></td>
                 <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{U.m(caIds(x.ca, x.ids))}</button></td>
-                <td data-mot="Hono. d’apporteur">{U.m(x.commission)}</td>
+                <td data-mot="Hono. d’apporteur">{U.m(sansTvaSuivi(x.commission))}</td>
               </tr>))}
               {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
                   par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
@@ -372,7 +372,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
             <tfoot><tr data-apporteur-mois="total">
               <th scope="row">Total</th>
               <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${libelle}`, interm.ids)}>{interm.nb}</button></td>
-              <td data-mot="CA apporté" data-total-apporteurs-ca>{U.m(caIds(interm.ca, interm.ids))}</td><td data-mot="Hono. d’apporteur">{U.m(interm.commission)}</td>
+              <td data-mot="CA apporté" data-total-apporteurs-ca>{U.m(caIds(interm.ca, interm.ids))}</td><td data-mot="Hono. d’apporteur">{U.m(sansTvaSuivi(interm.commission))}</td>
             </tr></tfoot>
           </table>
           {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
@@ -505,8 +505,8 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
             <dl className="fdm-cascade-mois">
               <div className="fdm-fort"><dt>{U.mot('CA HT global')}</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL ${U.mot('CA HT')} — ${libelle}`, resume.ids)} data-total="ca">{U.m(caT)}</button></dd></div>
               {/* 🔴 Arno (25/10/2026, suite) — les honoraires d'apporteurs VENTILÉS : externes + internes = l'ancien total, au centime. */}
-              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{U.m(vent(ventilation.externes))}</dd></div>
-              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{U.m(vent(ventilation.internes))}</dd></div>
+              <div><dt>− Commissions apporteurs externes <small className="loc-muet">(sans TVA)</small></dt><dd data-total="apporteurs-externes">{U.m(vent(ventilation.externes))}</dd></div>
+              <div><dt>− Commissions apporteurs internes <small className="loc-muet">(sans TVA)</small></dt><dd data-total="apporteurs-internes">{U.m(vent(ventilation.internes))}</dd></div>
               {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
               <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{U.m(vent(ventilation.collegues))}</dd></div>
               <div className="fdm-fort fdm-egal"><dt>= {U.mot('CA HT net')}</dt><dd data-total="ca-net">{U.m(caNetT)}</dd></div>
@@ -642,7 +642,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               {/* Plusieurs négociateurs (administrateur) : les primes et les rétrocessions de tous, comme avant. */}
               {d.voirCommissions && resume.negociateurs.length > 1 && (
                 <dl className="fdm-cascade-mois fdm-famille">
-                  <div><dt>Primes de gestion — tous négociateurs</dt><dd data-total="primes">{U.m(r.primes)}</dd></div>
+                  <div><dt>Primes de gestion — tous négociateurs <small className="loc-muet">(sans TVA)</small></dt><dd data-total="primes">{U.m(sansTvaSuivi(r.primes))}</dd></div>
                   <div><dt>Rétrocessions — tous négociateurs</dt><dd data-total="retrocessions">{U.m(r.retrocessions)}</dd></div>
                 </dl>
               )}

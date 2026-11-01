@@ -569,8 +569,8 @@ export function CarteBail({ l, ouvertInitial = false }: { l: LigneLocationCa; ou
         <dt>Apporteur</dt><dd>{l.apporteur ?? '—'}</dd>
         <dt>Honoraires propriétaire</dt><dd><Mt ht={l.proprietaireC.htC / 100} ttc={l.proprietaireC.ttcC / 100} /></dd>
         <dt>Honoraires locataire</dt><dd><Mt ht={l.locataireC.htC / 100} ttc={l.locataireC.ttcC / 100} /></dd>
-        <dt>− Prime de nouvelle gestion</dt><dd><Mt ht={l.primeC.htC / 100} ttc={l.primeC.ttcC / 100} cout /></dd>
-        <dt>− Commission d’apporteur</dt><dd><Mt ht={l.apporteurC.htC / 100} ttc={l.apporteurC.ttcC / 100} cout /></dd>
+        <dt>− Prime de nouvelle gestion (sans TVA)</dt><dd><Mt ht={l.primeC.htC / 100} ttc={l.primeC.ttcC / 100} cout /></dd>
+        <dt>− Commission d’apporteur (sans TVA)</dt><dd><Mt ht={l.apporteurC.htC / 100} ttc={l.apporteurC.ttcC / 100} cout /></dd>
         <dt className="trx-total">= Reste</dt><dd className="trx-total trx-vert"><Mt ht={l.netC.htC / 100} ttc={l.netC.ttcC / 100} /></dd>
       </dl>
       <p><a className="trx-bouton-lien" href={lienSuiviDuMois(l)} data-ouvrir-location={l.id}>Ouvrir dans Location</a>
@@ -591,8 +591,8 @@ function ResultatLocation({ T }: { T: TotauxRegle }) {
   return (
     <dl className="trx-resultat" data-resultat-location>
       <dt>CA brut ({MOT})</dt><dd><Mt {...m(T.ca)} donnees={{ 'data-resultat-ca': '' }} /></dd>
-      <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
-      <dt>− Primes de nouvelle gestion ({MOT}){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
+      <dt>− Rétrocessions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
+      <dt>− Primes de nouvelle gestion (sans TVA){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
       <dt>− Variable du négociateur (sans TVA){inclus(c.variable, c.variableDeduit)}</dt><dd><Mt {...m(c.variableDeduit)} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi, en gris, « non comptés » (non déduit) */}
       {avec ? <><dt>− Salaires chargés (sans TVA)</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
@@ -637,11 +637,11 @@ function TableauLocation({ lignes, rangees, titre, annee }: { lignes: readonly L
   return (
     <>
       <style>{'[data-table-location] .trx-ligne-bloc{display:block;font-size:.78rem}'}</style>
-      <h3 id="trx-tableau-location">{titre} <small className="loc-muet">({U.MOT}{U.u === 'ttc' ? ' ; variable et salaires chargés sans TVA' : ''})</small></h3>
+      <h3 id="trx-tableau-location">{titre} <small className="loc-muet">({U.MOT}{U.u === 'ttc' ? ' ; primes, commissions d’apporteurs, variable et salaires chargés sans TVA' : ''})</small></h3>
       <div className="trx-fusion-defile">
         <table className="tdb-table tdb-table--large" data-table-location>
-          <thead><tr><th scope="col">{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th><th scope="col">Baux</th><th scope="col">Honoraires</th><th scope="col">Primes de gestion</th>
-            <th scope="col">Commissions d’apporteurs</th><th scope="col">Variable négociateur</th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
+          <thead><tr><th scope="col">{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th><th scope="col">Baux</th><th scope="col">Honoraires</th><th scope="col">Primes de gestion<small className="loc-muet"> (sans TVA)</small></th>
+            <th scope="col">Commissions d’apporteurs<small className="loc-muet"> (sans TVA)</small></th><th scope="col">Variable négociateur</th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
             <th scope="col">Honoraires {rangees[0]?.mois === null ? 'un an plus tôt' : annee - 1}</th>{rangees[0]?.mois !== null && <th scope="col">Saisie</th>}</tr></thead>
           <tbody>
             {rangees.map((r) => {
@@ -751,7 +751,7 @@ function EspaceLocation({ espace, T }: { espace: readonly LigneEspaceRegle[]; T:
     <div className="trx-tri-mobile" role="group" aria-label="Trier l'espace par négociateur">{bouton('ca', <>CA {MOT} généré</>, true)}{bouton('net', <>{motNet}</>, true)}</div>
     <table className="tdb-table tdb-table--large" data-table-negociateurs-location>
       <thead><tr><th scope="col">Négociateur</th><th scope="col">Baux</th><th scope="col" aria-sort={ariaSort('ca')} data-entete-tri="ca">{bouton('ca', <>CA {MOT} généré</>)}</th>
-        <th scope="col">Primes {MOT}</th><th scope="col">Rétrocessions {MOT}</th><th scope="col">Variable (sans TVA)</th>
+        <th scope="col">Primes (sans TVA)</th><th scope="col">Rétrocessions (sans TVA)</th><th scope="col">Variable (sans TVA)</th>
         <th scope="col" aria-sort={ariaSort('net')} data-entete-tri="net">{bouton('net', <>{motNet}</>)}</th></tr></thead>
       <tbody>{triees.map((g) => (
         <tr key={g.cle} data-negociateur-location={g.nom}>

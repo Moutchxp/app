@@ -1674,7 +1674,7 @@ describe('🔴 Arno (25/10/2026) — « Résumé du mois » : le bas de feuille 
     expect(bureau).toContain('.fdm-colonne > .fdm-famille:last-child{flex:1 1 auto;justify-content:flex-start}');
     expect([...bas().querySelectorAll('.fdm-colonne > .fdm-famille:last-child')].map((f) => f.getAttribute('data-famille'))).toEqual(['statuts', 'gestion']);
     expect([...bas().querySelectorAll('[data-famille="resultat"] dt')].map((x) => x.textContent))
-      .toEqual(['CA HT global', '− Commissions apporteurs externes', '− Commissions apporteurs internes', '− Rémunération des collègues sur leurs apporteurs', '= CA HT net']);
+      .toEqual(['CA HT global', '− Commissions apporteurs externes (sans TVA)', '− Commissions apporteurs internes (sans TVA)', '− Rémunération des collègues sur leurs apporteurs', '= CA HT net']); // 🔴 LOT LO14
     expect([...bas().querySelectorAll('[data-statut-ca] .fdm-nature')].map((x) => x.textContent))
       .toEqual(['Nouvelle gestion', 'Relocation gestion', 'Nouveau sans gestion', 'Relocation sans gestion', 'À qualifier']);
   });
@@ -2702,12 +2702,13 @@ describe('🔴 LOT LO2 — le Suivi annuel en « Montants HT | TTC » (le sélec
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     window.history.replaceState(null, '', '/?debut=2026&fin=2026');
     await monter('annee');
-    const { caTtcC, ttcCentimes } = await import('../../../../lib/transaction/locationCa');
+    const { caTtcC, sansTva } = await import('../../../../lib/transaction/locationCa');
     const { partLocationDe, partGestionSignatureDe } = await import('../../../../lib/location/suivi/tableauBord');
     const de2026 = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-'));
     const attenduCa = de2026.reduce((t, a) => t + caTtcC(a), 0) / 100;
-    // 🔴 LOT LO5 — le CA net d'apporteurs = Σ (CA TTC − commission d'apporteur TTC) de chaque ligne, chacune au centime
-    const attenduNet = de2026.reduce((t, a) => t + caTtcC(a) - ttcCentimes(partLocationDe(a, donnees.apporteurs) + partGestionSignatureDe(a, donnees.apporteurs)), 0) / 100;
+    // 🔴 LOT LO5 — le CA net d'apporteurs = Σ (CA TTC − commission d'apporteur TTC) de chaque ligne, chacune au centime ; 🔴 LOT LO14 — la commission
+    // d'apporteur est sans TVA (TTC = HT)
+    const attenduNet = de2026.reduce((t, a) => t + caTtcC(a) - sansTva(partLocationDe(a, donnees.apporteurs) + partGestionSignatureDe(a, donnees.apporteurs)).ttcC, 0) / 100;
     const eurFr = (x: number) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[\u00a0\u202f]/g, ' ');
     expect(brut('[data-tuile-ca-valeur]')).toMatch(new RegExp(`^${eurFr(attenduCa)} € TTC`));
     expect(brut('[data-tuile-ca-net-valeur]')).toMatch(new RegExp(`^${eurFr(attenduNet)} € TTC`));

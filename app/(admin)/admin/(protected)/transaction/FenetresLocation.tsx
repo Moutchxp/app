@@ -45,7 +45,7 @@ export function SectionPrimes({ lignes, total, lien, moins, ouverte = false, inc
   inclus?: (l: LigneLocationCa) => boolean }) {
   return (
     // 🔴 LOT LG3 — fermée à l'ouverture de la fenêtre : le nom et le sous-total ; un clic montre les baux
-    <CategorieRepliable cle="primes" donnees={{ 'data-categorie-location': 'primes', 'aria-label': 'Primes de nouvelle gestion' }} titre={<>{moins ? '− ' : ''}Primes de nouvelle gestion</>}
+    <CategorieRepliable cle="primes" donnees={{ 'data-categorie-location': 'primes', 'aria-label': 'Primes de nouvelle gestion' }} titre={<>{moins ? '− ' : ''}Primes de nouvelle gestion (sans TVA)</>}
       montant={<Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'primes' }} />} ouverteInitiale={ouverte}>
       {lignes.length === 0 ? aucune('primes') : <ul className="trx-fc-lignes">{lignes.map((l) => (
         <li key={l.id} className={inclus?.(l) ? 'trx-fc-ligne trx-fc-info' : 'trx-fc-ligne'} data-ligne-prime={l.id}>
@@ -61,7 +61,7 @@ export function SectionPrimes({ lignes, total, lien, moins, ouverte = false, inc
 export function SectionApporteurs({ lignes, total, lien, moins, ouverte = false }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean; ouverte?: boolean }) {
   const groupes = detailCoutsLocation(lignes).groupesApporteurs;
   return (
-    <CategorieRepliable cle="apporteurs" donnees={{ 'data-categorie-location': 'apporteurs', 'aria-label': 'Commissions d’apporteurs' }} titre={<>{moins ? '− ' : ''}Commissions d’apporteurs</>}
+    <CategorieRepliable cle="apporteurs" donnees={{ 'data-categorie-location': 'apporteurs', 'aria-label': 'Commissions d’apporteurs' }} titre={<>{moins ? '− ' : ''}Commissions d’apporteurs (sans TVA)</>}
       montant={<Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'apporteurs' }} />} ouverteInitiale={ouverte}>
       {groupes.length === 0 ? aucune('apporteurs') : <ul className="trx-fc-lignes">{groupes.map((g) => (
         <li key={g.nom} className="trx-fc-ligne" data-groupe-apporteur={g.nom}>

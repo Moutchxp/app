@@ -294,6 +294,8 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   </>;
 }
 
+/** 🔴 LOT LO14 — les familles sans TVA (TTC = HT) : primes, commissions d'apporteurs, variable, salaires chargés. */
+const SANS_TVA_FUSION: readonly FamilleCout[] = ['primes', 'apporteurs', 'variable', 'salairesLocation', 'salaries'];
 const motFamille = (f: FamilleCout): string => ({ primes: 'primes', apporteurs: 'apporteurs', variable: 'variable', salairesLocation: 'salaires location', adhoc: 'ADHOC', monga: 'MONGA', salaries: 'salaires gestion' } as const)[f];
 
 /**
@@ -316,8 +318,8 @@ function ResultatFusion({ T }: { T: TotauxFusion }) {
       {avecL && <>
         <dt className="trx-fusion-groupe">Location</dt><dd className="trx-fusion-groupe" />
         <dt>CA brut location ({MOT})</dt><dd><Mt {...m(T.location.ca)} donnees={{ 'data-resultat-fusion': 'location-ca' }} /></dd>
-        <dt>− Commissions d’apporteurs</dt><dd><Mt {...m(T.location.deduits.apporteurs)} cout donnees={{ 'data-resultat-fusion': 'apporteurs' }} /></dd>
-        <dt>− Primes de nouvelle gestion{inclus(T.location.couts.primes, T.location.deduits.primes)}</dt><dd><Mt {...m(T.location.deduits.primes)} cout donnees={{ 'data-resultat-fusion': 'primes' }} /></dd>
+        <dt>− Commissions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.location.deduits.apporteurs)} cout donnees={{ 'data-resultat-fusion': 'apporteurs' }} /></dd>
+        <dt>− Primes de nouvelle gestion (sans TVA){inclus(T.location.couts.primes, T.location.deduits.primes)}</dt><dd><Mt {...m(T.location.deduits.primes)} cout donnees={{ 'data-resultat-fusion': 'primes' }} /></dd>
         <dt>− Variable du négociateur (sans TVA){inclus(T.location.couts.variable, T.location.deduits.variable)}</dt><dd><Mt {...m(T.location.deduits.variable)} cout donnees={{ 'data-resultat-fusion': 'variable' }} /></dd>
         {salaire('salairesLocation', 'Salaires chargés — location', T.location)}
         <dt className="trx-total">= CA net location</dt><dd className="trx-total trx-vert"><Mt {...m(T.location.net)} donnees={{ 'data-resultat-fusion': 'location-net' }} /></dd>
@@ -574,7 +576,7 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
             <ul className="trx-fc-lignes">{FAMILLES_COUTS.filter((f) => (f.activite === 'location' ? avecL : avecG) && (t.couts[f.cle].htC !== 0 || t.couts[f.cle].ttcC !== 0)).map((f) => {
               const compte = !nonCompte(f.cle) && t.deduits[f.cle].htC === t.couts[f.cle].htC;
               return <li key={f.cle} className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-mois={f.cle}>
-                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{mention(f.cle, t)}</span>
+                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{SANS_TVA_FUSION.includes(f.cle) ? ' (sans TVA)' : ''}{mention(f.cle, t)}</span>
                 <Montant htC={t.couts[f.cle].htC} ttcC={t.couts[f.cle].ttcC} versee={compte} /></li>;
             })}</ul>
             <div className="trx-fc-sous-total trx-somme"><span>Coûts du mois</span><Montant htC={t.coutsTotal.htC} ttcC={t.coutsTotal.ttcC} versee donnees={{ 'data-couts-mois': `${m.annee}-${m.mois}` }} /></div>
@@ -601,7 +603,7 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
   );
   const ligneFamille = (f: (typeof FAMILLES_COUTS)[number]) => {
     const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
-    const sansTva = salaire || f.cle === 'variable' ? ' (sans TVA)' : '';
+    const sansTva = salaire || f.cle === 'variable' || f.cle === 'primes' || f.cle === 'apporteurs' ? ' (sans TVA)' : ''; // 🔴 LOT LO14 — primes et apporteurs aussi
     const ou = <small className="trx-fc-sous">{f.activite === 'location' ? 'location' : 'gestion'}</small>;
     if (salaire && !salaires) return ligneM(f.cle, <span className="loc-muet">{f.libelle}{sansTva} — non déduite {ou}</span>, T.couts[f.cle], 'info', { 'data-net-fusion-famille': f.cle });
     // 🔴 LOT LO11 — primes et variable des mois avec salaires : « inclus dans les salaires », non déduits

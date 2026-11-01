@@ -57,20 +57,27 @@ export const plusC = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.h
 export const moinsC = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC - b.htC, ttcC: a.ttcC - b.ttcC });
 /** Un montant HT du Suivi, au centime : le HT, et le TTC calculé du HT (× 1,20). PUR. */
 export const depuisHt = (ht: number): MontantC => ({ htC: Math.round((ht + Number.EPSILON) * 100), ttcC: Math.round((ht * TVA + Number.EPSILON) * 100) });
+/**
+ * 🔴 LOT LO14 (règle d'Arno) — un coût SANS TVA : le TTC = le HT, au centime. Les commissions d'apporteurs de la location (versées à des
+ * particuliers, sans facture) et les primes de nouvelle gestion (payées dans le salaire brut du négociateur) ; comme le variable et les salaires
+ * chargés. PUR.
+ */
+export const sansTva = (ht: number): MontantC => { const c = Math.round((ht + Number.EPSILON) * 100); return { htC: c, ttcC: c }; };
 
 /** La catégorie « Compter » d'une ligne : le mandat de gestion seul d'abord (son type), puis la case « avec gestion ». PUR. */
 export const categorieDe = (a: Pick<ActiviteLue, 'type' | 'avecGestion'>): LigneLocationCa['categorie'] => (a.type === 'gestion_seule' ? 'gestion_seule' : a.avecGestion ? 'avec' : 'sans');
 
 /**
  * ══ 🔴 LOT LO5 (Arno) — LES MONTANTS D'UNE LIGNE, UNE SEULE FOIS, POUR LES DEUX PAGES (Suivi annuel de la Location, Suivi CA › Location) ═══════════
- * Chaque montant de la ligne au centime, en HT puis en TTC (`depuisHt`) : le CA (`caLigne`), la prime de nouvelle gestion (`primeDe`), la
+ * Chaque montant de la ligne au centime, en HT puis en TTC : le CA (`caLigne`, `depuisHt`), la prime de nouvelle gestion (`primeDe`), la
  * commission d'apporteur DUE À LA SIGNATURE (part location + part gestion « One shot » : `partLocationDe` + `partGestionSignatureDe`).
  * La part gestion « Récurrent » des apporteurs (due mois après mois, sur des baux d'autres périodes) et la rémunération des collègues n'y sont
  * pas : elles ne tiennent à aucun bail de la période (le Résumé de la période du Suivi annuel les montre à part, inchangé). PUR.
  */
 export interface MontantsLigne { caC: MontantC; primeC: MontantC; apporteurC: MontantC }
 export function montantsLigne(a: ActiviteCalcul, ctx: { regles: readonly RegleCommission[]; apporteurs: readonly Apporteur[] }): MontantsLigne {
-  return { caC: depuisHt(caLigne(a)), primeC: depuisHt(primeDe(a, ctx.regles)), apporteurC: depuisHt(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs)) };
+  // 🔴 LOT LO14 — la prime et la commission d'apporteur : sans TVA (TTC = HT) ; le CA garde sa TVA
+  return { caC: depuisHt(caLigne(a)), primeC: sansTva(primeDe(a, ctx.regles)), apporteurC: sansTva(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs)) };
 }
 /** Les sommes de lignes : CA, commissions d'apporteurs, primes ; « CA net d'apporteurs » = CA − commissions ; « CA net » = CA net d'apporteurs − primes. */
 export interface SommesLocation { ca: MontantC; apporteurs: MontantC; primes: MontantC; netApporteurs: MontantC; net: MontantC }

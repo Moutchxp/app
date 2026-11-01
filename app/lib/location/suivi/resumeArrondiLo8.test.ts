@@ -33,18 +33,18 @@ describe('🔴 LOT LO8 — le Résumé = la page Suivi CA › Location, au centi
   const r = resumeDuMoisComplet(d, lignes, ctx, '2026-09', null);
   const page = sommesActivites(lignes.filter((a) => a.dateSignature.startsWith('2026-09')), ctx);
   it('septembre : honoraires d’apporteurs 50,05 € HT (5 × 10,01), pas 50,03 € ; externes + internes, bénéficiaires, CA HT net — HT et TTC', () => {
-    expect(page.apporteurs).toEqual({ htC: 5005, ttcC: 6005 });
+    expect(page.apporteurs).toEqual({ htC: 5005, ttcC: 5005 }); // 🔴 LOT LO14 — commissions d'apporteurs sans TVA
     const v = r.ventilation;
     expect([v.externes.centimes, v.internes.centimes]).toEqual([3003, 2002]);
     expect([v.externes.centimes + v.internes.centimes, (v.externes.ttcC ?? 0) + (v.internes.ttcC ?? 0)]).toEqual([page.apporteurs.htC, page.apporteurs.ttcC]);
-    expect([v.externes.ttcC, v.internes.ttcC]).toEqual([3603, 2402]);
-    expect(v.externes.detail.map((b) => [b.nom, b.centimes, b.ttcC])).toEqual([['Agence Martin', 3003, 3603]]);
-    expect(v.internes.detail.map((b) => [b.nom, b.centimes, b.ttcC])).toEqual([['Paul Interne', 2002, 2402]]);
+    expect([v.externes.ttcC, v.internes.ttcC]).toEqual([3003, 2002]);
+    expect(v.externes.detail.map((b) => [b.nom, b.centimes, b.ttcC])).toEqual([['Agence Martin', 3003, 3003]]);
+    expect(v.internes.detail.map((b) => [b.nom, b.centimes, b.ttcC])).toEqual([['Paul Interne', 2002, 2002]]);
     expect(Math.round(r.r.resultat.apporteurs * 100)).toBe(page.apporteurs.htC);
     expect(Math.round(r.r.resultat.caNet * 100)).toBe(page.netApporteurs.htC);
     // Résultat net de l'agence : ses commissions = la page ; en TTC, CA TTC − commissions TTC des lignes − variable TTC
     expect(r.net.apporteurs).toBe(page.apporteurs.htC);
-    expect(r.net.ventilation.externes.ttcC).toBe(3603);
+    expect(r.net.ventilation.externes.ttcC).toBe(3003);
     const variable = r.net.variables.reduce((s, x) => s + Math.round(x.variable * 1.2), 0);
     expect(netEnUnite(r.net, r.dossiers.map((a) => ({ ca: a.honoProprietaireHt + a.honoLocataireHt }))).ttcC).toBe(page.ca.ttcC - page.apporteurs.ttcC - variable);
   });
