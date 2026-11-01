@@ -166,6 +166,45 @@ export function apporteursLocation(lignes: readonly LigneLocationCa[]): LigneApp
   return [...m.values()].sort((a, b) => (a.nom === SANS_APPORTEUR ? 1 : b.nom === SANS_APPORTEUR ? -1 : b.ca.htC - a.ca.htC || a.nom.localeCompare(b.nom, 'fr')));
 }
 
+/**
+ * ══ 🔴 LOT LO6 (Arno) — LE DÉTAIL DES FENÊTRES « PRIMES ET RÉTROCESSIONS » ET « CA NET » ══════════════════════════════════════════════════════
+ * Aucun calcul nouveau : les montants de chaque ligne (`montantsLigne`, lot LO5) regroupés ; les totaux sont ceux des tuiles (`totauxLocation` →
+ * `sommesLocation`). Les baux du plus récent au plus ancien (date, puis numéro). PUR.
+ */
+export interface GroupeApporteurLocation { nom: string; total: MontantC; lignes: LigneLocationCa[] }
+export interface DetailCoutsLocation {
+  /** Le total de la tuile 3 (primes + apporteurs) et ses deux sous-totaux. */
+  total: MontantC; primes: MontantC; apporteurs: MontantC;
+  /** Les baux qui portent une prime de nouvelle gestion. */
+  lignesPrimes: LigneLocationCa[];
+  /** Un groupe par apporteur (son cumul, ses baux), le plus gros cumul d'abord. */
+  groupesApporteurs: GroupeApporteurLocation[];
+  /** Les baux qui portent au moins un coût (« N baux concernés »). */
+  baux: LigneLocationCa[];
+}
+/** Le nom d'un bail, comme sur sa carte : le bien, sinon « propriétaire / locataire ». PUR. */
+export const titreBail = (l: Pick<LigneLocationCa, 'bien' | 'proprietaire' | 'locataire'>): string => l.bien ?? `${l.proprietaire} / ${l.locataire}`;
+const nonNul = (m: MontantC): boolean => m.htC !== 0 || m.ttcC !== 0;
+/** Du plus récent au plus ancien. PUR. */
+export const parDateDecroissante = (lignes: readonly LigneLocationCa[]): LigneLocationCa[] =>
+  [...lignes].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+export function detailCoutsLocation(lignes: readonly LigneLocationCa[]): DetailCoutsLocation {
+  const t = totauxLocation(lignes);
+  const triees = parDateDecroissante(lignes);
+  const groupes = new Map<string, GroupeApporteurLocation>();
+  for (const l of triees.filter((x) => nonNul(x.apporteurC))) {
+    const nom = l.apporteur ?? 'Apporteur';
+    const g = groupes.get(nom) ?? { nom, total: RIEN, lignes: [] };
+    groupes.set(nom, { nom, total: plusC(g.total, l.apporteurC), lignes: [...g.lignes, l] });
+  }
+  return {
+    total: t.couts, primes: t.primes, apporteurs: t.apporteurs,
+    lignesPrimes: triees.filter((l) => nonNul(l.primeC)),
+    groupesApporteurs: [...groupes.values()].sort((a, b) => b.total.htC - a.total.htC || a.nom.localeCompare(b.nom, 'fr')),
+    baux: triees.filter((l) => nonNul(l.primeC) || nonNul(l.apporteurC)),
+  };
+}
+
 /** Toute l'histoire : une ligne par année (baux, CA brut, coûts, CA net). PUR. */
 export const historiqueLocation = (lignes: readonly LigneLocationCa[], annees: readonly number[]): { annee: number; t: TotauxLocationCa }[] =>
   annees.map((annee) => ({ annee, t: totauxLocation(lignesDesAnnees(lignes, [annee])) }));

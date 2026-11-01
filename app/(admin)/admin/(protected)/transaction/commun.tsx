@@ -353,6 +353,9 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:4px}
 .trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1{grid-row:4;padding-top:8px}
 .trx-tuiles-alignees .tdb-tuile>.tdb-tuile-n1~.tdb-tuile-n1{grid-row:5;padding-top:4px}
+/* 🔴 LOT LO6 — Location : « Voir le détail » des tuiles 3 et 4, une sixième ligne commune à la rangée (sous leurs deux lignes du bas) */
+.trx-tuiles-alignees[data-ecran-location-tuiles]>li{grid-row:span 6}
+.trx-tuiles-alignees[data-ecran-location-tuiles] .tdb-tuile>.tdb-tuile-n1.trx-tuile-voir{grid-row:6;padding-top:6px}
 /* LOT CW — la définition du CA net, en petit, sous le graphique. */
 .trx-note-ca-net{margin:6px 0 0;font-size:.8rem}
 /* LOT CW — trois onglets « CA | CA net | Nombre de ventes » dans la colonne de 270 px de l'encadré : un peu moins d'espace autour de chacun. */

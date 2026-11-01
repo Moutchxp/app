@@ -9,7 +9,7 @@ import { libellePeriode, unAnPlusTot, type MoisChoisi } from '../../../../lib/tr
 import { correspond, CLE_TRI_LISTE, estTriListe, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, type TriListe } from '../../../../lib/transaction/listeCartes';
 import {
   anneesLocation, apporteursLocation, COMPTER_LOCATION, espaceLocation, estCompterLocation, ficheRechercheLocation, filtrerLocation, historiqueLocation, LIBELLE_COMPTER_LOCATION,
-  lignesDesAnnees, lignesDesMois, negociateursLocation, totauxLocation, trierLocation, type CompterLocation, type LigneLocationCa, type TotauxLocationCa,
+  lignesDesAnnees, lignesDesMois, negociateursLocation, titreBail, totauxLocation, trierLocation, type CompterLocation, type LigneLocationCa, type TotauxLocationCa,
 } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
@@ -18,6 +18,7 @@ import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, 
 import { CSS, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
+import { FenetreCoutsLocation, FenetreNetLocation } from './FenetresLocation';
 import { useColonnesNegociateurs } from './OngletCompromis';
 
 /**
@@ -184,6 +185,20 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
   const motCumul = borne === null ? '' : `cumul ${annee} ${borne.mot.startsWith('à fin') ? borne.mot : `(${borne.mot})`}`;
   const explication = (t: string) => <small className="trx-tuile-explication" data-tuile-explication-location>{t}</small>;
   const autre = (m: MontantC) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({U.autre(m)})</small>;
+  // 🔴 LOT LO6 — les tuiles 3 et 4 ouvrent leur fenêtre (les lignes de la période, filtres de la page compris) ; le nom d'un bail y ferme la
+  // fenêtre et déplie sa carte dans « Les baux ».
+  const [fenetre, setFenetre] = useState<'couts' | 'net' | null>(null);
+  const tuileCouts = useRef<HTMLButtonElement | null>(null);
+  const tuileNet = useRef<HTMLButtonElement | null>(null);
+  const titreFenetre = libComplet.replace(/^l’année /, '');
+  const allerA = (id: number): void => {
+    setFenetre(null);
+    setTimeout(() => {
+      const b = document.querySelector<HTMLButtonElement>(`[data-deplier="bail-${id}"]`);
+      if (b !== null && b.getAttribute('aria-expanded') !== 'true') b.click();
+      document.querySelector(`[data-carte-bail="${id}"]`)?.scrollIntoView?.({ block: 'start' });
+    }, 0);
+  };
   return <>
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${libComplet}`} data-ecran-location-tuiles>
       <li><div className="tdb-tuile" data-tuile="location-ca">
@@ -198,18 +213,22 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
         <small className="trx-montant-autre trx-tuile-autre" data-location-mandats>{T.nbGestionSeule > 0 || T.nbAvenants > 0
           ? `dont ${[T.nbGestionSeule > 0 ? `${T.nbGestionSeule} mandat${T.nbGestionSeule > 1 ? 's' : ''} de gestion seul${T.nbGestionSeule > 1 ? 's' : ''}` : '', T.nbAvenants > 0 ? `${T.nbAvenants} avenant${T.nbAvenants > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')}` : ' '}</small>
         <span className="tdb-tuile-n1" data-tuile-n1="location-baux">{toutesAnnees !== null ? toutesAnnees : sansN1 ? motSansN1 : `${T1.nb} ${enN1}`}</span></div></li>
-      <li><div className="tdb-tuile" data-tuile="location-couts">
+      <li><button type="button" className="tdb-tuile" data-tuile="location-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts} onClick={() => setFenetre('couts')}>
         <span className="tdb-tuile-mot">Primes et rétrocessions versées — {lib}{explication(EXPLICATION.couts)}</span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.couts.htC, T.couts.ttcC)}`} data-location-couts>{eur(U.en(T.couts))}</strong>{autre(T.couts)}
         <span className="tdb-tuile-n1" data-location-couts-detail>primes {eur(U.en(T.primes))} · apporteurs {eur(U.en(T.apporteurs))}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span></div></li>
-      <li><div className="tdb-tuile" data-tuile="location-net">
+        <span className="tdb-tuile-n1" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span>
+        <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="couts">Voir le détail</span></button></li>
+      <li><button type="button" className="tdb-tuile" data-tuile="location-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
         <span className="tdb-tuile-mot">CA net — {lib}{explication(EXPLICATION.net)}</span>
         <strong className="tdb-tuile-valeur trx-vert" data-location-net>{eur(U.en(T.net))}</strong>{autre(T.net)}
         {/* 🔴 LOT LO5 — le « CA net d'apporteurs » du Suivi annuel de la Location (avant primes), le même chiffre (`sommesLocation`) */}
         <span className="tdb-tuile-n1" data-location-net-apporteurs>CA net d’apporteurs : {eur(U.en(T.netApporteurs))}</span>
-        <span className="tdb-tuile-n1" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span></div></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span>
+        <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="net">Voir le détail</span></button></li>
     </ul>
+    {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }} />}
+    {fenetre === 'net' && <FenetreNetLocation lignes={periode} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }} />}
 
     {graphe.sorte === 'mois'
       ? <GrapheLocationMois lignes={lignes} toutes={toutes} jour={jour} annee={annee} g={graphe} series={series} />
@@ -403,7 +422,7 @@ export function CarteBail({ l, ouvertInitial = false }: { l: LigneLocationCa; ou
   const titre = (
     <span className="trx-carte-gauche">
       <span className="trx-carte-ligne1">
-        <span className="trx-carte-titre" data-carte="titre">{l.bien ?? `${l.proprietaire} / ${l.locataire}`}{' '}
+        <span className="trx-carte-titre" data-carte="titre">{titreBail(l)}{' '}
           <span className={`loc-pastille${l.categorie === 'sans' ? '' : ' trx-pastille--verte'}`} data-etiquette-gestion={l.categorie}>{ETIQUETTE[l.categorie]}</span>
           {l.type === 'avenant' && <> <span className="loc-pastille" data-etiquette-avenant>avenant</span></>}</span>
         <span className="trx-carte-lieu" data-carte-ligne="infos">

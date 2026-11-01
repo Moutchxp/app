@@ -40,7 +40,7 @@ const textes = (u: UniteAffichage, htC: number, ttcC: number): [string, string] 
  * Un montant : l'unité choisie (« HT | TTC » de l'onglet, lot AM) en gras, l'autre dessous entre parenthèses (présentation du lot W) ;
  * en rouge s'il est comptabilisé (versé), en vert la commission d'une vente (CA), en gris sinon.
  */
-function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: number; ttcC: number; versee: boolean; recu?: boolean; donnees?: Record<string, string>; apres?: ReactNode }) {
+export function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: number; ttcC: number; versee: boolean; recu?: boolean; donnees?: Record<string, string>; apres?: ReactNode }) {
   const [grand, petit] = textes(useAffichage(), htC, ttcC);
   return (
     <span className={versee ? `trx-fc-montant ${classeSens('verse', htC, ttcC)}` : recu ? 'trx-fc-montant trx-vert' : 'trx-fc-montant trx-fc-info'} {...donnees}>
@@ -53,9 +53,11 @@ function Montant({ htC, ttcC, versee, recu = false, donnees, apres }: { htC: num
  * 🔴 LOT AN — LA COQUE D'UNE FENÊTRE DE DÉTAIL : titre, total (grand / petit selon « HT | TTC »), « N dossiers », le choix « Par transaction |
  * Par catégorie » (retenu sous `cleMode`), le corps défilant, le pied ; fermeture par la croix, Échap ou un clic hors de la fenêtre.
  */
-function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, dossiers, cleMode, corps, pied, onFermer }: {
+export function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, dossiers, cleMode, corps, pied, onFermer, motTransaction = 'Par transaction' }: {
   titre: string; donnee: string; totalHtC: number; totalTtcC: number; sens: 'verse' | 'recu'; motTotal?: string; dossiers: string; cleMode: string;
   corps: (mode: ModeFenetre) => ReactNode; pied: ReactNode; onFermer: () => void;
+  /** 🔴 LOT LO6 — le mot du mode « une affaire par bloc » (la Location : « Par bail ») ; défaut : « Par transaction ». */
+  motTransaction?: string;
 }) {
   const [mode, setMode] = useState<ModeFenetre>(() => lireMode(cleMode));
   const fermer = useRef<HTMLButtonElement | null>(null);
@@ -83,7 +85,7 @@ function CoqueFenetre({ titre, donnee, totalHtC, totalTtcC, sens, motTotal, doss
           </div>
           <p className="trx-fc-dossiers" data-dossiers>{dossiers}</p>
           <div className="trx-fc-modes" role="group" aria-label="Présentation">
-            <button type="button" className="trx-unite" aria-pressed={mode === 'transaction'} onClick={() => choisir('transaction')} data-mode-fenetre="transaction">Par transaction</button>
+            <button type="button" className="trx-unite" aria-pressed={mode === 'transaction'} onClick={() => choisir('transaction')} data-mode-fenetre="transaction">{motTransaction}</button>
             <button type="button" className="trx-unite" aria-pressed={mode === 'categorie'} onClick={() => choisir('categorie')} data-mode-fenetre="categorie">Par catégorie</button>
           </div>
         </div>

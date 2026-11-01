@@ -3,7 +3,7 @@ import type { ActiviteLue } from '../location/suivi/tableauBord';
 import { caLigne, totaux } from '../location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import {
-  anneesLocation, apporteursLocation, categorieDe, depuisHt, espaceLocation, ficheRechercheLocation, filtrerLocation, historiqueLocation, ligneLocationCa, lignesDesAnnees,
+  anneesLocation, apporteursLocation, categorieDe, depuisHt, detailCoutsLocation, titreBail, espaceLocation, ficheRechercheLocation, filtrerLocation, historiqueLocation, ligneLocationCa, lignesDesAnnees,
   lignesDesMois, negociateursLocation, SANS_APPORTEUR, totauxLocation, trierLocation,
 } from './locationCa';
 import { correspond } from './listeCartes';
@@ -84,5 +84,32 @@ describe('🔴 LOT LO1 — les sommes, la partition, l’espace, les apporteurs,
     expect(correspond(ficheRechercheLocation(l), 'introuvable')).toBe(false);
     expect(trierLocation(ls, 'ca-desc', 'ht').map((x) => x.caC.htC)).toEqual([90000, 50000, 12000, 0]);
     expect(trierLocation(ls, 'date-recent', 'ht').map((x) => x.date)).toEqual(['2026-10-01', '2026-09-20', '2026-09-02', '2025-09-03']);
+  });
+});
+
+describe('🔴 LOT LO6 — le détail des fenêtres (aucun calcul nouveau : les montants des lignes, les totaux des tuiles)', () => {
+  const as = [
+    ligne({ dateSignature: '2026-03-02', mandatGestion: true, avecGestion: true, apporteurId: 7, apporteurNom: 'Agence Martin', honoProprietaireHt: 333.33, honoLocataireHt: 333.34 }),
+    ligne({ dateSignature: '2026-05-10', apporteurId: 7, apporteurNom: 'Agence Martin' }),
+    ligne({ dateSignature: '2026-05-10', type: 'gestion_seule', honoProprietaireHt: 0, honoLocataireHt: 0, mandatGestion: true, lots: [] }),
+    ligne({ dateSignature: '2026-06-01' }),
+  ];
+  const ls = as.map((a) => ligneLocationCa(a, ctx));
+  it('total = tuile 3 (primes + apporteurs) au centime HT et TTC ; sous-totaux = sommes des lignes ; baux concernés du plus récent au plus ancien', () => {
+    const d = detailCoutsLocation(ls); const t = totauxLocation(ls);
+    expect([d.total, d.primes, d.apporteurs]).toEqual([t.couts, t.primes, t.apporteurs]);
+    expect(d.lignesPrimes.reduce((x, l) => x + l.primeC.ttcC, 0)).toBe(d.primes.ttcC);
+    expect(d.groupesApporteurs.map((g) => [g.nom, g.lignes.length, g.total.htC])).toEqual([['Agence Martin', 2, 6667 + 9000]]);
+    expect(d.groupesApporteurs.reduce((x, g) => x + g.total.ttcC, 0)).toBe(d.apporteurs.ttcC);
+    expect(d.baux.map((l) => l.id)).toEqual([ls[2].id, ls[1].id, ls[0].id]); // même date : le plus grand numéro d'abord ; la ligne sans coût absente
+    expect(titreBail(ls[2])).toBe('DUPONT / Léa MARTIN');
+    expect(titreBail(ls[0])).toBe('Appartement — 12 rue des Lilas Puteaux');
+  });
+  it('par bail : CA brut − apporteur − prime = CA net du bail ; la somme = la tuile 4 ; rien de coûteux → listes vides', () => {
+    for (const l of ls) expect(l.netC).toEqual({ htC: l.caC.htC - l.apporteurC.htC - l.primeC.htC, ttcC: l.caC.ttcC - l.apporteurC.ttcC - l.primeC.ttcC });
+    const t = totauxLocation(ls);
+    expect([ls.reduce((x, l) => x + l.netC.htC, 0), ls.reduce((x, l) => x + l.netC.ttcC, 0)]).toEqual([t.net.htC, t.net.ttcC]);
+    const vide = detailCoutsLocation([ls[3]]);
+    expect([vide.baux.length, vide.lignesPrimes.length, vide.groupesApporteurs.length, vide.total]).toEqual([0, 0, 0, { htC: 0, ttcC: 0 }]);
   });
 });

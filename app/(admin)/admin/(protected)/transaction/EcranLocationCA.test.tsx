@@ -110,6 +110,137 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
   });
 });
 
+/**
+ * 🔴 LOT LO6 — les tuiles 3 et 4 ouvrent leur fenêtre (la coque de la vente : croix, Échap, clic hors, « Par bail | Par catégorie » retenu) ; le
+ * total de chaque fenêtre = sa tuile au centime ; CA brut − apporteurs − primes = CA net ; le nom d'un bail déplie sa carte ; lecture seule.
+ */
+describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA net »', () => {
+  const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const grand = (sel: string): number => centimes(doc(`${sel} strong`));
+  // une page neuve (l'état de l'écran — « Compter », négociateurs — part de l'adresse)
+  const rouvrir = async (q: string) => { act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(q); };
+  afterEach(() => { window.localStorage.removeItem('trx-location-couts-mode'); window.localStorage.removeItem('trx-location-net-mode'); });
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`septembre 2025 (${u.toUpperCase()}) : tuile 3 → « Primes et rétrocessions — septembre 2025 », total = tuile, 2 baux concernés, primes + apporteurs`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      const f = u === 'ht' ? 1 : 1.2;
+      await ouvrir('/?vue=mois&annee=2025&mois=9');
+      const tuile = container.querySelector('[data-tuile="location-couts"]')!;
+      expect(tuile.tagName).toBe('BUTTON');
+      expect(texte('[data-voir-detail-location="couts"]')).toBe('Voir le détail');
+      // rien n'est retiré de la tuile
+      for (const x of ['[data-location-couts]', '[data-location-couts-detail]', '[data-tuile-n1="location-couts"]', '[data-tuile-explication-location]']) expect(tuile.querySelector(x)).not.toBeNull();
+      await cliquer('[data-tuile="location-couts"]');
+      expect(doc('[data-fenetre-couts-location] h2')).toBe('Primes et rétrocessions — septembre 2025');
+      expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-couts]')));
+      expect(grand('[data-fenetre-total]')).toBe(Math.round(390 * f * 100));
+      expect(doc('[data-fenetre-couts-location] [data-dossiers]')).toBe('2 baux concernés');
+      expect(grand('[data-sous-total-location="primes"]')).toBe(Math.round(300 * f * 100));
+      expect(grand('[data-sous-total-location="apporteurs"]')).toBe(Math.round(90 * f * 100));
+      expect(grand('[data-sous-total-location="primes"]') + grand('[data-sous-total-location="apporteurs"]')).toBe(grand('[data-fenetre-total]'));
+      // les primes, du plus récent au plus ancien : le mandat seul de Mélanie (20/09), puis le bail avec gestion (02/09)
+      expect([...document.querySelectorAll('[data-ligne-prime]')].map((x) => Number(x.getAttribute('data-ligne-prime')))).toEqual([lignes[3].id, lignes[1].id]);
+      expect(doc(`[data-ligne-prime="${lignes[1].id}"] [data-nego]`)).toBe('Jean-Baptiste PONS');
+      expect(document.querySelector('[data-sous-total-location="primes"]')!.className).toContain('trx-rouge');
+      expect(doc('[data-groupe-apporteur="Agence Martin"] .trx-fc-sous')).toBe('1 bail');
+      expect(grand('[data-cumul-apporteur="Agence Martin"]')).toBe(Math.round(90 * f * 100));
+      expect(document.querySelectorAll('[data-fenetre-couts-location] input, [data-fenetre-couts-location] textarea, [data-fenetre-couts-location] select')).toHaveLength(0);
+      // Par bail : un bloc par bail qui porte un coût, du plus récent au plus ancien ; « Prime » / « Apporteur » ; sous-total par bail
+      await cliquerDoc('[data-mode-fenetre="transaction"]');
+      expect(doc('[data-mode-fenetre="transaction"]')).toBe('Par bail');
+      expect([...document.querySelectorAll('[data-bail-couts]')].map((x) => Number(x.getAttribute('data-bail-couts')))).toEqual([lignes[3].id, lignes[1].id]);
+      expect([...document.querySelectorAll(`[data-bail-couts="${lignes[1].id}"] [data-etiquette]`)].map((x) => x.textContent)).toEqual(['Prime', 'Apporteur']);
+      expect(grand(`[data-verse-bail="${lignes[1].id}"]`)).toBe(Math.round(240 * f * 100));
+      expect(doc(`[data-bail-couts="${lignes[1].id}"] [data-signe]`)).toBe('Signé en septembre 2025');
+      expect([...document.querySelectorAll('[data-verse-bail]')].reduce((t, x) => t + centimes(x.querySelector('strong')!.textContent!), 0)).toBe(grand('[data-fenetre-total]'));
+      expect(window.localStorage.getItem('trx-location-couts-mode')).toBe('transaction');
+    });
+    it(`septembre 2025 (${u.toUpperCase()}) : tuile 4 → « CA net », ordre comptable ; CA brut − apporteurs − primes = CA net = tuile, au centime ; Par bail`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir('/?vue=mois&annee=2025&mois=9');
+      expect(container.querySelector('[data-tuile="location-net"]')!.tagName).toBe('BUTTON');
+      expect(container.querySelector('[data-tuile="location-net"] [data-location-net-apporteurs]')).not.toBeNull();
+      await cliquer('[data-tuile="location-net"]');
+      expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
+      const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
+      expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('h3, span')!.textContent))
+        .toEqual(['CA brut', '− Commissions d’apporteurs', '= CA net d’apporteurs', '− Primes de nouvelle gestion', '= CA net']);
+      const ca = grand('[data-net-ca-montant]'); const app = grand('[data-fenetre-net-location] [data-sous-total-location="apporteurs"]');
+      const nap = grand('[data-net-apporteurs-montant]'); const pr = grand('[data-fenetre-net-location] [data-sous-total-location="primes"]');
+      const net = grand('[data-fenetre-net-location] [data-fenetre-total]');
+      expect(ca).toBe(centimes(texte('[data-location-ca]')));
+      expect(net).toBe(centimes(texte('[data-location-net]')));
+      expect([ca - app, nap - pr]).toEqual([nap, net]);
+      expect(doc('[data-net-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € HT · locataire 450 € HT' : 'dont propriétaire 660 € TTC · locataire 540 € TTC');
+      expect(document.querySelector('[data-net-ca-montant]')!.className).toContain('trx-vert');
+      expect(doc('[data-fenetre-net-location] [data-dossiers]')).toBe('3 baux');
+      await cliquerDoc('[data-mode-fenetre="transaction"]');
+      const blocs = [...document.querySelectorAll('[data-bail-net]')];
+      expect(blocs.map((x) => Number(x.getAttribute('data-bail-net')))).toEqual([lignes[3].id, lignes[2].id, lignes[1].id]);
+      for (const b of blocs) {
+        const id = b.getAttribute('data-bail-net');
+        const [c, ap, p] = [`[data-ca-bail="${id}"]`, `[data-bail-net="${id}"] [data-cout-bail="apporteur"]`, `[data-bail-net="${id}"] [data-cout-bail="prime"]`].map(grand);
+        expect(c - ap - p).toBe(grand(`[data-net-bail="${id}"]`));
+      }
+      expect(blocs.reduce((t, b) => t + grand(`[data-net-bail="${b.getAttribute('data-bail-net')}"]`), 0)).toBe(net);
+    });
+  }
+  it('un mois sans coût (août 2025) : 0 bail concerné, « Aucune » à 0 dans les deux catégories ; la fenêtre CA net y tient', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=8');
+    await cliquer('[data-tuile="location-couts"]');
+    expect(doc('[data-dossiers]')).toBe('0 bail concerné');
+    expect(grand('[data-fenetre-total]')).toBe(0);
+    expect(document.querySelector('[data-fenetre-total]')!.className).toContain('trx-fc-montant');
+    expect(document.querySelector('[data-fenetre-total]')!.className).not.toContain('trx-rouge');
+    expect([...document.querySelectorAll('[data-aucune]')].map((x) => [x.getAttribute('data-aucune'), x.textContent])).toEqual([['primes', 'Aucune'], ['apporteurs', 'Aucune']]);
+    await cliquerDoc('[data-fermer-fenetre]');
+    expect(document.querySelector('[data-fenetre-couts-location]')).toBeNull();
+    await cliquer('[data-tuile="location-net"]');
+    expect(grand('[data-fenetre-total]')).toBe(30000);
+    expect(grand('[data-fenetre-total]')).toBe(grand('[data-net-ca-montant]'));
+  });
+  it('fermer : Échap, clic hors de la fenêtre ; le nom d’un bail ferme la fenêtre et déplie sa carte dans « Les baux »', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] }); vi.setSystemTime(new Date('2025-10-27T10:00:00Z'));
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    await cliquer('[data-tuile="location-couts"]');
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(document.querySelector('[data-fenetre-couts-location]')).toBeNull();
+    await cliquer('[data-tuile="location-net"]');
+    await act(async () => { document.querySelector('.trx-fc-voile')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(document.querySelector('[data-fenetre-net-location]')).toBeNull();
+    const id = lignes[1].id;
+    expect(container.querySelector(`[data-carte-bail="${id}"]`)!.getAttribute('data-replie')).toBe('replie');
+    await cliquer('[data-tuile="location-couts"]');
+    await cliquerDoc(`[data-ligne-prime="${id}"] [data-aller-bail="${id}"]`);
+    await act(async () => { vi.runAllTimers(); });
+    expect(document.querySelector('[data-fenetre-couts-location]')).toBeNull();
+    expect(container.querySelector(`[data-carte-bail="${id}"]`)!.getAttribute('data-replie')).toBe('ouvert');
+  });
+  it('les filtres de la page s’appliquent : « Compter » Avec gestion, le négociateur, la période ; L’année', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9&compter=avec');
+    await cliquer('[data-tuile="location-couts"]');
+    expect([grand('[data-fenetre-total]'), doc('[data-dossiers]')]).toEqual([24000, '1 bail concerné']);
+    await cliquerDoc('[data-fermer-fenetre]');
+    await rouvrir('/?vue=mois&annee=2025&mois=9&negociateur=M%C3%A9lanie');
+    await cliquer('[data-tuile="location-couts"]');
+    expect([grand('[data-fenetre-total]'), centimes(texte('[data-location-couts]'))]).toEqual([15000, 15000]);
+    expect(document.querySelectorAll('[data-groupe-apporteur]')).toHaveLength(0);
+    await cliquerDoc('[data-fermer-fenetre]');
+    await rouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=periode&periode=2025-08,2025-09');
+    await cliquer('[data-tuile="location-net"]');
+    expect(texte('[data-bloc="baux-location"] [data-compteur-liste]')).toBe('(4)'); // août + septembre
+    expect(grand('[data-fenetre-total]')).toBe(61000 + 30000);
+    expect(doc('[data-fenetre-net-location] h2')).toBe(`CA net — ${texte('[data-bloc="baux-location"] h3').replace('Les baux de ', '')}`);
+    expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-net]')));
+    await cliquerDoc('[data-fermer-fenetre]');
+    await rouvrir('/?vue=annee&annee=2025');
+    await cliquer('[data-tuile="location-net"]');
+    expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — 2025');
+    expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-net]')));
+  });
+});
+
 describe('🔴 LOT LO1 — « Location » : L’année', () => {
   it('Tout : « toutes les années », sans N−1 ; « Toute l’histoire » année par année ; une année s’ouvre', async () => {
     await ouvrir('/?vue=annee&annee=2025&vue-annee=tout');
