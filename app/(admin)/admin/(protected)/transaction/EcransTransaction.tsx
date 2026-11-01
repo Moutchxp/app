@@ -35,7 +35,7 @@ import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGloba
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
 import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
-import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisEcoules, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { carteCompromis } from '../../../../lib/transaction/compromisCarte';
 import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, moisCommence, MOT_A_SAISIR, motSalairesASaisir, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
@@ -548,15 +548,20 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
 }
 
 /** 🔴 LOT GE1 — LA LIGNE DES MOIS et « Mois | Période | Année » (déplacée de `VueMois`, à l'identique) : Transaction et Gestion. */
-export function LigneDesMois({ annee, mois, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number; decoupage: Decoupage;
+export function LigneDesMois({ annee, mois, jour, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number;
+  /** Le jour (AAAA-MM-JJ, Europe/Paris) : en « Année », seuls les mois écoulés (`moisEcoules`) sont soulignés. */
+  jour: string; decoupage: Decoupage;
   /** En Période / Année : les mois choisis de l'année (boutons à bascule) ; null : un mois. */
   moisChoisis: readonly number[] | null; onMois: (m: number) => void; onDecoupage?: (x: Decoupage) => void }) {
+  // Arno (01/11/2026) — « Année » : l'année en cours soulignée jusqu'au mois du jour, une année passée en entier, une année future pas du tout.
+  // Seul le soulignement change : les 12 mois restent là et cliquables, et les montants gardent leur règle.
+  const ecoules = decoupage === 'annee' ? moisEcoules(annee, jour) : null;
   return (
   <div className="trx-rangee-mois" data-decoupage={decoupage}>
     {moisChoisis !== null ? (
       <div className="tdb-onglets trx-onglets-periode" role="group" aria-label={`Mois de ${annee} choisis pour la période`}>
         {NOMS_MOIS.map((m, i) => (
-          <button key={m} type="button" aria-pressed={moisChoisis.includes(i + 1)} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
+          <button key={m} type="button" aria-pressed={moisChoisis.includes(i + 1) && (ecoules === null || ecoules.includes(i + 1))} className="tdb-onglet" onClick={() => onMois(i + 1)} data-onglet-mois={i + 1}>{m}</button>
         ))}
       </div>
     ) : (
@@ -722,7 +727,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   return <>
     {/* 🔴 LOT CP — la ligne des mois et, à droite, « Mensuel | Période » (au téléphone : au-dessus, à droite). En Période, chaque mois est un
         bouton à bascule : plusieurs mois soulignés, le dernier ne se retire pas. */}
-    <LigneDesMois annee={annee} mois={mois} decoupage={decoupage} moisChoisis={enPeriode ? moisPeriodeAnnee : null} onMois={onMois} onDecoupage={onDecoupage} />
+    <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={enPeriode ? moisPeriodeAnnee : null} onMois={onMois} onDecoupage={onDecoupage} />
     {/* 🔴 LOT CQ — la ligne « Période : … » sous les mois est RETIRÉE (accord d'Arno) : les titres des blocs disent la période. Reste le petit
         message du dernier mois, qui ne se retire pas. */}
     {enPeriode && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
@@ -2067,7 +2072,7 @@ export function EcranGestion() {
               onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
           {champUnite}
         </form>
-        <LigneDesMois annee={annee} mois={mois} decoupage={decoupage} moisChoisis={periodeVue === null ? null : periodeVue.filter((m) => m.annee === annee).map((m) => m.mois)}
+        <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={periodeVue === null ? null : periodeVue.filter((m) => m.annee === annee).map((m) => m.mois)}
           onMois={choisirMois} onDecoupage={choisirDecoupage} />
         {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
         <VueGestion {...commun} ms={periodeVue ?? [{ annee, mois }]} libTitre={decoupage === 'periode' ? libellePeriodeComplet(periodeVue ?? []) : undefined} lib={decoupage === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : decoupage === 'annee' ? String(annee)

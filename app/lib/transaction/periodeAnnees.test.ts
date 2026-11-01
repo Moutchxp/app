@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compromisDuMode, MODES_MOIS, totauxMoisMode, ventesDuMois, type DonneesSociete, type ModeMois, type Vente } from './modele';
 import { resultatDesCartes } from './carteAffaireLignes';
-import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
 /** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
 const JOUR_DQ = '2025-10-27';
 
@@ -100,5 +100,20 @@ describe('🔴 LOT DN — borneCumul : la borne unique de fin du cumul', () => {
     expect(borneCumul('annee', 2026, 2, null, j)).toEqual({ fin: 10, mot: 'à fin octobre' });
     expect(borneCumul('annee', 2027, 2, null, j)).toEqual({ fin: 0, mot: 'rien encore' });
     expect([cumulA([1, 3, 6], 0), cumulA([1, 3, 6], 2), cumulA([1, 3, 6], 3)]).toEqual([0, 3, 6]);
+  });
+});
+
+describe('Arno (01/11/2026) — les mois écoulés d’une année (le soulignement de « Année »)', () => {
+  it('année en cours : janvier → mois du jour ; année passée : 12 ; année future : aucun ; janvier : janvier seul ; décembre : 12', () => {
+    expect(moisEcoules(2026, '2026-11-01')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(moisEcoules(2025, '2026-11-01')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(moisEcoules(2027, '2026-11-01')).toEqual([]);
+    expect(moisEcoules(2027, '2027-01-01')).toEqual([1]);
+    expect(moisEcoules(2026, '2026-12-31')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+  it('la même borne que le cumul « Année » (`borneCumul`) : le dernier mois souligné est la fin du cumul', () => {
+    for (const [a, j] of [[2026, '2026-11-15'], [2025, '2026-11-15'], [2027, '2026-11-15'], [2027, '2027-01-03'], [2026, '2026-12-02']] as const) {
+      expect([a, j, moisEcoules(a, j).at(-1) ?? 0]).toEqual([a, j, borneCumul('annee', a, 0, null, j).fin]);
+    }
   });
 });

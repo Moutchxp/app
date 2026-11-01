@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccueilLocationGestion, AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, syntheseGlobal, vueInitiale } from './EcransTransaction';
+import { AccueilLocationGestion, AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, LigneDesMois, syntheseGlobal, vueInitiale } from './EcransTransaction';
 import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele';
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { compromisEnCours } from '../../../../lib/transaction/compromisEnCours';
@@ -347,7 +347,8 @@ describe('🔴 LOT GE1 — l’écran « Gestion » : Le mois | L’année, tuil
     const an = new Date().getFullYear();
     await ouvrirG('/');
     expect([container.querySelector('[data-choix-periode]')!.getAttribute('data-choix-periode'), container.querySelector('[data-decouper="annee"]')!.getAttribute('aria-pressed')]).toEqual(['annee', 'true']);
-    expect(container.querySelectorAll('[data-onglet-mois][aria-pressed="true"]')).toHaveLength(12);
+    expect(container.querySelectorAll('[data-onglet-mois][aria-pressed="true"]')).toHaveLength(10); // Arno (01/11/2026) — seuls les mois écoulés ; les 12 restent là
+    expect(container.querySelectorAll('[data-onglet-mois]')).toHaveLength(12);
     expect([adresse().get('vue-mois'), adresse().get('annee')]).toEqual(['annee', String(an)]);
     // le choix de la visite reste : « Mois » choisi, il y reste en changeant de mois
     await cliquer('[data-decouper="mois"]');
@@ -2402,12 +2403,12 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     describe('🔴 LOT CT — « Mois | Période | Année »', () => {
       const pressee = () => texte('[data-choix-periode] [aria-pressed="true"]');
       const vueMois = () => new URLSearchParams(window.location.search).get('vue-mois');
-      it('trois positions (Mois par défaut) ; « Année » : les 12 mois soulignés, « Année 2025 », N−1 sur 2024 entière ; changer d’année ; un clic sur un mois → Période sans lui ; retour au Mois', async () => {
+      it('trois positions (Mois par défaut) ; « Année » : les mois écoulés soulignés (2025 en cours : janvier → octobre), « Année 2025 », N−1 sur 2024 entière ; changer d’année ; un clic sur un mois → Période sans lui ; retour au Mois', async () => {
         const fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7', retros());
         try {
           expect([[...container.querySelectorAll('[data-choix-periode] button')].map((x) => x.textContent), pressee(), vueMois()]).toEqual([['Mois', 'Période', 'Année'], 'Mois', 'mois']);
           await cliquer('[data-decouper="annee"]');
-          expect([pressee(), choisis(), vueMois(), adresse()]).toEqual(['Année', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 'annee', null]);
+          expect([pressee(), choisis(), vueMois(), adresse()]).toEqual(['Année', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'annee', null]);
           expect(texte('[data-bloc="resultat-mois"] h3')).toBe('Résultat de l’agence — Année 2025');
           expect(texte('[data-bloc="ventes-mois"] h3')).toBe('Les ventes de l’année — 2025');
           expect(texte('[data-bloc="apporteurs-mois"] h3')).toContain('Apporteurs de l’année — 2025');
@@ -2429,7 +2430,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       });
       it('les liens : &vue-mois=annee ; les anciens (« &periode=… » sans vue-mois → Période ; sans rien → Mois)', async () => {
         let fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=7&vue-mois=annee', retros());
-        try { expect([pressee(), choisis().length]).toEqual(['Année', 12]); } finally { fin(); }
+        try { expect([pressee(), choisis().length]).toEqual(['Année', 10]); } finally { fin(); }
         fin = await ouvrirSur(jeu(), 'criterimmo', '/?vue=mois&annee=2025&mois=9&periode=2025-07,2025-09', retros());
         try { expect([pressee(), choisis(), vueMois()]).toEqual(['Période', [7, 9], 'periode']); } finally { fin(); }
         fin = await ouvrirSur(jeu(), 'criterimmo', '/?annee=2025&mois=7', retros());
@@ -4273,5 +4274,37 @@ describe('🔴 LOT UI1 — tuiles compactes, montant converti collé', () => {
       expect(CSS_TRANSACTION).toContain(r);
     // aucune taille de texte des tuiles alignées n'est touchée
     expect(CSS_TRANSACTION.split('\n').filter((l) => l.includes('trx-tuiles-alignees') && /font-size/.test(l))).toEqual([]);
+  });
+});
+
+describe('Arno (01/11/2026) — « Année » : seuls les mois écoulés sont soulignés', () => {
+  const douze = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const rendre = async (annee: number, jour: string, decoupage: 'mois' | 'periode' | 'annee' = 'annee', moisChoisis: number[] | null = douze) => {
+    const clics: number[] = [];
+    await act(async () => { root.render(createElement(LigneDesMois, { annee, mois: 3, jour, decoupage, moisChoisis, onMois: (m: number) => { clics.push(m); }, onDecoupage: () => {} })); });
+    return clics;
+  };
+  const soulignes = () => [...container.querySelectorAll('[data-onglet-mois][aria-pressed="true"]')].map((b) => Number(b.getAttribute('data-onglet-mois')));
+  it('année en cours (novembre) : janvier → novembre ; passée : 12 ; future : aucun ; janvier : janvier seul ; décembre : 12', async () => {
+    for (const [annee, jour, attendu] of [[2026, '2026-11-01', douze.slice(0, 11)], [2025, '2026-11-01', douze], [2027, '2026-11-01', []],
+      [2027, '2027-01-15', [1]], [2026, '2026-12-01', douze]] as const) {
+      await rendre(annee, jour);
+      expect([annee, jour, soulignes()]).toEqual([annee, jour, attendu]);
+      // les 12 mois restent là, et le choix « Année » aussi
+      expect([container.querySelectorAll('[data-onglet-mois]').length, container.querySelector('[data-decouper="annee"]')!.getAttribute('aria-pressed')]).toEqual([12, 'true']);
+    }
+  });
+  it('un mois à venir reste cliquable (non souligné n’est pas désactivé) ; « Mois » et « Période » inchangés', async () => {
+    const clics = await rendre(2026, '2026-11-01');
+    const dec = container.querySelector('[data-onglet-mois="12"]') as HTMLButtonElement;
+    expect([dec.disabled, dec.getAttribute('aria-disabled')]).toEqual([false, null]);
+    await act(async () => { dec.click(); });
+    expect(clics).toEqual([12]);
+    // Période : les mois choisis, futurs compris, restent soulignés
+    await rendre(2026, '2026-11-01', 'periode', [10, 12]);
+    expect(soulignes()).toEqual([10, 12]);
+    // Mois : l'onglet du mois, comme avant
+    await rendre(2026, '2026-11-01', 'mois', null);
+    expect(container.querySelector('[data-onglet-mois][aria-selected="true"]')!.getAttribute('data-onglet-mois')).toBe('3');
   });
 });

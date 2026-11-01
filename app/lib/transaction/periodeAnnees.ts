@@ -41,6 +41,11 @@ export const moisADate = (annee: number, jour: string): number => {
   return annee < a ? 12 : annee > a ? 0 : Number(jour.slice(5, 7));
 };
 /**
+ * Arno (01/11/2026) — LES MOIS ÉCOULÉS d'une année (1 → 12), soulignés dans la rangée des mois en « Année » : la même borne que le cumul
+ * (`moisADate`) — l'année en cours de janvier au mois du jour (Europe/Paris, `jour` injecté) ; une année passée, les 12 ; une année future, aucun. PUR.
+ */
+export const moisEcoules = (annee: number, jour: string): number[] => Array.from({ length: moisADate(annee, jour) }, (_, i) => i + 1);
+/**
  * ══ 🔴 LOT DN (Arno, 31/10/2026) — LA BORNE DE FIN DU CUMUL : UNE SEULE FONCTION, PARTOUT (PUR) ══════════════════════════════════════════════════
  * Les tuiles de cumul (« CA … cumulé [année] », « CA net … cumulé », « Prévisionnel … »), l'encadré du graphique en Cumul au repos et « L'année »
  * (« à date ») cumulent de janvier au mois `fin` de cette borne ; N−1 : la MÊME borne sur l'année précédente.

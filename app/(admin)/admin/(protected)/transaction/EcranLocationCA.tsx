@@ -137,7 +137,7 @@ export function EcranLocationCA() {
               onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
           {champsCommuns}
         </form>
-        <LigneDesMois annee={annee} mois={mois} decoupage={decoupage} moisChoisis={decoupage === 'mois' ? null : (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois)}
+        <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={decoupage === 'mois' ? null : (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois)}
           onMois={choisirMois} onDecoupage={choisirDecoupage} />
         {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
         <VueLocation lignes={filtrees} toutes={d.lignes} jour={jour} ms={periodeVue ?? [{ annee, mois }]} annee={annee}
