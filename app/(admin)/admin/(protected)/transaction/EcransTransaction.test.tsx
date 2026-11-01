@@ -62,6 +62,11 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
+/** 🔴 LOT CG5 — le CA global replie ses tableaux à l'arrivée : les déplier (chacun encore replié) avant de les lire. */
+const deplierGlobal = async () => {
+  for (let k = 0; k < 3; k++) for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-ca-global] [data-deplier-liste][aria-expanded="false"]')]) await act(async () => { b.click(); });
+  await calmer();
+};
 // 🔴 LOT DU — le texte d'un élément SANS la ligne d'explication des tuiles (`data-tuile-explication`, éprouvée par ses propres tests : « LOT DU »).
 const sansExplication = (n: Element): string => { const c = n.cloneNode(true) as Element; c.querySelectorAll('[data-tuile-explication]').forEach((x) => x.remove()); return c.textContent ?? ''; };
 const texte = (sel: string): string => { const n = container.querySelector(sel); return n === null ? '' : sansExplication(n).replace(/\s/g, ' '); };
@@ -144,7 +149,7 @@ describe('une société — l’année', () => {
 describe('le CA global', () => {
   it('vente MACJ + location + gestion, mois par mois ; CRITERIMMO porte la location et la gestion', async () => {
     await act(async () => { root.render(createElement(EcranGlobal)); });
-    await calmer();
+    await calmer(); await deplierGlobal();
     const janvier = container.querySelector('[data-mois-global="1"]')!;
     const cel = (mot: string): string => janvier.querySelector(`[data-mot="${mot}"]`)?.textContent?.replace(/\s/g, ' ') ?? '';
     expect(cel('Vente MACJ')).toBe('9 187,50 €');
@@ -194,7 +199,7 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
       donneesGlobal.ventes = [...donneesGlobal.ventes, ...[dhibMacj, dhibCrit].map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois,
         honorairesTtc: v.honorairesTtc, libelle: v.libelle, double: v.double }))];
       window.history.replaceState(null, '', '/?annee=2025');
-      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
       expect(dernier('[data-ca-global]')).toBe(true);
     } finally { donnees.ventes.pop(); delete donnees.doubles; }
   });
@@ -202,7 +207,7 @@ describe('🔴 LOT C — « Ventes à attribuer »', () => {
     donneesGlobal.ventes = [...donneesGlobal.ventes, ...[dhibMacj, dhibCrit].map((v) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois,
       honorairesTtc: v.honorairesTtc, libelle: v.libelle, double: v.double }))];
     await act(async () => { root.render(createElement(EcranGlobal)); });
-    await calmer();
+    await calmer(); await deplierGlobal();
     expect(texte('[data-a-attribuer-global] [data-mot="Total"]')).toBe('8 333,33 €');
     expect(texte('[data-mois-global="3"] [data-mot="Vente MACJ"]')).toBe('0 €');
     expect(texte('#trx-a-attribuer .tdb-replie-mot')).toBe('Ventes à attribuer (1)');
@@ -272,7 +277,7 @@ describe('🔴 LOT L — « Gestion », déplacée du CA global', () => {
   });
   it('le CA global garde la gestion dans ses montants (même cellule), et renvoie vers « Gestion » pour la saisie', async () => {
     await act(async () => { root.render(createElement(EcranGlobal)); });
-    await calmer();
+    await calmer(); await deplierGlobal();
     expect(texte('[data-mois-global="1"] [data-mot="Gestion"]')).toBe('14 127 €');
     expect(container.querySelector('[data-lien-gestion] a')!.getAttribute('href')).toBe('/admin/transaction/gestion?annee=2025');
   });
@@ -641,7 +646,7 @@ describe('🔴 LOT L — le CA global : synthèse par société, puis le global'
     expect(de('global').totalN1Ht).toBe(celluleGlobal(e, 2024, null).totalHt);
     expect(de('global').previsionnelHt).toBe(previsionnel(e, 2025).totalHt);
     await act(async () => { root.render(createElement(EcranGlobal)); });
-    await calmer();
+    await calmer(); await deplierGlobal();
     expect([...container.querySelectorAll('[data-synthese]')].map((x) => x.getAttribute('data-synthese'))).toEqual(['criterimmo', 'macj', 'global']);
     expect(texte('[data-synthese="criterimmo"] [data-synthese-total]')).toBe('23 423,05 €');
     expect(texte('[data-synthese="global"] [data-synthese-total]')).toBe(texte('[data-total-annee] [data-mot="Total"]'));
@@ -674,7 +679,7 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
   it('le sélecteur en haut à droite des filtres ; la bascule HT ↔ TTC : tuiles (grand + entre parenthèses), titres, synthèse, mois par mois, année par année ; mémoire partagée ; jamais « −0 € »', async () => {
     window.localStorage.setItem('trx-affichage-montants', 'ht');
     window.history.replaceState(null, '', '/?annee=2025');
-    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
     // 🔴 LOT CG4 — le sélecteur sur la ligne des onglets, à droite ; l'encart de filtres n'existe plus (retrait autorisé par Arno)
     const barre = container.querySelector('[data-ca-global] [data-barre-onglets-global]')!;
     expect([barre.children[0].getAttribute('role'), barre.lastElementChild!.hasAttribute('data-unite-global-onglets')]).toEqual(['tablist', true]);
@@ -682,15 +687,15 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
     expect(container.querySelector('[data-ca-global] form.tdb-filtres')).toBeNull();
     const lireTout = () => ({
       titre: texte('[data-tuile="global"] .tdb-tuile-mot'), grand: centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')), petit: texte('[data-tuile="global"] [data-montant-autre]'),
-      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => x.textContent).slice(0, 4) });
+      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG5 — le titre seul (sans le total replié)
     const ht = lireTout();
     expect(ht.titre).toBe('CA global HT (2025)');
-    expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Année par année (HT ; réalisé et prévisionnel)']); // 🔴 LOT CG2
+    expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Chiffre d’affaires année par année (HT ; réalisé et prévisionnel)']); // 🔴 LOT CG2 / CG5
     await cliquer('[data-afficher="ttc"]');
     const ttc = lireTout();
     expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ttc');
     expect(ttc.titre).toBe('CA global TTC (2025)');
-    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA)', 'Année par année (TTC ; réalisé et prévisionnel)']); // 🔴 LOT CG2
+    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA)', 'Chiffre d’affaires année par année (TTC ; réalisé et prévisionnel)']); // 🔴 LOT CG2 / CG5
     // le grand montant TTC, le petit HT (et inversement) : les deux unités de la même cellule
     expect([ht.petit.endsWith('TTC)'), ttc.petit.endsWith('HT)')]).toEqual([true, true]);
     expect(centimesDe(ht.petit)).toBe(ttc.grand);
@@ -719,9 +724,9 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
     window.localStorage.setItem('trx-affichage-montants', 'ht');
     window.localStorage.removeItem('trx-fusion-salaires');
     window.history.replaceState(null, '', '/?annee=2025');
-    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-    expect(texte('#trx-g-mois')).toBe('Chiffre d’affaires global 2025 mois par mois (HT)');
-    expect(texte('#trx-g-couts')).toBe('Coûts globaux 2025 mois par mois (HT)');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
+    expect(texte('#trx-g-mois-titre')).toBe('Chiffre d’affaires global 2025 mois par mois (HT)');
+    expect(texte('#trx-g-couts-titre')).toBe('Coûts globaux 2025 mois par mois (HT)');
     const table = container.querySelector('[data-table-couts="global-couts"]')!;
     expect([...table.querySelectorAll('[data-groupe-couts]')].map((x) => x.getAttribute('data-groupe-couts'))).toEqual(['vente', 'location', 'gestion', 'total']); // 🔴 LOT CG3
     expect([...table.querySelectorAll('thead tr:first-child th')].map((x) => x.textContent)).toEqual(['Mois', 'Vente (CRITERIMMO + MACJ)', 'Location', 'Gestion', 'Total et comparaison']); // 🔴 LOT CG3 — le 4ᵉ bloc
@@ -738,7 +743,7 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
       if (u === 'ttc') await cliquer('[data-afficher="ttc"]');
       for (const r of table.querySelectorAll('tbody tr')) { if (r.querySelector('[data-cout="total"]')!.textContent !== '—') expect([u, r.getAttribute('data-rangee-couts'), colonnes(r)]).toEqual([u, r.getAttribute('data-rangee-couts'), total(r)]); }
     }
-    expect(texte('#trx-g-couts')).toContain('(TTC ;');
+    expect(texte('#trx-g-couts-titre')).toContain('(TTC ;');
     // la gestion de janvier 2025 : salarié non saisi → « à saisir » ; un mois à venir (décembre, le 27/10/2025) : « — »
     expect(texte('[data-rangee-couts="2025-1"] [data-cout="gestion-salaires"]')).toBe('à saisir');
     expect(texte('[data-rangee-couts="2025-12"] [data-cout="total"]')).toBe('—');
@@ -747,7 +752,7 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
     if (r !== undefined) expect(r.querySelector('[data-cout="ecart"]')!.className).toContain('tdb-signe--negatif');
     // « Avec | Sans salaires » : la mémoire partagée de Location / Gestion / FUSION
     await cliquer('[data-bloc="global-couts"] [data-salaires="sans"]');
-    expect([window.localStorage.getItem('trx-fusion-salaires'), texte('#trx-g-couts')]).toEqual(['sans', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA ; hors salaires)']);
+    expect([window.localStorage.getItem('trx-fusion-salaires'), texte('#trx-g-couts-titre')]).toEqual(['sans', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA ; hors salaires)']);
     // année par année : une ligne par année
     expect([...container.querySelectorAll('[data-table-couts="global-couts-annees"] tbody tr')].map((x) => x.getAttribute('data-rangee-couts'))).toEqual(['2024', '2025']);
     window.localStorage.removeItem('trx-fusion-salaires');
@@ -766,12 +771,12 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
     window.localStorage.setItem('trx-affichage-montants', 'ht');
     window.localStorage.removeItem('trx-fusion-salaires');
     window.history.replaceState(null, '', '/?annee=2025');
-    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
     expect(container.querySelector('[data-choix-annees]')!.getAttribute('data-choix-annees')).toBe('annee');
     expect(container.querySelector('[data-onglet-annee="2025"]')!.getAttribute('aria-selected')).toBe('true');
     expect(container.querySelector('[data-filtre="annee"]')).toBeNull(); // le champ « Année » est remplacé (accord d'Arno)
     expect(container.querySelector('[data-barre-onglets-global] [data-unite-global-onglets] [data-afficher="ht"]')).not.toBeNull(); // 🔴 LOT CG4
-    expect([texte('#trx-g-mois'), texte('#trx-g-couts')]).toEqual(['Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)']);
+    expect([texte('#trx-g-mois-titre'), texte('#trx-g-couts-titre')]).toEqual(['Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)']);
     const parAnnee: Record<string, Record<string, number>> = {};
     for (const u of ['ht', 'ttc'] as const) {
       if (u === 'ttc') await cliquer('[data-afficher="ttc"]');
@@ -784,6 +789,7 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
     // Période : 2024 et 2025 choisies
     await cliquer('[data-decouper-annees="periode"]');
     if (container.querySelector('[data-onglet-annee="2024"]')!.getAttribute('aria-pressed') !== 'true') await cliquer('[data-onglet-annee="2024"]');
+    await deplierGlobal(); // 🔴 LOT CG5 — les tableaux de la période arrivent repliés
     expect(new URLSearchParams(window.location.search).get('vue-annee')).toBe('periode');
     expect(new URLSearchParams(window.location.search).get('annees')).toBe('2024,2025');
     for (const u of ['ttc', 'ht'] as const) {
@@ -791,8 +797,8 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
       for (const k of ['global', 'criterimmo', 'macj'] as const) expect([u, k, valeur(k)]).toEqual([u, k, parAnnee[`${u}2024`][k] + parAnnee[`${u}2025`][k]]);
       expect(centimesDe(texte('[data-total-couts] [data-cout="total"]'))).toBe(parAnnee[`${u}2024`].couts + parAnnee[`${u}2025`].couts);
     }
-    expect(texte('#trx-g-annees-periode')).toBe('Chiffre d’affaires global 2024 → 2025 année par année (HT)');
-    expect(texte('#trx-g-couts')).toBe('Coûts globaux 2024 → 2025 année par année (HT)');
+    expect(texte('#trx-g-annees-periode-titre')).toBe('Chiffre d’affaires global 2024 → 2025 année par année (HT)');
+    expect(texte('#trx-g-couts-titre')).toBe('Coûts globaux 2024 → 2025 année par année (HT)');
     expect([...container.querySelectorAll('[data-annee-periode-global]')].map((x) => x.getAttribute('data-annee-periode-global'))).toEqual(['2024', '2025', 'total']);
     expect(centimesDe(texte('[data-annee-periode-global="total"] [data-mot="Total"]'))).toBe(valeur('global'));
     expect(container.querySelector('[data-bloc="global-mois"]')).toBeNull();
@@ -802,16 +808,17 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
     const sansA = [...container.querySelectorAll('[data-table-couts="global-couts-periode"] tbody tr:not([data-total-couts]) [data-cout="total"]')].reduce((t, x) => t + centimesDe(x.textContent!), 0);
     expect(sansP).toBe(sansA);
     // Tout : aucune comparaison
-    await cliquer('[data-decouper-annees="tout"]');
+    await cliquer('[data-decouper-annees="tout"]'); await deplierGlobal();
     expect(texte('[data-tuile="global"] .tdb-tuile-n1')).toBe('Toutes les années (2024 → 2025)');
     expect([texte('[data-synthese="global"] [data-mot="Écart"]'), texte('[data-annee-periode-global="total"] [data-mot="Écart"]'), texte('[data-total-couts] [data-cout="ecart"]')]).toEqual(['—', '—', '—']);
     window.localStorage.removeItem('trx-fusion-salaires');
   });
   it('le titre des coûts et « Avec | Sans salaires » sur une ligne (téléphone : dessous) ; les blocs Vente · Location · Gestion · Total dans les deux tableaux', async () => {
     window.history.replaceState(null, '', '/?annee=2025');
-    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-    const tete = container.querySelector('[data-bloc="global-couts"] [data-couts-tete]')!;
-    expect([tete.children[0].tagName, tete.children[1].querySelector('[data-salaires-choix]') !== null]).toEqual(['H3', true]);
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
+    // 🔴 LOT CG5 — la ligne d'en-tête repliable : le titre (h3) et, sur la même ligne, « Avec | Sans salaires »
+    const tete = container.querySelector('[data-bloc="global-couts"] .lr-ligne')!;
+    expect([tete.children[0].tagName, tete.children[1].querySelector('[data-couts-tete] [data-salaires-choix]') !== null]).toEqual(['H3', true]);
     for (const t of ['[data-table-global]', '[data-table-couts="global-couts"]']) {
       const table = container.querySelector(t)!;
       expect([t, [...table.querySelectorAll('colgroup.trx-g')].map((x) => x.getAttribute('data-bloc-colonnes'))]).toEqual([t, ['vente', 'location', 'gestion', 'total']]);
@@ -838,7 +845,7 @@ describe('🔴 LOT CG4 — le CA global : sélecteur sur la ligne des onglets, a
     try {
       window.localStorage.setItem('trx-affichage-montants', 'ht');
       window.history.replaceState(null, '', '/?annee=2025');
-      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
       expect([...container.querySelectorAll('[data-onglet-annee]')].map((x) => x.getAttribute('data-onglet-annee'))).toEqual(['2024', '2025']);
       // la ligne des années vient juste sous les onglets (plus d'encart de filtres)
       const barre = container.querySelector('[data-barre-onglets-global]')!;
@@ -853,6 +860,64 @@ describe('🔴 LOT CG4 — le CA global : sélecteur sur la ligne des onglets, a
       expect(css).toContain('.trx-vues-barre{display:flex;flex-wrap:wrap;');
       expect(css).toContain('.trx-unite-onglets{display:flex;align-items:center;gap:8px;margin-left:auto;');
     } finally { donneesGlobal.ventes = avant; }
+  });
+});
+
+/**
+ * 🔴 LOT CG5 (accord d'Arno) — sous la synthèse, chaque tableau est REPLIÉ à l'arrivée sur une ligne (triangle rouge, titre, total à droite) ; un clic
+ * l'ouvre, un autre le referme, plusieurs peuvent être ouverts ; « Avec | Sans salaires » reste utilisable replié ; « Chiffre d'affaires année par année ».
+ */
+describe('🔴 LOT CG5 — le CA global : tableaux repliés à l’arrivée', () => {
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const etats = () => [...container.querySelectorAll('[data-ca-global] [data-deplier-liste]')].map((b) => [b.getAttribute('data-deplier-liste'), b.getAttribute('aria-expanded')]);
+  const grandTotal = (section: string) => centimesDe(texte(`[data-total-liste="${section}"] [data-montant-grand]`));
+  it('tous repliés à l’arrivée ; ouvrir / fermer d’un clic ; plusieurs ouverts ; totaux des lignes = totaux des tableaux (HT et TTC) ; salaires replié ; Période / Tout', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(etats()).toEqual([['global-mois', 'false'], ['global-couts', 'false'], ['global-annees', 'false'], ['global-couts-annees', 'false']]);
+    expect([container.querySelector('[data-table-global]'), container.querySelector('[data-table-couts]'), container.querySelector('[data-table-global-annees]')]).toEqual([null, null, null]);
+    // la synthèse et les tuiles : toujours ouvertes
+    expect([container.querySelector('[data-table-synthese]') !== null, container.querySelector('[data-tuile="global"]') !== null]).toEqual([true, true]);
+    expect(texte('#trx-g-annees-titre')).toBe('Chiffre d’affaires année par année (HT ; réalisé et prévisionnel)');
+    expect(texte('#trx-g-couts-annees-titre')).toBe('Coûts globaux année par année (HT)');
+    // « Avec | Sans salaires » replié : il agit sans déplier
+    const avant = grandTotal('global-couts');
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="sans"]');
+    expect([etats()[1][1], window.localStorage.getItem('trx-fusion-salaires'), texte('#trx-g-couts-titre')]).toEqual(['false', 'sans', 'Coûts globaux 2025 mois par mois (HT ; hors salaires)']);
+    expect(grandTotal('global-couts')).toBeLessThanOrEqual(avant);
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="avec"]');
+    // ouvrir deux tableaux : les deux restent ouverts ; les totaux des lignes = ceux des tableaux
+    for (const u of ['ht', 'ttc'] as const) {
+      if (u === 'ttc') await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
+      if (container.querySelector('[data-deplier-liste="global-mois"]')!.getAttribute('aria-expanded') === 'false') await cliquer('[data-deplier-liste="global-mois"]');
+      if (container.querySelector('[data-deplier-liste="global-couts"]')!.getAttribute('aria-expanded') === 'false') await cliquer('[data-deplier-liste="global-couts"]');
+      expect(etats().slice(0, 2)).toEqual([['global-mois', 'true'], ['global-couts', 'true']]);
+      expect([u, grandTotal('global-mois')]).toEqual([u, centimesDe(texte('[data-total-annee] [data-mot="Total"]'))]);
+      expect([u, grandTotal('global-couts')]).toEqual([u, centimesDe(texte('[data-total-couts] [data-cout="total"]'))]);
+      await cliquer('[data-deplier-liste="global-annees"]'); await cliquer('[data-deplier-liste="global-couts-annees"]');
+      const realise = [...container.querySelectorAll('[data-annee-global] [data-mot="Réalisé"]')].reduce((t, x) => t + centimesDe(x.textContent!), 0);
+      const couts = [...container.querySelectorAll('[data-table-couts="global-couts-annees"] tbody [data-cout="total"]')].reduce((t, x) => t + centimesDe(x.textContent!), 0);
+      expect([u, grandTotal('global-annees'), grandTotal('global-couts-annees')]).toEqual([u, realise, couts]);
+      // un clic referme
+      await cliquer('[data-deplier-liste="global-annees"]'); await cliquer('[data-deplier-liste="global-couts-annees"]');
+      expect(etats().slice(2)).toEqual([['global-annees', 'false'], ['global-couts-annees', 'false']]);
+      expect(container.querySelector('[data-table-global-annees]')).toBeNull();
+    }
+    // Période : les tableaux de la période arrivent repliés, avec leur total
+    await cliquer('[data-decouper-annees="periode"]');
+    await cliquer('[data-onglet-annee="2024"]');
+    expect(etats().slice(0, 2)).toEqual([['global-annees-periode', 'false'], ['global-couts-periode', 'false']]);
+    expect(grandTotal('global-annees-periode')).toBe(centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')));
+    await cliquer('[data-decouper-annees="tout"]');
+    expect(etats().slice(0, 2).map((x) => x[0])).toEqual(['global-annees-periode', 'global-couts-periode']);
+    // focus visible et vrai bouton (Entrée / Espace)
+    const b = container.querySelector('[data-deplier-liste="global-annees-periode"]')!;
+    expect([b.tagName, b.getAttribute('type')]).toEqual(['BUTTON', 'button']);
+    expect([...container.querySelectorAll('style')].map((x) => x.textContent).join('')).toContain('.lr-bascule:focus-visible{outline:2px solid var(--color-svv-red)');
+    window.localStorage.removeItem('trx-fusion-salaires');
   });
 });
 
@@ -1163,7 +1228,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
 
   it('le CA global n’a pas d’écran « Le mois » : pas de sélecteur de mode (ses tableaux ne changent pas)', async () => {
     window.history.replaceState(null, '', '/?annee=2025');
-    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
     expect(container.querySelector('[data-filtre="mode"]')).toBeNull();
     expect(container.querySelector('[data-table-global]')).not.toBeNull();
   });
@@ -2352,7 +2417,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     try {
       act(() => { root.unmount(); }); root = createRoot(container);
       window.history.replaceState(null, '', '/?annee=2025');
-      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
       // 🔴 LOT CG1 — le CA global suit « HT | TTC » (le choix retenu) : les totaux de la route, dans l'unité
       const k = window.localStorage.getItem('trx-affichage-montants') === 'ttc' ? 'ttcC' : 'htC';
       expect(lire('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe(totalCompromisEnCours(tousV, null)[k]);

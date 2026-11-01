@@ -1,13 +1,14 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { coutsGlobaux, coutsGlobauxAnnees, type CoutsGlobaux, type EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import { MOT_A_SAISIR, moisCommence, nbMoisSalairesASaisir } from '../../../../lib/transaction/periodeMois';
 import { salairesLocationDuMois } from '../../../../lib/transaction/locationCa';
 import { aSaisirGestion } from '../../../../lib/transaction/gestionVue';
-import { classeSens, ecartEur, eur, MOT_UNITE, signePct, useAffichage } from './commun';
+import { classeSens, ecartEur, eur, Montants, MOT_UNITE, signePct, useAffichage } from './commun';
+import { ListeRepliable } from '../location/ListeRepliable';
 import { SelecteurSalaires } from './ChoixSalaires';
 import { sensDe } from '../location/TableauBordSuivi';
 
@@ -83,14 +84,18 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
     );
   };
   const n1 = motN1 ?? (total !== null && total.annees === undefined ? String(total.annee - 1) : 'Un an plus tôt');
-  return (
-    <section className="tdb-section" aria-labelledby={idTitre} data-bloc={donnee}>
-      <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX}</style>
-      {/* 🔴 LOT CG3 — le titre à gauche, « Avec | Sans salaires » à droite, sur la même ligne (téléphone : le sélecteur passe dessous) */}
-      <div className="trx-couts-tete" data-couts-tete>
-        <h3 id={idTitre}>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></h3>
-        <div className="trx-couts-choix"><SelecteurSalaires salaires={salaires} onChange={onSalaires} /></div>
-      </div>
+  // 🔴 LOT CG5 (accord d'Arno) — REPLIÉ à l'arrivée, sur une ligne : le triangle rouge partagé, le titre, le total des coûts à droite ; « Avec | Sans
+  // salaires » reste sur la ligne, utilisable replié. L'état n'est pas retenu d'une visite à l'autre.
+  const [ouvert, setOuvert] = useState(false);
+  const annees = total !== null ? (total.annees ?? [total.annee]) : rangees.map((r) => r.annee);
+  const totalCouts = (total !== null && total.mois === null) || total === null ? coutsGlobauxAnnees(e, annees, salaires).total : coutsGlobaux(e, total.annee, total.mois, salaires).total;
+  return <>
+    <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX}</style>
+    <ListeRepliable id={idTitre} section={donnee} ouvert={ouvert} onOuvert={setOuvert} donnees={{ 'data-bloc': donnee }} compteur={null}
+      titre={<>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></>}
+      total={<Montants ht={totalCouts.htC / 100} ttc={totalCouts.ttcC / 100} sens="verse" classe="lr-montants" donnees={{ 'data-total-couts-replie': '' }} />}
+      // 🔴 LOT CG3 — « Avec | Sans salaires » à droite du titre, sur la même ligne (téléphone : dessous)
+      aDroite={<div className="trx-couts-choix" data-couts-tete><SelecteurSalaires salaires={salaires} onChange={onSalaires} /></div>}>
       <div className="trx-couts-defile trx-table-defile" data-defile-couts>
         <table className="tdb-table trx-table-groupes trx-table-couts" data-table-couts={donnee}>
           {/* 🔴 LOT CG3 — les blocs : Vente · Location · Gestion · Total et comparaison (un trait vertical au début de chacun, un fond un bloc sur deux) */}
@@ -114,8 +119,8 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
         </table>
       </div>
       <p className="loc-muet trx-couts-note" data-couts-note>L’inter-cabinet entre nos sociétés n’est jamais un coût (neutralisé) ; chaque montant est celui de sa page (Transaction vente FUSION, Suivi CA › Location, Gestion).{salaires ? ' Primes et variable : « inclus dans les salaires » les mois où les salaires de la Location sont saisis.' : ' Sans salaires : salaires chargés non comptés ; primes et variable déduits chaque mois.'}</p>
-    </section>
-  );
+    </ListeRepliable>
+  </>;
 }
 
 /**
