@@ -1756,12 +1756,13 @@ export function EcranGlobal() {
         choisies={enTout ? anneesVisibles : choixA.annees} onAnnee={choisirAnnee} onDecoupage={choisirDecoupageAnnees} />}
       {choixA?.decoupage === 'periode' && refusAnnees && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`}>
-        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global {MOT} ({lib})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>{autre(Aa.totalHt)}
-          <span className="tdb-tuile-n1">{n1Tuile(A.totalHt, A1.totalHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO {MOT} <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>{autre(Aa.criterimmoHt)}
           <span className="tdb-tuile-n1">{n1Tuile(A.criterimmoHt, A1.criterimmoHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ {MOT} <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>{autre(Aa.macjHt)}
           <span className="tdb-tuile-n1">{n1Tuile(A.macjHt, A1.macjHt)}</span></div></li>
+        {/* 🔴 LOT CG6 (Arno) — l'ordre des tuiles : CRITERIMMO · MACJ · CA global · Prévisionnel */}
+        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global {MOT} ({lib})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>{autre(Aa.totalHt)}
+          <span className="tdb-tuile-n1">{n1Tuile(A.totalHt, A1.totalHt)}</span></div></li>
         <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel {MOT} <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>{autre(Pa.totalHt)}
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
@@ -1785,7 +1786,7 @@ export function EcranGlobal() {
         </table>
       </section>
 
-      {enAnnee ? <ListeRepliable id="trx-g-mois" section="global-mois" ouvert={ouverts['global-mois'] === true} onOuvert={ouvrir('global-mois')} donnees={{ 'data-bloc': 'global-mois' }}
+      {enAnnee ? <ListeRepliable colonneTotal id="trx-g-mois" section="global-mois" ouvert={ouverts['global-mois'] === true} onOuvert={ouvrir('global-mois')} donnees={{ 'data-bloc': 'global-mois' }}
         compteur={null} titre={<>Chiffre d’affaires global {annee} mois par mois <small className="loc-muet">({MOT})</small></>} total={totalCa(sel)}>
         {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
         <p className="loc-muet" data-lien-gestion>La gestion se saisit mois par mois dans l’écran <a className="trx-lien" href={`${ADRESSES_TRANSACTION.gestion}?annee=${annee}`}>Gestion</a>.</p>
@@ -1837,7 +1838,7 @@ export function EcranGlobal() {
         </table>
         </div>
       </ListeRepliable>
-      : <ListeRepliable id="trx-g-annees-periode" section="global-annees-periode" ouvert={ouverts['global-annees-periode'] === true} onOuvert={ouvrir('global-annees-periode')}
+      : <ListeRepliable colonneTotal id="trx-g-annees-periode" section="global-annees-periode" ouvert={ouverts['global-annees-periode'] === true} onOuvert={ouvrir('global-annees-periode')}
         donnees={{ 'data-bloc': 'global-annees-periode' }} compteur={null} titre={<>Chiffre d’affaires global {lib} année par année <small className="loc-muet">({MOT})</small></>} total={totalCa(sel)}>
         {/* 🔴 LOT CG3 — « Période » / « Tout » : une ligne par année choisie, puis le total (la somme des années, au centime) */}
         <div className="trx-table-defile">
@@ -1869,7 +1870,7 @@ export function EcranGlobal() {
           total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
 
       {/* 🔴 LOT CG5 — « Année par année » devient « Chiffre d'affaires année par année » ; replié à l'arrivée, le réalisé de toutes les années à droite */}
-      <ListeRepliable id="trx-g-annees" section="global-annees" ouvert={ouverts['global-annees'] === true} onOuvert={ouvrir('global-annees')} donnees={{ 'data-bloc': 'global-annees' }}
+      <ListeRepliable colonneTotal id="trx-g-annees" section="global-annees" ouvert={ouverts['global-annees'] === true} onOuvert={ouvrir('global-annees')} donnees={{ 'data-bloc': 'global-annees' }}
         compteur={null} titre={<>Chiffre d’affaires année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></>} total={totalCa(annees)}>
         <table className="tdb-table tdb-table--large" data-table-global-annees>
           <thead><tr><th scope="col">Année</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total CRITERIMMO</th>

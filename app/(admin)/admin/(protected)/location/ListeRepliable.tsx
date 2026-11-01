@@ -31,10 +31,15 @@ export function useListeRepliee(nb: number, cle: string): [boolean, (o: boolean)
  * à DROITE (l'unité choisie en grand, l'autre en petit dessous) ; ligne 2, les outils : « Trier : … » à gauche, « Rechercher… » à droite.
  * `infobulle` : le nom complet de la période (title / aria-label du titre), quand le titre l'abrège.
  */
-export function ListeRepliable({ id, section, titre, infobulle, compteur, total, outils, avant, aDroite, ouvert, onOuvert, children, classe = 'tdb-section', donnees }: {
+export function ListeRepliable({ id, section, titre, infobulle, compteur, total, outils, avant, aDroite, colonneTotal = false, ouvert, onOuvert, children, classe = 'tdb-section', donnees }: {
   id: string; section: string; titre: ReactNode; infobulle?: string; compteur: ReactNode; total: ReactNode; outils?: ReactNode; avant?: ReactNode;
   /** 🔴 LOT CG5 — un contrôle sur la MÊME ligne que le titre, à droite, hors du bouton (utilisable replié, sans déplier) ; absent : l'en-tête d'avant. */
   aDroite?: ReactNode;
+  /**
+   * 🔴 LOT CG6 — le total dans une COLONNE de largeur commune, au bord droit (les totaux de plusieurs listes tombent exactement les uns sous les autres) ;
+   * l'ordre : triangle · titre · … · `aDroite` · total. Le total reste cliquable (il ouvre / referme comme la ligne). Faux : l'en-tête d'avant.
+   */
+  colonneTotal?: boolean;
   ouvert: boolean; onOuvert: (o: boolean) => void; children: ReactNode; classe?: string; donnees?: Record<string, string>;
 }) {
   return (
@@ -51,6 +56,21 @@ export function ListeRepliable({ id, section, titre, infobulle, compteur, total,
                 <span className="lr-total" data-total-liste={section}>{total}</span>
               </button>
             </h3>);
+          if (colonneTotal) {
+            return (
+              <div className="lr-ligne lr-ligne--colonne">
+                <h3 className="lr-h">
+                  <button type="button" className="lr-bascule" aria-expanded={ouvert} aria-controls={`${id}-contenu`} onClick={() => onOuvert(!ouvert)} data-deplier-liste={section}>
+                    <span className="svv-triangle-boite lr-triangle" aria-hidden="true"><DessinTriangle ouvert={ouvert} /></span>
+                    <span className="lr-nom"><span className="lr-titre" id={`${id}-titre`} title={infobulle} {...(infobulle !== undefined ? { 'data-infobulle-periode': infobulle } : {})}>{titre}</span>
+                      {' '}<span className="trx-compteur lr-compteur" data-compteur-liste>{compteur}</span></span>
+                  </button>
+                </h3>
+                {aDroite !== undefined && <div className="lr-a-droite" data-a-droite-liste={section}>{aDroite}</div>}
+                <span className="lr-total lr-total-col" data-total-liste={section} onClick={() => onOuvert(!ouvert)}>{total}</span>
+              </div>
+            );
+          }
           return aDroite === undefined ? h : <div className="lr-ligne">{h}<div className="lr-a-droite" data-a-droite-liste={section}>{aDroite}</div></div>;
         })()}
         {outils !== undefined && <div className="lr-outils">{outils}</div>}
@@ -78,6 +98,15 @@ export const CSS_LISTE_REPLIABLE = `${CSS_TRIANGLE}${CSS_TRIANGLE_BOITE}
 .lr-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
 .lr-ligne>.lr-h{flex:1 1 20rem}
 .lr-a-droite{flex:none;margin-left:auto}
+.lr-ligne--colonne{display:grid;grid-template-columns:minmax(0,1fr) auto 14rem;align-items:center;column-gap:16px;row-gap:6px}
+.lr-ligne--colonne>.lr-h{grid-column:1;grid-row:1}
+.lr-ligne--colonne>.lr-a-droite{grid-column:2;grid-row:1;margin:0}
+.lr-ligne--colonne>.lr-total-col{grid-column:3;grid-row:1;justify-self:stretch;display:flex;justify-content:flex-end;margin:0;cursor:pointer}
+@media (max-width:640px){
+  .lr-ligne--colonne{grid-template-columns:minmax(0,1fr) 9.5rem}
+  .lr-ligne--colonne>.lr-total-col{grid-column:2}
+  .lr-ligne--colonne>.lr-a-droite{grid-column:1 / -1;grid-row:2;justify-self:end}
+}
 .lr-outils{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;padding-left:4px}
 .lr-outils>:only-child{margin-right:auto}
 `;

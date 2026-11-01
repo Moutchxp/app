@@ -921,6 +921,48 @@ describe('🔴 LOT CG5 — le CA global : tableaux repliés à l’arrivée', ()
   });
 });
 
+/**
+ * 🔴 LOT CG6 (Arno) — les lignes repliées : le total dans une colonne de largeur commune, au bord droit (les totaux exactement les uns sous les autres) ;
+ * « Avec | Sans salaires » à gauche du total ; les tuiles : CRITERIMMO · MACJ · CA global · Prévisionnel.
+ */
+describe('🔴 LOT CG6 — le CA global : totaux alignés, sélecteur à gauche du total, ordre des tuiles', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  it('chaque ligne repliée : triangle · titre · (sélecteur) · total, dans la même grille ; Année / Période / Tout ; HT et TTC ; avec et sans salaires', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect([...container.querySelectorAll('[data-ca-global] .tdb-tuiles [data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['criterimmo', 'macj', 'global', 'previsionnel']);
+    const lignes = () => [...container.querySelectorAll('[data-ca-global] [data-deplier-liste]')].map((b) => b.closest('.lr-ligne')!);
+    const verifier = () => {
+      const ls = lignes();
+      expect(ls.length).toBe(4);
+      for (const l of ls) {
+        const enfants = [...l.children].map((x) => x.className.split(' ')[0]);
+        const section = l.querySelector('[data-deplier-liste]')!.getAttribute('data-deplier-liste')!;
+        expect([section, l.className, enfants.at(-1), l.lastElementChild!.getAttribute('data-total-liste')]).toEqual([section, 'lr-ligne lr-ligne--colonne', 'lr-total', section]);
+        // le sélecteur des salaires (lignes des coûts) : juste à gauche du total
+        if (section.includes('couts')) expect([section, enfants]).toEqual([section, ['lr-h', 'lr-a-droite', 'lr-total']]);
+        else expect([section, enfants]).toEqual([section, ['lr-h', 'lr-total']]);
+        expect(l.querySelector('[data-deplier-liste] [data-total-liste]')).toBeNull(); // le total hors du bouton, dans sa colonne
+      }
+    };
+    verifier();
+    await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]'); verifier();
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="sans"]'); verifier();
+    await cliquer('[data-decouper-annees="periode"]'); verifier();
+    await cliquer('[data-decouper-annees="tout"]'); verifier();
+    // le total reste cliquable : il ouvre / referme comme la ligne
+    await cliquer('[data-total-liste="global-annees"]');
+    expect(container.querySelector('[data-deplier-liste="global-annees"]')!.getAttribute('aria-expanded')).toBe('true');
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.lr-ligne--colonne{display:grid;grid-template-columns:minmax(0,1fr) auto 14rem;');
+    expect(css).toContain('.lr-ligne--colonne>.lr-total-col{grid-column:3;grid-row:1;justify-self:stretch;display:flex;justify-content:flex-end;');
+    expect(css).toContain('@media (max-width:640px){\n  .lr-ligne--colonne{grid-template-columns:minmax(0,1fr) 9.5rem}');
+    window.localStorage.removeItem('trx-fusion-salaires');
+  });
+});
+
 describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépendants sont déduits ; les internes et les inconnus, à part', () => {
   it('MYLENE salariée : sa paye n’est plus déduite, elle s’affiche « Internes — non déduits » ; son statut dans l’espace par négociateur', async () => {
     const avant = donnees.statutsNegociateurs;
