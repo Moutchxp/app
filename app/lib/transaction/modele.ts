@@ -631,9 +631,19 @@ export const compromisEnCoursDuMois = (ventes: readonly Vente[], annee: number, 
 export const compromisReportes = (ventes: readonly Vente[], jour: string): Vente[] => ventes.filter((v) => estCompromis(v) && moisCompteEnCours(v, jour).reporte);
 /** La mention des compromis reportés au mois en cours ; null : aucun. PUR. */
 export const mentionReportes = (n: number): string | null => (n === 0 ? null : `${n} compromis non daté${n > 1 ? 's' : ''} ou antérieur${n > 1 ? 's' : ''}, compté${n > 1 ? 's' : ''} au mois en cours`);
-/** Les compromis de la part « compromis » selon le mode : tous à leur date (mode « compromis »), ou ceux en cours (« vendu + compromis », règle du lot DQ). PUR. */
+/**
+ * 🔴 LOT DR (Arno, 01/11/2026) — mode « COMPROMIS » : un compromis passé depuis en acte compte au mois de la date de son compromis (`compromisDuMois`) ;
+ * un compromis EN COURS est placé par la règle du lot DQ (`moisCompteEnCours`) : daté de l'année en cours (ou à venir), à sa date ; sans date ou
+ * daté d'une année antérieure, au mois en cours. Jamais un annulé ; ceux qui comptent pour la société. PUR.
+ */
+export const compromisSignesOuEnCoursDuMois = (ventes: readonly Vente[], annee: number, mois: number | null, jour: string): Vente[] => {
+  const enCours = new Set(compromisEnCoursDuMois(ventes, annee, mois, jour).map((v) => v.id));
+  return ventes.filter((v) => enCours.has(v.id) || (v.statut === 'vendue' && dateDans(v.dateCompromis, annee, mois) && compteDansSociete(v)));
+};
+/** Les compromis de la part « compromis » selon le mode : signés ou en cours (mode « compromis », lot DR), ou ceux en cours (« vendu + compromis »,
+ *  lot DQ) — les compromis en cours placés par la même règle. PUR. */
 export const compromisDuMode = (ventes: readonly Vente[], annee: number, mois: number | null, mode: ModeMois, jour: string): Vente[] =>
-  mode === 'tous' ? compromisEnCoursDuMois(ventes, annee, mois, jour) : mode === 'compromis' ? compromisDuMois(ventes, annee, mois) : [];
+  mode === 'tous' ? compromisEnCoursDuMois(ventes, annee, mois, jour) : mode === 'compromis' ? compromisSignesOuEnCoursDuMois(ventes, annee, mois, jour) : [];
 /** Le CA HT des compromis de chaque mois (12 valeurs), à la date du compromis. PUR. */
 export const caHtCompromisParMois = (ventes: readonly Vente[], annee: number, societe: Societe | null = null): number[] =>
   Array.from({ length: 12 }, (_, i) => compromisDuMois(ventes, annee, i + 1).reduce((s, v) => s + caHt(v, societe), 0));

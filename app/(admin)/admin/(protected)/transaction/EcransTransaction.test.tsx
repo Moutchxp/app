@@ -872,10 +872,12 @@ describe('🔴 LOT BT — « Vendu + compromis » : une affaire n’est jamais c
     const ids = Array.from({ length: 12 }, (_, i) => [...M.ventesDuMois(ventes, 2025, i + 1), ...M.compromisDuMode(ventes, 2025, i + 1, 'tous', JOUR_DQ)].map((x) => x.id)).flat();
     expect(ids.sort()).toEqual([21, 22, 24]);
   });
-  it('le mode « Compromis » ne change pas (l’affaire signée compte au mois de son compromis) ; le mode « Vendu » non plus, au centime', async () => {
+  it('le mode « Compromis » : l’affaire signée compte au mois de son compromis, le compromis en cours de 2024 au mois en cours (lot DR) ; le mode « Vendu » ne change pas, au centime', async () => {
     const M = await import('../../../../lib/transaction/modele');
-    expect(M.caHtParMoisMode(ventes, 2025, 'macj', 'compromis', JOUR_DQ)[9]).toBe(18000 / 1.2);
-    expect(M.compromisDuMode(ventes, 2025, 10, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([21, 22]);
+    // 🔴 LOT DR (Arno) — le compromis 24, encore en cours mais daté de 2024, compte aussi en mode « Compromis » dans l'année en cours (octobre 2025).
+    expect(M.caHtParMoisMode(ventes, 2025, 'macj', 'compromis', JOUR_DQ)[9]).toBe((18000 + 1200) / 1.2);
+    expect(M.compromisDuMode(ventes, 2025, 10, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([21, 22, 24]);
+    expect(M.compromisDuMode(ventes, 2024, null, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([23]);
     expect(M.caHtParMoisMode(ventes, 2025, 'macj', 'vendu', JOUR_DQ)).toEqual(M.caHtParMois(ventes, 2025, 'macj'));
     const d = { ...donnees, ventes, retrocessions: [] };
     expect(M.totauxMoisMode(d, 2025, 12, 'vendu', JOUR_DQ)).toEqual(M.totauxMois(d, 2025, 12));
@@ -2054,19 +2056,23 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       } finally { fin(); }
     });
 
-    it('« Compromis » : la tuile d’avant ; « Vendu + compromis » : vendu cumulé (3ᵉ tuile en Vendu) + compromis en cours (4ᵉ tuile en Compromis), au centime (HT et TTC)', async () => {
+    // 🔴 LOT DR (Arno) — « Vendu + compromis » : la 3ᵉ tuile s'appelle « Prévisionnel CA 2025 (vendu + compromis) » (montant et ligne du bas
+    // inchangés) ; la 4ᵉ = le CA net de la tuile du mode Vendu + le CA net des compromis en cours comptés (164 en septembre, 165 sans date au mois en cours).
+    it('« Compromis » : la tuile d’avant ; « Vendu + compromis » : 3ᵉ tuile « Prévisionnel CA » (montant inchangé), 4ᵉ = CA net du mode Vendu + CA net des compromis en cours, au centime (HT et TTC)', async () => {
       for (const u of ['ht', 'ttc'] as const) {
         window.localStorage.setItem('trx-affichage-montants', u);
         const fin = await ouvrir6();
         try {
-          const vendu = t4('[data-tuile="cumul"] .tdb-tuile-valeur');
+          const netVendu = t4('[data-ca-net-cumul]');
           await cliquer('[data-mode-mois="compromis"]');
-          const compromis = t4('[data-tuile="compromis"] [data-compromis-en-cours]');
           expect(texte('[data-tuile="compromis"] .tdb-tuile-n1')).toBe('2 compromis — le prévisionnel');
           await cliquer('[data-mode-mois="tous"]');
-          expect([u, t4('[data-previsionnel-mois]')]).toEqual([u, vendu + compromis]);
-          expect(texte('[data-tuile="previsionnel-mois"] .tdb-tuile-mot')).toBe(`Prévisionnel 2025 (vendu à fin juin + compromis en cours, ${u.toUpperCase()})`);
-          expect(texte('[data-previsionnel-detail]')).toBe(u === 'ht' ? 'dont 15 000 € vendus · 3 500 € en compromis (2)' : 'dont 18 000 € vendus · 4 200 € en compromis (2)');
+          expect(texte('[data-tuile="cumul"] .tdb-tuile-mot')).toBe('Prévisionnel CA 2025 (vendu + compromis) (à fin juin)');
+          const netComp = u === 'ht' ? 350000 : 420000; // (3 000 + 1 200) TTC, des parts sans commission
+          expect([u, t4('[data-previsionnel-net]')]).toEqual([u, netVendu + netComp]);
+          expect(texte('[data-tuile="previsionnel-net-mois"] .tdb-tuile-mot')).toBe(`Prévisionnel du CA net 2025 ((vendu + compromis) − commissions versées ; vendu à fin juin, ${u.toUpperCase()})`);
+          expect(texte('[data-previsionnel-detail]')).toBe(u === 'ht' ? 'dont 13 000 € vendus · 3 500 € en compromis (2)' : 'dont 15 600 € vendus · 4 200 € en compromis (2)');
+          expect(texte('[data-tuile-n1="previsionnel-net"]')).toBe(u === 'ht' ? '4 000 € en 2024 (+312,5 %)' : '4 800 € en 2024 (+312,5 %)');
         } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
       }
     });
@@ -2268,8 +2274,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
         await cliquer('[data-mode-mois="compromis"]');
         expect([container.querySelector('[data-tuile="compromis"]') !== null, texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([true, '2']);
         await cliquer('[data-mode-mois="tous"]');
-        // vendu (6 000 + 3 000,01 + 2 400 + 1 200) + compromis en cours (4 800), en HT
-        expect([texte('[data-regle-mode]') !== '', caTuile('previsionnel-annee')]).toEqual([true, Math.round((6000 + 3000.01 + 2400 + 1200) / 1.2 * 100) + 400000]);
+        // 🔴 LOT DR — le prévisionnel du CA net : vendu (6 000 + 3 000,01 + 2 400 + 1 200) + compromis en cours (4 800), en HT (des parts : net = CA)
+        expect([texte('[data-regle-mode]') !== '', caTuile('previsionnel-net-annee')]).toEqual([true, Math.round((6000 + 3000.01 + 2400 + 1200) / 1.2 * 100) + 400000]);
       } finally { fin(); window.localStorage.removeItem('trx-mois-mode'); }
       fin = await ouvrirG('/?vue=annee&annee=2024');
       try { expect([texte('[data-tuile="ca-a-date"] .tdb-tuile-mot'), caTuile('ca-a-date')]).toEqual(['CA HT — 2024 à date (année complète)', a24]); } finally { fin(); }
@@ -2348,7 +2354,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
             const U = u.toUpperCase();
             const ca = mode === 'vendu' ? `CA ${U}` : mode === 'compromis' ? `CA ${U} des compromis` : `CA ${U} vendu + compromis`;
             expect([u, mode, texte('[data-tuile="ca-annee"] .tdb-tuile-mot'), texte('[data-tuile="ca-a-date"] .tdb-tuile-mot')])
-              .toEqual([u, mode, `${ca} — toutes les années`, `${ca} — à date (toutes les années)`]);
+              .toEqual([u, mode, `${ca} — toutes les années`, mode === 'tous' ? 'Prévisionnel CA toutes les années (vendu + compromis) (à date)' : `${ca} — à date (toutes les années)`]); // 🔴 LOT DR
             expect(texte('[data-tuile="ventes-annee"] .tdb-tuile-mot')).toContain('— toutes les années');
             // en compromis, 2023 n'a aucun compromis daté : la ligne et l'axe commencent en 2024 ; la date butoir 2026 n'ajoute pas d'année
             const plage = mode === 'compromis' ? '2025 → 2025' : '2023 → 2025';
@@ -2573,8 +2579,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       const fin = await ouvrirN('/?vue=mois&annee=2025&mois=2&mode=tous');
       try {
         await cliquer('[data-decouper="annee"]');
-        expect(tuile()[0]).toContain('cumulé 2025 (à fin octobre)');
-        expect(texte('[data-tuile="previsionnel-mois"] .tdb-tuile-mot')).toContain('vendu à fin octobre');
+        expect(tuile()[0]).toBe('Prévisionnel CA 2025 (vendu + compromis) (à fin octobre)'); // 🔴 LOT DR
+        expect(texte('[data-tuile="previsionnel-net-mois"] .tdb-tuile-mot')).toContain('vendu à fin octobre');
       } finally { fin(); }
     });
   });
@@ -3126,8 +3132,11 @@ describe('🔴 LOT DQ — « Vendu + compromis » : tous les compromis en cours 
     expect([M.compromisDuMode(ventes, 2024, null, 'tous', JOUR_DQ), M.compromisDuMode(ventes, 2023, null, 'tous', JOUR_DQ)]).toEqual([[], []]);
     expect([M.mentionReportes(0), M.mentionReportes(1), M.mentionReportes(3)]).toEqual([null, '1 compromis non daté ou antérieur, compté au mois en cours',
       '3 compromis non datés ou antérieurs, comptés au mois en cours']);
-    // le mode « Compromis » seul : inchangé (à la date du compromis, y compris l'année passée)
-    expect(M.compromisDuMode(ventes, 2024, null, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([36]);
+    // 🔴 LOT DR — le mode « Compromis » : la même règle pour les compromis en cours (2024 ne compte plus le 36, compté en octobre 2025) ;
+    // un compromis passé en acte reste au mois de la date de son compromis
+    expect(M.compromisDuMode(ventes, 2024, null, 'compromis', JOUR_DQ)).toEqual([]);
+    expect(M.compromisDuMode(ventes, 2025, null, 'compromis', JOUR_DQ).map((x) => x.id).sort()).toEqual([33, 34, 35, 36]);
+    expect(M.compromisDuMode(ventes, 2025, 10, 'compromis', JOUR_DQ).map((x) => x.id).sort()).toEqual([34, 35, 36]);
   });
   for (const u of ['ht', 'ttc'] as const) {
     it(`L’année 2025 (${u.toUpperCase()}) : tuile 1 = Vendu + TOUS les compromis en cours = le Prévisionnel ; « à date » idem ; 2024 inchangée (vendu seul)`, async () => {
@@ -3142,7 +3151,8 @@ describe('🔴 LOT DQ — « Vendu + compromis » : tous les compromis en cours 
         const eurFr = (x: number) => `${x.toLocaleString('fr-FR', { maximumFractionDigits: 2 }).replace(/\u202f/g, ' ')} €`;
         expect([val('[data-tuile="ca-annee"]').replace(/\s/g, ' '), texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([eurFr(total).replace(/\s/g, ' '), '6']);
         expect(val('[data-tuile="ca-a-date"]').replace(/\s/g, ' ')).toBe(eurFr(total).replace(/\s/g, ' '));
-        expect(texte('[data-previsionnel-annee]').replace(/\s/g, ' ') || val('[data-tuile="previsionnel-annee"]').replace(/\s/g, ' ')).toBe(eurFr(total).replace(/\s/g, ' '));
+        // 🔴 LOT DR — la 4ᵉ tuile : le prévisionnel du CA net (des ventes sans ligne : rien à déduire, net = CA)
+        expect(val('[data-tuile="previsionnel-net-annee"]').replace(/\s/g, ' ')).toBe(eurFr(total).replace(/\s/g, ' '));
         expect(texte('[data-bloc="compromis-annee"] [data-mention-reportes]')).toBe(' — 3 compromis non datés ou antérieurs, comptés au mois en cours');
       } finally { donnees.ventes = avant; }
     });
@@ -3162,3 +3172,91 @@ describe('🔴 LOT DQ — « Vendu + compromis » : tous les compromis en cours 
   });
 });
 
+
+describe('🔴 LOT DR — « Compromis » : les compromis en cours comptés comme en « Vendu + compromis » ; les deux tuiles de droite de « Vendu + compromis »', () => {
+  const ld = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+    origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+  const v = (id: number, o: Partial<Vente>) => vente(id, { societe: 'macj', ...o });
+  // au 27/10/2025 : une vente signée en mars (compromis daté de février 2025), une signée en 2025 sans date de compromis ; 3 compromis en cours — daté
+  // de juin 2025 (commission du négociateur 1 200 TTC), sans date, daté de 2024 ; un annulé ; une vente 2024 au compromis daté de 2024.
+  const ventes = [
+    v(41, { libelle: 'SIGNÉE MARS', honorairesTtc: 12000, statut: 'vendue', annee: 2025, mois: 3, dateCompromis: '2025-02-03', lignes: [ld('MYLENE', 'negociateur', 2400)] }),
+    v(42, { libelle: 'SIGNÉE SANS DATE', honorairesTtc: 6000, statut: 'vendue', annee: 2025, mois: 9 }),
+    v(43, { libelle: 'EN COURS JUIN', honorairesTtc: 6000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-06-10', lignes: [ld('MYLENE', 'negociateur', 1200)] }),
+    v(44, { libelle: 'EN COURS SANS DATE', honorairesTtc: 3600, statut: 'compromis', annee: 2019, mois: null, dateCompromis: null }),
+    v(45, { libelle: 'EN COURS 2024', honorairesTtc: 2400, statut: 'compromis', annee: 2024, mois: null, dateCompromis: '2024-11-20' }),
+    v(46, { libelle: 'ANNULÉ', honorairesTtc: 9000, statut: 'annulee', annee: 2025, mois: null, dateCompromis: '2025-02-01' }),
+    v(47, { libelle: 'SIGNÉE 2024', honorairesTtc: 4800, statut: 'vendue', annee: 2024, mois: 6, dateCompromis: '2024-04-01' }),
+  ];
+  const ouvrir = async (q: string, u: 'ht' | 'ttc' = 'ht') => {
+    window.localStorage.setItem('trx-affichage-montants', u);
+    const avant = { ventes: donnees.ventes, statuts: donnees.statutsNegociateurs };
+    donnees.ventes = ventes; donnees.statutsNegociateurs = { MYLENE: 'independant' };
+    window.history.replaceState(null, '', q);
+    await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+    return () => { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; window.localStorage.removeItem('trx-mois-mode'); window.localStorage.setItem('trx-affichage-montants', 'ht'); };
+  };
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const val = (sel: string) => centimesDe(texte(`[data-tuile="${sel}"] .tdb-tuile-valeur`));
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+
+  it('la règle (pur) : un compromis signé depuis → au mois de son compromis ; un en cours → la règle du lot DQ ; jamais un annulé ; 2024 ne compte plus le compromis en cours', async () => {
+    const M = await import('../../../../lib/transaction/modele');
+    expect(M.compromisDuMode(ventes, 2025, null, 'compromis', JOUR_DQ).map((x) => x.id).sort()).toEqual([41, 43, 44, 45]);
+    expect(M.compromisDuMode(ventes, 2025, 2, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([41]);
+    expect(M.compromisDuMode(ventes, 2025, 6, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([43]);
+    expect(M.compromisDuMode(ventes, 2025, 10, 'compromis', JOUR_DQ).map((x) => x.id).sort()).toEqual([44, 45]);
+    expect(M.compromisDuMode(ventes, 2024, null, 'compromis', JOUR_DQ).map((x) => x.id)).toEqual([47]);
+    // les compromis en cours du mode « Compromis » = ceux de « Vendu + compromis » = l'onglet « En cours »
+    expect(M.compromisDuMode(ventes, 2025, null, 'compromis', JOUR_DQ).filter(M.estCompromis).map((x) => x.id).sort())
+      .toEqual(M.compromisDuMode(ventes, 2025, null, 'tous', JOUR_DQ).map((x) => x.id).sort());
+  });
+
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`L’année 2025, « Compromis » (${u.toUpperCase()}) : les 3 compromis en cours + le signé de février ; la mention ; 2024 : le seul compromis signé`, async () => {
+      const fin = await ouvrir('/?vue=annee&annee=2025&mode=compromis', u);
+      try {
+        const f = u === 'ht' ? 1 / 1.2 : 1;
+        expect([val('ca-annee'), texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([Math.round((12000 + 6000 + 3600 + 2400) * f * 100), '4']);
+        expect(texte('[data-bloc="compromis-annee"] [data-mention-reportes]')).toBe(' — 2 compromis non datés ou antérieurs, comptés au mois en cours');
+        expect(texte('[data-tuile="compromis"] .tdb-tuile-n1')).toBe('3 compromis — le prévisionnel');
+        await cliquer('[data-onglet-annee="2024"]');
+        expect([val('ca-annee'), texte('[data-tuile="ventes-annee"] .tdb-tuile-valeur')]).toEqual([Math.round(4800 * f * 100), '1']);
+      } finally { fin(); }
+    });
+  }
+
+  it('Le mois octobre 2025, « Compromis » : les 2 reportés, la mention dans la liste et dans l’encadré du graphique', async () => {
+    const fin = await ouvrir('/?vue=mois&annee=2025&mois=10&mode=compromis');
+    try {
+      expect(texte('[data-tuile="ventes-mois"] .tdb-tuile-valeur')).toBe('2');
+      expect(texte('[data-bloc="compromis-du-mois"] [data-mention-reportes]')).toBe(' — 2 compromis non datés ou antérieurs, comptés au mois en cours');
+      expect(texte('[data-bloc="histogramme-mois"] [data-bulle-note]')).toBe('2 compromis non datés ou antérieurs, comptés au mois en cours');
+    } finally { fin(); }
+  });
+
+  for (const u of ['ht', 'ttc'] as const) for (const vue of ['annee', 'mois'] as const) {
+    it(`« Vendu + compromis », ${vue === 'annee' ? 'L’année' : 'Le mois (Année)'} (${u.toUpperCase()}) : 3ᵉ tuile « Prévisionnel CA 2025 (vendu + compromis) », montant inchangé ; 4ᵉ = CA net du mode Vendu + CA net des compromis en cours, au centime`, async () => {
+      {
+        const q = vue === 'annee' ? '/?vue=annee&annee=2025' : '/?vue=mois&annee=2025&mois=10&vue-mois=annee';
+        const fin = await ouvrir(`${q}&mode=vendu`, u);
+        try {
+          const netVendu = val(vue === 'annee' ? 'ca-net-annee' : 'ca-net-cumul');
+          await cliquer('[data-mode-mois="tous"]');
+          const t3 = vue === 'annee' ? 'ca-a-date' : 'cumul';
+          expect([vue, texte(`[data-tuile="${t3}"] .tdb-tuile-mot`)]).toEqual([vue, 'Prévisionnel CA 2025 (vendu + compromis) (à fin octobre)']);
+          // vendu 12 000 + 6 000 + compromis en cours 6 000 + 3 600 + 2 400 = 30 000 € TTC — le montant d'avant
+          expect([vue, val(t3)]).toEqual([vue, Math.round(30000 * (u === 'ht' ? 1 / 1.2 : 1) * 100)]);
+          // CA net des compromis en cours : (6 000 − 1 200) + 3 600 + 2 400 = 10 800 € TTC (9 000 € HT)
+          const netComp = u === 'ht' ? 900000 : 1080000;
+          const t4 = vue === 'annee' ? 'previsionnel-net-annee' : 'previsionnel-net-mois';
+          expect([vue, val(t4)]).toEqual([vue, netVendu + netComp]);
+          expect(texte(`[data-tuile="${t4}"] .tdb-tuile-mot`)).toMatch(/^Prévisionnel du CA net 2025 \(\(vendu \+ compromis\) − commissions versées/);
+          expect(texte(`[data-tuile="${t4}"] [data-previsionnel-detail]`)).toBe(u === 'ht' ? 'dont 13 000 € vendus · 9 000 € en compromis (3)' : 'dont 15 600 € vendus · 10 800 € en compromis (3)');
+          // N−1 sur la même définition : 2024 = la vente signée (4 800 TTC), aucun compromis en cours compté en 2024
+          expect(texte(`[data-tuile="${t4}"] [data-tuile-n1="previsionnel-net"]`)).toMatch(u === 'ht' ? /^4 000 € en 2024 \(\+450 %\)$/ : /^4 800 € en 2024 \(\+450 %\)$/);
+        } finally { fin(); }
+      }
+    });
+  }
+});

@@ -328,7 +328,7 @@ function TuileCompromisEnCours({ cec, filtre }: { cec: TotalCompromisEnCours; fi
     <span className="tdb-tuile-n1">{cec.nb} compromis — le prévisionnel</span>
   </>;
 }
-/** 🔴 LOT DQ — sous le titre d'une liste de « Vendu + compromis » : « N compromis non datés ou antérieurs, comptés au mois en cours » ; rien sinon. */
+/** 🔴 LOT DQ / DR — sous le titre d'une liste de « Vendu + compromis » ou de « Compromis » : « N compromis non datés ou antérieurs, comptés au mois en cours » ; rien sinon. */
 function MentionReportes({ ventes, jour }: { ventes: readonly Vente[]; jour: string }) {
   const m = mentionReportes(compromisReportes(ventes, jour).length);
   return m === null ? null : <small className="loc-muet trx-mention-reportes" data-mention-reportes> — {m}</small>;
@@ -414,8 +414,8 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   const netVenduN1 = mode === 'tous' ? netDe(d.ventes, annee - 1, 'vendu') : netN1;
   // 🔴 LOT CV (Arno) — le titre cite TOUJOURS l'année du graphique (« Cumul 2026 à fin mai », « Mai 2026 ») ; un mois à venir : « — à venir », à 0
   // (plus de case vide). `nbCumule` : le nombre cumulé (l'encadré « au repos » : le cumul de l'année) ; sinon le nombre du mois, comme avant.
-  // 🔴 LOT DQ — « Vendu + compromis », année en cours : les compromis en cours non datés de l'année, comptés au mois en cours (la mention).
-  const nbReportes = mode === 'tous' && annee === anneeEnCours ? compromisReportes(compromisDuMode(d.ventes, annee, null, 'tous', jour), jour).length : 0;
+  // 🔴 LOT DQ / DR — « Vendu + compromis » et « Compromis », année en cours : les compromis en cours non datés de l'année, comptés au mois en cours (la mention).
+  const nbReportes = mode !== 'vendu' && annee === anneeEnCours ? compromisReportes(compromisDuMode(d.ventes, annee, null, mode, jour), jour).length : 0;
   const moisDuJour = Number(jour.slice(5, 7));
   const info = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
     const note = nbReportes > 0 && (cumule ? k >= moisDuJour : k === moisDuJour) ? mentionReportes(nbReportes) : null;
@@ -602,7 +602,6 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   })();
   const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
   const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
-  const vendusN = caHtParMois(d.ventes, annee, d.societe);
   // 🔴 LOT DC — plusieurs négociateurs : « N−1 non importé » se juge sur TOUTES les données (une personne sans activité l'année précédente compte
   // pour 0 dans la sélection) ; un seul négociateur ou « Tous » : comme avant, à l'identique.
   const baseN1 = series !== null ? tout.ventes : d.ventes;
@@ -634,31 +633,29 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const comp = compromisEnCours(d.ventes, d.societe);
   const cec = totalCompromisEnCours(d.ventes, d.societe, resolveurDe(d.statutsNegociateurs));
   // 🔴 LOT DA — la 4ᵉ tuile. « Vendu » : le CA net (`caNetParMoisMode`, lot CW) des ventes signées de janvier au mois de la 3ᵉ tuile, et N−1 sur
-  // les mêmes mois ; « Vendu + compromis » : le CA vendu cumulé tel que l'affiche la 3ᵉ tuile en mode Vendu (`caHtParMois`, arrondi au centime
-  // comme à l'écran) + les compromis en cours (`totalCompromisEnCours`) — une affaire en compromis n'est pas actée : jamais comptée deux fois.
+  // les mêmes mois ; « Vendu + compromis » : le prévisionnel du CA net (lot DR, ci-dessous) — une affaire en compromis n'est pas actée : jamais
+  // comptée deux fois.
   const sommeC = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
   const optsTuile = { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) };
   // 🔴 LOT DN (Arno) — la borne de fin du cumul (`borneCumul`, la fonction unique) : « Mois » → le mois choisi ; « Période » → le dernier mois
   // choisi ; « Année » → l'année complète (année terminée) ou le mois en cours — jamais le mois de l'adresse. N−1 : la même borne.
   const borne = borneCumul(decoupage, annee, mois, moisPeriodeAnnee, jour);
   const fin = borne.fin;
-  const netCumul = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
-  const netCumulN1 = mode === 'vendu' ? sommeC(caNetParMoisMode(d.ventes, annee - 1, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
+  const netCumul = mode !== 'compromis' ? sommeC(caNetParMoisMode(d.ventes, annee, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
+  const netCumulN1 = mode !== 'compromis' ? sommeC(caNetParMoisMode(d.ventes, annee - 1, d.societe, 'vendu', jour, optsTuile).slice(0, fin)) : { htC: 0, ttcC: 0 };
+  // 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis », 4ᵉ tuile : le prévisionnel du CA NET = le CA net de la tuile du mode Vendu
+  // (`netCumul`) + le CA net (`caNetVente`, même définition, lot CW) des compromis en cours comptés dans l'année (règle du lot DQ). N−1 : idem.
+  const compPrev = mode === 'tous' ? compromisDuMode(d.ventes, annee, null, 'tous', jour) : [];
+  const netComp = sommeMontants(compPrev.map((v) => caNetVente(v, d.societe, optsTuile)));
+  const netCompN1 = mode === 'tous' ? sommeMontants(compromisDuMode(d.ventes, annee - 1, null, 'tous', jour).map((v) => caNetVente(v, d.societe, optsTuile))) : { htC: 0, ttcC: 0 };
+  const netPrev = sommeC([netCumul, netComp]);
+  const netPrevN1 = sommeC([netCumulN1, netCompN1]);
   const idsVendusCumul = Array.from({ length: fin }, (_, i) => ventesDuMois(d.ventes, annee, i + 1)).flat().map((v) => v.id);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => estChoisi(ms, { annee: x.annee, mois: x.mois }));
   const idsDuMois = (k: number): number[] => [...(mode === 'compromis' ? [] : ventesDuMois(d.ventes, annee, k)), ...compromisDuMode(d.ventes, annee, k, mode, jour)].map((v) => v.id);
-  /** 🔴 LOT DA — un montant en centimes dans l'autre unité ; le prévisionnel « Vendu + compromis » (les montants tels qu'affichés, au centime). */
+  /** 🔴 LOT DA — un montant en centimes dans l'autre unité. */
   const enAutre = (m: MontantC): number => (U.u === 'ht' ? m.ttcC : m.htC) / 100;
-  const auCentime = (x: number): number => Math.round(x * 100) / 100;
-  const venduCumulHt = cumulA(cumuler(vendusN), fin);
-  const previsionnelMois = (() => {
-    const vendu = auCentime(U.en(venduCumulHt));
-    const venduAutre = auCentime(U.u === 'ht' ? venduCumulHt * TVA : venduCumulHt);
-    const compromis = (U.u === 'ht' ? cec.htC : cec.ttcC) / 100;
-    const compromisAutre = (U.u === 'ht' ? cec.ttcC : cec.htC) / 100;
-    return { vendu, compromis, grand: auCentime(vendu + compromis), petit: auCentime(venduAutre + compromisAutre) };
-  })();
   // 🔴 LOT CW — le CA NET de chaque mois, dans l'unité affichée (au centime, HT ou TTC, sans passer par HT × 1,2) ; « vendu » : la part du bas
   // de la barre empilée (Vendu + compromis). Calculé seulement dans l'onglet « CA net ».
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
@@ -687,10 +684,11 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee} (${borne.mot})`, Array.from({ length: fin }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul" data-borne-cumul={fin}>
-        <span className="tdb-tuile-mot">{mode === 'vendu' ? cons(`CA ${U.MOT}`) : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} ({borne.mot})</span><strong className="tdb-tuile-valeur">{U.e(cumulA(cumulN, fin))}</strong><Autre ht={cumulA(cumulN, fin)} />
+        {/* 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis » : « Prévisionnel CA 2026 (vendu + compromis) » ; montant et ligne du bas inchangés. */}
+        <span className="tdb-tuile-mot">{mode === 'tous' ? <>Prévisionnel {cons('CA')} {annee} (vendu + compromis)<small> ({borne.mot})</small></> : <>{mode === 'vendu' ? cons(`CA ${U.MOT}`) : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} ({borne.mot})</>}</span><strong className="tdb-tuile-valeur">{U.e(cumulA(cumulN, fin))}</strong><Autre ht={cumulA(cumulN, fin)} />
         <span className="tdb-tuile-n1" data-tuile-n1="cumul">{sansN1 ? motSansN1 : `${U.e(cumulA(cumulN1, fin))} en ${annee - 1} (${signePct(variation(cumulA(cumulN, fin), cumulA(cumulN1, fin)))})`}</span></button></li>
       {/* 🔴 LOT DA (changement autorisé par Arno) — la 4ᵉ tuile suit « Compter » : Vendu → le CA net cumulé (même période que la 3ᵉ tuile) ;
-          Compromis → les compromis en cours (inchangée) ; Vendu + compromis → le prévisionnel (vendu cumulé + compromis en cours). */}
+          Compromis → les compromis en cours (inchangée) ; Vendu + compromis → le prévisionnel du CA net (lot DR). */}
       {mode === 'vendu' ? (
         <li><button type="button" className="tdb-tuile" onClick={ouvrir(`CA net cumulé ${annee} (${borne.mot})`, idsVendusCumul)} data-tuile="ca-net-cumul">
           <span className="tdb-tuile-mot">{cons(`CA net ${U.MOT}`)} cumulé {annee} ({borne.mot})<small className="trx-tuile-filtre"> — après commissions, rétrocessions et reversé</small></span>
@@ -701,11 +699,12 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
         <li><button type="button" className="tdb-tuile" onClick={ouvrir('Compromis en cours', cec.ids)} data-tuile="compromis">
           <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
       ) : (
-        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Prévisionnel ${annee}`, [...idsVendusCumul, ...cec.ids])} data-tuile="previsionnel-mois">
-          <span className="tdb-tuile-mot">Prévisionnel {annee} <small>(vendu {borne.fin === 12 ? 'sur l’année complète' : borne.fin === 0 ? 'rien encore' : borne.mot} + compromis en cours, {U.MOT})</small></span>
-          <strong className="tdb-tuile-valeur" data-previsionnel-mois>{eur(previsionnelMois.grand)}</strong>
-          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(previsionnelMois.petit)}{ESPACE}{U.autre.mot})</small>
-          <span className="tdb-tuile-n1" data-previsionnel-detail>dont {eur(previsionnelMois.vendu)} vendus · {eur(previsionnelMois.compromis)} en compromis ({cec.nb})</span></button></li>
+        <li><button type="button" className="tdb-tuile" onClick={ouvrir(cons(`Prévisionnel du CA net ${annee}`), [...idsVendusCumul, ...compPrev.map((v) => v.id)])} data-tuile="previsionnel-net-mois">
+          <span className="tdb-tuile-mot">{cons(`Prévisionnel du CA net ${annee}`)} <small>((vendu + compromis) − commissions versées ; vendu {borne.fin === 12 ? 'sur l’année complète' : borne.fin === 0 ? 'rien encore' : borne.mot}, {U.MOT})</small></span>
+          <strong className="tdb-tuile-valeur" data-previsionnel-net>{eur(enUnite(netPrev))}</strong>
+          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netPrev))}{ESPACE}{U.autre.mot})</small>
+          <span className="tdb-tuile-n1" data-previsionnel-detail>dont {eur(enUnite(netCumul))} vendus · {eur(enUnite(netComp))} en compromis ({compPrev.length})</span>
+          <span className="tdb-tuile-n1" data-tuile-n1="previsionnel-net">{sansN1 ? motSansN1 : `${eur(enUnite(netPrevN1))} en ${annee - 1} (${signePct(variation(netPrev.htC, netPrevN1.htC))})`}</span></button></li>
       )}
     </ul>
     {/* 🔴 LOT CR (Arno) — la mention « N compromis sans date — non placés dans un mois » est RETIRÉE (accord d'Arno) : un compromis sans
@@ -720,7 +719,7 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
       retros={tout.retrocessions} vide={enPeriode ? `Aucune vente ${surLaPeriode}.` : 'Aucune vente ce mois.'} motAucun="Aucune vente ne correspond." societe={d.societe}
       statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
     {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-mois" bloc="compromis-du-mois" titre={`${mode === 'tous' ? `Les compromis en cours ${duMois}` : `Les compromis ${duMois}`} — ${enPeriode ? nomPeriode : libMois}`}
-      apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>{mode === 'tous' && <MentionReportes ventes={compDuMois} jour={jour} />}</>} ventes={compDuMois} retros={tout.retrocessions}
+      apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small><MentionReportes ventes={compDuMois} jour={jour} /></>} ventes={compDuMois} retros={tout.retrocessions}
       vide={enPeriode ? `Aucun compromis signé ${surLaPeriode}.` : 'Aucun compromis signé ce mois.'} motAucun="Aucun compromis ne correspond." societe={d.societe}
       statutDuLibelle={resolveurDe(d.statutsNegociateurs)} fiches={fiches} />}
     </div>
@@ -1221,8 +1220,8 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
   const parts = (vendu: number, total: number) => (mode === 'tous' ? { parts: [{ mot: 'Vendu', ca: vendu }, { mot: 'Compromis', ca: total - vendu }] } : {});
   const cumule = (xs: readonly number[], k: number): number => xs.slice(0, k + 1).reduce((t, x) => t + x, 0);
   /** L'encadré d'une année (ou du cumul jusqu'à elle) : l'année, puis l'année d'avant. */
-  // 🔴 LOT DQ — la mention de l'année en cours (« Vendu + compromis »)
-  const nbReportesAn = mode === 'tous' ? compromisReportes(compromisDuMode(d.ventes, anneeEnCours, null, 'tous', jour), jour).length : 0;
+  // 🔴 LOT DQ / DR — la mention de l'année en cours (« Vendu + compromis » et « Compromis »)
+  const nbReportesAn = mode !== 'vendu' ? compromisReportes(compromisDuMode(d.ventes, anneeEnCours, null, mode, jour), jour).length : 0;
   const info = (a: number, enCumul: boolean): InfoBarre => {
     const note = nbReportesAn > 0 && (enCumul ? a >= anneeEnCours : a === anneeEnCours) ? mentionReportes(nbReportesAn) : null;
     const i = infoSansNote(a, enCumul);
@@ -1328,12 +1327,16 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
   const [Rd, Rd1] = [cartes(aDate), cartes(aDateN1)];
   // 🔴 LOT DN — la borne unique (`borneCumul`, « Année ») : année terminée = complète, année en cours = jusqu'au mois en cours.
   const motADate = sel.length > 1 ? '' : ` (${borneCumul('annee', annee, 0, null, jour).mot})`;
-  // La 4ᵉ tuile (lot DA) : Vendu → le CA net des années ; Compromis → les compromis en cours ; Vendu + compromis → vendu des années + compromis en cours.
+  // La 4ᵉ tuile (lot DA) : Vendu → le CA net des années ; Compromis → les compromis en cours ; Vendu + compromis → le prévisionnel du CA net (lot DR).
   const cec = totalCompromisEnCours(d.ventes, d.societe, statutDuLibelle);
   const netA = sommeMontants(ventesDesAnnees(d.ventes, sel).map((v) => caNetVente(v, d.societe, opts)));
   const netA1 = sommeMontants(ventesDesAnnees(d.ventes, sel1).map((v) => caNetVente(v, d.societe, opts)));
-  const vendu = cartes(ventesDesAnnees(d.ventes, sel)).ca;
-  const prev = { htC: vendu.htC + cec.htC, ttcC: vendu.ttcC + cec.ttcC };
+  // 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis », 4ᵉ tuile : le CA net de la tuile du mode Vendu (`netA`) + le CA net des
+  // compromis en cours comptés dans les années (`compSel`, règle du lot DQ), même définition (`caNetVente`, lot CW). N−1 : les mêmes années, un an plus tôt.
+  const netComp = sommeMontants(compSel.map((v) => caNetVente(v, d.societe, opts)));
+  const netComp1 = mode === 'tous' ? sommeMontants(compromisDesAnnees(d.ventes, sel1, 'tous', jour).map((v) => caNetVente(v, d.societe, opts))) : { htC: 0, ttcC: 0 };
+  const netPrev = { htC: netA.htC + netComp.htC, ttcC: netA.ttcC + netComp.ttcC };
+  const netPrev1 = { htC: netA1.htC + netComp1.htC, ttcC: netA1.ttcC + netComp1.ttcC };
   const ca = (m: MontantC): string => eur(enUnite(m));
   const pct = (a: MontantC, b: MontantC): string => signePct(variation(a.htC, b.htC));
   const ouvrir = (titre: string, ids: number[]) => () => onDetail({ titre, ids });
@@ -1371,7 +1374,8 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         <span className="tdb-tuile-mot">{M.nombre} — {lib}</span><strong className="tdb-tuile-valeur">{liste.length}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode, jour).length} ${enN1}`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} à date — ${lib}`, aDate.map((v) => v.id))} data-tuile="ca-a-date">
-        <span className="tdb-tuile-mot">{enTout ? <>{M.ca} — à date (toutes les années)</> : <>{M.ca} — {lib} à date<small>{motADate}</small></>}</span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
+        {/* 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis » : « Prévisionnel CA 2026 (vendu + compromis) » ; montant et ligne du bas inchangés. */}
+        <span className="tdb-tuile-mot">{mode === 'tous' ? <>Prévisionnel {cons('CA')} {lib} (vendu + compromis)<small>{enTout ? ' (à date)' : motADate}</small></> : enTout ? <>{M.ca} — à date (toutes les années)</> : <>{M.ca} — {lib} à date<small>{motADate}</small></>}</span><strong className="tdb-tuile-valeur">{ca(Rd.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rd.ca))}{ESPACE}{U.autre.mot})</small>
         <span className="tdb-tuile-n1" data-tuile-n1="a-date">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(Rd1.ca)} ${sel.length === 1 ? `en ${sel[0] - 1} à la même date` : 'un an plus tôt, à la même date'} (${pct(Rd.ca, Rd1.ca)})`}</span></button></li>
       {mode === 'vendu' ? (
@@ -1384,11 +1388,12 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         <li><button type="button" className="tdb-tuile" onClick={ouvrir('Compromis en cours', cec.ids)} data-tuile="compromis">
           <TuileCompromisEnCours cec={cec} filtre={filtreNegociateurs} /></button></li>
       ) : (
-        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`Prévisionnel — ${lib}`, [...ventesDesAnnees(d.ventes, sel).map((v) => v.id), ...cec.ids])} data-tuile="previsionnel-annee">
-          <span className="tdb-tuile-mot">Prévisionnel — {lib} <small>(vendu + compromis en cours, {U.MOT})</small></span>
-          <strong className="tdb-tuile-valeur" data-previsionnel-annee>{ca(prev)}</strong>
-          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(prev))}{ESPACE}{U.autre.mot})</small>
-          <span className="tdb-tuile-n1" data-previsionnel-detail>dont {ca(vendu)} vendus · {eur(enUnite(cec))} en compromis ({cec.nb})</span></button></li>
+        <li><button type="button" className="tdb-tuile" onClick={ouvrir(cons(`Prévisionnel du CA net ${lib}`), [...ventesSel.map((v) => v.id), ...compSel.map((v) => v.id)])} data-tuile="previsionnel-net-annee">
+          <span className="tdb-tuile-mot">{cons(`Prévisionnel du CA net ${lib}`)} <small>((vendu + compromis) − commissions versées, {U.MOT})</small></span>
+          <strong className="tdb-tuile-valeur" data-previsionnel-net>{ca(netPrev)}</strong>
+          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netPrev))}{ESPACE}{U.autre.mot})</small>
+          <span className="tdb-tuile-n1" data-previsionnel-detail>dont {ca(netA)} vendus · {ca(netComp)} en compromis ({compSel.length})</span>
+          <span className="tdb-tuile-n1" data-tuile-n1="previsionnel-net">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netPrev1)} ${enN1} (${pct(netPrev, netPrev1)})`}</span></button></li>
       )}
     </ul>
 
@@ -1401,7 +1406,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         ventes={ventesSel} retros={tout.retrocessions} vide={`Aucune vente ${surLaPeriode}.`} motAucun="Aucune vente ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
       {mode !== 'vendu' && <ListeCartesAffaires id="trx-compromis-annee" bloc="compromis-annee"
         titre={enTout ? (mode === 'tous' ? 'Les compromis en cours — toutes les années' : 'Les compromis — toutes les années') : mode === 'tous' ? `Les compromis en cours de ${lib}` : `Les compromis de ${lib}`}
-        apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small>{mode === 'tous' && <MentionReportes ventes={compSel} jour={jour} />}</>} ventes={compSel} retros={tout.retrocessions}
+        apres={<><small className="loc-muet">(date du compromis{mode === 'tous' ? ' ; pas encore signés' : ''})</small><MentionReportes ventes={compSel} jour={jour} /></>} ventes={compSel} retros={tout.retrocessions}
         vide={`Aucun compromis signé ${surLaPeriode}.`} motAucun="Aucun compromis ne correspond." societe={d.societe} statutDuLibelle={statutDuLibelle} fiches={fiches} />}
     </div>
     {fenetres}
