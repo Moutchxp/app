@@ -104,9 +104,9 @@ const ouvrir = async () => {
 const deplier = async (id: number) => cliquer(`[data-deplier="compromis-${id}"]`);
 
 describe('l’onglet « Compromis »', () => {
-  it('placé AVANT « Le mois » et « L’année » ; LOT L : on ARRIVE sur « Compromis »', async () => {
+  it('placé AVANT « Mois » et « Année(s) » (ex-« Le mois » / « L’année », 01/11/2026) ; LOT L : on ARRIVE sur « Compromis »', async () => {
     await ouvrir();
-    expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.textContent)).toEqual(['Compromis', 'Le mois', 'L’année']);
+    expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.textContent)).toEqual(['Compromis', 'Mois', 'Année(s)']);
     expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true');
   });
   it('🔴 LOT F — carte repliée : à gauche le titre puis adresse · prix · acte au plus tard ; à droite TTC (vert, « TTC »), HT, % du prix', async () => {
@@ -226,7 +226,7 @@ describe('l’onglet « Compromis »', () => {
   it('le CA global réunit les deux sociétés dans son onglet « Compromis »', async () => {
     await act(async () => { root.render(createElement(EcranGlobal)); });
     await calmer();
-    expect([...container.querySelectorAll('[role="tab"]')].slice(0, 2).map((b) => b.textContent)).toEqual(['Compromis', 'Le mois et l’année']);
+    expect([...container.querySelectorAll('[role="tab"]')].slice(0, 2).map((b) => b.textContent)).toEqual(['Compromis', 'Mois et Année(s)']);
     await cliquer('[data-vue="compromis"]');
     expect(container.querySelector('[data-onglet-compromis="tous"]')).not.toBeNull();
     // 🔴 LOT R — au global : le CA de chaque société (CRITERIMMO porte : 10 000 ; MACJ reçoit 3 200), l'inter-cabinet neutralisé.

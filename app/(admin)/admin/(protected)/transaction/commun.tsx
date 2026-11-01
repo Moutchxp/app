@@ -167,6 +167,10 @@ export function BoutonAffichage({ unite, onChange }: { unite: UniteAffichage; on
 export const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 /** Les paramètres de l'adresse de la page, lus une fois (rien côté serveur : la page est rendue après lecture). */
+/** Arno (01/11/2026) — les libellés des onglets de vue (ex-« Le mois » / « L'année »), écrits une fois pour tous les écrans du Suivi CA.
+ *  Les adresses (vue=mois, vue=annee) et le sélecteur « Mois | Période | Année » de la rangée des mois ne changent pas. */
+export const ONGLET_MOIS = 'Mois';
+export const ONGLET_ANNEES = 'Année(s)';
 export function parametre(nom: string): string | null {
   return typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(nom);
 }

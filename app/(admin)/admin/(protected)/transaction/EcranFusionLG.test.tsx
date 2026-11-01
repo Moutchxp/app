@@ -115,6 +115,16 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(grand('[data-net-mois="2026-9"]')).toBe(net);
     });
   }
+  it('Arno (01/11/2026) — les onglets « Mois » et « Année(s) » (ex-« Le mois » / « L’année ») : FUSION, Location, Gestion ; adresses inchangées', async () => {
+    for (const ecran of [() => createElement(EcranFusionLocationGestion), () => createElement(EcranLocationCA), () => createElement(EcranGestion)]) {
+      await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=mois', ecran);
+      const onglets = [...document.querySelectorAll('.trx-vues [role="tab"]')];
+      expect([onglets.map((b) => b.textContent), onglets.map((b) => b.getAttribute('data-vue')), document.querySelector('.trx-vues')!.getAttribute('aria-label')])
+        .toEqual([['Mois', 'Année(s)'], ['mois', 'annee'], 'Mois ou Année(s)']);
+      // le sélecteur de la rangée des mois garde ses libellés
+      expect([...document.querySelectorAll('[data-choix-periode] button')].map((b) => b.textContent)).toEqual(['Mois', 'Période', 'Année']);
+    }
+  });
   it('« Activité » : Location + Gestion = Les deux (CA, coûts, net) ; gardé dans l’adresse', async () => {
     await ouvrir('/?vue=mois&annee=2026&mois=9&vue-mois=annee');
     const lire = () => ['[data-fusion-ca]', '[data-fusion-couts]', '[data-fusion-net]'].map((s) => centimes(texte(s)));

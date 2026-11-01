@@ -13,7 +13,7 @@ import {
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
-import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
@@ -97,9 +97,9 @@ export function EcranFusionLocationGestion() {
       <style>{CSS}{CSS_FUSION}</style>
       {(luL.etat === 'ok' && !luL.data.disponible) && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-location>Le Suivi de la Location n’est pas disponible sur cette base : la part location compte 0.</p>}
       <div className="trx-barre">
-        <div className="trx-vues" role="tablist" aria-label="Le mois ou l’année">
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
+        <div className="trx-vues" role="tablist" aria-label={`${ONGLET_MOIS} ou ${ONGLET_ANNEES}`}>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">{ONGLET_MOIS}</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
         </div>
       </div>
       <FournisseurAffichage value={unite}><ContexteLoc.Provider value={{ retros: luL.etat === 'ok' ? luL.data.retrocessions ?? [] : [], salaires: luL.etat === 'ok' ? luL.data.salaires ?? null : null }}>

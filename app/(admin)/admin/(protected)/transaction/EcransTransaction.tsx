@@ -15,7 +15,7 @@ import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { TITRE_FUSION_VENTE } from './FilAriane';
-import { BoutonAffichage, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
+import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -285,10 +285,10 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       <div className="trx-barre">
-        <div className="trx-vues" role="tablist" aria-label="Les compromis, le mois ou l’année">
+        <div className="trx-vues" role="tablist" aria-label={`Compromis, ${ONGLET_MOIS} ou ${ONGLET_ANNEES}`}>
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'compromis'} onClick={() => setVue('compromis')} data-vue="compromis">Compromis</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">{ONGLET_MOIS}</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
         </div>
       </div>
       {vue === 'compromis' ? <OngletCompromis societe={societe} fusion={societe === 'tous'} /> : <>
@@ -1754,7 +1754,7 @@ export function EcranGlobal() {
       <div className="trx-vues-barre" data-barre-onglets-global>
         <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
           <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">Le mois et l’année</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">{`${ONGLET_MOIS} et ${ONGLET_ANNEES}`}</button>
         </div>
         {champUnite}
       </div>
@@ -2060,9 +2060,9 @@ export function EcranGestion() {
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       <div className="trx-barre">
-        <div className="trx-vues" role="tablist" aria-label="Le mois ou l’année">
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">Le mois</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
+        <div className="trx-vues" role="tablist" aria-label={`${ONGLET_MOIS} ou ${ONGLET_ANNEES}`}>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">{ONGLET_MOIS}</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
         </div>
       </div>
       {vue === 'mois' ? <>
