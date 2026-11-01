@@ -34,6 +34,12 @@ export interface TotauxFusion {
   /** 🔴 LOT LG2 — les coûts salariaux chargés sont-ils comptés (« Avec salaires ») ? Sinon (« Sans salaires ») : ni dans les coûts, ni déduits du
    *  CA net ; leur montant reste dans `couts.salaries` (montré à part, « non comptés »). */
   salaires: boolean;
+  /**
+   * 🔴 LOT LG4 (règle d'Arno, 01/11/2026) — les primes de nouvelle gestion sont payées DANS les salaires : en « Avec salaires », quand la gestion est
+   * comptée (« Les deux »), elles sont déjà dans les coûts salariaux chargés et ne se retirent pas une seconde fois. Leur montant (null : la règle ne
+   * s'applique pas) ; la part location est alors celle AVANT primes. Vérifié en recette : toutes les primes vont à un négociateur salarié.
+   */
+  primesEnPaie: MontantC | null;
   location: PartFusion; gestion: PartFusion;
   /** Les totaux des parts comptées (la somme des deux, ou une seule). */
   ca: MontantC; couts: Record<FamilleCout, MontantC>; coutsTotal: MontantC; net: MontantC;
@@ -69,14 +75,23 @@ export function horsSalaires(p: PartFusion): PartFusion {
   return { ...p, coutsTotal: { htC: p.coutsTotal.htC - s.htC, ttcC: p.coutsTotal.ttcC - s.ttcC }, net: plusC(p.net, s) };
 }
 
+/** 🔴 LOT LG4 — la part location SANS ses primes (payées dans les salaires) : ses coûts sans elles, son CA net augmenté d'elles. PUR. */
+export function primesHorsCouts(p: PartFusion): PartFusion {
+  const pr = p.couts.primes;
+  return { ...p, coutsTotal: { htC: p.coutsTotal.htC - pr.htC, ttcC: p.coutsTotal.ttcC - pr.ttcC }, net: plusC(p.net, pr) };
+}
+
 /** Les totaux de la fusion sur des mois : la part de chaque page, puis leur somme (la part non comptée par « Activité » : 0). PUR. */
 export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true): TotauxFusion {
   const tLocation = totauxLocation(lignesDesMois(lignes, ms));
   const tGestion = totauxGestion(gestion, ms);
-  const location = activite === 'gestion' ? VIDE : partLocation(tLocation);
+  const locationPage = activite === 'gestion' ? VIDE : partLocation(tLocation);
+  // 🔴 LOT LG4 — « Avec salaires » et la gestion comptée : les primes sont dans les coûts salariaux chargés (pas deux fois)
+  const enPaie = salaires && activite === 'deux';
+  const location = enPaie ? primesHorsCouts(locationPage) : locationPage;
   const gestionAvec = activite === 'location' ? VIDE : partGestion(tGestion);
   const gest = salaires ? gestionAvec : horsSalaires(gestionAvec);
-  return { activite, salaires, location, gestion: gest, ...somme(location, gest), tLocation, tGestion,
+  return { activite, salaires, primesEnPaie: enPaie ? locationPage.couts.primes : null, location, gestion: gest, ...somme(location, gest), tLocation, tGestion,
     baux: activite === 'gestion' ? null : tLocation.nb, lots: activite === 'location' ? null : tGestion.lots };
 }
 

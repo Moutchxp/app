@@ -32,23 +32,32 @@ describe('🔴 LOT LG1 — la fusion = la somme des deux pages, au centime', () 
   it('septembre 2026 : la part location = la page Location ; la part gestion = la page Gestion (salaires sans TVA) ; total = somme', () => {
     const t = totauxFusion(lignes, gestion, sept);
     const L = totauxLocation(lignesDesMois(lignes, sept)); const G = totauxGestion(gestion, sept);
-    expect([t.location.ca, t.location.net, t.location.couts.primes, t.location.couts.apporteurs]).toEqual([L.ca, L.net, L.primes, L.apporteurs]);
+    // 🔴 LOT LG4 — « Avec salaires » (les deux) : les primes sont dans les salaires — la part location AVANT primes (= CA net d'apporteurs de la page)
+    expect([t.location.ca, t.location.net, t.location.couts.primes, t.location.couts.apporteurs, t.primesEnPaie]).toEqual([L.ca, L.netApporteurs, L.primes, L.apporteurs, L.primes]);
     expect([t.gestion.ca, t.gestion.net]).toEqual([{ htC: G.honorairesC, ttcC: G.honorairesTtcC }, { htC: G.netC, ttcC: G.netTtcC }]);
     expect([t.gestion.couts.adhoc, t.gestion.couts.monga, t.gestion.couts.salaries]).toEqual([{ htC: G.adhocC, ttcC: G.adhocTtcC }, { htC: G.mongaC, ttcC: G.mongaTtcC }, { htC: 268891, ttcC: 268891 }]);
     expect(t.ca).toEqual({ htC: L.ca.htC + G.honorairesC, ttcC: L.ca.ttcC + G.honorairesTtcC });
-    expect(t.net).toEqual({ htC: L.net.htC + G.netC, ttcC: L.net.ttcC + G.netTtcC });
+    expect(t.net).toEqual({ htC: L.net.htC + L.primes.htC + G.netC, ttcC: L.net.ttcC + L.primes.ttcC + G.netTtcC });
+    expect(t.coutsTotal).toEqual({ htC: L.apporteurs.htC + G.adhocC + G.mongaC + G.salariesC, ttcC: L.apporteurs.ttcC + G.adhocTtcC + G.mongaTtcC + G.salariesC });
     expect([t.baux, t.lots]).toEqual([1, 300]);
   });
   for (const ms of [sept, annee]) {
     it(`tuile 4 = tuile 1 − tuile 3, au centime, HT et TTC ; coûts = somme des familles (${ms.length} mois)`, () => {
       const t = totauxFusion(lignes, gestion, ms);
       expect([t.net.htC, t.net.ttcC]).toEqual([t.ca.htC - t.coutsTotal.htC, t.ca.ttcC - t.coutsTotal.ttcC]);
-      expect(FAMILLES_COUTS.reduce((s, f) => s + t.couts[f.cle].ttcC, 0)).toBe(t.coutsTotal.ttcC);
+      // 🔴 LOT LG4 — les familles comptées : sans les primes (dans les salaires)
+      expect(FAMILLES_COUTS.filter((f) => f.cle !== 'primes').reduce((s, f) => s + t.couts[f.cle].ttcC, 0)).toBe(t.coutsTotal.ttcC);
     });
   }
-  it('« Activité » : location + gestion = les deux, exactement (CA, coûts, net, HT et TTC) ; l’autre part compte 0', () => {
+  it('« Activité » : location + gestion = les deux, exactement (« Sans salaires » ; « Avec » : aux primes près, comptées une seule fois dans les deux) ; l’autre part compte 0', () => {
     const d = totauxFusion(lignes, gestion, annee, 'deux'); const l = totauxFusion(lignes, gestion, annee, 'location'); const gg = totauxFusion(lignes, gestion, annee, 'gestion');
-    for (const k of ['ca', 'coutsTotal', 'net'] as const) expect([l[k].htC + gg[k].htC, l[k].ttcC + gg[k].ttcC]).toEqual([d[k].htC, d[k].ttcC]);
+    // 🔴 LOT LG4 — la location seule garde ses primes (= la page Location) ; les deux ne les retirent qu'une fois (dans les salaires)
+    const pr = d.primesEnPaie!;
+    expect([l.primesEnPaie, gg.primesEnPaie]).toEqual([null, null]);
+    expect(l.ca.htC + gg.ca.htC).toBe(d.ca.htC);
+    for (const u of ['htC', 'ttcC'] as const) { expect(l.coutsTotal[u] + gg.coutsTotal[u]).toBe(d.coutsTotal[u] + pr[u]); expect(l.net[u] + gg.net[u]).toBe(d.net[u] - pr[u]); }
+    const ds = totauxFusion(lignes, gestion, annee, 'deux', false); const ls = totauxFusion(lignes, gestion, annee, 'location', false); const gs = totauxFusion(lignes, gestion, annee, 'gestion', false);
+    for (const k of ['ca', 'coutsTotal', 'net'] as const) expect([ls[k].htC + gs[k].htC, ls[k].ttcC + gs[k].ttcC]).toEqual([ds[k].htC, ds[k].ttcC]);
     expect([l.gestion.ca.htC, gg.location.ca.htC, l.lots, gg.baux]).toEqual([0, 0, null, null]);
     expect(gg.lots).toBe(305);
   });
@@ -67,14 +76,14 @@ describe('🔴 LOT LG1 — la fusion = la somme des deux pages, au centime', () 
  */
 describe('🔴 LOT LG2 — Avec | Sans salaires', () => {
   for (const ms of [sept, annee]) {
-    it(`Sans = Avec − coûts salariaux chargés, au centime, HT et TTC ; CA net hors salaires = CA net + salaires (${ms.length} mois)`, () => {
+    it(`Avec = Sans + coûts salariaux − primes payées en paie (🔴 LOT LG4), au centime, HT et TTC ; CA net Avec = CA brut − coûts Avec (${ms.length} mois)`, () => {
       const avec = totauxFusion(lignes, gestion, ms); const sans = totauxFusion(lignes, gestion, ms, 'deux', false);
-      const s = avec.couts.salaries;
-      expect(s.htC).toBe(s.ttcC);
-      expect([sans.coutsTotal.htC, sans.coutsTotal.ttcC]).toEqual([avec.coutsTotal.htC - s.htC, avec.coutsTotal.ttcC - s.ttcC]);
-      expect([sans.net.htC, sans.net.ttcC]).toEqual([avec.net.htC + s.htC, avec.net.ttcC + s.ttcC]);
+      const s = avec.couts.salaries; const pr = avec.primesEnPaie!;
+      expect([s.htC, sans.primesEnPaie]).toEqual([s.ttcC, null]);
+      expect([avec.coutsTotal.htC, avec.coutsTotal.ttcC]).toEqual([sans.coutsTotal.htC + s.htC - pr.htC, sans.coutsTotal.ttcC + s.ttcC - pr.ttcC]);
+      expect([avec.net.htC, avec.net.ttcC]).toEqual([avec.ca.htC - avec.coutsTotal.htC, avec.ca.ttcC - avec.coutsTotal.ttcC]);
       expect([sans.net.htC, sans.net.ttcC]).toEqual([sans.ca.htC - sans.coutsTotal.htC, sans.ca.ttcC - sans.coutsTotal.ttcC]);
-      expect([sans.ca, sans.location, sans.couts, sans.salaires, avec.salaires]).toEqual([avec.ca, avec.location, avec.couts, false, true]);
+      expect([sans.ca, sans.couts, sans.salaires, avec.salaires]).toEqual([avec.ca, avec.couts, false, true]);
       expect(sans.gestion.net).toEqual({ htC: avec.gestion.net.htC + s.htC, ttcC: avec.gestion.net.ttcC + s.ttcC });
     });
   }
