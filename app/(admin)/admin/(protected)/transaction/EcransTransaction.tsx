@@ -1371,16 +1371,6 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
         <span className="tdb-tuile-mot">{mode === 'compromis' ? `CA brut des compromis — ${lib}` : `${M.ca} — ${lib}`}</span><strong className="tdb-tuile-valeur">{ca(Rc.ca)}</strong>
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(Rc.ca))}{ESPACE}{U.autre.mot})</small>
         <span className="tdb-tuile-n1" data-tuile-n1="ca">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(R1.ca)} ${enN1} (${pct(Rc.ca, R1.ca)})`}</span></button></li>
-      {/* 🔴 LOT DS (Arno) — « Compromis » : la 2ᵉ tuile = le CA des mêmes compromis − les commissions versées (`caNetVente`, la définition du « CA net
-          des compromis » du lot DR = le « Solde net » de l'onglet Compromis), en vert ; N−1 sur la même définition. La tuile « … à date » est retirée
-          de ce mode (accord d'Arno : elle répétait la 1ʳᵉ). */}
-      {mode === 'compromis' && (
-        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — ${lib}`, compSel.map((v) => v.id))} data-tuile="ca-net-compromis-annee">
-          <span className="tdb-tuile-mot">{cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — {lib}<small> (CA − commissions versées)</small></span>
-          <strong className="tdb-tuile-valeur trx-vert" data-ca-net-compromis>{ca(netComp)}</strong>
-          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netComp))}{ESPACE}{U.autre.mot})</small>
-          <span className="tdb-tuile-n1" data-tuile-n1="ca-net-compromis">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netComp1)} ${enN1} (${pct(netComp, netComp1)})`}</span></button></li>
-      )}
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${lib}`, Rc.ids)} data-tuile="ventes-annee">
         <span className="tdb-tuile-mot">{M.nombre} — {lib}</span><strong className="tdb-tuile-valeur">{liste.length}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : sansN1 ? motSansN1 : `${listeDesAnnees(d.ventes, sel1, mode, jour).length} ${enN1}`}</span></button></li>
@@ -1405,6 +1395,17 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netPrev))}{ESPACE}{U.autre.mot})</small>
           <span className="tdb-tuile-n1" data-previsionnel-detail>dont {ca(netA)} vendus · {ca(netComp)} en compromis ({compSel.length})</span>
           <span className="tdb-tuile-n1" data-tuile-n1="previsionnel-net">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netPrev1)} ${enN1} (${pct(netPrev, netPrev1)})`}</span></button></li>
+      )}
+      {/* 🔴 LOT DS (Arno) — « Compromis » : la tuile du CA net = le CA des mêmes compromis − les commissions versées (`caNetVente`, la définition du « CA net
+          des compromis » du lot DR = le « Solde net » de l'onglet Compromis), en vert ; N−1 sur la même définition. La tuile « … à date » est retirée
+          de ce mode (accord d'Arno : elle répétait la 1ʳᵉ).
+          🔴 LOT DT (Arno, présentation seule) — tout à droite, après « Compromis en cours ». */}
+      {mode === 'compromis' && (
+        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — ${lib}`, compSel.map((v) => v.id))} data-tuile="ca-net-compromis-annee">
+          <span className="tdb-tuile-mot">{cons('CA') === 'CA' ? 'CA net' : 'CA consolidé'} des compromis — {lib}<small> (CA − commissions versées)</small></span>
+          <strong className="tdb-tuile-valeur trx-vert" data-ca-net-compromis>{ca(netComp)}</strong>
+          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netComp))}{ESPACE}{U.autre.mot})</small>
+          <span className="tdb-tuile-n1" data-tuile-n1="ca-net-compromis">{enTout ? toutes : sansN1 ? motSansN1 : `${ca(netComp1)} ${enN1} (${pct(netComp, netComp1)})`}</span></button></li>
       )}
     </ul>
 

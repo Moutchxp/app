@@ -3283,9 +3283,10 @@ describe('🔴 LOT DS — « L’année », mode « Compromis » : CA brut, CA n
         window.history.replaceState(null, '', '/?vue=annee&annee=2025&mode=compromis');
         await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
         const tuiles = [...container.querySelectorAll('.tdb-tuiles > li > .tdb-tuile')];
-        expect(tuiles.map((t) => t.getAttribute('data-tuile'))).toEqual(['ca-annee', 'ca-net-compromis-annee', 'ventes-annee', 'compromis']);
-        expect(tuiles.map((t) => t.querySelector('.tdb-tuile-mot')?.textContent)).toEqual(['CA brut des compromis — 2025', 'CA net des compromis — 2025 (CA − commissions versées)',
-          'Compromis — 2025', `Compromis en cours (${u.toUpperCase()})`]);
+        // 🔴 LOT DT — l'ordre : CA brut, nombre, compromis en cours, puis le CA net tout à droite
+        expect(tuiles.map((t) => t.getAttribute('data-tuile'))).toEqual(['ca-annee', 'ventes-annee', 'compromis', 'ca-net-compromis-annee']);
+        expect(tuiles.map((t) => t.querySelector('.tdb-tuile-mot')?.textContent)).toEqual(['CA brut des compromis — 2025', 'Compromis — 2025', `Compromis en cours (${u.toUpperCase()})`,
+          'CA net des compromis — 2025 (CA − commissions versées)']);
         const f = u === 'ht' ? 1 / 1.2 : 1;
         const brut = centimesDe(texte('[data-tuile="ca-annee"] .tdb-tuile-valeur')); const net = centimesDe(texte('[data-ca-net-compromis]'));
         expect([brut, net, brut - net]).toEqual([Math.round(12000 * f * 100), Math.round(10800 * f * 100), Math.round(1200 * f * 100)]);
