@@ -144,12 +144,12 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     it('défaut Origine → aujourd’hui : toute la période ; pas de période précédente complète : « — »', async () => {
       await monter('annee');
       expect(container.querySelector('[data-tuile="ca-mois"]')).toBeNull();
-      expect(mot('ca-annee')).toBe('CA HT (Origine → aujourd’hui (2025 → 22/10/2026))');
+      expect(mot('ca-annee')).toBe('CA HT (Origine (1er janv. 2025) → 22 oct. 2026 (à date))');
       expect(val('ca-annee')).toBe('97 612,61 €');   // 94 612,61 (2026) + 3 000,00 (2025)
       expect(n1('ca-annee')).toBe('Période précédente : —');
       expect(n1('baux-annee')).toBe('Période précédente : —');
       expect(val('gestion')).toBe('120');
-      expect(gestion()).toEqual({ periode: 'Origine → aujourd’hui (2025 → 22/10/2026) :', nouveaux: '+0', sortis: '−0', solde: '0', sens: 'nul' });
+      expect(gestion()).toEqual({ periode: 'Origine (1er janv. 2025) → 22 oct. 2026 (à date) :', nouveaux: '+0', sortis: '−0', solde: '0', sens: 'nul' });
       expect(n1('gestion')).toBe('récurrent +0,00 € / −0,00 € par mois');
     });
 
@@ -157,7 +157,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await monter('annee');
       await choisir('debut', '2026');
       // 🔴 LOT LO3 — « 2026 (à date) » ; la période précédente : « 2025 à la même date » (les mêmes dates, un an plus tôt)
-      expect(mot('ca-annee')).toBe('CA HT (2026 (à date))');
+      expect(mot('ca-annee')).toBe('CA HT (2026 (1er janv. → à date))');
       expect(val('ca-annee')).toBe('94 612,61 €');
       expect(n1('ca-annee')).toBe('2025 à la même date : 3 000,00 € · +91 612,61 € (+3 053,8 %)');
       expect(val('ca-net-annee')).toBe('90 538,16 €');
@@ -167,7 +167,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await monter('annee');
       await choisir('fin', '2025');
       await choisir('debut', '2025');
-      expect(mot('ca-annee')).toBe('CA HT (2025 → 2025)');
+      expect(mot('ca-annee')).toBe('CA HT (2025 (année complète))');
       expect(val('ca-annee')).toBe('3 000,00 €');
       expect(n1('ca-annee')).toBe('Période précédente : —');
     });
@@ -190,7 +190,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       expect(await options('fin')).toEqual(['aujourdhui', '2026', '2025']);
       await choisir('fin', '2025');
       expect(await options('debut')).toEqual(['origine', '2025', '2024', '2023']);
-      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2025 → 2025');
+      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2025 (année complète)');
       expect(new URLSearchParams(window.location.search).toString()).toBe('debut=2025&fin=2025');
     });
 
@@ -198,13 +198,13 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       window.history.replaceState(null, '', '/?debut=2026&fin=2025');
       await monter('annee');
       expect(container.querySelector('[data-periode-incoherente]')?.textContent).toBe('La période de l’adresse est incohérente (début 2026 après la fin 2025) : la période par défaut est affichée (Origine → aujourd’hui).');
-      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : Origine → aujourd’hui (2025 → 22/10/2026)');
+      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : Origine (1er janv. 2025) → 22 oct. 2026 (à date)');
     });
 
     it('🔴 une ANCIENNE adresse ?annee=2026&mois=3 : « 2026 → fin mars 2026 », face au 01/01 → 31/03/2025', async () => {
       window.history.replaceState(null, '', '/?annee=2026&mois=3');
       await monter('annee');
-      expect(mot('ca-annee')).toBe('CA HT (2026 → fin mars 2026)');
+      expect(mot('ca-annee')).toBe('CA HT (1er janv. 2026 → 31 mars 2026)');
       expect(val('ca-annee')).toBe('25 305,33 €');
       expect(n1('ca-annee')).toBe('01/01/2025 → 31/03/2025 : 1 000,00 € · +24 305,33 € (+2 430,5 %)');
       expect(new URLSearchParams(window.location.search).toString()).toBe('debut=2026&fin=2026-03');
@@ -218,7 +218,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       ] };
       await monter('annee');
       await choisir('debut', '2026');
-      expect(gestion()).toEqual({ periode: '2026 (à date) :', nouveaux: '+1', sortis: '−1', solde: '0', sens: 'nul' });   // novembre : hors période
+      expect(gestion()).toEqual({ periode: '2026 (1er janv. → à date) :', nouveaux: '+1', sortis: '−1', solde: '0', sens: 'nul' });   // novembre : hors période
       expect(n1('gestion')).toBe('récurrent +66,00 € / −40,00 € par mois');
       await choisir('gestion', 'sans');
       const filtrees = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-') && !a.avecGestion);
@@ -907,7 +907,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     await act(async () => { container.querySelector('[data-barre-annee="2025"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await calmer();
     expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2025&toutes=1');
-    expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2025 → 2025');
+    expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2025 (année complète)');
     expect(container.querySelectorAll('[data-barre-annee]')).toHaveLength(1);
     // Sans « Voir les commissions » : pas de colonne commission.
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -1052,7 +1052,7 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
       await act(async () => { (container.querySelector('[data-annee-historique="2021"] .tdb-chiffre') as HTMLElement).click(); });
       await calmer();
       expect(String((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(appels).map((c) => c[0]))).toContain('annee=2021&toutes=1');
-      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2021 → 2021');
+      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2021 (année complète)');
       expect(rangees()).toEqual(['2021']);
       expect(container.querySelector('[data-annee-historique="2021"] .tdb-chiffre')?.getAttribute('aria-current')).toBe('true');
     });
@@ -2090,14 +2090,14 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
     await monter('annee');
     const blocs = [...container.querySelectorAll('[data-section="H"], [data-bloc="resume-periode"], [data-section="F"]')].map((e) => e.getAttribute('data-section') ?? e.getAttribute('data-bloc'));
     expect(blocs).toEqual(['H', 'resume-periode', 'F']);
-    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de la période — Origine → aujourd’hui (2025 → 22/10/2026)');
+    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de la période — Origine (1er janv. 2025) → 22 oct. 2026 (à date)');
     expect([...resume().querySelectorAll('[data-famille]')].map((e) => e.getAttribute('data-famille'))).toEqual(['resultat', 'statuts', 'portefeuille', 'gestion', 'resultat-net', 'negociateurs']);
     expect(resume().querySelector('#fra-f1')?.textContent).toBe('Résultat de la période');
-    expect(resume().querySelector('[data-titre-portefeuille]')?.textContent).toBe('Portefeuille de gestion — Origine → aujourd’hui (2025 → 22/10/2026) (honoraires de gestion HT)');
+    expect(resume().querySelector('[data-titre-portefeuille]')?.textContent).toBe('Portefeuille de gestion — Origine (1er janv. 2025) → 22 oct. 2026 (à date) (honoraires de gestion HT)');
     // « Depuis le début » = depuis le Début choisi.
     expect(resume().querySelector('[data-sous-titre-portefeuille]')?.textContent).toBe('Depuis le début (2025)');
     expect(resume().querySelector('[data-sous-titre-portefeuille]')?.className).toBe('fdm-titre-bloc fdm-titre-taille');
-    expect(resume().querySelector('[data-famille="resultat-net"] h4 .tdb-replie-mot')?.textContent).toBe('Résultat net de l’agence — Origine → aujourd’hui (2025 → 22/10/2026)');
+    expect(resume().querySelector('[data-famille="resultat-net"] h4 .tdb-replie-mot')?.textContent).toBe('Résultat net de l’agence — Origine (1er janv. 2025) → 22 oct. 2026 (à date)');
     expect(resume().querySelector('[data-filtres-actifs]')).toBeNull();
     // Le CA HT global = la tuile « CA HT » de la période (97 612,61 € = 94 612,61 + 3 000).
     expect(montant('[data-total="ca"]')).toBe('97 612,61 €');
@@ -2107,7 +2107,7 @@ describe('🔴 Arno (25/10/2026) — Suivi annuel : le « Résumé de la périod
   it('2025 → 2025 : l’année seule ; « Depuis le début (2025) » ; le Négociateur replié', async () => {
     window.history.replaceState(null, '', '/?debut=2025&fin=2025');
     await monter('annee');
-    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de la période — 2025 → 2025');
+    expect(resume().querySelector('h3')?.textContent).toBe('Résumé de la période — 2025 (année complète)');
     expect(resume().querySelector('[data-sous-titre-portefeuille]')?.textContent).toBe('Depuis le début (2025)');
     expect(resume().querySelector('[data-negociateur-bloc] [data-deplier-negociateur]')?.getAttribute('aria-expanded')).toBe('false');
     expect(montant('[data-total="ca"]')).toBe('3 000,00 €');
@@ -2693,12 +2693,12 @@ describe('🔴 LOT LO3 — l’année en cours dans « Début » / « Fin » : �
   const centimes = (t: string) => Math.round(Number(nbsp(t).replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
   it('Début et Fin proposent 2026 « (à date) », en tête des années ; avec une Fin 2025 (ancien lien), la Fin propose toujours 2026', async () => {
     await monter('annee');
-    expect((await options('debut')).slice(0, 2)).toEqual([['origine', 'Origine (2025)'], ['2026', '2026 (à date)']]);
+    expect((await options('debut')).slice(0, 2)).toEqual([['origine', 'Origine (2025)'], ['2026', '1er janv. 2026']]);
     expect((await options('fin')).slice(0, 2)).toEqual([['aujourdhui', 'Aujourd’hui'], ['2026', '2026 (à date)']]);
     act(() => { root.unmount(); }); root = createRoot(container);
     window.history.replaceState(null, '', '/?fin=2025');
     await monter('annee');
-    expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : Origine → 2025 (2025 → 31/12/2025)');
+    expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : Origine (1er janv. 2025) → 31 déc. 2025');
     expect((await options('fin')).map((x) => x[0])).toContain('2026');
     expect(new URLSearchParams(window.location.search).get('fin')).toBe('2025'); // l'ancien lien reste tel quel
   });
@@ -2712,7 +2712,7 @@ describe('🔴 LOT LO3 — l’année en cours dans « Début » / « Fin » : �
     };
     for (const u of ['ht', 'ttc'] as const) {
       const a2026 = await ca('/?debut=2026&fin=2026', u);
-      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2026 (à date)');
+      expect(container.querySelector('[data-periode-libelle]')?.textContent).toBe('Période : 2026 (1er janv. → à date)');
       const tout = await ca('/?fin=2026', u);
       const jusqua2025 = await ca('/?fin=2025', u);
       expect([u, tout]).toEqual([u, jusqua2025 + a2026]);

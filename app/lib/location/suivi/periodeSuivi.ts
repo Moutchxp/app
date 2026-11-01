@@ -25,6 +25,8 @@ export const PERIODE_DEFAUT: ChoixPeriode = { debut: 'origine', fin: 'aujourdhui
 const deux = (n: number): string => String(n).padStart(2, '0');
 const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
 const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+/** 🔴 LOT LO4 — une borne écrite en clair : « 1er janv. 2026 », « 31 déc. 2025 », « 1er nov. 2026 ». PUR. */
+export const dateCourte = (iso: string): string => { const [a, m, j] = iso.split('-').map(Number); return `${j === 1 ? '1er' : j} ${COURT[m - 1]} ${a}`; };
 /** Le dernier jour d'un mois (AAAA-MM-JJ). */
 const finDeMois = (a: number, m: number): string => `${a}-${deux(m)}-${deux(new Date(Date.UTC(a, m, 0)).getUTCDate())}`;
 
@@ -46,13 +48,16 @@ export function periodeDe(c: ChoixPeriode, origine: number, jour: string): Perio
   else { const [a, m] = c.fin.split('-').map(Number); finDate = finDeMois(a, m) > jour ? jour : finDeMois(a, m); }
   const anneeFin = Number(finDate.slice(0, 4));
   const debutDate = `${anneeDebut}-01-01`;
-  const gauche = c.debut === 'origine' ? 'Origine' : String(anneeDebut);
   const jusquAujourdhui = finDate === jour;
-  const droite = jusquAujourdhui ? 'aujourd’hui' : typeof c.fin === 'string' && c.fin !== 'aujourdhui' ? `fin ${COURT[Number(c.fin.slice(5, 7)) - 1]} ${anneeFin}` : String(anneeFin);
-  const precision = c.debut === 'origine' || jusquAujourdhui ? ` (${anneeDebut} → ${dateFr(finDate)})` : '';
-  // 🔴 LOT LO3 (Arno) — l'année en cours seule (Début = l'année, Fin = cette année ou « Aujourd'hui ») : « 2026 (à date) », jusqu'à aujourd'hui.
+  // 🔴 LOT LO3 (Arno) — l'année en cours seule (Début = l'année, Fin = cette année ou « Aujourd'hui ») : jusqu'à aujourd'hui (`aDate`).
   const aDate = typeof c.debut === 'number' && anneeDebut === enCours && anneeFin === enCours && jusquAujourdhui;
-  return { ...c, debutDate, finDate, anneeDebut, anneeFin, libelle: aDate ? `${anneeDebut} (à date)` : `${gauche} → ${droite}${precision}`, ...(aDate ? { aDate } : {}) };
+  // 🔴 LOT LO4 (Arno) — le libellé dit les BORNES RÉELLES : « 1er janv. 2024 → 31 déc. 2025 », « … → 1er nov. 2026 (à date) » ; l'année en cours
+  // seule : « 2026 (1er janv. → à date) » ; une seule année terminée : « 2025 (année complète) » ; depuis l'origine : « Origine (1er janv. 2019) → … ».
+  const uneAnneeComplete = anneeDebut === anneeFin && finDate === `${anneeFin}-12-31`;
+  const libelle = aDate ? `${anneeDebut} (1er janv. → à date)`
+    : uneAnneeComplete && c.debut !== 'origine' ? `${anneeDebut} (année complète)`
+    : `${c.debut === 'origine' ? `Origine (${dateCourte(debutDate)})` : dateCourte(debutDate)} → ${dateCourte(finDate)}${jusquAujourdhui ? ' (à date)' : ''}`;
+  return { ...c, debutDate, finDate, anneeDebut, anneeFin, libelle, ...(aDate ? { aDate } : {}) };
 }
 
 /** Début > Fin ? */

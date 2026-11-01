@@ -22,16 +22,18 @@ describe('🔴 le choix et son libellé', () => {
   it('défauts : Origine → aujourd’hui ; le défaut n’écrit rien dans l’adresse', () => {
     expect(choixDeLAdresse('', 2019, JOUR)).toEqual({ choix: PERIODE_DEFAUT, message: null });
     const p = periodeDe(PERIODE_DEFAUT, 2019, JOUR);
-    expect([p.debutDate, p.finDate, p.libelle]).toEqual(['2019-01-01', '2026-10-25', 'Origine → aujourd’hui (2019 → 25/10/2026)']);
+    expect([p.debutDate, p.finDate, p.libelle]).toEqual(['2019-01-01', '2026-10-25', 'Origine (1er janv. 2019) → 25 oct. 2026 (à date)']);
     expect(parametresDe(PERIODE_DEFAUT)).toEqual({ debut: null, fin: null });
   });
   it('des années : du 1er janvier au 31 décembre ; l’année en cours en fin = jusqu’à aujourd’hui', () => {
-    expect(periodeDe({ debut: 2023, fin: 2025 }, 2019, JOUR)).toMatchObject({ debutDate: '2023-01-01', finDate: '2025-12-31', libelle: '2023 → 2025' });
-    // 🔴 LOT LO3 — l'année en cours seule : « 2026 (à date) », jusqu'à aujourd'hui (Fin « 2026 » ou « Aujourd'hui »)
-    expect(periodeDe({ debut: 2026, fin: 2026 }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (à date)', aDate: true });
-    expect(periodeDe({ debut: 2026, fin: 'aujourdhui' }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (à date)', aDate: true });
+    expect(periodeDe({ debut: 2023, fin: 2025 }, 2019, JOUR)).toMatchObject({ debutDate: '2023-01-01', finDate: '2025-12-31', libelle: '1er janv. 2023 → 31 déc. 2025' });
+    // 🔴 LOT LO3 / LO4 — l'année en cours seule, jusqu'à aujourd'hui : « 2026 (1er janv. → à date) » ; une année terminée : « 2025 (année complète) »
+    expect(periodeDe({ debut: 2025, fin: 2025 }, 2019, JOUR).libelle).toBe('2025 (année complète)');
+    expect(periodeDe({ debut: 2024, fin: 2025 }, 2019, JOUR).libelle).toBe('1er janv. 2024 → 31 déc. 2025');
+    expect(periodeDe({ debut: 2026, fin: 2026 }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (1er janv. → à date)', aDate: true });
+    expect(periodeDe({ debut: 2026, fin: 'aujourdhui' }, 2019, JOUR)).toMatchObject({ finDate: '2026-10-25', libelle: '2026 (1er janv. → à date)', aDate: true });
     expect(periodeDe({ debut: 'origine', fin: 2026 }, 2019, JOUR).aDate).toBeUndefined();
-    expect(periodeDe({ debut: 2026, fin: '2026-03' }, 2019, JOUR)).toMatchObject({ libelle: '2026 → fin mars 2026' });
+    expect(periodeDe({ debut: 2026, fin: '2026-03' }, 2019, JOUR)).toMatchObject({ libelle: '1er janv. 2026 → 31 mars 2026' });
     expect(choixDeLAdresse('?debut=2023&fin=2025', 2019, JOUR).choix).toEqual({ debut: 2023, fin: 2025 });
     expect(parametresDe({ debut: 2023, fin: 2025 })).toEqual({ debut: '2023', fin: '2025' });
   });
@@ -45,7 +47,7 @@ describe('🔴 le choix et son libellé', () => {
   it('🔴 une ANCIENNE adresse ?annee=2025&mois=10 : 2025 → 2025, arrêtée à la fin d’octobre', () => {
     const { choix } = choixDeLAdresse('?annee=2025&mois=10', 2019, JOUR);
     expect(choix).toEqual({ debut: 2025, fin: '2025-10' });
-    expect(periodeDe(choix, 2019, JOUR)).toMatchObject({ debutDate: '2025-01-01', finDate: '2025-10-31', libelle: '2025 → fin oct. 2025' });
+    expect(periodeDe(choix, 2019, JOUR)).toMatchObject({ debutDate: '2025-01-01', finDate: '2025-10-31', libelle: '1er janv. 2025 → 31 oct. 2025' });
     expect(finAnneeMois(choix, JOUR)).toEqual({ annee: 2025, mois: 10 });
     expect(choixDeLAdresse('?annee=2025', 2019, JOUR).choix).toEqual({ debut: 2025, fin: 2025 });
   });
