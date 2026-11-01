@@ -15,7 +15,7 @@ import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
 import { TITRE_FUSION_VENTE, TITRE_VENTES } from './FilAriane';
-import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
+import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, attributBarresRouges, StyleBarresRouges, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
 import { resolveurDe, type StatutDuLibelle } from '../../../../lib/transaction/statutLigne';
@@ -35,7 +35,7 @@ import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGloba
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
 import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
-import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisSoulignes, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, anneesSoulignees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { carteCompromis } from '../../../../lib/transaction/compromisCarte';
 import { basculerMois, ordonner, sommeDesMoisAffiches, compromisPeriode, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, moisCommence, MOT_A_SAISIR, motSalairesASaisir, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
@@ -534,7 +534,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
         <CourbeCumul courant={cumuler(valeurs).slice(0, dernierMois)} n1={sansN1 ? null : cumuler(valeursN1)} annee={annee} selection={mois} entier={nombre}
           aria={`${motGraphe} cumulé ${annee}`} bulle={(k) => info(k, true)} onChoisir={onMois} repos={moisSeul ? undefined : repos(true)} />
       ) : (
-        <Histogramme attribut="data-barre-mois" courante={rouges !== null ? (rouges.includes(mois) ? mois : rouges.at(-1) ?? 0) : enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
+        <Histogramme attribut="data-barre-mois" courante={mois === 0 ? 0 : rouges !== null ? (rouges.includes(mois) ? mois : rouges.at(-1) ?? 0) : enPeriode ? (moisPeriodeAnnee.includes(mois) ? mois : moisPeriodeAnnee.at(-1) ?? 0) : mois} onChoisir={onMois} entier={nombre} aria={`${motGraphe} par mois, ${annee}`}
           legende={{ courant: String(annee), n1: sansN1 ? null : String(annee - 1) }}
           repos={moisSeul ? undefined : repos(false)}
           barres={valeurs.map((v, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernierMois ? null : v, n1: sansN1 ? null : valeursN1[i], info: info(i + 1, false),
@@ -549,17 +549,19 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
   </>;
 }
 
-/**
- * Arno (01/11/2026) — LES MOIS EN ROUGE D'UN GRAPHIQUE « MOIS PAR MOIS » (les quatre graphiques : Transaction vente, Gestion, Location, FUSION
- * Location & Gestion) : en « Période » et en « Année », les mois de `moisSoulignes` (ceux que souligne la rangée des mois) en rouge, les autres
- * estompés, libellés compris ; null : rien (« Mois » : la barre courante est en rouge, le graphique n'est pas estompé — lots DE / DF).
- * L'attribut et la règle, écrits une fois.
- */
-export const attributMoisRouges = (mois: readonly number[] | null): Record<string, string> => (mois === null ? {} : { 'data-periode-graphe': mois.join(',') });
-export function StyleMoisRouges({ mois }: { mois: readonly number[] | null }) {
-  if (mois === null) return null;
-  return <style>{`[data-periode-graphe] g[data-barre-mois]{opacity:.35}${mois.map((k) => `[data-periode-graphe] g[data-barre-mois="${k}"]{opacity:1}[data-periode-graphe] g[data-barre-mois="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>;
-}
+// Arno (01/11/2026) — les barres en rouge : la règle générique (`StyleBarresRouges`, `attributBarresRouges`) est dans ./commun.
+/** Les quatre graphiques « mois par mois » (Transaction vente, Gestion, Location, FUSION Location & Gestion). */
+export const attributMoisRouges = (mois: readonly number[] | null): Record<string, string> => attributBarresRouges('data-periode-graphe', mois);
+export const StyleMoisRouges = ({ mois }: { mois: readonly number[] | null }) => <StyleBarresRouges marque="data-periode-graphe" attribut="data-barre-mois" cles={mois} />;
+/** Les quatre graphiques « année par année » (les mêmes écrans, onglet « Année(s) »). */
+export const attributAnneesRouges = (annees: readonly number[] | null): Record<string, string> => attributBarresRouges('data-periode-annees', annees);
+export const StyleAnneesRouges = ({ annees }: { annees: readonly number[] | null }) => <StyleBarresRouges marque="data-periode-annees" attribut="data-barre-annee" cles={annees} />;
+/** Les années en rouge d'un graphique « année par année » : « Année » : null (la barre courante) ; « Période » / « Tout » : `anneesSoulignees`. */
+export const anneesRouges = (decoupage: DecoupageAnnees, annee: number, selection: readonly number[], rangee: readonly number[]): number[] | null =>
+  (decoupage === 'annee' ? null : anneesSoulignees(decoupage, annee, selection, rangee));
+/** Le sous-graphique « Mois par mois — AAAA » de l'onglet « Année(s) » : AAAA soulignée → ses mois écoulés en rouge ; sinon, aucun. */
+export const moisRougesDeLAnnee = (annee: number, soulignees: readonly number[], jour: string): number[] | null =>
+  (soulignees.includes(annee) ? moisEcoules(annee, jour) : null);
 
 /** 🔴 LOT GE1 — LA LIGNE DES MOIS et « Mois | Période | Année » (déplacée de `VueMois`, à l'identique) : Transaction et Gestion. */
 export function LigneDesMois({ annee, mois, jour, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number;
@@ -596,6 +598,8 @@ export function LigneDesMois({ annee, mois, jour, decoupage, moisChoisis, onMois
 /** 🔴 LOT GE1 — LA LIGNE DES ANNÉES et « Année | Période | Tout » (déplacée de `VueAnnee`, à l'identique) : Transaction et Gestion. */
 export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
   choisies: readonly number[]; onAnnee: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void }) {
+  // Arno (01/11/2026) — les années soulignées : `anneesSoulignees`, la réponse unique partagée avec les graphiques « année par année ».
+  const soulignees = anneesSoulignees(decoupage, annee, choisies, annees);
   return (
   <div className="trx-rangee-mois trx-rangee-annees" data-decoupage-annees={decoupage}>
     {decoupage === 'annee' ? (
@@ -604,7 +608,7 @@ export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, on
       </div>
     ) : (
       <div className="tdb-onglets trx-onglets-periode" role="group" aria-label="Les années choisies">
-        {annees.map((a) => <button key={a} type="button" aria-pressed={choisies.includes(a)} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
+        {annees.map((a) => <button key={a} type="button" aria-pressed={soulignees.includes(a)} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
       </div>
     )}
     <div className="trx-unites trx-choix-periode" role="group" aria-label="Une année, plusieurs années ou toutes" data-choix-annees={decoupage}>
@@ -1325,11 +1329,12 @@ function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode
       precedent: avant ? { libelle: String(a - 1), ca: v1, nb: nb1, ...parts(vb1, v1) } : null };
   };
   const enPeriode = decoupage === 'periode';
+  const rouges = anneesRouges(decoupage, annee, selection, annees);
   return (
     <section className="tdb-section" aria-labelledby="trx-annees" data-bloc="graphe-annees" data-mesure={mesure} data-echelle="annees"
-      {...(enPeriode ? { 'data-periode-annees': selection.join(',') } : {})}>
-      {/* En Période : les années choisies surlignées (rouge), les autres atténuées — la règle de « Le mois » en Période. */}
-      {enPeriode && <style>{`[data-periode-annees] g[data-barre-annee]{opacity:.35}${selection.map((a) => `[data-periode-annees] g[data-barre-annee="${a}"]{opacity:1}[data-periode-annees] g[data-barre-annee="${a}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributAnneesRouges(rouges)}>
+      {/* Arno (01/11/2026) — Période / Tout : les années soulignées en rouge (`anneesSoulignees`), les autres estompées ; la règle partagée */}
+      <StyleAnneesRouges annees={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-annees" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel"
         mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
@@ -1496,7 +1501,8 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
 
     {echelle === 'annees'
       ? <GrapheAnnees d={d} tout={tout} annees={annees} selection={sel} comparaison={enTout ? toutes : null} annee={annee} decoupage={choix.decoupage} jour={jour} mode={mode} series={series} onAnnee={onAnnee} entete={choixEchelle} />
-      : <GrapheMois d={d} tout={tout} annee={annee} mois={0} jour={jour} mode={mode} series={series} onMois={(m) => onOuvrirMois(annee, m)} moisSeul={false} periodeAnnee={null} entete={choixEchelle} />}
+      : <GrapheMois d={d} tout={tout} annee={annee} mois={0} jour={jour} mode={mode} series={series} onMois={(m) => onOuvrirMois(annee, m)} moisSeul={false} periodeAnnee={null}
+        rouges={moisRougesDeLAnnee(annee, anneesSoulignees(choix.decoupage, annee, sel, annees), jour)} entete={choixEchelle} />}
 
     <div ref={listes} className="trx-listes-mois">
       {mode !== 'compromis' && <ListeCartesAffaires id="trx-ventes-annee" bloc="ventes-annee" titre={enTout ? `Les ventes — toutes les années (${plage})` : `Les ventes de ${lib}`}
@@ -1792,7 +1798,8 @@ export function EcranGlobal() {
       </ul>
 
       {/* 🔴 LOT CG9 — le graphique, sous les tuiles et avant la Synthèse : les données des tableaux du Bilan, filtrées par famille */}
-      <GrapheGlobal eG={e} eC={eCouts} jour={jour} annee={annee} annees={enAnnee ? null : sel} salaires={avecSalaires} />
+      <GrapheGlobal eG={e} eC={eCouts} jour={jour} annee={annee} annees={enAnnee ? null : sel} salaires={avecSalaires}
+        rouges={enAnnee ? moisRougesDeLAnnee(annee, [annee], jour) : anneesSoulignees(choixA!.decoupage, annee, sel, anneesVisibles ?? annees)} />
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
         <h3 id="trx-g-synthese">Synthèse {lib} par société, puis le global <small className="loc-muet">({MOT})</small></h3>
@@ -2105,6 +2112,7 @@ export function EcranGestion() {
           const lib = enTout ? 'toutes les années' : libelleAnnees(choixA);
           const onAnneeSeule = (a: number): void => { setRefusAnnees(false); setChoixAnnees({ decoupage: 'annee', annees: [a], annee: a }); };
           return <VueGestion {...commun} ms={moisDesAnnees(sel)} lib={lib} annee={choixA.annee} mois={0} moisChoisis={null}
+            rouges={moisRougesDeLAnnee(choixA.annee, anneesSoulignees(choixA.decoupage, choixA.annee, sel, anneesVisibles), jour)}
             lignesTableau={moisDesAnnees(sel)} onMois={() => undefined} toutes={enTout ? `Toutes les années (${anneesVisibles[0]} → ${anneesVisibles.at(-1)})` : null}
             echelleAnnees={{ annees: anneesVisibles, selection: sel, decoupage: choixA.decoupage, onAnnee: choisirAnnee }}
             tableAnnees={enTout ? <section className="tdb-section" aria-labelledby="trx-gestion-annees" data-bloc="gestion-annees">
@@ -2336,10 +2344,12 @@ function GrapheGestionAnnees({ gestion, jour, u, salaires, annee, annees, select
   const entier = mesure === 'lots';
   const motGraphe = motMesureGestion(mesure, u, salaires);
   const enPeriode = decoupage === 'periode';
+  const rouges = anneesRouges(decoupage, annee, selection, annees);
   return (
     <section className="tdb-section" aria-labelledby="trx-gestion-annees-graphe" data-bloc="graphe-annees" data-mesure={mesure} data-echelle="annees"
-      {...(enPeriode ? { 'data-periode-annees': selection.join(',') } : {})}>
-      {enPeriode && <style>{`[data-periode-annees] g[data-barre-annee]{opacity:.35}${selection.map((a) => `[data-periode-annees] g[data-barre-annee="${a}"]{opacity:1}[data-periode-annees] g[data-barre-annee="${a}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributAnneesRouges(rouges)}>
+      {/* Arno (01/11/2026) — Période / Tout : les années soulignées en rouge (`anneesSoulignees`), les autres estompées ; la règle partagée */}
+      <StyleAnneesRouges annees={rouges} />
       <EnteteGraphe<MesureGestion> id="trx-gestion-annees-graphe" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel"
         mesures={MESURES_GESTION} titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {entete}

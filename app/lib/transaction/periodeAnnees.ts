@@ -56,6 +56,16 @@ export function moisSoulignes(decoupage: DecoupageCumul, annee: number, mois: nu
   return [...new Set(moisChoisis ?? [])].filter((m) => m >= 1 && m <= 12).sort((a, b) => a - b);
 }
 /**
+ * Arno (01/11/2026) — LES ANNÉES DE LA SÉLECTION (triées) : celles que souligne la rangée des années ET que les graphiques « année par année »
+ * montrent en rouge — une seule réponse pour tous les écrans. « Année » : l'année choisie ; « Période » : les années choisies ; « Tout » : toutes
+ * les années de la rangée. PUR.
+ */
+export function anneesSoulignees(decoupage: DecoupageAnnees, annee: number, choisies: readonly number[], rangee: readonly number[]): number[] {
+  const tri = (xs: readonly number[]): number[] => [...new Set(xs)].sort((a, b) => a - b);
+  if (decoupage === 'annee') return [annee];
+  return tri(decoupage === 'tout' ? rangee : choisies);
+}
+/**
  * ══ 🔴 LOT DN (Arno, 31/10/2026) — LA BORNE DE FIN DU CUMUL : UNE SEULE FONCTION, PARTOUT (PUR) ══════════════════════════════════════════════════
  * Les tuiles de cumul (« CA … cumulé [année] », « CA net … cumulé », « Prévisionnel … »), l'encadré du graphique en Cumul au repos et « L'année »
  * (« à date ») cumulent de janvier au mois `fin` de cette borne ; N−1 : la MÊME borne sur l'année précédente.

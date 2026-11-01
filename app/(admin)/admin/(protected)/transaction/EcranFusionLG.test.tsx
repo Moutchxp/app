@@ -385,3 +385,45 @@ describe('Arno (01/11/2026) — les graphiques « mois par mois » : en rouge, e
     });
   }
 });
+
+describe('Arno (01/11/2026) — onglet « Année(s) » : en rouge, exactement les années soulignées ; « Mois par mois — AAAA » : ses mois écoulés si AAAA est soulignée', () => {
+  // ⚠️ jsdom garde en cache le style calculé d'une feuille retirée avec son ancêtre : on lit les règles du <style> du graphique lui-même.
+  const regles = (bloc: string): CSSStyleRule[] => [...document.querySelectorAll(`[data-bloc="${bloc}"] style`)]
+    .flatMap((x) => [...((x as HTMLStyleElement).sheet?.cssRules ?? [])]).filter((r): r is CSSStyleRule => 'selectorText' in r);
+  const groupes = (bloc: string, attr: string): Element[] => [...document.querySelectorAll(`[data-bloc="${bloc}"] g[${attr}]`)];
+  const rouges = (bloc: string, attr: string): number[] => groupes(bloc, attr).filter((g) => [...g.querySelectorAll('rect.tdb-barre')]
+    .some((r) => r.classList.contains('tdb-barre--courante') || regles(bloc).some((x) => x.style.fill.includes('svv-red') && r.matches(x.selectorText))))
+    .map((g) => Number(g.getAttribute(attr)));
+  const avecBarre = (bloc: string, attr: string): number[] => groupes(bloc, attr).filter((g) => g.querySelector('rect.tdb-barre') !== null).map((g) => Number(g.getAttribute(attr)));
+  const estompes = (bloc: string, attr: string): number[] => groupes(bloc, attr)
+    .filter((g) => regles(bloc).filter((x) => x.style.opacity !== '' && g.matches(x.selectorText)).at(-1)?.style.opacity === '0.35').map((g) => Number(g.getAttribute(attr)));
+  const anneesSoulignees = (): number[] => [...document.querySelectorAll('.trx-rangee-annees [data-onglet-annee]')]
+    .filter((b) => b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true').map((b) => Number(b.getAttribute('data-onglet-annee')));
+  const ecrans = [['FUSION Location & Gestion', () => createElement(EcranFusionLocationGestion)], ['Location', () => createElement(EcranLocationCA)], ['Gestion', () => createElement(EcranGestion)]] as const;
+  const modes = [['Année', '/?vue=annee&annee=2025', [2025]], ['Période', '/?vue=annee&annee=2026&vue-annee=periode&annees=2025,2026', [2025, 2026]],
+    ['Tout', '/?vue=annee&annee=2026&vue-annee=tout', null]] as const;
+  for (const [nom, ecran] of ecrans) for (const [mode, q, attendu] of modes) {
+    it(`${nom} — « Année par année », ${mode}`, async () => {
+      await ouvrir(q, ecran);
+      const rangee = [...document.querySelectorAll('.trx-rangee-annees [data-onglet-annee]')].map((b) => Number(b.getAttribute('data-onglet-annee')));
+      expect(anneesSoulignees()).toEqual(attendu ?? rangee);
+      expect(rouges('graphe-annees', 'data-barre-annee')).toEqual(anneesSoulignees().filter((a) => avecBarre('graphe-annees', 'data-barre-annee').includes(a)));
+      expect(rouges('graphe-annees', 'data-barre-annee').length).toBeGreaterThan(0);
+      // hors sélection : estompés en Période (en Tout, aucun hors sélection) ; « Année » : jamais estompé (lots DE / DF)
+      expect(estompes('graphe-annees', 'data-barre-annee')).toEqual(mode === 'Année' ? []
+        : groupes('graphe-annees', 'data-barre-annee').map((g) => Number(g.getAttribute('data-barre-annee'))).filter((a) => !anneesSoulignees().includes(a)));
+    });
+  }
+  // le sous-graphique « Mois par mois — AAAA » (le 01/11/2026) : 2026 soulignée → janvier → novembre ; 2025 soulignée → les 12 mois
+  const sous = [['année en cours soulignée', '/?vue=annee&annee=2026&graphe=mois', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]],
+    ['année passée soulignée', '/?vue=annee&annee=2025&graphe=mois', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]] as const;
+  for (const [nom, ecran] of ecrans) for (const [cas, q, attendu] of sous) {
+    it(`${nom} — « Mois par mois — AAAA », ${cas}`, async () => {
+      await ouvrir(q, ecran);
+      expect(document.querySelector('[data-echelle-choix]')!.getAttribute('data-echelle-choix')).toBe('mois');
+      expect(rouges('histogramme-mois', 'data-barre-mois')).toEqual(attendu.filter((k) => avecBarre('histogramme-mois', 'data-barre-mois').includes(k)));
+      expect(estompes('histogramme-mois', 'data-barre-mois')).toEqual(groupes('histogramme-mois', 'data-barre-mois').map((g) => Number(g.getAttribute('data-barre-mois')))
+        .filter((k) => !(attendu as readonly number[]).includes(k)));
+    });
+  }
+});

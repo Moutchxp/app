@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccueilLocationGestion, AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, LigneDesMois, syntheseGlobal, vueInitiale } from './EcransTransaction';
+import { AccueilLocationGestion, AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, LigneDesMois, moisRougesDeLAnnee, syntheseGlobal, vueInitiale } from './EcransTransaction';
 import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele';
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { compromisEnCours } from '../../../../lib/transaction/compromisEnCours';
@@ -4366,4 +4366,64 @@ describe('Arno (01/11/2026) — CRITERIMMO, MACJ, FUSION VENTES : le graphique �
       expect(estompes()).toEqual(mode === 'Mois' ? [] : barres().map((g) => Number(g.getAttribute('data-barre-mois'))).filter((k) => !(attendu as readonly number[]).includes(k)));
     });
   }
+});
+
+describe('Arno (01/11/2026) — onglet « Année(s) » : CRITERIMMO, MACJ, FUSION VENTES, CA global — en rouge, exactement les années soulignées', () => {
+  // ⚠️ jsdom garde en cache le style calculé d'une feuille retirée avec son ancêtre : on lit les règles du <style> du graphique lui-même.
+  const regles = (bloc: string): CSSStyleRule[] => [...container.querySelectorAll(`[data-bloc="${bloc}"] style`)]
+    .flatMap((x) => [...((x as HTMLStyleElement).sheet?.cssRules ?? [])]).filter((r): r is CSSStyleRule => 'selectorText' in r);
+  const groupes = (bloc: string, attr: string): Element[] => [...container.querySelectorAll(`[data-bloc="${bloc}"] g[${attr}]`)];
+  const rouges = (bloc: string, attr: string): number[] => groupes(bloc, attr).filter((g) => [...g.querySelectorAll('rect.tdb-barre')]
+    .some((r) => r.classList.contains('tdb-barre--courante') || regles(bloc).some((x) => x.style.fill.includes('svv-red') && r.matches(x.selectorText))))
+    .map((g) => Number(g.getAttribute(attr)));
+  const avecBarre = (bloc: string, attr: string): number[] => groupes(bloc, attr).filter((g) => g.querySelector('rect.tdb-barre') !== null).map((g) => Number(g.getAttribute(attr)));
+  const estompes = (bloc: string, attr: string): number[] => groupes(bloc, attr)
+    .filter((g) => regles(bloc).filter((x) => x.style.opacity !== '' && g.matches(x.selectorText)).at(-1)?.style.opacity === '0.35').map((g) => Number(g.getAttribute(attr)));
+  const soulignees = (): number[] => [...container.querySelectorAll('.trx-rangee-annees [data-onglet-annee]')]
+    .filter((b) => b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true').map((b) => Number(b.getAttribute('data-onglet-annee')));
+  const rangee = (): number[] => [...container.querySelectorAll('.trx-rangee-annees [data-onglet-annee]')].map((b) => Number(b.getAttribute('data-onglet-annee')));
+  const ouvrirA = async (q: string, el: () => ReturnType<typeof createElement>) => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    window.history.replaceState(null, '', q);
+    await act(async () => { root.render(el()); }); await calmer();
+  };
+  const modes = [['Année', '/?vue=annee&annee=2025', 'annee'], ['Période', '/?vue=annee&annee=2025&vue-annee=periode&annees=2024,2025', 'periode'],
+    ['Tout', '/?vue=annee&annee=2025&vue-annee=tout', 'tout']] as const;
+  for (const societe of ['criterimmo', 'macj', 'tous'] as const) for (const [mode, q] of modes) {
+    it(`${societe} — « Année par année », ${mode}`, async () => {
+      await ouvrirA(q, () => createElement(EcranSociete, { societe }));
+      expect(soulignees()).toEqual(mode === 'Année' ? [2025] : mode === 'Période' ? [2024, 2025] : rangee());
+      expect(rouges('graphe-annees', 'data-barre-annee')).toEqual(soulignees().filter((a) => avecBarre('graphe-annees', 'data-barre-annee').includes(a)));
+      expect(rouges('graphe-annees', 'data-barre-annee').length).toBeGreaterThan(0);
+      expect(estompes('graphe-annees', 'data-barre-annee')).toEqual(mode === 'Année' ? []
+        : groupes('graphe-annees', 'data-barre-annee').map((g) => Number(g.getAttribute('data-barre-annee'))).filter((a) => !soulignees().includes(a)));
+    });
+  }
+  for (const [mode, q] of modes) {
+    it(`CA global — ${mode} : années (Période, Tout) ou mois écoulés de l’année (Année)`, async () => {
+      await ouvrirA(q.replace('?vue=annee&', '?'), () => createElement(EcranGlobal));
+      const parAnnees = mode !== 'Année';
+      const attr = parAnnees ? 'data-barre-annee-global' : 'data-barre-mois-global';
+      // « Année » : les mois écoulés de 2025 (le 27/10/2025 : janvier → octobre), « Mois à confirmer » (13) avec eux s'il est là
+      const attendu = parAnnees ? soulignees() : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13];
+      expect(rouges('global-graphe', attr)).toEqual(attendu.filter((k) => avecBarre('global-graphe', attr).includes(k)));
+      expect(rouges('global-graphe', attr).length).toBeGreaterThan(0);
+      expect(estompes('global-graphe', attr)).toEqual(groupes('global-graphe', attr).map((g) => Number(g.getAttribute(attr))).filter((k) => !attendu.includes(k)));
+    });
+  }
+  it('« Mois par mois — AAAA » (CRITERIMMO) : 2025 en cours soulignée (le 15/11/2025) → janvier → novembre ; 2024 passée soulignée → 12 mois', async () => {
+    vi.setSystemTime(new Date('2025-11-15T10:00:00Z'));
+    for (const [q, attendu] of [['/?vue=annee&annee=2025&graphe=mois', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]], ['/?vue=annee&annee=2024&graphe=mois', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]] as const) {
+      await ouvrirA(q, () => createElement(EcranSociete, { societe: 'criterimmo' }));
+      expect([q, rouges('histogramme-mois', 'data-barre-mois')]).toEqual([q, attendu.filter((k) => avecBarre('histogramme-mois', 'data-barre-mois').includes(k))]);
+      expect([q, estompes('histogramme-mois', 'data-barre-mois')]).toEqual([q, groupes('histogramme-mois', 'data-barre-mois').map((g) => Number(g.getAttribute('data-barre-mois')))
+        .filter((k) => !(attendu as readonly number[]).includes(k))]);
+    }
+  });
+  it('« Mois par mois — AAAA », AAAA hors des années soulignées : aucun mois en rouge (la règle unique)', () => {
+    expect(moisRougesDeLAnnee(2026, [2024, 2025], '2026-11-15')).toBeNull();
+    expect(moisRougesDeLAnnee(2026, [2025, 2026], '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(moisRougesDeLAnnee(2025, [2025], '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(moisRougesDeLAnnee(2027, [2027], '2026-11-15')).toEqual([]);
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compromisDuMode, MODES_MOIS, totauxMoisMode, ventesDuMois, type DonneesSociete, type ModeMois, type Vente } from './modele';
 import { resultatDesCartes } from './carteAffaireLignes';
-import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
+import { aConfirmerDesAnnees, anneesInitiales, borneCumul, cumulA, basculerAnnee, ecrireAnnees, lireAnnees, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, anneesSoulignees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees } from './periodeAnnees';
 /** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
 const JOUR_DQ = '2025-10-27';
 
@@ -127,5 +127,14 @@ describe('Arno (01/11/2026) — moisSoulignes : la sélection unique (rangée de
     expect(moisSoulignes('annee', 2027, 9, null, '2026-11-15')).toEqual([]);
     // « Année » ne dépend ni du mois de l'adresse ni des mois passés : la même réponse que moisEcoules
     expect(moisSoulignes('annee', 2026, 12, [1, 12], '2026-11-15')).toEqual(moisEcoules(2026, '2026-11-15'));
+  });
+});
+
+describe('Arno (01/11/2026) — anneesSoulignees : la sélection unique (rangée des années et graphiques « année par année »)', () => {
+  it('Année : l’année choisie ; Période : les années choisies, triées, sans doublon ; Tout : toute la rangée', () => {
+    const rangee = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
+    expect(anneesSoulignees('annee', 2025, [2024, 2025], rangee)).toEqual([2025]);
+    expect(anneesSoulignees('periode', 2025, [2025, 2023, 2025], rangee)).toEqual([2023, 2025]);
+    expect(anneesSoulignees('tout', 2026, [2026], rangee)).toEqual(rangee);
   });
 });

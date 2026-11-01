@@ -11,7 +11,7 @@ import {
   ACTIVITES_GRAPHE, atomesDesMois, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
   raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur,
 } from '../../../../lib/transaction/grapheGlobal';
-import { COURT, ecrireAdresse, eur, MOT_UNITE, parametre, useAffichage } from './commun';
+import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
 import { AucuneDonnee, CourbeCumul, eurAxe, HAUSSE_TRACE, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 
@@ -23,10 +23,13 @@ import { AucuneDonnee, CourbeCumul, eurAxe, HAUSSE_TRACE, Histogramme, margeAxe,
  * N−1 hachuré, point choisi en rouge, encadré à droite) ; plusieurs séries : barres empilées ou côte à côte (Cumul : une courbe par série), couleurs
  * fixes et légende. « Année » : les 12 mois ; « Période » / « Tout » : une barre par année.
  */
-export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
+export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = null }: {
   eG: EntreesGlobalUnite; eC: EntreesCoutsGlobaux; jour: string;
   /** L'année montrée (« Année ») ; `annees` : null en « Année », sinon les années choisies (« Période », « Tout ») — l'axe année par année. */
   annee: number; annees: readonly number[] | null; salaires: boolean;
+  /** Arno (01/11/2026) — les barres en rouge : les années soulignées (« Période », « Tout ») ou les mois écoulés de l'année montrée (« Année ») ;
+   *  null : la barre courante seule. Une seule série seulement (plusieurs séries : leurs couleurs fixes). */
+  rouges?: readonly number[] | null;
 }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC'; const ka = u === 'ht' ? 'ttcC' : 'htC';
@@ -88,6 +91,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const [survol, setSurvol] = useState<number | null>(null);
   const horsAttribuer = celluleGlobalAnnees(eG, parAnnees ? annees : [annee], u).aAttribuerHt;
   const graphe = seule ? grapheUneSerie() : grapheSeries();
+  // Arno (01/11/2026) — les barres en rouge (la règle partagée) ; mois par mois, « Mois à confirmer » appartient à l'année : en rouge avec ses mois
+  const rougesVus = !seule || rouges === null ? null : !parAnnees && avecHors && rouges.length > 0 ? [...rouges, 13] : rouges;
+  const attributBarre = parAnnees ? 'data-barre-annee-global' : 'data-barre-mois-global';
 
   /** Une seule série : `Histogramme` (Mensuel) et `CourbeCumul` (Cumul), les composants des autres pages. */
   function grapheUneSerie(): ReactNode {
@@ -216,7 +222,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const famille = (titre: string, contenu: ReactNode, cle: string) => <div className="trx-gf-famille" data-famille-filtre={cle}><span className="trx-gf-titre">{titre}</span>{contenu}</div>;
   const nb = nbFiltresActifs(f);
   return (
-    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': 'a-confirmer' } : {})}>
+    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': 'a-confirmer' } : {})}
+      {...attributBarresRouges('data-rouges-global', rougesVus)}>
+      <StyleBarresRouges marque="data-rouges-global" attribut={attributBarre} cles={rougesVus} />
       <style>{CSS_GRAPHE_GLOBAL}</style>
       <div className="trx-gf-tete">
         <h3 id="trx-g-graphe">{parAnnees ? 'Année par année' : `Mois par mois — ${annee}`} <small className="loc-muet">({motMesure}{f.cumul ? ', cumulé' : ''}{f.mesure !== 'ca' ? ` ; ${salaires ? 'avec salaires' : 'hors salaires'}` : ''})</small></h3>

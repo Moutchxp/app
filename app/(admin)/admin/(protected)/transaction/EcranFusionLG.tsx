@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation, type GestionMois } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, anneesSoulignees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { lignesDesMois, moinsC, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
 import {
@@ -14,7 +14,7 @@ import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre 
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
-import { CSS, attributMoisRouges, StyleMoisRouges, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
+import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAnnee, attributAnneesRouges, StyleAnneesRouges, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
 import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
@@ -173,7 +173,9 @@ function VueAnneeFusion({ choix, anneesVisibles, onAnnee, onAnneeSeule, onOuvrir
     historique={{ annees: anneesVisibles, choisie: choix.annee, onAnnee: onAnneeSeule }}
     tableau={enTout ? { titre: 'Année par année', lignes: sel.map(ligneAnnee) } : { titre: lib, lignes: moisDesAnnees(sel).map((m) => ({ ...ligneMois(m), libelle: sel.length > 1 ? `${NOMS_MOIS[m.mois - 1]} ${m.annee}` : NOMS_MOIS[m.mois - 1] })) }}
     graphe={echelle === 'annees' ? { sorte: 'annees', annees: anneesVisibles, selection: sel, decoupage: choix.decoupage, onAnnee, entete: choixEchelle }
-      : { sorte: 'mois', mois: 0, moisChoisis: null, rouges: null, onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
+      : { sorte: 'mois', mois: 0, moisChoisis: null,
+        // Arno (01/11/2026) — « Mois par mois — AAAA » : AAAA soulignée → ses mois écoulés en rouge ; sinon, aucun
+        rouges: moisRougesDeLAnnee(choix.annee, anneesSoulignees(choix.decoupage, choix.annee, sel, anneesVisibles), commun.jour), onMois: (m) => onOuvrirMois(choix.annee, m), entete: choixEchelle }} />;
 }
 
 interface Commun { lignes: readonly LigneLocationCa[]; gestion: readonly GestionMois[]; jour: string; activite: ActiviteFusion; liens: { location: string; gestion: string };
@@ -507,10 +509,12 @@ function GrapheFusionAnnees({ lignes, gestion, jour, activite, salaires, annee, 
   const vals = ts.map((t) => valeurDe(t, mesure, U.en));
   const motGraphe = motMesure(mesure, U.MOT, salaires);
   const enPeriode = g.decoupage === 'periode';
+  const rouges = anneesRouges(g.decoupage, annee, g.selection, g.annees);
   return (
     <section className="tdb-section" aria-labelledby="trx-fusion-annees" data-bloc="graphe-annees" data-mesure={mesure} data-echelle="annees"
-      {...(enPeriode ? { 'data-periode-annees': g.selection.join(',') } : {})}>
-      {enPeriode && <style>{`[data-periode-annees] g[data-barre-annee]{opacity:.35}${g.selection.map((a) => `[data-periode-annees] g[data-barre-annee="${a}"]{opacity:1}[data-periode-annees] g[data-barre-annee="${a}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>}
+      {...attributAnneesRouges(rouges)}>
+      {/* Arno (01/11/2026) — Période / Tout : les années soulignées en rouge (`anneesSoulignees`), les autres estompées ; la règle partagée */}
+      <StyleAnneesRouges annees={rouges} />
       <EnteteGraphe<Mesure> id="trx-fusion-annees" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel" mesures={MESURES}
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {g.entete}

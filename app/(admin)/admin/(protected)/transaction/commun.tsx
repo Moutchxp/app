@@ -818,3 +818,15 @@ export const usePageFusion = (): boolean => useContext(ConsolideContexte);
 export function useConsolide(): (t: string) => string {
   return useContext(ConsolideContexte) ? consolider : identite;
 }
+
+/**
+ * Arno (01/11/2026) — LES BARRES EN ROUGE D'UN GRAPHIQUE (mois par mois, année par année) : les clés de la sélection (`moisSoulignes`,
+ * `anneesSoulignees` : ce que souligne la rangée) en rouge, les autres estompées, libellés compris ; null : rien (« Mois » et « Année » : la
+ * barre courante est en rouge, le graphique n'est pas estompé — lots DE / DF). `marque` : l'attribut posé sur le graphique ; `attribut` :
+ * celui de ses barres. L'attribut et la règle, écrits une fois.
+ */
+export const attributBarresRouges = (marque: string, cles: readonly number[] | null): Record<string, string> => (cles === null ? {} : { [marque]: cles.join(',') });
+export function StyleBarresRouges({ marque, attribut, cles }: { marque: string; attribut: string; cles: readonly number[] | null }) {
+  if (cles === null) return null;
+  return <style>{`[${marque}] g[${attribut}]{opacity:.35}${cles.map((k) => `[${marque}] g[${attribut}="${k}"]{opacity:1}[${marque}] g[${attribut}="${k}"] .tdb-barre{fill:var(--color-svv-red)}`).join('')}`}</style>;
+}
