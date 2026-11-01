@@ -7,7 +7,7 @@ import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele'
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { compromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { existsSync, readFileSync } from 'node:fs';
-import { ARIANE } from './FilAriane';
+import { ARIANE, FilAriane } from './FilAriane';
 import type { DonneesSociete, LigneVente, Vente } from '../../../../lib/transaction/modele';
 /** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
 const JOUR_DQ = '2025-10-27';
@@ -74,12 +74,12 @@ const texte = (sel: string): string => { const n = container.querySelector(sel);
 const titreSansChoix = (sel: string): string => { const n = container.querySelector(sel)?.cloneNode(true) as HTMLElement | undefined; if (n === undefined) return ''; n.querySelectorAll('[data-salaires-choix]').forEach((x) => x.remove()); return sansExplication(n).replace(/\s/g, ' '); };
 
 describe('l’accueil de la tuile', () => {
-  it('LOT L — trois cases : « Transaction vente » (LOT DM, ex-« Transaction »), « Location & Gestion » (LOT DX, ex-« Gestion »), « CA global »', async () => {
+  it('LOT L — trois cases : « Transactions ventes » (01/11/2026 ; ex-« Transaction vente », ex-« Transaction »), « Location & Gestion » (LOT DX, ex-« Gestion »), « CA global »', async () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['Transaction vente', '/admin/transaction/ventes'], ['Location & Gestion', '/admin/transaction/location-gestion'], ['CA global', '/admin/transaction/global']]);
+      .toEqual([['Transactions ventes', '/admin/transaction/ventes'], ['Location & Gestion', '/admin/transaction/location-gestion'], ['CA global', '/admin/transaction/global']]);
     // Arno (01/11/2026) — le titre seul : plus de légende ; le nom du lien = son titre
-    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelectorAll('.loc-case-phrase').length, a.textContent])).toEqual([[0, 'Transaction vente'], [0, 'Location & Gestion'], [0, 'CA global']]);
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelectorAll('.loc-case-phrase').length, a.textContent])).toEqual([[0, 'Transactions ventes'], [0, 'Location & Gestion'], [0, 'CA global']]);
   });
   it('🔴 LOT DX — « Location & Gestion » : Location, Gestion (la page existante) et « FUSION Location & Gestion » ; trois cases de même taille', async () => {
     await act(async () => { root.render(createElement(AccueilLocationGestion)); });
@@ -89,11 +89,11 @@ describe('l’accueil de la tuile', () => {
     // la grille de « Transaction vente » : trois colonnes, une seule au téléphone
     expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
   });
-  it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION VENTE CRITERIMMO & MACJ », vers leurs écrans', async () => {
+  it('LOT L — « Transactions ventes » : CRITERIMMO, MACJ et (LOT DM) « FUSION VENTES CRITERIMMO & MACJ », vers leurs écrans', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION VENTE CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
-    expect([container.querySelectorAll('.loc-case-phrase').length, texte('[data-tuile-transaction="fusion"]')]).toEqual([0, 'FUSION VENTE CRITERIMMO & MACJ']);
+      .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION VENTES CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
+    expect([container.querySelectorAll('.loc-case-phrase').length, texte('[data-tuile-transaction="fusion"]')]).toEqual([0, 'FUSION VENTES CRITERIMMO & MACJ']);
   });
   it('LOT M / DM — trois cases de même taille (la grille de l’accueil, une colonne au téléphone) ; l’accueil garde ses trois colonnes', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
@@ -113,19 +113,22 @@ describe('l’accueil de la tuile', () => {
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
     for (const f of ['.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;', 'grid-auto-rows:1fr', 'justify-content:center;align-items:center;text-align:center',
       'min-height:calc(2 * var(--trx-case-titre) * var(--trx-case-interligne)',
-      '.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);max-width:100%;text-wrap:balance;overflow-wrap:normal']) expect(css).toContain(f);
+      '.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);text-transform:uppercase;max-width:100%;text-wrap:balance;overflow-wrap:normal']) expect(css).toContain(f);
     // UNE règle de titre : aucune autre taille propre à une page ou à une case du gabarit ; plus de règle de légende
     expect(css.match(/trx-cases-nav[^{]*\.loc-case-titre\{/g)).toHaveLength(1);
     expect(css).not.toContain('trx-cases-nav .loc-case-phrase');
     // l'accueil de la Location (.loc-cases--accueil seule) ne change pas
     expect(css).toContain('.loc-cases--accueil .loc-case{min-height:18rem');
-    // Arno (01/11/2026) — +30 % : marge intérieure 40 px → 2 × 22 × 1,25 + 2 × 40 + 2 = 137 px ; le bloc centré sous le fil d'Ariane (≥ 768 px,
-    // 64 px au moins au-dessus), seulement sur ces pages (:has) ; téléphone : 16 px + les 16 px de l'en-tête = 32 px sous le fil
+    // Arno (01/11/2026) — encore +30 % : marge intérieure 60,5 px → 2 × 22 × 1,25 + 2 × 60,5 + 2 = 178 px. Le haut des cases à une hauteur FIXE
+    // de la fenêtre (≥ 768 px) : --trx-cases-haut (34,25rem = 548 px, le repère « Sources de données » mesuré au banc 1440 × 900), une cale qui
+    // partage la 1re rangée avec l'en-tête (jamais moins de 32 px sous le fil d'Ariane) ; plus de centrage. Téléphone : 32 px sous le fil.
     expect(container.querySelector('.loc-page')!.className).toBe('loc-page trx-cases-zone');
-    for (const f of ['--trx-case-marge:40px', '.trx-cases-zone{padding-top:16px}', '.svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}',
-      '.svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}',
-      '.trx-cases-zone{flex:1 0 auto;display:flex;flex-direction:column;justify-content:center;padding-block:64px']) expect(css).toContain(f);
-    expect(css).toMatch(/@media \(min-width:768px\)\{ \.svv-adm-main:has\(\.trx-cases-zone\)/);
+    for (const f of ['--trx-case-marge:60.5px', '.trx-cases-zone{padding-top:16px}',
+      '.gst-page:has(> .trx-cases-zone){--trx-cases-haut:34.25rem;--trx-page-haut:4.51171875rem;display:grid;grid-template-columns:minmax(0,1fr);align-content:start}',
+      '.gst-page:has(> .trx-cases-zone)::before{content:"";grid-area:1 / 1;height:calc(var(--trx-cases-haut) - var(--trx-page-haut) - 16px)}',
+      '.gst-page:has(> .trx-cases-zone) > .svv-page-head{grid-area:1 / 1;align-self:start}', '.gst-page:has(> .trx-cases-zone) > .trx-cases-zone{grid-area:2 / 1}']) expect(css).toContain(f);
+    expect(css).toMatch(/@media \(min-width:768px\)\{ \.gst-page:has\(> \.trx-cases-zone\)\{/);
+    expect(css).not.toContain('.svv-adm-main:has(.trx-cases-zone)');
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b[^}]*\}[^{]*trx-cases-nav|trx-cases-nav[^}]*#[0-9a-f]{3,6}\b/i);
   });
 });
@@ -256,9 +259,17 @@ describe('🔴 LOT L — l’arborescence', () => {
       expect(src).toContain('accesTransaction()');
     }
     expect(readFileSync('proxy.ts', 'utf8')).toContain("['/admin/transaction', 'transaction']");
-    // 🔴 LOT DM : « Suivi Chiffre d'affaires » › « Transaction vente »
-    expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'CRITERIMMO']);
-    expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'FUSION VENTE CRITERIMMO & MACJ']);
+    // 🔴 LOT DM : « Suivi Chiffre d'affaires » › « Transactions ventes »
+    expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transactions ventes', 'CRITERIMMO']);
+    expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transactions ventes', 'FUSION VENTES CRITERIMMO & MACJ']);
+    // Arno (01/11/2026) — « Transactions ventes » écrit une fois (TITRE_VENTES) : le h1 de /ventes, sa case, le maillon des pages filles
+    expect(ARIANE.ventes.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transactions ventes']);
+    expect(readFileSync(`${T}/ventes/page.tsx`, 'utf8')).toContain('titre={TITRE_VENTES}');
+    // les h1 du module en capitales : UNE règle, posée par le fil d'Ariane (dans l'en-tête des dix pages), le texte inchangé
+    act(() => { root.render(createElement(FilAriane, { etapes: ARIANE.ventes })); });
+    const cssAriane = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(cssAriane).toContain('.svv-page-head:has([data-fil-ariane]) .svv-page-title{text-transform:uppercase}');
+    expect(cssAriane.match(/text-transform:uppercase/g)).toHaveLength(1);
     // Arno (01/11/2026) — le titre de la page FUSION vente : le même libellé, lu de la même constante ; plus aucune copie de l'ancien nom
     expect(readFileSync(`${T}/fusion/page.tsx`, 'utf8')).toContain('titre={TITRE_FUSION_VENTE}');
     for (const f of ['fusion/page.tsx', 'FilAriane.tsx', 'EcransTransaction.tsx']) expect([f, readFileSync(`${T}/${f}`, 'utf8').includes('\'FUSION CRITERIMMO & MACJ\'')]).toEqual([f, false]);
@@ -3432,7 +3443,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     });
   });
 
-  describe('🔴 LOT DM — la FUSION VENTE CRITERIMMO & MACJ : le même écran, les deux sociétés, chaque vente une fois', () => {
+  describe('🔴 LOT DM — la FUSION VENTES CRITERIMMO & MACJ : le même écran, les deux sociétés, chaque vente une fois', () => {
     const lm = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'part', montantTtc, nature: 'vente', compte: true,
       origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
     const partie = (sorte: 'entree' | 'sortie', compteId: number, negociateur: string, societe: 'criterimmo' | 'macj', pourcentage: number) =>

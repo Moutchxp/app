@@ -14,7 +14,7 @@ import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
 import { BlocReplie, CSS_BLOC_REPLIE } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
 import { CSS_LOCATION_ECRANS } from '../location/commun';
-import { TITRE_FUSION_VENTE } from './FilAriane';
+import { TITRE_FUSION_VENTE, TITRE_VENTES } from './FilAriane';
 import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, CSS_TRANSACTION, ecartEur, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, FournisseurNoms, useNommer, lireAffichage, MOT_UNITE, nombreFr, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage , FournisseurConsolide, useConsolide } from './commun';
 import { FormulaireVente, Journal } from './FormulaireVente';
 import { adresseOrigine, CarteAffaire, CarteMiroir, DetailAffaire, OngletCompromis, useColonnesNegociateurs, useHoteAffaires, type HoteDetail } from './OngletCompromis';
@@ -81,7 +81,7 @@ export const ADRESSES_TRANSACTION = {
 } as const;
 // Arno (01/11/2026) — les trois pages du Suivi CA : le TITRE seul dans chaque case (les légendes retirées à sa demande ; le nom accessible du lien = le titre).
 const CASES = [
-  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction vente', cle: 'ventes' },
+  { href: ADRESSES_TRANSACTION.ventes, titre: TITRE_VENTES, cle: 'ventes' },
   // 🔴 LOT DX (Arno) — « Gestion » devient « Location & Gestion » : un écran intermédiaire (Location, Gestion, leur FUSION)
   { href: ADRESSES_TRANSACTION.locationGestion, titre: 'Location & Gestion', cle: 'location-gestion' },
   { href: ADRESSES_TRANSACTION.global, titre: 'CA global', cle: 'global' },

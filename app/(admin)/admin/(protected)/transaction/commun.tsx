@@ -211,25 +211,29 @@ export const CSS_BOUTON_AFFICHAGE = `.trx-unites{display:inline-flex;gap:0;align
 export const CSS_TRANSACTION = `
 ${CSS_TRIANGLE}
 ${CSS_TRIANGLE_BOITE}
-/* Arno (01/11/2026) — LES GROSSES CASES DE NAVIGATION du « Suivi Chiffre d'affaires » (l'accueil, « Transaction vente », « Location &
-   Gestion ») : un seul gabarit (le composant Cases), le TITRE seul (légendes retirées à la demande d'Arno). UNE règle de titre pour les trois
-   pages (famille, graisse, taille, interligne), centré dans les deux sens, lignes équilibrées, jamais de césure. Toutes les cases à la hauteur
-   d'un titre sur DEUX lignes (le plus long, « FUSION VENTE CRITERIMMO & MACJ ») : la même hauteur sur les trois pages ; rangées égales, aussi
-   empilées au téléphone. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
-.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:40px;grid-auto-rows:1fr;gap:16px}
-/* Arno (01/11/2026) — LE BLOC DES CASES, CENTRÉ dans l'espace restant sous le fil d'Ariane (bureau et tablette, ≥ 768 px) : la page de ces
-   trois écrans (et elle seule, :has) remplit la hauteur de la zone principale ; le bloc prend ce qui reste sous l'en-tête et s'y centre,
-   avec 64 px au moins au-dessus (et autant au-dessous, pour garder le centre). Téléphone : pas de centrage plein écran, 32 px sous le fil. */
+/* Arno (01/11/2026) — LES GROSSES CASES DE NAVIGATION du « Suivi Chiffre d'affaires » (l'accueil, « Transactions ventes », « Location &
+   Gestion ») : un seul gabarit (le composant Cases), le TITRE seul, EN CAPITALES (la règle unique des titres de case ; le texte ne change
+   pas). UNE règle de titre pour les trois pages (famille, graisse, taille, interligne), centré dans les deux sens, lignes équilibrées, jamais
+   de césure. Toutes les cases à la même hauteur, 178 px (2 lignes de titre + 2 × 60,5 px + bordures), sur les trois pages ; rangées égales,
+   aussi empilées au téléphone. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
+.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:60.5px;grid-auto-rows:1fr;gap:16px}
+/* Arno (01/11/2026) — LE HAUT DES CASES À UNE HAUTEUR FIXE DE LA FENÊTRE (bureau et tablette, ≥ 768 px), la même sur les trois pages :
+   --trx-cases-haut, une valeur du gabarit. Repère d'Arno, mesuré UNE FOIS au banc (1440 × 900) : le haut du libellé « Sources de données »
+   du menu — un repère seulement, aucune dépendance au menu. --trx-page-haut : où commence la page dans la fenêtre (le bandeau + la marge de
+   la zone principale), mesuré au même banc. Une cale invisible (::before) partage la 1re rangée de la page avec l'en-tête : la rangée vaut
+   le plus grand des deux ; les cases suivent, 16 px plus bas. Leur haut = max(--trx-cases-haut, bas du fil d'Ariane + 32 px) : jamais de
+   chevauchement, jamais moins de 32 px. Téléphone : pas de hauteur fixe, 32 px sous le fil d'Ariane. */
 .trx-cases-zone{padding-top:16px} /* + les 16 px sous l'en-tête (.svv-page-head) = 32 px sous le fil d'Ariane */
 @media (min-width:768px){
-  .svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}
-  .svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}
-  .trx-cases-zone{flex:1 0 auto;display:flex;flex-direction:column;justify-content:center;padding-block:64px;box-sizing:border-box}
+  .gst-page:has(> .trx-cases-zone){--trx-cases-haut:34.25rem;--trx-page-haut:4.51171875rem;display:grid;grid-template-columns:minmax(0,1fr);align-content:start}
+  .gst-page:has(> .trx-cases-zone)::before{content:"";grid-area:1 / 1;height:calc(var(--trx-cases-haut) - var(--trx-page-haut) - 16px)}
+  .gst-page:has(> .trx-cases-zone) > .svv-page-head{grid-area:1 / 1;align-self:start}
+  .gst-page:has(> .trx-cases-zone) > .trx-cases-zone{grid-area:2 / 1}
 }
 .loc-cases.trx-cases-nav > li{display:flex;min-width:0}
 .loc-cases.trx-cases-nav .loc-case{flex:1 1 auto;height:auto;justify-content:center;align-items:center;text-align:center;gap:0;padding:var(--trx-case-marge) 24px;border-radius:20px;
   min-height:calc(2 * var(--trx-case-titre) * var(--trx-case-interligne) + 2 * var(--trx-case-marge) + 2px)}
-.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);max-width:100%;text-wrap:balance;overflow-wrap:normal;word-break:normal;hyphens:manual}
+.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);text-transform:uppercase;max-width:100%;text-wrap:balance;overflow-wrap:normal;word-break:normal;hyphens:manual}
 @media (max-width:760px){ .loc-cases.trx-cases-nav .loc-case{padding-left:18px;padding-right:18px} }
 .trx-barre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .trx-vues{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line);overflow-x:auto}

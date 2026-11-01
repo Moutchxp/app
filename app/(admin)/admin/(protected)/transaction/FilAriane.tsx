@@ -12,6 +12,10 @@ const CSS_ARIANE = `
 .trx-ariane a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-red);font-weight:700;text-decoration:underline}
 .trx-ariane [aria-current]{display:inline-flex;align-items:center;min-height:44px;font-weight:800;color:var(--color-svv-ink)}
 .trx-ariane-sep{color:var(--color-svv-muted)}
+/* Arno (01/11/2026) — LE TITRE DE PAGE (h1) DU SUIVI CHIFFRE D'AFFAIRES EN CAPITALES : la règle unique du module, posée par le fil d'Ariane
+   (présent dans l'en-tête de ses dix pages, et d'aucune autre). Le texte ne change pas (lecteurs d'écran, liens) ; sous-titre, fil
+   d'Ariane, onglets et menu gardent leur casse. */
+.svv-page-head:has([data-fil-ariane]) .svv-page-title{text-transform:uppercase}
 `;
 
 export function FilAriane({ etapes }: { etapes: readonly EtapeAriane[] }) {
@@ -33,10 +37,13 @@ export function FilAriane({ etapes }: { etapes: readonly EtapeAriane[] }) {
 /** Les étapes, écrites une fois (relues par les tests). */
 // 🔴 LOT DM (Arno) — « Suivi Chiffre d'affaires » (ex-« Transaction ») › « Transaction vente » › CRITERIMMO | MACJ | FUSION ; les adresses ne changent pas.
 const SUIVI = 'Suivi Chiffre d’affaires';
-const VENTE = 'Transaction vente';
+/** Arno (01/11/2026) — le nom de la page /admin/transaction/ventes (ex-« Transaction vente »), écrit une fois : son titre, sa case sur
+ *  « Suivi Chiffre d'affaires », le maillon du fil d'Ariane de ses pages filles. */
+export const TITRE_VENTES = 'Transactions ventes';
+const VENTE = TITRE_VENTES;
 const LOC_GESTION = 'Location & Gestion';
-/** Arno (01/11/2026) — le nom de la page /admin/transaction/fusion, écrit une fois : son titre, son fil d'Ariane, sa case sur « Transaction vente ». */
-export const TITRE_FUSION_VENTE = 'FUSION VENTE CRITERIMMO & MACJ';
+/** Arno (01/11/2026) — le nom de la page /admin/transaction/fusion, écrit une fois : son titre, son fil d'Ariane, sa case sur « Transactions ventes ». */
+export const TITRE_FUSION_VENTE = 'FUSION VENTES CRITERIMMO & MACJ';
 export const ARIANE = {
   accueil: [{ libelle: SUIVI }],
   ventes: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE }],
