@@ -14,13 +14,14 @@ import { coutsGlobaux, coutsVente, type EntreesCoutsGlobaux } from './coutsGloba
  * totaux du Bilan ; Résultat net = CA − coûts de la même sélection ; N−1 = les mêmes filtres un an plus tôt.
  */
 export type MesureGraphe = 'ca' | 'couts' | 'net';
-export type StructureGraphe = 'criterimmo' | 'macj' | 'a_attribuer';
+/** 🔴 LOT CG10 (retrait autorisé par Arno) — plus de « Ventes à attribuer » : le graphique ne les compte plus (le Bilan, si). */
+export type StructureGraphe = 'criterimmo' | 'macj';
 export type ActiviteGraphe = 'vente' | 'location' | 'gestion';
 export type FamilleGraphe = 'commissions' | 'apporteursVente' | 'exterieures' | 'apporteursLocation' | 'primes' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salairesGestion';
 export type ComparerGraphe = 'n1' | 'structures' | 'activites' | 'familles' | 'rien';
 
 export const MESURES_GRAPHE: readonly { cle: MesureGraphe; mot: string }[] = [{ cle: 'ca', mot: 'CA brut' }, { cle: 'couts', mot: 'Coûts' }, { cle: 'net', mot: 'Résultat net (CA − coûts)' }];
-export const STRUCTURES_GRAPHE: readonly { cle: StructureGraphe; mot: string }[] = [{ cle: 'criterimmo', mot: 'CRITERIMMO' }, { cle: 'macj', mot: 'MACJ' }, { cle: 'a_attribuer', mot: 'Ventes à attribuer' }];
+export const STRUCTURES_GRAPHE: readonly { cle: StructureGraphe; mot: string }[] = [{ cle: 'criterimmo', mot: 'CRITERIMMO' }, { cle: 'macj', mot: 'MACJ' }];
 export const ACTIVITES_GRAPHE: readonly { cle: ActiviteGraphe; mot: string }[] = [{ cle: 'vente', mot: 'Vente' }, { cle: 'location', mot: 'Location' }, { cle: 'gestion', mot: 'Gestion' }];
 export const FAMILLES_GRAPHE: readonly { cle: FamilleGraphe; mot: string; activite: ActiviteGraphe }[] = [
   { cle: 'commissions', mot: 'Commissions des négociateurs', activite: 'vente' }, { cle: 'apporteursVente', mot: 'Apporteurs vente', activite: 'vente' },
@@ -32,12 +33,14 @@ export const FAMILLES_GRAPHE: readonly { cle: FamilleGraphe; mot: string; activi
 export const COMPARER_GRAPHE: readonly { cle: ComparerGraphe; mot: string }[] = [{ cle: 'n1', mot: 'Année précédente' }, { cle: 'structures', mot: 'Structures entre elles' },
   { cle: 'activites', mot: 'Activités entre elles' }, { cle: 'familles', mot: 'Familles de coûts entre elles' }, { cle: 'rien', mot: 'Rien' }];
 
-export interface FiltresGraphe { mesure: MesureGraphe; familles: FamilleGraphe[]; structures: StructureGraphe[]; activites: ActiviteGraphe[]; comparer: ComparerGraphe; cumul: boolean; empile: boolean }
+export interface FiltresGraphe { mesure: MesureGraphe; familles: FamilleGraphe[]; structures: StructureGraphe[]; activites: ActiviteGraphe[]; comparer: ComparerGraphe; cumul: boolean; empile: boolean;
+  /** 🔴 LOT CG10 — « Location et Gestion : Séparées | Réunies » : réunies, une seule case et une seule série « Location & Gestion » (leur somme exacte). */
+  reunies: boolean }
 export const FILTRES_GRAPHE_DEFAUT: FiltresGraphe = { mesure: 'ca', familles: FAMILLES_GRAPHE.map((f) => f.cle), structures: STRUCTURES_GRAPHE.map((s) => s.cle),
-  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true };
+  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true, reunies: false };
 
 /** Un atome d'un point : sa structure (ou « inter » : l'inter-cabinet entre nos sociétés, neutralisé), son activité, sa famille (null : le CA). */
-export interface AtomeGraphe { structure: StructureGraphe | 'inter'; activite: ActiviteGraphe; famille: FamilleGraphe | null; m: MontantC }
+export interface AtomeGraphe { structure: StructureGraphe | 'inter' | 'a_attribuer'; activite: ActiviteGraphe; famille: FamilleGraphe | null; m: MontantC }
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
 const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC: a.ttcC + b.ttcC });
@@ -77,6 +80,8 @@ export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, a
 
 /** L'atome est-il retenu par les filtres ? L'inter-cabinet : seulement si CRITERIMMO ET MACJ (sinon il n'y a rien à neutraliser). PUR. */
 export function retenu(x: AtomeGraphe, f: Pick<FiltresGraphe, 'structures' | 'activites' | 'familles' | 'mesure'>): boolean {
+  // 🔴 LOT CG10 — les ventes à attribuer : jamais retenues (le graphique ne les compte plus ; la mention dit leur montant)
+  if (x.structure === 'a_attribuer') return false;
   const struct = x.structure === 'inter' ? f.structures.includes('criterimmo') && f.structures.includes('macj') : f.structures.includes(x.structure);
   if (!struct || !f.activites.includes(x.activite)) return false;
   if (x.famille === null) return f.mesure !== 'couts';
@@ -88,16 +93,20 @@ const signe = (x: AtomeGraphe, mesure: MesureGraphe): MontantC => (x.famille !==
 
 /** Une série : sa clé, son nom, sa couleur (1 → 10, fixe pour un élément), ses montants. */
 export interface SerieValeur { cle: string; nom: string; couleur: number; m: MontantC }
-const COULEURS: Record<string, number> = { criterimmo: 1, macj: 2, a_attribuer: 3, inter: 4, vente: 1, location: 3, gestion: 5,
+const COULEURS: Record<string, number> = { criterimmo: 1, macj: 2, inter: 4, vente: 1, location: 3, gestion: 5, location_gestion: 6,
   ...Object.fromEntries(FAMILLES_GRAPHE.map((f, i) => [f.cle, i + 1])) };
-const NOMS: Record<string, string> = { ...Object.fromEntries([...STRUCTURES_GRAPHE, ...ACTIVITES_GRAPHE, ...FAMILLES_GRAPHE].map((x) => [x.cle, x.mot])), inter: 'Inter-cabinet (neutralisé)', total: 'Total' };
+const NOMS: Record<string, string> = { ...Object.fromEntries([...STRUCTURES_GRAPHE, ...ACTIVITES_GRAPHE, ...FAMILLES_GRAPHE].map((x) => [x.cle, x.mot])), inter: 'Inter-cabinet (neutralisé)', total: 'Total',
+  location_gestion: 'Location & Gestion' };
 
 /** Les séries comparées : une par élément retenu (structures, activités ou familles), sinon le total seul. PUR. */
 export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe): { total: MontantC; series: SerieValeur[] } {
   const garde = atomes.filter((x) => retenu(x, f));
   const total = garde.reduce((t, x) => plus(t, signe(x, f.mesure)), RIEN);
-  const cleDe = (x: AtomeGraphe): string => (f.comparer === 'structures' ? x.structure : f.comparer === 'activites' ? x.activite : f.comparer === 'familles' ? x.famille ?? 'ca' : 'total');
-  const ordre = f.comparer === 'structures' ? [...f.structures, 'inter'] : f.comparer === 'activites' ? f.activites : f.comparer === 'familles' ? FAMILLES_GRAPHE.map((x) => x.cle).filter((c) => f.familles.includes(c)) : ['total'];
+  // 🔴 LOT CG10 — « Réunies » : la location et la gestion, une seule série « Location & Gestion » (leur somme exacte)
+  const activiteDe = (a: ActiviteGraphe): string => (f.reunies && a !== 'vente' ? 'location_gestion' : a);
+  const cleDe = (x: AtomeGraphe): string => (f.comparer === 'structures' ? x.structure : f.comparer === 'activites' ? activiteDe(x.activite) : f.comparer === 'familles' ? x.famille ?? 'ca' : 'total');
+  const ordre = f.comparer === 'structures' ? [...f.structures, 'inter'] : f.comparer === 'activites' ? [...new Set(ACTIVITES_GRAPHE.map((a) => a.cle).filter((a) => f.activites.includes(a)).map(activiteDe))]
+    : f.comparer === 'familles' ? FAMILLES_GRAPHE.map((x) => x.cle).filter((c) => f.familles.includes(c)) : ['total'];
   const parCle = new Map<string, MontantC>(ordre.map((c) => [c, RIEN]));
   for (const x of garde) { const c = cleDe(x); if (parCle.has(c)) parCle.set(c, plus(parCle.get(c)!, signe(x, f.mesure))); }
   const series = [...parCle].filter(([c, m]) => c !== 'inter' || m.htC !== 0 || m.ttcC !== 0)
@@ -114,8 +123,6 @@ export function raisonGrise(f: FiltresGraphe, quoi: { sorte: 'structure'; cle: S
   | { sorte: 'comparer'; cle: ComparerGraphe } | { sorte: 'affichage' }): string | null {
   if (quoi.sorte === 'structure') {
     if (quoi.cle === 'macj' && !f.activites.includes('vente')) return 'MACJ n’a que de la vente : cochez « Vente ».';
-    if (quoi.cle === 'a_attribuer' && f.mesure === 'couts') return 'Les ventes à attribuer n’ont aucun coût associé.';
-    if (quoi.cle === 'a_attribuer' && !f.activites.includes('vente')) return 'Les ventes à attribuer sont de la vente : cochez « Vente ».';
     return null;
   }
   if (quoi.sorte === 'activite') return quoi.cle !== 'vente' && !f.structures.includes('criterimmo') ? 'La location et la gestion sont à CRITERIMMO : cochez « CRITERIMMO ».' : null;
@@ -131,19 +138,31 @@ export function raisonGrise(f: FiltresGraphe, quoi: { sorte: 'structure'; cle: S
 export function nbFiltresActifs(f: FiltresGraphe): number {
   const d = FILTRES_GRAPHE_DEFAUT; const egal = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
   return [f.mesure !== d.mesure, f.mesure === 'couts' && !egal(f.familles, d.familles), !egal(f.structures, d.structures), !egal(f.activites, d.activites), f.comparer !== d.comparer,
-    f.cumul !== d.cumul, f.empile !== d.empile].filter(Boolean).length;
+    f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies].filter(Boolean).length;
 }
 
 /** Les filtres dans l'adresse (le partage) et leur relecture ; une valeur inconnue : le défaut. PUR. */
 export function filtresVersAdresse(f: FiltresGraphe): Record<string, string | null> {
   const d = FILTRES_GRAPHE_DEFAUT; const liste = <T extends string>(xs: readonly T[], tout: readonly T[]): string | null => (xs.length === tout.length && tout.every((x) => xs.includes(x)) ? null : xs.join(',') || 'aucun');
   return { 'g-mesure': f.mesure === d.mesure ? null : f.mesure, 'g-familles': liste(f.familles, d.familles), 'g-structures': liste(f.structures, d.structures),
-    'g-activites': liste(f.activites, d.activites), 'g-comparer': f.comparer === d.comparer ? null : f.comparer, 'g-cumul': f.cumul ? '1' : null, 'g-empile': f.empile ? null : 'non' };
+    'g-activites': liste(f.activites, d.activites), 'g-comparer': f.comparer === d.comparer ? null : f.comparer, 'g-cumul': f.cumul ? '1' : null, 'g-empile': f.empile ? null : 'non',
+    'g-lg': f.reunies ? 'reunies' : null };
 }
 export function filtresDepuisAdresse(lire: (k: string) => string | null): FiltresGraphe {
   const d = FILTRES_GRAPHE_DEFAUT;
   const liste = <T extends string>(x: string | null, tout: readonly T[]): T[] => (x === null ? [...tout] : x === 'aucun' ? [] : x.split(',').filter((c): c is T => (tout as readonly string[]).includes(c)));
   const un = <T extends string>(x: string | null, tout: readonly T[], defaut: T): T => ((tout as readonly string[]).includes(x ?? '') ? (x as T) : defaut);
   return { mesure: un(lire('g-mesure'), MESURES_GRAPHE.map((x) => x.cle), d.mesure), familles: liste(lire('g-familles'), d.familles), structures: liste(lire('g-structures'), d.structures),
-    activites: liste(lire('g-activites'), d.activites), comparer: un(lire('g-comparer'), COMPARER_GRAPHE.map((x) => x.cle), d.comparer), cumul: lire('g-cumul') === '1', empile: lire('g-empile') !== 'non' };
+    activites: liste(lire('g-activites'), d.activites), comparer: un(lire('g-comparer'), COMPARER_GRAPHE.map((x) => x.cle), d.comparer), cumul: lire('g-cumul') === '1', empile: lire('g-empile') !== 'non',
+    reunies: lire('g-lg') === 'reunies' };
+}
+/**
+ * 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » ; la passer coche ou décoche les deux ensemble. En passant à « Réunies », une
+ * sélection où une seule des deux était cochée les coche toutes deux (la case unique les représente ensemble). PUR.
+ */
+export function avecReunies(f: FiltresGraphe, reunies: boolean): FiltresGraphe {
+  if (!reunies) return { ...f, reunies };
+  const une = f.activites.includes('location') || f.activites.includes('gestion');
+  const autres = f.activites.filter((a) => a === 'vente');
+  return { ...f, reunies, activites: une ? [...autres, 'location', 'gestion'] : autres };
 }

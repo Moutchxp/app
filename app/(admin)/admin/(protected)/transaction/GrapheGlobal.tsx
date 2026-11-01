@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import type { EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
+import { celluleGlobalAnnees, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { aSaisirFusion } from '../../../../lib/transaction/fusionLocationGestion';
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
-  ACTIVITES_GRAPHE, atomesDuPoint, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
-  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type AtomeGraphe, type FiltresGraphe, type SerieValeur,
+  ACTIVITES_GRAPHE, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
+  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur,
 } from '../../../../lib/transaction/grapheGlobal';
 import { COURT, ecrireAdresse, eur, MOT_UNITE, parametre, useAffichage } from './commun';
 import { CourbeCumul, eurAxe, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
@@ -53,16 +53,14 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const seule = f.comparer === 'n1' || f.comparer === 'rien';
   const en = (m: MontantC): number => m[k] / 100;
   const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
-  /** Les mentions d'un point : les ventes à attribuer comptées, les mois de salaires à saisir (la règle des pages Location et Gestion). */
+  /** Les mentions d'un point : les mois de salaires à saisir (la règle des pages Location et Gestion). 🔴 LOT CG10 — les ventes à attribuer ne sont
+   *  plus comptées : la mention sous le graphique dit leur montant. */
   const mentions = (i: number, jusqua: boolean): string | undefined => {
     const idx = jusqua && !parAnnees ? Array.from({ length: i + 1 }, (_, j) => j) : [i];
-    const attribuer = f.mesure !== 'couts' && f.structures.includes('a_attribuer') && f.activites.includes('vente')
-      && idx.some((j) => atomes[j].courant.some((x: AtomeGraphe) => x.structure === 'a_attribuer' && x.m.htC !== 0));
     const ms = idx.flatMap((j) => (points[j].mois === null ? Array.from({ length: 12 }, (_, m) => ({ annee: points[j].annee, mois: m + 1 })) : [{ annee: points[j].annee, mois: points[j].mois as number }]));
     const loc = f.activites.includes('location'); const ges = f.activites.includes('gestion');
     const saisir = salaires && f.mesure !== 'ca' && (loc || ges) ? aSaisirFusion(eC.gestion, eC.location?.salaires ?? null, ms, loc && ges ? 'deux' : loc ? 'location' : 'gestion', jour).mot : '';
-    const t = [attribuer ? 'inclut les ventes à attribuer' : '', saisir].filter(Boolean).join(' · ');
-    return t === '' ? undefined : t;
+    return saisir === '' ? undefined : saisir;
   };
   const titreDe = (i: number, c: boolean): string => {
     const p = points[i];
@@ -71,6 +69,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   };
   const libN1 = parAnnees ? 'Un an plus tôt' : String(annee - 1);
   const [survol, setSurvol] = useState<number | null>(null);
+  const horsAttribuer = celluleGlobalAnnees(eG, parAnnees ? annees : [annee], u).aAttribuerHt;
   const graphe = seule ? grapheUneSerie() : grapheSeries();
 
   /** Une seule série : `Histogramme` (Mensuel) et `CourbeCumul` (Cumul), les composants des autres pages. */
@@ -204,13 +203,24 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
           <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: FAMILLES_GRAPHE.map((x) => x.cle) })} data-familles-tout>Tout</button>
             {' / '}<button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: [] })} data-familles-aucun>Aucun</button></span></>, 'couts')}
         {famille('Structure', cases('Structure', STRUCTURES_GRAPHE, f.structures, (xs) => changer({ structures: xs }), (c) => raisonGrise(f, { sorte: 'structure', cle: c })), 'structure')}
-        {famille('Activité', cases('Activité', ACTIVITES_GRAPHE, f.activites, (xs) => changer({ activites: xs }), (c) => raisonGrise(f, { sorte: 'activite', cle: c })), 'activite')}
+        {famille('Activité', <>
+          {/* 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » (cochée : les deux), une seule série en « Activités entre elles » */}
+          {f.reunies
+            ? cases('Activité', [{ cle: 'vente' as const, mot: 'Vente' }, { cle: 'location_gestion' as const, mot: 'Location & Gestion' }],
+              [...(f.activites.includes('vente') ? ['vente' as const] : []), ...(f.activites.includes('location') && f.activites.includes('gestion') ? ['location_gestion' as const] : [])],
+              (xs) => changer({ activites: [...(xs.includes('vente') ? ['vente' as const] : []), ...(xs.includes('location_gestion') ? ['location' as const, 'gestion' as const] : [])] }),
+              (c) => (c === 'vente' ? null : raisonGrise(f, { sorte: 'activite', cle: 'location' })))
+            : cases('Activité', ACTIVITES_GRAPHE, f.activites, (xs) => changer({ activites: xs }), (c) => raisonGrise(f, { sorte: 'activite', cle: c }))}
+          {choix('Location et Gestion', [{ cle: 'separees', mot: 'Séparées' }, { cle: 'reunies', mot: 'Réunies' }] as const, f.reunies ? 'reunies' : 'separees',
+            (c) => setF((v) => avecReunies(v, c === 'reunies')))}</>, 'activite')}
         {famille('Comparer', choix('Comparer', COMPARER_GRAPHE, f.comparer, (c) => changer({ comparer: c }), (c) => raisonGrise(f, { sorte: 'comparer', cle: c })), 'comparer')}
         {famille('Affichage', <>{choix('Période', [{ cle: 'mensuel', mot: parAnnees ? 'Annuel' : 'Mensuel' }, { cle: 'cumul', mot: 'Cumul' }] as const, f.cumul ? 'cumul' : 'mensuel', (c) => changer({ cumul: c === 'cumul' }))}
           {choix('Barres', [{ cle: 'empile', mot: 'Barres empilées' }, { cle: 'cote', mot: 'Côte à côte' }] as const, f.empile ? 'empile' : 'cote', (c) => changer({ empile: c === 'empile' }), () => raisonGrise(f, { sorte: 'affichage' }))}</>, 'affichage')}
         <button type="button" className="trx-bouton-lien trx-gf-reinit" onClick={() => setF(FILTRES_GRAPHE_DEFAUT)} disabled={nb === 0} data-reinitialiser-filtres>Réinitialiser les filtres</button>
       </div>
       {graphe}
+      {/* 🔴 LOT CG10 — les ventes à attribuer ne sont plus dans le graphique : leur montant sur la période, discrètement (le Bilan les compte) */}
+      {horsAttribuer !== 0 && <p className="loc-muet trx-gf-note" data-hors-ventes-a-attribuer>Hors ventes à attribuer : {eur(horsAttribuer)} {MOT_UNITE[u]} (comptées dans le Bilan)</p>}
       {!seule && <p className="loc-muet trx-gf-note" data-note-graphe>{f.comparer === 'structures' && (vals[0]?.c.series ?? []).some((x) => x.cle === 'inter') ? 'L’inter-cabinet entre nos sociétés, compté dans les deux ventes, est retiré une fois (série « Inter-cabinet ») : le total = le Bilan. ' : ''}Valeurs : les tableaux du Bilan ci-dessous.</p>}
       {seule && f.comparer === 'n1' && <p className="loc-muet trx-gf-note" data-note-graphe>Comparaison : les mêmes filtres, {parAnnees ? 'un an plus tôt' : `en ${annee - 1}`} ({f.cumul ? 'pointillé' : 'hachuré'}).</p>}
     </section>

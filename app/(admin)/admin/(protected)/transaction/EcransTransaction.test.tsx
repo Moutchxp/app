@@ -1131,11 +1131,58 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
     expect(graphe().querySelector('[data-courbe]')).not.toBeNull();
     expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (3 actifs)');
     await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="structures"]');
-    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['criterimmo', 'macj', 'a_attribuer']);
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['criterimmo', 'macj']); // 🔴 LOT CG10 — plus de « Ventes à attribuer » dans le graphique
     await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
     expect([...graphe().querySelectorAll('[data-point-global]')].map((x) => x.getAttribute('data-point-global'))).toEqual(['2024', '2025']);
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.trx-gf-panneau{display:none}\n  .trx-gf-panneau--ouvert{display:flex}'); // téléphone : panneau repliable
+  });
+});
+
+/**
+ * 🔴 LOT CG10 (Arno) — le graphique : plus de « Ventes à attribuer » (mention de leur montant sous le graphique) ; « Location et Gestion : Séparées |
+ * Réunies » (une seule case, une seule série « Location & Gestion »), dans l'adresse, la réinitialisation et le compteur.
+ */
+describe('🔴 LOT CG10 — le graphique : ventes à attribuer hors du graphique, Location & Gestion réunies', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const valeur = (sel: string) => Math.round(Number(graphe().querySelector(sel)?.getAttribute('data-valeur') ?? 0) * 100);
+  it('pas de case « Ventes à attribuer » ; un ancien lien qui la contient : ignoré ; la mention de leur montant', async () => {
+    const avant = donneesGlobal.ventes;
+    // une vente notée chez les deux sociétés (à attribuer) en 2025
+    donneesGlobal.ventes = [...avant, { id: 9901, societe: 'criterimmo', statut: 'vendue', annee: 2025, mois: 3, honorairesTtc: 6000, libelle: 'DOUBLE', double: { cle: 'd1', attribution: null } },
+      { id: 9902, societe: 'macj', statut: 'vendue', annee: 2025, mois: 3, honorairesTtc: 6000, libelle: 'DOUBLE', double: { cle: 'd1', attribution: null } }] as typeof avant;
+    try {
+      window.localStorage.setItem('trx-affichage-montants', 'ttc');
+      window.history.replaceState(null, '', '/?annee=2025&g-structures=criterimmo,macj,a_attribuer');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      expect([...graphe().querySelectorAll('[data-filtre-graphe="Structure"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe'))).toEqual(['criterimmo', 'macj']);
+      expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (0 actif)');
+      expect(texte('[data-hors-ventes-a-attribuer]')).toBe('Hors ventes à attribuer : 6 000 € TTC (comptées dans le Bilan)');
+    } finally { donneesGlobal.ventes = avant; }
+  });
+  it('Réunies : une case « Location & Gestion » ; une série = Location + Gestion, côte à côte et en cumul ; adresse, compteur, réinitialiser', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.history.replaceState(null, '', '/?annee=2025&g-comparer=activites&g-empile=non');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['vente', 'location', 'gestion']);
+    const sep = (mois: number) => valeur(`[data-point-global="${mois}"] [data-barre-serie="location"]`) + valeur(`[data-point-global="${mois}"] [data-barre-serie="gestion"]`);
+    const avantSep = [1, 6, 9].map(sep);
+    await cliquer('[data-filtre-graphe="Location et Gestion"] [data-choix-graphe="reunies"]');
+    expect([...graphe().querySelectorAll('[data-filtre-graphe="Activité"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe'))).toEqual(['vente', 'location_gestion']);
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.textContent)).toEqual(['Vente', 'Location & Gestion']);
+    expect([1, 6, 9].map((m) => valeur(`[data-point-global="${m}"] [data-barre-serie="location_gestion"]`))).toEqual(avantSep);
+    expect(graphe().querySelectorAll('[data-point-global="9"] [data-barre-serie]').length).toBe(2); // une seule barre pour les deux
+    expect(new URLSearchParams(window.location.search).get('g-lg')).toBe('reunies');
+    expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (3 actifs)');
+    // en cumul : une seule courbe « Location & Gestion »
+    await cliquer('[data-filtre-graphe="Période"] [data-choix-graphe="cumul"]');
+    expect([...graphe().querySelectorAll('[data-trait-serie]')].map((x) => x.getAttribute('data-trait-serie'))).toEqual(['vente', 'location_gestion']);
+    // décocher la case unique : la location et la gestion sortent toutes deux
+    await cliquer('[data-case-graphe="location_gestion"]');
+    expect(new URLSearchParams(window.location.search).get('g-activites')).toBe('vente');
+    await cliquer('[data-reinitialiser-filtres]');
+    expect([new URLSearchParams(window.location.search).get('g-lg'), texte('[data-filtres-graphe-bouton]')]).toEqual([null, 'Filtres (0 actif)']);
   });
 });
 
