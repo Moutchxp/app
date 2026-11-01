@@ -1092,9 +1092,10 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
       for (const b of [...graphe().querySelectorAll('[data-barre-mois-global]')]) {
         const m = b.getAttribute('data-barre-mois-global'); const r = b.querySelector('.tdb-barre');
         if (r === null) continue;
-        expect([u, m, Math.round(Number(r.getAttribute('data-valeur')) * 100)]).toEqual([u, m, centimesDe(texte(`[data-mois-global="${m}"] [data-mot="Total"]`))]);
+        // 🔴 LOT CG11 — après décembre, « Mois à confirmer » : la ligne du même nom du tableau
+        expect([u, m, Math.round(Number(r.getAttribute('data-valeur')) * 100)]).toEqual([u, m, centimesDe(texte(m === '13' ? '[data-mois-a-confirmer] [data-mot="Total"]' : `[data-mois-global="${m}"] [data-mot="Total"]`))]);
       }
-      expect(graphe().querySelectorAll('.tdb-barre-n1').length).toBe(12);
+      expect(graphe().querySelectorAll('.tdb-barre-n1').length).toBe(13);
     }
     // Mesure = Coûts : la famille « Coûts » apparaît ; Comparer = Familles ; l'adresse garde les filtres
     await cliquer('[data-filtre-graphe="Mesure"] [data-choix-graphe="couts"]');
@@ -1183,6 +1184,67 @@ describe('🔴 LOT CG10 — le graphique : ventes à attribuer hors du graphique
     expect(new URLSearchParams(window.location.search).get('g-activites')).toBe('vente');
     await cliquer('[data-reinitialiser-filtres]');
     expect([new URLSearchParams(window.location.search).get('g-lg'), texte('[data-filtres-graphe-bouton]')]).toEqual([null, 'Filtres (0 actif)']);
+  });
+});
+
+/**
+ * 🔴 LOT CG11 (Arno) — la fin d'année du graphique = le total de l'année (tuiles, Bilan) : les ventes signées sans mois (« mois à confirmer ») forment
+ * un point après décembre, présent seulement quand il est non nul ; l'encadré à droite : les séries par valeur décroissante, égalité alphabétique.
+ */
+describe('🔴 LOT CG11 — le graphique : « Mois à confirmer », fin d’année = total de l’année ; encadré trié', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cents = (x: Element | null): number => Math.round(Number(x?.getAttribute('data-valeur') ?? 0) * 100);
+  it('une vente sans mois en 2024 : la barre « à conf. » ; somme des barres = tuile = Bilan (HT, TTC) ; Cumul au repos = la fin d’année ; sans elle, pas de point', async () => {
+    const avant = donneesGlobal.ventes;
+    donneesGlobal.ventes = [...avant, { id: 9911, societe: 'criterimmo', statut: 'vendue', annee: 2024, mois: null, honorairesTtc: 15000, libelle: 'SANS MOIS' }] as typeof avant;
+    try {
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      window.history.replaceState(null, '', '/?annee=2024');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
+      for (const u of ['ht', 'ttc'] as const) {
+        if (u === 'ttc') await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
+        const tuile = centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur'));
+        expect(centimesDe(texte('[data-total-annee] [data-mot="Total"]'))).toBe(tuile);
+        expect(graphe().getAttribute('data-mois-hors')).toBe('a-confirmer');
+        const barres = [...graphe().querySelectorAll('[data-barre-mois-global]')];
+        expect(barres.map((b) => b.getAttribute('data-barre-mois-global'))).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']);
+        expect(barres[12].querySelector('.tdb-axe')!.textContent).toBe('à conf.');
+        expect(cents(barres[12].querySelector('.tdb-barre'))).toBe(u === 'ht' ? 1250000 : 1500000);
+        expect([u, barres.reduce((t, b) => t + cents(b.querySelector('.tdb-barre')), 0)]).toEqual([u, tuile]);
+        // Cumul : au repos, la fin d'année (mois à confirmer compris) = la tuile
+        await cliquer('[data-filtre-graphe="Période"] [data-choix-graphe="cumul"]');
+        expect(cents(graphe().querySelector('[data-point-cumul="13"]'))).toBe(tuile);
+        expect(texte('[data-bloc="global-graphe"] .tdb-bulle-titre')).toBe('Cumul 2024 — fin d’année (mois à confirmer compris)');
+        // plusieurs séries, en cumul : la fin d'année de chaque structure, et le total
+        await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="structures"]');
+        const fin = [...graphe().querySelectorAll('[data-point-global="13"] [data-point-serie]')].reduce((t, x) => t + cents(x), 0);
+        expect(fin).toBe(tuile);
+        await cliquer('[data-reinitialiser-filtres]');
+      }
+    } finally { donneesGlobal.ventes = avant; }
+    // sans vente sans mois : pas de 13e point (les 12 mois, comme avant)
+    window.history.replaceState(null, '', '/?annee=2024');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(graphe().querySelector('[data-barre-mois-global="13"]')).toBeNull();
+    expect(graphe().hasAttribute('data-mois-hors')).toBe(false);
+  });
+  it('l’encadré : les séries par valeur décroissante (au repos et au survol), égalité alphabétique ; Total en bas ; la légende garde son ordre', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.history.replaceState(null, '', '/?annee=2025&g-comparer=activites');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    const lignes = () => [...graphe().querySelectorAll('[data-detail-serie]')].map((x) => ({ cle: x.getAttribute('data-detail-serie')!, v: centimesDe(x.querySelector('.tdb-bulle-montant')!.textContent!) }));
+    const trie = (xs: { v: number }[]) => xs.every((x, j) => j === 0 || xs[j - 1].v >= x.v);
+    expect(trie(lignes())).toBe(true);
+    expect(graphe().querySelector('[data-bulle="sous"]')!.lastElementChild!.hasAttribute('data-detail-total-global')).toBe(true);
+    // janvier (location et gestion importées) : survolé, l'ordre se recalcule
+    await act(async () => { graphe().querySelector('[data-point-global="1"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); await calmer();
+    expect(trie(lignes())).toBe(true);
+    expect(lignes().map((x) => x.cle)).toEqual(['gestion', 'location', 'vente'].sort((a, b) => {
+      const v = (c: string) => lignes().find((x) => x.cle === c)!.v; return v(b) - v(a) || a.localeCompare(b, 'fr');
+    }));
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['vente', 'location', 'gestion']);
   });
 });
 

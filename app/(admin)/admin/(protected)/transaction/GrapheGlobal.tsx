@@ -8,10 +8,11 @@ import { aSaisirFusion } from '../../../../lib/transaction/fusionLocationGestion
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
-  ACTIVITES_GRAPHE, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
+  ACTIVITES_GRAPHE, aDesVentesSansMois, atomesDuPoint, atomesHorsMois, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
   raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur,
 } from '../../../../lib/transaction/grapheGlobal';
 import { COURT, ecrireAdresse, eur, MOT_UNITE, parametre, useAffichage } from './commun';
+import { ordreEncadre } from './GrapheNegociateurs';
 import { CourbeCumul, eurAxe, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 
 /**
@@ -36,18 +37,33 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const basculer = <T extends string>(liste: readonly T[], c: T): T[] => (liste.includes(c) ? liste.filter((x) => x !== c) : [...liste, c]);
   // les points : les 12 mois de l'année, ou une année par point ; N−1 : les mêmes, un an plus tôt
   const parAnnees = annees !== null;
-  const points = parAnnees ? annees.map((a) => ({ cle: a, libelle: String(a), annee: a, mois: null as number | null }))
-    : Array.from({ length: 12 }, (_, i) => ({ cle: i + 1, libelle: COURT[i], annee, mois: i + 1 as number | null }));
+  const base = parAnnees ? annees.map((a) => ({ cle: a, libelle: String(a), annee: a, mois: null as number | null, horsMois: false }))
+    : Array.from({ length: 12 }, (_, i) => ({ cle: i + 1, libelle: COURT[i], annee, mois: i + 1 as number | null, horsMois: false }));
   const clePoints = parAnnees ? annees.join(',') : String(annee);
-  const atomes = useMemo(() => points.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires) })),
+  const atomes = useMemo(() => {
+    const xs = base.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires) }));
+    // 🔴 LOT CG11 — « Mois à confirmer » (mois par mois seulement) : l'année − la somme de ses 12 mois, pour que la fin d'année = le total de l'année
+    const hors = parAnnees ? null : { courant: atomesHorsMois(atomesDuPoint(eG, eC, annee, null, salaires), xs.map((x) => x.courant)),
+      n1: atomesHorsMois(atomesDuPoint(eG, eC, annee - 1, null, salaires), xs.map((x) => x.n1)) };
+    return { xs, hors };
+  },
     // les données de la page (stables d'un rendu à l'autre), pas les objets d'entrée recréés à chaque rendu
     [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints]); // eslint-disable-line react-hooks/exhaustive-deps
-  const vals = atomes.map((x) => ({ c: seriesDuPoint(x.courant, f), n1: seriesDuPoint(x.n1, f) }));
+  const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f), n1: seriesDuPoint(x.n1, f) }));
+  const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f), n1: seriesDuPoint(atomes.hors.n1, f) };
+  const nonNul = (s: { total: MontantC; series: readonly SerieValeur[] }): boolean => s.total[k] !== 0 || s.series.some((x) => x.m[k] !== 0);
+  // présent seulement quand il est non nul (l'année montrée ; ou N−1 quand on la compare)
+  const avecHors = valHors !== null && (nonNul(valHors.c) || (f.comparer === 'n1' && nonNul(valHors.n1)));
+  /** Des ventes sans mois cette année (ou en N−1 comparée) : « Mois à confirmer » ; sinon, un pur écart d'arrondi au centime. */
+  const sansMois = aDesVentesSansMois(eG.ventes, annee) || (f.comparer === 'n1' && aDesVentesSansMois(eG.ventes, annee - 1));
+  const points = avecHors ? [...base, { cle: 13, libelle: sansMois ? 'à conf.' : 'arrondi', annee, mois: null as number | null, horsMois: true }] : base;
+  const vals = avecHors && valHors !== null ? [...valsBase, valHors] : valsBase;
   const dernier = parAnnees ? points.length : moisADate(annee, jour);
   const anneeEnCours = Number(jour.slice(0, 4));
-  const aVenir = (i: number): boolean => (parAnnees ? points[i].annee > anneeEnCours : i + 1 > dernier);
+  const aVenir = (i: number): boolean => (parAnnees ? points[i].annee > anneeEnCours : !points[i].horsMois && i + 1 > dernier);
   const [choisi, setChoisi] = useState<number | null>(null);
-  const repos = parAnnees ? annee : Math.max(1, dernier === 0 ? 1 : dernier);
+  // au repos en Cumul, la fin d'année (mois à confirmer compris) quand le point existe : elle égale la tuile de l'année
+  const repos = parAnnees ? annee : avecHors && f.cumul ? 13 : Math.max(1, dernier === 0 ? 1 : dernier);
   const courante = choisi !== null && points.some((p) => p.cle === choisi) ? choisi : repos;
   const motMesure = `${MESURES_GRAPHE.find((m) => m.cle === f.mesure)!.mot.replace(' (CA − coûts)', '')} ${MOT_UNITE[u]}`;
   const seule = f.comparer === 'n1' || f.comparer === 'rien';
@@ -56,15 +72,19 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   /** Les mentions d'un point : les mois de salaires à saisir (la règle des pages Location et Gestion). 🔴 LOT CG10 — les ventes à attribuer ne sont
    *  plus comptées : la mention sous le graphique dit leur montant. */
   const mentions = (i: number, jusqua: boolean): string | undefined => {
-    const idx = jusqua && !parAnnees ? Array.from({ length: i + 1 }, (_, j) => j) : [i];
+    const idx = (jusqua && !parAnnees ? Array.from({ length: i + 1 }, (_, j) => j) : [i]).filter((j) => !points[j].horsMois);
     const ms = idx.flatMap((j) => (points[j].mois === null ? Array.from({ length: 12 }, (_, m) => ({ annee: points[j].annee, mois: m + 1 })) : [{ annee: points[j].annee, mois: points[j].mois as number }]));
     const loc = f.activites.includes('location'); const ges = f.activites.includes('gestion');
-    const saisir = salaires && f.mesure !== 'ca' && (loc || ges) ? aSaisirFusion(eC.gestion, eC.location?.salaires ?? null, ms, loc && ges ? 'deux' : loc ? 'location' : 'gestion', jour).mot : '';
-    return saisir === '' ? undefined : saisir;
+    const saisir = salaires && f.mesure !== 'ca' && (loc || ges) && ms.length > 0 ? aSaisirFusion(eC.gestion, eC.location?.salaires ?? null, ms, loc && ges ? 'deux' : loc ? 'location' : 'gestion', jour).mot : '';
+    const hors = points[i].horsMois ? (sansMois ? 'Ventes signées sans mois (« mois à confirmer ») : comptées dans l’année, dans aucun mois.'
+      : 'Écart d’arrondi au centime entre la somme des mois et le total de l’année.') : '';
+    const mots = [hors, saisir].filter((x) => x !== '');
+    return mots.length === 0 ? undefined : mots.join(' ');
   };
   const titreDe = (i: number, c: boolean): string => {
     const p = points[i];
     if (parAnnees) return c ? `Cumul ${points[0].annee} → ${p.annee}` : `${p.annee}${p.annee === anneeEnCours ? ' — en cours' : ''}`;
+    if (p.horsMois) return c ? `Cumul ${annee} — fin d’année (${sansMois ? 'mois à confirmer' : 'arrondi'} compris)` : sansMois ? `Mois à confirmer ${annee}` : `Écart d’arrondi ${annee}`;
     return `${c ? `Cumul ${annee} à fin ${NOMS_MOIS[i].toLowerCase()}` : `${NOMS_MOIS[i]} ${annee}`}${aVenir(i) ? ' — à venir' : ''}`;
   };
   const libN1 = parAnnees ? 'Un an plus tôt' : String(annee - 1);
@@ -86,9 +106,10 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
     };
     const attribut = parAnnees ? 'data-barre-annee-global' : 'data-barre-mois-global';
     if (f.cumul) {
-      return <CourbeCumul courant={cumuler(v).slice(0, dernier)} n1={avecN1 ? cumuler(v1) : null} annee={annee} selection={courante} aria={`${motMesure} cumulé`}
+      return <CourbeCumul courant={cumuler(v).map((x, j) => (aVenir(j) ? null : x)).slice(0, avecHors ? 13 : dernier)} n1={avecN1 ? cumuler(v1) : null} annee={annee} selection={courante} aria={`${motMesure} cumulé`}
         bulle={(cle) => info(points.findIndex((p) => p.cle === cle), true)} onChoisir={setChoisi} repos={info(points.findIndex((p) => p.cle === courante), true)}
-        {...(parAnnees ? { etiquettes: points.map((p) => p.libelle), cles: points.map((p) => p.cle), nom: 'global-annees-cumul', attributZone: 'data-annee-cumul-global' } : { nom: 'global-mois-cumul', attributZone: 'data-mois-cumul-global' })} />;
+        {...(parAnnees ? { etiquettes: points.map((p) => p.libelle), cles: points.map((p) => p.cle), nom: 'global-annees-cumul', attributZone: 'data-annee-cumul-global' }
+          : { nom: 'global-mois-cumul', attributZone: 'data-mois-cumul-global', ...(avecHors ? { etiquettes: points.map((p) => p.libelle), cles: points.map((p) => p.cle) } : {}) })} />;
     }
     return <Histogramme attribut={attribut} courante={courante} onChoisir={setChoisi} aria={`${motMesure} par ${parAnnees ? 'année' : 'mois'}`}
       repos={info(points.findIndex((p) => p.cle === courante), false)} {...(parAnnees ? { pasFixe: PAS_ANNEE_FIXE } : {})}
@@ -102,10 +123,11 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
     const valeurs = series0.map((s0, j) => { const xs = vals.map((x) => en(x.c.series[j]?.m ?? { htC: 0, ttcC: 0 })); return f.cumul ? cumuler(xs) : xs; });
     const totaux = f.cumul ? cumuler(vals.map((x) => en(x.c.total))) : vals.map((x) => en(x.c.total));
     const totauxAutre = f.cumul ? cumuler(vals.map((x) => x.c.total[ka] / 100)) : vals.map((x) => x.c.total[ka] / 100);
-    const n = points.length; const traces = Math.min(n, dernier);
+    const n = points.length; const trace = (x: number): boolean => !aVenir(x);
     const L = 640; const H = 230; const m = { g: 56, d: 12, h: 16, b: 28 };
     const hauts: number[] = []; const bas: number[] = [];
-    for (let i = 0; i < traces; i++) {
+    for (let i = 0; i < n; i++) {
+      if (!trace(i)) continue;
       const xs = valeurs.map((s) => s[i]);
       if (f.empile && !f.cumul) { hauts.push(xs.filter((x) => x > 0).reduce((t, x) => t + x, 0)); bas.push(xs.filter((x) => x < 0).reduce((t, x) => t + x, 0)); }
       else { hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
@@ -128,13 +150,13 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
                 {graduations.map((g) => <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
                   <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurAxe(g)}</text></g>)}
                 {f.cumul && lignes.map((s, j) => <path key={s.cle} className={`trx-serie-trait trx-serie--${s.couleur}`} data-trait-serie={s.cle}
-                  d={valeurs[j].slice(0, traces).map((w, x) => `${x === 0 ? 'M' : 'L'}${(m.g + x * pas + pas / 2).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />)}
+                  d={valeurs[j].flatMap((w, x) => (trace(x) ? [{ w, x }] : [])).map(({ w, x }, q) => `${q === 0 ? 'M' : 'L'}${(m.g + x * pas + pas / 2).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />)}
                 {points.map((p, x) => {
                   let haut = 0; let creux = 0;
                   return (
                     <g key={p.cle} data-point-global={p.cle} onClick={() => setChoisi(p.cle)} onMouseEnter={() => setSurvol(x)}>
                       <rect x={m.g + x * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
-                      {x < traces && lignes.map((s, j) => {
+                      {trace(x) && lignes.map((s, j) => {
                         const v = valeurs[j][x];
                         if (f.cumul) return <circle key={s.cle} cx={m.g + x * pas + pas / 2} cy={y(v)} r={p.cle === courante ? 4.5 : 3} className={`trx-serie-point trx-serie--${s.couleur}`} data-point-serie={s.cle} data-valeur={v} />;
                         if (f.empile) {
@@ -145,7 +167,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
                         return <rect key={s.cle} x={m.g + x * pas + pas * 0.1 + j * largeurCote} y={y(Math.max(v, 0))} width={largeurCote} height={Math.abs(y(0) - y(v))}
                           className={`trx-serie-barre trx-serie--${s.couleur}`} data-barre-serie={s.cle} data-valeur={v} />;
                       })}
-                      <text x={m.g + x * pas + pas / 2} y={H - 8} textAnchor="middle" className={p.cle === courante ? 'tdb-axe tdb-axe--fort trx-axe-choisi' : 'tdb-axe'}>{p.libelle}</text>
+                      <text x={m.g + x * pas + pas / 2} y={H - 8} textAnchor="middle" className={`${p.cle === courante ? 'tdb-axe tdb-axe--fort trx-axe-choisi' : 'tdb-axe'}${p.horsMois ? ' trx-axe-hors-mois' : ''}`}>{p.libelle}</text>
                     </g>
                   );
                 })}
@@ -156,9 +178,10 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
             <div className="tdb-bulle tdb-bulle--sous" data-bulle="sous">
               <p className="tdb-bulle-titre" data-titre-detail>{i >= 0 ? titreDe(i, f.cumul) : ''}</p>
               {i >= 0 && mentions(i, f.cumul) !== undefined && <p className="tdb-bulle-note" data-bulle-note>{mentions(i, f.cumul)}</p>}
-              {lignes.map((s, j) => <p key={s.cle} className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
+              {/* 🔴 LOT CG11 — les lignes par valeur DÉCROISSANTE au point montré (repos, survol, clic), égalité : alphabétique ; Total en bas */}
+              {ordreEncadre(lignes.map((s, j) => ({ ...s, ca: i >= 0 && !aVenir(i) ? valeurs[j][i] : 0, nb: 0 })), false).map((s) => <p key={s.cle} className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
                 <span><span className={`trx-pastille-serie trx-serie--${s.couleur}`} aria-hidden="true" />{s.nom}</span>
-                <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? eur(valeurs[j][i]) : '—'}</span></p>)}
+                <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? eur(s.ca) : '—'}</span></p>)}
               <p className="tdb-bulle-pied" data-detail-total-global><span>Total</span>
                 <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? <>{eur(totaux[i])} <small className="tdb-bulle-autre">({eur(totauxAutre[i])} {MOT_UNITE[u === 'ht' ? 'ttc' : 'ht']})</small></> : '—'}</span></p>
             </div>
@@ -190,7 +213,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires }: {
   const famille = (titre: string, contenu: ReactNode, cle: string) => <div className="trx-gf-famille" data-famille-filtre={cle}><span className="trx-gf-titre">{titre}</span>{contenu}</div>;
   const nb = nbFiltresActifs(f);
   return (
-    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe">
+    <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': sansMois ? 'a-confirmer' : 'arrondi' } : {})}>
       <style>{CSS_GRAPHE_GLOBAL}</style>
       <div className="trx-gf-tete">
         <h3 id="trx-g-graphe">{parAnnees ? 'Année par année' : `Mois par mois — ${annee}`} <small className="loc-muet">({motMesure}{f.cumul ? ', cumulé' : ''}{f.mesure !== 'ca' ? ` ; ${salaires ? 'avec salaires' : 'hors salaires'}` : ''})</small></h3>
@@ -247,6 +270,8 @@ export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-reinit{align-self:flex-end;font-size:.8rem}
 .trx-gf-note{margin:6px 0 0;font-size:.82rem}
 .trx-axe-choisi{fill:var(--color-svv-red)}
+.trx-axe-hors-mois,.trx-graphe-global [data-barre-mois-global="13"] .tdb-axe,.trx-graphe-global[data-mois-hors] [data-courbe="global-mois-cumul"] svg>text.tdb-axe:last-of-type{font-style:italic;fill:var(--color-svv-muted)}
+.trx-axe-hors-mois.trx-axe-choisi{fill:var(--color-svv-red)}
 .trx-graphe-global-series .trx-legende-series{font-size:.85rem;font-weight:600;gap:4px 14px}
 @media (max-width:640px){
   .trx-gf-bascule{display:inline-flex;align-items:center}

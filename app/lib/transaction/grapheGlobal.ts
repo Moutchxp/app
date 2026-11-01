@@ -1,6 +1,6 @@
 import type { MontantC } from './partAgence';
 import type { Vente } from './modele';
-import { ventesDeLAnnee, ventesDuMois } from './modele';
+import { compteDansSociete, estVendue, ventesDeLAnnee, ventesDuMois } from './modele';
 import { venteDansSociete } from './interCabinet';
 import { celluleGlobalEn, type EntreesGlobalUnite } from './globalUnite';
 import { coutsGlobaux, coutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
@@ -166,3 +166,20 @@ export function avecReunies(f: FiltresGraphe, reunies: boolean): FiltresGraphe {
   const autres = f.activites.filter((a) => a === 'vente');
   return { ...f, reunies, activites: une ? [...autres, 'location', 'gestion'] : autres };
 }
+
+/**
+ * ══ 🔴 LOT CG11 (Arno) — « MOIS À CONFIRMER » : LA FIN D'ANNÉE DU GRAPHIQUE = LE TOTAL DE L'ANNÉE ══════════════════════════════════════════════
+ * Les ventes signées sans mois (« mois à confirmer ») comptent dans l'année (tuiles, Bilan) mais dans aucun mois : la somme des 12 mois du graphique
+ * restait en deçà. Les atomes « hors mois » = ceux de l'année − la somme de ceux des 12 mois (le même découpage : structure, activité, famille), soit
+ * ces ventes (CA et leurs coûts), et l'écart d'arrondi au centime éventuel. Ajoutés après décembre, ils font tomber la fin d'année sur le total
+ * de l'année, au centime, pour tous les filtres. PUR.
+ */
+export function atomesHorsMois(annee: readonly AtomeGraphe[], mois: readonly (readonly AtomeGraphe[])[]): AtomeGraphe[] {
+  const cle = (x: AtomeGraphe): string => `${x.structure}|${x.activite}|${x.famille ?? ''}`;
+  const somme = new Map<string, MontantC>();
+  for (const xs of mois) for (const x of xs) somme.set(cle(x), plus(somme.get(cle(x)) ?? RIEN, x.m));
+  return annee.map((x) => ({ ...x, m: moins(x.m, somme.get(cle(x)) ?? RIEN) }));
+}
+/** Des ventes signées sans mois dans l'année (celles qui comptent) : le point s'appelle « Mois à confirmer » ; sinon, un pur écart d'arrondi. PUR. */
+export const aDesVentesSansMois = (ventes: readonly (Pick<Vente, 'statut' | 'annee' | 'mois'> & Partial<Pick<Vente, 'double'>>)[], annee: number): boolean =>
+  ventes.some((v) => estVendue(v) && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null })); // = ventesDeLAnnee sans mois

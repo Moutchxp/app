@@ -875,7 +875,8 @@ export function EnteteGraphe<M extends string = MesureMois>({ id, titre, mesure,
  * `bulle` : chaque mois se survole et s'ouvre, le détail s'écrit À DROITE (comme l'histogramme). Sans `bulle` : la courbe d'avant, telle quelle.
  */
 export function CourbeCumul({ courant, n1, annee, selection, aria, entier = false, bulle, onChoisir, etiquettes = COURT, cles, nom = 'mois-cumul', attributZone = 'data-mois-cumul', legende, repos }: {
-  courant: readonly number[]; n1: readonly number[] | null; annee: number; selection: number; aria: string; entier?: boolean;
+  /** 🔴 LOT CG11 (CA global) — un point `null` n'est pas tracé (un mois à venir avant le point « Mois à confirmer ») ; sans `null` : comme avant. */
+  courant: readonly (number | null)[]; n1: readonly number[] | null; annee: number; selection: number; aria: string; entier?: boolean;
   bulle?: (cle: number) => InfoBarre; onChoisir?: (cle: number) => void;
   /** 🔴 Arno (25/10/2026) — « Année par année » : un point par ANNÉE (les étiquettes et les clés des points ; défaut : les 12 mois, clés 1 → 12). */
   etiquettes?: readonly string[]; cles?: readonly number[]; nom?: string; attributZone?: string; legende?: ReactNode;
@@ -887,7 +888,8 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
   const L = 640; const H = 220; const m = { g: 56, d: 12, h: 12, b: 28 };
   const [survol, setSurvol] = useState<number | null>(null);
   const [clic, setClic] = useState<number | null>(null);
-  const valeurs = [...courant, ...(n1 ?? [])];
+  const traces = courant.flatMap((v, i) => (v === null ? [] : [{ v, i }]));
+  const valeurs = [...traces.map((t) => t.v), ...(n1 ?? [])];
   const haut = Math.max(1, ...valeurs);
   const bas = Math.min(0, ...valeurs);
   const pasEntier = Math.max(1, Math.ceil((haut - bas) / 4));
@@ -896,7 +898,7 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
   const max = entier ? min + pasEntier * 4 : valeurs.every((v) => v === 0) ? 1000 : haut;
   const x = (i: number): number => m.g + (i * (L - m.g - m.d)) / Math.max(1, n - 1);
   const y = (v: number): number => H - m.b - ((v - min) * (H - m.h - m.b)) / (max - min);
-  const trace = (vals: readonly number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const trace = (vals: readonly { v: number; i: number }[]): string => vals.map(({ v, i }, j) => `${j === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
   const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v)); // 🔴 LOT CR — en abrégé
   m.g = margeAxe(graduations.map(etiquette)); // 🔴 LOT CR — aucune graduation coupée
@@ -909,9 +911,9 @@ export function CourbeCumul({ courant, n1, annee, selection, aria, entier = fals
           <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{etiquette(g)}</text></g>
       ))}
       {etiquettes.map((c, i) => <text key={c} x={x(i)} y={H - 8} textAnchor="middle" className="tdb-axe">{c}</text>)}
-      {n1 !== null && <path d={trace(n1)} className="tdb-trait-n1" data-trait-cumul="n1" />}
-      {courant.length > 0 && <path d={trace(courant)} className="tdb-trait" data-trait-cumul="courant" />}
-      {courant.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className="tdb-point" data-point-cumul={cle(i)} data-valeur={v} />)}
+      {n1 !== null && <path d={trace(n1.map((v, i) => ({ v, i })))} className="tdb-trait-n1" data-trait-cumul="n1" />}
+      {traces.length > 0 && <path d={trace(traces)} className="tdb-trait" data-trait-cumul="courant" />}
+      {traces.map(({ v, i }) => <circle key={i} cx={x(i)} cy={y(v)} r={cle(i) === selection ? 5 : 3} className="tdb-point" data-point-cumul={cle(i)} data-valeur={v} />)}
       {bulle !== undefined && etiquettes.map((c, i) => (
         <rect key={`z-${c}`} x={x(i) - pas / 2} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone tdb-zone-cumul" {...{ [attributZone]: cle(i) }}
           onMouseEnter={() => setSurvol(cle(i))} onClick={() => { setClic(cle(i)); onChoisir?.(cle(i)); }} />
