@@ -8,7 +8,7 @@ import { apporteurVerseHt, classeDeCommission, commissionDuCote, statutDeCommiss
   type HonorairesCote, type Remuneration, type StatutDuLibelle } from '../../../../lib/transaction/commissions';
 import { classeCommission, libelleStatut, type ClasseCommission, type Statut } from '../../../../lib/admin/statut';
 import { centimesRepartition, libellePartie, partsParSociete, pourcentageDe, pourcentagesParSociete } from '../../../../lib/transaction/repartition';
-import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useConsolide, usePageFusion, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useConsolide, usePageFusion, FournisseurChangerAffichage, FournisseurNoms, useNommer, SelecteurAffichage, htTtcDe, montantAffiche, Montants, montantsTexte, MOT_UNITE, nombreFr, parametre, posterTransaction, useAffichage, useAffichageRetenu, useTransaction, type UniteAffichage } from './commun';
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
@@ -63,11 +63,13 @@ const moisEnLettres = (jour: string): string => `${(NOMS_MOIS[Number(jour.slice(
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
-export function OngletCompromis({ societe, fusion = false, selecteurUnite = false }: { societe: Societe | 'tous';
+export function OngletCompromis({ societe, fusion = false, selecteurUnite = false, unite: uniteHote, onUnite }: { societe: Societe | 'tous';
   /** 🔴 LOT DM — la page FUSION (les deux sociétés) : « HT | TTC » et « + Nouveau compromis », qui demande d'abord la société porteuse. */
   fusion?: boolean;
   /** 🔴 LOT CG1 — le CA global : le sélecteur « HT | TTC » seul (le même composant, la même mémoire), sans « + Nouveau compromis ». */
-  selecteurUnite?: boolean }) {
+  selecteurUnite?: boolean;
+  /** 🔴 LOT CG4 — l'unité tenue par la page hôte (le CA global : son sélecteur sur la ligne des onglets) ; absente : le choix retenu, comme avant. */
+  unite?: UniteAffichage; onUnite?: (u: UniteAffichage) => void }) {
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : « Chiffre d’affaires consolidé », « Solde net consolidé »
   const [choixSociete, setChoixSociete] = useState(false);
   const [societeNouveau, setSocieteNouveau] = useState<Societe | null>(null);
@@ -97,7 +99,8 @@ export function OngletCompromis({ societe, fusion = false, selecteurUnite = fals
   const [fenetreSolde, setFenetreSolde] = useState(false);
   const tuileSolde = useRef<HTMLButtonElement | null>(null);
   // 🔴 LOT AM (Arno) — « HT | TTC » : l'unité affichée en grand dans tout le bloc, retenue dans le navigateur (partagée CRITERIMMO / MACJ).
-  const [unite, setUnite] = useAffichageRetenu();
+  const [uniteLocale, setUniteLocale] = useAffichageRetenu();
+  const unite = uniteHote ?? uniteLocale; const setUnite = onUnite ?? setUniteLocale;
   // 🔴 LOT BY (Arno) — « Du mois | En cours » : retenu dans le navigateur (partagé CRITERIMMO / MACJ / CA global) ; « En cours » par défaut.
   const [vueListe, setVueListeEtat] = useState<VueCompromis>(lireVueCompromis);
   // 🔴 LOT CE — les colonnes des lignes de négociateur, communes à toutes les cartes de l'onglet.

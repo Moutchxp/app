@@ -1675,12 +1675,11 @@ export function EcranGlobal() {
   // Transaction vente (lots DG / DH : le même crochet, les mêmes règles, l'adresse partageable) ; un ancien lien « ?annee=2026 » ouvre cette année.
   const anneesDispo = lu.etat === 'ok' ? anneesDuGlobal(lu.data, jour) : null;
   const { choixA, setChoixAnnees, refusAnnees, choisirAnnee, choisirDecoupageAnnees, cleChoixA, anneesVisibles } = useLigneDesAnnees(jour, anneesDispo, true,
-    (a) => lu.etat === 'ok' && anneeAvecDonnees(lu.data, a));
+    (a) => lu.etat === 'ok' && anneeAvecDonnees(lu.data, a, jour));
   // LOT D — « Compromis » (les deux sociétés réunies) avant le CA ; à l'ouverture, le CA comme avant.
   const [onglet, setOnglet] = useState<'compromis' | 'ca'>(() => (parametre('vue') === 'compromis' ? 'compromis' : 'ca'));
   // 🔴 LOT CG1 — « HT | TTC », le choix partagé du Suivi Chiffre d'affaires ; relu à chaque onglet (l'onglet « Compromis » a pu le changer)
   const [unite, setUnite] = useAffichageRetenu();
-  useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [onglet]); // eslint-disable-line react-hooks/exhaustive-deps
   // 🔴 LOT CG2 — « Avec | Sans salaires » des coûts globaux : le choix partagé avec Location, Gestion et FUSION
   const [avecSalaires, setAvecSalaires] = useChoixSalaires();
   useEffect(() => {
@@ -1722,7 +1721,7 @@ export function EcranGlobal() {
   const synthese = syntheseGlobal(e, sel, d.compromisEnCours, unite);
   /** Une tuile : le grand montant dans l'unité, l'autre unité en petit entre parenthèses (comme les autres pages). */
   const autre = (x: number) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(x)}{ESPACE}{MOT_UNITE[autreU]})</small>;
-  const champUnite = <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
+  const champUnite = <div className="trx-unite-onglets" data-unite-global-onglets><span className="trx-unite-onglets-mot" id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
   // 🔴 LOT CG2 — les entrées des coûts globaux (les pages FUSION, Suivi CA › Location, Gestion)
   const eCouts: EntreesCoutsGlobaux = { ventes: d.ventes as Vente[], retrocessions: d.retrocessions ?? [], statutDuLibelle: resolveurDe(d.statutsNegociateurs),
     location: d.locationCa ?? null, gestion: d.gestion };
@@ -1734,16 +1733,19 @@ export function EcranGlobal() {
     <th scope="colgroup" data-groupe-ca="location">Location</th><th scope="colgroup" data-groupe-ca="gestion">Gestion</th><th scope="colgroup" colSpan={3} data-groupe-ca="total">Total et comparaison</th></tr>;
   return (
     <div className="tdb loc-page" data-ca-global data-unite-global={unite}>
-      <style>{CSS + CSS_TABLES_GROUPES}</style>
+      <style>{CSS + CSS_TABLES_GROUPES + CSS_BARRE_GLOBAL}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
-      <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
-        <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
-        <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">Le mois et l’année</button>
+      {/* 🔴 LOT CG4 — « Montants HT | TTC » sur la ligne des onglets, à droite (les deux onglets) ; au téléphone, dessous et à droite si la place manque */}
+      <div className="trx-vues-barre" data-barre-onglets-global>
+        <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">Le mois et l’année</button>
+        </div>
+        {champUnite}
       </div>
-      {onglet === 'compromis' ? <OngletCompromis societe="tous" selecteurUnite /> : <FournisseurAffichage value={unite}>
+      {onglet === 'compromis' ? <OngletCompromis societe="tous" unite={unite} onUnite={setUnite} /> : <FournisseurAffichage value={unite}>
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
-      {/* 🔴 LOT CG3 — « Montants HT | TTC » reste à droite de la barre ; dessous, la ligne des années et « Année | Période | Tout » (la vente) */}
-      <form className="tdb-filtres" aria-label="Montants" onSubmit={(x) => x.preventDefault()}>{champUnite}</form>
+      {/* 🔴 LOT CG4 (retrait autorisé par Arno) — l'encart de filtres, vide, n'existe plus : la ligne des années vient juste sous les onglets */}
       {choixA !== null && anneesVisibles !== null && <LigneDesAnnees annees={anneesVisibles} decoupage={choixA.decoupage} annee={choixA.annee}
         choisies={enTout ? anneesVisibles : choixA.annees} onAnnee={choisirAnnee} onDecoupage={choisirDecoupageAnnees} />}
       {choixA?.decoupage === 'periode' && refusAnnees && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
@@ -1893,11 +1895,27 @@ export function EcranGlobal() {
   );
 }
 
+/** 🔴 LOT CG4 — la ligne des onglets du CA global : les onglets à gauche, « HT | TTC » à droite ; au téléphone, dessous et à droite si la place manque. */
+const CSS_BARRE_GLOBAL = `
+.trx-vues-barre{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 12px;border-bottom:1px solid var(--color-svv-line);margin-bottom:12px}
+.trx-vues-barre .trx-vues{border-bottom:0;flex:0 1 auto}
+.trx-unite-onglets{display:flex;align-items:center;gap:8px;margin-left:auto;padding-bottom:4px}
+.trx-unite-onglets-mot{font-size:.78rem;color:var(--color-svv-muted)}
+@media (max-width:640px){ .trx-unite-onglets-mot{display:none} }
+`;
 /** 🔴 LOT CG3 — les années du CA global (vente, gestion, location, et l'année en cours) ; une année « a des données » si l'une des trois en a. PUR. */
 const anneesDuGlobal = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, jour: string): number[] => [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee),
   ...d.gestion.map((g) => g.annee), ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
-const anneeAvecDonnees = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, a: number): boolean =>
-  d.ventes.some((v) => v.annee === a) || d.gestion.some((g) => g.annee === a) || Object.keys(d.location ?? {}).some((k) => k.startsWith(`${a}-`));
+/**
+ * 🔴 LOT CG4 — la règle du lot DH : une année n'apparaît sur la ligne des années que si elle a une donnée COMPTÉE — une vente signée (la règle de la vente,
+ * `listeDesAnnees` en « Vendu », mois à confirmer compris ; une vente à attribuer), un mois de gestion saisi, un CA de location, une rétrocession. Un
+ * compromis n'y suffit pas (ex. 2027, présente par la seule date butoir d'un compromis). L'année montrée et les années cochées restent toujours. PUR.
+ */
+const anneeAvecDonnees = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location' | 'retrocessions'>, a: number, jour: string): boolean =>
+  listeDesAnnees(d.ventes.map((v) => ({ ...v, double: v.double ?? null })) as Vente[], [a], 'vendu', jour).length > 0
+  || d.ventes.some((v) => v.statut === 'vendue' && v.annee === a && v.double != null)
+  || d.gestion.some((g) => g.annee === a) || Object.entries(d.location ?? {}).some(([k, x]) => k.startsWith(`${a}-`) && x !== 0)
+  || (d.retrocessions ?? []).some((r) => r.annee === a);
 
 /** Une ligne de la synthèse du CA global (dans l'unité choisie : 🔴 LOT CG1) ; null : sans objet pour cette ligne (« — »). */
 export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'inter_cabinet' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;

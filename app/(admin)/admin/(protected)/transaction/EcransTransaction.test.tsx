@@ -675,9 +675,11 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
     window.localStorage.setItem('trx-affichage-montants', 'ht');
     window.history.replaceState(null, '', '/?annee=2025');
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-    const filtres = container.querySelector('[data-ca-global] form.tdb-filtres')!;
-    expect(filtres.lastElementChild!.className).toBe('tdb-champ trx-champ-unite');
-    expect(filtres.querySelector('[data-afficher="ht"]')!.getAttribute('aria-pressed')).toBe('true');
+    // 🔴 LOT CG4 — le sélecteur sur la ligne des onglets, à droite ; l'encart de filtres n'existe plus (retrait autorisé par Arno)
+    const barre = container.querySelector('[data-ca-global] [data-barre-onglets-global]')!;
+    expect([barre.children[0].getAttribute('role'), barre.lastElementChild!.hasAttribute('data-unite-global-onglets')]).toEqual(['tablist', true]);
+    expect(barre.querySelector('[data-afficher="ht"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('[data-ca-global] form.tdb-filtres')).toBeNull();
     const lireTout = () => ({
       titre: texte('[data-tuile="global"] .tdb-tuile-mot'), grand: centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')), petit: texte('[data-tuile="global"] [data-montant-autre]'),
       synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => x.textContent).slice(0, 4) });
@@ -768,7 +770,7 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
     expect(container.querySelector('[data-choix-annees]')!.getAttribute('data-choix-annees')).toBe('annee');
     expect(container.querySelector('[data-onglet-annee="2025"]')!.getAttribute('aria-selected')).toBe('true');
     expect(container.querySelector('[data-filtre="annee"]')).toBeNull(); // le champ « Année » est remplacé (accord d'Arno)
-    expect(container.querySelector('form.tdb-filtres .trx-champ-unite [data-afficher="ht"]')).not.toBeNull();
+    expect(container.querySelector('[data-barre-onglets-global] [data-unite-global-onglets] [data-afficher="ht"]')).not.toBeNull(); // 🔴 LOT CG4
     expect([texte('#trx-g-mois'), texte('#trx-g-couts')]).toEqual(['Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)']);
     const parAnnee: Record<string, Record<string, number>> = {};
     for (const u of ['ht', 'ttc'] as const) {
@@ -822,6 +824,35 @@ describe('🔴 LOT CG3 — le CA global : Année | Période | Tout, blocs', () =
     expect(css).toContain('.trx-table-groupes colgroup.trx-g--fond{background:color-mix(in srgb, var(--color-svv-ink) 4%, transparent)}');
     expect(css).toContain('@media (max-width:640px){ .trx-couts-tete{flex-direction:column;align-items:flex-start}');
     expect(css).toContain('.tdb-table.trx-table-groupes{display:table;width:auto}'); // téléphone : le vrai tableau, qui défile (pas de cartes)
+  });
+});
+
+/**
+ * 🔴 LOT CG4 (Arno) — le CA global : « Montants HT | TTC » sur la ligne des onglets, à droite, actif sur les deux onglets ; l'encart de filtres vide
+ * retiré (accord d'Arno) ; une année sans donnée comptée (la seule date butoir d'un compromis) n'est pas sur la ligne des années (règle du lot DH).
+ */
+describe('🔴 LOT CG4 — le CA global : sélecteur sur la ligne des onglets, années comptées', () => {
+  it('2027 présente par la seule date butoir d’un compromis : absente de la ligne des années ; le sélecteur à droite des onglets, sur les deux onglets', async () => {
+    const avant = donneesGlobal.ventes;
+    donneesGlobal.ventes = [...avant, { id: 9927, societe: 'criterimmo', statut: 'compromis', annee: 2027, mois: 1, honorairesTtc: 7500, libelle: 'COMPROMIS 2027' }] as typeof avant;
+    try {
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      window.history.replaceState(null, '', '/?annee=2025');
+      await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+      expect([...container.querySelectorAll('[data-onglet-annee]')].map((x) => x.getAttribute('data-onglet-annee'))).toEqual(['2024', '2025']);
+      // la ligne des années vient juste sous les onglets (plus d'encart de filtres)
+      const barre = container.querySelector('[data-barre-onglets-global]')!;
+      expect(barre.nextElementSibling!.getAttribute('data-decoupage-annees')).toBe('annee');
+      // « Année par année » garde toutes les années (comme « Toute l'histoire » du lot DH)
+      expect(container.querySelector('[data-annee-global="2027"]')).not.toBeNull();
+      for (const o of ['compromis', 'ca'] as const) {
+        await act(async () => { (container.querySelector(`[data-vue="${o}"]`) as HTMLElement).click(); }); await calmer();
+        expect([o, container.querySelectorAll('[data-afficher]').length, container.querySelector('[data-barre-onglets-global] [data-afficher="ht"]') !== null]).toEqual([o, 2, true]);
+      }
+      const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+      expect(css).toContain('.trx-vues-barre{display:flex;flex-wrap:wrap;');
+      expect(css).toContain('.trx-unite-onglets{display:flex;align-items:center;gap:8px;margin-left:auto;');
+    } finally { donneesGlobal.ventes = avant; }
   });
 });
 
