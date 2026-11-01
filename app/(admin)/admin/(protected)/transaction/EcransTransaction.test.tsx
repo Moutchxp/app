@@ -690,12 +690,12 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
       synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG5 — le titre seul (sans le total replié)
     const ht = lireTout();
     expect(ht.titre).toBe('CA global HT (2025)');
-    expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Chiffre d’affaires année par année (HT ; réalisé et prévisionnel)']); // 🔴 LOT CG2 / CG5
+    expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Résultat net 2025 (HT ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
     await cliquer('[data-afficher="ttc"]');
     const ttc = lireTout();
     expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ttc');
     expect(ttc.titre).toBe('CA global TTC (2025)');
-    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA)', 'Chiffre d’affaires année par année (TTC ; réalisé et prévisionnel)']); // 🔴 LOT CG2 / CG5
+    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA)', 'Résultat net 2025 (TTC ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
     // le grand montant TTC, le petit HT (et inversement) : les deux unités de la même cellule
     expect([ht.petit.endsWith('TTC)'), ttc.petit.endsWith('HT)')]).toEqual([true, true]);
     expect(centimesDe(ht.petit)).toBe(ttc.grand);
@@ -877,7 +877,7 @@ describe('🔴 LOT CG5 — le CA global : tableaux repliés à l’arrivée', ()
     window.localStorage.removeItem('trx-fusion-salaires');
     window.history.replaceState(null, '', '/?annee=2025');
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-    expect(etats()).toEqual([['global-mois', 'false'], ['global-couts', 'false'], ['global-annees', 'false'], ['global-couts-annees', 'false']]);
+    expect(etats()).toEqual([['global-mois', 'false'], ['global-couts', 'false'], ['global-resultat', 'false'], ['global-annees', 'false'], ['global-couts-annees', 'false'], ['global-resultat-annees', 'false']]); // 🔴 LOT CG7 — les deux lignes « Résultat net »
     expect([container.querySelector('[data-table-global]'), container.querySelector('[data-table-couts]'), container.querySelector('[data-table-global-annees]')]).toEqual([null, null, null]);
     // la synthèse et les tuiles : toujours ouvertes
     expect([container.querySelector('[data-table-synthese]') !== null, container.querySelector('[data-tuile="global"]') !== null]).toEqual([true, true]);
@@ -903,7 +903,7 @@ describe('🔴 LOT CG5 — le CA global : tableaux repliés à l’arrivée', ()
       expect([u, grandTotal('global-annees'), grandTotal('global-couts-annees')]).toEqual([u, realise, couts]);
       // un clic referme
       await cliquer('[data-deplier-liste="global-annees"]'); await cliquer('[data-deplier-liste="global-couts-annees"]');
-      expect(etats().slice(2)).toEqual([['global-annees', 'false'], ['global-couts-annees', 'false']]);
+      expect(etats().filter((x) => x[0] === 'global-annees' || x[0] === 'global-couts-annees')).toEqual([['global-annees', 'false'], ['global-couts-annees', 'false']]);
       expect(container.querySelector('[data-table-global-annees]')).toBeNull();
     }
     // Période : les tableaux de la période arrivent repliés, avec leur total
@@ -936,13 +936,13 @@ describe('🔴 LOT CG6 — le CA global : totaux alignés, sélecteur à gauche 
     const lignes = () => [...container.querySelectorAll('[data-ca-global] [data-deplier-liste]')].map((b) => b.closest('.lr-ligne')!);
     const verifier = () => {
       const ls = lignes();
-      expect(ls.length).toBe(4);
+      expect(ls.length).toBe(6); // 🔴 LOT CG7 — avec les deux lignes « Résultat net »
       for (const l of ls) {
         const enfants = [...l.children].map((x) => x.className.split(' ')[0]);
         const section = l.querySelector('[data-deplier-liste]')!.getAttribute('data-deplier-liste')!;
         expect([section, l.className, enfants.at(-1), l.lastElementChild!.getAttribute('data-total-liste')]).toEqual([section, 'lr-ligne lr-ligne--colonne', 'lr-total', section]);
         // le sélecteur des salaires (lignes des coûts) : juste à gauche du total
-        if (section.includes('couts')) expect([section, enfants]).toEqual([section, ['lr-h', 'lr-a-droite', 'lr-total']]);
+        if (section.includes('couts') || section.includes('resultat')) expect([section, enfants]).toEqual([section, ['lr-h', 'lr-a-droite', 'lr-total']]);
         else expect([section, enfants]).toEqual([section, ['lr-h', 'lr-total']]);
         expect(l.querySelector('[data-deplier-liste] [data-total-liste]')).toBeNull(); // le total hors du bouton, dans sa colonne
       }
@@ -959,6 +959,68 @@ describe('🔴 LOT CG6 — le CA global : totaux alignés, sélecteur à gauche 
     expect(css).toContain('.lr-ligne--colonne{display:grid;grid-template-columns:minmax(0,1fr) auto 14rem;');
     expect(css).toContain('.lr-ligne--colonne>.lr-total-col{grid-column:3;grid-row:1;justify-self:stretch;display:flex;justify-content:flex-end;');
     expect(css).toContain('@media (max-width:640px){\n  .lr-ligne--colonne{grid-template-columns:minmax(0,1fr) 9.5rem}');
+    window.localStorage.removeItem('trx-fusion-salaires');
+  });
+});
+
+/**
+ * 🔴 LOT CG7 (Arno) — « Résultat net [période] » après les coûts de la période, « Résultat net année par année » après les coûts année par année :
+ * CA − coûts (les totaux des lignes au-dessus), HT | TTC, avec | sans salaires ; repliée, un clic ouvre le détail ; la somme des lignes = le total.
+ */
+describe('🔴 LOT CG7 — le CA global : Résultat net', () => {
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const grand = (section: string) => centimesDe(texte(`[data-total-liste="${section}"] [data-montant-grand]`));
+  const petit = (section: string) => centimesDe(texte(`[data-total-liste="${section}"] [data-montant-petit]`));
+  it('placées après les coûts ; résultat = CA − coûts (HT / TTC, avec / sans salaires, Année / Période / Tout) ; détail : somme des lignes = total', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect([...container.querySelectorAll('[data-ca-global] [data-deplier-liste]')].map((b) => b.getAttribute('data-deplier-liste')))
+      .toEqual(['global-mois', 'global-couts', 'global-resultat', 'global-annees', 'global-couts-annees', 'global-resultat-annees']);
+    const sec = container.querySelector('[data-bloc="global-resultat"]')!;
+    expect(sec.className).toContain('trx-resultat-net');
+    expect(texte('#trx-g-resultat-titre')).toBe('Résultat net 2025 (HT ; avec salaires)');
+    expect(texte('[data-total-liste="global-resultat"]').startsWith('=')).toBe(true);
+    const verifier = (u: string, paires: [string, string, string][]) => {
+      for (const [res, ca, couts] of paires) {
+        expect([u, res, grand(res)]).toEqual([u, res, grand(ca) - grand(couts)]);
+        expect([u, res, petit(res)]).toEqual([u, res, petit(ca) - petit(couts)]);
+        expect(texte(`[data-a-droite-liste="${res}"] [data-resultat-net-calcul]`).replace(/\s/g, ' ')).toContain(`CA ${texte(`[data-total-liste="${ca}"] [data-montant-grand]`).replace(/\s?(HT|TTC)$/, '').replace(/\s/g, ' ')} − coûts`);
+      }
+    };
+    const annee: [string, string, string][] = [['global-resultat', 'global-mois', 'global-couts'], ['global-resultat-annees', 'global-annees', 'global-couts-annees']];
+    verifier('ht', annee);
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="sans"]');
+    expect(texte('#trx-g-resultat-titre')).toBe('Résultat net 2025 (HT ; hors salaires)');
+    verifier('ht-sans', annee);
+    await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
+    verifier('ttc-sans', annee);
+    await cliquer('[data-a-droite-liste="global-couts"] [data-salaires="avec"]');
+    verifier('ttc', annee);
+    // le détail : une ligne par mois (+ « Hors mois » s'il y a lieu), son total en trame grise ; la somme des lignes = le total = la ligne
+    await cliquer('[data-deplier-liste="global-resultat"]');
+    const corps = container.querySelector('[data-table-resultat-net="global-resultat"]')!;
+    const lignes = [...corps.querySelectorAll('tbody tr:not([data-total-resultat-net-ligne])')];
+    expect(lignes.length).toBeGreaterThanOrEqual(12);
+    const totalLigne = corps.querySelector('[data-total-resultat-net-ligne]')!;
+    expect(totalLigne.className).toBe('tdb-fort trx-ligne-total');
+    for (const k of ['ca', 'couts', 'net'] as const) {
+      expect([k, lignes.reduce((t, l) => t + centimesDe(l.querySelector(`[data-resultat-net="${k}"]`)!.textContent!), 0)]).toEqual([k, centimesDe(totalLigne.querySelector(`[data-resultat-net="${k}"]`)!.textContent!)]);
+    }
+    expect(centimesDe(totalLigne.querySelector('[data-resultat-net="net"]')!.textContent!)).toBe(grand('global-resultat'));
+    expect([...corps.querySelectorAll('colgroup.trx-g')].map((x) => x.getAttribute('data-bloc-colonnes'))).toEqual(['resultat', 'comparaison']);
+    // les mentions : les mois de salaires à saisir (la gestion de 2025 n'a pas de salarié saisi)
+    expect(texte('[data-bloc="global-resultat"] [data-mention-a-saisir]')).toContain('mois de salaires à saisir');
+    // Période et Tout : la ligne de la période, CA − coûts de la période
+    await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
+    expect(texte('#trx-g-resultat-titre')).toBe('Résultat net 2024 → 2025 (TTC ; avec salaires)');
+    verifier('periode', [['global-resultat-periode', 'global-annees-periode', 'global-couts-periode']]);
+    await cliquer('[data-decouper-annees="tout"]');
+    verifier('tout', [['global-resultat-periode', 'global-annees-periode', 'global-couts-periode']]);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.trx-resultat-net{border-color:var(--color-svv-line-strong);box-shadow:inset 0 0 0 1px var(--color-svv-line-strong);background:color-mix(in srgb, var(--color-svv-ink) 7%, var(--color-svv-surface))}');
     window.localStorage.removeItem('trx-fusion-salaires');
   });
 });

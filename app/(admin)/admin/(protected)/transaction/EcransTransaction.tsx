@@ -27,6 +27,7 @@ import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { CSS_TABLES_GROUPES, TableauCoutsGlobaux } from './CoutsGlobaux';
+import { LigneResultatNet } from './ResultatNetGlobal';
 import { ListeRepliable } from '../location/ListeRepliable';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
@@ -1730,6 +1731,7 @@ export function EcranGlobal() {
   const eCouts: EntreesCoutsGlobaux = { ventes: d.ventes as Vente[], retrocessions: d.retrocessions ?? [], statutDuLibelle: resolveurDe(d.statutsNegociateurs),
     location: d.locationCa ?? null, gestion: d.gestion };
   const coutsCommun = { e: eCouts, jour, salaires: avecSalaires, onSalaires: setAvecSalaires };
+  const resultatCommun = { e, eCouts, jour, salaires: avecSalaires };
   /** 🔴 LOT CG5 — le total d'un tableau du CA replié (le réalisé des années), l'unité choisie en grand, l'autre en petit. */
   const totalCa = (as: readonly number[]) => <Montants ht={celluleGlobalAnnees(e, as, 'ht').totalHt} ttc={celluleGlobalAnnees(e, as, 'ttc').totalHt} sens="recu" classe="lr-montants" donnees={{ 'data-total-ca-replie': '' }} />;
   // 🔴 LOT CG3 — les blocs du tableau du CA : Vente · Location · Gestion · Total et comparaison (les styles des tableaux des coûts)
@@ -1869,6 +1871,13 @@ export function EcranGlobal() {
           rangees={sel.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
           total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
 
+      {/* 🔴 LOT CG7 — « Résultat net [période] » : le CA global − les coûts globaux de la même période (les totaux des deux tableaux au-dessus) */}
+      {enAnnee ? <LigneResultatNet key="resultat-mois" {...resultatCommun} idTitre="trx-g-resultat" donnee="global-resultat" titre={<>Résultat net {annee}</>}
+        rangees={NOMS_MOIS.map((nom, i) => ({ cle: `${annee}-${i + 1}`, libelle: nom, annee, mois: i + 1 }))} total={{ cle: String(annee), libelle: `Année ${annee}`, annee, mois: null }} />
+        : <LigneResultatNet key="resultat-periode" {...resultatCommun} idTitre="trx-g-resultat" donnee="global-resultat-periode" titre={<>Résultat net {lib}</>} motN1="Un an plus tôt"
+          rangees={sel.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
+          total={{ cle: 'periode', libelle: `Total ${lib}`, annee: Math.max(...sel), mois: null, annees: sel, sansComparaison: enTout }} />}
+
       {/* 🔴 LOT CG5 — « Année par année » devient « Chiffre d'affaires année par année » ; replié à l'arrivée, le réalisé de toutes les années à droite */}
       <ListeRepliable colonneTotal id="trx-g-annees" section="global-annees" ouvert={ouverts['global-annees'] === true} onOuvert={ouvrir('global-annees')} donnees={{ 'data-bloc': 'global-annees' }}
         compteur={null} titre={<>Chiffre d’affaires année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></>} total={totalCa(annees)}>
@@ -1894,6 +1903,11 @@ export function EcranGlobal() {
       {/* 🔴 LOT CG2 — le même tableau des coûts, année par année */}
       <TableauCoutsGlobaux {...coutsCommun} idTitre="trx-g-couts-annees" donnee="global-couts-annees" titre={<>Coûts globaux année par année</>}
         rangees={annees.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))} total={null} />
+
+      {/* 🔴 LOT CG7 — « Résultat net année par année » : le réalisé de toutes les années − leurs coûts */}
+      <LigneResultatNet {...resultatCommun} idTitre="trx-g-resultat-annees" donnee="global-resultat-annees" titre={<>Résultat net année par année</>} motN1="Un an plus tôt"
+        rangees={annees.map((a) => ({ cle: String(a), libelle: String(a), annee: a, mois: null }))}
+        total={{ cle: 'toutes', libelle: `Total ${annees[0]} → ${annees.at(-1)}`, annee: Math.max(...annees), mois: null, annees, sansComparaison: true }} />
 
       {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs ; replié, compteur, contenu et attribution inchangés. */}
       <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
