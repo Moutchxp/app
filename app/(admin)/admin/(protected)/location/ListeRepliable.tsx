@@ -26,8 +26,13 @@ export function useListeRepliee(nb: number, cle: string): [boolean, (o: boolean)
   return [etat.ouvert, (o) => setEtat({ cle, ouvert: o })];
 }
 
-export function ListeRepliable({ id, section, titre, compteur, total, outils, avant, ouvert, onOuvert, children, classe = 'tdb-section', donnees }: {
-  id: string; section: string; titre: ReactNode; compteur: ReactNode; total: ReactNode; outils?: ReactNode; avant?: ReactNode;
+/**
+ * 🔴 LOT LO12 (Arno) — l'en-tête sur deux lignes : ligne 1, le triangle rouge sur la ligne du titre, le titre court, le compteur juste après, le total
+ * à DROITE (l'unité choisie en grand, l'autre en petit dessous) ; ligne 2, les outils : « Trier : … » à gauche, « Rechercher… » à droite.
+ * `infobulle` : le nom complet de la période (title / aria-label du titre), quand le titre l'abrège.
+ */
+export function ListeRepliable({ id, section, titre, infobulle, compteur, total, outils, avant, ouvert, onOuvert, children, classe = 'tdb-section', donnees }: {
+  id: string; section: string; titre: ReactNode; infobulle?: string; compteur: ReactNode; total: ReactNode; outils?: ReactNode; avant?: ReactNode;
   ouvert: boolean; onOuvert: (o: boolean) => void; children: ReactNode; classe?: string; donnees?: Record<string, string>;
 }) {
   return (
@@ -37,8 +42,8 @@ export function ListeRepliable({ id, section, titre, compteur, total, outils, av
         <h3 className="lr-h">
           <button type="button" className="lr-bascule" aria-expanded={ouvert} aria-controls={`${id}-contenu`} onClick={() => onOuvert(!ouvert)} data-deplier-liste={section}>
             <span className="svv-triangle-boite lr-triangle" aria-hidden="true"><DessinTriangle ouvert={ouvert} /></span>
-            <span className="lr-titre" id={`${id}-titre`}>{titre}</span>
-            <span className="trx-compteur lr-compteur" data-compteur-liste>{compteur}</span>
+            <span className="lr-nom"><span className="lr-titre" id={`${id}-titre`} title={infobulle} {...(infobulle !== undefined ? { 'data-infobulle-periode': infobulle } : {})}>{titre}</span>
+              {' '}<span className="trx-compteur lr-compteur" data-compteur-liste>{compteur}</span></span>
             <span className="lr-total" data-total-liste={section}>{total}</span>
           </button>
         </h3>
@@ -52,15 +57,18 @@ export function ListeRepliable({ id, section, titre, compteur, total, outils, av
 
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. */
 export const CSS_LISTE_REPLIABLE = `${CSS_TRIANGLE}${CSS_TRIANGLE_BOITE}
-.lr-entete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
-.lr-h{margin:0;flex:1 1 20rem;min-width:0;font-size:inherit}
+.lr-entete{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0}
+.lr-h{margin:0;min-width:0;font-size:inherit}
 .lr-liste--ouverte .lr-entete{margin-bottom:10px}
-.lr-bascule{appearance:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;width:100%;min-height:44px;padding:0 0 0 4px;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;border-radius:10px}
+.lr-bascule{appearance:none;display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 0 0 4px;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;border-radius:10px}
 .lr-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.lr-triangle{flex:none}
+.lr-nom{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .lr-titre{font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
-.lr-compteur{font-weight:700;color:var(--color-svv-muted)}
-.lr-total{margin-left:auto;font-weight:800;color:var(--color-svv-ink)}
-.lr-total small{font-weight:600;color:var(--color-svv-muted)}
-.lr-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
-@media (max-width:640px){ .lr-total{margin-left:0;flex:1 0 100%;padding-left:30px} }
+.lr-compteur{font-weight:700;color:var(--color-svv-muted);white-space:nowrap}
+.lr-total{flex:none;margin-left:auto;text-align:right;font-weight:800;color:var(--color-svv-ink)}
+.lr-total .trx-mt{display:inline-flex;flex-direction:column;align-items:flex-end;line-height:1.2}
+.lr-total small,.lr-total .trx-mt-petit{font-weight:600;font-size:.8rem;color:var(--color-svv-muted)}
+.lr-outils{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;padding-left:4px}
+.lr-outils>:only-child{margin-right:auto}
 `;

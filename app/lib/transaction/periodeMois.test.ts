@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { additionnerTotaux, totauxMoisMode, type DonneesSociete, type Vente } from './modele';
-import { basculerMois, sommeDesMoisAffiches, compromisPeriode, contigus, ecrirePeriode, estChoisi, libellePeriode, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode } from './periodeMois';
+import { basculerMois, sommeDesMoisAffiches, compromisPeriode, contigus, ecrirePeriode, estChoisi, libellePeriode, libellePeriodeComplet, lirePeriode, retrosPeriode, totauxPeriode, unAnPlusTot, ventesPeriode } from './periodeMois';
 /** 🔴 LOT DQ — « aujourd'hui » des épreuves (le placement des compromis en cours en « Vendu + compromis »). */
 const JOUR_DQ = '2025-10-27';
 
@@ -40,10 +40,19 @@ describe('🔴 LOT CP — la période de « Le mois »', () => {
   it('le nom : un mois, des mois qui se suivent (même sur deux années), des mois séparés', () => {
     expect(libellePeriode([jul])).toBe('juillet 2026');
     expect([contigus([jul, aou, sep]), contigus([jul, sep])]).toEqual([true, false]);
-    expect(libellePeriode([sep, jul, aou])).toBe('juillet → septembre 2026');
-    expect(libellePeriode([jul, sep])).toBe('juillet, septembre 2026 (2 mois)');
-    expect(libellePeriode([{ annee: 2025, mois: 12 }, { annee: 2026, mois: 1 }])).toBe('décembre 2025 → janvier 2026');
-    expect(libellePeriode([{ annee: 2025, mois: 11 }, { annee: 2026, mois: 2 }, { annee: 2026, mois: 3 }])).toBe('novembre 2025, février, mars 2026 (3 mois)');
+    expect(libellePeriode([sep, jul, aou])).toBe('juil. → sept. 2026');
+    expect(libellePeriode([jul, sep])).toBe('2 mois de 2026');
+    expect(libellePeriodeComplet([jul, sep])).toBe('juillet, septembre 2026');
+    expect(libellePeriode([{ annee: 2025, mois: 12 }, { annee: 2026, mois: 1 }])).toBe('déc. 2025 → janv. 2026');
+    expect(libellePeriode([{ annee: 2025, mois: 11 }, { annee: 2026, mois: 2 }, { annee: 2026, mois: 3 }])).toBe('3 mois de 2025 et 2026');
+    expect(libellePeriodeComplet([{ annee: 2025, mois: 11 }, { annee: 2026, mois: 2 }, { annee: 2026, mois: 3 }])).toBe('novembre 2025, février, mars 2026');
+    // 🔴 LOT LO12 — l'année entière : « 2026 » ; onze mois non contigus : « 11 mois de 2026 », la liste en infobulle
+    const annee = Array.from({ length: 12 }, (_, i) => ({ annee: 2026, mois: i + 1 }));
+    expect(libellePeriode(annee)).toBe('2026');
+    expect(libellePeriode(annee.filter((m) => m.mois !== 5))).toBe('11 mois de 2026');
+    expect(libellePeriodeComplet(annee.filter((m) => m.mois !== 5))).toBe('janvier, février, mars, avril, juin, juillet, août, septembre, octobre, novembre, décembre 2026');
+    expect(libellePeriode(annee.slice(0, 8))).toBe('janv. → août 2026');
+    expect(libellePeriodeComplet(annee.slice(0, 8))).toBe('janv. → août 2026');
   });
   it('les totaux de la période = la somme des totaux de chaque mois, dans tous les modes ; N−1 = les mêmes mois, un an plus tôt', () => {
     for (const mode of ['vendu', 'compromis', 'tous'] as const) {

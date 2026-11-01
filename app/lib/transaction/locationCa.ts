@@ -114,36 +114,44 @@ export function ligneLocationCa(a: ActiviteLue, ctx: { regles: readonly RegleCom
 export interface RetroLocation { annee: number; mois: number; negociateurCle: string; montantC: MontantC }
 export interface SalairesLocation { id?: number; annee: number; mois: number; salairesHt: number | null; note: string | null }
 export interface CoutsLocation {
-  ca: MontantC; apporteurs: MontantC; primes: MontantC; variable: MontantC; salaires: MontantC;
+  ca: MontantC; apporteurs: MontantC; primes: MontantC; variable: MontantC;
+  /** Les salaires chargés COMPTÉS (déduits) ; `salairesSaisis` : le montant saisi, compté ou non (🔴 LOT LO12 : « Sans salaires », montré en gris). */
+  salaires: MontantC; salairesSaisis: MontantC;
   /** Ce qui est déduit : primes et variable des mois sans salaires ; salaires des mois qui en ont. */
   primesDeduites: MontantC; variableDeduit: MontantC;
   /** Les coûts déduits et le CA net (CA brut − coûts). */
   couts: MontantC; net: MontantC;
-  /** Les mois comptés, et ceux qui ont des salaires saisis. */
-  nbMois: number; moisAvecSalaires: number;
+  /** Les mois comptés ; ceux dont les salaires sont comptés (primes et variable alors « inclus ») ; ceux qui ont des salaires saisis. */
+  nbMois: number; moisAvecSalaires: number; moisSaisis: number;
 }
 const salaireDuMois = (salaires: readonly SalairesLocation[] | null, a: number, m: number): number | null =>
   salaires?.find((x) => x.annee === a && x.mois === m)?.salairesHt ?? null;
-/** Les coûts d'UN mois (les lignes du mois, ses rétrocessions, ses salaires saisis ou null). PUR. */
-export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null): CoutsLocation {
+/**
+ * Les coûts d'UN mois (les lignes du mois, ses rétrocessions, ses salaires saisis ou null). 🔴 LOT LO12 — `avecSalaires` faux (« Sans salaires ») :
+ * aucun salaire compté (le montant saisi reste montré), primes et variable toujours déduits. PUR.
+ */
+export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null, avecSalaires = true): CoutsLocation {
   const t = totauxLocation(lignes);
   const v = moinsC(lignes.reduce((x, l) => plusC(x, l.variableC), RIEN), retros.reduce((x, r) => ({ htC: x.htC + r.montantC.htC, ttcC: x.ttcC + r.montantC.htC }), RIEN));
-  const avec = salairesHt !== null;
-  const sal = avec ? Math.round((salairesHt + Number.EPSILON) * 100) : 0;
-  const salaires = { htC: sal, ttcC: sal };
+  const saisi = salairesHt !== null;
+  const avec = saisi && avecSalaires;
+  const sal = saisi ? Math.round((salairesHt + Number.EPSILON) * 100) : 0;
+  const salairesSaisis = { htC: sal, ttcC: sal };
+  const salaires = avec ? salairesSaisis : RIEN;
   const primesDeduites = avec ? RIEN : t.primes; const variableDeduit = avec ? RIEN : v;
   const couts = plusC(plusC(plusC(t.apporteurs, primesDeduites), variableDeduit), salaires);
-  return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1, moisAvecSalaires: avec ? 1 : 0 };
+  return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, salairesSaisis, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1,
+    moisAvecSalaires: avec ? 1 : 0, moisSaisis: saisi ? 1 : 0 };
 }
 const sommeCouts = (xs: readonly CoutsLocation[]): CoutsLocation => {
-  const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
+  const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'salairesSaisis', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
   return { ...Object.fromEntries(k.map((x) => [x, xs.reduce((s, c) => plusC(s, c[x]), RIEN)])) as Pick<CoutsLocation, (typeof k)[number]>,
-    nbMois: xs.reduce((s, c) => s + c.nbMois, 0), moisAvecSalaires: xs.reduce((s, c) => s + c.moisAvecSalaires, 0) };
+    nbMois: xs.reduce((s, c) => s + c.nbMois, 0), moisAvecSalaires: xs.reduce((s, c) => s + c.moisAvecSalaires, 0), moisSaisis: xs.reduce((s, c) => s + c.moisSaisis, 0) };
 };
 /** Les coûts d'un ensemble de mois : la somme de ses mois (chacun à sa règle). `retros` : déjà filtrées (négociateurs choisis). PUR. */
 export function coutsLocation(lignes: readonly LigneLocationCa[], ms: readonly { annee: number; mois: number }[], retros: readonly RetroLocation[],
-  salaires: readonly SalairesLocation[] | null): CoutsLocation {
-  return sommeCouts(ms.map((m) => coutsLocationMois(lignesDesMois(lignes, [m]), retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salaireDuMois(salaires, m.annee, m.mois))));
+  salaires: readonly SalairesLocation[] | null, avecSalaires = true): CoutsLocation {
+  return sommeCouts(ms.map((m) => coutsLocationMois(lignesDesMois(lignes, [m]), retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salaireDuMois(salaires, m.annee, m.mois), avecSalaires)));
 }
 /** Les salaires saisis d'un mois (null : non saisi). PUR. */
 export const salairesLocationDuMois = salaireDuMois;
@@ -200,6 +208,39 @@ export function espaceLocation(lignes: readonly LigneLocationCa[]): LigneEspaceL
   for (const l of lignes) {
     const a = m.get(l.negociateur.cle) ?? { cle: l.negociateur.cle, nom: l.negociateur.nom, nb: 0, ca: RIEN, primes: RIEN, apporteurs: RIEN, net: RIEN, ids: [] };
     m.set(l.negociateur.cle, { ...a, nb: a.nb + 1, ca: plusC(a.ca, l.caC), primes: plusC(a.primes, l.primeC), apporteurs: plusC(a.apporteurs, l.apporteurC), net: plusC(a.net, l.netC), ids: [...a.ids, l.id] });
+  }
+  return [...m.values()].sort((a, b) => b.ca.htC - a.ca.htC);
+}
+
+/**
+ * ══ 🔴 LOT LO12 (Arno) — L'ESPACE PAR NÉGOCIATEUR À LA RÈGLE DES MOIS ═══════════════════════════════════════════════════════════════════════════
+ * Le variable du négociateur s'y retire aussi, comme dans le CA net de la page : chaque mois, ses primes et son variable (ses dossiers − ses
+ * rétrocessions du mois) sont déduits si le mois est compté SANS salaires (aucun saisi, ou « Sans salaires ») ; un mois AVEC salaires, ils sont
+ * « inclus dans les salaires », non déduits. Les salaires chargés ne se répartissent pas entre négociateurs : la somme des lignes = le CA net de la
+ * page + les salaires comptés. Un négociateur qui n'a qu'une rétrocession sur la période apparaît (0 bail), pour que la somme tombe juste. PUR.
+ */
+export interface LigneEspaceRegle extends LigneEspaceLocation {
+  /** Le variable du négociateur (dossiers − rétrocessions) ; ce qui en est déduit ; les primes déduites. `net` = CA − apporteurs − primes et variable déduits. */
+  variable: MontantC; variableDeduit: MontantC; primesDeduites: MontantC;
+}
+export function espaceLocationRegle(lignes: readonly LigneLocationCa[], ms: readonly { annee: number; mois: number }[], retros: readonly RetroLocation[],
+  salaires: readonly SalairesLocation[] | null, avecSalaires = true): LigneEspaceRegle[] {
+  const m = new Map<string, LigneEspaceRegle>();
+  const vide = (cle: string, nom: string): LigneEspaceRegle => ({ cle, nom, nb: 0, ca: RIEN, primes: RIEN, apporteurs: RIEN, net: RIEN, ids: [], variable: RIEN, variableDeduit: RIEN, primesDeduites: RIEN });
+  const noms = new Map(negociateursLocation(lignes).map((p) => [p.cle, p.nom]));
+  for (const mo of ms) {
+    const avec = avecSalaires && salaireDuMois(salaires, mo.annee, mo.mois) !== null;
+    const duMois = lignesDesMois(lignes, [mo]);
+    const rs = retros.filter((r) => r.annee === mo.annee && r.mois === mo.mois);
+    for (const cle of new Set([...duMois.map((l) => l.negociateur.cle), ...rs.map((r) => r.negociateurCle)])) {
+      const ls = duMois.filter((l) => l.negociateur.cle === cle);
+      const c = coutsLocationMois(ls, rs.filter((r) => r.negociateurCle === cle), avec ? 0 : null);
+      const a = m.get(cle) ?? vide(cle, noms.get(cle) ?? ls[0]?.negociateur.nom ?? cle);
+      const net = moinsC(moinsC(moinsC(c.ca, c.apporteurs), c.primesDeduites), c.variableDeduit);
+      m.set(cle, { ...a, nb: a.nb + ls.length, ca: plusC(a.ca, c.ca), primes: plusC(a.primes, c.primes), apporteurs: plusC(a.apporteurs, c.apporteurs),
+        variable: plusC(a.variable, c.variable), variableDeduit: plusC(a.variableDeduit, c.variableDeduit), primesDeduites: plusC(a.primesDeduites, c.primesDeduites),
+        net: plusC(a.net, net), ids: [...a.ids, ...ls.map((l) => l.id)] });
+    }
   }
   return [...m.values()].sort((a, b) => b.ca.htC - a.ca.htC);
 }

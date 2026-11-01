@@ -39,22 +39,26 @@ export interface MoisGestionVu { annee: number; mois: number; saisi: boolean;
   honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number }
 const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(x * 100));
 
-/** Le mois tel que l'écran le compte. PUR. */
-export function moisGestion(gestion: readonly GestionMois[], annee: number, mois: number): MoisGestionVu {
+/**
+ * Le mois tel que l'écran le compte. 🔴 LOT LO12 — `salaires` faux (« Sans salaires ») : les salaires chargés restent montrés (`salariesC`) mais ne
+ * sont pas déduits : CA net = honoraires − ADHOC − MONGA. PUR.
+ */
+export function moisGestion(gestion: readonly GestionMois[], annee: number, mois: number, salaires = true): MoisGestionVu {
   const g = gestion.find((x) => x.annee === annee && x.mois === mois) ?? null;
   const [h, a, m, s] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt)];
   const [hT, aT, mT] = [enTtcC(h, TAUX_TVA_HONORAIRES), enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
   // 🔴 LOT GE3 — CA net = honoraires − ADHOC − MONGA − salariés (un mois sans MONGA : inchangé au centime)
-  return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, mongaC: m, salariesC: s, netC: h - a - m - s, lots: g?.nbLots ?? null, ligne: g,
-    honorairesTtcC: hT, adhocTtcC: aT, mongaTtcC: mT, netTtcC: hT - aT - mT - s };
+  const sD = salaires ? s : 0;
+  return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, mongaC: m, salariesC: s, netC: h - a - m - sD, lots: g?.nbLots ?? null, ligne: g,
+    honorairesTtcC: hT, adhocTtcC: aT, mongaTtcC: mT, netTtcC: hT - aT - mT - sD };
 }
 
 export interface TotauxGestion { honorairesC: number; adhocC: number; mongaC: number; salariesC: number; netC: number; honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number;
   /** Les lots : ceux du mois (un seul mois), sinon la moyenne des mois qui en ont ; null : aucun. */
   lots: number | null; nbMois: number; nbSaisis: number }
-/** Les totaux des mois choisis (la somme de leurs mois, au centime). PUR. */
-export function totauxGestion(gestion: readonly GestionMois[], ms: readonly MoisChoisi[]): TotauxGestion {
-  const vus = ms.map((m) => moisGestion(gestion, m.annee, m.mois));
+/** Les totaux des mois choisis (la somme de leurs mois, au centime) ; `salaires` : voir `moisGestion`. PUR. */
+export function totauxGestion(gestion: readonly GestionMois[], ms: readonly MoisChoisi[], salaires = true): TotauxGestion {
+  const vus = ms.map((m) => moisGestion(gestion, m.annee, m.mois, salaires));
   const avecLots = vus.filter((v) => v.lots !== null).map((v) => v.lots as number);
   const somme = (k: 'honorairesC' | 'adhocC' | 'mongaC' | 'salariesC' | 'netC' | 'honorairesTtcC' | 'adhocTtcC' | 'mongaTtcC' | 'netTtcC'): number => vus.reduce((t, v) => t + v[k], 0);
   return { honorairesC: somme('honorairesC'), adhocC: somme('adhocC'), mongaC: somme('mongaC'), salariesC: somme('salariesC'), netC: somme('netC'),

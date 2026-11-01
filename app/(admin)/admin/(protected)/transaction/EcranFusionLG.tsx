@@ -5,7 +5,7 @@ import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation, type GestionMois } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
-import { libellePeriode, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
+import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { lignesDesMois, moinsC, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
 import {
   ACTIVITES_FUSION, anneesFusion, estActiviteFusion, FAMILLES_COUTS, LIBELLE_ACTIVITE_FUSION, moisDeGestion, totauxFusion, type ActiviteFusion, type FamilleCout, type TotauxFusion,
@@ -16,6 +16,7 @@ import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
+import { horsSelecteur, SelecteurSalaires, useChoixSalaires } from './ChoixSalaires';
 import { CSS_FENETRES_LOCATION, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
 
 /**
@@ -37,8 +38,8 @@ type Mesure = 'ca' | 'net' | 'couts';
 const MESURES: readonly { cle: Mesure; mot: string }[] = [{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'couts', mot: 'Coûts' }];
 const ADRESSE_LOCATION = '/admin/transaction/location';
 const ADRESSE_GESTION = '/admin/transaction/gestion';
-/** 🔴 LOT LG2 — le choix « Avec salaires | Sans salaires », retenu dans le navigateur. */
-export const CLE_SALAIRES = 'trx-fusion-salaires';
+/** 🔴 LOT LG2 — le choix « Avec salaires | Sans salaires », retenu dans le navigateur (🔴 LOT LO12 : partagé avec Location et Gestion). */
+export { CLE_SALAIRES } from './ChoixSalaires';
 
 /** Les paramètres de la période (les mêmes noms que les pages Location et Gestion) : l'adresse de la page, et les liens vers les pages d'origine. */
 type Parametres = Record<string, string | null>;
@@ -60,11 +61,7 @@ export function EcranFusionLocationGestion() {
   const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour, { anneeParDefaut: true });
   const [activite, setActivite] = useState<ActiviteFusion>(() => { const x = parametre('activite'); return estActiviteFusion(x) ? x : 'deux'; });
   // 🔴 LOT LG2 — « Avec salaires | Sans salaires » : l'adresse (&salaires=avec|sans), sinon le choix retenu dans le navigateur, sinon « Avec »
-  const [salaires, setSalairesEtat] = useState<boolean>(() => {
-    const x = parametre('salaires'); if (x === 'avec' || x === 'sans') return x === 'avec';
-    try { return window.localStorage.getItem(CLE_SALAIRES) !== 'sans'; } catch { return true; }
-  });
-  const setSalaires = (avec: boolean): void => { setSalairesEtat(avec); try { window.localStorage.setItem(CLE_SALAIRES, avec ? 'avec' : 'sans'); } catch { /* préférence seulement */ } };
+  const [salaires, setSalaires] = useChoixSalaires(); // 🔴 LOT LO12 — le choix partagé (Location, Gestion, FUSION)
   const pret = luL.etat === 'ok' && luG.etat === 'ok';
   const lignes = luL.etat === 'ok' ? luL.data.lignes : [];
   const gestion = luG.etat === 'ok' ? luG.data.gestion : [];
@@ -117,7 +114,7 @@ export function EcranFusionLocationGestion() {
         <LigneDesMois annee={annee} mois={mois} decoupage={decoupage} moisChoisis={decoupage === 'mois' ? null : (periodeVue ?? []).filter((m) => m.annee === annee).map((m) => m.mois)}
           onMois={choisirMois} onDecoupage={choisirDecoupage} />
         {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
-        <VueFusion {...commun} ms={periodeVue ?? [{ annee, mois }]} annee={annee}
+        <VueFusion {...commun} ms={periodeVue ?? [{ annee, mois }]} annee={annee} infobulle={decoupage === 'periode' ? libellePeriodeComplet(periodeVue ?? []) : undefined}
           lib={decoupage === 'mois' ? `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}` : decoupage === 'annee' ? String(annee) : libellePeriode(periodeVue ?? [])}
           borne={borneCumul(decoupage, annee, mois, decoupage === 'periode' ? (periodeVue ?? []).map((m) => m.mois) : null, jour)} toutes={null} historique={null}
           tableau={{ titre: decoupage === 'periode' ? libellePeriode(periodeVue ?? []) : String(annee), lignes: (decoupage === 'periode' ? periodeVue ?? [] : douzeMois(annee)).map(ligneMois) }}
@@ -179,8 +176,10 @@ type Graphe = { sorte: 'mois'; mois: number; moisChoisis: readonly number[] | nu
   | { sorte: 'annees'; annees: readonly number[]; selection: readonly number[]; decoupage: DecoupageAnnees; onAnnee: (a: number) => void; entete: ReactNode };
 
 /** Les tuiles, le graphique, le Résultat, le tableau et « Toute l'histoire » d'un ensemble de mois. */
-function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaires, ms, annee, lib, borne, toutes, historique, tableau, graphe }: Commun & {
+function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaires, ms, annee, lib, infobulle, borne, toutes, historique, tableau, graphe }: Commun & {
   ms: readonly MoisChoisi[]; annee: number; lib: string;
+  /** 🔴 LOT LO12 — la liste complète des mois d'une période non contiguë (title / aria-label des titres). */
+  infobulle?: string;
   /** « Le mois » : la borne du cumul ; null : « L'année ». */
   borne: { fin: number; mot: string } | null;
   toutes: string | null;
@@ -210,15 +209,10 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
   const volume = (x: TotauxFusion): string => [x.baux === null ? '' : `${x.baux} ${x.baux > 1 ? 'baux' : 'bail'}`, x.lots === null ? (avecG ? 'lots : —' : '') : lotsTexte(x)].filter(Boolean).join(' · ');
   const familles = FAMILLES_COUTS.filter((f) => (f.activite === 'location' ? avecL : avecG));
   // 🔴 LOT LG2 — la tuile « Coûts » s'ouvre au clic, à Entrée ou Espace ; son sélecteur « Avec | Sans salaires » n'ouvre rien
-  const ouvrirCouts = (e: { target: EventTarget }): void => { if ((e.target as HTMLElement).closest?.('[data-salaires-choix]')) return; setFenetre('couts'); };
-  const choixSalaires = (
-    <span className="trx-unites trx-salaires" role="group" aria-label="Les salaires chargés" data-salaires-choix={salaires ? 'avec' : 'sans'}>
-      {([true, false] as const).map((x) => <button key={String(x)} type="button" className="trx-unite" aria-pressed={salaires === x} data-salaires={x ? 'avec' : 'sans'}
-        onClick={(e) => { e.stopPropagation(); onSalaires(x); }} onKeyDown={(e) => e.stopPropagation()}>{x ? 'Avec salaires' : 'Sans salaires'}</button>)}
-    </span>
-  );
+  const ouvrirCouts = (e: { target: EventTarget }): void => { if (horsSelecteur(e)) setFenetre('couts'); };
+  const choixSalaires = <SelecteurSalaires salaires={salaires} onChange={onSalaires} />;
   return <>
-    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`} data-ecran-fusion-tuiles>
+    <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${infobulle ?? lib}`} title={infobulle} data-ecran-fusion-tuiles>
       <li><div className="tdb-tuile" data-tuile="fusion-ca">
         <span className="tdb-tuile-mot">CA brut — {lib}{explication(EXPLICATION.ca)}</span>
         <strong className="tdb-tuile-valeur" data-fusion-ca>{eur(U.en(T.ca))}</strong>{autre(T.ca)}
@@ -259,7 +253,7 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
       : <GrapheFusionAnnees lignes={lignes} gestion={gestion} jour={jour} activite={activite} salaires={salaires} annee={annee} g={graphe} toutes={toutes} />}
 
     <section className="tdb-section" aria-labelledby="trx-resultat-fusion" data-bloc="resultat-fusion">
-      <h3 id="trx-resultat-fusion">Résultat de l’activité — {lib}</h3>
+      <h3 id="trx-resultat-fusion" title={infobulle}>Résultat de l’activité — {lib}</h3>
       <ResultatFusion T={T} />
     </section>
 
@@ -634,8 +628,6 @@ export const CSS_FUSION = `
 [data-table-fusion] thead tr:first-child th:first-child{text-align:left}
 .trx-fusion-pastille{vertical-align:-1px}
 /* 🔴 LOT LG2 — « Avec salaires | Sans salaires » dans la tuile Coûts : le style de HT | TTC, en plus petit */
-.trx-salaires{display:flex;width:max-content;margin:6px auto 0;border-radius:8px}
-.trx-salaires .trx-unite{min-height:32px;padding:0 10px;font-size:.78rem}
 [data-tuile="fusion-couts"]{cursor:pointer}
 [data-tuile="fusion-couts"]:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 `;

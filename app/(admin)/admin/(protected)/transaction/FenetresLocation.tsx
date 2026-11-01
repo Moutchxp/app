@@ -88,7 +88,10 @@ function TeteBail({ l, lien }: { l: LigneLocationCa; lien: (l: LigneLocationCa) 
  * 🔴 LOT LO11 — les coûts de la période, mois par mois, à la règle d'Arno (`coutsLocation`) : `total` (la tuile) et chaque mois (ses salaires, ses
  * rétrocessions). Un mois avec salaires chargés : ses primes et son variable sont montrés, « inclus dans les salaires », non déduits.
  */
-export interface CoutsFenetre { total: CoutsLocation; mois: readonly { m: MoisChoisi; c: CoutsLocation }[] }
+export interface CoutsFenetre { total: CoutsLocation; mois: readonly { m: MoisChoisi; c: CoutsLocation }[];
+  /** 🔴 LOT LO12 — « Sans salaires » : les salaires saisis montrés en gris, « non comptés » (non déduits) ; titres « hors salaires ». */
+  sans?: boolean }
+const hors = (couts: CoutsFenetre): string => (couts.sans ? ' hors salaires' : '');
 const moisFr = (m: MoisChoisi): string => `${NOMS_MOIS[m.mois - 1]} ${m.annee}`;
 const nonNul = (m: MontantC): boolean => m.htC !== 0 || m.ttcC !== 0;
 /** Le mois d'une ligne a-t-il des salaires chargés saisis ? */
@@ -103,6 +106,7 @@ function SectionsVariableSalaires({ couts, moins }: { couts: CoutsFenetre; moins
   const t = couts.total;
   const moisV = couts.mois.filter((x) => nonNul(x.c.variable));
   const moisS = couts.mois.filter((x) => x.c.moisAvecSalaires > 0);
+  const moisSaisis = couts.mois.filter((x) => x.c.moisSaisis > 0);
   return <>
     <CategorieRepliable cle="variable" donnees={{ 'data-categorie-location': 'variable', 'aria-label': 'Variable du négociateur' }}
       titre={<>{moins ? '− ' : ''}Variable du négociateur (sans TVA){inclusMot(t.variable, t.variableDeduit, en)}</>}
@@ -112,12 +116,19 @@ function SectionsVariableSalaires({ couts, moins }: { couts: CoutsFenetre; moins
           <span className="trx-fc-quoi">{moisFr(m)}{c.moisAvecSalaires > 0 && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}</span>
           <Montant htC={c.variable.htC} ttcC={c.variable.ttcC} versee={c.moisAvecSalaires === 0} /></li>))}</ul>}
     </CategorieRepliable>
-    <CategorieRepliable cle="salaires" donnees={{ 'data-categorie-location': 'salaires', 'aria-label': 'Salaires chargés' }} titre={<>{moins ? '− ' : ''}Salaires chargés (sans TVA)</>}
+    {couts.sans ? <CategorieRepliable cle="salaires" donnees={{ 'data-categorie-location': 'salaires', 'aria-label': 'Salaires chargés — non comptés' }}
+      titre={<span className="loc-muet">Salaires chargés (sans TVA) — non comptés</span>}
+      montant={<span className="loc-muet" data-sous-total-location="salaires-non-comptes">{en(t.salairesSaisis)}</span>}>
+      {moisSaisis.length === 0 ? <p className="trx-fc-aucune" data-aucune="salaires">Aucun mois saisi</p> : <ul className="trx-fc-lignes">{moisSaisis.map(({ m, c }) => (
+        <li key={`${m.annee}-${m.mois}`} className="trx-fc-ligne trx-fc-info" data-ligne-salaires={`${m.annee}-${m.mois}`}><span className="trx-fc-quoi">{moisFr(m)}<small className="trx-fc-sous"> — non comptés</small></span>
+          <Montant htC={c.salairesSaisis.htC} ttcC={c.salairesSaisis.ttcC} versee={false} /></li>))}</ul>}
+    </CategorieRepliable>
+    : <CategorieRepliable cle="salaires" donnees={{ 'data-categorie-location': 'salaires', 'aria-label': 'Salaires chargés' }} titre={<>{moins ? '− ' : ''}Salaires chargés (sans TVA)</>}
       montant={<Montant htC={t.salaires.htC} ttcC={t.salaires.ttcC} versee donnees={{ 'data-sous-total-location': 'salaires' }} />}>
       {moisS.length === 0 ? <p className="trx-fc-aucune" data-aucune="salaires">Aucun mois saisi</p> : <ul className="trx-fc-lignes">{moisS.map(({ m, c }) => (
         <li key={`${m.annee}-${m.mois}`} className="trx-fc-ligne" data-ligne-salaires={`${m.annee}-${m.mois}`}><span className="trx-fc-quoi">{moisFr(m)}</span>
           <Montant htC={c.salaires.htC} ttcC={c.salaires.ttcC} versee /></li>))}</ul>}
-    </CategorieRepliable>
+    </CategorieRepliable>}
   </>;
 }
 
@@ -165,7 +176,7 @@ export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts }: 
   };
   const retroDeduit = couts.mois.filter((x) => x.c.moisAvecSalaires === 0).reduce((s, x) => plusC(s, moinsC(lignes.filter((l) => l.annee === x.m.annee && l.mois === x.m.mois).reduce((y, l) => plusC(y, l.variableC), { htC: 0, ttcC: 0 }), x.c.variable)), { htC: 0, ttcC: 0 });
   return (
-    <CoqueFenetre titre={`Coûts — ${lib}`} donnee="fenetre-couts-location" totalHtC={t.couts.htC} totalTtcC={t.couts.ttcC} sens="verse" motTotal="de coûts"
+    <CoqueFenetre titre={`Coûts${hors(couts)} — ${lib}`} donnee="fenetre-couts-location" totalHtC={t.couts.htC} totalTtcC={t.couts.ttcC} sens="verse" motTotal="de coûts"
       dossiers={motBaux(d.baux.length, true)} cleMode={CLE_MODE_COUTS_LOCATION} motTransaction="Par bail" onFermer={onFermer}
       pied={<><span>Total des coûts</span><Montant htC={t.couts.htC} ttcC={t.couts.ttcC} versee donnees={{ 'data-fenetre-total': '' }} /></>}
       corps={(mode) => <>
@@ -196,7 +207,7 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts }: { 
   const en = (m: MontantC): string => `${eur((u === 'ht' ? m.htC : m.ttcC) / 100)}${ESPACE}${MOT_UNITE[u]}`;
   const t = couts.total;
   const inclus = avecSalaires(couts);
-  const total = <><span>= CA net</span><Montant htC={t.net.htC} ttcC={t.net.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
+  const total = <><span>= CA net{hors(couts)}</span><Montant htC={t.net.htC} ttcC={t.net.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
   const ligneCout = (cle: string, etiquette: string, qui: string, m: MontantC, compte = true) => (
     <li className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-bail={cle}>
       <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{compte ? '− ' : ''}{etiquette}</span><span data-qui>{qui}</span>
@@ -220,7 +231,7 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts }: { 
   };
   const retroDeduit = couts.mois.filter((x) => x.c.moisAvecSalaires === 0).reduce((s, x) => plusC(s, moinsC(lignes.filter((l) => l.annee === x.m.annee && l.mois === x.m.mois).reduce((y, l) => plusC(y, l.variableC), { htC: 0, ttcC: 0 }), x.c.variable)), { htC: 0, ttcC: 0 });
   return (
-    <CoqueFenetre titre={`CA net — ${lib}`} donnee="fenetre-net-location" totalHtC={t.net.htC} totalTtcC={t.net.ttcC} sens="recu"
+    <CoqueFenetre titre={`CA net${hors(couts)} — ${lib}`} donnee="fenetre-net-location" totalHtC={t.net.htC} totalTtcC={t.net.ttcC} sens="recu"
       dossiers={motBaux(T.nb, false)} cleMode={CLE_MODE_NET_LOCATION} motTransaction="Par bail" onFermer={onFermer} pied={total}
       corps={(mode) => <>
         <style>{CSS_FENETRES_LOCATION}</style>

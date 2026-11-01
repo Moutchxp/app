@@ -88,8 +88,8 @@ export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readon
       const salL = salairesLocationDuMois(loc.salaires, m.annee, m.mois);
       const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL);
       const incl = salaires && (salL !== null || (activite === 'deux' && g.ligne?.salarieHt != null));
-      const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salaires };
-      const deduits = { ...couts, primes: incl ? RIEN : c.primes, variable: incl ? RIEN : c.variable, salairesLocation: salaires ? c.salaires : RIEN };
+      const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salairesSaisis };
+      const deduits = { ...couts, primes: incl ? RIEN : c.primes, variable: incl ? RIEN : c.variable, salairesLocation: salaires ? c.salairesSaisis : RIEN };
       location = additionner(location, part(c.ca, couts, deduits));
       if (incl && (c.primes.htC !== 0 || c.variable.htC !== 0)) { inclus.primes = plusC(inclus.primes, c.primes); inclus.variable = plusC(inclus.variable, c.variable); inclus.mois += 1; }
     }

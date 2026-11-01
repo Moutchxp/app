@@ -3,7 +3,7 @@ import type { ActiviteLue } from '../location/suivi/tableauBord';
 import { caLigne, totaux } from '../location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import {
-  anneesLocation, apporteursLocation, categorieDe, depuisHt, detailCoutsLocation, titreBail, espaceLocation, ficheRechercheLocation, filtrerLocation, historiqueLocation, ligneLocationCa, lignesDesAnnees,
+  anneesLocation, apporteursLocation, categorieDe, coutsLocation, depuisHt, detailCoutsLocation, titreBail, espaceLocation, espaceLocationRegle, ficheRechercheLocation, filtrerLocation, historiqueLocation, ligneLocationCa, lignesDesAnnees,
   lignesDesMois, negociateursLocation, SANS_APPORTEUR, totauxLocation, trierLocation,
 } from './locationCa';
 import { correspond } from './listeCartes';
@@ -112,4 +112,26 @@ describe('🔴 LOT LO6 — le détail des fenêtres (aucun calcul nouveau : les 
     const vide = detailCoutsLocation([ls[3]]);
     expect([vide.baux.length, vide.lignesPrimes.length, vide.groupesApporteurs.length, vide.total]).toEqual([0, 0, 0, { htC: 0, ttcC: 0 }]);
   });
+});
+
+/** 🔴 LOT LO12 — l'Espace par négociateur à la règle des mois : la somme des lignes = le CA net de la page + les salaires comptés. */
+describe('🔴 LOT LO12 — espaceLocationRegle', () => {
+  const ls = [
+    ligne({ dateSignature: '2025-09-02', mandatGestion: true, avecGestion: true, apporteurId: 7, apporteurNom: 'Agence Martin' }),
+    ligne({ dateSignature: '2025-09-20', negociateurId: 8, negociateurLibelle: 'Mélanie' }),
+    ligne({ dateSignature: '2025-08-05', honoProprietaireHt: 200, honoLocataireHt: 100 }),
+  ].map((a) => ligneLocationCa(a, ctx));
+  const ms = [{ annee: 2025, mois: 8 }, { annee: 2025, mois: 9 }];
+  const sal = [{ annee: 2025, mois: 9, salairesHt: 400, note: null }];
+  const retros = [{ annee: 2025, mois: 8, negociateurCle: 'id:99', montantC: { htC: 500, ttcC: 500 } }];
+  for (const avec of [true, false]) {
+    it(`${avec ? 'Avec' : 'Sans'} salaires : Σ net = CA net + salaires comptés ; Σ variable déduit = celui de la page ; un négociateur à rétrocession seule apparaît`, () => {
+      const e = espaceLocationRegle(ls, ms, retros, sal, avec);
+      const c = coutsLocation(ls, ms, retros, sal, avec);
+      const s = (f: (x: (typeof e)[number]) => { htC: number; ttcC: number }) => e.reduce((t, x) => ({ htC: t.htC + f(x).htC, ttcC: t.ttcC + f(x).ttcC }), { htC: 0, ttcC: 0 });
+      expect(s((x) => x.net)).toEqual({ htC: c.net.htC + c.salaires.htC, ttcC: c.net.ttcC + c.salaires.ttcC });
+      expect([s((x) => x.variableDeduit), s((x) => x.primesDeduites), s((x) => x.variable)]).toEqual([c.variableDeduit, c.primesDeduites, c.variable]);
+      expect(e.find((x) => x.cle === 'id:99')?.nb).toBe(0);
+    });
+  }
 });

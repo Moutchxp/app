@@ -43,20 +43,35 @@ export const unAnPlusTot = (ms: readonly MoisChoisi[]): MoisChoisi[] => ms.map((
 export const contigus = (ms: readonly MoisChoisi[]): boolean => { const o = ordonner(ms); return o.every((m, i) => i === 0 || rang(m) === rang(o[i - 1]) + 1); };
 
 const nom = (m: MoisChoisi): string => NOMS_MOIS[m.mois - 1].toLowerCase();
+/** Les mois abrégés des titres (« janv. », « févr. »…). */
+export const MOIS_ABREGES = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'] as const;
+const court = (m: MoisChoisi): string => MOIS_ABREGES[m.mois - 1];
 /**
- * Le nom de la période : un mois « juillet 2026 » ; des mois qui se suivent « juillet → septembre 2026 » (« décembre 2025 → février 2026 ») ;
- * sinon « juillet, septembre 2026 (2 mois) » (« novembre 2025, février 2026 (2 mois) »).
+ * ══ 🔴 LOT LO12 (Arno) — LE NOM COURT D'UNE PÉRIODE : UNE SEULE FONCTION, PARTOUT (titres de listes, tuiles, Résultat, graphique, fenêtres) ═══════
+ * Un mois : « septembre 2026 » ; des mois qui se suivent : « janv. → août 2026 » (« déc. 2025 → févr. 2026 ») ; une année entière : « 2026 » ; des
+ * mois qui ne se suivent pas : « 11 mois de 2026 » (« 3 mois de 2025 et 2026 ») — la liste complète va dans l'infobulle (`libellePeriodeComplet`).
+ * Plus jamais l'énumération des mois dans un titre.
  */
 export function libellePeriode(ms: readonly MoisChoisi[]): string {
   const o = ordonner(ms);
   if (o.length === 0) return '';
   if (o.length === 1) return `${nom(o[0])} ${o[0].annee}`;
+  const annees = [...new Set(o.map((m) => m.annee))];
+  if (o.length === 12 && annees.length === 1) return String(annees[0]);
   if (contigus(o)) {
     const [a, b] = [o[0], o.at(-1)!];
-    return a.annee === b.annee ? `${nom(a)} → ${nom(b)} ${b.annee}` : `${nom(a)} ${a.annee} → ${nom(b)} ${b.annee}`;
+    return a.annee === b.annee ? `${court(a)} → ${court(b)} ${b.annee}` : `${court(a)} ${a.annee} → ${court(b)} ${b.annee}`;
   }
-  const parAnnee = [...new Set(o.map((m) => m.annee))].map((an) => `${o.filter((m) => m.annee === an).map(nom).join(', ')} ${an}`);
-  return `${parAnnee.join(', ')} (${o.length} mois)`;
+  return `${o.length} mois de ${annees.length === 1 ? annees[0] : `${annees.slice(0, -1).join(', ')} et ${annees.at(-1)}`}`;
+}
+/**
+ * L'infobulle (title / aria-label) : la liste complète des mois, « juillet, septembre 2026 » (« novembre 2025, février, mars 2026 ») ; un mois, une
+ * année ou des mois qui se suivent : le nom court suffit. PUR.
+ */
+export function libellePeriodeComplet(ms: readonly MoisChoisi[]): string {
+  const o = ordonner(ms);
+  if (o.length <= 1 || contigus(o)) return libellePeriode(o);
+  return [...new Set(o.map((m) => m.annee))].map((an) => `${o.filter((m) => m.annee === an).map(nom).join(', ')} ${an}`).join(', ');
 }
 
 type DonneesPeriode = Pick<DonneesSociete, 'ventes' | 'retrocessions'> & Partial<Pick<DonneesSociete, 'societe' | 'statutsNegociateurs'>>;

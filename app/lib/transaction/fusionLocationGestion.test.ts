@@ -122,3 +122,38 @@ describe('🔴 LOT LO11 — salaires de la Location, rétrocessions', () => {
     expect(C0.variable.htC).toBe(lignesDesMois(lignes, sept).reduce((x, l) => x + l.variableC.htC, 0));
   });
 });
+
+/**
+ * 🔴 LOT LO12 — FUSION = Location + Gestion, dans les deux modes : « Sans salaires », exactement la somme des deux pages (chacune en « Sans ») ;
+ * « Avec », la somme des deux pages, sauf les primes et le variable des mois où seule la gestion a des salaires (inclus dans ses salaires : règle
+ * des lots LG4 / LO11, montrés « inclus »). Aucun coût compté deux fois.
+ */
+describe('🔴 LOT LO12 — FUSION = Location + Gestion, avec et sans salaires', () => {
+  const sal = [{ annee: 2026, mois: 8, salairesHt: 1000, note: null }];
+  for (const avecS of [true, false]) {
+    it(`${avecS ? 'Avec' : 'Sans'} salaires : les parts = les pages (coutsLocation, totauxGestion), au centime, HT et TTC`, () => {
+      const f = totauxFusion(lignes, gestion, annee, 'deux', avecS, { retros: [], salaires: sal });
+      const L = coutsLocation(lignes, annee, [], sal, avecS);
+      const G = totauxGestion(gestion, annee, avecS);
+      expect(f.gestion.net).toEqual({ htC: G.netC, ttcC: G.netTtcC });
+      // la location : sa page, plus (Avec) les primes et le variable des mois où seule la gestion a des salaires
+      const fl = totauxFusion(lignes, gestion, annee, 'location', avecS, { retros: [], salaires: sal });
+      expect(fl.net).toEqual(L.net);
+      const ecart = { htC: f.location.net.htC - L.net.htC, ttcC: f.location.net.ttcC - L.net.ttcC };
+      expect(ecart).toEqual(avecS ? moinsInclusGestion() : RIEN);
+      expect(f.net).toEqual(plus(f.location.net, f.gestion.net));
+      expect(f.coutsTotal).toEqual(plus(f.location.coutsTotal, f.gestion.coutsTotal));
+    });
+  }
+  /** Les primes et le variable des mois de 2026 où la location n'a pas de salaires mais la gestion en a : inclus (non déduits) en FUSION. */
+  function moinsInclusGestion() {
+    return annee.filter((m) => !sal.some((s) => s.annee === m.annee && s.mois === m.mois) && gestion.some((x) => x.annee === m.annee && x.mois === m.mois && x.salarieHt != null))
+      .reduce((t, m) => { const c = coutsLocation(lignes, [m], [], null); return plus(t, plus(c.primes, c.variable)); }, RIEN);
+  }
+  it('Sans = Avec + salaires − primes et variable inclus, page Location seule (coutsLocation)', () => {
+    const avec = coutsLocation(lignes, annee, [], sal); const sans = coutsLocation(lignes, annee, [], sal, false);
+    expect([sans.salaires, sans.salairesSaisis, sans.moisAvecSalaires, sans.moisSaisis]).toEqual([RIEN, avec.salaires, 0, 1]);
+    expect(sans.net.htC - avec.net.htC).toBe(avec.salaires.htC - (avec.primes.htC - avec.primesDeduites.htC) - (avec.variable.htC - avec.variableDeduit.htC));
+    expect(sans.net.ttcC - avec.net.ttcC).toBe(avec.salaires.ttcC - (avec.primes.ttcC - avec.primesDeduites.ttcC) - (avec.variable.ttcC - avec.variableDeduit.ttcC));
+  });
+});
