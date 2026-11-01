@@ -687,7 +687,7 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
     expect(container.querySelector('[data-ca-global] form.tdb-filtres')).toBeNull();
     const lireTout = () => ({
       titre: texte('[data-tuile="global"] .tdb-tuile-mot'), grand: centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')), petit: texte('[data-tuile="global"] [data-montant-autre]'),
-      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3:not(.trx-bilan-titre)')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG8 — sans les titres des cadres « Bilan » // 🔴 LOT CG5 — le titre seul (sans le total replié)
+      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3:not(.trx-bilan-titre):not(#trx-g-graphe)')].map((x) => (x.querySelector('.lr-titre') ?? x).textContent).slice(0, 4) }); // 🔴 LOT CG8 — sans les titres des cadres « Bilan » // 🔴 LOT CG5 — le titre seul (sans le total replié)
     const ht = lireTout();
     expect(ht.titre).toBe('CA global HT (2025)');
     expect(ht.h3).toEqual(['Synthèse 2025 par société, puis le global (HT)', 'Chiffre d’affaires global 2025 mois par mois (HT)', 'Coûts globaux 2025 mois par mois (HT)', 'Résultat net 2025 (HT ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
@@ -1066,6 +1066,76 @@ describe('🔴 LOT CG8 — le CA global : les cadres « Bilan »', () => {
     expect(css).toContain('.trx-bilan{display:flex;flex-direction:column;border:1px solid var(--color-svv-line-strong);border-radius:16px;');
     expect(css).toContain('background:color-mix(in srgb, var(--color-svv-ink) 3%, var(--color-svv-surface))}');
     window.localStorage.removeItem('trx-fusion-salaires');
+  });
+});
+
+/**
+ * 🔴 LOT CG9 (Arno) — le graphique du CA global, sous les tuiles : les filtres par famille (dans l'adresse), une ou plusieurs séries ; les valeurs
+ * relues dans les tableaux du Bilan (tout coché = les totaux, mois par mois) ; N−1 = les mêmes filtres un an plus tôt.
+ */
+describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  it('placé sous les tuiles et avant la Synthèse ; tout coché = le CA du Bilan mois par mois (HT et TTC) ; N−1 hachuré ; filtres dans l’adresse ; réinitialiser', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.localStorage.removeItem('trx-fusion-salaires');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); await deplierGlobal();
+    const tuiles = container.querySelector('[data-ca-global] .tdb-tuiles')!;
+    expect(tuiles.nextElementSibling!.getAttribute('data-bloc')).toBe('global-graphe');
+    expect(graphe().nextElementSibling!.getAttribute('data-bloc')).toBe('global-synthese');
+    expect([...graphe().querySelectorAll('[data-famille-filtre]')].map((x) => x.getAttribute('data-famille-filtre'))).toEqual(['mesure', 'structure', 'activite', 'comparer', 'affichage']);
+    for (const u of ['ht', 'ttc'] as const) {
+      if (u === 'ttc') await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
+      // chaque barre = le total du mois du tableau « Chiffre d'affaires global » (les mois commencés)
+      for (const b of [...graphe().querySelectorAll('[data-barre-mois-global]')]) {
+        const m = b.getAttribute('data-barre-mois-global'); const r = b.querySelector('.tdb-barre');
+        if (r === null) continue;
+        expect([u, m, Math.round(Number(r.getAttribute('data-valeur')) * 100)]).toEqual([u, m, centimesDe(texte(`[data-mois-global="${m}"] [data-mot="Total"]`))]);
+      }
+      expect(graphe().querySelectorAll('.tdb-barre-n1').length).toBe(12);
+    }
+    // Mesure = Coûts : la famille « Coûts » apparaît ; Comparer = Familles ; l'adresse garde les filtres
+    await cliquer('[data-filtre-graphe="Mesure"] [data-choix-graphe="couts"]');
+    expect(graphe().querySelector('[data-famille-filtre="couts"]')).not.toBeNull();
+    await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="familles"]');
+    expect(new URLSearchParams(window.location.search).get('g-mesure')).toBe('couts');
+    expect(new URLSearchParams(window.location.search).get('g-comparer')).toBe('familles');
+    expect(graphe().querySelector('[data-graphe-global-series]')!.getAttribute('data-graphe-global-series')).toBe('empile');
+    // chaque série = sa colonne du tableau des coûts, et leur somme = le total des coûts du mois (septembre, au repos)
+    const sept = (k: string) => centimesDe(texte(`[data-rangee-couts="2025-9"] [data-cout="${k}"]`));
+    const serie = (cle: string) => Math.round(Number(graphe().querySelector(`[data-point-global="9"] [data-barre-serie="${cle}"]`)?.getAttribute('data-valeur') ?? 0) * 100);
+    expect(serie('commissions')).toBe(sept('vente-commissions'));
+    expect(serie('adhoc')).toBe(sept('gestion-adhoc'));
+    const somme = [...graphe().querySelectorAll('[data-point-global="9"] [data-barre-serie]')].reduce((t, x) => t + Math.round(Number(x.getAttribute('data-valeur')) * 100), 0);
+    expect(somme).toBe(sept('total'));
+    // côte à côte
+    await cliquer('[data-filtre-graphe="Barres"] [data-choix-graphe="cote"]');
+    expect(graphe().querySelector('[data-graphe-global-series]')!.getAttribute('data-graphe-global-series')).toBe('cote');
+    // les choix impossibles : grisés avec leur raison
+    await cliquer('[data-case-graphe="criterimmo"]');
+    const loc = graphe().querySelector('[data-case-graphe="location"]') as HTMLInputElement;
+    expect([loc.disabled, loc.closest('label')!.getAttribute('title')]).toEqual([true, 'La location et la gestion sont à CRITERIMMO : cochez « CRITERIMMO ».']);
+    // réinitialiser : le réglage par défaut, l'adresse nettoyée
+    await cliquer('[data-reinitialiser-filtres]');
+    expect(['g-mesure', 'g-comparer', 'g-structures'].map((k) => new URLSearchParams(window.location.search).get(k))).toEqual([null, null, null]);
+    expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (0 actif)');
+  });
+  it('Résultat net Location + Gestion en cumul : la courbe ; Structures entre elles ; Période : une barre par année ; un lien partagé rouvre les filtres', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.history.replaceState(null, '', '/?annee=2025&g-mesure=net&g-activites=location,gestion&g-cumul=1');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    expect(graphe().querySelector('[data-choix-graphe="net"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect((graphe().querySelector('[data-case-graphe="vente"]') as HTMLInputElement).checked).toBe(false);
+    expect(graphe().querySelector('[data-courbe]')).not.toBeNull();
+    expect(texte('[data-filtres-graphe-bouton]')).toBe('Filtres (3 actifs)');
+    await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="structures"]');
+    expect([...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'))).toEqual(['criterimmo', 'macj', 'a_attribuer']);
+    await cliquer('[data-decouper-annees="periode"]'); await cliquer('[data-onglet-annee="2024"]');
+    expect([...graphe().querySelectorAll('[data-point-global]')].map((x) => x.getAttribute('data-point-global'))).toEqual(['2024', '2025']);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.trx-gf-panneau{display:none}\n  .trx-gf-panneau--ouvert{display:flex}'); // téléphone : panneau repliable
   });
 });
 

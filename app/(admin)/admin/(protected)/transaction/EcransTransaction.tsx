@@ -28,6 +28,7 @@ import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { CSS_TABLES_GROUPES, TableauCoutsGlobaux } from './CoutsGlobaux';
 import { LigneResultatNet } from './ResultatNetGlobal';
+import { GrapheGlobal } from './GrapheGlobal';
 import { ListeRepliable } from '../location/ListeRepliable';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
@@ -1768,6 +1769,9 @@ export function EcranGlobal() {
         <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel {MOT} <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>{autre(Pa.totalHt)}
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
+
+      {/* 🔴 LOT CG9 — le graphique, sous les tuiles et avant la Synthèse : les données des tableaux du Bilan, filtrées par famille */}
+      <GrapheGlobal eG={e} eC={eCouts} jour={jour} annee={annee} annees={enAnnee ? null : sel} salaires={avecSalaires} />
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
         <h3 id="trx-g-synthese">Synthèse {lib} par société, puis le global <small className="loc-muet">({MOT})</small></h3>

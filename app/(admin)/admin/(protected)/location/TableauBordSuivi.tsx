@@ -984,7 +984,9 @@ export interface InfoBarre { titre: string; courant: ChiffresBulle; precedent: C
   autre?: { mot: string; facteur: number };
   /** 🔴 LOT DQ (Transaction, « Vendu + compromis ») — une mention en petit sous l'en-tête (« 8 compromis non datés ou antérieurs, comptés au mois
    *  en cours ») ; absent : rien, comme avant. */
-  note?: string }
+  note?: string;
+  /** 🔴 LOT CG9 (CA global) — pas de ligne de nombre (un montant seul : CA, coûts, résultat) ; absent : la ligne d'avant. */
+  sansNombre?: boolean }
 interface Barre { cle: number; libelle: string; valeur: number | null; n1?: number | null; info: InfoBarre;
   /** 🔴 LOT BS (Transaction, « Vendu + compromis ») — la part du BAS de la barre (le vendu, couleur pleine) ; le reste (les compromis) se pose
    *  au-dessus, plus clair ; `basN1` : idem pour la barre hachurée de N−1. Absent : une barre, comme avant. */
@@ -1007,7 +1009,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
           {x.parts?.map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
           <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? info.motCa ?? 'CA HT' : `Total ${(info.motCa ?? 'CA HT').replace(/^CA /, '')}`}</span><span className="tdb-bulle-montant">{eur(x.ca)}
             {info.autre !== undefined && <small className="tdb-bulle-autre" data-bulle-autre> ({eur(x.caAutre ?? x.ca * info.autre.facteur)} {info.autre.mot})</small>}</span></p>
-          <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>
+          {info.sansNombre !== true && <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>}
         </>
       )}
     </div>

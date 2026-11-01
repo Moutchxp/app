@@ -374,6 +374,12 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 @media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .tdb{--trx-serie-1:#60a5fa;--trx-serie-2:#fb923c;--trx-serie-3:#34d399;--trx-serie-4:#a78bfa;--trx-serie-5:#f472b6} }
 .trx-serie--1{--trx-serie:var(--trx-serie-1)} .trx-serie--2{--trx-serie:var(--trx-serie-2)} .trx-serie--3{--trx-serie:var(--trx-serie-3)}
 .trx-serie--4{--trx-serie:var(--trx-serie-4)} .trx-serie--5{--trx-serie:var(--trx-serie-5)}
+/* LOT CG9 - cinq couleurs de plus (10 series : le graphique du CA global), lisibles en clair et en sombre */
+.tdb{--trx-serie-6:#0e7490;--trx-serie-7:#a16207;--trx-serie-8:#4d7c0f;--trx-serie-9:#9f1239;--trx-serie-10:#475569}
+.svv-adm-root[data-theme='dark'] .tdb{--trx-serie-6:#22d3ee;--trx-serie-7:#facc15;--trx-serie-8:#a3e635;--trx-serie-9:#fda4af;--trx-serie-10:#cbd5e1}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .tdb{--trx-serie-6:#22d3ee;--trx-serie-7:#facc15;--trx-serie-8:#a3e635;--trx-serie-9:#fda4af;--trx-serie-10:#cbd5e1} }
+.trx-serie--6{--trx-serie:var(--trx-serie-6)} .trx-serie--7{--trx-serie:var(--trx-serie-7)} .trx-serie--8{--trx-serie:var(--trx-serie-8)}
+.trx-serie--9{--trx-serie:var(--trx-serie-9)} .trx-serie--10{--trx-serie:var(--trx-serie-10)}
 .trx-serie-barre,.trx-serie-point{fill:var(--trx-serie)}
 .trx-serie-trait{fill:none;stroke:var(--trx-serie);stroke-width:2.5;stroke-linejoin:round}
 .trx-pastille-serie{display:inline-block;flex:0 0 auto;width:12px;height:12px;border-radius:3px;background:var(--trx-serie);margin-right:6px}
