@@ -778,9 +778,12 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
   it('« Compromis » : à la date du compromis, annulé exclu ; N−1 dans le même mode ; « N compromis sans date — non placés dans un mois » ; la liste du mois', async () => {
     await ouvrir();
     await cliquer('[data-mode-mois="compromis"]');
-    expect(tuile('ca-mois')).toEqual(['CA HT des compromis — janvier', '8 000 €', '1 000 € en 2024 (+700 %)']);
+    // 🔴 LOT DZ — « CA brut des compromis » ; l'ancienne tuile « cumulé » passe en ligne du bas de la tuile 1 (même valeur), avant N−1
+    expect(texte('[data-tuile="ca-mois"] .tdb-tuile-mot')).toBe('CA brut des compromis — janvier');
+    expect([texte('[data-tuile="ca-mois"] .tdb-tuile-valeur'), texte('[data-tuile="ca-mois"] [data-tuile-cumul]'), texte('[data-tuile-n1="ca"]')])
+      .toEqual(['8 000 €', 'cumul 2025 à fin janvier : 8 000 €', '1 000 € en 2024 (+700 %)']);
     expect(tuile('ventes-mois')).toEqual(['Compromis — janvier', '2', '1 en 2024']);
-    expect(tuile('cumul')[0]).toBe('CA des compromis cumulé 2025 (à fin janvier)');
+    expect(container.querySelector('[data-tuile="cumul"]')).toBeNull();
     expect(container.querySelector('[data-compromis-sans-date]')).toBeNull(); // 🔴 LOT CR — la mention est retirée (accord d'Arno) ; ils ne comptent dans aucun mois
     expect([...container.querySelectorAll('[data-bloc="compromis-du-mois"] [data-vente]')].map((x) => x.getAttribute('data-vente'))).toEqual(['12', '11']); // 🔴 LOT DJ : la date la plus récente d'abord
     expect(container.querySelector('[data-bloc="ventes-mois"]')).toBeNull();
@@ -3334,7 +3337,7 @@ describe('🔴 LOT DU — la ligne d’explication sous le titre des tuiles de C
   // les tuiles de CA et de CA net de chaque écran et de chaque mode (les tuiles de nombre et « Compromis en cours » n'en ont pas)
   const attendu: Record<string, Record<string, 'ca' | 'net' | null>> = {
     'mois-vendu': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'ca-net-cumul': 'net' },
-    'mois-compromis': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', compromis: 'ca' }, // 🔴 LOT DV : « Compromis en cours » — FUSION seulement (filtré plus bas)
+    'mois-compromis': { 'ca-mois': 'ca', 'ventes-mois': null, compromis: 'ca', 'ca-net-compromis-mois': 'net' }, // 🔴 LOT DV : « Compromis en cours » — FUSION seulement (filtré plus bas) ; LOT DZ : la rangée de « L'année »
     'mois-tous': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'previsionnel-net-mois': 'net' },
     'annee-vendu': { 'ca-annee': 'ca', 'ventes-annee': null, 'ca-a-date': 'ca', 'ca-net-annee': 'net' },
     'annee-compromis': { 'ca-annee': 'ca', 'ventes-annee': null, compromis: 'ca', 'ca-net-compromis-annee': 'net' },
@@ -3393,4 +3396,53 @@ describe('🔴 LOT DX — « Location & Gestion » : la Gestion inchangée, ses 
     expect(texte('[data-en-construction]')).toBe('En construction — cette page sera construite au prochain lot.');
     expect(container.querySelector('[data-en-construction]')!.textContent).not.toMatch(/\d/);
   });
+});
+
+describe('🔴 LOT DZ — « Le mois », mode « Compromis » : CA brut (cumul en ligne du bas), nombre, compromis en cours, CA net des compromis', () => {
+  const ld = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+    origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+  const v = (id: number, o: Partial<Vente>) => vente(id, { societe: 'macj', ...o });
+  // au 27/10/2025 : 3 compromis en cours — juin (6 000, commission 1 200), sans date et 2024 (reportés en octobre) ; 2024 : un compromis d'octobre signé depuis
+  const ventes = [
+    v(71, { libelle: 'EN COURS JUIN', honorairesTtc: 6000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-06-10', lignes: [ld('MYLENE', 'negociateur', 1200)] }),
+    v(72, { libelle: 'EN COURS SANS DATE', honorairesTtc: 3600, statut: 'compromis', annee: 2019, mois: null, dateCompromis: null }),
+    v(73, { libelle: 'EN COURS 2024', honorairesTtc: 2400, statut: 'compromis', annee: 2024, mois: null, dateCompromis: '2024-11-20' }),
+    v(74, { libelle: 'SIGNÉE 2024', honorairesTtc: 4800, statut: 'vendue', annee: 2024, mois: 12, dateCompromis: '2024-10-01', lignes: [ld('MYLENE', 'negociateur', 1200)] }),
+  ];
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  for (const u of ['ht', 'ttc'] as const) for (const vue of ['mois', 'annee'] as const) {
+    it(`${vue === 'mois' ? 'Mois (octobre 2025)' : 'Année 2025'} (${u.toUpperCase()}) : l’ordre, tuile 4 = tuile 1 − commissions versées (vert), la ligne « cumul » = l’ancienne tuile cumulé`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      const avant = { ventes: donnees.ventes, statuts: donnees.statutsNegociateurs };
+      donnees.ventes = ventes; donnees.statutsNegociateurs = { MYLENE: 'independant' };
+      try {
+        const q = `/?vue=mois&annee=2025&mois=10${vue === 'annee' ? '&vue-mois=annee' : ''}`;
+        // l'ancienne tuile « cumulé » : le cumul du mode Compromis, janvier → octobre (la fonction de l'écran)
+        const M = await import('../../../../lib/transaction/modele');
+        const ancienCumul = M.caHtParMoisMode(ventes, 2025, 'macj', 'compromis', JOUR_DQ).slice(0, 10).reduce((a, b) => a + b, 0) * (u === 'ht' ? 1 : 1.2);
+        window.history.replaceState(null, '', `${q}&mode=compromis`);
+        await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
+        const tuiles = [...container.querySelectorAll('.tdb-tuiles > li > .tdb-tuile')];
+        expect(tuiles.map((t) => t.getAttribute('data-tuile'))).toEqual(['ca-mois', 'ventes-mois', 'compromis', 'ca-net-compromis-mois']);
+        const mot = vue === 'mois' ? 'octobre' : 'année';
+        expect(tuiles.map((t) => sansExplication(t.querySelector('.tdb-tuile-mot')!))).toEqual([`CA brut des compromis — ${mot}`, `Compromis — ${mot}`, `Compromis en cours (${u.toUpperCase()})`, `CA net des compromis — ${mot}`]);
+        const f = u === 'ht' ? 1 / 1.2 : 1;
+        // octobre : les deux reportés (3 600 + 2 400) ; l'année : + juin (6 000, dont 1 200 de commission)
+        const [brutT, netT] = vue === 'mois' ? [6000, 6000] : [12000, 10800];
+        const brut = centimesDe(texte('[data-tuile="ca-mois"] .tdb-tuile-valeur')); const net = centimesDe(texte('[data-ca-net-compromis]'));
+        expect([brut, net]).toEqual([Math.round(brutT * f * 100), Math.round(netT * f * 100)]);
+        expect(container.querySelector('[data-ca-net-compromis]')!.classList.contains('trx-vert')).toBe(true);
+        expect(texte('[data-tuile="ca-mois"] [data-tuile-cumul]')).toBe(`cumul 2025 à fin octobre : ${texte('[data-tuile="ca-mois"] [data-tuile-cumul]').split(' : ')[1]}`);
+        expect(centimesDe(texte('[data-tuile="ca-mois"] [data-tuile-cumul]').split(' : ')[1])).toBe(Math.round(ancienCumul * 100));
+        expect(container.querySelector('[data-tuile="cumul"]')).toBeNull();
+        // N−1 : octobre 2024 = le compromis signé depuis (4 800 − 1 200) ; l'année 2024 : le même
+        expect(texte('[data-tuile-n1="ca-net-compromis"]')).toMatch(u === 'ht' ? /^3 000 € en 2024 / : /^3 600 € en 2024 /);
+        // les autres modes gardent la tuile « cumulé »
+        for (const mode of ['vendu', 'tous'] as const) {
+          await act(async () => { (container.querySelector(`[data-mode-mois="${mode}"]`) as HTMLElement).click(); }); await calmer();
+          expect([mode, container.querySelector('[data-tuile="cumul"]') !== null, container.querySelector('[data-tuile-cumul]'), container.querySelector('[data-tuile="ca-net-compromis-mois"]')]).toEqual([mode, true, null, null]);
+        }
+      } finally { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; window.localStorage.removeItem('trx-mois-mode'); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
+    });
+  }
 });

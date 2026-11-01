@@ -679,6 +679,13 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
   const netCompN1 = mode === 'tous' ? sommeMontants(compromisDuMode(d.ventes, annee - 1, null, 'tous', jour).map((v) => caNetVente(v, d.societe, optsTuile))) : { htC: 0, ttcC: 0 };
   const netPrev = sommeC([netCumul, netComp]);
   const netPrevN1 = sommeC([netCumulN1, netCompN1]);
+  // 🔴 LOT DZ (Arno) — « Compromis » : le CA net des compromis de la période (les mêmes que la tuile 1 : `compDuMois`), la fonction de « L'année »
+  // (`caNetVente`, lot DS) ; N−1 : les mêmes mois, un an plus tôt.
+  const netCompPeriode = mode === 'compromis' ? sommeMontants(compDuMois.map((v) => caNetVente(v, d.societe, optsTuile))) : { htC: 0, ttcC: 0 };
+  const netCompPeriodeN1 = mode === 'compromis' ? sommeMontants((enPeriode ? compromisPeriode(d.ventes, unAnPlusTot(ms), 'compromis', jour) : compromisDuMode(d.ventes, annee - 1, mois, 'compromis', jour))
+    .map((v) => caNetVente(v, d.societe, optsTuile))) : { htC: 0, ttcC: 0 };
+  /** 🔴 LOT DZ — « cumul 2026 à fin novembre » (la ligne qui reprend l'ancienne tuile « cumulé » du mode « Compromis »). */
+  const motCumul = `cumul ${annee} ${borne.mot.startsWith('à fin') ? borne.mot : `(${borne.mot})`}`;
   const idsVendusCumul = Array.from({ length: fin }, (_, i) => ventesDuMois(d.ventes, annee, i + 1)).flat().map((v) => v.id);
   const aConfirmer = ventesDeLAnnee(d.ventes, annee).filter(moisAConfirmer);
   const aRattacher = d.aRattacher.filter((x) => estChoisi(ms, { annee: x.annee, mois: x.mois }));
@@ -705,17 +712,21 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
     {enPeriode && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
     <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel ${duMois}`} data-mode-ecran={mode}>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ca-mois">
-        <span className="tdb-tuile-mot">{M.ca} — {moisMot}<Explication sorte="ca" /></span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
+        {/* 🔴 LOT DZ (Arno) — « Compromis » : « CA brut des compromis » (une société) / « CA consolidé des compromis » (FUSION), comme « L'année » ;
+            l'ancienne tuile « cumulé » passe en ligne du bas (même valeur), avant la comparaison N−1. */}
+        <span className="tdb-tuile-mot">{mode === 'compromis' ? `${cons('CA') === 'CA' ? 'CA brut' : 'CA consolidé'} des compromis — ${moisMot}` : `${M.ca} — ${moisMot}`}<Explication sorte="ca" /></span><strong className="tdb-tuile-valeur">{eur((U.u === 'ht' ? Rc.ca.htC : Rc.ca.ttcC) / 100)}</strong>
         {/* 🔴 LOT CH — le CA de la tuile = celui du Résultat (la somme des cartes, au centime). */}
         <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur((U.u === 'ht' ? Rc.ca.ttcC : Rc.ca.htC) / 100)}{ESPACE}{U.autre.mot})</small>
+        {mode === 'compromis' && <span className="tdb-tuile-n1" data-tuile-cumul data-borne-cumul={fin}>{motCumul} : {U.e(cumulA(cumulN, fin))}</span>}
         <span className="tdb-tuile-n1" data-tuile-n1="ca">{sansN1P ? motSansN1P : `${n1Ca} ${enN1} (${signePct(variation(T.caHt, T1.caHt))})`}</span></button></li>
       <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${M.liste} — ${libMois}`, T.ids)} data-tuile="ventes-mois">
         <span className="tdb-tuile-mot">{M.nombre} — {moisMot}</span><strong className="tdb-tuile-valeur">{T.nbVentes}</strong>
         <span className="tdb-tuile-n1" data-tuile-n1="nombre">{sansN1P ? motSansN1P : `${T1.nbVentes} ${enN1}`}</span></button></li>
-      <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee} (${borne.mot})`, Array.from({ length: fin }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul" data-borne-cumul={fin}>
+      {/* 🔴 LOT DZ — la tuile « cumulé » est retirée du mode « Compromis » (accord d'Arno : son chiffre est la ligne du bas de la tuile 1). */}
+      {mode !== 'compromis' && <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${mode === 'vendu' ? 'CA' : M.ca.replace(` ${U.MOT}`, '')} cumulé ${annee} (${borne.mot})`, Array.from({ length: fin }, (_, i) => idsDuMois(i + 1)).flat())} data-tuile="cumul" data-borne-cumul={fin}>
         {/* 🔴 LOT DR (changement autorisé par Arno) — « Vendu + compromis » : « Prévisionnel CA 2026 (vendu + compromis) » ; montant et ligne du bas inchangés. */}
         <span className="tdb-tuile-mot">{mode === 'tous' ? <>Prévisionnel {cons('CA')} {annee} (vendu + compromis)<small> ({borne.mot})</small></> : <>{mode === 'vendu' ? cons(`CA ${U.MOT}`) : M.ca.replace(` ${U.MOT}`, '')} cumulé {annee} ({borne.mot})</>}<Explication sorte="ca" /></span><strong className="tdb-tuile-valeur">{U.e(cumulA(cumulN, fin))}</strong><Autre ht={cumulA(cumulN, fin)} />
-        <span className="tdb-tuile-n1" data-tuile-n1="cumul">{sansN1 ? motSansN1 : `${U.e(cumulA(cumulN1, fin))} en ${annee - 1} (${signePct(variation(cumulA(cumulN, fin), cumulA(cumulN1, fin)))})`}</span></button></li>
+        <span className="tdb-tuile-n1" data-tuile-n1="cumul">{sansN1 ? motSansN1 : `${U.e(cumulA(cumulN1, fin))} en ${annee - 1} (${signePct(variation(cumulA(cumulN, fin), cumulA(cumulN1, fin)))})`}</span></button></li>}
       {/* 🔴 LOT DA (changement autorisé par Arno) — la 4ᵉ tuile suit « Compter » : Vendu → le CA net cumulé (même période que la 3ᵉ tuile) ;
           Compromis → les compromis en cours (inchangée) ; Vendu + compromis → le prévisionnel du CA net (lot DR). */}
       {mode === 'vendu' ? (
@@ -734,6 +745,14 @@ function VueMois({ d, tout, annee, mois, jour, mode, onMois, onDetail, onEdition
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netPrev))}{ESPACE}{U.autre.mot})</small>
           <span className="tdb-tuile-n1" data-previsionnel-detail>dont {eur(enUnite(netCumul))} vendus · {eur(enUnite(netComp))} en compromis ({compPrev.length})</span>
           <span className="tdb-tuile-n1" data-tuile-n1="previsionnel-net">{sansN1 ? motSansN1 : `${eur(enUnite(netPrevN1))} en ${annee - 1} (${signePct(variation(netPrev.htC, netPrevN1.htC))})`}</span></button></li>
+      )}
+      {/* 🔴 LOT DZ (Arno) — « Compromis » : tout à droite, le CA net des compromis de la période (comme « L'année », lot DS / DT), en vert. */}
+      {mode === 'compromis' && (
+        <li><button type="button" className="tdb-tuile" onClick={ouvrir(`${cons('CA net')} des compromis — ${libMois}`, compDuMois.map((v) => v.id))} data-tuile="ca-net-compromis-mois">
+          <span className="tdb-tuile-mot">{cons('CA net')} des compromis — {moisMot}<Explication sorte="net" /></span>
+          <strong className="tdb-tuile-valeur trx-vert" data-ca-net-compromis>{eur(enUnite(netCompPeriode))}</strong>
+          <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(enAutre(netCompPeriode))}{ESPACE}{U.autre.mot})</small>
+          <span className="tdb-tuile-n1" data-tuile-n1="ca-net-compromis">{sansN1P ? motSansN1P : `${eur(enUnite(netCompPeriodeN1))} ${enN1} (${signePct(variation(netCompPeriode.htC, netCompPeriodeN1.htC))})`}</span></button></li>
       )}
     </ul>
     {/* 🔴 LOT CR (Arno) — la mention « N compromis sans date — non placés dans un mois » est RETIRÉE (accord d'Arno) : un compromis sans
