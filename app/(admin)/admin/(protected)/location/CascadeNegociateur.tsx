@@ -13,7 +13,9 @@ import { useMontantSuivi, type MontantSuivi } from './MontantsSuivi';
 export function netEnUnite(x: ResultatNetAgence, dossiers: readonly { ca: number }[]): MontantSuivi {
   const caT = dossiers.reduce((t, d) => t + ttcCentimes(d.ca), 0);
   const v = x.ventilation;
-  const t = caT - ttcCentimes(v.externes.centimes / 100) - ttcCentimes(v.internes.centimes / 100) - ttcCentimes(v.collegues.centimes / 100)
+  // 🔴 LOT LO8 — une commission ventilée : son TTC de la somme de ses lignes s'il est connu, sinon × 1,20 au centime (comme avant)
+  const tv = (b: { centimes: number; ttcC?: number }): number => b.ttcC ?? ttcCentimes(b.centimes / 100);
+  const t = caT - tv(v.externes) - tv(v.internes) - tv(v.collegues)
     - x.variables.reduce((s, y) => s + ttcCentimes(y.variable / 100), 0);
   return { ht: (x.net ?? 0) / 100, ttcC: t };
 }
@@ -158,6 +160,8 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
   // dossiers ; le net = la différence des montants affichés (`netEnUnite`).
   const U = useMontantSuivi();
   const e = (centimes: number): string => U.g(centimes / 100);
+  // 🔴 LOT LO8 — une commission ventilée (ou un bénéficiaire) : HT et TTC de ses lignes
+  const ev = (b: { centimes: number; ttcC?: number }): string => U.g({ ht: b.centimes / 100, ttcC: b.ttcC });
   const caT: MontantSuivi = { ht: x.ca / 100, ttcC: dossiers.reduce((t, d) => t + ttcCentimes(d.ca), 0) };
   const ligne = (cle: string | null, signe: string, mot: string, montant: string, detail: ReactNode, o: { fort?: boolean; attrs?: Record<string, string> } = {}) => (
     <div key={cle ?? mot} className={`fnc-ligne${o.fort ? ' fnc-ligne--fort' : ''}`} data-net-ligne={cle ?? 'part'}>
@@ -179,12 +183,12 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
   const plusieurs = x.variables.length > 1;
   const v = x.ventilation;
   /** Les bénéficiaires d'une ligne, chacun au centime comme ailleurs ; l'écart d'arrondi éventuel est écrit, jamais caché. */
-  const beneficiaires = (b: { centimes: number; detail: { cle: string; nom: string; centimes: number }[] }, vide: string): ReactNode => {
+  const beneficiaires = (b: { centimes: number; ttcC?: number; detail: { cle: string; nom: string; centimes: number; ttcC?: number }[] }, vide: string): ReactNode => {
     if (b.detail.length === 0) return <p className="fnc-op">{vide}</p>;
     // l'écart d'arrondi, dans l'unité : le total affiché − la somme des montants affichés
-    const enU = (c2: number): number => (U.u === 'ttc' ? ttcCentimes(c2 / 100) : c2);
-    const ecart = enU(b.centimes) - b.detail.reduce((s, y) => s + enU(y.centimes), 0);
-    return liste([...b.detail.map((y) => <li key={y.cle} data-beneficiaire={y.nom}><span>{y.nom}</span><span>{e(y.centimes)}</span></li>),
+    const enU = (y: { centimes: number; ttcC?: number }): number => (U.u === 'ttc' ? y.ttcC ?? ttcCentimes(y.centimes / 100) : y.centimes);
+    const ecart = enU(b) - b.detail.reduce((s, y) => s + enU(y), 0);
+    return liste([...b.detail.map((y) => <li key={y.cle} data-beneficiaire={y.nom}><span>{y.nom}</span><span>{ev(y)}</span></li>),
       ...(ecart !== 0 ? [<li key="arrondi" data-arrondi><span>Arrondi au centime (somme des montants bruts)</span><span>{ecart > 0 ? '+' : '−'}{eur(Math.abs(ecart) / 100)}</span></li>] : [])]);
   };
   return (
@@ -193,16 +197,16 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
         <p className="fnc-op">Somme des {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} {mots.du} = {U.g(caT)}</p>
         {liste(dossiers.map((d) => <li key={String(d.id)}><span>{d.libelle}</span><span>{U.g(d.ca)}</span></li>))}</>, { attrs: { 'data-net': 'ca' } })}
       {/* 🔴 Arno (25/10/2026, suite) — les commissions VENTILÉES (externes, internes, collègues) ; chaque « i » liste ses bénéficiaires. */}
-      {ligne('externes', '−', 'Commissions apporteurs externes (sans accès à l’interface)', e(v.externes.centimes), <>
+      {ligne('externes', '−', 'Commissions apporteurs externes (sans accès à l’interface)', ev(v.externes), <>
         <p className="fnc-op">Parts location et gestion « One shot » à la signature, et part gestion « Récurrent » {mots.dueCeMois}, des apporteurs
-          sans accès à l’interface = {e(v.externes.centimes)}</p>
+          sans accès à l’interface = {ev(v.externes)}</p>
         {beneficiaires(v.externes, `Aucune commission d’apporteur externe ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'externes' } })}
-      {ligne('internes', '−', 'Commissions apporteurs internes (collègues qui apportent en direct)', e(v.internes.centimes), <>
-        <p className="fnc-op">Les apporteurs liés à un compte et les collègues qui apportent en direct = {e(v.internes.centimes)}</p>
+      {ligne('internes', '−', 'Commissions apporteurs internes (collègues qui apportent en direct)', ev(v.internes), <>
+        <p className="fnc-op">Les apporteurs liés à un compte et les collègues qui apportent en direct = {ev(v.internes)}</p>
         {beneficiaires(v.internes, `Aucune commission d’apporteur interne ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'internes' } })}
-      {ligne('collegues', '−', 'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', e(v.collegues.centimes), <>
+      {ligne('collegues', '−', 'Rémunération des collègues sur leurs apporteurs (rattachement rémunéré)', ev(v.collegues), <>
         <p className="fnc-op">Ce qui est dû aux collègues à la signature
-          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ${mots.ceMois} (${e(x.colleguesRecurrents)})` : ''} = {e(v.collegues.centimes)}</p>
+          {x.colleguesRecurrents !== 0 ? `, et leur récurrent de gestion dû ${mots.ceMois} (${e(x.colleguesRecurrents)})` : ''} = {ev(v.collegues)}</p>
         {beneficiaires(v.collegues, `Aucune rémunération de collègue ${mots.ceMoisCi}.`)}</>, { attrs: { 'data-net': 'collegues' } })}
       {x.net !== null && (plusieurs
         ? x.variables.map((y) => ligne(`variable-${y.cle}`, '−', `Variable — ${y.libelle}`, e(y.variable),
@@ -212,7 +216,7 @@ export function CascadeResultatNet({ x, dossiers, mots = MOTS_MOIS }: { x: Resul
           : <p className="fnc-op">Le « {U.mot('Variable HT dû')} » de la cascade de {x.variables[0].libelle}, ci-dessous = {e(sommeVariables)}</p>,
         { attrs: x.variables.length === 1 ? { 'data-net-variable': x.variables[0].libelle } : {} }))}
       {x.net !== null && ligne('net', '=', 'CA net de toutes variables', U.g(netEnUnite(x, dossiers)),
-        <p className="fnc-op">{U.g(caT)} − {e(v.externes.centimes)} − {e(v.internes.centimes)} − {e(v.collegues.centimes)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : U.g({ ht: sommeVariables / 100, ttcC: x.variables.reduce((s2, y) => s2 + ttcCentimes(y.variable / 100), 0) })} = {U.g(netEnUnite(x, dossiers))}</p>,
+        <p className="fnc-op">{U.g(caT)} − {ev(v.externes)} − {ev(v.internes)} − {ev(v.collegues)} − {plusieurs ? x.variables.map((y) => e(y.variable)).join(' − ') : U.g({ ht: sommeVariables / 100, ttcC: x.variables.reduce((s2, y) => s2 + ttcCentimes(y.variable / 100), 0) })} = {U.g(netEnUnite(x, dossiers))}</p>,
         { fort: true, attrs: { 'data-net': 'net' } })}
       {x.net !== null && x.part !== null && (
         <p className="fnc-info fnc-part" data-net-part>soit {pctResultatNet(x.part)} du {U.mot('CA HT global')}</p>)}

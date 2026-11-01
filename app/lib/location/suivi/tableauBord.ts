@@ -1490,7 +1490,9 @@ export function resumeDuMois(t: TotauxPeriode, lignesDuMois: readonly ActiviteCa
 }
 
 /** Un bénéficiaire d'une commission du mois (apporteur ou collègue), au centime affiché. */
-export interface BeneficiaireCommission { cle: string; nom: string; centimes: number }
+export interface BeneficiaireCommission { cle: string; nom: string; centimes: number;
+  /** 🔴 LOT LO8 — le TTC du Résumé : la somme du TTC de ses lignes au centime (`montantsLigne`) ; absent : centimes × 1,20 au centime. */
+  ttcC?: number }
 /**
  * 🔴 Arno (25/10/2026) — LA VENTILATION DES COMMISSIONS DU MOIS, en CENTIMES (aucun calcul ne change, seule la répartition) :
  * · `externes` : les apporteurs SANS accès à l'interface (apporteur de l'annuaire sans compte, nom repris du fichier, commission saisie
@@ -1500,8 +1502,8 @@ export interface BeneficiaireCommission { cle: string; nom: string; centimes: nu
  * Chaque bénéficiaire : sa somme brute arrondie au centime ; trié par montant décroissant. PUR.
  */
 export interface VentilationCommissions {
-  externes: { centimes: number; detail: BeneficiaireCommission[] }; internes: { centimes: number; detail: BeneficiaireCommission[] };
-  collegues: { centimes: number; detail: BeneficiaireCommission[] };
+  externes: { centimes: number; ttcC?: number; detail: BeneficiaireCommission[] }; internes: { centimes: number; ttcC?: number; detail: BeneficiaireCommission[] };
+  collegues: { centimes: number; ttcC?: number; detail: BeneficiaireCommission[] };
 }
 export function ventilationCommissions(ac: { apporteurs: readonly ApporteurDuMois[]; sans: CumulAffaires }, t: Pick<TotauxPeriode, 'apporteurs' | 'collegues'>,
   lignesDuMois: readonly ActiviteCalcul[], ctx: ContexteCalcul, mois: string): VentilationCommissions {

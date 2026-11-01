@@ -455,7 +455,9 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
   const U = useMontantSuivi();
   const caIds = (ht: number, ids: readonly (number | string)[]) => ({ ht, ttcC: U.lignes(ids).reduce((t, a) => t + caTtcC(a), 0) });
   const caT = caIds(r.resultat.ca, resume.ids);
-  const caNetT = { ht: r.resultat.caNet, ttcC: U.ttcC(caT) - U.ttcC(ventilation.externes.centimes / 100) - U.ttcC(ventilation.internes.centimes / 100) - U.ttcC(ventilation.collegues.centimes / 100) };
+  // 🔴 LOT LO8 — une commission ventilée : son HT et son TTC (la somme du TTC de ses lignes, la règle de la page Suivi CA › Location)
+  const vent = (b: { centimes: number; ttcC?: number }) => ({ ht: b.centimes / 100, ttcC: b.ttcC });
+  const caNetT = { ht: r.resultat.caNet, ttcC: U.ttcC(caT) - U.ttcC(vent(ventilation.externes)) - U.ttcC(vent(ventilation.internes)) - U.ttcC(vent(ventilation.collegues)) };
   const famille = (f: string, ht: number) => ({ ht, ttcC: r.parStatut.filter((p) => FAMILLE_GESTION[p.nature] === f).reduce((t, x) => t + U.ttcC(caIds(x.ca, x.ids)), 0) });
   const soldeM = (g: number, p: number) => { const ht = g - p; const t = U.ttcC(g) - U.ttcC(p); const sens = U.u === 'ttc' ? t : ht;
     return U.u === null ? signeEur(ht) : U.m({ ht: Math.abs(ht), ttcC: Math.abs(t) }, { prefixe: sens > 0 ? '+' : sens < 0 ? '−' : '' }); };
@@ -483,10 +485,10 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
             <dl className="fdm-cascade-mois">
               <div className="fdm-fort"><dt>{U.mot('CA HT global')}</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL ${U.mot('CA HT')} — ${libelle}`, resume.ids)} data-total="ca">{U.m(caT)}</button></dd></div>
               {/* 🔴 Arno (25/10/2026, suite) — les honoraires d'apporteurs VENTILÉS : externes + internes = l'ancien total, au centime. */}
-              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{U.m(ventilation.externes.centimes / 100)}</dd></div>
-              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{U.m(ventilation.internes.centimes / 100)}</dd></div>
+              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{U.m(vent(ventilation.externes))}</dd></div>
+              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{U.m(vent(ventilation.internes))}</dd></div>
               {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
-              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{U.m(ventilation.collegues.centimes / 100)}</dd></div>
+              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{U.m(vent(ventilation.collegues))}</dd></div>
               <div className="fdm-fort fdm-egal"><dt>= {U.mot('CA HT net')}</dt><dd data-total="ca-net">{U.m(caNetT)}</dd></div>
             </dl>
           </section>

@@ -276,11 +276,11 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(17);
     const total = (k: string) => nbsp(container.querySelector(`[data-total="${k}"]`)?.textContent);
     expect(total('ca')).toBe('15 471,70 €');
-    // 🔴 25/10/2026 (suite) — les honoraires d'apporteurs VENTILÉS (externes + internes = 2 002,26 €).
-    expect([total('apporteurs-externes'), total('apporteurs-internes')]).toEqual(['2 002,26 €', '0,00 €']);
-    // 🔴 Arno (25/10/2026) — le CA HT NET retire aussi les collègues (0 ici) : 15 471,70 − 2 002,26 − 0,00 = 13 469,44 au centime affiché ;
-    // l'ancien « CA HT − apporteurs » (part location, 13 469,45) reste : c'est la base de calcul du négociateur.
-    expect(total('ca-net')).toBe('13 469,44 €');
+    // 🔴 25/10/2026 (suite) — les honoraires d'apporteurs VENTILÉS (externes + internes). 🔴 LOT LO8 — chaque ligne au centime, puis additionnée
+    // (`montantsLigne`, la règle de la page Suivi CA › Location) : 2 002,25 € (l'ancienne somme en euros arrondie à la fin donnait 2 002,26 €).
+    expect([total('apporteurs-externes'), total('apporteurs-internes')]).toEqual(['2 002,25 €', '0,00 €']);
+    // 🔴 Arno (25/10/2026) — le CA HT NET retire aussi les collègues (0 ici) : 15 471,70 − 2 002,25 − 0,00 = 13 469,45 au centime affiché (LOT LO8).
+    expect(total('ca-net')).toBe('13 469,45 €');
     // 🔴 25/10/2026 — la base du négociateur = CA HT net de commissions (ici : les seules parts location), au centime des montants affichés.
     await deplierNegos();
     expect(nbsp(container.querySelector('[data-base-negociateur="Jean-Baptiste PONS"]')?.textContent)).toBe('13 469,44 €');

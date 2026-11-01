@@ -2,9 +2,10 @@ import { regleAnnexesDe, type RegleAnnexes } from './annexesGestion';
 import {
   apporteursEtCollegues, caLigne, gestionDuMois, gestionSurMois, NATURES_BIEN, resultatNetAgence, resumeDuMois, sectionNegociateurs, totauxPeriode,
   ventilationCommissions, type ActiviteCalcul, type ActiviteLue, type CascadeNegociateur, type ContexteCalcul, type DonneesTableau, type EcartFichier,
-  type GestionDepuisJanvier, type LigneGestion, type ResultatNetAgence, type ResumeDuMois, type VentilationCommissions,
+  type GestionDepuisJanvier, type LigneGestion, type TotauxPeriode, type BeneficiaireCommission, type CollegueDuMois, type CumulAffaires, type ResultatNetAgence, type ResumeDuMois, type VentilationCommissions,
 } from './tableauBord';
 import { gliDuMois, type GliComptee, type GliPeriode } from './margeGli';
+import { montantsLigne, ttcCentimes } from '../../transaction/locationCa';
 
 /**
  * ══ 🔴 Arno (25/10/2026) — LE « RÉSUMÉ » D'UNE PÉRIODE : UN MOIS (Suivi du mois) OU UNE ANNÉE (Suivi annuel) ═══════════════════════════════
@@ -36,13 +37,13 @@ export interface ResumeCalcule {
 export function resumeDuMoisComplet(d: DonneesTableau, lignes: readonly ActiviteLue[], ctx: ContexteCalcul, cle: string, negociateur: string | null): ResumeCalcule {
   const [annee, mois] = cle.split('-').map(Number);
   const duMois = lignes.filter((a) => a.dateSignature.startsWith(cle));
-  const t = totauxPeriode(lignes, ctx, { annee, mois }, negociateur);
+  const { t, ac } = commissionsAuCentime(totauxPeriode(lignes, ctx, { annee, mois }, negociateur), duMois, ctx,
+    apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui }));
   const negos = d.voirCommissions ? sectionNegociateurs(lignes, ctx, { annee, mois }) : [];
   const regleA = regleAnnexesDe(d);
   const g = gestionDuMois(d.gestionLignes ?? [], cle, regleA);
   const r = resumeDuMois(t, duMois, g, negos, ctx);
-  const ac = apporteursEtCollegues(duMois, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois: [cle], aujourdhui: ctx.aujourdhui ?? d.aujourdhui });
-  const ventilation = ventilationCommissions(ac, t, duMois, ctx, cle);
+  const ventilation = ttcDeLaVentilation(ventilationCommissions(ac, t, duMois, ctx, cle), ac, t, duMois, ctx);
   const propre = d.variablesPropres?.[cle];
   // 🔴 Arno (26/10/2026, 428) — un collaborateur autorisé au « Résultat net de l'agence » : le variable de chaque négociateur, calculé avec
   // le taux réel et les rétrocessions reçus À PART (`ctxResultatNet`), pour ce seul bloc ; les autres blocs gardent `ctx` (inchangés).
@@ -63,17 +64,58 @@ export function resumeDuMoisComplet(d: DonneesTableau, lignes: readonly Activite
 }
 
 const cent = (x: number): number => Math.round((x + Number.EPSILON) * 100);
+
+/**
+ * ══ 🔴 LOT LO8 (Arno, 01/11/2026) — LES COMMISSIONS D'APPORTEURS DU RÉSUMÉ, À LA RÈGLE DE LA PAGE « SUIVI CA › LOCATION » ═══════════════════════
+ * La commission due à la signature de chaque ligne est celle de `montantsLigne` (lot LO5 : chaque ligne arrondie au centime, puis additionnée),
+ * aucune copie : « Honoraires d'apporteurs », la ventilation externes / internes (et chaque bénéficiaire), « CA HT net » et le « Résultat net de
+ * l'agence » du Résumé tombent sur les chiffres de la page et des tuiles du Suivi annuel. Avant, la somme en euros était arrondie à la fin (1 à
+ * 2 centimes d'écart sur 29 mois). Le dû « Récurrent » (aucune ligne de la période) s'ajoute arrondi au centime, comme avant ; CA brut, primes et
+ * collègues ne changent pas. PUR.
+ */
+function commissionsAuCentime<A extends { commission: number; recurrente: number; ids: (number | string)[] }>(t0: TotauxPeriode, duMois: readonly ActiviteLue[], ctx: ContexteCalcul,
+  ac: { apporteurs: A[]; collegues: CollegueDuMois[]; sans: CumulAffaires; total: CumulAffaires }): { t: TotauxPeriode; ac: typeof ac } {
+  const parLigne = new Map(duMois.map((a) => [String(a.id), montantsLigne(a, ctx).apporteurC.htC]));
+  const signature = (ids: readonly (number | string)[]): number => ids.reduce<number>((s, id) => s + (parLigne.get(String(id)) ?? 0), 0);
+  const auCentime = <X extends { commission: number; recurrente: number; ids: (number | string)[] }>(x: X): X => ({ ...x, commission: (signature(x.ids) + cent(x.recurrente)) / 100 });
+  return {
+    t: { ...t0, apporteurs: (signature(t0.ids) + cent(t0.apporteursRecurrents)) / 100 },
+    ac: { ...ac, apporteurs: ac.apporteurs.map(auCentime), sans: auCentime(ac.sans) },
+  };
+}
+
+/**
+ * 🔴 LOT LO8 — le TTC de la ventilation, à la règle de la page : chaque commission = la somme du TTC de ses lignes au centime (`montantsLigne`),
+ * plus son dû « Récurrent » × 1,20 au centime ; externes = total − internes (comme le HT) ; collègues : × 1,20 au centime, comme avant. PUR.
+ */
+function ttcDeLaVentilation(v: VentilationCommissions, ac: { apporteurs: readonly { apporteurId: number | null; nom: string; sorte?: string | null; recurrente: number; ids: (number | string)[] }[]; sans: CumulAffaires },
+  t: TotauxPeriode, duMois: readonly ActiviteLue[], ctx: ContexteCalcul): VentilationCommissions {
+  const parLigne = new Map(duMois.map((a) => [String(a.id), montantsLigne(a, ctx).apporteurC.ttcC]));
+  const ttc = (ids: readonly (number | string)[], recurrente: number): number => ids.reduce<number>((s, id) => s + (parLigne.get(String(id)) ?? 0), 0) + ttcCentimes(cent(recurrente) / 100);
+  const parCle = new Map<string, number>();
+  for (const x of ac.apporteurs) parCle.set(`${x.sorte === 'interne' ? 'i' : 'e'}:${x.apporteurId ?? x.nom}`, ttc(x.ids, x.recurrente));
+  parCle.set('e:sans', ttc(ac.sans.ids, ac.sans.recurrente));
+  const internes = ac.apporteurs.filter((x) => x.sorte === 'interne').reduce((s, x) => s + ttc(x.ids, x.recurrente), 0);
+  const total = ttc(t.ids, t.apporteursRecurrents);
+  const avec = (b: BeneficiaireCommission, k: 'i' | 'e'): BeneficiaireCommission => ({ ...b, ttcC: parCle.get(`${k}:${b.cle}`) ?? ttcCentimes(b.centimes / 100) });
+  return {
+    externes: { ...v.externes, ttcC: total - internes, detail: v.externes.detail.map((b) => avec(b, 'e')) },
+    internes: { ...v.internes, ttcC: internes, detail: v.internes.detail.map((b) => avec(b, 'i')) },
+    collegues: { ...v.collegues, ttcC: ttcCentimes(v.collegues.centimes / 100), detail: v.collegues.detail.map((b) => ({ ...b, ttcC: ttcCentimes(b.centimes / 100) })) },
+  };
+}
+
 /** La somme des montants AFFICHÉS (chacun au centime), rendue en euros. */
 const sommeAffichee = (xs: readonly number[]): number => xs.reduce((s, x) => s + cent(x), 0) / 100;
 
 function sommerVentilation(vs: readonly VentilationCommissions[]): VentilationCommissions {
   const ligne = (k: keyof VentilationCommissions) => {
-    const parCle = new Map<string, { cle: string; nom: string; centimes: number }>();
+    const parCle = new Map<string, { cle: string; nom: string; centimes: number; ttcC: number }>();
     for (const v of vs) for (const b of v[k].detail) {
-      const x = parCle.get(b.cle) ?? { cle: b.cle, nom: b.nom, centimes: 0 };
-      x.centimes += b.centimes; parCle.set(b.cle, x);
+      const x = parCle.get(b.cle) ?? { cle: b.cle, nom: b.nom, centimes: 0, ttcC: 0 };
+      x.centimes += b.centimes; x.ttcC += b.ttcC ?? ttcCentimes(b.centimes / 100); parCle.set(b.cle, x);
     }
-    return { centimes: vs.reduce((s, v) => s + v[k].centimes, 0),
+    return { centimes: vs.reduce((s, v) => s + v[k].centimes, 0), ttcC: vs.reduce((s, v) => s + (v[k].ttcC ?? ttcCentimes(v[k].centimes / 100)), 0),
       detail: [...parCle.values()].filter((b) => b.centimes !== 0).sort((p, q) => q.centimes - p.centimes || p.nom.localeCompare(q.nom)) };
   };
   return { externes: ligne('externes'), internes: ligne('internes'), collegues: ligne('collegues') };
