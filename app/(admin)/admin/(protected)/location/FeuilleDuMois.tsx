@@ -12,6 +12,7 @@ import { CascadeHonoraires } from './CascadeHonoraires';
 import { CSS_STATUT_BIEN, PastilleNature, RubriqueStatutBien } from './StatutBien';
 import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MOTS_MOIS, MOTS_PERIODE, ResumeResultatNet, type MotsPeriode } from './CascadeNegociateur';
 import { BlocReplie } from './BlocReplie';
+import { ListeRepliable, useListeRepliee } from './ListeRepliable';
 import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../../../lib/location/suivi/resumePeriode';
 import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
@@ -118,6 +119,25 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
   }, [edition]);
   const nom = `${NOMS_MOIS[mois - 1]} ${annee}`;
   const annuaire = d.annuaire === true;
+  // 🔴 LOT LO10 — « Locations du mois » : plus de 25 baux, repliée à l'arrivée (et à chaque autre mois) ; l'en-tête garde le total CA HT du mois.
+  // Un lien qui vise une ligne (`&ligne=` : « Ouvrir dans Location » du Suivi CA) déplie la liste et la ligne.
+  const [listeOuverte, setListeOuverte] = useListeRepliee(duMois.length, cle);
+  const U = useMontantSuivi();
+  const totalCa = { ht: duMois.reduce((t, a) => t + caLigne(a), 0), ttcC: duMois.reduce((t, a) => t + caTtcC(a), 0) };
+  // (une seule fois par mois, dès que la ligne visée est là — les lignes arrivent après le premier rendu ; l'état s'ajuste au rendu)
+  const [vise] = useState<string | null>(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('ligne')));
+  const [ligneTraitee, setLigneTraitee] = useState<string | null>(null);
+  const cleVise = vise !== null && duMois.some((a) => String(a.id) === vise) ? `${cle}:${vise}` : null;
+  if (cleVise !== null && vise !== null && ligneTraitee !== cleVise) {
+    setLigneTraitee(cleVise);
+    setListeOuverte(true);
+    setDeplies((x) => new Set(x).add(vise));
+  }
+  useEffect(() => {
+    if (cleVise === null) return;
+    const t = setTimeout(() => document.querySelector(`[data-ligne-feuille="${CSS.escape(vise ?? '')}"]`)?.scrollIntoView?.({ block: 'start' }), 0);
+    return () => clearTimeout(t);
+  }, [cleVise]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="fdm" data-feuille-mois={cle}>
@@ -135,9 +155,9 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           blocApres={(numero) => <BlocOrigineLocation activiteId={fiche.activiteId ?? null} numero={numero} origineLigne={fiche.origineLigne ?? ''} onEnregistre={onRelire}
             {...(fiche.activiteId ? { onAllerAuxCases: () => setFiche({ sorte: 'dossier', id: fiche.activiteId as number, libelle: fiche.libelle }) } : {})} />} />
       )}
-      <section className="tdb-section" aria-labelledby="fdm-locations" data-bloc="locations">
-        <h3 id="fdm-locations">Locations du mois — {nom} <small className="loc-muet">({duMois.length})</small></h3>
-        {!annuaire && <p className="loc-alerte loc-alerte--orange" role="status" data-feuille-sans-407>Mise à jour de la base à appliquer (migration 407) : l’origine du contact, le collègue et le choix de prime ne s’affichent ni ne se corrigent encore.</p>}
+      <ListeRepliable id="fdm-locations" section="locations" titre={<>Locations du mois — {nom}</>} compteur={<small className="loc-muet">({duMois.length})</small>}
+        total={<span data-total-locations>{U.mot('Total CA HT')} {U.m(totalCa)}</span>} ouvert={listeOuverte} onOuvert={setListeOuverte} donnees={{ 'data-bloc': 'locations' }}
+        avant={!annuaire && <p className="loc-alerte loc-alerte--orange" role="status" data-feuille-sans-407>Mise à jour de la base à appliquer (migration 407) : l’origine du contact, le collègue et le choix de prime ne s’affichent ni ne se corrigent encore.</p>}>
         {duMois.length === 0 ? <p className="loc-muet">Aucun bail signé ce mois-ci.</p> : (
           <>
           {/* 🔴 Arno (24/10/2026) — la légende des pastilles « BIEN », avec le nombre de lignes du mois dans chaque catégorie. */}
@@ -251,7 +271,7 @@ export function FeuilleDuMois({ d, lignes, ctx, annee, mois, negociateur, onDeta
           </div>
           </>
         )}
-      </section>
+      </ListeRepliable>
 
       <section className="tdb-section" aria-labelledby="fdm-gestions" data-bloc="nouvelles-gestions">
         {/* 🔴 Arno (26/10/2026) — une ligne par BIEN (lot principal + annexes) ; le titre compte les biens affichés. */}

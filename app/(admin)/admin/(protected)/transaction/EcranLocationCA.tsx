@@ -13,6 +13,7 @@ import {
 } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
+import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
 import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
@@ -37,7 +38,8 @@ const SANS_SUIVI = 'Le Suivi de la Location n’est pas disponible sur cette bas
 type Mesure = 'ca' | 'net' | 'nombre';
 const MESURES: readonly { cle: Mesure; mot: string }[] = [{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: 'Nombre de baux' }];
 /** Le lien vers le Suivi du mois de la Location (la ligne y est, dans son mois). */
-export const lienSuiviDuMois = (l: Pick<LigneLocationCa, 'annee' | 'mois'>): string => `/admin/location/outils/mois?annee=${l.annee}&mois=${l.mois}`;
+export const lienSuiviDuMois = (l: Pick<LigneLocationCa, 'annee' | 'mois'> & { id?: number }): string =>
+  `/admin/location/outils/mois?annee=${l.annee}&mois=${l.mois}${l.id === undefined ? '' : `&ligne=${l.id}`}`; // 🔴 LOT LO10 — &ligne : la liste et le bail dépliés
 
 /** Le compte choisi : l'adresse (&compter=…), sinon « Tous ». */
 const compterInitial = (): CompterLocation => { const x = parametre('compter'); return estCompterLocation(x) ? x : 'tous'; };
@@ -194,9 +196,17 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
   const allerA = (id: number): void => {
     setFenetre(null);
     setTimeout(() => {
-      const b = document.querySelector<HTMLButtonElement>(`[data-deplier="bail-${id}"]`);
-      if (b !== null && b.getAttribute('aria-expanded') !== 'true') b.click();
-      document.querySelector(`[data-carte-bail="${id}"]`)?.scrollIntoView?.({ block: 'start' });
+      // 🔴 LOT LO10 — la liste repliée se déplie d'abord, puis la carte du bail
+      const liste = document.querySelector<HTMLButtonElement>('[data-deplier-liste="baux-location"]');
+      if (liste !== null && liste.getAttribute('aria-expanded') !== 'true') liste.click();
+      // la carte apparaît au rendu de la liste dépliée : on l'attend (au plus 20 × 25 ms)
+      const deplierCarte = (essai: number): void => {
+        const b = document.querySelector<HTMLButtonElement>(`[data-deplier="bail-${id}"]`);
+        if (b === null) { if (essai < 20) setTimeout(() => deplierCarte(essai + 1), 25); return; }
+        if (b.getAttribute('aria-expanded') !== 'true') b.click();
+        document.querySelector(`[data-carte-bail="${id}"]`)?.scrollIntoView?.({ block: 'start' });
+      };
+      setTimeout(() => deplierCarte(0), 0);
     }, 0);
   };
   return <>
@@ -390,24 +400,28 @@ function ListeBaux({ lignes, titre }: { lignes: readonly LigneLocationCa[]; titr
   const q = avecRecherche ? recherche.trim() : '';
   const montrees = q === '' ? lignes : lignes.filter((l) => correspond(ficheRechercheLocation(l), q));
   const triees = trierLocation(montrees, tri, u);
+  // 🔴 LOT LO10 — plus de 25 baux : repliée à l'arrivée (et à chaque autre période) ; l'en-tête garde le total des cartes, le tri et la recherche
+  const [ouvert, setOuvert] = useListeRepliee(lignes.length, titre);
+  const total = triees.reduce((t, l) => ({ ht: t.ht + l.caC.htC, ttc: t.ttc + l.caC.ttcC }), { ht: 0, ttc: 0 });
   return (
-    <section className="tdb-section trx-liste-affaires" aria-labelledby="trx-baux-location" data-bloc="baux-location">
-      <div className="trx-entete-gauche trx-entete-liste">
-        <h3 id="trx-baux-location">{titre}</h3>
-        <span className="trx-compteur" data-compteur-liste>({q === '' ? lignes.length : `${triees.length} sur ${lignes.length}`})</span>
+    <ListeRepliable id="trx-baux-location" section="baux-location" classe="tdb-section trx-liste-affaires" titre={titre} ouvert={ouvert} onOuvert={setOuvert}
+      donnees={{ 'data-bloc': 'baux-location' }}
+      compteur={<>({q === '' ? lignes.length : `${triees.length} sur ${lignes.length}`})</>}
+      total={<Montants ht={total.ht / 100} ttc={total.ttc / 100} sens="recu" disposition="ligne" classe="lr-montants" donneesHt={{ 'data-total-liste-ht': '' }} donneesTtc={{ 'data-total-liste-ttc': '' }} />}
+      outils={<>
         {lignes.length > 0 && <div className="trx-tri-compromis trx-tri-liste" data-tri-liste={tri}><span className="trx-tri-mot" aria-hidden="true">Trier :</span>
           <ListeChoix options={TRIS_LISTE.map((x) => ({ id: x, libelle: LIBELLE_TRI_LISTE[x] }))} valeur={tri} vide={null} libelle={`Trier — ${titre}`}
             onChange={setTri} classe="trx-tri-champ" donnees={{ 'data-choix-tri-liste': '' }} /></div>}
         {avecRecherche && <div className="trx-recherche-liste">
           <input type="search" className="trx-recherche-champ" placeholder="Rechercher…" aria-label={`Rechercher — ${titre}`} value={recherche}
-            onChange={(e) => setRecherche(e.target.value)} data-recherche-liste />
+            onChange={(e) => { setRecherche(e.target.value); if (e.target.value.trim() !== '') setOuvert(true); }} data-recherche-liste />
           {recherche !== '' && <button type="button" className="trx-recherche-effacer" aria-label="Effacer la recherche" onClick={() => setRecherche('')} data-effacer-recherche>×</button>}
         </div>}
-      </div>
+      </>}>
       {lignes.length === 0 ? <p className="loc-muet" data-aucun-bail>Aucun bail sur la période.</p>
         : q !== '' && triees.length === 0 ? <p className="loc-muet" data-aucun-resultat>Aucun bail ne correspond.</p>
         : <ul className="trx-cartes" data-cartes-baux>{triees.map((l) => <li key={l.id}><CarteBail l={l} /></li>)}</ul>}
-    </section>
+    </ListeRepliable>
   );
 }
 

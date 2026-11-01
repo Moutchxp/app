@@ -84,14 +84,14 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
   });
   it('les cartes : une par ligne ; dépliée, le détail en lecture seule, « jour non connu », « Ouvrir dans Location » vers le Suivi du mois', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9');
-    expect(texte('[data-bloc="baux-location"] h3')).toBe('Les baux de septembre 2025');
+    expect(texte('[data-bloc="baux-location"] .lr-titre')).toBe('Les baux de septembre 2025');
     expect(texte('[data-bloc="baux-location"] [data-compteur-liste]')).toBe('(3)');
     const id = lignes[1].id;
     expect(texte(`[data-carte-bail="${id}"] [data-etiquette-gestion]`)).toBe('avec gestion');
     expect(texte(`[data-carte-bail="${id}"] [data-carte="signature"]`)).toBe('signé en septembre 2025');
     await cliquer(`[data-carte-bail="${id}"] [data-deplier]`);
     expect(texte(`[data-detail-bail="${id}"] [data-jour-non-connu]`)).toBe(' — jour non connu');
-    expect(container.querySelector(`[data-ouvrir-location="${id}"]`)!.getAttribute('href')).toBe('/admin/location/outils/mois?annee=2025&mois=9');
+    expect(container.querySelector(`[data-ouvrir-location="${id}"]`)!.getAttribute('href')).toBe(`/admin/location/outils/mois?annee=2025&mois=9&ligne=${id}`); // 🔴 LOT LO10 — &ligne : la ligne visée
     expect(lienSuiviDuMois({ annee: 2026, mois: 10 })).toBe('/admin/location/outils/mois?annee=2026&mois=10');
     expect(container.querySelectorAll('[data-detail-bail] input, [data-detail-bail] button')).toHaveLength(0); // aucune édition ici
   });
@@ -231,7 +231,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
     await cliquer('[data-tuile="location-net"]');
     expect(texte('[data-bloc="baux-location"] [data-compteur-liste]')).toBe('(4)'); // août + septembre
     expect(grand('[data-fenetre-total]')).toBe(61000 + 30000);
-    expect(doc('[data-fenetre-net-location] h2')).toBe(`CA net — ${texte('[data-bloc="baux-location"] h3').replace('Les baux de ', '')}`);
+    expect(doc('[data-fenetre-net-location] h2')).toBe(`CA net — ${texte('[data-bloc="baux-location"] .lr-titre').replace('Les baux de ', '')}`);
     expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-net]')));
     await cliquerDoc('[data-fermer-fenetre]');
     await rouvrir('/?vue=annee&annee=2025');
@@ -263,6 +263,81 @@ describe('🔴 LOT LO7 — « Le mois » : ouverture sans paramètre sur « Ann�
     }
     await rouvrir('/?vue=annee&annee=2025');
     expect(container.querySelector('[data-vue="annee"]')!.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+/**
+ * 🔴 LOT LO10 — la liste des baux : plus de 25, REPLIÉE à l'arrivée (une ligne : triangle, titre, compteur, total) ; un clic déplie / replie ;
+ * 25 ou moins : ouverte ; le tri et la recherche restent dans l'en-tête ; taper une recherche déplie ; un lien vers un bail déplie la liste et le bail.
+ */
+describe('🔴 LOT LO10 — « Les baux de … » repliée au-delà de 25', () => {
+  // juillet 2025 : 30 baux (CA 100 € + i), dont un « Léon » à retrouver
+  const juillet = Array.from({ length: 30 }, (_, i) => ligneLocationCa(a({ dateSignature: `2025-07-${String((i % 28) + 1).padStart(2, '0')}`, honoProprietaireHt: 60 + i, honoLocataireHt: 40,
+    libelleLocataire: i === 7 ? 'Léon BERNARD' : 'MARTIN', mandatGestion: i === 3, avecGestion: i === 3, apporteurId: i === 3 ? 7 : null, apporteurNom: i === 3 ? 'Agence Martin' : null }), { regles, apporteurs }));
+  beforeEach(() => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: { disponible: true, aujourdhui: '2025-10-27', lignes: [...lignes, ...juillet] } }) })) as unknown as typeof fetch;
+  });
+  const entete = () => container.querySelector('[data-deplier-liste="baux-location"]') as HTMLButtonElement;
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`30 baux (${u.toUpperCase()}) : repliée sur une ligne — triangle, titre, (30), total = somme des cartes ; clic : ouverte, puis repliée`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', u);
+      await ouvrir('/?vue=mois&annee=2025&mois=7');
+      expect(entete().getAttribute('aria-expanded')).toBe('false');
+      expect(container.querySelector('[data-bloc="baux-location"]')!.getAttribute('data-replie')).toBe('replie');
+      expect(container.querySelectorAll('[data-carte-bail]')).toHaveLength(0);
+      expect(entete().querySelector('.svv-triangle-boite')).not.toBeNull();
+      expect([texte('[data-bloc="baux-location"] .lr-titre'), texte('[data-bloc="baux-location"] [data-compteur-liste]')]).toEqual(['Les baux de juillet 2025', '(30)']);
+      // le tri et la recherche restent visibles, liste repliée
+      expect(container.querySelector('[data-choix-tri-liste]')).not.toBeNull();
+      expect(container.querySelector('[data-recherche-liste]')).not.toBeNull();
+      const totalHt = juillet.reduce((t, l) => t + l.caC.htC, 0); const totalTtc = juillet.reduce((t, l) => t + l.caC.ttcC, 0);
+      expect([centimes(texte('[data-total-liste-ht]')), centimes(texte('[data-total-liste-ttc]'))]).toEqual([totalHt, totalTtc]);
+      expect(texte('[data-total-liste="baux-location"] [data-montant-grand]')).toContain(u === 'ht' ? 'HT' : 'TTC');
+      await cliquer('[data-deplier-liste="baux-location"]');
+      expect(entete().getAttribute('aria-expanded')).toBe('true');
+      const cartes = [...container.querySelectorAll('[data-carte-bail]')];
+      expect(cartes).toHaveLength(30);
+      expect(cartes.reduce((t, c) => t + centimes(c.querySelector(u === 'ht' ? '[data-carte="ca-ht"]' : '[data-carte="ca-ttc"]')!.textContent!), 0)).toBe(u === 'ht' ? totalHt : totalTtc);
+      await cliquer('[data-deplier-liste="baux-location"]');
+      expect(container.querySelectorAll('[data-carte-bail]')).toHaveLength(0);
+    });
+  }
+  it('3 baux (septembre) : ouverte comme avant, repliable d’un clic', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    expect(entete().getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelectorAll('[data-carte-bail]')).toHaveLength(3);
+    await cliquer('[data-deplier-liste="baux-location"]');
+    expect(container.querySelectorAll('[data-carte-bail]')).toHaveLength(0);
+  });
+  it('taper une recherche déplie la liste ; le total suit les cartes montrées', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=7');
+    const champ = container.querySelector('[data-recherche-liste]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, 'léon');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await calmer();
+    expect(entete().getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelectorAll('[data-carte-bail]')).toHaveLength(1);
+    expect(texte('[data-bloc="baux-location"] [data-compteur-liste]')).toBe('(1 sur 30)');
+    expect(centimes(texte('[data-total-liste-ht]'))).toBe(juillet[7].caC.htC);
+  });
+  it('un lien vers un bail (fenêtre « Primes et rétrocessions ») déplie la liste, puis la carte', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] }); vi.setSystemTime(new Date('2025-10-27T10:00:00Z'));
+    await ouvrir('/?vue=mois&annee=2025&mois=7');
+    expect(entete().getAttribute('aria-expanded')).toBe('false');
+    await cliquer('[data-tuile="location-couts"]');
+    const id = juillet[3].id;
+    await act(async () => { (document.querySelector(`[data-ligne-prime="${id}"] [data-aller-bail="${id}"]`) as HTMLElement).click(); });
+    for (let i = 0; i < 5; i++) await act(async () => { vi.advanceTimersByTime(30); });
+    expect(entete().getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector(`[data-carte-bail="${id}"]`)!.getAttribute('data-replie')).toBe('ouvert');
+  });
+  it('une autre période : la règle repart (septembre ouvert → juillet replié)', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    expect(entete().getAttribute('aria-expanded')).toBe('true');
+    await cliquer('[data-onglet-mois="7"]');
+    expect(entete().getAttribute('aria-expanded')).toBe('false');
   });
 });
 

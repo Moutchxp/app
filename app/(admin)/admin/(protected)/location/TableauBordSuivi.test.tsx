@@ -496,6 +496,51 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     });
   });
 
+  /**
+   * 🔴 LOT LO10 — « Locations du mois » (Suivi du mois, onglets du Suivi annuel) : la liste partagée avec le Suivi CA › Location. 25 lignes ou
+   * moins : ouverte ; plus : repliée à l'arrivée, l'en-tête garde le total CA HT ; « &ligne= » déplie la liste et la ligne visée.
+   */
+  describe('🔴 LOT LO10 — « Locations du mois » repliée au-delà de 25', () => {
+    const sept = () => lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
+    const entete = () => container.querySelector('[data-deplier-liste="locations"]') as HTMLButtonElement;
+    const euros = (t: string | null | undefined): number => Math.round(Number((t ?? '').replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+    it('septembre (17 lignes) : ouverte ; l’en-tête dit (17) et le Total CA HT = la somme des lignes ; un clic replie, un autre déplie', async () => {
+      window.history.replaceState(null, '', '/?annee=2026&mois=9');
+      await monter('mois');
+      expect(entete().getAttribute('aria-expanded')).toBe('true');
+      expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(17);
+      expect(nbsp(container.querySelector('[data-bloc="locations"] [data-compteur-liste]')?.textContent)).toBe('(17)');
+      expect(euros(nbsp(container.querySelector('[data-total-locations]')?.textContent))).toBe(sept().reduce((t, a) => t + Math.round((a.honoProprietaireHt + a.honoLocataireHt) * 100), 0));
+      await act(async () => { entete().click(); });
+      expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(0);
+      await act(async () => { entete().click(); });
+      expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(17);
+    });
+    it('30 lignes en septembre : repliée à l’arrivée, une seule ligne d’en-tête (triangle, titre, (30), total) ; un clic déplie', async () => {
+      const extra = Array.from({ length: 13 }, (_, i) => ({ ...sept()[0], id: `x-${i}` }));
+      donnees = { ...donnees, activites: [...donnees.activites, ...extra] };
+      window.history.replaceState(null, '', '/?annee=2026&mois=9');
+      await monter('mois');
+      expect(entete().getAttribute('aria-expanded')).toBe('false');
+      expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(0);
+      expect(entete().querySelector('.svv-triangle-boite')).not.toBeNull();
+      expect(nbsp(container.querySelector('[data-bloc="locations"] .lr-titre')?.textContent)).toBe('Locations du mois — Septembre 2026');
+      expect(nbsp(container.querySelector('[data-bloc="locations"] [data-compteur-liste]')?.textContent)).toBe('(30)');
+      await act(async () => { entete().click(); });
+      expect(container.querySelectorAll('[data-ligne-feuille]')).toHaveLength(30);
+    });
+    it('« &ligne= » (« Ouvrir dans Location » du Suivi CA) : la liste et la ligne visée sont dépliées', async () => {
+      const extra = Array.from({ length: 13 }, (_, i) => ({ ...sept()[0], id: `x-${i}` }));
+      donnees = { ...donnees, activites: [...donnees.activites, ...extra] };
+      const vise = String(sept()[4].id);
+      window.history.replaceState(null, '', `/?annee=2026&mois=9&ligne=${encodeURIComponent(vise)}`);
+      await monter('mois');
+      await calmer();
+      expect(entete().getAttribute('aria-expanded')).toBe('true');
+      expect(container.querySelector(`[data-ligne-feuille="${vise}"]`)!.getAttribute('aria-expanded')).toBe('true');
+    });
+  });
+
   describe('🔴 Arno (24/10/2026) — « Locations du mois » : la ligne synthétique du fichier, dépliable', () => {
     const sept = lignes2026.filter((a) => a.dateSignature.startsWith('2026-09'));
     const ouvrirSeptembre = async () => {
