@@ -31,7 +31,7 @@ function MontantPetit({ m, donnees }: { m: MontantC; donnees?: Record<string, st
 /** Une catégorie vide : « Aucune », à 0 (gris). */
 const aucune = (cle: string): ReactNode => <p className="trx-fc-aucune" data-aucune={cle}>Aucune</p>;
 
-function useLienBail(onAller: (id: number) => void): (l: LigneLocationCa) => ReactNode {
+export function useLienBail(onAller: (id: number) => void): (l: LigneLocationCa) => ReactNode {
   return function lien(l: LigneLocationCa): ReactNode {
     return <a className="trx-fc-affaire" href={`#bail-${l.id}`} onClick={(e) => { e.preventDefault(); onAller(l.id); }} data-aller-bail={l.id}>{titreBail(l)}</a>;
   };
@@ -39,7 +39,7 @@ function useLienBail(onAller: (id: number) => void): (l: LigneLocationCa) => Rea
 const sep = <span className="trx-fc-sep" aria-hidden="true"> · </span>;
 
 /** La catégorie « Primes de nouvelle gestion » : le sous-total en rouge, puis un bail par ligne (bien · locataire · négociateur · montant). */
-function SectionPrimes({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
+export function SectionPrimes({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
   return (
     <section className="trx-fc-section" data-categorie-location="primes" aria-label="Primes de nouvelle gestion">
       <div className="trx-fc-tete trx-somme"><h3>{moins ? '− ' : ''}Primes de nouvelle gestion</h3><Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'primes' }} /></div>
@@ -53,7 +53,7 @@ function SectionPrimes({ lignes, total, lien, moins }: { lignes: readonly LigneL
 }
 
 /** La catégorie « Commissions d'apporteurs » : le sous-total en rouge, puis un apporteur par ligne (son cumul ; dessous, en petit, ses baux). */
-function SectionApporteurs({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
+export function SectionApporteurs({ lignes, total, lien, moins }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean }) {
   const groupes = detailCoutsLocation(lignes).groupesApporteurs;
   return (
     <section className="trx-fc-section" data-categorie-location="apporteurs" aria-label="Commissions d’apporteurs">

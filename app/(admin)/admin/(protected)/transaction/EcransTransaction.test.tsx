@@ -3404,11 +3404,12 @@ describe('🔴 LOT DX — « Location & Gestion » : la Gestion inchangée, ses 
     // les liens vers la Gestion (CA global : « ?annee= ») ne changent pas
     expect(readFileSync(`${T}/EcransTransaction.tsx`, 'utf8')).toContain("gestion: '/admin/transaction/gestion'");
   });
-  it('Location et FUSION Location & Gestion : un encadré « En construction », aucun chiffre ni donnée ; le même droit que la Gestion', async () => {
-    // 🔴 LOT LO1 — la Location est construite (EcranLocationCA) : seule la FUSION Location & Gestion reste en construction
+  it('Location et FUSION Location & Gestion : construites, sous le même droit que la Gestion ; l’encadré « En construction » reste disponible', async () => {
+    // 🔴 LOT LO1 — la Location est construite (EcranLocationCA) ; 🔴 LOT LG1 — la FUSION Location & Gestion aussi (EcranFusionLocationGestion)
     for (const f of ['location-gestion/fusion/page.tsx']) {
       const src = readFileSync(`${T}/${f}`, 'utf8');
-      expect([f, src.includes('<EnConstruction />'), src.includes('accesTransaction()'), src.includes('REFUS_TRANSACTION'), /fetch|EcranSociete|EcranGestion|lire[A-Z]/.test(src)]).toEqual([f, true, true, true, false]);
+      expect([f, src.includes('<EcranFusionLocationGestion />'), src.includes('<EnConstruction />'), src.includes('accesTransaction()'), src.includes('REFUS_TRANSACTION'), src.includes('ARIANE.fusionLocationGestion')])
+        .toEqual([f, true, false, true, true, true]);
     }
     const { EnConstruction } = await import('./EnConstruction');
     await act(async () => { root.render(createElement(EnConstruction)); });
