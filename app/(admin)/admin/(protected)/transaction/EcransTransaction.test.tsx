@@ -3387,7 +3387,8 @@ describe('🔴 LOT DX — « Location & Gestion » : la Gestion inchangée, ses 
     expect(readFileSync(`${T}/EcransTransaction.tsx`, 'utf8')).toContain("gestion: '/admin/transaction/gestion'");
   });
   it('Location et FUSION Location & Gestion : un encadré « En construction », aucun chiffre ni donnée ; le même droit que la Gestion', async () => {
-    for (const f of ['location/page.tsx', 'location-gestion/fusion/page.tsx']) {
+    // 🔴 LOT LO1 — la Location est construite (EcranLocationCA) : seule la FUSION Location & Gestion reste en construction
+    for (const f of ['location-gestion/fusion/page.tsx']) {
       const src = readFileSync(`${T}/${f}`, 'utf8');
       expect([f, src.includes('<EnConstruction />'), src.includes('accesTransaction()'), src.includes('REFUS_TRANSACTION'), /fetch|EcranSociete|EcranGestion|lire[A-Z]/.test(src)]).toEqual([f, true, true, true, false]);
     }

@@ -52,7 +52,8 @@ import { FormulaireDossier, type References } from './FormulaireDossier';
  * ne change pas. Les calculs sont ceux de `lib/transaction/modele.ts` (HT = TTC ÷ 1,2, sans arrondi ; l'affichage arrondit au centime).
  */
 
-const CSS = CSS_LOCATION_ECRANS + CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS + CSS_BLOC_REPLIE + CSS_TRANSACTION;
+/** 🔴 LOT LO1 — exporté : l'écran « Location » (Suivi Chiffre d'affaires) prend les mêmes styles. */
+export const CSS = CSS_LOCATION_ECRANS + CSS_TABLEAU_BORD + CSS_FEUILLE_MOIS + CSS_BLOC_REPLIE + CSS_TRANSACTION;
 const SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 433) : la tuile se remplira dès qu’elle sera appliquée.';
 
 // ── L'accueil de la tuile ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -128,7 +129,7 @@ export function vueInitiale(vue: string | null, avecMois: boolean): 'compromis' 
  * 🔴 LOT GE1 — LA LIGNE DES MOIS (« Mois | Période | Année ») de « Le mois », en un crochet : Transaction et Gestion la partagent (déplacée
  * d'`EcranSociete`, à l'identique).
  */
-function useLigneDesMois(jour: string) {
+export function useLigneDesMois(jour: string) {
   // 🔴 LOT CP (Arno) — « Mensuel | Période » : null = Mensuel (l'écran d'avant) ; sinon les mois choisis, repris de l'adresse (&periode=2026-07,2026-09)
   // et retenus pendant la visite (changement d'onglet, de mode, d'unité). Sans « mois » dans l'adresse, le dernier mois de la période est le mois montré.
   // 🔴 LOT CT (Arno) — trois positions « Mois | Période | Année » (&vue-mois=mois|periode|annee ; un ancien lien sans « vue-mois » : « &periode=… »
@@ -169,7 +170,7 @@ function useLigneDesMois(jour: string) {
  * 🔴 LOT GE1 — LA LIGNE DES ANNÉES (« Année | Période | Tout ») de « L'année », en un crochet (déplacée d'`EcranSociete`, à l'identique) ;
  * `compte(a)` : l'année a-t-elle une donnée comptée (lot DH) ; `vueAnnee` : l'adresse ouvre « L'année » (son « annee » y est l'année montrée).
  */
-function useLigneDesAnnees(jour: string, anneesDispo: readonly number[] | null, vueAnnee: boolean, compte: (a: number) => boolean) {
+export function useLigneDesAnnees(jour: string, anneesDispo: readonly number[] | null, vueAnnee: boolean, compte: (a: number) => boolean) {
   const [arrivee] = useState(() => ({ vueAnnee: parametre('vue-annee'), annees: parametre('annees'), annee: vueAnnee ? parametre('annee') : null,
     debut: parametre('debut'), fin: parametre('fin') }));
   const [choixAnnees, setChoixAnnees] = useState<ChoixAnnees | null>(null);
@@ -367,7 +368,7 @@ export type Decoupage = 'mois' | 'periode' | 'annee';
 export const DECOUPAGES: readonly Decoupage[] = ['mois', 'periode', 'annee'];
 const LIBELLE_DECOUPAGE: Record<Decoupage, string> = { mois: 'Mois', periode: 'Période', annee: 'Année' };
 /** Les 12 mois d'une année. PUR. */
-const douzeMois = (annee: number): MoisChoisi[] => Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 }));
+export const douzeMois = (annee: number): MoisChoisi[] => Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 }));
 export const LIBELLE_MODE: Record<ModeMois, string> = { vendu: 'Vendu', compromis: 'Compromis', tous: 'Vendu + compromis' };
 /** Le mode à l'arrivée : celui de l'adresse, sinon celui retenu par le navigateur, sinon « vendu ». PUR (hors lecture du stockage, protégée). */
 export function modeInitial(adresse: string | null): ModeMois {
@@ -534,7 +535,7 @@ function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul
 }
 
 /** 🔴 LOT GE1 — LA LIGNE DES MOIS et « Mois | Période | Année » (déplacée de `VueMois`, à l'identique) : Transaction et Gestion. */
-function LigneDesMois({ annee, mois, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number; decoupage: Decoupage;
+export function LigneDesMois({ annee, mois, decoupage, moisChoisis, onMois, onDecoupage }: { annee: number; mois: number; decoupage: Decoupage;
   /** En Période / Année : les mois choisis de l'année (boutons à bascule) ; null : un mois. */
   moisChoisis: readonly number[] | null; onMois: (m: number) => void; onDecoupage?: (x: Decoupage) => void }) {
   return (
@@ -561,7 +562,7 @@ function LigneDesMois({ annee, mois, decoupage, moisChoisis, onMois, onDecoupage
 }
 
 /** 🔴 LOT GE1 — LA LIGNE DES ANNÉES et « Année | Période | Tout » (déplacée de `VueAnnee`, à l'identique) : Transaction et Gestion. */
-function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
+export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
   choisies: readonly number[]; onAnnee: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void }) {
   return (
   <div className="trx-rangee-mois trx-rangee-annees" data-decoupage-annees={decoupage}>
