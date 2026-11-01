@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, celluleGlobal, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
+  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente, TVA,
@@ -26,6 +26,7 @@ import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transac
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
+import { celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { CLE_TRI_LISTE, correspond, estTriListe, ficheRecherche, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
@@ -1640,74 +1641,91 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
 // ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
+  /** 🔴 LOT CG1 — le CA TTC de la location par mois (centimes, la règle de la page « Suivi CA › Location ») ; absent : une route d'avant. */
+  locationTtcC?: Record<string, number> | null;
   /** 🔴 LOT CY — les compromis en cours (la règle unique, calculée par la route avec `totalCompromisEnCours`) : nos deux sociétés et chacune. */
   compromisEnCours?: CompromisEnCoursGlobal;
   /** 🔴 LOT GE3 — la migration 446 (coût MONGA) est appliquée ; absent ou faux : MONGA vaut 0 et ne se saisit pas. */
   monga?: boolean }
-type CompromisEnCoursGlobal = Record<'tous' | Societe, TotalCompromisEnCours>;
 /**
  * 🔴 LOT CY — le prévisionnel du CA global = les compromis EN COURS (la règle unique : tous, quel que soit leur mois ou leur année), en HT : chaque
  * société, et nos deux sociétés (chaque affaire une fois) ; l'inter-cabinet entre elles = ce qui est compté deux fois. Sans ces totaux (une base
- * d'avant) : le prévisionnel de l'année, comme avant. PUR.
+ * d'avant) : le prévisionnel de l'année, comme avant. 🔴 LOT CG1 — `previsionnelEn` (HT ou TTC). PUR.
  */
 export function previsionnelEnCours(e: Pick<EntreesGlobal, 'ventes'>, annee: number, cec?: CompromisEnCoursGlobal): ReturnType<typeof previsionnel> {
-  if (cec === undefined) return previsionnel(e, annee);
-  const criterimmoHt = cec.criterimmo.htC / 100; const macjHt = cec.macj.htC / 100; const totalHt = cec.tous.htC / 100;
-  return { criterimmoHt, macjHt, interCabinetHt: Math.round((criterimmoHt + macjHt - totalHt) * 100) / 100, totalHt };
+  return previsionnelEn(e, annee, cec, 'ht');
 }
 
+/**
+ * ══ 🔴 LOT CG1 (Arno) — LE CA GLOBAL EN « MONTANTS HT | TTC » ══════════════════════════════════════════════════════════════════════════════════
+ * Le MÊME sélecteur que les autres pages du Suivi Chiffre d'affaires (`BoutonAffichage`, la mémoire partagée `useAffichageRetenu`), en haut à droite
+ * de la barre de filtres (lot DI) ; sur l'onglet « Compromis », à droite de sa barre. Chaque montant suit le choix : tuiles (le grand montant, l'autre
+ * unité entre parenthèses), synthèse, mois par mois, année par année. En TTC, chaque part est celle de sa page d'origine (`celluleGlobalEn`).
+ */
 export function EcranGlobal() {
   const jour = aujourdhuiParis();
   const { lu, relire } = useTransaction<DonneesGlobal>('vue=global');
   const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? Number(jour.slice(0, 4)));
   // LOT D — « Compromis » (les deux sociétés réunies) avant le CA ; à l'ouverture, le CA comme avant.
   const [onglet, setOnglet] = useState<'compromis' | 'ca'>(() => (parametre('vue') === 'compromis' ? 'compromis' : 'ca'));
+  // 🔴 LOT CG1 — « HT | TTC », le choix partagé du Suivi Chiffre d'affaires ; relu à chaque onglet (l'onglet « Compromis » a pu le changer)
+  const [unite, setUnite] = useAffichageRetenu();
+  useEffect(() => { const x = lireAffichage(); if (x !== unite) setUnite(x); }, [onglet]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { ecrireAdresse({ annee: onglet === 'ca' ? String(annee) : null, vue: onglet === 'compromis' ? 'compromis' : null }); }, [annee, onglet]);
   if (lu.etat === 'charge') return <p className="gst-info" role="status">Chargement…</p>;
   if (lu.etat === 'erreur') return <p className="gst-erreur" role="alert">{lu.message}</p>;
   const d = lu.data;
-  const e: EntreesGlobal = { ventes: d.ventes, location: d.location, gestion: d.gestion };
+  const e: EntreesGlobalUnite = { ventes: d.ventes, location: d.location, gestion: d.gestion, locationTtcC: d.locationTtcC };
   const annees = [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee), ...d.gestion.map((g) => g.annee),
     ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
   const anneeEnCours = Number(jour.slice(0, 4));
   const dernierMois = annee < anneeEnCours ? 12 : annee > anneeEnCours ? 0 : Number(jour.slice(5, 7));
-  const A = celluleGlobal(e, annee, null);
-  const A1 = celluleGlobal(e, annee - 1, null);
-  const P = previsionnelEnCours(e, annee, d.compromisEnCours); // 🔴 LOT CY — la règle unique
+  const autreU: UniteAffichage = unite === 'ht' ? 'ttc' : 'ht';
+  const MOT = MOT_UNITE[unite];
+  const cel = (a: number, m: number | null, u: UniteAffichage = unite) => celluleGlobalEn(e, a, m, u);
+  const A = cel(annee, null); const A1 = cel(annee - 1, null);
+  const Aa = cel(annee, null, autreU);
+  const P = previsionnelEn(e, annee, d.compromisEnCours, unite); // 🔴 LOT CY — la règle unique
+  const Pa = previsionnelEn(e, annee, d.compromisEnCours, autreU);
   const manque = (x: number | null): string => (x === null ? '—' : eur(x));
-  const ventesSansMois = (s: Societe): number => d.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
+  const f = unite === 'ht' ? 1 : TVA; // la vente : le HT × TVA (la conversion des pages Transaction vente)
+  const ventesSansMois = (s: Societe): number => f * d.ventes.filter((v) => v.statut === 'vendue' && v.annee === annee && v.mois === null && compteDansSociete({ double: v.double ?? null }))
     .reduce((t, v) => t + caHt(v, s), 0);
   // 🔴 LOT L — LA SYNTHÈSE PAR SOCIÉTÉ, puis le global : CRITERIMMO = vente + location + gestion ; MACJ = vente ; global = les deux
   // (+ les ventes à attribuer, comptées une fois dans aucune société). Face à N−1, prévisionnel des compromis compris.
-  const synthese = syntheseGlobal(e, annee, d.compromisEnCours);
+  const synthese = syntheseGlobal(e, annee, d.compromisEnCours, unite);
+  /** Une tuile : le grand montant dans l'unité, l'autre unité en petit entre parenthèses (comme les autres pages). */
+  const autre = (x: number) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({eur(x)}{ESPACE}{MOT_UNITE[autreU]})</small>;
+  const champUnite = <div className="tdb-champ trx-champ-unite"><span id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
   return (
-    <div className="tdb loc-page" data-ca-global>
+    <div className="tdb loc-page" data-ca-global data-unite-global={unite}>
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
       <div className="trx-vues" role="tablist" aria-label="Les compromis ou le CA">
         <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'compromis'} onClick={() => setOnglet('compromis')} data-vue="compromis">Compromis</button>
         <button type="button" role="tab" className="tdb-onglet" aria-selected={onglet === 'ca'} onClick={() => setOnglet('ca')} data-vue="ca">Le mois et l’année</button>
       </div>
-      {onglet === 'compromis' ? <OngletCompromis societe="tous" /> : <>
+      {onglet === 'compromis' ? <OngletCompromis societe="tous" selecteurUnite /> : <FournisseurAffichage value={unite}>
       {d.location === null && <p className="loc-alerte" role="status" data-location-non-lue>La location n’a pas pu être lue dans le Suivi de la Location (migration 406 non appliquée) : elle est comptée « — ».</p>}
-      <form className="tdb-filtres" aria-label="Année" onSubmit={(x) => x.preventDefault()}>
+      <form className="tdb-filtres" aria-label="Année et montants" onSubmit={(x) => x.preventDefault()}>
         <label className="tdb-champ">Année
           <ListeChoix options={[...annees].reverse().map((a) => ({ id: a, libelle: String(a) }))} valeur={String(annee)} vide={null} libelle="Année"
             onChange={(v) => setAnnee(Number(v))} donnees={{ 'data-filtre': 'annee' }} /></label>
+        {champUnite}
       </form>
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${annee}`}>
-        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global HT ({annee})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>
+        <li><div className="tdb-tuile" data-tuile="global"><span className="tdb-tuile-mot">CA global {MOT} ({annee})</span><strong className="tdb-tuile-valeur">{eur(A.totalHt)}</strong>{autre(Aa.totalHt)}
           <span className="tdb-tuile-n1">{eur(A1.totalHt)} en {annee - 1} ({signePct(variation(A.totalHt, A1.totalHt))})</span></div></li>
-        <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO HT <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>
+        <li><div className="tdb-tuile" data-tuile="criterimmo"><span className="tdb-tuile-mot">CRITERIMMO {MOT} <small>(vente + location + gestion)</small></span><strong className="tdb-tuile-valeur">{eur(A.criterimmoHt)}</strong>{autre(Aa.criterimmoHt)}
           <span className="tdb-tuile-n1">{eur(A1.criterimmoHt)} en {annee - 1} ({signePct(variation(A.criterimmoHt, A1.criterimmoHt))})</span></div></li>
-        <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ HT <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>
+        <li><div className="tdb-tuile" data-tuile="macj"><span className="tdb-tuile-mot">MACJ {MOT} <small>(vente)</small></span><strong className="tdb-tuile-valeur">{eur(A.macjHt)}</strong>{autre(Aa.macjHt)}
           <span className="tdb-tuile-n1">{eur(A1.macjHt)} en {annee - 1} ({signePct(variation(A.macjHt, A1.macjHt))})</span></div></li>
-        <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel HT <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>
+        <li><div className="tdb-tuile" data-tuile="previsionnel"><span className="tdb-tuile-mot">Prévisionnel {MOT} <small>(compromis en cours{d.compromisEnCours === undefined ? ` ${annee}` : ''})</small></span><strong className="tdb-tuile-valeur">{eur(P.totalHt)}</strong>{autre(Pa.totalHt)}
           <span className="tdb-tuile-n1">CRITERIMMO {eur(P.criterimmoHt)} · MACJ {eur(P.macjHt)}{P.interCabinetHt > 0 ? ` · inter-cabinet entre nos sociétés : −${eur(P.interCabinetHt)} (neutralisé)` : ''}</span></div></li>
       </ul>
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">
-        <h3 id="trx-g-synthese">Synthèse {annee} par société, puis le global <small className="loc-muet">(HT)</small></h3>
+        <h3 id="trx-g-synthese">Synthèse {annee} par société, puis le global <small className="loc-muet">({MOT})</small></h3>
         <table className="tdb-table tdb-table--large" data-table-synthese>
           <thead><tr><th scope="col">Société</th><th scope="col">Vente</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total {annee}</th>
             <th scope="col">{annee - 1}</th><th scope="col">Écart</th><th scope="col">Prévisionnel</th></tr></thead>
@@ -1726,7 +1744,7 @@ export function EcranGlobal() {
       </section>
 
       <section className="tdb-section" aria-labelledby="trx-g-mois" data-bloc="global-mois">
-        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">(HT)</small></h3>
+        <h3 id="trx-g-mois">{annee} mois par mois <small className="loc-muet">({MOT})</small></h3>
         {/* LOT L (Arno) — la saisie de la gestion du mois est DÉPLACÉE dans l'écran « Gestion » (même formulaire, mêmes données). */}
         <p className="loc-muet" data-lien-gestion>La gestion se saisit mois par mois dans l’écran <a className="trx-lien" href={`${ADRESSES_TRANSACTION.gestion}?annee=${annee}`}>Gestion</a>.</p>
         <table className="tdb-table tdb-table--large" data-table-global>
@@ -1734,8 +1752,8 @@ export function EcranGlobal() {
             <th scope="col">Total</th><th scope="col">{annee - 1}</th><th scope="col">Écart</th></tr></thead>
           <tbody>
             {NOMS_MOIS.map((nom, i) => {
-              const c = celluleGlobal(e, annee, i + 1);
-              const c1 = celluleGlobal(e, annee - 1, i + 1);
+              const c = cel(annee, i + 1);
+              const c1 = cel(annee - 1, i + 1);
               const aVenir = i + 1 > dernierMois;
               return (
                 <tr key={nom} data-mois-global={i + 1}>
@@ -1776,19 +1794,19 @@ export function EcranGlobal() {
       </section>
 
       <section className="tdb-section" aria-labelledby="trx-g-annees" data-bloc="global-annees">
-        <h3 id="trx-g-annees">Année par année <small className="loc-muet">(HT ; réalisé et prévisionnel)</small></h3>
+        <h3 id="trx-g-annees">Année par année <small className="loc-muet">({MOT} ; réalisé et prévisionnel)</small></h3>
         <table className="tdb-table tdb-table--large" data-table-global-annees>
           <thead><tr><th scope="col">Année</th><th scope="col">Vente CRITERIMMO</th><th scope="col">Location</th><th scope="col">Gestion</th><th scope="col">Total CRITERIMMO</th>
             <th scope="col">Vente MACJ</th><th scope="col">À attribuer</th><th scope="col">Réalisé</th><th scope="col">Prévisionnel</th><th scope="col">Évolution</th></tr></thead>
           <tbody>{annees.map((a, i) => {
-            const c = celluleGlobal(e, a, null);
-            const prec = i === 0 ? null : celluleGlobal(e, annees[i - 1], null);
+            const c = cel(a, null);
+            const prec = i === 0 ? null : cel(annees[i - 1], null);
             return (
               <tr key={a} className={a === annee ? 'tdb-fort' : undefined} data-annee-global={a}>
                 <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => setAnnee(a)}>{a}</button></th>
                 <td data-mot="Vente CRITERIMMO">{eur(c.venteCriterimmoHt)}</td><td data-mot="Location">{manque(c.locationHt)}</td><td data-mot="Gestion">{manque(c.gestionHt)}</td>
                 <td data-mot="Total CRITERIMMO">{eur(c.criterimmoHt)}</td><td data-mot="Vente MACJ">{eur(c.venteMacjHt)}</td><td data-mot="À attribuer">{eur(c.aAttribuerHt)}</td>
-                <td data-mot="Réalisé" className="trx-total">{eur(c.totalHt)}</td><td data-mot="Prévisionnel">{eur(previsionnel(e, a).totalHt)}</td>
+                <td data-mot="Réalisé" className="trx-total">{eur(c.totalHt)}</td><td data-mot="Prévisionnel">{eur(previsionnelEn(e, a, undefined, unite).totalHt)}</td>
                 <td data-mot="Évolution">{prec === null ? '—' : signePct(variation(c.totalHt, prec.totalHt))}</td>
               </tr>
             );
@@ -1799,23 +1817,24 @@ export function EcranGlobal() {
       {/* 🔴 LOT CX (Arno) — « Ventes à attribuer » en DERNIER, après tous les blocs ; replié, compteur, contenu et attribution inchangés. */}
       <BlocAAttribuer notes={d.ventes.filter((v) => v.double != null).map((v) => ({ ...v, id: v.id ?? 0, libelle: v.libelle ?? '', double: v.double ?? null }))}
         disponible={d.disponible} onRelire={relire} />
-      </>}
+      </FournisseurAffichage>}
     </div>
   );
 }
 
-/** Une ligne de la synthèse du CA global (HT) ; null : sans objet pour cette ligne (« — »). */
+/** Une ligne de la synthèse du CA global (dans l'unité choisie : 🔴 LOT CG1) ; null : sans objet pour cette ligne (« — »). */
 export interface LigneSynthese { cle: 'criterimmo' | 'macj' | 'a_attribuer' | 'inter_cabinet' | 'global'; libelle: string; venteHt: number | null; locationHt: number | null; gestionHt: number | null;
   totalHt: number; totalN1Ht: number; previsionnelHt: number | null }
 
 /**
  * 🔴 LOT L — LA SYNTHÈSE DU CA GLOBAL : CRITERIMMO (vente + location + gestion), MACJ (vente), les ventes à attribuer (s'il y en a : une
- * fois, dans aucune société), puis le GLOBAL = la somme des lignes au-dessus. Les cellules de `celluleGlobal`, telles quelles. PUR.
+ * fois, dans aucune société), puis le GLOBAL = la somme des lignes au-dessus. Les cellules de `celluleGlobal`, telles quelles ; 🔴 LOT CG1 — dans
+ * l'unité `u` (`celluleGlobalEn`, `previsionnelEn` : en TTC, la règle de chaque page d'origine). PUR.
  */
-export function syntheseGlobal(e: EntreesGlobal, annee: number, cec?: CompromisEnCoursGlobal): LigneSynthese[] {
-  const A = celluleGlobal(e, annee, null);
-  const A1 = celluleGlobal(e, annee - 1, null);
-  const P = previsionnelEnCours(e, annee, cec); // 🔴 LOT CY — les compromis en cours (la règle unique)
+export function syntheseGlobal(e: EntreesGlobalUnite, annee: number, cec?: CompromisEnCoursGlobal, u: UniteAffichage = 'ht'): LigneSynthese[] {
+  const A = celluleGlobalEn(e, annee, null, u);
+  const A1 = celluleGlobalEn(e, annee - 1, null, u);
+  const P = previsionnelEn(e, annee, cec, u); // 🔴 LOT CY — les compromis en cours (la règle unique)
   const lignes: LigneSynthese[] = [
     { cle: 'criterimmo', libelle: 'CRITERIMMO', venteHt: A.venteCriterimmoHt, locationHt: A.locationHt, gestionHt: A.gestionHt, totalHt: A.criterimmoHt, totalN1Ht: A1.criterimmoHt, previsionnelHt: P.criterimmoHt },
     { cle: 'macj', libelle: 'MACJ', venteHt: A.venteMacjHt, locationHt: null, gestionHt: null, totalHt: A.macjHt, totalN1Ht: A1.macjHt, previsionnelHt: P.macjHt },

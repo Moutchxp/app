@@ -3,7 +3,7 @@
 // la Location ne change pas ; sans sa migration (406), la location est « non lue » (null) et le CA global le dit.
 import { anneesActives, lireActivites } from '../location/suivi/tableauBordRepo';
 import { lireApporteurs, lireRegles, lireRetrocessions, suiviDisponible } from '../location/suivi/suiviRepo';
-import { depuisHt, ligneLocationCa, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
+import { caTtcC, depuisHt, ligneLocationCa, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
 import { caLigne, cleNegociateur, moisDeLigne, type ActiviteCalcul } from '../location/suivi/tableauBord';
 import { lireSalairesLocation } from './repo';
 
@@ -17,6 +17,22 @@ export function caLocationParMois(lignes: readonly ActiviteCalcul[]): Record<str
 export async function lireCaLocation(): Promise<Record<string, number> | null> {
   if (!(await suiviDisponible())) return null;
   return caLocationParMois(await lireActivites(await anneesActives()));
+}
+
+/**
+ * 🔴 LOT CG1 — le CA TTC de la location par mois, en CENTIMES : la règle de la page « Suivi CA › Location » (`caTtcC` : chaque ligne au centime,
+ * puis la somme), aucune copie. PUR.
+ */
+export function caLocationTtcCParMois(lignes: readonly ActiviteCalcul[]): Record<string, number> {
+  const r: Record<string, number> = {};
+  for (const a of lignes) r[moisDeLigne(a)] = (r[moisDeLigne(a)] ?? 0) + caTtcC(a);
+  return r;
+}
+/** 🔴 LOT CG1 — le CA de la location par mois, HT (euros) et TTC (centimes), lus une fois. LECTURE SEULE. Sans la migration 406 : null. */
+export async function lireCaLocationHtTtc(): Promise<{ ht: Record<string, number>; ttcC: Record<string, number> } | null> {
+  if (!(await suiviDisponible())) return null;
+  const lignes = await lireActivites(await anneesActives());
+  return { ht: caLocationParMois(lignes), ttcC: caLocationTtcCParMois(lignes) };
 }
 
 /**

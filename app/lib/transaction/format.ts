@@ -17,10 +17,14 @@ export const nombreFr = (x: number, options?: Intl.NumberFormatOptions): string 
  * (« 2 708,34 », « 1 000,50 »). L'arrondi au centime est celui de l'affichage (règle du lot AH). PUR.
  */
 export function montantFr(x: number): string {
-  const c = Math.round((x + Math.sign(x) * Number.EPSILON) * 100);
+  // 🔴 LOT CG1 — un montant nul s'écrit « 0 », jamais « −0 » (−0,004 arrondi au centime : −0, que `toLocaleString` écrit « -0 »)
+  const c = centimesAffiches(x);
   const entier = c % 100 === 0;
   return nombreFr(c / 100, entier ? { minimumFractionDigits: 0, maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/** 🔴 LOT CG1 — les centimes affichés d'un montant (l'arrondi de l'affichage) ; un nul est toujours +0, jamais −0. PUR. */
+export const centimesAffiches = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) || 0;
 
 /** Un montant en euros : « 7 500 € », « 2 708,34 € ». PUR. */
 export const eur = (x: number): string => `${montantFr(x)}${ESPACE}€`;

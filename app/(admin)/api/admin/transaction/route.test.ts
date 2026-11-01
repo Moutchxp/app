@@ -10,7 +10,7 @@ const repo = {
   creerVente: vi.fn(), modifierVente: vi.fn(), retirerVente: vi.fn(), rattacherRetro: vi.fn(), saisirRetro: vi.fn(), enregistrerGestion: vi.fn(), annulerGeste: vi.fn(),
 };
 vi.mock('../../../../lib/transaction/repo', () => repo);
-vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocation: async () => ({ '2025-03': 100 }) }));
+vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocationHtTtc: async () => ({ ht: { '2025-03': 100 }, ttcC: { '2025-03': 12000 } }) })); // 🔴 LOT CG1
 
 const { GET, POST } = await import('./route');
 const get = (q: string) => GET(new Request(`http://x/api/admin/transaction?${q}`));
@@ -39,7 +39,7 @@ describe('les lectures', () => {
     const s = await (await get('vue=societe&societe=criterimmo')).json();
     expect(s.data).toMatchObject({ disponible: false, ventes: [], retrocessions: [], aRattacher: [] });
     const g = await (await get('vue=global')).json();
-    expect(g.data).toMatchObject({ disponible: false, ventes: [], gestion: [], location: { '2025-03': 100 } });
+    expect(g.data).toMatchObject({ disponible: false, ventes: [], gestion: [], location: { '2025-03': 100 }, locationTtcC: { '2025-03': 12000 } });
     expect(repo.lireVentes).not.toHaveBeenCalled();
   });
   it('une société inconnue, une entité de journal inconnue : 400', async () => {

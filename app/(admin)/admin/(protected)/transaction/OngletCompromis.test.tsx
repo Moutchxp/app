@@ -2756,12 +2756,17 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
     expect(container.textContent).toMatch(/9\u00a0600\u00a0€/);
   });
 
-  it('le CA global : pas de sélecteur, le choix retenu s’y applique', async () => {
+  // 🔴 LOT CG1 (Arno) — le CA global a désormais le sélecteur « HT | TTC » (le même composant, la même mémoire), toujours sans « + Nouveau compromis »
+  it('le CA global : le sélecteur « HT | TTC » seul, à droite ; le choix retenu s’y applique et se partage', async () => {
     window.localStorage.setItem('trx-affichage-montants', 'ht');
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
     await cliquer('[data-vue="compromis"]');
-    expect(container.querySelector('[data-afficher]')).toBeNull();
+    expect(container.querySelector('[data-unite-compromis-global] [data-afficher="ttc"]')).not.toBeNull();
+    expect(container.querySelector('[data-nouveau-compromis]')).toBeNull();
     expect(grand('[data-tuile="ca"]')).toMatch(/ HT$/);
+    await cliquer('[data-unite-compromis-global] [data-afficher="ttc"]');
+    expect(grand('[data-tuile="ca"]')).toMatch(/ TTC$/);
+    expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ttc');
   });
 });
 

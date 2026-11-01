@@ -11,7 +11,7 @@ vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () =
 vi.mock('../../../../lib/transaction/repo', () => ({ transactionDisponible: async () => true, lireNegociateurs: async () => [], lirePersonnes: async () => [] }));
 vi.mock('../../../../lib/admin/schemaDroits', () => ({ annulationDisponible: async () => true, interCabinetDisponible: async () => true, prixVenteDisponible: async () => true,
   repartitionDisponible: async () => true, uniteCommissionDisponible: async () => true, personneTypeDisponible: async () => true }));
-vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocation: async () => ({}) }));
+vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocationHtTtc: async () => ({ ht: {}, ttcC: {} }) })); // 🔴 LOT CG1
 const h = vi.hoisted(() => ({ creer: vi.fn() }));
 vi.mock('../../../../lib/location/suivi/suiviRepo', () => ({
   creerApporteur: h.creer,

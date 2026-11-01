@@ -12,7 +12,7 @@ import {
 import { annulationDisponible, interCabinetDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
-import { lireCaLocation, lireLocationCa } from '../../../../lib/transaction/locationLue';
+import { lireCaLocationHtTtc, lireLocationCa } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 
 /**
@@ -76,8 +76,10 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles, statutsNegociateurs, nomsNegociateurs } });
     }
     if (vue === 'global') {
-      const location = await lireCaLocation().catch(() => null);
-      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location } });
+      // 🔴 LOT CG1 — la location en HT et en TTC (centimes, la règle de la page « Suivi CA › Location »)
+      const loc = await lireCaLocationHtTtc().catch(() => null);
+      const location = loc?.ht ?? null; const locationTtcC = loc?.ttcC ?? null;
+      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location, locationTtcC } });
       const [ventes, gestion, ventesC, ventesM] = await Promise.all([lireVentes(null), lireGestion(), lireVentes('criterimmo'), lireVentes('macj')]);
       // 🔴 LOT CY — les compromis en cours (la règle unique, `totalCompromisEnCours`) : nos deux sociétés, et chacune (ses lignes miroir comprises).
       const total = async (vs: readonly Vente[], vueC: 'criterimmo' | 'macj' | null) => {
@@ -86,7 +88,7 @@ export async function GET(request: Request): Promise<Response> {
       };
       const compromisEnCoursTotaux = { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') };
       // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
-      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, compromisEnCours: compromisEnCoursTotaux, monga: await mongaDisponible().catch(() => false),
+      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, locationTtcC, compromisEnCours: compromisEnCoursTotaux, monga: await mongaDisponible().catch(() => false),
         ventes: ventes.map((v: Vente) => ({ id: v.id, societe: v.societe, statut: v.statut, annee: v.annee, mois: v.mois, honorairesTtc: v.honorairesTtc, libelle: v.libelle,
           double: v.double, sourceFichier: v.sourceFichier, sourceOnglet: v.sourceOnglet, sourceLigne: v.sourceLigne, repartition: v.repartition ?? null })) } });
     }

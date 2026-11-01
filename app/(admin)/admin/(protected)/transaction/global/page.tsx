@@ -8,7 +8,7 @@ export default async function Page() {
   const { autorise } = await accesTransaction();
   return (
     <section className="gst-page">
-      <EnTetePage titre="CA global" intro="Tous les CA réunis : CRITERIMMO (vente, location lue dans le Suivi de la Location, gestion), MACJ (vente), puis le global des deux — mois par mois et par année, face à N−1 (HT)." retour="/admin/transaction"><FilAriane etapes={ARIANE.global} /></EnTetePage>
+      <EnTetePage titre="CA global" intro="Tous les CA réunis : CRITERIMMO (vente, location lue dans le Suivi de la Location, gestion), MACJ (vente), puis le global des deux — mois par mois et par année, face à N−1, en HT ou en TTC." retour="/admin/transaction"><FilAriane etapes={ARIANE.global} /></EnTetePage>
       {autorise ? <EcranGlobal /> : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_TRANSACTION}</div>}
     </section>
   );

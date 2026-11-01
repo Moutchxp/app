@@ -63,9 +63,11 @@ const moisEnLettres = (jour: string): string => `${(NOMS_MOIS[Number(jour.slice(
 const date = (d: string | null | undefined): string => (d ? d.split('-').reverse().join('/') : A_RENSEIGNER);
 const ouManque = (x: string | null | undefined): string => (x == null || x.trim() === '' ? A_RENSEIGNER : x);
 
-export function OngletCompromis({ societe, fusion = false }: { societe: Societe | 'tous';
+export function OngletCompromis({ societe, fusion = false, selecteurUnite = false }: { societe: Societe | 'tous';
   /** 🔴 LOT DM — la page FUSION (les deux sociétés) : « HT | TTC » et « + Nouveau compromis », qui demande d'abord la société porteuse. */
-  fusion?: boolean }) {
+  fusion?: boolean;
+  /** 🔴 LOT CG1 — le CA global : le sélecteur « HT | TTC » seul (le même composant, la même mémoire), sans « + Nouveau compromis ». */
+  selecteurUnite?: boolean }) {
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : « Chiffre d’affaires consolidé », « Solde net consolidé »
   const [choixSociete, setChoixSociete] = useState(false);
   const [societeNouveau, setSocieteNouveau] = useState<Societe | null>(null);
@@ -189,9 +191,11 @@ export function OngletCompromis({ societe, fusion = false }: { societe: Societe 
             <ListeChoix options={TRIS_COMPROMIS.map((x) => ({ id: x, libelle: LIBELLE_TRI_COMPROMIS[x] }))} valeur={tri} vide={null} libelle="Trier les compromis"
               onChange={setTri} classe="trx-tri-champ" donnees={{ 'data-choix-tri-compromis': '' }} /></div>
         </div>
-        {(vue !== null || fusion) && <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
+        {(vue !== null || fusion) ? <div className="trx-actions"><BoutonAffichage unite={unite} onChange={setUnite} />
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => (vue === null ? setChoixSociete(true) : setEdition('nouveau'))}
-          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>}
+          disabled={!d.disponible} data-nouveau-compromis>+ Nouveau compromis</button></div>
+          // 🔴 LOT CG1 — le CA global : « HT | TTC » seul, à droite (toujours pas de « + Nouveau compromis »)
+          : selecteurUnite && <div className="trx-actions" data-unite-compromis-global><BoutonAffichage unite={unite} onChange={setUnite} /></div>}
         {/* 🔴 LOT DM — FUSION : la société porteuse d'abord, puis le formulaire habituel */}
         {choixSociete && <div className="trx-choix-societe" role="group" aria-label="La société porteuse du nouveau compromis" data-choix-societe-nouveau>
           <span className="loc-muet">Société porteuse :</span>

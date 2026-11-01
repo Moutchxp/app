@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/transaction/commissions';
-import { ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
+import { centimesAffiches, ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
 import { TVA } from '../../../../lib/transaction/modele';
 import { CSS_TRIANGLE, CSS_TRIANGLE_BOITE } from '../_composants/TriangleDepliage';
 
@@ -62,7 +62,8 @@ export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); 
 export const eurEtEquivalent = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)}${ESPACE}${LIBELLE_UNITE[m.unite]} (${eur(a.montant)}${ESPACE}${LIBELLE_UNITE[a.unite]})`; };
 const pct = (x: number): string => `${nombreFr(x * 100, { maximumFractionDigits: 1 })}${ESPACE}%`;
 export const signePct = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
-export const ecartEur = (x: number): string => `${x >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
+// 🔴 LOT CG1 — le signe d'un écart est celui du montant AFFICHÉ (au centime) : un écart nul s'écrit « +0 € », jamais « −0 € »
+export const ecartEur = (x: number): string => `${centimesAffiches(x) >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
 
 // ── 🔴 LOT AM (Arno, 29/10/2026) : LE BOUTON « HT | TTC » DE L'ONGLET COMPROMIS ─────────────────────────────────────────────────────────
 //

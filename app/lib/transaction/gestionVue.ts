@@ -31,6 +31,8 @@ export const TAUX_TVA_ADHOC = TVA;
 export const TAUX_TVA_MONGA = TVA;
 export type UniteGestion = 'ht' | 'ttc';
 const enTtcC = (htC: number, taux: number): number => Math.round(htC * taux);
+/** 🔴 LOT CG1 — les honoraires de gestion TTC d'un mois (centimes), depuis leurs centimes HT : la règle de la page Gestion (le CA global la reprend). PUR. */
+export const honorairesTtcC = (htC: number): number => enTtcC(htC, TAUX_TVA_HONORAIRES);
 
 export interface MoisGestionVu { annee: number; mois: number; saisi: boolean;
   /** Centimes HT. */
@@ -46,7 +48,7 @@ const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(
 export function moisGestion(gestion: readonly GestionMois[], annee: number, mois: number, salaires = true): MoisGestionVu {
   const g = gestion.find((x) => x.annee === annee && x.mois === mois) ?? null;
   const [h, a, m, s] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt)];
-  const [hT, aT, mT] = [enTtcC(h, TAUX_TVA_HONORAIRES), enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
+  const [hT, aT, mT] = [honorairesTtcC(h), enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
   // 🔴 LOT GE3 — CA net = honoraires − ADHOC − MONGA − salariés (un mois sans MONGA : inchangé au centime)
   const sD = salaires ? s : 0;
   return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, mongaC: m, salariesC: s, netC: h - a - m - sD, lots: g?.nbLots ?? null, ligne: g,

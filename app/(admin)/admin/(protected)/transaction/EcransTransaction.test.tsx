@@ -648,6 +648,64 @@ describe('🔴 LOT L — le CA global : synthèse par société, puis le global'
   });
 });
 
+/**
+ * 🔴 LOT CG1 (Arno) — le CA global en « Montants HT | TTC » : le MÊME sélecteur (la mémoire partagée), en haut à droite des filtres ; chaque montant
+ * suit le choix ; en TTC, chaque part = sa page d'origine (vente : HT × TVA ; location : Σ TTC des lignes au centime ; gestion : TTC de chaque mois).
+ */
+describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
+  const centimesDe = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  it('les parts TTC = leurs pages d’origine (même fonction) ; global = somme des lignes ; HT inchangé', async () => {
+    const { celluleGlobalEn } = await import('../../../../lib/transaction/globalUnite');
+    const { totauxGestion } = await import('../../../../lib/transaction/gestionVue');
+    const e = { ventes: donneesGlobal.ventes, location: donneesGlobal.location, gestion: donneesGlobal.gestion as never, locationTtcC: { '2025-01': 1115526 } };
+    const ht = celluleGlobalEn(e, 2025, null, 'ht'); const ttc = celluleGlobalEn(e, 2025, null, 'ttc');
+    expect(ht).toEqual(celluleGlobal(e, 2025, null));
+    expect(ttc.locationHt).toBe(11155.26);
+    expect(Math.round(ttc.gestionHt! * 100)).toBe(totauxGestion(donneesGlobal.gestion as never, Array.from({ length: 12 }, (_, i) => ({ annee: 2025, mois: i + 1 }))).honorairesTtcC);
+    expect([ttc.venteCriterimmoHt, ttc.venteMacjHt]).toEqual([ht.venteCriterimmoHt * 1.2, ht.venteMacjHt * 1.2]);
+    expect(ttc.totalHt).toBeCloseTo(ttc.criterimmoHt + ttc.macjHt + ttc.aAttribuerHt - ttc.interCabinetHt, 9);
+    for (const u of ['ht', 'ttc'] as const) {
+      const lignes = syntheseGlobal(e, 2025, undefined, u);
+      const g = lignes.find((l) => l.cle === 'global')!;
+      expect([u, Math.round(lignes.filter((l) => l.cle !== 'global').reduce((t, l) => t + l.totalHt, 0) * 100)]).toEqual([u, Math.round(g.totalHt * 100)]);
+    }
+  });
+  it('le sélecteur en haut à droite des filtres ; la bascule HT ↔ TTC : tuiles (grand + entre parenthèses), titres, synthèse, mois par mois, année par année ; mémoire partagée ; jamais « −0 € »', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    window.history.replaceState(null, '', '/?annee=2025');
+    await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
+    const filtres = container.querySelector('[data-ca-global] form.tdb-filtres')!;
+    expect(filtres.lastElementChild!.className).toBe('tdb-champ trx-champ-unite');
+    expect(filtres.querySelector('[data-afficher="ht"]')!.getAttribute('aria-pressed')).toBe('true');
+    const lireTout = () => ({
+      titre: texte('[data-tuile="global"] .tdb-tuile-mot'), grand: centimesDe(texte('[data-tuile="global"] .tdb-tuile-valeur')), petit: texte('[data-tuile="global"] [data-montant-autre]'),
+      synthese: [...container.querySelectorAll('[data-synthese] td')].map((x) => x.textContent), h3: [...container.querySelectorAll('[data-ca-global] h3')].map((x) => x.textContent) });
+    const ht = lireTout();
+    expect(ht.titre).toBe('CA global HT (2025)');
+    expect(ht.h3.slice(0, 3)).toEqual(['Synthèse 2025 par société, puis le global (HT)', '2025 mois par mois (HT)', 'Année par année (HT ; réalisé et prévisionnel)']);
+    await cliquer('[data-afficher="ttc"]');
+    const ttc = lireTout();
+    expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ttc');
+    expect(ttc.titre).toBe('CA global TTC (2025)');
+    expect(ttc.h3.slice(0, 3)).toEqual(['Synthèse 2025 par société, puis le global (TTC)', '2025 mois par mois (TTC)', 'Année par année (TTC ; réalisé et prévisionnel)']);
+    // le grand montant TTC, le petit HT (et inversement) : les deux unités de la même cellule
+    expect([ht.petit.endsWith('TTC)'), ttc.petit.endsWith('HT)')]).toEqual([true, true]);
+    expect(centimesDe(ht.petit)).toBe(ttc.grand);
+    expect(centimesDe(ttc.petit)).toBe(ht.grand);
+    // la synthèse : celle de la fonction, dans l'unité ; chaque montant TTC
+    const e = { ventes: donneesGlobal.ventes, location: donneesGlobal.location, gestion: donneesGlobal.gestion as never };
+    const s = syntheseGlobal(e, 2025, undefined, 'ttc');
+    expect(centimesDe(texte('[data-synthese="global"] [data-synthese-total]'))).toBe(Math.round(s.find((l) => l.cle === 'global')!.totalHt * 100));
+    expect(centimesDe(texte('[data-total-annee] [data-mot="Total"]'))).toBe(ttc.grand);
+    expect(centimesDe(texte('[data-annee-global="2025"] [data-mot="Réalisé"]'))).toBe(ttc.grand);
+    expect(container.textContent).not.toMatch(/[−-]0\u00a0€/);
+    // le choix est partagé : une autre page (même clé), et le retour en HT
+    await cliquer('[data-afficher="ht"]');
+    expect(lireTout()).toEqual(ht);
+  });
+});
+
 describe('🔴 LOT Q — « Le mois » et « L’année » : seuls les indépendants sont déduits ; les internes et les inconnus, à part', () => {
   it('MYLENE salariée : sa paye n’est plus déduite, elle s’affiche « Internes — non déduits » ; son statut dans l’espace par négociateur', async () => {
     const avant = donnees.statutsNegociateurs;
@@ -695,10 +753,18 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
     expect(lignes.map((l) => l.cle)).toEqual(['criterimmo', 'macj', 'inter_cabinet', 'global']);
     const de = (cle: string) => lignes.find((l) => l.cle === cle)!;
     expect(de('inter_cabinet').libelle.replace(/\s/g, ' ')).toBe('Inter-cabinet entre nos sociétés : 1 666,67 € (neutralisé)');
-    expect(de('criterimmo').totalHt).toBeCloseTo(4000 / 1.2, 9);
-    expect(de('macj').totalHt).toBeCloseTo(2000 / 1.2, 9);
-    expect(de('global').totalHt).toBeCloseTo(4000 / 1.2, 9);
-    expect(de('global').venteHt).toBeCloseTo(4000 / 1.2, 9);
+    // 🔴 LOT CG1 — chaque part au centime (le montant affiché), les totaux en sont la somme
+    expect([de('criterimmo').totalHt, de('macj').totalHt, de('global').totalHt, de('global').venteHt]).toEqual([3333.33, 1666.67, 3333.33, 3333.33]);
+  });
+
+  // 🔴 LOT CG1 — en TTC : les mêmes lignes, chaque vente au TTC de sa page (HT × TVA), l'inter-cabinet neutralisé une fois, global = somme des lignes
+  it('🔴 LOT CG1 — CA global en TTC : CRITERIMMO 4 000 + MACJ 2 000 − 2 000 neutralisé = 4 000 TTC ; global = la somme des lignes', () => {
+    const e = { ventes: [heididon], location: null, gestion: [] };
+    const lignes = syntheseGlobal(e, 2025, undefined, 'ttc');
+    const de = (cle: string) => lignes.find((l) => l.cle === cle)!;
+    expect(lignes.map((l) => [l.cle, Math.round(l.totalHt * 100)])).toEqual([['criterimmo', 400000], ['macj', 200000], ['inter_cabinet', -200000], ['global', 400000]]);
+    expect(de('inter_cabinet').libelle.replace(/\s/g, ' ')).toBe('Inter-cabinet entre nos sociétés : 2 000 € (neutralisé)');
+    expect(Math.round(lignes.filter((l) => l.cle !== 'global').reduce((t, l) => t + l.totalHt, 0) * 100)).toBe(Math.round(de('global').totalHt * 100));
   });
 
   it('« Le mois » de MACJ : la ligne miroir (sa part, jamais 4 000), « Voir la vente d’origine » au lieu de « Modifier » ; le reste déduit Pierre', async () => {
@@ -2126,8 +2192,10 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       act(() => { root.unmount(); }); root = createRoot(container);
       window.history.replaceState(null, '', '/?annee=2025');
       await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-      expect(lire('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe(totalCompromisEnCours(tousV, null).htC);
-      expect([lire('[data-synthese="criterimmo"] [data-mot="Prévisionnel"]'), lire('[data-synthese="global"] [data-mot="Prévisionnel"]')]).toEqual([t.htC, totalCompromisEnCours(tousV, null).htC]);
+      // 🔴 LOT CG1 — le CA global suit « HT | TTC » (le choix retenu) : les totaux de la route, dans l'unité
+      const k = window.localStorage.getItem('trx-affichage-montants') === 'ttc' ? 'ttcC' : 'htC';
+      expect(lire('[data-tuile="previsionnel"] .tdb-tuile-valeur')).toBe(totalCompromisEnCours(tousV, null)[k]);
+      expect([lire('[data-synthese="criterimmo"] [data-mot="Prévisionnel"]'), lire('[data-synthese="global"] [data-mot="Prévisionnel"]')]).toEqual([t[k], totalCompromisEnCours(tousV, null)[k]]);
     } finally { delete (donneesGlobal as unknown as { compromisEnCours?: unknown }).compromisEnCours; }
   });
 

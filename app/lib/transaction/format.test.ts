@@ -33,3 +33,16 @@ describe('🔴 LOT AM — espaces des milliers', () => {
     expect([montant('7 500'), montant('7\u202f500'), montant(`7${ESPACE}500`), montant('7500')]).toEqual([7500, 7500, 7500, 7500]);
   });
 });
+
+/** 🔴 LOT CG1 (Arno) — un montant nul s'affiche « 0 € », jamais « −0 € » : la règle est dans la fonction de formatage commune. */
+describe('🔴 LOT CG1 — jamais « −0 € »', () => {
+  it('−0, un négatif plus petit qu’un demi-centime, le reste d’un calcul flottant : « 0 € »', () => {
+    for (const x of [-0, -0.001, -0.004999, 1666.6666666666667 - 1666.666666666667, 0.1 + 0.2 - 0.3 - 0.0000000001]) expect([x, eur(x)]).toEqual([x, `0${ESPACE}€`]);
+    expect(eur(-0.005)).toBe(`-0,01${ESPACE}€`);
+    expect(eur(-12.5)).toBe(`-12,50${ESPACE}€`);
+  });
+  it('l’écart d’un montant nul : « +0 € » ; un vrai négatif garde son signe', async () => {
+    const { ecartEur } = await import('../../(admin)/admin/(protected)/transaction/commun');
+    expect([ecartEur(-0), ecartEur(-0.003), ecartEur(-0.01), ecartEur(3)]).toEqual([`+0${ESPACE}€`, `+0${ESPACE}€`, `−0,01${ESPACE}€`, `+3${ESPACE}€`]);
+  });
+});
