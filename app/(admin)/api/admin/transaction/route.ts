@@ -12,7 +12,7 @@ import {
 import { annulationDisponible, interCabinetDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
-import { lireCaLocation } from '../../../../lib/transaction/locationLue';
+import { lireCaLocation, lireLocationCa } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 
 /**
@@ -20,6 +20,7 @@ import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../.
  *   GET  ?vue=societe&societe=criterimmo|macj   ventes, compromis, rétrocessions, montants « à rattacher » de la société ;
  *   GET  ?vue=global                            les ventes des deux sociétés, la gestion du mois, le CA location (lu dans le Suivi) ;
  *   GET  ?vue=journal&entite=…&id=N             l'historique d'une ligne (pour « Annuler ») ;
+ *   GET  ?vue=location                          LOT LO1 : les lignes du Suivi de la Location (CA, primes, apporteurs, net au centime), lecture seule ;
  *   POST action=vente-saisir {vente} | vente-modifier {id, champs} | vente-retirer {id, retirer}
  *        action=retro-rattacher {id, venteId|null} | retro-saisir {retro}
  *        action=gestion-enregistrer {annee, mois, gestion}
@@ -110,6 +111,8 @@ export async function GET(request: Request): Promise<Response> {
       const nomsNegociateurs = await nomsAffichesNegociateurs(libellesNegociateurs([...compromis, ...actesDuMois, ...annules])).catch(() => ({}));
       return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, actesDuMois, annules, statutsNegociateurs, nomsNegociateurs, ...ref } });
     }
+    // 🔴 LOT LO1 — « Location » (Suivi Chiffre d'affaires) : les lignes du Suivi du mois de la Location, en lecture seule.
+    if (vue === 'location') return json({ etat: 'ok', data: { aujourdhui, ...(await lireLocationCa()) } });
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {
       const entite = url.searchParams.get('entite') ?? '';
