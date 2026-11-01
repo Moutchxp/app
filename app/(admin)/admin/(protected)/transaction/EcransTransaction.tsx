@@ -104,7 +104,7 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
   /** LOT M (Arno) — deux cases : une moitié de la largeur chacune (`loc-cases--deux`, la classe partagée de la Location ; 1 colonne ≤ 760 px). */
   deux?: boolean }) {
   return (
-    <div className="loc-page">
+    <div className="loc-page trx-cases-zone">
       <style>{CSS}</style>
       <ul className={`loc-cases loc-cases--accueil trx-cases-nav${deux ? ' loc-cases--deux' : ''}`} aria-label={libelle}>
         {cases.map((c) => (

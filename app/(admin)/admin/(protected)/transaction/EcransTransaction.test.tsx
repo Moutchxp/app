@@ -119,6 +119,13 @@ describe('l’accueil de la tuile', () => {
     expect(css).not.toContain('trx-cases-nav .loc-case-phrase');
     // l'accueil de la Location (.loc-cases--accueil seule) ne change pas
     expect(css).toContain('.loc-cases--accueil .loc-case{min-height:18rem');
+    // Arno (01/11/2026) — +30 % : marge intérieure 40 px → 2 × 22 × 1,25 + 2 × 40 + 2 = 137 px ; le bloc centré sous le fil d'Ariane (≥ 768 px,
+    // 64 px au moins au-dessus), seulement sur ces pages (:has) ; téléphone : 16 px + les 16 px de l'en-tête = 32 px sous le fil
+    expect(container.querySelector('.loc-page')!.className).toBe('loc-page trx-cases-zone');
+    for (const f of ['--trx-case-marge:40px', '.trx-cases-zone{padding-top:16px}', '.svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}',
+      '.svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}',
+      '.trx-cases-zone{flex:1 0 auto;display:flex;flex-direction:column;justify-content:center;padding-block:64px']) expect(css).toContain(f);
+    expect(css).toMatch(/@media \(min-width:768px\)\{ \.svv-adm-main:has\(\.trx-cases-zone\)/);
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b[^}]*\}[^{]*trx-cases-nav|trx-cases-nav[^}]*#[0-9a-f]{3,6}\b/i);
   });
 });

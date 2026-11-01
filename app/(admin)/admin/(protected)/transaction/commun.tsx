@@ -216,7 +216,16 @@ ${CSS_TRIANGLE_BOITE}
    pages (famille, graisse, taille, interligne), centré dans les deux sens, lignes équilibrées, jamais de césure. Toutes les cases à la hauteur
    d'un titre sur DEUX lignes (le plus long, « FUSION VENTE CRITERIMMO & MACJ ») : la même hauteur sur les trois pages ; rangées égales, aussi
    empilées au téléphone. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
-.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:24px;grid-auto-rows:1fr;gap:16px}
+.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:40px;grid-auto-rows:1fr;gap:16px}
+/* Arno (01/11/2026) — LE BLOC DES CASES, CENTRÉ dans l'espace restant sous le fil d'Ariane (bureau et tablette, ≥ 768 px) : la page de ces
+   trois écrans (et elle seule, :has) remplit la hauteur de la zone principale ; le bloc prend ce qui reste sous l'en-tête et s'y centre,
+   avec 64 px au moins au-dessus (et autant au-dessous, pour garder le centre). Téléphone : pas de centrage plein écran, 32 px sous le fil. */
+.trx-cases-zone{padding-top:16px} /* + les 16 px sous l'en-tête (.svv-page-head) = 32 px sous le fil d'Ariane */
+@media (min-width:768px){
+  .svv-adm-main:has(.trx-cases-zone){display:flex;flex-direction:column}
+  .svv-adm-main:has(.trx-cases-zone) > .gst-page{flex:1 0 auto;display:flex;flex-direction:column}
+  .trx-cases-zone{flex:1 0 auto;display:flex;flex-direction:column;justify-content:center;padding-block:64px;box-sizing:border-box}
+}
 .loc-cases.trx-cases-nav > li{display:flex;min-width:0}
 .loc-cases.trx-cases-nav .loc-case{flex:1 1 auto;height:auto;justify-content:center;align-items:center;text-align:center;gap:0;padding:var(--trx-case-marge) 24px;border-radius:20px;
   min-height:calc(2 * var(--trx-case-titre) * var(--trx-case-interligne) + 2 * var(--trx-case-marge) + 2px)}
