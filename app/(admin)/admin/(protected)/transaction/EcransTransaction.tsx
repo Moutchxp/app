@@ -79,28 +79,28 @@ export const ADRESSES_TRANSACTION = {
   // 🔴 LOT DX — « Location & Gestion » : l'écran intermédiaire, la Location et leur FUSION (la Gestion garde son adresse)
   locationGestion: '/admin/transaction/location-gestion', location: '/admin/transaction/location', fusionLocationGestion: '/admin/transaction/location-gestion/fusion',
 } as const;
+// Arno (01/11/2026) — les trois pages du Suivi CA : le TITRE seul dans chaque case (les légendes retirées à sa demande ; le nom accessible du lien = le titre).
 const CASES = [
-  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction vente', phrase: 'Les ventes et compromis de CRITERIMMO et de MACJ : les compromis, le mois, l’année, les négociateurs, les apporteurs.', cle: 'ventes' },
+  { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction vente', cle: 'ventes' },
   // 🔴 LOT DX (Arno) — « Gestion » devient « Location & Gestion » : un écran intermédiaire (Location, Gestion, leur FUSION)
-  { href: ADRESSES_TRANSACTION.locationGestion, titre: 'Location & Gestion', phrase: 'Le chiffre d’affaires de la location et de la gestion : chaque activité, puis les deux réunies.', cle: 'location-gestion' },
-  { href: ADRESSES_TRANSACTION.global, titre: 'CA global', phrase: 'Tous les CA réunis : CRITERIMMO (vente, location, gestion), MACJ (vente), puis les deux — par mois et par année, face à N−1.', cle: 'global' },
+  { href: ADRESSES_TRANSACTION.locationGestion, titre: 'Location & Gestion', cle: 'location-gestion' },
+  { href: ADRESSES_TRANSACTION.global, titre: 'CA global', cle: 'global' },
 ];
 const CASES_VENTES = [
-  { href: ADRESSES_TRANSACTION.criterimmo, titre: 'CRITERIMMO', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de CRITERIMMO.', cle: 'criterimmo' },
-  { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
+  { href: ADRESSES_TRANSACTION.criterimmo, titre: 'CRITERIMMO', cle: 'criterimmo' },
+  { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', cle: 'macj' },
   // 🔴 LOT DM — les deux sociétés réunies (le même écran ; chaque vente une fois, l'inter-cabinet entre elles neutralisé)
-  { href: ADRESSES_TRANSACTION.fusion, titre: TITRE_FUSION_VENTE, phrase: 'Les ventes et compromis des deux sociétés réunis.', cle: 'fusion' },
+  { href: ADRESSES_TRANSACTION.fusion, titre: TITRE_FUSION_VENTE, cle: 'fusion' },
 ];
 
 /** 🔴 LOT DX — « Location & Gestion » : la Location (nouvelle), la Gestion (la page existante, inchangée) et leur FUSION. */
-const PHRASE_GESTION = 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.';
 const CASES_LOCATION_GESTION = [
-  { href: ADRESSES_TRANSACTION.location, titre: 'Location', phrase: 'Les honoraires de location : baux signés, propriétaire et locataire, par mois et par année.', cle: 'location' },
-  { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', phrase: PHRASE_GESTION, cle: 'gestion' },
-  { href: ADRESSES_TRANSACTION.fusionLocationGestion, titre: 'FUSION Location & Gestion', phrase: 'Les CA de la location et de la gestion réunis.', cle: 'fusion-location-gestion' },
+  { href: ADRESSES_TRANSACTION.location, titre: 'Location', cle: 'location' },
+  { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', cle: 'gestion' },
+  { href: ADRESSES_TRANSACTION.fusionLocationGestion, titre: 'FUSION Location & Gestion', cle: 'fusion-location-gestion' },
 ];
 
-function Cases({ cases, libelle, deux = false }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string;
+function Cases({ cases, libelle, deux = false }: { cases: readonly { href: string; titre: string; cle: string }[]; libelle: string;
   /** LOT M (Arno) — deux cases : une moitié de la largeur chacune (`loc-cases--deux`, la classe partagée de la Location ; 1 colonne ≤ 760 px). */
   deux?: boolean }) {
   return (
@@ -109,7 +109,7 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
       <ul className={`loc-cases loc-cases--accueil trx-cases-nav${deux ? ' loc-cases--deux' : ''}`} aria-label={libelle}>
         {cases.map((c) => (
           <li key={c.cle}><a className="loc-case" href={c.href} data-tuile-transaction={c.cle}>
-            <span className="loc-case-titre">{c.titre}</span><span className="loc-case-phrase">{c.phrase}</span></a></li>
+            <span className="loc-case-titre">{c.titre}</span></a></li>
         ))}
       </ul>
     </div>

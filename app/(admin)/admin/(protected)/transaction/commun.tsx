@@ -208,15 +208,16 @@ export const CSS_TRANSACTION = `
 ${CSS_TRIANGLE}
 ${CSS_TRIANGLE_BOITE}
 /* Arno (01/11/2026) — LES GROSSES CASES DE NAVIGATION du « Suivi Chiffre d'affaires » (l'accueil, « Transaction vente », « Location &
-   Gestion ») : un seul gabarit (le composant Cases). Titre et phrase CENTRÉS dans les deux sens ; toutes les cases d'une page à la hauteur
-   de la plus remplie (rangées égales, aussi empilées au téléphone), jamais une hauteur fixe ; phrase limitée à ~36 caractères par ligne,
-   lignes équilibrées. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
-.loc-cases.trx-cases-nav{grid-auto-rows:1fr;gap:16px}
+   Gestion ») : un seul gabarit (le composant Cases), le TITRE seul (légendes retirées à la demande d'Arno). UNE règle de titre pour les trois
+   pages (famille, graisse, taille, interligne), centré dans les deux sens, lignes équilibrées, jamais de césure. Toutes les cases à la hauteur
+   d'un titre sur DEUX lignes (le plus long, « FUSION VENTE CRITERIMMO & MACJ ») : la même hauteur sur les trois pages ; rangées égales, aussi
+   empilées au téléphone. L'effet de survol et de focus reste celui de .loc-cases--accueil (souris seule ; aucun mouvement si réduit). */
+.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;--trx-case-marge:24px;grid-auto-rows:1fr;gap:16px}
 .loc-cases.trx-cases-nav > li{display:flex;min-width:0}
-.loc-cases.trx-cases-nav .loc-case{flex:1 1 auto;height:auto;min-height:0;justify-content:center;align-items:center;text-align:center;gap:12px;padding:32px 28px;border-radius:20px}
-.loc-cases.trx-cases-nav .loc-case-titre{font-size:1.5rem;line-height:1.25;max-width:100%;text-wrap:balance;overflow-wrap:break-word}
-.loc-cases.trx-cases-nav .loc-case-phrase{font-size:1rem;line-height:1.5;max-width:36ch;text-wrap:balance}
-@media (max-width:760px){ .loc-cases.trx-cases-nav .loc-case{padding:26px 20px} }
+.loc-cases.trx-cases-nav .loc-case{flex:1 1 auto;height:auto;justify-content:center;align-items:center;text-align:center;gap:0;padding:var(--trx-case-marge) 24px;border-radius:20px;
+  min-height:calc(2 * var(--trx-case-titre) * var(--trx-case-interligne) + 2 * var(--trx-case-marge) + 2px)}
+.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);max-width:100%;text-wrap:balance;overflow-wrap:normal;word-break:normal;hyphens:manual}
+@media (max-width:760px){ .loc-cases.trx-cases-nav .loc-case{padding-left:18px;padding-right:18px} }
 .trx-barre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .trx-vues{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line);overflow-x:auto}
 .trx-actions{display:flex;flex-wrap:wrap;gap:8px}

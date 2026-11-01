@@ -78,14 +78,14 @@ describe('l’accueil de la tuile', () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
       .toEqual([['Transaction vente', '/admin/transaction/ventes'], ['Location & Gestion', '/admin/transaction/location-gestion'], ['CA global', '/admin/transaction/global']]);
-    expect(texte('[data-tuile-transaction="location-gestion"] .loc-case-phrase')).toBe('Le chiffre d’affaires de la location et de la gestion : chaque activité, puis les deux réunies.');
+    // Arno (01/11/2026) — le titre seul : plus de légende ; le nom du lien = son titre
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelectorAll('.loc-case-phrase').length, a.textContent])).toEqual([[0, 'Transaction vente'], [0, 'Location & Gestion'], [0, 'CA global']]);
   });
-  it('🔴 LOT DX — « Location & Gestion » : Location, Gestion (la page existante, sa phrase d’avant) et « FUSION Location & Gestion » ; trois cases de même taille', async () => {
+  it('🔴 LOT DX — « Location & Gestion » : Location, Gestion (la page existante) et « FUSION Location & Gestion » ; trois cases de même taille', async () => {
     await act(async () => { root.render(createElement(AccueilLocationGestion)); });
-    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href'), a.querySelector('.loc-case-phrase')!.textContent]))
-      .toEqual([['Location', '/admin/transaction/location', 'Les honoraires de location : baux signés, propriétaire et locataire, par mois et par année.'],
-        ['Gestion', '/admin/transaction/gestion', 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.'],
-        ['FUSION Location & Gestion', '/admin/transaction/location-gestion/fusion', 'Les CA de la location et de la gestion réunis.']]);
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href'), a.textContent]))
+      .toEqual([['Location', '/admin/transaction/location', 'Location'], ['Gestion', '/admin/transaction/gestion', 'Gestion'],
+        ['FUSION Location & Gestion', '/admin/transaction/location-gestion/fusion', 'FUSION Location & Gestion']]);
     // la grille de « Transaction vente » : trois colonnes, une seule au téléphone
     expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
   });
@@ -93,7 +93,7 @@ describe('l’accueil de la tuile', () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
       .toEqual([['CRITERIMMO', '/admin/transaction/criterimmo'], ['MACJ', '/admin/transaction/macj'], ['FUSION VENTE CRITERIMMO & MACJ', '/admin/transaction/fusion']]);
-    expect(texte('[data-tuile-transaction="fusion"] .loc-case-phrase')).toBe('Les ventes et compromis des deux sociétés réunis.');
+    expect([container.querySelectorAll('.loc-case-phrase').length, texte('[data-tuile-transaction="fusion"]')]).toEqual([0, 'FUSION VENTE CRITERIMMO & MACJ']);
   });
   it('LOT M / DM — trois cases de même taille (la grille de l’accueil, une colonne au téléphone) ; l’accueil garde ses trois colonnes', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
@@ -102,17 +102,22 @@ describe('l’accueil de la tuile', () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil trx-cases-nav');
   });
-  it('Arno (01/11/2026) — les trois pages, un seul gabarit : contenu centré, rangées égales (aussi empilées), phrase ~36 caractères, lignes équilibrées ; la Location garde le sien', async () => {
+  it('Arno (01/11/2026) — les trois pages, un seul gabarit : le titre seul, centré, une seule règle de titre, la hauteur d’un titre sur deux lignes ; la Location garde le sien', async () => {
     for (const ecran of [AccueilTransaction, AccueilVentes, AccueilLocationGestion]) {
       act(() => { root.unmount(); }); root = createRoot(container);
       await act(async () => { root.render(createElement(ecran)); });
-      expect([ecran.name, container.querySelectorAll('ul.trx-cases-nav > li > a.loc-case[href]').length]).toEqual([ecran.name, 3]);
+      const liens = [...container.querySelectorAll('ul.trx-cases-nav > li > a.loc-case[href]')];
+      // chaque case : un lien dont le seul contenu (son nom accessible) est le titre
+      expect([ecran.name, liens.length, liens.every((a) => a.children.length === 1 && a.firstElementChild!.className === 'loc-case-titre')]).toEqual([ecran.name, 3, true]);
     }
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
-    for (const f of ['.loc-cases.trx-cases-nav{grid-auto-rows:1fr', 'justify-content:center;align-items:center;text-align:center', 'max-width:36ch;text-wrap:balance',
-      '.loc-cases.trx-cases-nav .loc-case-titre{font-size:1.5rem;line-height:1.25;max-width:100%;text-wrap:balance']) expect(css).toContain(f);
-    // plus de grande hauteur fixe pour ces cases ; celle de l'accueil de la Location (.loc-cases--accueil seule) ne change pas
-    expect(css).toMatch(/\.loc-cases\.trx-cases-nav \.loc-case\{[^}]*min-height:0/);
+    for (const f of ['.loc-cases.trx-cases-nav{--trx-case-titre:1.375rem;--trx-case-interligne:1.25;', 'grid-auto-rows:1fr', 'justify-content:center;align-items:center;text-align:center',
+      'min-height:calc(2 * var(--trx-case-titre) * var(--trx-case-interligne)',
+      '.loc-cases.trx-cases-nav .loc-case-titre{font-family:inherit;font-weight:800;font-size:var(--trx-case-titre);line-height:var(--trx-case-interligne);max-width:100%;text-wrap:balance;overflow-wrap:normal']) expect(css).toContain(f);
+    // UNE règle de titre : aucune autre taille propre à une page ou à une case du gabarit ; plus de règle de légende
+    expect(css.match(/trx-cases-nav[^{]*\.loc-case-titre\{/g)).toHaveLength(1);
+    expect(css).not.toContain('trx-cases-nav .loc-case-phrase');
+    // l'accueil de la Location (.loc-cases--accueil seule) ne change pas
     expect(css).toContain('.loc-cases--accueil .loc-case{min-height:18rem');
     expect(css).not.toMatch(/#[0-9a-f]{3,6}\b[^}]*\}[^{]*trx-cases-nav|trx-cases-nav[^}]*#[0-9a-f]{3,6}\b/i);
   });
