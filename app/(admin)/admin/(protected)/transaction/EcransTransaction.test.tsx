@@ -62,7 +62,9 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
-const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+// 🔴 LOT DU — le texte d'un élément SANS la ligne d'explication des tuiles (`data-tuile-explication`, éprouvée par ses propres tests : « LOT DU »).
+const sansExplication = (n: Element): string => { const c = n.cloneNode(true) as Element; c.querySelectorAll('[data-tuile-explication]').forEach((x) => x.remove()); return c.textContent ?? ''; };
+const texte = (sel: string): string => { const n = container.querySelector(sel); return n === null ? '' : sansExplication(n).replace(/\s/g, ' '); };
 
 describe('l’accueil de la tuile', () => {
   it('LOT L — trois cases : « Transaction vente » (LOT DM, ex-« Transaction »), « Gestion », « CA global »', async () => {
@@ -2046,7 +2048,8 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     it('« Vendu » : le CA net cumulé à fin juin (commissions, rétrocessions, reversé déduits), N−1 sur les mêmes mois ; = la somme des CA nets du graphique (HT et TTC)', async () => {
       const fin = await ouvrir6();
       try {
-        expect(texte('[data-tuile="ca-net-cumul"] .tdb-tuile-mot')).toBe('CA net HT cumulé 2025 (à fin juin) — après commissions, rétrocessions et reversé');
+        // 🔴 LOT DU — « — après commissions, rétrocessions et reversé » est remplacée par la ligne d'explication (éprouvée au lot DU)
+        expect(texte('[data-tuile="ca-net-cumul"] .tdb-tuile-mot')).toBe('CA net HT cumulé 2025 (à fin juin)');
         expect([t4('[data-ca-net-cumul]'), texte('[data-tuile-n1="ca-net"]')]).toEqual([1300000, '4 000 € en 2024 (+225 %)']); // (12 000 − 2 400) ÷ 1,2 + 6 000 ÷ 1,2
         await cliquer('[data-mesure-bouton="net"]');
         const barres = [1, 2, 3, 4, 5, 6].reduce((t, k) => t + Math.round(Number(container.querySelector(`[data-bloc="histogramme-mois"] [data-barre-mois="${k}"] .tdb-barre`)?.getAttribute('data-valeur') ?? 0) * 100), 0);
@@ -3285,8 +3288,8 @@ describe('🔴 LOT DS — « L’année », mode « Compromis » : CA brut, CA n
         const tuiles = [...container.querySelectorAll('.tdb-tuiles > li > .tdb-tuile')];
         // 🔴 LOT DT — l'ordre : CA brut, nombre, compromis en cours, puis le CA net tout à droite
         expect(tuiles.map((t) => t.getAttribute('data-tuile'))).toEqual(['ca-annee', 'ventes-annee', 'compromis', 'ca-net-compromis-annee']);
-        expect(tuiles.map((t) => t.querySelector('.tdb-tuile-mot')?.textContent)).toEqual(['CA brut des compromis — 2025', 'Compromis — 2025', `Compromis en cours (${u.toUpperCase()})`,
-          'CA net des compromis — 2025 (CA − commissions versées)']);
+        expect(tuiles.map((t) => sansExplication(t.querySelector('.tdb-tuile-mot')!))).toEqual(['CA brut des compromis — 2025', 'Compromis — 2025', `Compromis en cours (${u.toUpperCase()})`,
+          'CA net des compromis — 2025']); // 🔴 LOT DU : « (CA − commissions versées) » devient la ligne d'explication
         const f = u === 'ht' ? 1 / 1.2 : 1;
         const brut = centimesDe(texte('[data-tuile="ca-annee"] .tdb-tuile-valeur')); const net = centimesDe(texte('[data-ca-net-compromis]'));
         expect([brut, net, brut - net]).toEqual([Math.round(12000 * f * 100), Math.round(10800 * f * 100), Math.round(1200 * f * 100)]);
@@ -3301,4 +3304,51 @@ describe('🔴 LOT DS — « L’année », mode « Compromis » : CA brut, CA n
       } finally { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; window.localStorage.removeItem('trx-mois-mode'); window.localStorage.setItem('trx-affichage-montants', 'ht'); }
     });
   }
+});
+
+describe('🔴 LOT DU — la ligne d’explication sous le titre des tuiles de CA et de CA net (« Le mois », « L’année », tous modes)', () => {
+  const ld = (negociateur: string, role: LigneVente['role'], montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role, montantTtc, nature: 'vente', compte: true,
+    origine: 'import', sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
+  const ventes = [
+    vente(61, { societe: 'macj', libelle: 'SIGNÉE', honorairesTtc: 12000, statut: 'vendue', annee: 2025, mois: 10, lignes: [ld('MYLENE', 'negociateur', 2400)] }),
+    vente(62, { societe: 'macj', libelle: 'EN COURS', honorairesTtc: 6000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-10-10' }),
+  ];
+  // les tuiles de CA et de CA net de chaque écran et de chaque mode (les tuiles de nombre et « Compromis en cours » n'en ont pas)
+  const attendu: Record<string, Record<string, 'ca' | 'net' | null>> = {
+    'mois-vendu': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'ca-net-cumul': 'net' },
+    'mois-compromis': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', compromis: null },
+    'mois-tous': { 'ca-mois': 'ca', 'ventes-mois': null, cumul: 'ca', 'previsionnel-net-mois': 'net' },
+    'annee-vendu': { 'ca-annee': 'ca', 'ventes-annee': null, 'ca-a-date': 'ca', 'ca-net-annee': 'net' },
+    'annee-compromis': { 'ca-annee': 'ca', 'ventes-annee': null, compromis: null, 'ca-net-compromis-annee': 'net' },
+    'annee-tous': { 'ca-annee': 'ca', 'ventes-annee': null, 'ca-a-date': 'ca', 'previsionnel-net-annee': 'net' },
+  };
+  for (const societe of ['macj', 'tous'] as const) for (const vue of ['mois', 'annee'] as const) for (const mode of ['vendu', 'compromis', 'tous'] as const) {
+    it(`${societe === 'tous' ? 'FUSION' : 'MACJ'}, ${vue === 'mois' ? 'Le mois' : 'L’année'}, ${mode}`, async () => {
+      const avant = { ventes: donnees.ventes, statuts: donnees.statutsNegociateurs, societe: donnees.societe };
+      donnees.ventes = ventes; donnees.statutsNegociateurs = { MYLENE: 'independant' }; donnees.societe = societe === 'tous' ? null : societe;
+      try {
+        window.history.replaceState(null, '', vue === 'mois' ? `/?vue=mois&annee=2025&mois=10&mode=${mode}` : `/?vue=annee&annee=2025&mode=${mode}`);
+        await act(async () => { root.render(createElement(EcranSociete, { societe })); }); await calmer();
+        const M = await import('./EcransTransaction');
+        const mots = M.EXPLICATIONS_TUILES[societe === 'tous' ? 'fusion' : 'societe'];
+        const lu = Object.fromEntries([...container.querySelectorAll('.tdb-tuiles > li > .tdb-tuile')].map((t) => {
+          const x = t.querySelector('.tdb-tuile-mot > [data-tuile-explication]');
+          return [t.getAttribute('data-tuile'), x === null ? null : [x.getAttribute('data-tuile-explication'), x.textContent]];
+        }));
+        const voulu = Object.fromEntries(Object.entries(attendu[`${vue}-${mode}`]).map(([k, s]) => [k, s === null ? null : [s, mots[s]]]));
+        expect(lu).toEqual(voulu);
+        // l'ancienne mention n'est plus nulle part dans les tuiles
+        expect(container.querySelector('.tdb-tuiles')!.textContent).not.toContain('après commissions, rétrocessions et reversé');
+        if (vue === 'annee' && mode === 'compromis') expect(texte('[data-tuile="ca-net-compromis-annee"] .tdb-tuile-mot')).toBe(societe === 'tous' ? 'CA net consolidé des compromis — 2025' : 'CA net des compromis — 2025');
+      } finally { donnees.ventes = avant.ventes; donnees.statutsNegociateurs = avant.statuts; donnees.societe = avant.societe; window.localStorage.removeItem('trx-mois-mode'); }
+    });
+  }
+  it('les mots d’Arno, à la lettre ; la ligne est dans la rangée du titre (les montants restent alignés, lot DB)', async () => {
+    const M = await import('./EcransTransaction');
+    expect(M.EXPLICATIONS_TUILES).toEqual({
+      fusion: { ca: 'CRITERIMMO + MACJ, sans doublon d’inter-cabinet', net: 'CA consolidé − commissions et rétrocessions versées' },
+      societe: { ca: 'honoraires encaissés par la société', net: 'CA − commissions, rétrocessions et reversé inter-cabinet' } });
+    const { CSS_TRANSACTION } = await import('./commun');
+    expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.tdb-tuile-mot>.trx-tuile-explication{display:block;');
+  });
 });

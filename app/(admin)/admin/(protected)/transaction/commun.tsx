@@ -333,6 +333,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-tuiles-alignees>li>.tdb-tuile{grid-row:1 / -1;display:grid;grid-template-rows:subgrid;row-gap:0;justify-items:center;align-items:start;height:auto;min-height:0}
 .trx-tuiles-alignees .tdb-tuile>*{grid-column:1;min-width:0;max-width:100%}
 .trx-tuiles-alignees .tdb-tuile>.tdb-tuile-mot{grid-row:1;align-self:end;padding-bottom:8px}
+/* 🔴 LOT DU — la ligne d'explication sous le titre d'une tuile (petite, grise, sur une ou deux lignes) : dans la rangée du titre, les montants restent alignés */
+.tdb-tuile-mot>.trx-tuile-explication{display:block;margin-top:2px;font-weight:600;line-height:1.25}
 .trx-tuiles-alignees .tdb-tuile>.tdb-tuile-valeur{grid-row:2}
 .trx-tuiles-alignees .tdb-tuile>.trx-tuile-montants{grid-row:2 / span 2}
 .trx-tuiles-alignees .tdb-tuile>.trx-tuile-autre{grid-row:3;padding-top:4px}
