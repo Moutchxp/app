@@ -67,17 +67,19 @@ export function historiquePeriode(activites: readonly ActiviteCalcul[], ctx: Con
     const ts = moisDeLaPeriode(portion).map((m) => totauxPeriode(lignes, ctx, { annee, mois: Number(m.slice(5, 7)) }));
     const s = (f: (t: (typeof ts)[number]) => number): number => ts.reduce((x, t) => x + f(t), 0);
     return { annee, nbBaux: s((t) => t.nbBaux), nb: s((t) => t.nb), ca: s((t) => t.ca), caNet: s((t) => t.caNet), apporteurs: s((t) => t.apporteurs),
-      commission: voirCommissions ? s((t) => t.commission) : null };
+      commission: voirCommissions ? s((t) => t.commission) : null, ids: lignes.map((x) => x.id) };
   });
 }
 
 /** Pour l'encart : l'année précédente sur la MÊME PORTION (du 1er janvier à la même date) — CA HT, baux, solde de gestions ; null sans donnée. */
-export interface ValeursAnnee { annee: number; ca: number; nbBaux: number; solde: number }
+export interface ValeursAnnee { annee: number; ca: number; nbBaux: number; solde: number;
+  /** 🔴 LOT LO2 — les lignes de la portion (le TTC « montant par montant ») ; absent : non fourni. */
+  ids?: (number | string)[] }
 export function comparaisonsAnnees(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, transitions: readonly Transition[], p: PeriodeSuivi, regle: RegleAnnexes, origine: number):
   { courant: ValeursAnnee; precedent: ValeursAnnee | null }[] {
   const valeurs = (annee: number, d: Dates): ValeursAnnee => {
     const lignes = activites.filter((a) => entre(a, d));
-    return { annee, ca: lignes.reduce((s, a) => s + caLigne(a), 0), nbBaux: totaux(lignes, ctx).nbBaux,
+    return { annee, ca: lignes.reduce((s, a) => s + caLigne(a), 0), nbBaux: totaux(lignes, ctx).nbBaux, ids: lignes.map((x) => x.id),
       solde: mouvementsGestionEntre(transitions, d, regle).solde };
   };
   return anneesDeLaPeriode(p).map((annee) => {

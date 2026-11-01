@@ -977,7 +977,9 @@ export interface DonneesTableau {
   margesGli?: MargeGli[];
 }
 
-export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null }
+export interface AnneeHistorique { annee: number; nbBaux: number; nb: number; ca: number; caNet: number; apporteurs: number; commission: number | null;
+  /** 🔴 LOT LO2 — les lignes de l'année (le TTC « montant par montant » du Suivi annuel) ; absent : non fourni. */
+  ids?: (number | string)[] }
 
 /** Une ligne par année d'activité (toutes affaires, sans filtre) ; la commission seulement pour qui peut la voir. PUR. */
 export function historiqueAnnees(activites: readonly ActiviteCalcul[], ctx: ContexteCalcul, voirCommissions: boolean): AnneeHistorique[] {

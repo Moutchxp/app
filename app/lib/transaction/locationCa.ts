@@ -7,7 +7,7 @@
 // par négociateur et les cartes tombent juste au centime, et « CA net = CA brut − primes − apporteurs » ligne par ligne.
 // N'entrent PAS dans les coûts (et le disent) : la part gestion « Récurrent » des apporteurs (due mois après mois, sans bail de la période), le dû
 // aux collègues, la commission du négociateur et ses rétrocessions (`gestion_location_retrocession` : elles diminuent SA commission, pas le CA).
-import { apporteurAffiche, caLigne, cleNegociateur, partGestionSignatureDe, partLocationDe, primeDe, type ActiviteLue } from '../location/suivi/tableauBord';
+import { apporteurAffiche, caLigne, cleNegociateur, partGestionSignatureDe, partLocationDe, primeDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import { TVA } from './modele';
 import type { MontantC } from './partAgence';
@@ -164,3 +164,11 @@ export function trierLocation(lignes: readonly LigneLocationCa[], tri: TriListe,
   return [...lignes].sort((a, b) => (tri === 'ca-desc' ? ca(b) - ca(a) : tri === 'ca-asc' ? ca(a) - ca(b)
     : (tri === 'date-recent' ? -1 : 1) * a.date.localeCompare(b.date)) || alpha(a, b));
 }
+
+// ── 🔴 LOT LO2 (Arno, 01/11/2026) — LA MÊME RÈGLE TTC DANS LE SUIVI ANNUEL DE LA LOCATION ────────────────────────────────────────────────────
+/** Le TTC (centimes) d'UN montant HT : `depuisHt` (HT au centime, TTC = HT × `TVA` au centime). PUR. */
+export const ttcCentimes = (ht: number): number => depuisHt(ht).ttcC;
+/** Le TTC (centimes) d'une somme de lignes : la somme des TTC de chaque ligne (la règle des totaux de cette page). PUR. */
+export const ttcCentimesDesLignes = <A>(lignes: readonly A[], ht: (a: A) => number): number => lignes.reduce((t, a) => t + depuisHt(ht(a)).ttcC, 0);
+/** Le CA d'une ligne (`caLigne`, au centime), en TTC, comme une ligne de cette page. */
+export const caTtcC = (a: ActiviteCalcul): number => depuisHt(caLigne(a)).ttcC;

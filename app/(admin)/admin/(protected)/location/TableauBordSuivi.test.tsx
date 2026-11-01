@@ -37,6 +37,8 @@ beforeEach(() => {
     preavis: { '2026-09': 3 }, voirCommissions: true,
   };
   window.history.replaceState(null, '', '/');   // l'adresse garde l'année et le mois choisis : chaque épreuve repart d'une adresse nue
+  // 🔴 LOT LO2 — le Suivi annuel suit « Montants HT | TTC » (le choix du Suivi Chiffre d'affaires) : ces épreuves d'avant lisent les montants en HT.
+  window.localStorage.setItem('trx-affichage-montants', 'ht');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   global.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) }) as unknown as Response) as unknown as typeof fetch;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-22T10:00:00Z'));
@@ -66,7 +68,8 @@ const choisir = async (filtre: string, v: string) => {
   await calmer();
 };
 const tuile = (k: string) => container.querySelector(`[data-tuile="${k}"]`) as HTMLButtonElement;
-const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ');
+// 🔴 LOT LO2 — en HT, un montant du Suivi annuel s'écrit « 1 234,56 € HT (1 481,47 € TTC) » : ces épreuves d'avant lisent le montant HT seul.
+const nbsp = (t: string | null | undefined) => (t ?? '').replace(/[  ]/g, ' ').replace(/ HT \([^)]* TTC\)/g, '');
 /** 🔴 Arno (25/10/2026) — les blocs « Négociateur » sont repliés à chaque chargement : les déplier pour lire la cascade. */
 const deplierNegos = async () => {
   for (const b of [...container.querySelectorAll('[data-deplier-negociateur][aria-expanded="false"]')]) await act(async () => { (b as HTMLButtonElement).click(); });
@@ -881,13 +884,14 @@ describe('🔴 « Outils de suivi » — le tableau de bord', () => {
     expect(container.querySelector('[data-bulle="survol"]')).toBeNull();
     const bulle = () => container.querySelector('[data-histo-detail] [data-bulle="sous"]')!;
     expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2025');
-    expect(nbsp(bulle().querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2025CA HT3 400,00 €Baux3');
-    expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2024CA HT2 500,00 €Baux2');
+    // 🔴 LOT LO2 — l'encart dit aussi l'autre unité, exacte (la somme TTC des lignes de l'année)
+    expect(nbsp(bulle().querySelector('[data-bulle-bloc="courant"]')?.textContent)).toBe('2025CA HT3 400,00 € (4 080,00 € TTC)Baux3');
+    expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2024CA HT2 500,00 € (3 000,00 € TTC)Baux2');
     expect(nbsp(bulle().querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+900,00 € (+36 %)');
     // 🔴 La dernière année, partielle (au 22/10) : face à 2025 au 22/10 (3 000 €, pas les 3 400 € de l'année entière).
     await survoler(2026);
     expect(bulle().querySelector('.tdb-bulle-titre')?.textContent).toBe('Année 2026 (janv. → oct.)');
-    expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025 (janv. → oct.)CA HT3 000,00 €Baux2');
+    expect(nbsp(bulle().querySelector('[data-bulle-bloc="n1"]')?.textContent)).toBe('2025 (janv. → oct.)CA HT3 000,00 € (3 600,00 € TTC)Baux2');
     expect(nbsp(bulle().querySelector('[data-bulle-pied]')?.textContent)).toBe('Écart+91 612,61 € (+3 053,8 %)');
     await survoler(2024);
     expect(container.querySelector('[data-histo-detail] [data-bulle-pied]')?.textContent).toBe('N−1 non importée');
@@ -2621,5 +2625,58 @@ describe('🔴 Suivi annuel — « Apporteur de l’année » à la place des In
     window.history.replaceState(null, '', '/?annee=2026&mois=9');
     await monter('mois');
     expect(lire(container.querySelector('[data-bloc="apporteurs-mois"]')!)).toEqual(await moduleDuMois('2026-09'));
+  });
+});
+
+describe('🔴 LOT LO2 — le Suivi annuel en « Montants HT | TTC » (le sélecteur du Suivi Chiffre d’affaires)', () => {
+  const brut = (sel: string) => (container.querySelector(sel)?.textContent ?? '').replace(/[\u00a0\u202f]/g, ' ');
+  it('le sélecteur (en haut à droite des filtres) bascule toute la page ; la mémoire est celle du Suivi Chiffre d’affaires', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await monter('annee');
+    expect(container.querySelector('[data-filtres] .sv-champ-unite [data-affichage-montants="ttc"]')).not.toBeNull();
+    expect(brut('[data-tuile="ca-annee"] .tdb-tuile-mot')).toMatch(/^CA TTC \(/);
+    const ttc = brut('[data-tuile-ca-valeur]');
+    expect(ttc).toMatch(/^[\d ]+,\d\d € TTC \([\d ]+,\d\d € HT\)$/);
+    // les tableaux et les blocs suivent : Année par année, Résumé de la période, apporteurs
+    expect(brut('[data-historique-annees] thead')).toContain('CA TTC');
+    expect(container.querySelectorAll('[data-montant-unite="ttc"]').length).toBeGreaterThan(10);
+    await act(async () => { (container.querySelector('[data-afficher="ht"]') as HTMLButtonElement).click(); }); await calmer();
+    expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ht'); // la même clé que le Suivi Chiffre d'affaires
+    expect(brut('[data-tuile="ca-annee"] .tdb-tuile-mot')).toMatch(/^CA HT \(/);
+    const ht = brut('[data-tuile-ca-valeur]');
+    // le même montant, les unités échangées
+    expect(ht.replace(/ € HT \((.*) € TTC\)/, '|$1')).toBe(ttc.replace(/^(.*) € TTC \((.*) € HT\)$/, '$2|$1'));
+    expect(container.querySelectorAll('[data-montant-unite="ttc"]')).toHaveLength(0);
+  });
+  it('la règle TTC de la page Location (`locationCa`) : CA = Σ du TTC de chaque ligne ; CA net d’apporteurs = CA TTC − commissions × 1,20 ; au centime', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    window.history.replaceState(null, '', '/?debut=2026&fin=2026');
+    await monter('annee');
+    const { caTtcC, ttcCentimes } = await import('../../../../lib/transaction/locationCa');
+    const { partLocationDe } = await import('../../../../lib/location/suivi/tableauBord');
+    const de2026 = donnees.activites.filter((a) => a.dateSignature.startsWith('2026-'));
+    const attenduCa = de2026.reduce((t, a) => t + caTtcC(a), 0) / 100;
+    // le CA net = le CA (somme TTC des lignes) − les commissions d'apporteurs (leur total × 1,20)
+    const attenduNet = (de2026.reduce((t, a) => t + caTtcC(a), 0) - ttcCentimes(de2026.reduce((t, a) => t + partLocationDe(a, donnees.apporteurs), 0))) / 100;
+    const eurFr = (x: number) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[\u00a0\u202f]/g, ' ');
+    expect(brut('[data-tuile-ca-valeur]')).toMatch(new RegExp(`^${eurFr(attenduCa)} € TTC`));
+    expect(brut('[data-tuile-ca-net-valeur]')).toMatch(new RegExp(`^${eurFr(attenduNet)} € TTC`));
+    // le TTC n'est PAS le total × 1,20 : chaque ligne est mise au centime d'abord (la règle de la page Location)
+    expect(brut('[data-historique-ca="2026"]')).toMatch(new RegExp(`^${eurFr(attenduCa)} € TTC`));
+  });
+  it('le Suivi du mois et les autres outils : aucun sélecteur, les montants comme avant (HT, sans parenthèses)', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    window.history.replaceState(null, '', '/?annee=2026&mois=9');
+    await monter('mois');
+    expect(container.querySelector('[data-affichage-montants]')).toBeNull();
+    expect(container.querySelectorAll('[data-montant-unite]')).toHaveLength(0);
+    expect(brut('[data-tuile="ca-mois"] .tdb-tuile-valeur')).toBe('15 471,70 €');
+  });
+  it('téléphone : le sélecteur passe à la ligne, à droite (au-dessus des filtres)', async () => {
+    await monter('annee');
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.sv-champ-unite{display:flex;flex-direction:column;align-items:flex-end;text-align:right;gap:4px;min-width:max-content;justify-self:end}');
+    expect(css).toContain('@media (max-width:1100px){ .tdb-filtres.sv-filtres-unite{grid-template-columns:repeat(3,minmax(0,1fr))} .sv-champ-unite{grid-column:1/-1;grid-row:1} }');
+    expect(css).toContain(".trx-unite[aria-pressed='true']{background:var(--color-svv-ink);color:var(--color-svv-surface)}");
   });
 });

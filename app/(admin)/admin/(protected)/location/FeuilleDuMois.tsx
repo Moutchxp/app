@@ -32,6 +32,9 @@ import { groupesFicheBien } from '../../../../lib/location/suivi/fichesBienLigne
 import { posterSuivi } from './suiviApi';
 import { useParametresSuivi } from './SuiviCommercial';
 import { regrouperParBien, sommeDuGroupe, type LienAnnexeAffiche } from '../../../../lib/location/suivi/biensRegroupes';
+import { useMontantSuivi } from './MontantsSuivi';
+import { caTtcC } from '../../../../lib/transaction/locationCa';
+import { FAMILLE_GESTION } from '../../../../lib/location/suivi/tableauBord';
 
 /**
  * ══ 🔴 LOCATION — « SUIVI DU MOIS » : LA FEUILLE D'UN MOIS (Arno, 23/10/2026) ═════════════════════════════════════════════════
@@ -314,6 +317,9 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
 }) {
   // 413 — la part gestion « Récurrent » due ces mois-là s'ajoute au dû de l'apporteur et de son collègue. Plusieurs mois : chaque mois
   // calculé comme le module du mois, additionné au centime affiché (la période = la somme de ses mois).
+  // 🔴 LOT LO2 — dans l'unité du Suivi annuel (sans unité, au Suivi du mois : comme avant) ; le CA apporté = la somme TTC de ses lignes.
+  const U = useMontantSuivi();
+  const caIds = (ht: number, ids: readonly (number | string)[]) => ({ ht, ttcC: U.lignes(ids).reduce((t, a) => t + caTtcC(a), 0) });
   const ac = apporteursEtColleguesDesMois(lignes, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois, aujourdhui });
   /* 🔴 Arno (26/10/2026) — le Total du tableau « Apporteurs du mois » : les seules affaires passées par un intermédiaire. */
   const interm = totalDesIntermediaires(ac);
@@ -337,8 +343,8 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                   {(x.sorte === 'interne' || x.sorte === 'externe') && <span className={`fdm-sorte fdm-sorte--${x.sorte}`} data-sorte-apporteur={x.sorte}>{x.sorte === 'interne' ? 'Interne' : 'Externe'}</span>}
                   {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
                 <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{x.nb}</button></td>
-                <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{eur(x.ca)}</button></td>
-                <td data-mot="Hono. d’apporteur">{eur(x.commission)}</td>
+                <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{U.m(caIds(x.ca, x.ids))}</button></td>
+                <td data-mot="Hono. d’apporteur">{U.m(x.commission)}</td>
               </tr>))}
               {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
                   par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
@@ -346,7 +352,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
             <tfoot><tr data-apporteur-mois="total">
               <th scope="row">Total</th>
               <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${libelle}`, interm.ids)}>{interm.nb}</button></td>
-              <td data-mot="CA apporté" data-total-apporteurs-ca>{eur(interm.ca)}</td><td data-mot="Hono. d’apporteur">{eur(interm.commission)}</td>
+              <td data-mot="CA apporté" data-total-apporteurs-ca>{U.m(caIds(interm.ca, interm.ids))}</td><td data-mot="Hono. d’apporteur">{U.m(interm.commission)}</td>
             </tr></tfoot>
           </table>
           {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les
@@ -359,7 +365,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                 Total). Chaque montant au centime affiché : Σ apporteurs = via ; via + direct = Total. */}
             <tbody>{ac.collegues.length === 0 ? <tr><td colSpan={4} className="loc-muet">Aucun collègue {motVide}.</td></tr> : collegues.map(({ x, det }) => {
               const ouvert = det.depliable && colOuverts.has(x.cle);
-              const lien = (texte: string, titre: string, ids: (number | string)[], repere: string) => (
+              const lien = (texte: ReactNode, titre: string, ids: (number | string)[], repere: string) => (
                 <button type="button" className="tdb-chiffre" onClick={() => onDetail(`${titre} — ${libelle}`, ids)} data-detail-origine={repere}>{texte}</button>);
               const titre = (l: LigneDetailCollegue): string => l.sorte === 'total' ? `Affaires de ${x.libelle}` : l.sorte === 'apporteur' ? `Affaires de ${x.libelle} — via ${l.mot}`
                 : `Affaires de ${x.libelle} — ${l.mot}`;
@@ -394,8 +400,8 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                           </span>))}
                       </span></th>
                     <td data-mot="Affaires">{pile((l) => lien(String(l.nb), titre(l), l.ids, `${repere(l)}-nb`))}</td>
-                    <td data-mot="CA apporté">{pile((l) => lien(eur(l.caCentimes / 100), titre(l), l.ids, `${repere(l)}-ca`))}</td>
-                    <td data-mot="Hono. d’apporteur">{pile((l) => eur(l.commissionCentimes / 100))}</td>
+                    <td data-mot="CA apporté">{pile((l) => lien(U.m(caIds(l.caCentimes / 100, l.ids)), titre(l), l.ids, `${repere(l)}-ca`))}</td>
+                    <td data-mot="Hono. d’apporteur">{pile((l) => U.m(l.commissionCentimes / 100))}</td>
                   </tr>
                 );
               }
@@ -404,8 +410,8 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                   <th scope="row">{chevron}{x.libelle}{badge}
                     <small className="fdm-origine-collegue" data-origines-collegue>{det.mention}</small></th>
                   <td data-mot="Affaires" className="fdm-fort-cellule">{lien(String(total.nb), titre(total), total.ids, 'total-nb')}</td>
-                  <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(eur(total.caCentimes / 100), titre(total), total.ids, 'total-ca')}</td>
-                  <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{eur(total.commissionCentimes / 100)}</td>
+                  <td data-mot="CA apporté" className="fdm-fort-cellule">{lien(U.m(caIds(total.caCentimes / 100, total.ids)), titre(total), total.ids, 'total-ca')}</td>
+                  <td data-mot="Hono. d’apporteur" className="fdm-fort-cellule">{U.m(total.commissionCentimes / 100)}</td>
                 </tr>
               );
             })}</tbody>
@@ -413,8 +419,10 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
               <tfoot><tr data-collegue-mois="total">
                 <th scope="row">Total</th>
                 <td data-mot="Affaires">{collegues.reduce((t2, c2) => t2 + c2.x.nb, 0)}</td>
-                <td data-mot="CA apporté" data-total-collegues-ca>{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100)}</td>
-                <td data-mot="Hono. d’apporteur">{eur(collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100)}</td>
+                <td data-mot="CA apporté" data-total-collegues-ca>{U.m({ ht: collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].caCentimes, 0) / 100,
+                  ttcC: collegues.reduce((t2, c2) => t2 + U.ttcC(caIds(0, c2.det.lignes[c2.det.lignes.length - 1].ids)), 0) })}</td>
+                <td data-mot="Hono. d’apporteur">{U.m({ ht: collegues.reduce((t2, c2) => t2 + c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes, 0) / 100,
+                  ttcC: collegues.reduce((t2, c2) => t2 + U.ttcC(c2.det.lignes[c2.det.lignes.length - 1].commissionCentimes / 100), 0) })}</td>
               </tr></tfoot>
             )}
           </table>
@@ -442,6 +450,16 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
   onRelire?: () => void;
 }) {
   const { r, ventilation } = resume;
+  // 🔴 LOT LO2 — dans l'unité du Suivi annuel (au Suivi du mois, sans unité : comme avant). Le CA = la somme TTC de ses lignes ; les autres montants
+  // × 1,20 au centime ; un « = » (CA net, solde) = la différence des montants affichés.
+  const U = useMontantSuivi();
+  const caIds = (ht: number, ids: readonly (number | string)[]) => ({ ht, ttcC: U.lignes(ids).reduce((t, a) => t + caTtcC(a), 0) });
+  const caT = caIds(r.resultat.ca, resume.ids);
+  const caNetT = { ht: r.resultat.caNet, ttcC: U.ttcC(caT) - U.ttcC(ventilation.externes.centimes / 100) - U.ttcC(ventilation.internes.centimes / 100) - U.ttcC(ventilation.collegues.centimes / 100) };
+  const famille = (f: string, ht: number) => ({ ht, ttcC: r.parStatut.filter((p) => FAMILLE_GESTION[p.nature] === f).reduce((t, x) => t + U.ttcC(caIds(x.ca, x.ids)), 0) });
+  const soldeM = (g: number, p: number) => { const ht = g - p; const t = U.ttcC(g) - U.ttcC(p); const sens = U.u === 'ttc' ? t : ht;
+    return U.u === null ? signeEur(ht) : U.m({ ht: Math.abs(ht), ttcC: Math.abs(t) }, { prefixe: sens > 0 ? '+' : sens < 0 ? '−' : '' }); };
+  const moinsM = (x: number) => (x === 0 ? U.m(0) : U.m(x, { prefixe: '−' }));
   const mots = unite === 'mois' ? MOTS_MOIS : { ...MOTS_PERIODE, libelle };
   const [cumulOuvert, setCumulOuvert] = useState<'entrees' | 'sorties' | null>(null);
   const [gliOuvert, setGliOuvert] = useState<'mois' | 'cumul' | null>(null);
@@ -463,32 +481,32 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           <section className="fdm-famille" aria-labelledby={`${idp}-f1`} data-famille="resultat">
             <h4 id={`${idp}-f1`}>{unite === 'mois' ? 'Résultat du mois' : 'Résultat de la période'}</h4>
             <dl className="fdm-cascade-mois">
-              <div className="fdm-fort"><dt>CA HT global</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL CA HT — ${libelle}`, resume.ids)} data-total="ca">{eur(r.resultat.ca)}</button></dd></div>
+              <div className="fdm-fort"><dt>{U.mot('CA HT global')}</dt><dd><button type="button" className="tdb-chiffre" onClick={() => onDetail(`TOTAL ${U.mot('CA HT')} — ${libelle}`, resume.ids)} data-total="ca">{U.m(caT)}</button></dd></div>
               {/* 🔴 Arno (25/10/2026, suite) — les honoraires d'apporteurs VENTILÉS : externes + internes = l'ancien total, au centime. */}
-              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{eur(ventilation.externes.centimes / 100)}</dd></div>
-              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{eur(ventilation.internes.centimes / 100)}</dd></div>
+              <div><dt>− Commissions apporteurs externes</dt><dd data-total="apporteurs-externes">{U.m(ventilation.externes.centimes / 100)}</dd></div>
+              <div><dt>− Commissions apporteurs internes</dt><dd data-total="apporteurs-internes">{U.m(ventilation.internes.centimes / 100)}</dd></div>
               {/* 🔴 Arno (24/10/2026, 419) — affichée même à 0 : la cascade se lit d'un coup d'œil. */}
-              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{eur(ventilation.collegues.centimes / 100)}</dd></div>
-              <div className="fdm-fort fdm-egal"><dt>= CA HT net</dt><dd data-total="ca-net">{eur(r.resultat.caNet)}</dd></div>
+              <div><dt>− Rémunération des collègues sur leurs apporteurs</dt><dd data-total="collegues">{U.m(ventilation.collegues.centimes / 100)}</dd></div>
+              <div className="fdm-fort fdm-egal"><dt>= {U.mot('CA HT net')}</dt><dd data-total="ca-net">{U.m(caNetT)}</dd></div>
             </dl>
           </section>
 
           <section className="fdm-famille" aria-labelledby={`${idp}-f2`} data-famille="statuts">
             <h4 id={`${idp}-f2`}>CA par statut du bien</h4>
             <table className="fdm-mini">
-              <thead><tr><th scope="col">Statut</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <thead><tr><th scope="col">Statut</th><th scope="col">Dossiers</th><th scope="col">{U.mot('CA HT')}</th><th scope="col">Part</th></tr></thead>
               <tbody>
                 {r.parStatut.map((x) => (
                   <tr key={x.nature} data-statut-ca={x.nature}>
                     <th scope="row"><PastilleNature nature={x.nature} /></th>
                     <td data-mot="Dossiers">{x.nb}</td>
-                    <td data-mot="CA HT">{x.nb === 0 ? eur(0) : <button type="button" className="tdb-chiffre" onClick={() => onDetail(`CA — ${LIBELLE_NATURE_BIEN[x.nature]} — ${libelle}`, x.ids)}>{eur(x.ca)}</button>}</td>
+                    <td data-mot={U.mot('CA HT')}>{x.nb === 0 ? U.m(0) : <button type="button" className="tdb-chiffre" onClick={() => onDetail(`CA — ${LIBELLE_NATURE_BIEN[x.nature]} — ${libelle}`, x.ids)}>{U.m(caIds(x.ca, x.ids))}</button>}</td>
                     <td data-mot="Part">{x.part === null ? '—' : pctUn(x.part)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot><tr data-statut-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.parStatut.reduce((s, x) => s + x.nb, 0)}</td>
-                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+                <td data-mot={U.mot('CA HT')}>{U.m(caT)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
             </table>
           </section>
 
@@ -498,7 +516,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           <section className="fdm-famille" aria-labelledby={`${idp}-f4`} data-famille="portefeuille" style={tailleTitrePortefeuille}>
             {/* 🔴 Arno (25/10/2026) — le titre porte le mois, sur UNE ligne (police réduite si besoin, jamais coupé). */}
             <h4 id={`${idp}-f4`} className={unite === 'mois' ? 'fdm-titre-une-ligne' : 'fdm-titre-une-ligne fdm-titre-deux-lignes'} data-titre-portefeuille style={tailleTitrePortefeuille}>
-              <span>{titreMois}</span> <span className="fdm-titre-suite">{TITRE_SUITE}</span></h4>
+              <span>{titreMois}</span> <span className="fdm-titre-suite">{U.mot(TITRE_SUITE)}</span></h4>
             {/* 🔴 Arno (25/10/2026) — UNE seule grille de colonnes pour le mois et « Depuis le 1er janvier » : Gestions | Biens | / mois | / an,
                 au même x en haut et en bas (largeurs fixes), même hauteur de ligne ; le Solde du haut réparti dans ses colonnes. */}
             <table className="fdm-mini fdm-portefeuille">
@@ -506,14 +524,14 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               <thead><tr><th scope="col">Gestions</th><th scope="col">Biens</th><th scope="col">/ mois</th><th scope="col">/ an</th></tr></thead>
               <tbody data-portefeuille-mois>
                 <tr data-portefeuille="gagnes"><th scope="row">Gagnées (entrées)</th><td data-mot="Biens">{r.portefeuille.gagnes.nb}</td>
-                  <td data-mot="/ mois">{eur(r.portefeuille.gagnes.mensuel)}</td><td data-mot="/ an">{eur(r.portefeuille.gagnes.annuel)}</td></tr>
+                  <td data-mot="/ mois">{U.m(r.portefeuille.gagnes.mensuel)}</td><td data-mot="/ an">{U.m(r.portefeuille.gagnes.annuel)}</td></tr>
                 <tr data-portefeuille="perdus"><th scope="row">Perdues (sorties)</th><td data-mot="Biens">{r.portefeuille.perdus.nb}</td>
-                  <td data-mot="/ mois">{r.portefeuille.perdus.mensuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.mensuel)}`}</td>
-                  <td data-mot="/ an">{r.portefeuille.perdus.annuel === 0 ? eur(0) : `−${eur(r.portefeuille.perdus.annuel)}`}</td></tr>
+                  <td data-mot="/ mois">{moinsM(r.portefeuille.perdus.mensuel)}</td>
+                  <td data-mot="/ an">{moinsM(r.portefeuille.perdus.annuel)}</td></tr>
                 <tr data-portefeuille="solde" className={`fdm-pf-solde tdb-signe tdb-signe--${sensSolde(r.portefeuille.solde.mensuel)}`}><th scope="row">Solde</th>
                   <td data-mot="Biens">{r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb >= 0 ? '+' : '−'}{Math.abs(r.portefeuille.gagnes.nb - r.portefeuille.perdus.nb)}</td>
-                  <td data-mot="/ mois" data-total="balance">{signeEur(r.portefeuille.solde.mensuel)}</td>
-                  <td data-mot="/ an" data-total="balance-an">{signeEur(r.portefeuille.solde.annuel)}</td></tr>
+                  <td data-mot="/ mois" data-total="balance">{soldeM(r.portefeuille.gagnes.mensuel, r.portefeuille.perdus.mensuel)}</td>
+                  <td data-mot="/ an" data-total="balance-an">{soldeM(r.portefeuille.gagnes.annuel, r.portefeuille.perdus.annuel)}</td></tr>
                 {r.portefeuille.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet">{r.portefeuille.sansLoyer} bien(s) sans loyer de départ saisi : non comptés (rien n’est inventé).</td></tr>}
                 {/* 🔴 Arno (25/10/2026, 426) — les annexes louées séparément ce mois (après la bascule seulement). */}
                 {r.annexesLouees > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-annexes-louees>{r.annexesLouees} annexe(s) louée(s) séparément : comptées en relocation, pas en nouvelle gestion.</td></tr>}
@@ -524,14 +542,14 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
                 <tr className="fdm-pf-sous-titre"><th colSpan={4} scope="colgroup" className="fdm-cumul-titre"><span className="fdm-titre-bloc fdm-titre-taille" data-sous-titre-portefeuille>{cumulTitre}</span></th></tr>
                 <tr className="fdm-pf-entetes" aria-hidden="true"><th>Gestions</th><th>Biens</th><th>/ mois</th><th>/ an</th></tr>
                 <tr data-cumul="entrees"><th scope="row">Gestions entrées</th><td data-mot="Biens">{cumul.entrees.nb}</td>
-                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{eur(cumul.entrees.mensuel)}</button></td>
-                  <td data-mot="/ an">{eur(cumul.entrees.annuel)}</td></tr>
+                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'entrees'} onClick={() => setCumulOuvert((v) => (v === 'entrees' ? null : 'entrees'))}>{U.m(cumul.entrees.mensuel)}</button></td>
+                  <td data-mot="/ an">{U.m(cumul.entrees.annuel)}</td></tr>
                 <tr data-cumul="sorties"><th scope="row">Gestions sorties</th><td data-mot="Biens">{cumul.sorties.nb}</td>
-                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'sorties'} onClick={() => setCumulOuvert((v) => (v === 'sorties' ? null : 'sorties'))}>{cumul.sorties.mensuel === 0 ? eur(0) : `−${eur(cumul.sorties.mensuel)}`}</button></td>
-                  <td data-mot="/ an">{cumul.sorties.annuel === 0 ? eur(0) : `−${eur(cumul.sorties.annuel)}`}</td></tr>
+                  <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={cumulOuvert === 'sorties'} onClick={() => setCumulOuvert((v) => (v === 'sorties' ? null : 'sorties'))}>{moinsM(cumul.sorties.mensuel)}</button></td>
+                  <td data-mot="/ an">{moinsM(cumul.sorties.annuel)}</td></tr>
                 <tr data-cumul="solde" className={`fdm-pf-solde tdb-signe tdb-signe--${sensSolde(cumul.solde.mensuel)}`}><th scope="row">Solde mensuel</th>
                   <td data-mot="Biens">{cumul.entrees.nb - cumul.sorties.nb >= 0 ? '+' : '−'}{Math.abs(cumul.entrees.nb - cumul.sorties.nb)}</td>
-                  <td data-mot="/ mois">{signeEur(cumul.solde.mensuel)}</td><td data-mot="/ an">{signeEur(cumul.solde.annuel)}</td></tr>
+                  <td data-mot="/ mois">{soldeM(cumul.entrees.mensuel, cumul.sorties.mensuel)}</td><td data-mot="/ an">{soldeM(cumul.entrees.annuel, cumul.sorties.annuel)}</td></tr>
                 {cumul.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-cumul-sans-loyer>{cumul.sansLoyer} bien(s) sans loyer de départ saisi {unite === 'mois' ? 'depuis le 1er janvier' : 'depuis le début'} : non comptés.</td></tr>}
                 <LigneGli g={gliCumul} portee="cumul" ouvert={gliOuvert} onOuvrir={setGliOuvert} />
               </tbody>
@@ -548,9 +566,9 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
                     <span><span>{gr.lotId !== null ? <a href={`/admin/location/bien/${gr.lotId}`}>{gr.libelle}</a> : gr.libelle}
                       <BulleAnnexes annexes={gr.annexes} repere={gr.lotId ?? undefined}
                         note={gr.principalAbsent ? 'Le lot principal n’a pas bougé ce mois-là : seule son annexe figure ici.' : null}
-                        extra={(a) => <span className="anx-bulle-extra">{a.ligne.annexeNonComptee ? ' — annexe non comptée' : ''}{gr.principal !== null && a.ligne.mensuel !== null ? ` — ${eur(a.ligne.mensuel)} / mois (inclus)` : ''}</span>} /></span>
+                        extra={(a) => <span className="anx-bulle-extra">{a.ligne.annexeNonComptee ? ' — annexe non comptée' : ''}{gr.principal !== null && a.ligne.mensuel !== null ? <> — {U.m(a.ligne.mensuel)} / mois (inclus)</> : ''}</span>} /></span>
                       <small>{NOMS_MOIS[Number(x.mois.slice(5, 7)) - 1]} {x.mois.slice(0, 4)}</small></span>
-                    <span>{mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : `${eur(mensuel)} / mois`}</span>
+                    <span>{mensuel === null ? <span className="loc-muet">sans loyer — non compté</span> : <>{U.m(mensuel)} / mois</>}</span>
                   </li>);
                 })}
                 {(cumulOuvert === 'entrees' ? cumul.entrees.biens : cumul.sorties.biens).length === 0 && <li className="loc-muet">Aucun bien.</li>}
@@ -561,18 +579,18 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           <section className="fdm-famille" aria-labelledby={`${idp}-f3`} data-famille="gestion">
             <h4 id={`${idp}-f3`}>Honoraires avec / sans gestion</h4>
             <table className="fdm-mini">
-              <thead><tr><th scope="col">Location</th><th scope="col">Dossiers</th><th scope="col">CA HT</th><th scope="col">Part</th></tr></thead>
+              <thead><tr><th scope="col">Location</th><th scope="col">Dossiers</th><th scope="col">{U.mot('CA HT')}</th><th scope="col">Part</th></tr></thead>
               <tbody>
-                <tr data-gestion-ca="avec"><th scope="row">Avec gestion</th><td data-mot="Dossiers">{r.gestion.avec.nb}</td><td data-mot="CA HT" data-total="avec">{eur(r.gestion.avec.ca)}</td>
+                <tr data-gestion-ca="avec"><th scope="row">Avec gestion</th><td data-mot="Dossiers">{r.gestion.avec.nb}</td><td data-mot={U.mot('CA HT')} data-total="avec">{U.m(famille('avec', r.gestion.avec.ca))}</td>
                   <td data-mot="Part">{r.gestion.avec.part === null ? '—' : pctUn(r.gestion.avec.part)}</td></tr>
-                <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot="CA HT" data-total="sans">{eur(r.gestion.sans.ca)}</td>
+                <tr data-gestion-ca="sans"><th scope="row">Sans gestion</th><td data-mot="Dossiers">{r.gestion.sans.nb}</td><td data-mot={U.mot('CA HT')} data-total="sans">{U.m(famille('sans', r.gestion.sans.ca))}</td>
                   <td data-mot="Part">{r.gestion.sans.part === null ? '—' : pctUn(r.gestion.sans.part)}</td></tr>
                 {/* 🔴 Arno (27/10/2026) — les lignes « À qualifier » (le même statut que leur badge et que « CA par statut du bien »). */}
-                <tr data-gestion-ca="a_qualifier"><th scope="row">À qualifier</th><td data-mot="Dossiers">{r.gestion.aQualifier.nb}</td><td data-mot="CA HT" data-total="a_qualifier">{eur(r.gestion.aQualifier.ca)}</td>
+                <tr data-gestion-ca="a_qualifier"><th scope="row">À qualifier</th><td data-mot="Dossiers">{r.gestion.aQualifier.nb}</td><td data-mot={U.mot('CA HT')} data-total="a_qualifier">{U.m(famille('a_qualifier', r.gestion.aQualifier.ca))}</td>
                   <td data-mot="Part">{r.gestion.aQualifier.part === null ? '—' : pctUn(r.gestion.aQualifier.part)}</td></tr>
               </tbody>
               <tfoot><tr data-gestion-ca="total"><th scope="row">Total</th><td data-mot="Dossiers">{r.gestion.avec.nb + r.gestion.sans.nb + r.gestion.aQualifier.nb}</td>
-                <td data-mot="CA HT">{eur(r.resultat.ca)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
+                <td data-mot={U.mot('CA HT')}>{U.m(caT)}</td><td data-mot="Part">{r.resultat.ca === 0 ? '—' : '100 %'}</td></tr></tfoot>
             </table>
           </section>
 
@@ -584,7 +602,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               montant (vert, gras), « (69,8 %) » et le chevron ; déplié, la cascade inchangée (ses « i » ne replient rien). */}
           {(d.voirCommissions || d.voirResultatNet === true) && (
             <BlocReplie id={`${idp}-f6`} section="resultat-net" classe="fdm-famille fdm-famille--large" niveau="h4" defilement={false}
-              donnees={{ 'data-famille': 'resultat-net' }} titre={<>Résultat net de l’agence — {libelle}</>} resume={<ResumeResultatNet x={resume.net} />}
+              donnees={{ 'data-famille': 'resultat-net' }} titre={<>Résultat net de l’agence — {libelle}</>} resume={<ResumeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} />}
               /* 🔴 Arno (26/10/2026) — le triangle à GAUCHE du titre, exactement comme les lignes « Négociateur » en dessous. */
               chevronAGauche>
               <CascadeResultatNet x={resume.net} dossiers={dossiersCascade(resume.dossiers)} mots={mots} />
@@ -602,8 +620,8 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
               {/* Plusieurs négociateurs (administrateur) : les primes et les rétrocessions de tous, comme avant. */}
               {d.voirCommissions && resume.negociateurs.length > 1 && (
                 <dl className="fdm-cascade-mois fdm-famille">
-                  <div><dt>Primes de gestion — tous négociateurs</dt><dd data-total="primes">{eur(r.primes)}</dd></div>
-                  <div><dt>Rétrocessions — tous négociateurs</dt><dd data-total="retrocessions">{eur(r.retrocessions)}</dd></div>
+                  <div><dt>Primes de gestion — tous négociateurs</dt><dd data-total="primes">{U.m(r.primes)}</dd></div>
+                  <div><dt>Rétrocessions — tous négociateurs</dt><dd data-total="retrocessions">{U.m(r.retrocessions)}</dd></div>
                 </dl>
               )}
             </div>
@@ -614,7 +632,7 @@ export function ResumePeriode({ d, resume, unite, libelle, idp, moisCascade, cum
           <p key={i} className="fdm-ecart" data-ecart-fichier={e.champ}
             title={e.champ === 'commission' && !d.voirCommissions ? undefined : `${LIBELLE_CHAMP[e.champ]} — fichier : ${eur(e.fichier)} · outil (calcul juste) : ${eur(e.outil)}`}>
             <span className="fdm-ecart-mot">Écart avec le fichier, expliqué</span> {e.libelle}.
-            {!(e.champ === 'commission' && !d.voirCommissions) && <span className="fdm-ecart-montants"> ({LIBELLE_CHAMP[e.champ]} : fichier {eur(e.fichier)} · outil {eur(e.outil)})</span>}</p>
+            {!(e.champ === 'commission' && !d.voirCommissions) && <span className="fdm-ecart-montants"> ({LIBELLE_CHAMP[e.champ]} : fichier {U.m(e.fichier)} · outil {U.m(e.outil)})</span>}</p>
         ))}
       </section>
   );
@@ -939,13 +957,14 @@ const cartes = (t: string): string => `
  */
 function LigneGli({ g, portee, ouvert, onOuvrir }: { g: GliPeriode; portee: 'mois' | 'cumul'; ouvert: 'mois' | 'cumul' | null; onOuvrir: (v: 'mois' | 'cumul' | null) => void }) {
   const basculer = (): void => onOuvrir(ouvert === portee ? null : portee);
+  const U = useMontantSuivi(); // 🔴 LOT LO2 — l'unité du Suivi annuel (sans unité : comme avant)
   const attr = portee === 'mois' ? { 'data-portefeuille': 'gli' } : { 'data-cumul': 'gli' };
   return (
     <>
       <tr {...attr} className="fdm-pf-gli">
         <th scope="row">Nouvelle GLI Garantme</th><td data-mot="Biens">{g.nb}</td>
-        <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir={portee} onClick={basculer}>{eur(g.mensuel)}</button></td>
-        <td data-mot="/ an"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir-an={portee} onClick={basculer}>{eur(g.annuel)}</button></td>
+        <td data-mot="/ mois"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir={portee} onClick={basculer}>{U.m(g.mensuel)}</button></td>
+        <td data-mot="/ an"><button type="button" className="tdb-chiffre" aria-expanded={ouvert === portee} data-gli-ouvrir-an={portee} onClick={basculer}>{U.m(g.annuel)}</button></td>
       </tr>
       {g.sansLoyer > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-gli-sans-loyer={portee}>{g.sansLoyer} GLI sans loyer charges comprises : non comptées</td></tr>}
       {g.sansMarge > 0 && <tr className="fdm-pf-note"><td colSpan={4} className="loc-muet" data-gli-sans-marge={portee}>{g.sansMarge} GLI antérieure(s) à toute marge GLI enregistrée : gain non compté</td></tr>}
@@ -955,6 +974,7 @@ function LigneGli({ g, portee, ouvert, onOuvrir }: { g: GliPeriode; portee: 'moi
 
 function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
   const dateFr = (iso: string): string => iso.split('-').reverse().join('/');
+  const U = useMontantSuivi(); // 🔴 LOT LO2
   return (
     <ul className="fdm-cumul-biens fdm-gli-liste" data-gli-liste aria-label={titre}>
       {g.gli.map((x) => (
@@ -962,8 +982,8 @@ function ListeGli({ g, titre }: { g: GliPeriode; titre: string }) {
           <span>{x.lotId !== null ? <a href={`/admin/location/bien/${x.lotId}`}>{x.bien}</a> : x.bien}
             <small>{x.locataire} · GLI du {dateFr(x.date)}</small></span>
           <span>{x.loyerCc === null ? <span className="loc-muet">sans loyer CC — non comptée</span> : <>
-            <span data-mot="Loyer CC">{eur(x.loyerCc)} CC</span>{' × '}<span data-mot="Marge">{x.marge === null ? 'marge —' : margeFr(x.marge)}</span>{' = '}
-            <strong data-mot="Gain / mois">{x.gainMensuel === null ? '—' : `${eur(x.gainMensuel)} / mois`}</strong></>}</span>
+            <span data-mot="Loyer CC">{U.m(x.loyerCc)} CC</span>{' × '}<span data-mot="Marge">{x.marge === null ? 'marge —' : margeFr(x.marge)}</span>{' = '}
+            <strong data-mot="Gain / mois">{x.gainMensuel === null ? '—' : <>{U.m(x.gainMensuel)} / mois</>}</strong></>}</span>
         </li>))}
       {g.gli.length === 0 && <li className="loc-muet">Aucune GLI.</li>}
     </ul>

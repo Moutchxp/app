@@ -195,6 +195,14 @@ export function ecrireAdresseListe(nom: string, valeurs: readonly string[]): voi
 }
 
 /** Les classes propres à la tuile (les autres viennent du Suivi de la Location : `tdb-*`, `loc-*`). Jetons de couleur seulement. */
+/** 🔴 LOT LO2 — les styles du sélecteur « HT | TTC » (`BoutonAffichage`), à part : le Suivi annuel de la Location les prend aussi. */
+export const CSS_BOUTON_AFFICHAGE = `.trx-unites{display:inline-flex;gap:0;align-self:flex-start;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
+.trx-unite{appearance:none;min-width:56px;min-height:44px;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer;padding:0 12px}
+.trx-unite + .trx-unite{border-left:1px solid var(--color-svv-line-strong)}
+.trx-unite[aria-pressed='true']{background:var(--color-svv-ink);color:var(--color-svv-surface)}
+.trx-unite:disabled{opacity:.5;cursor:not-allowed}
+.trx-unite:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+`;
 export const CSS_TRANSACTION = `
 ${CSS_TRIANGLE}
 ${CSS_TRIANGLE_BOITE}
@@ -530,12 +538,7 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 .trx-montant-unite{display:flex;flex-direction:column;gap:4px;min-width:0}
 .trx-montant-unite label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;color:var(--color-svv-muted)}
 .trx-montant-unite input{min-height:44px;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:.95rem;font-weight:400;color:var(--color-svv-ink);background:var(--color-svv-surface);width:100%;box-sizing:border-box}
-.trx-unites{display:inline-flex;gap:0;align-self:flex-start;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
-.trx-unite{appearance:none;min-width:56px;min-height:44px;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer;padding:0 12px}
-.trx-unite + .trx-unite{border-left:1px solid var(--color-svv-line-strong)}
-.trx-unite[aria-pressed='true']{background:var(--color-svv-ink);color:var(--color-svv-surface)}
-.trx-unite:disabled{opacity:.5;cursor:not-allowed}
-.trx-unite:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+${CSS_BOUTON_AFFICHAGE}
 .trx-negociateur-commission{font-size:.88rem}
 /* LOT K — « Pour cette vente, il travaille pour : CRITERIMMO / MACJ » (collaborateur des deux sociétés). */
 .trx-societe-vente{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
