@@ -127,6 +127,15 @@ export function lireRetro(brut: unknown): Lu<RetroSaisie> {
   return { ok: true, valeur: { societe: c.societe, annee, mois, negociateur: n, montantTtc: m, apporteur: texte(c.apporteur), venteId: vid } };
 }
 
+/** 🔴 LOT LO11 — les salaires chargés de la Location d'un mois (HT, sans TVA) : un montant (vide : non saisi) et une note. */
+export function lireSalairesLocationSaisie(brut: unknown): Lu<{ salairesHt: number | null; note: string | null }> {
+  const c = (brut ?? {}) as Record<string, unknown>;
+  const m = montant(c.salairesHt);
+  if (m === undefined) return refus('Montant illisible.');
+  if (m !== null && m < 0) return refus('Les salaires ne peuvent pas être négatifs.');
+  return { ok: true, valeur: { salairesHt: m, note: texte(c.note) } };
+}
+
 export function lireGestion(brut: unknown): Lu<GestionSaisie> {
   const c = (brut ?? {}) as Record<string, unknown>;
   const lots = entier(c.nbLots, 0, 100000);

@@ -134,6 +134,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 444 : le statut d'un négociateur SANS compte, par libellé des fichiers (Transaction, LOT BX, 30/10/2026).
   // 445 : le prénom et le nom d'un négociateur sans compte (Transaction, LOT CG, 31/10/2026).
   // 446 : le coût MONGA HT de la gestion du mois (Transaction › Gestion, LOT GE3, 31/10/2026).
+  // 447 : les salaires chargés de la Location, mois par mois (Suivi CA › Location, LOT LO11, 01/11/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -157,7 +158,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '437_transaction_commissions_unite.sql', '438_transaction_societe_les_deux.sql',
     '439_admin_statut_compte.sql', '440_transaction_inter_cabinet.sql', '441_admin_commissionne.sql',
     '442_transaction_mode_commission.sql', '443_transaction_personne_type.sql', '444_transaction_negociateur_statut.sql',
-    '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql'];
+    '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql', '447_transaction_location_salaires.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -170,7 +171,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 446 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 447 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -180,14 +181,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (447)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (448)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(446\)/);
-    const renumerotee = planifier([...existants, { fichier: '447_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(447\)/);
+    const renumerotee = planifier([...existants, { fichier: '448_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['447_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['448_permis_emprise_numero_reveil.sql']);
   });
 });
 

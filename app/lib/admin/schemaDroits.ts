@@ -151,6 +151,10 @@ export function personneTypeDisponible(): Promise<boolean> {
  * 🔴 LOT GE3 — la migration 446 (le coût MONGA HT de la gestion du mois) est-elle appliquée ? Sans elle : MONGA vaut 0 partout, la saisie d'un
  * MONGA est refusée (motif clair, rien n'est écrit).
  */
+/** 🔴 LOT LO11 — les salaires chargés de la Location, mois par mois (migration 447). */
+export function salairesLocationDisponible(): Promise<boolean> {
+  return memoiser('transaction_location_salaires_mois.salaires_ht', () => colonneExiste('transaction_location_salaires_mois', 'salaires_ht'));
+}
 export function mongaDisponible(): Promise<boolean> {
   return memoiser('transaction_gestion_mois.monga_ht', () => colonneExiste('transaction_gestion_mois', 'monga_ht'));
 }

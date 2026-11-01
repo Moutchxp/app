@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
@@ -8,14 +8,16 @@ import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, type DecoupageAnnee
 import { libellePeriode, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
 import { correspond, CLE_TRI_LISTE, estTriListe, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, type TriListe } from '../../../../lib/transaction/listeCartes';
 import {
-  anneesLocation, apporteursLocation, COMPTER_LOCATION, espaceLocation, estCompterLocation, ficheRechercheLocation, filtrerLocation, historiqueLocation, LIBELLE_COMPTER_LOCATION,
-  lignesDesAnnees, lignesDesMois, negociateursLocation, titreBail, totauxLocation, trierLocation, type CompterLocation, type LigneLocationCa, type TotauxLocationCa,
+  anneesLocation, apporteursLocation, COMPTER_LOCATION, espaceLocation, estCompterLocation, ficheRechercheLocation, filtrerLocation, LIBELLE_COMPTER_LOCATION,
+  coutsLocation, lignesDesAnnees, moinsC as moinsM, lignesDesMois, negociateursLocation, salairesLocationDuMois, titreBail, totauxLocation, trierLocation, type CompterLocation, type CoutsLocation,
+  type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa,
 } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
-import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { Journal } from './FormulaireVente';
 import { CSS, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
@@ -31,9 +33,27 @@ import { useColonnesNegociateurs } from './OngletCompromis';
  * Quatre tuiles : CA brut (honoraires propriétaire + locataire), Baux signés, Primes et rétrocessions versées (primes de nouvelle gestion + commissions
  * des apporteurs), CA net (CA brut − primes − rétrocessions) — la tuile 4 = la tuile 1 − la tuile 3, au centime, en HT et en TTC.
  */
-interface DonneesLocationCa { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[] }
+interface DonneesLocationCa { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[];
+  /** 🔴 LOT LO11 — les rétrocessions des négociateurs (le variable du mois) et les salaires chargés saisis (447 ; null sans elle). */
+  retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null }
 
-const EXPLICATION = { ca: 'honoraires de location encaissés', couts: 'primes de nouvelle gestion et commissions d’apporteurs', net: 'CA − primes et rétrocessions versées' } as const;
+/**
+ * ══ 🔴 LOT LO11 (règle d'Arno) — LES COÛTS DE LA LOCATION, MOIS PAR MOIS, PARTOUT SUR LA PAGE ═════════════════════════════════════════════════
+ * Le contexte des coûts : les rétrocessions (le variable) et les salaires chargés saisis. Un filtre (« Compter » ≠ Tous, un négociateur choisi) : les
+ * salaires, qui ne se rattachent à aucun bail, ne sont pas comptés (règle « sans salaires ») ; les rétrocessions suivent le négociateur.
+ */
+interface CtxCouts { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null; filtre: boolean;
+  /** La saisie des salaires d'un mois (la 447 appliquée) ; null : non disponible. */
+  onSaisir: ((m: MoisChoisi) => void) | null }
+const ContexteCouts = createContext<CtxCouts>({ retros: [], salaires: null, filtre: false, onSaisir: null });
+/** Les totaux d'un ensemble de mois à la règle : ceux de la page (CA, primes, apporteurs…) et, à la règle, les coûts et le CA net ; `c` : le détail. */
+type TotauxRegle = TotauxLocationCa & { c: CoutsLocation };
+function useTotaux(): (ls: readonly LigneLocationCa[], ms: readonly MoisChoisi[]) => TotauxRegle {
+  const x = useContext(ContexteCouts);
+  return (ls, ms) => { const t = totauxLocation(lignesDesMois(ls, ms)); const c = coutsLocation(ls, ms, x.retros, x.salaires); return { ...t, couts: c.couts, net: c.net, c }; };
+}
+
+const EXPLICATION = { ca: 'honoraires de location encaissés', couts: 'apporteurs, primes et variable — ou salaires chargés', net: 'CA brut − coûts' } as const;
 const SANS_SUIVI = 'Le Suivi de la Location n’est pas disponible sur cette base (migration 406) : aucune ligne à lire.';
 type Mesure = 'ca' | 'net' | 'nombre';
 const MESURES: readonly { cle: Mesure; mot: string }[] = [{ cle: 'ca', mot: 'CA' }, { cle: 'net', mot: 'CA net' }, { cle: 'nombre', mot: 'Nombre de baux' }];
@@ -46,7 +66,8 @@ const compterInitial = (): CompterLocation => { const x = parametre('compter'); 
 
 export function EcranLocationCA() {
   const jour = aujourdhuiParis();
-  const { lu } = useTransaction<DonneesLocationCa>('vue=location');
+  const { lu, relire } = useTransaction<DonneesLocationCa>('vue=location');
+  const [saisie, setSaisie] = useState<MoisChoisi | null>(null);
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
   const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour, { anneeParDefaut: true }); // 🔴 LOT LO7 — sans vue du mois dans l'adresse : « Année »
   const [compter, setCompter] = useState<CompterLocation>(compterInitial);
@@ -74,6 +95,11 @@ export function EcranLocationCA() {
   const choisis = negociateurs.map((n) => personnes.find((p) => p.nom === n)).filter((p): p is { cle: string; nom: string } => p !== undefined).slice(0, MAX_NEGOCIATEURS);
   const filtrees = filtrerLocation(d.lignes, compter, choisis.length === 0 ? null : choisis.map((c) => c.cle));
   const series = choisis.length >= 2 ? choisis.map((c, i) => ({ nom: c.nom, couleur: i + 1, lignes: filtrerLocation(d.lignes, compter, [c.cle]) })) : null;
+  // 🔴 LOT LO11 — le contexte des coûts (voir `CtxCouts`)
+  const filtre = compter !== 'tous' || choisis.length > 0;
+  const ctxCouts: CtxCouts = { filtre, salaires: filtre ? null : d.salaires ?? null,
+    retros: compter !== 'tous' ? [] : (d.retrocessions ?? []).filter((r) => choisis.length === 0 || choisis.some((c) => c.cle === r.negociateurCle)),
+    onSaisir: d.salaires === undefined || d.salaires === null ? null : setSaisie };
   const champsCommuns = <>
     <div className="tdb-champ">Négociateur
       <FiltreNegociateurs personnes={personnes.map((p) => p.nom)} choisis={choisis.map((c) => c.nom)} onChange={setNegociateurs} /></div>
@@ -93,7 +119,8 @@ export function EcranLocationCA() {
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">L’année</button>
         </div>
       </div>
-      <FournisseurAffichage value={unite}>
+      <FournisseurAffichage value={unite}><ContexteCouts.Provider value={ctxCouts}>
+      {filtre && <p className="loc-muet" role="note" data-filtre-salaires>Filtre actif : les salaires chargés (qui ne se rattachent à aucun bail) ne sont pas comptés ; primes et variable sont déduits.</p>}
       {vue === 'mois' ? <>
         <form className="tdb-filtres" aria-label="Filtres" onSubmit={(x) => x.preventDefault()}>
           <label className="tdb-champ">Année
@@ -118,7 +145,9 @@ export function EcranLocationCA() {
           onAnneeSeule={(a) => { setRefusAnnees(false); setChoixAnnees({ decoupage: 'annee', annees: [a], annee: a }); }}
           onOuvrirMois={(a, m) => { setAnneeEntiere(false); setPeriode(null); setAnnee(a); setMois(m); setVue('mois'); }} />
       </>}
-      </FournisseurAffichage>
+      </ContexteCouts.Provider></FournisseurAffichage>
+      {saisie !== null && <SaisieSalairesLocation annee={saisie.annee} mois={saisie.mois} actuelle={(d.salaires ?? []).find((x) => x.annee === saisie.annee && x.mois === saisie.mois) ?? null}
+        onFermer={() => setSaisie(null)} onFait={() => { setSaisie(null); relire(); }} onRelire={relire} />}
     </div>
   );
 }
@@ -174,16 +203,20 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
   const listes = useRef<HTMLDivElement | null>(null);
   useColonnesNegociateurs(listes);
   const periode = lignesDesMois(lignes, ms);
-  const T = totauxLocation(periode);
+  const tot = useTotaux();
+  const T = tot(lignes, ms);
+  const ctxC = useContext(ContexteCouts);
+  // 🔴 LOT LO11 — les coûts des fenêtres : la tuile et chaque mois de la période (sa règle)
+  const coutsF = { total: T.c, mois: ms.map((m) => ({ m, c: coutsLocation(lignes, [m], ctxC.retros, ctxC.salaires) })) };
   const ms1 = unAnPlusTot(ms);
-  const T1 = totauxLocation(lignesDesMois(lignes, ms1));
+  const T1 = tot(lignes, ms1);
   const anneesN1 = [...new Set(ms1.map((m) => m.annee))];
   // sans année précédente : aucune ligne du Suivi (tous filtres confondus) sur ces années
   const sansN1 = !toutes.some((l) => anneesN1.includes(l.annee));
   const enN1 = anneesN1.length === 1 ? `en ${anneesN1[0]}` : 'un an plus tôt';
   const motSansN1 = `${anneesN1.join(', ')} : aucune location au Suivi`;
   const n1 = (c: MontantC, c1: MontantC): string => (toutesAnnees !== null ? toutesAnnees : sansN1 ? motSansN1 : `${eur(U.en(c1))} ${enN1} (${signePct(variation(c.htC, c1.htC))})`);
-  const cumul = borne === null ? null : totauxLocation(lignesDesMois(lignes, Array.from({ length: borne.fin }, (_, i) => ({ annee, mois: i + 1 }))));
+  const cumul = borne === null ? null : tot(lignes, Array.from({ length: borne.fin }, (_, i) => ({ annee, mois: i + 1 })));
   const motCumul = borne === null ? '' : `cumul ${annee} ${borne.mot.startsWith('à fin') ? borne.mot : `(${borne.mot})`}`;
   const explication = (t: string) => <small className="trx-tuile-explication" data-tuile-explication-location>{t}</small>;
   const autre = (m: MontantC) => <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>({U.autre(m)})</small>;
@@ -224,9 +257,11 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
           ? `dont ${[T.nbGestionSeule > 0 ? `${T.nbGestionSeule} mandat${T.nbGestionSeule > 1 ? 's' : ''} de gestion seul${T.nbGestionSeule > 1 ? 's' : ''}` : '', T.nbAvenants > 0 ? `${T.nbAvenants} avenant${T.nbAvenants > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')}` : ' '}</small>
         <span className="tdb-tuile-n1" data-tuile-n1="location-baux">{toutesAnnees !== null ? toutesAnnees : sansN1 ? motSansN1 : `${T1.nb} ${enN1}`}</span></div></li>
       <li><button type="button" className="tdb-tuile" data-tuile="location-couts" aria-haspopup="dialog" aria-expanded={fenetre === 'couts'} ref={tuileCouts} onClick={() => setFenetre('couts')}>
-        <span className="tdb-tuile-mot">Primes et rétrocessions versées — {lib}{explication(EXPLICATION.couts)}</span>
+        <span className="tdb-tuile-mot">Coûts — {lib}{explication(EXPLICATION.couts)}</span>
         <strong className={`tdb-tuile-valeur ${classeSens('verse', T.couts.htC, T.couts.ttcC)}`} data-location-couts>{eur(U.en(T.couts))}</strong>{autre(T.couts)}
-        <span className="tdb-tuile-n1" data-location-couts-detail>primes {eur(U.en(T.primes))} · apporteurs {eur(U.en(T.apporteurs))}</span>
+        {/* 🔴 LOT LO11 — les familles : ce qui est déduit ; les primes et le variable des mois avec salaires : « inclus dans les salaires » */}
+        <span className="tdb-tuile-n1" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(T.c.variableDeduit))} · salaires {eur(U.en(T.c.salaires))}
+          {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(T.c.variable, T.c.variableDeduit)))} inclus dans les salaires</span>}</span>
         <span className="tdb-tuile-n1" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="couts">Voir le détail</span></button></li>
       <li><button type="button" className="tdb-tuile" data-tuile="location-net" aria-haspopup="dialog" aria-expanded={fenetre === 'net'} ref={tuileNet} onClick={() => setFenetre('net')}>
@@ -237,12 +272,20 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
         <span className="tdb-tuile-n1" data-tuile-n1="location-net">{n1(T.net, T1.net)}</span>
         <span className="tdb-tuile-n1 trx-tuile-voir" data-voir-detail-location="net">Voir le détail</span></button></li>
     </ul>
-    {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }} />}
-    {fenetre === 'net' && <FenetreNetLocation lignes={periode} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }} />}
+    {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }} />}
+    {fenetre === 'net' && <FenetreNetLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileNet.current?.focus(); }} />}
 
     {graphe.sorte === 'mois'
       ? <GrapheLocationMois lignes={lignes} toutes={toutes} jour={jour} annee={annee} g={graphe} series={series} />
       : <GrapheLocationAnnees lignes={lignes} jour={jour} annee={annee} g={graphe} series={series} toutesAnnees={toutesAnnees} />}
+
+    {/* 🔴 LOT LO11 — le tableau mois par mois (L'année : année par année), juste sous le graphique, comme la Gestion */}
+    <section className="tdb-section" aria-labelledby="trx-tableau-location" data-bloc="tableau-location">
+      <TableauLocation lignes={lignes} rangees={historique !== null && toutesAnnees !== null ? historique.annees.map((a) => ({ cle: String(a), libelle: String(a), ms: douzeMoisDe(a), mois: null }))
+        : historique !== null ? [...new Set(ms.map((m) => m.annee))].map((a) => ({ cle: String(a), libelle: String(a), ms: douzeMoisDe(a), mois: null }))
+        : douzeMoisDe(annee).map((m) => ({ cle: `${m.annee}-${m.mois}`, libelle: NOMS_MOIS[m.mois - 1], ms: [m], mois: m }))}
+        titre={historique !== null ? 'Année par année' : `${annee} mois par mois`} annee={annee} />
+    </section>
 
     <div ref={listes} className="trx-listes-mois">
       <ListeBaux lignes={periode} titre={`Les baux de ${libComplet}`} />
@@ -255,7 +298,8 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, borne, 
 
     <BlocReplie id="trx-negos-location" section="negociateurs-location" titre={<>Espace par négociateur — {libComplet}</>} resume={`${espaceLocation(periode).length} négociateur(s)`}
       donnees={{ 'data-bloc': 'negociateurs-location' }}>
-      <EspaceLocation lignes={periode} T={T} />
+      {/* 🔴 LOT LO11 — l'Espace par négociateur garde sa définition (CA − primes − apporteurs, par négociateur) : ses totaux sont ceux des baux */}
+      <EspaceLocation lignes={periode} T={totauxLocation(periode)} />
     </BlocReplie>
 
     <section className="tdb-section" aria-labelledby="trx-apporteurs-location" data-bloc="apporteurs-location">
@@ -296,17 +340,18 @@ const motMesure = (m: Mesure, MOT: string): string => (m === 'nombre' ? 'nombre 
 function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes: readonly LigneLocationCa[]; toutes: readonly LigneLocationCa[]; jour: string; annee: number;
   g: Extract<Graphe, { sorte: 'mois' }>; series: readonly { nom: string; couleur: number; lignes: LigneLocationCa[] }[] | null }) {
   const U = useEnUnite();
+  const tot = useTotaux(); // 🔴 LOT LO11 — le CA net à la règle (mois par mois)
   const [mesure, setMesure] = useMesure();
   const [cumul, setCumul] = useState(false);
   const dernier = moisADate(annee, jour);
   const sansN1 = !toutes.some((l) => l.annee === annee - 1);
   const pt = (ls: readonly LigneLocationCa[], a: number, k: number): TotauxLocationCa =>
-    totauxLocation(lignesDesMois(ls, cumul ? Array.from({ length: k }, (_, i) => ({ annee: a, mois: i + 1 })) : [{ annee: a, mois: k }]));
+    tot(ls, cumul ? Array.from({ length: k }, (_, i) => ({ annee: a, mois: i + 1 })) : [{ annee: a, mois: k }]);
   const info = (k: number): InfoBarre => {
     const titre = `${cumul ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`}${k > dernier ? ' — à venir' : ''}`;
     return infoLocation(titre, mesure, U, String(annee), pt(lignes, annee, k), sansN1 ? null : String(annee - 1), sansN1 ? null : pt(lignes, annee - 1, k), `${annee - 1} : aucune location au Suivi`);
   };
-  const parMois = (ls: readonly LigneLocationCa[], a: number): number[] => Array.from({ length: 12 }, (_, i) => valeurDe(totauxLocation(lignesDesMois(ls, [{ annee: a, mois: i + 1 }])), mesure, U.en));
+  const parMois = (ls: readonly LigneLocationCa[], a: number): number[] => Array.from({ length: 12 }, (_, i) => valeurDe(tot(ls, [{ annee: a, mois: i + 1 }]), mesure, U.en));
   const vals = parMois(lignes, annee); const vals1 = parMois(lignes, annee - 1);
   const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
   const choisi = g.moisChoisis !== null ? (g.moisChoisis.length === 0 ? 0 : borneCumul('periode', annee, g.mois, g.moisChoisis, jour).fin) : g.mois;
@@ -344,11 +389,12 @@ function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes
 function GrapheLocationAnnees({ lignes, jour, annee, g, series, toutesAnnees }: { lignes: readonly LigneLocationCa[]; jour: string; annee: number;
   g: Extract<Graphe, { sorte: 'annees' }>; series: readonly { nom: string; couleur: number; lignes: LigneLocationCa[] }[] | null; toutesAnnees: string | null }) {
   const U = useEnUnite();
+  const tot = useTotaux(); // 🔴 LOT LO11 — le CA net à la règle (mois par mois)
   const [mesure, setMesure] = useMesure();
   const [cumul, setCumul] = useState(false);
   const enCours = Number(jour.slice(0, 4));
   const { annees } = g;
-  const de = (ls: readonly LigneLocationCa[], as: readonly number[]): TotauxLocationCa => totauxLocation(lignesDesAnnees(ls, as));
+  const de = (ls: readonly LigneLocationCa[], as: readonly number[]): TotauxLocationCa => tot(ls, moisDesAnnees(as));
   const pt = (ls: readonly LigneLocationCa[], a: number): TotauxLocationCa => (cumul ? de(ls, annees.filter((x) => x <= a)) : de(ls, [a]));
   const info = (a: number): InfoBarre => {
     const avant = toutesAnnees === null && annees.includes(a - 1);
@@ -487,16 +533,117 @@ export function CarteBail({ l, ouvertInitial = false }: { l: LigneLocationCa; ou
 }
 
 /** « Résultat de la location » : CA brut − primes − rétrocessions = CA net (la trame des sommes). */
-function ResultatLocation({ T }: { T: TotauxLocationCa }) {
+function ResultatLocation({ T }: { T: TotauxRegle }) {
   const MOT = MOT_UNITE[useAffichage()];
   const m = (x: MontantC) => ({ ht: x.htC / 100, ttc: x.ttcC / 100 });
+  const c = T.c;
+  // 🔴 LOT LO11 — les primes et le variable des mois avec salaires : montrés, « inclus dans les salaires », non déduits
+  const inclus = (tout: MontantC, deduit: MontantC): ReactNode => (tout.htC === deduit.htC ? null
+    : <small className="loc-muet" data-inclus-salaires> (dont {eur((MOT === 'TTC' ? tout.ttcC - deduit.ttcC : tout.htC - deduit.htC) / 100)} inclus dans les salaires)</small>);
   return (
     <dl className="trx-resultat" data-resultat-location>
       <dt>CA brut ({MOT})</dt><dd><Mt {...m(T.ca)} donnees={{ 'data-resultat-ca': '' }} /></dd>
-      <dt>− Primes de nouvelle gestion ({MOT})</dt><dd><Mt {...m(T.primes)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
       <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
+      <dt>− Primes de nouvelle gestion ({MOT}){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
+      <dt>− Variable du négociateur (sans TVA){inclus(c.variable, c.variableDeduit)}</dt><dd><Mt {...m(c.variableDeduit)} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
+      <dt>− Salaires chargés (sans TVA)</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd>
       <dt className="trx-total">= CA net ({MOT})</dt><dd className="trx-total trx-vert"><Mt {...m(T.net)} donnees={{ 'data-resultat-net': '' }} /></dd>
     </dl>
+  );
+}
+
+const douzeMoisDe = (annee: number): MoisChoisi[] => Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 }));
+const LIBELLE_SALAIRES_LOCATION = 'Salaires chargés';
+
+/**
+ * ══ 🔴 LOT LO11 — « [année] mois par mois » (L'année : année par année) : le tableau de la Gestion, pour la Location. Baux, honoraires (CA brut),
+ * primes, commissions d'apporteurs, variable du négociateur, salaires chargés (saisis), CA net, honoraires un an plus tôt, « Saisir / Modifier ».
+ * Les primes et le variable d'un mois avec salaires : montrés, « inclus dans les salaires » (non déduits). La ligne de total = la somme des lignes.
+ */
+function TableauLocation({ lignes, rangees, titre, annee }: { lignes: readonly LigneLocationCa[];
+  rangees: readonly { cle: string; libelle: string; ms: readonly MoisChoisi[]; mois: MoisChoisi | null }[]; titre: string; annee: number }) {
+  const U = useEnUnite();
+  const tot = useTotaux();
+  const x = useContext(ContexteCouts);
+  const montant = (m: MontantC, o: { cout?: boolean; gris?: boolean } = {}) => <span className={o.gris ? 'loc-muet' : o.cout ? classeSens('verse', m.htC, m.ttcC) : undefined}>{eur(U.en(m))}</span>;
+  const cellules = (t: TotauxRegle, ms: readonly MoisChoisi[]) => {
+    const t1 = tot(lignes, ms.map((m) => ({ annee: m.annee - 1, mois: m.mois })));
+    const inclus = t.c.moisAvecSalaires > 0 && t.c.moisAvecSalaires === t.c.nbMois;
+    return <>
+      <td data-mot="Baux">{t.nb}</td>
+      <td data-mot="Honoraires" data-location-honoraires>{montant(t.ca)}</td>
+      <td data-mot="Primes de gestion" data-location-primes>{montant(t.c.primes, { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
+      <td data-mot="Commissions d’apporteurs">{montant(t.apporteurs, { cout: true })}</td>
+      <td data-mot="Variable négociateur" data-location-variable>{montant(t.c.variable, { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
+      <td data-mot={LIBELLE_SALAIRES_LOCATION} data-location-salaires>{t.c.moisAvecSalaires === 0 ? '—' : montant(t.c.salaires, { cout: true })}</td>
+      <td data-mot="CA net" data-location-net-mois className={t.net.htC < 0 ? 'trx-rouge' : 'trx-vert'}>{eur(U.en(t.net))}</td>
+      <td data-mot="Honoraires un an plus tôt">{montant(t1.ca)}</td>
+    </>;
+  };
+  const tous = rangees.flatMap((r) => r.ms);
+  const total = tot(lignes, tous);
+  return (
+    <>
+      <style>{'[data-table-location] .trx-ligne-bloc{display:block;font-size:.78rem}'}</style>
+      <h3 id="trx-tableau-location">{titre} <small className="loc-muet">({U.MOT}{U.u === 'ttc' ? ' ; variable et salaires chargés sans TVA' : ''})</small></h3>
+      <div className="trx-fusion-defile">
+        <table className="tdb-table tdb-table--large" data-table-location>
+          <thead><tr><th scope="col">{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th><th scope="col">Baux</th><th scope="col">Honoraires</th><th scope="col">Primes de gestion</th>
+            <th scope="col">Commissions d’apporteurs</th><th scope="col">Variable négociateur</th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net</th>
+            <th scope="col">Honoraires {rangees[0]?.mois === null ? 'un an plus tôt' : annee - 1}</th>{rangees[0]?.mois !== null && <th scope="col">Saisie</th>}</tr></thead>
+          <tbody>
+            {rangees.map((r) => {
+              const saisi = r.mois === null ? null : salairesLocationDuMois(x.salaires, r.mois.annee, r.mois.mois);
+              return (
+                <tr key={r.cle} data-rangee-location={r.cle}>
+                  <th scope="row">{r.libelle}</th>
+                  {cellules(tot(lignes, r.ms), r.ms)}
+                  {r.mois !== null && <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" disabled={x.onSaisir === null}
+                    onClick={() => { if (r.mois !== null) x.onSaisir?.(r.mois); }} data-saisir-salaires={`${r.mois.annee}-${r.mois.mois}`}>{saisi === null ? 'Saisir' : 'Modifier'}</button></td>}
+                </tr>
+              );
+            })}
+            <tr className="tdb-fort trx-ligne-total" data-total-location><th scope="row">Total</th>{cellules(total, tous)}{rangees[0]?.mois !== null && <td data-mot="Saisie" />}</tr>
+          </tbody>
+        </table>
+      </div>
+      {x.onSaisir === null && <p className="loc-muet" data-sans-447>Les salaires chargés de la Location se saisiront après la mise à jour de la base (migration 447).</p>}
+      {x.filtre && <p className="loc-muet">Filtre actif : salaires chargés non comptés.</p>}
+    </>
+  );
+}
+
+/** 🔴 LOT LO11 — « Saisir / Modifier » les salaires chargés de la Location d'un mois (HT, sans TVA), comme la saisie de la Gestion ; journalisé. */
+function SaisieSalairesLocation({ annee, mois, actuelle, onFermer, onFait, onRelire }: {
+  annee: number; mois: number; actuelle: SalairesLocation | null; onFermer: () => void; onFait: () => void; onRelire: () => void;
+}) {
+  const txt = (v: number | null | undefined): string => (v === null || v === undefined ? '' : String(v).replace('.', ','));
+  const [v, setV] = useState({ salairesHt: txt(actuelle?.salairesHt), note: actuelle?.note ?? '' });
+  const [motif, setMotif] = useState<string | null>(null);
+  const envoyer = async (): Promise<void> => {
+    const r = await posterTransaction({ action: 'location-salaires-enregistrer', annee, mois, salaires: v });
+    if (r === null) onFait(); else setMotif(r);
+  };
+  const titre = `${LIBELLE_SALAIRES_LOCATION} de la Location — ${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+  return (
+    <div className="tdb-voile" onMouseDown={(x) => { if (x.target === x.currentTarget) onFermer(); }}>
+      <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-saisie-salaires-location>
+        <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
+        <div className="tdb-fenetre-corps">
+          <p className="loc-muet">Montant HT, sans TVA. Vide : non saisi (les primes et le variable du mois sont alors déduits).</p>
+          <form className="trx-form" onSubmit={(x) => { x.preventDefault(); void envoyer(); }}>
+            <label>{LIBELLE_SALAIRES_LOCATION} (HT)<input value={v.salairesHt} inputMode="decimal" onChange={(x) => setV((y) => ({ ...y, salairesHt: x.target.value }))} data-champ-salaires-location /></label>
+            <label className="trx-plein">Note<textarea value={v.note} onChange={(x) => setV((y) => ({ ...y, note: x.target.value }))} /></label>
+            {motif !== null && <p className="trx-erreur trx-plein" role="alert">{motif}</p>}
+            <div className="trx-actions trx-plein">
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-enregistrer-salaires-location>Enregistrer</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
+            </div>
+          </form>
+          {actuelle?.id !== undefined && <Journal entite="location_salaires_mois" id={actuelle.id} onFait={onRelire} />}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -578,16 +725,17 @@ function ApporteursLocation({ lignes }: { lignes: readonly LigneLocationCa[] }) 
 /** « Toute l'histoire » (L'année) : année par année — baux, CA brut, primes et rétrocessions, CA net, évolution du CA. */
 function HistoireLocation({ lignes, annees, choisie, onAnnee }: { lignes: readonly LigneLocationCa[]; annees: readonly number[]; choisie: number; onAnnee: (a: number) => void }) {
   const MOT = MOT_UNITE[useAffichage()];
-  const h = historiqueLocation(lignes, annees);
+  const tot = useTotaux(); // 🔴 LOT LO11 — coûts et CA net à la règle
+  const h = annees.map((annee) => ({ annee, t: tot(lignes, douzeMoisDe(annee)) }));
   const m = (x: MontantC) => ({ ht: x.htC / 100, ttc: x.ttcC / 100 });
   return (
     <table className="tdb-table tdb-table--large" data-table-histoire-location>
-      <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">CA brut {MOT}</th><th scope="col">Primes et rétrocessions {MOT}</th><th scope="col">CA net {MOT}</th><th scope="col">Évolution</th></tr></thead>
+      <thead><tr><th scope="col">Année</th><th scope="col">Baux</th><th scope="col">CA brut {MOT}</th><th scope="col">Coûts {MOT}</th><th scope="col">CA net {MOT}</th><th scope="col">Évolution</th></tr></thead>
       <tbody>{h.map(({ annee, t }, i) => (
         <tr key={annee} className={annee === choisie ? 'tdb-fort' : undefined} data-annee-location={annee}>
           <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnnee(annee)}>{annee}</button></th>
           <td data-mot="Baux">{t.nb}</td><td data-mot={`CA brut ${MOT}`}><Mt {...m(t.ca)} donnees={{ 'data-histoire-ca': String(annee) }} /></td>
-          <td data-mot={`Primes et rétrocessions ${MOT}`}><Mt {...m(t.couts)} cout /></td><td data-mot={`CA net ${MOT}`} className="trx-vert"><Mt {...m(t.net)} /></td>
+          <td data-mot={`Coûts ${MOT}`}><Mt {...m(t.couts)} cout /></td><td data-mot={`CA net ${MOT}`} className="trx-vert"><Mt {...m(t.net)} /></td>
           <td data-mot="Évolution">{i === 0 ? '—' : signePct(variation(t.ca.htC, h[i - 1].t.ca.htC))}</td>
         </tr>
       ))}</tbody>

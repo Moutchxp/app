@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lireDossier, lireGestion, lireModification, lireRetro, lireVente, montant } from './saisie';
+import { lireDossier, lireGestion, lireModification, lireRetro, lireSalairesLocationSaisie, lireVente, montant } from './saisie';
 
 /** TUILE « TRANSACTION » — la lecture des saisies : refus en français, montants tels que saisis (aucun arrondi). */
 describe('saisie d’une vente', () => {
@@ -98,5 +98,14 @@ describe('🔴 LOT BH — lireDossier : « Supprimer » l’apporteur', () => {
     expect(r.ok && [r.valeur.apporteurId, r.valeur.apporteurNom, r.valeur.retroApporteurTtc, r.valeur.retirerApporteur]).toEqual([null, null, 0, true]);
     const s = lireDossier({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: '4000', apporteurNom: 'Gardien Dacquet', retroApporteurTtc: '500' });
     expect(s.ok && [s.valeur.apporteurNom, s.valeur.retroApporteurTtc, 'retirerApporteur' in s.valeur]).toEqual(['Gardien Dacquet', 500, false]);
+  });
+});
+
+describe('🔴 LOT LO11 — la saisie des salaires chargés de la Location', () => {
+  it('un montant (virgule acceptée), vide = non saisi, négatif refusé, illisible refusé', () => {
+    expect(lireSalairesLocationSaisie({ salairesHt: '2 688,91', note: ' paie ' })).toEqual({ ok: true, valeur: { salairesHt: 2688.91, note: 'paie' } });
+    expect(lireSalairesLocationSaisie({ salairesHt: '', note: '' })).toEqual({ ok: true, valeur: { salairesHt: null, note: null } });
+    expect(lireSalairesLocationSaisie({ salairesHt: '-5' }).ok).toBe(false);
+    expect(lireSalairesLocationSaisie({ salairesHt: 'abc' }).ok).toBe(false);
   });
 });

@@ -5,9 +5,9 @@ import { concerne, estSociete, type Vente } from '../../../../lib/transaction/mo
 import { compromisEnCours, pourLaVue, totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
-import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
+import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireSalairesLocationSaisie, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
+  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
@@ -37,7 +37,7 @@ import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../.
 export const runtime = 'nodejs';
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 const json = (corps: unknown, status = 200): Response => Response.json(corps, { status, headers: ENTETES });
-const ENTITES = ['vente', 'vente_ligne', 'retrocession', 'ca_a_rattacher', 'gestion_mois', 'personne'];
+const ENTITES = ['vente', 'vente_ligne', 'retrocession', 'ca_a_rattacher', 'gestion_mois', 'personne', 'location_salaires_mois'];
 
 /** LOT D — ce que les formulaires proposent : les comptes (actifs) et leur société du jour, l'annuaire des apporteurs de la Location, les personnes. */
 async function references(aujourdhui: string): Promise<Record<string, unknown>> {
@@ -160,6 +160,14 @@ export async function POST(request: Request): Promise<Response> {
       case 'retro-saisir': {
         const r = lireRetro(corps.retro);
         return r.ok ? rendre(await saisirRetro(r.valeur, auteur)) : rendre(r);
+      }
+      case 'location-salaires-enregistrer': {
+        // 🔴 LOT LO11 — les salaires chargés de la Location d'un mois (447) ; journalisé ; un observateur est refusé avant (proxy, 403)
+        const annee = Number(corps.annee);
+        const mois = Number(corps.mois);
+        if (!Number.isInteger(annee) || annee < 2000 || annee > 2100 || !Number.isInteger(mois) || mois < 1 || mois > 12) return json({ etat: 'refus', motif: 'Mois invalide.' }, 400);
+        const v = lireSalairesLocationSaisie(corps.salaires);
+        return v.ok ? rendre(await enregistrerSalairesLocation(annee, mois, v.valeur, auteur)) : rendre(v);
       }
       case 'gestion-enregistrer': {
         const annee = Number(corps.annee);

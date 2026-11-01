@@ -49,6 +49,8 @@ const cliquer = async (sel: string) => { await act(async () => { (container.quer
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 /** 🔴 LOT LG3 — les catégories des fenêtres sont fermées à l'ouverture : les ouvrir avant de lire leurs lignes. */
 const deplierCategories = async () => { for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-deplier-categorie][aria-expanded="false"]')]) await act(async () => { b.click(); }); };
+/** 🔴 LOT LO11 — le variable du négociateur de septembre 2025 (15 % × (900 − 90) + 15 % × 100), sans TVA. */
+const VARIABLE_SEPT = 13650;
 const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
 
 describe('🔴 LOT LO1 — « Location » : Le mois', () => {
@@ -59,10 +61,11 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
       const f = u === 'ht' ? 1 : 1.2;
       expect([...container.querySelectorAll('.tdb-tuiles > li > .tdb-tuile')].map((t) => t.getAttribute('data-tuile'))).toEqual(['location-ca', 'location-baux', 'location-couts', 'location-net']);
       expect(texte('[data-tuile="location-ca"] .tdb-tuile-mot')).toBe('CA brut — septembrehonoraires de location encaissés');
-      expect(texte('[data-tuile="location-net"] [data-tuile-explication-location]')).toBe('CA − primes et rétrocessions versées');
-      // CA : 900 + 100 + 0 ; coûts : primes 150 + 150 (les deux mandats de gestion) + apporteur 90
+      expect(texte('[data-tuile="location-net"] [data-tuile-explication-location]')).toBe('CA brut − coûts');
+      // CA : 900 + 100 + 0 ; coûts : primes 150 + 150 (les deux mandats de gestion) + apporteur 90 ; 🔴 LOT LO11 — + le variable du négociateur
+      // (15 % de la base : 810 → 121,50 ; 100 → 15 ; sans TVA), aucun salaire saisi : tout est déduit
       const [ca, couts, net] = ['[data-location-ca]', '[data-location-couts]', '[data-location-net]'].map((s) => centimes(texte(s)));
-      expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(390 * f * 100), Math.round(610 * f * 100)]);
+      expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(390 * f * 100) + VARIABLE_SEPT, Math.round(1000 * f * 100) - Math.round(390 * f * 100) - VARIABLE_SEPT]);
       expect(net).toBe(ca - couts);
       // 🔴 LOT LO5 — sous le CA net : le « CA net d'apporteurs » du Suivi annuel (CA − apporteurs : 1 000 − 90), le même chiffre
       expect(texte('[data-location-net-apporteurs]')).toBe(`CA net d’apporteurs : ${u === 'ht' ? '910 €' : '1 092 €'}`);
@@ -97,11 +100,12 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
     expect(lienSuiviDuMois({ annee: 2026, mois: 10 })).toBe('/admin/location/outils/mois?annee=2026&mois=10');
     expect(container.querySelectorAll('[data-detail-bail] input, [data-detail-bail] button')).toHaveLength(0); // aucune édition ici
   });
-  it('le Résultat (CA brut − primes − rétrocessions = CA net) = la ligne de total de l’Espace par négociateur ; tri CA net', async () => {
+  it('le Résultat (CA brut − apporteurs − primes − variable − salaires = CA net) ; l’Espace par négociateur garde CA − primes − apporteurs ; tri CA net', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9');
-    expect(centimes(texte('[data-resultat-net]'))).toBe(61000);
+    // 🔴 LOT LO11 — le variable devient un coût : 610 − 136,50
+    expect([centimes(texte('[data-resultat-net]')), centimes(texte('[data-resultat-variable]')), centimes(texte('[data-resultat-salaires]'))]).toEqual([61000 - VARIABLE_SEPT, VARIABLE_SEPT, 0]);
     await cliquer('[data-deplier="negociateurs-location"]');
-    expect(centimes(texte('[data-total-espace-net]'))).toBe(centimes(texte('[data-resultat-net]')));
+    expect(centimes(texte('[data-total-espace-net]'))).toBe(61000);
     await cliquer('[data-entete-tri="net"] [data-tri="net"]');
     expect([...container.querySelectorAll('[data-negociateur-location]')].map((x) => x.getAttribute('data-negociateur-location'))).toEqual(['Jean-Baptiste PONS', 'Mélanie']);
   });
@@ -134,13 +138,14 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       // rien n'est retiré de la tuile
       for (const x of ['[data-location-couts]', '[data-location-couts-detail]', '[data-tuile-n1="location-couts"]', '[data-tuile-explication-location]']) expect(tuile.querySelector(x)).not.toBeNull();
       await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
-      expect(doc('[data-fenetre-couts-location] h2')).toBe('Primes et rétrocessions — septembre 2025');
+      expect(doc('[data-fenetre-couts-location] h2')).toBe('Coûts — septembre 2025');
       expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-couts]')));
-      expect(grand('[data-fenetre-total]')).toBe(Math.round(390 * f * 100));
+      expect(grand('[data-fenetre-total]')).toBe(Math.round(390 * f * 100) + VARIABLE_SEPT);
       expect(doc('[data-fenetre-couts-location] [data-dossiers]')).toBe('2 baux concernés');
       expect(grand('[data-sous-total-location="primes"]')).toBe(Math.round(300 * f * 100));
       expect(grand('[data-sous-total-location="apporteurs"]')).toBe(Math.round(90 * f * 100));
-      expect(grand('[data-sous-total-location="primes"]') + grand('[data-sous-total-location="apporteurs"]')).toBe(grand('[data-fenetre-total]'));
+      expect(grand('[data-sous-total-location="variable"]')).toBe(VARIABLE_SEPT);
+      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((t, k) => t + grand(`[data-sous-total-location="${k}"]`), 0)).toBe(grand('[data-fenetre-total]'));
       // les primes, du plus récent au plus ancien : le mandat seul de Mélanie (20/09), puis le bail avec gestion (02/09)
       expect([...document.querySelectorAll('[data-ligne-prime]')].map((x) => Number(x.getAttribute('data-ligne-prime')))).toEqual([lignes[3].id, lignes[1].id]);
       expect(doc(`[data-ligne-prime="${lignes[1].id}"] [data-nego]`)).toBe('Jean-Baptiste PONS');
@@ -151,9 +156,10 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       // Par bail : un bloc par bail qui porte un coût, du plus récent au plus ancien ; « Prime » / « Apporteur » ; sous-total par bail
       await cliquerDoc('[data-mode-fenetre="transaction"]');
       expect(doc('[data-mode-fenetre="transaction"]')).toBe('Par bail');
-      expect([...document.querySelectorAll('[data-bail-couts]')].map((x) => Number(x.getAttribute('data-bail-couts')))).toEqual([lignes[3].id, lignes[1].id]);
-      expect([...document.querySelectorAll(`[data-bail-couts="${lignes[1].id}"] [data-etiquette]`)].map((x) => x.textContent)).toEqual(['Prime', 'Apporteur']);
-      expect(grand(`[data-verse-bail="${lignes[1].id}"]`)).toBe(Math.round(240 * f * 100));
+      // 🔴 LOT LO11 — un bail qui ne porte que du variable (15 € sur 100 €) a son bloc
+      expect([...document.querySelectorAll('[data-bail-couts]')].map((x) => Number(x.getAttribute('data-bail-couts')))).toEqual([lignes[3].id, lignes[2].id, lignes[1].id]);
+      expect([...document.querySelectorAll(`[data-bail-couts="${lignes[1].id}"] [data-etiquette]`)].map((x) => x.textContent)).toEqual(['Prime', 'Apporteur', 'Variable']);
+      expect(grand(`[data-verse-bail="${lignes[1].id}"]`)).toBe(Math.round(240 * f * 100) + 12150);
       expect(doc(`[data-bail-couts="${lignes[1].id}"] [data-signe]`)).toBe('Signé en septembre 2025');
       expect([...document.querySelectorAll('[data-verse-bail]')].reduce((t, x) => t + centimes(x.querySelector('strong')!.textContent!), 0)).toBe(grand('[data-fenetre-total]'));
       expect(window.localStorage.getItem('trx-location-couts-mode')).toBe('transaction');
@@ -167,13 +173,14 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
       const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
       expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent))
-        .toEqual(['CA brut', '− Commissions d’apporteurs', '= CA net d’apporteurs', '− Primes de nouvelle gestion', '= CA net']);
+        .toEqual(['CA brut', '− Commissions d’apporteurs', '= CA net d’apporteurs', '− Primes de nouvelle gestion', '− Variable du négociateur (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']);
       const ca = grand('[data-net-ca-montant]'); const app = grand('[data-fenetre-net-location] [data-sous-total-location="apporteurs"]');
       const nap = grand('[data-net-apporteurs-montant]'); const pr = grand('[data-fenetre-net-location] [data-sous-total-location="primes"]');
       const net = grand('[data-fenetre-net-location] [data-fenetre-total]');
       expect(ca).toBe(centimes(texte('[data-location-ca]')));
       expect(net).toBe(centimes(texte('[data-location-net]')));
-      expect([ca - app, nap - pr]).toEqual([nap, net]);
+      const vr = grand('[data-fenetre-net-location] [data-sous-total-location="variable"]'); const sa = grand('[data-fenetre-net-location] [data-sous-total-location="salaires"]');
+      expect([ca - app, nap - pr - vr - sa, vr]).toEqual([nap, net, VARIABLE_SEPT]);
       expect(doc('[data-net-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € HT · locataire 450 € HT' : 'dont propriétaire 660 € TTC · locataire 540 € TTC');
       expect(document.querySelector('[data-net-ca-montant]')!.className).toContain('trx-vert');
       expect(doc('[data-fenetre-net-location] [data-dossiers]')).toBe('3 baux');
@@ -182,25 +189,24 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(blocs.map((x) => Number(x.getAttribute('data-bail-net')))).toEqual([lignes[3].id, lignes[2].id, lignes[1].id]);
       for (const b of blocs) {
         const id = b.getAttribute('data-bail-net');
-        const [c, ap, p] = [`[data-ca-bail="${id}"]`, `[data-bail-net="${id}"] [data-cout-bail="apporteur"]`, `[data-bail-net="${id}"] [data-cout-bail="prime"]`].map(grand);
-        expect(c - ap - p).toBe(grand(`[data-net-bail="${id}"]`));
+        const [c, ap, p, v] = [`[data-ca-bail="${id}"]`, `[data-bail-net="${id}"] [data-cout-bail="apporteur"]`, `[data-bail-net="${id}"] [data-cout-bail="prime"]`,
+          `[data-bail-net="${id}"] [data-cout-bail="variable"]`].map(grand);
+        expect(c - ap - p - v).toBe(grand(`[data-net-bail="${id}"]`));
       }
       expect(blocs.reduce((t, b) => t + grand(`[data-net-bail="${b.getAttribute('data-bail-net')}"]`), 0)).toBe(net);
     });
   }
-  it('un mois sans coût (août 2025) : 0 bail concerné, « Aucune » à 0 dans les deux catégories ; la fenêtre CA net y tient', async () => {
+  it('un mois sans prime ni apporteur (août 2025) : 0 bail concerné, « Aucune » ; 🔴 LOT LO11 — seul le variable (45 €) ; la fenêtre CA net y tient', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=8');
     await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
     expect(doc('[data-dossiers]')).toBe('0 bail concerné');
-    expect(grand('[data-fenetre-total]')).toBe(0);
-    expect(document.querySelector('[data-fenetre-total]')!.className).toContain('trx-fc-montant');
-    expect(document.querySelector('[data-fenetre-total]')!.className).not.toContain('trx-rouge');
-    expect([...document.querySelectorAll('[data-aucune]')].map((x) => [x.getAttribute('data-aucune'), x.textContent])).toEqual([['primes', 'Aucune'], ['apporteurs', 'Aucune']]);
+    expect(grand('[data-fenetre-total]')).toBe(4500);
+    expect([...document.querySelectorAll('[data-aucune]')].map((x) => [x.getAttribute('data-aucune'), x.textContent])).toEqual([['primes', 'Aucune'], ['apporteurs', 'Aucune'], ['salaires', 'Aucun mois saisi']]);
     await cliquerDoc('[data-fermer-fenetre]');
     expect(document.querySelector('[data-fenetre-couts-location]')).toBeNull();
     await cliquer('[data-tuile="location-net"]'); await deplierCategories();
-    expect(grand('[data-fenetre-total]')).toBe(30000);
-    expect(grand('[data-fenetre-total]')).toBe(grand('[data-net-ca-montant]'));
+    expect(grand('[data-fenetre-total]')).toBe(30000 - 4500);
+    expect(grand('[data-fenetre-total]')).toBe(grand('[data-net-ca-montant]') - 4500);
   });
   it('fermer : Échap, clic hors de la fenêtre ; le nom d’un bail ferme la fenêtre et déplie sa carte dans « Les baux »', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] }); vi.setSystemTime(new Date('2025-10-27T10:00:00Z'));
@@ -222,7 +228,8 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
   it('les filtres de la page s’appliquent : « Compter » Avec gestion, le négociateur, la période ; L’année', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9&compter=avec');
     await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
-    expect([grand('[data-fenetre-total]'), doc('[data-dossiers]')]).toEqual([24000, '1 bail concerné']);
+    // 🔴 LOT LO11 — + le variable du bail avec gestion (121,50)
+    expect([grand('[data-fenetre-total]'), doc('[data-dossiers]')]).toEqual([24000 + 12150, '1 bail concerné']);
     await cliquerDoc('[data-fermer-fenetre]');
     await rouvrir('/?vue=mois&annee=2025&mois=9&negociateur=M%C3%A9lanie');
     await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
@@ -232,7 +239,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
     await rouvrir('/?vue=mois&annee=2025&mois=9&vue-mois=periode&periode=2025-08,2025-09');
     await cliquer('[data-tuile="location-net"]'); await deplierCategories();
     expect(texte('[data-bloc="baux-location"] [data-compteur-liste]')).toBe('(4)'); // août + septembre
-    expect(grand('[data-fenetre-total]')).toBe(61000 + 30000);
+    expect(grand('[data-fenetre-total]')).toBe(61000 + 30000 - VARIABLE_SEPT - 4500); // 🔴 LOT LO11 — moins le variable des deux mois
     expect(doc('[data-fenetre-net-location] h2')).toBe(`CA net — ${texte('[data-bloc="baux-location"] .lr-titre').replace('Les baux de ', '')}`);
     expect(grand('[data-fenetre-total]')).toBe(centimes(texte('[data-location-net]')));
     await cliquerDoc('[data-fermer-fenetre]');
@@ -281,10 +288,11 @@ describe('🔴 LOT LG3 — fenêtres « Primes et rétrocessions » et « CA net
       await ouvrir('/?vue=mois&annee=2025&mois=9');
       const couts = centimes(texte('[data-location-couts]'));
       await act(async () => { (container.querySelector('[data-tuile="location-couts"]') as HTMLElement).click(); }); await calmer();
-      expect([...document.querySelectorAll('[data-deplier-categorie]')].map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded')])).toEqual([['primes', 'false'], ['apporteurs', 'false']]);
+      expect([...document.querySelectorAll('[data-deplier-categorie]')].map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded')]))
+        .toEqual([['primes', 'false'], ['apporteurs', 'false'], ['variable', 'false'], ['salaires', 'false']]); // 🔴 LOT LO11 — variable et salaires
       expect(document.querySelectorAll('[data-ligne-prime], [data-groupe-apporteur]')).toHaveLength(0);
       const sous = (k: string) => centimes(document.querySelector(`[data-sous-total-location="${k}"] strong`)!.textContent!);
-      expect(sous('primes') + sous('apporteurs')).toBe(couts);
+      expect(sous('primes') + sous('apporteurs') + sous('variable') + sous('salaires')).toBe(couts);
       await act(async () => { (document.querySelector('[data-deplier-categorie="primes"]') as HTMLElement).click(); });
       await act(async () => { (document.querySelector('[data-deplier-categorie="apporteurs"]') as HTMLElement).click(); });
       expect([document.querySelectorAll('[data-ligne-prime]').length, document.querySelectorAll('[data-groupe-apporteur]').length]).toEqual([2, 1]);
@@ -292,7 +300,7 @@ describe('🔴 LOT LG3 — fenêtres « Primes et rétrocessions » et « CA net
       expect([document.querySelectorAll('[data-ligne-prime]').length, document.querySelectorAll('[data-groupe-apporteur]').length]).toEqual([0, 1]);
       expect(centimes(document.querySelector('[data-fenetre-total] strong')!.textContent!)).toBe(couts);
       await act(async () => { (document.querySelector('[data-mode-fenetre="transaction"]') as HTMLElement).click(); });
-      expect([document.querySelectorAll('[data-deplier-categorie]').length, document.querySelectorAll('[data-bail-couts]').length]).toEqual([0, 2]);
+      expect([document.querySelectorAll('[data-deplier-categorie]').length, document.querySelectorAll('[data-bail-couts]').length]).toEqual([0, 3]);
     });
   }
 });
@@ -365,6 +373,82 @@ describe('🔴 LOT LO10 — « Les baux de … » repliée au-delà de 25', () =
     expect(entete().getAttribute('aria-expanded')).toBe('true');
     await cliquer('[data-onglet-mois="7"]');
     expect(entete().getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+/**
+ * 🔴 LOT LO11 — la règle d'Arno, mois par mois : un mois SANS salaires chargés saisis déduit apporteurs + primes + variable ; un mois AVEC salaires
+ * déduit apporteurs + salaires (primes et variable montrés, « inclus dans les salaires »). Le tableau mois par mois, la saisie (journalisée), le
+ * filtre (salaires non comptés), la base sans la 447 (« Saisir » grisé).
+ */
+describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négociateur', () => {
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const rouvrir = async (q: string) => { act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(q); };
+  const avecSalaires = (salaires: unknown) => {
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => ({ ok: true, status: 200, json: async () => (init?.method === 'POST' ? { etat: 'ok', data: null }
+      : { etat: 'ok', data: { disponible: true, aujourdhui: '2025-10-27', lignes, retrocessions: [], salaires } }) })) as unknown as typeof fetch;
+  };
+  for (const u of ['ht', 'ttc'] as const) {
+    it(`septembre 2025 avec 400 € de salaires saisis (${u.toUpperCase()}) : coûts = apporteurs + salaires ; primes et variable « inclus » ; CA net = CA − coûts`, async () => {
+      avecSalaires([{ id: 1, annee: 2025, mois: 9, salairesHt: 400, note: null }]);
+      window.localStorage.setItem('trx-affichage-montants', u);
+      const f = u === 'ht' ? 1 : 1.2;
+      await ouvrir('/?vue=mois&annee=2025&mois=9');
+      const [ca, couts, net] = ['[data-location-ca]', '[data-location-couts]', '[data-location-net]'].map((x) => centimes(texte(x)));
+      expect([ca, couts, net]).toEqual([Math.round(1000 * f * 100), Math.round(90 * f * 100) + 40000, Math.round(1000 * f * 100) - Math.round(90 * f * 100) - 40000]);
+      expect(texte('[data-location-inclus]')).toContain('inclus dans les salaires');
+      expect([centimes(texte('[data-resultat-primes]')), centimes(texte('[data-resultat-variable]')), centimes(texte('[data-resultat-salaires]'))]).toEqual([0, 0, 40000]);
+      expect(texte('[data-resultat-location] [data-inclus-salaires]')).toContain('inclus dans les salaires');
+      // le tableau : la ligne de septembre — primes et variable montrés, « inclus » ; salaires 400 ; « Modifier »
+      const sept = '[data-rangee-location="2025-9"]';
+      expect(texte(`${sept} [data-location-primes]`)).toContain('inclus dans les salaires');
+      expect(centimes(texte(`${sept} [data-location-salaires]`))).toBe(40000);
+      expect(centimes(texte(`${sept} [data-location-net-mois]`))).toBe(net);
+      expect(texte(`${sept} [data-saisir-salaires]`)).toBe('Modifier');
+      expect(texte('[data-rangee-location="2025-8"] [data-saisir-salaires]')).toBe('Saisir');
+      // les fenêtres : total = tuile ; la somme des catégories = le total
+      await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
+      const g = (sel: string) => centimes(document.querySelector(`${sel} strong`)?.textContent ?? '');
+      expect(g('[data-fenetre-total]')).toBe(couts);
+      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((x, k) => x + g(`[data-sous-total-location="${k}"]`), 0)).toBe(couts);
+      expect(document.querySelectorAll('[data-ligne-prime] [data-inclus-salaires]').length).toBe(2);
+      await cliquerDoc('[data-fermer-fenetre]');
+      await cliquer('[data-tuile="location-net"]'); await deplierCategories();
+      expect(g('[data-fenetre-total]')).toBe(net);
+      await cliquerDoc('[data-mode-fenetre="transaction"]');
+      const blocs = [...document.querySelectorAll('[data-net-bail]')].reduce((x, b) => x + g(`[data-net-bail="${b.getAttribute('data-net-bail')}"]`), 0);
+      expect(blocs - 40000).toBe(net); // les baux, moins les salaires (hors bail)
+      window.localStorage.removeItem('trx-location-net-mode');
+    });
+  }
+  it('la saisie : « Modifier » ouvre la fenêtre, « Enregistrer » envoie le mois et le montant (HT) ; un filtre : salaires non comptés (mention)', async () => {
+    avecSalaires([{ id: 1, annee: 2025, mois: 9, salairesHt: 400, note: null }]);
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    await cliquer('[data-saisir-salaires="2025-9"]');
+    const champ = document.querySelector('[data-champ-salaires-location]') as HTMLInputElement;
+    expect(champ.value).toBe('400');
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, '450,50'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
+    await cliquerDoc('[data-enregistrer-salaires-location]');
+    const appel = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls.find((c) => c[1]?.method === 'POST')!;
+    expect(JSON.parse(String(appel[1].body))).toEqual({ action: 'location-salaires-enregistrer', annee: 2025, mois: 9, salaires: { salairesHt: '450,50', note: '' } });
+    await rouvrir('/?vue=mois&annee=2025&mois=9&compter=avec');
+    expect(texte('[data-filtre-salaires]')).toContain('ne sont pas comptés');
+    expect(centimes(texte('[data-location-couts]'))).toBe(24000 + 12150); // sans salaires : apporteur + prime + variable
+  });
+  it('sans la 447 (salaires null) : « Saisir » grisé, la mention ; la règle « sans salaires » partout', async () => {
+    avecSalaires(null);
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    expect((container.querySelector('[data-saisir-salaires="2025-9"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(texte('[data-sans-447]')).toContain('migration 447');
+    expect(centimes(texte('[data-location-couts]'))).toBe(39000 + VARIABLE_SEPT);
+  });
+  it('« L’année » : le tableau année par année (2024, 2025) ; total = la somme des années', async () => {
+    avecSalaires([]);
+    await ouvrir('/?vue=annee&annee=2025&vue-annee=tout');
+    const rangs = [...container.querySelectorAll('[data-rangee-location]')];
+    expect(rangs.map((r) => r.getAttribute('data-rangee-location'))).toEqual(['2024', '2025']);
+    expect(rangs.reduce((x, r) => x + centimes(r.querySelector('[data-location-net-mois]')!.textContent!), 0)).toBe(centimes(texte('[data-total-location] [data-location-net-mois]')));
+    expect(container.querySelector('[data-rangee-location] [data-saisir-salaires]')).toBeNull();
   });
 });
 

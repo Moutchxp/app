@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -230,6 +230,39 @@ export async function lireGestion(): Promise<GestionMois[]> {
     adhocHt: nOuNull(r.adhoc_ht), mongaHt: nOuNull(r.monga_ht), salarieHt: nOuNull(r.salarie_ht), resteHt: nOuNull(r.reste_ht), note: t(r.note), origine: r.origine as GestionMois['origine'] }));
 }
 
+/**
+ * ══ 🔴 LOT LO11 (Arno, 01/11/2026) — LES SALAIRES CHARGÉS DE LA LOCATION (migration 447) ══════════════════════════════════════════════════════
+ * Un montant par mois (HT, sans TVA), saisi à la main dans « Suivi CA › Location ». Sans la 447 : `null` (aucun mois n'a de salaires saisis).
+ * Un montant vide : non saisi (la ligne reste, journalisée). LECTURE SEULE ici.
+ */
+export interface SalairesLocationMois { id: number; annee: number; mois: number; salairesHt: number | null; note: string | null }
+export async function lireSalairesLocation(): Promise<SalairesLocationMois[] | null> {
+  if (!(await salairesLocationDisponible())) return null;
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT id, annee, mois, salaires_ht, note FROM transaction_location_salaires_mois WHERE retire_le IS NULL ORDER BY annee, mois`);
+  return rows.map((r) => ({ id: n(r.id), annee: n(r.annee), mois: n(r.mois), salairesHt: nOuNull(r.salaires_ht), note: t(r.note) }));
+}
+/** 🔴 LOT LO11 — saisir ou modifier les salaires chargés de la Location d'un mois ; journalisé ; sans la 447 : refusé, rien n'est écrit. */
+export async function enregistrerSalairesLocation(annee: number, mois: number, v: { salairesHt: number | null; note: string | null }, auteur: AuteurTx): Promise<Issue> {
+  if (!(await salairesLocationDisponible())) return { ok: false, motif: 'Les salaires chargés de la Location s’enregistreront après la mise à jour de la base (migration 447) : rien n’a été écrit.' };
+  return withTransaction(async (q) => {
+    const valeurs = { salaires_ht: v.salairesHt, note: v.note };
+    const { rows } = await q<{ id: string }>('SELECT id FROM transaction_location_salaires_mois WHERE annee = $1 AND mois = $2 AND retire_le IS NULL FOR UPDATE', [annee, mois]);
+    if (rows.length === 0) {
+      const { rows: c } = await q<{ id: string }>(
+        `INSERT INTO transaction_location_salaires_mois (annee, mois, salaires_ht, note, origine, cree_par_libelle) VALUES ($1, $2, $3, $4, 'saisie', $5) RETURNING id`,
+        [annee, mois, v.salairesHt, v.note, auteur.libelle]);
+      await journaliser(q, { entite: 'location_salaires_mois', id: n(c[0].id), action: 'saisie', avant: null, apres: { annee, mois, ...valeurs }, auteur });
+      return { ok: true };
+    }
+    const id = n(rows[0].id);
+    const r = await ecrire(q, 'location_salaires_mois', id, valeurs, true);
+    if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
+    await journaliser(q, { entite: 'location_salaires_mois', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+    return { ok: true };
+  });
+}
+
 export interface EntreeJournal { id: number; action: string; avant: unknown; apres: unknown; commentaire: string | null; auteur: string; le: string;
   annuleJournalId: number | null; annulePar: number | null }
 
@@ -245,7 +278,7 @@ export async function lireJournal(entite: string, id: number): Promise<EntreeJou
 
 // ── Le journal ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Entite = 'vente' | 'vente_ligne' | 'retrocession' | 'ca_a_rattacher' | 'gestion_mois' | 'personne';
+type Entite = 'vente' | 'vente_ligne' | 'retrocession' | 'ca_a_rattacher' | 'gestion_mois' | 'personne' | 'location_salaires_mois';
 async function journaliser(q: RequeteTx, e: { entite: Entite; id: number; action: string; avant: unknown; apres: unknown; commentaire?: string | null;
   annule?: number | null; auteur: AuteurTx }): Promise<number> {
   const { rows } = await q<{ id: string }>(
@@ -265,6 +298,8 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
   ca_a_rattacher: { table: 'transaction_ca_a_rattacher', colonnes: ['retire_le'] },
   gestion_mois: { table: 'transaction_gestion_mois', colonnes: ['nb_lots', 'honoraires_ht', 'adhoc_ht', 'salarie_ht', 'reste_ht', 'note', 'retire_le'] },
   personne: { table: 'transaction_personne', colonnes: ['nom', 'telephone', 'email', 'adresse', 'note', 'retire_le'] },
+  // 🔴 LOT LO11 (447) — les salaires chargés de la Location d'un mois
+  location_salaires_mois: { table: 'transaction_location_salaires_mois', colonnes: ['salaires_ht', 'note', 'retire_le'] },
 };
 /** LOT D — les colonnes de la vente portées par la 434 : lues et écrites SEULEMENT quand elle est appliquée. */
 const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'negociateur_entree_id', 'negociateur_sortie_id', 'apporteur_id', 'retro_apporteur_ttc', 'repartition'];
@@ -313,7 +348,7 @@ async function ecrire(q: RequeteTx, entite: Entite, id: number, valeurs: Record<
   await q(`UPDATE ${c.table} SET ${sets.join(', ')} WHERE id = $1`, [id, ...changees.map(([, v]) => v)]);
   return { avant, apres };
 }
-const AVEC_MODIFIE: Record<Entite, boolean> = { vente: true, vente_ligne: false, retrocession: true, ca_a_rattacher: false, gestion_mois: true, personne: true };
+const AVEC_MODIFIE: Record<Entite, boolean> = { vente: true, vente_ligne: false, retrocession: true, ca_a_rattacher: false, gestion_mois: true, personne: true, location_salaires_mois: true };
 
 // ── 🔴 LOT R (440) : le registre des lignes miroir de l'inter-cabinet ─────────────────────────────────────────────────────────
 

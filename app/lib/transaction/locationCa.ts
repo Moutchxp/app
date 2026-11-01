@@ -7,7 +7,7 @@
 // par négociateur et les cartes tombent juste au centime, et « CA net = CA brut − primes − apporteurs » ligne par ligne.
 // N'entrent PAS dans les coûts (et le disent) : la part gestion « Récurrent » des apporteurs (due mois après mois, sans bail de la période), le dû
 // aux collègues, la commission du négociateur et ses rétrocessions (`gestion_location_retrocession` : elles diminuent SA commission, pas le CA).
-import { apporteurAffiche, caLigne, cleNegociateur, partGestionSignatureDe, partLocationDe, primeDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
+import { apporteurAffiche, caLigne, cleNegociateur, commissionCollegueSignatureDe, partGestionSignatureDe, partLocationDe, primeDe, tauxNegociateurDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import { TVA } from './modele';
 import type { MontantC } from './partAgence';
@@ -43,6 +43,11 @@ export interface LigneLocationCa {
   apporteurC: MontantC;
   /** CA − prime − apporteur (au centime). */
   netC: MontantC;
+  /**
+   * 🔴 LOT LO11 — le variable du négociateur sur ce dossier : son taux à la date de signature × (CA − commissions déduites : l'apporteur au centime,
+   * le collègue à la signature) — le « résultat commercial » du lot LO9, au centime. Sans TVA (payé en salaire) : le même en HT et en TTC.
+   */
+  variableC: MontantC;
   lotId: number | null;
   bailId: number | null;
 }
@@ -94,8 +99,54 @@ export function ligneLocationCa(a: ActiviteLue, ctx: { regles: readonly RegleCom
     negociateur: { cle: cleNegociateur(a), nom: a.negociateurLibelle || '—' },
     apporteur: app.source === 'apporteur' && app.texte !== '' ? app.texte : a.apporteurId !== null ? (a.apporteurNom ?? 'Apporteur') : null,
     proprietaireC, locataireC, caC, primeC, apporteurC, netC: moinsC(moinsC(caC, primeC), apporteurC), lotId: a.lotId, bailId: a.bailId,
+    variableC: (() => { const v = Math.round((tauxNegociateurDe(a, ctx.regles) * (caLigne(a) - apporteurC.htC / 100 - commissionCollegueSignatureDe(a, ctx.apporteurs as Apporteur[])) + Number.EPSILON) * 100); return { htC: v, ttcC: v }; })(),
   };
 }
+
+/**
+ * ══ 🔴 LOT LO11 (règle d'Arno, 01/11/2026) — LES COÛTS DE LA LOCATION, MOIS PAR MOIS ══════════════════════════════════════════════════════════
+ * · un mois SANS salaires chargés saisis : coûts = commissions d'apporteurs + primes + variable du négociateur, tous déduits du CA ;
+ * · un mois AVEC salaires chargés saisis : coûts = commissions d'apporteurs + salaires chargés ; les primes et le variable restent montrés,
+ *   « inclus dans les salaires », mais ne sont PAS déduits (déjà dans les salaires).
+ * CA net = CA brut − coûts. Le variable du mois = la somme des variables des dossiers − les rétrocessions du mois (le calcul du module Location).
+ * Une période = la somme de ses mois. Salaires et variable : sans TVA (le même en HT et en TTC). PUR.
+ */
+export interface RetroLocation { annee: number; mois: number; negociateurCle: string; montantC: MontantC }
+export interface SalairesLocation { id?: number; annee: number; mois: number; salairesHt: number | null; note: string | null }
+export interface CoutsLocation {
+  ca: MontantC; apporteurs: MontantC; primes: MontantC; variable: MontantC; salaires: MontantC;
+  /** Ce qui est déduit : primes et variable des mois sans salaires ; salaires des mois qui en ont. */
+  primesDeduites: MontantC; variableDeduit: MontantC;
+  /** Les coûts déduits et le CA net (CA brut − coûts). */
+  couts: MontantC; net: MontantC;
+  /** Les mois comptés, et ceux qui ont des salaires saisis. */
+  nbMois: number; moisAvecSalaires: number;
+}
+const salaireDuMois = (salaires: readonly SalairesLocation[] | null, a: number, m: number): number | null =>
+  salaires?.find((x) => x.annee === a && x.mois === m)?.salairesHt ?? null;
+/** Les coûts d'UN mois (les lignes du mois, ses rétrocessions, ses salaires saisis ou null). PUR. */
+export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null): CoutsLocation {
+  const t = totauxLocation(lignes);
+  const v = moinsC(lignes.reduce((x, l) => plusC(x, l.variableC), RIEN), retros.reduce((x, r) => ({ htC: x.htC + r.montantC.htC, ttcC: x.ttcC + r.montantC.htC }), RIEN));
+  const avec = salairesHt !== null;
+  const sal = avec ? Math.round((salairesHt + Number.EPSILON) * 100) : 0;
+  const salaires = { htC: sal, ttcC: sal };
+  const primesDeduites = avec ? RIEN : t.primes; const variableDeduit = avec ? RIEN : v;
+  const couts = plusC(plusC(plusC(t.apporteurs, primesDeduites), variableDeduit), salaires);
+  return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1, moisAvecSalaires: avec ? 1 : 0 };
+}
+const sommeCouts = (xs: readonly CoutsLocation[]): CoutsLocation => {
+  const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
+  return { ...Object.fromEntries(k.map((x) => [x, xs.reduce((s, c) => plusC(s, c[x]), RIEN)])) as Pick<CoutsLocation, (typeof k)[number]>,
+    nbMois: xs.reduce((s, c) => s + c.nbMois, 0), moisAvecSalaires: xs.reduce((s, c) => s + c.moisAvecSalaires, 0) };
+};
+/** Les coûts d'un ensemble de mois : la somme de ses mois (chacun à sa règle). `retros` : déjà filtrées (négociateurs choisis). PUR. */
+export function coutsLocation(lignes: readonly LigneLocationCa[], ms: readonly { annee: number; mois: number }[], retros: readonly RetroLocation[],
+  salaires: readonly SalairesLocation[] | null): CoutsLocation {
+  return sommeCouts(ms.map((m) => coutsLocationMois(lignesDesMois(lignes, [m]), retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salaireDuMois(salaires, m.annee, m.mois))));
+}
+/** Les salaires saisis d'un mois (null : non saisi). PUR. */
+export const salairesLocationDuMois = salaireDuMois;
 
 // ── Les sommes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
