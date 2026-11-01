@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, syntheseGlobal, vueInitiale } from './EcransTransaction';
+import { AccueilLocationGestion, AccueilTransaction, AccueilVentes, EcranGestion, EcranGlobal, EcranSociete, syntheseGlobal, vueInitiale } from './EcransTransaction';
 import { celluleGlobal, previsionnel } from '../../../../lib/transaction/modele';
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { compromisEnCours } from '../../../../lib/transaction/compromisEnCours';
@@ -67,10 +67,20 @@ const sansExplication = (n: Element): string => { const c = n.cloneNode(true) as
 const texte = (sel: string): string => { const n = container.querySelector(sel); return n === null ? '' : sansExplication(n).replace(/\s/g, ' '); };
 
 describe('l’accueil de la tuile', () => {
-  it('LOT L — trois cases : « Transaction vente » (LOT DM, ex-« Transaction »), « Gestion », « CA global »', async () => {
+  it('LOT L — trois cases : « Transaction vente » (LOT DM, ex-« Transaction »), « Location & Gestion » (LOT DX, ex-« Gestion »), « CA global »', async () => {
     await act(async () => { root.render(createElement(AccueilTransaction)); });
     expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href')]))
-      .toEqual([['Transaction vente', '/admin/transaction/ventes'], ['Gestion', '/admin/transaction/gestion'], ['CA global', '/admin/transaction/global']]);
+      .toEqual([['Transaction vente', '/admin/transaction/ventes'], ['Location & Gestion', '/admin/transaction/location-gestion'], ['CA global', '/admin/transaction/global']]);
+    expect(texte('[data-tuile-transaction="location-gestion"] .loc-case-phrase')).toBe('Le chiffre d’affaires de la location et de la gestion : chaque activité, puis les deux réunies.');
+  });
+  it('🔴 LOT DX — « Location & Gestion » : Location, Gestion (la page existante, sa phrase d’avant) et « FUSION Location & Gestion » ; trois cases de même taille', async () => {
+    await act(async () => { root.render(createElement(AccueilLocationGestion)); });
+    expect([...container.querySelectorAll('[data-tuile-transaction]')].map((a) => [a.querySelector('.loc-case-titre')!.textContent, a.getAttribute('href'), a.querySelector('.loc-case-phrase')!.textContent]))
+      .toEqual([['Location', '/admin/transaction/location', 'Les honoraires de location : baux signés, propriétaire et locataire, par mois et par année.'],
+        ['Gestion', '/admin/transaction/gestion', 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.'],
+        ['FUSION Location & Gestion', '/admin/transaction/location-gestion/fusion', 'Les CA de la location et de la gestion réunis.']]);
+    // la grille de « Transaction vente » : trois colonnes, une seule au téléphone
+    expect(container.querySelector('ul.loc-cases')!.className).toBe('loc-cases loc-cases--accueil');
   });
   it('LOT L — « Transaction vente » : CRITERIMMO, MACJ et (LOT DM) « FUSION CRITERIMMO & MACJ », vers leurs écrans', async () => {
     await act(async () => { root.render(createElement(AccueilVentes)); });
@@ -202,7 +212,10 @@ describe('🔴 LOT L — l’arborescence', () => {
   it('les trois niveaux existent, chacun avec « ← Retour » vers son parent et son fil d’Ariane ; le droit « Transaction » garde tout l’arbre', () => {
     const pages: [string, string, keyof typeof ARIANE][] = [['page.tsx', '', 'accueil'], ['ventes/page.tsx', '/admin/transaction', 'ventes'],
       ['criterimmo/page.tsx', '/admin/transaction/ventes', 'criterimmo'], ['macj/page.tsx', '/admin/transaction/ventes', 'macj'],
-      ['gestion/page.tsx', '/admin/transaction', 'gestion'], ['global/page.tsx', '/admin/transaction', 'global'], ['fusion/page.tsx', '/admin/transaction/ventes', 'fusion']];
+      ['gestion/page.tsx', '/admin/transaction/location-gestion', 'gestion'], ['global/page.tsx', '/admin/transaction', 'global'], ['fusion/page.tsx', '/admin/transaction/ventes', 'fusion'],
+      // 🔴 LOT DX — « Location & Gestion », la Location et leur FUSION
+      ['location-gestion/page.tsx', '/admin/transaction', 'locationGestion'], ['location/page.tsx', '/admin/transaction/location-gestion', 'location'],
+      ['location-gestion/fusion/page.tsx', '/admin/transaction/location-gestion', 'fusionLocationGestion']];
     for (const [f, retour, ariane] of pages) {
       const src = readFileSync(`${T}/${f}`, 'utf8');
       if (retour !== '') expect(src).toContain(`retour="${retour}"`);
@@ -213,6 +226,11 @@ describe('🔴 LOT L — l’arborescence', () => {
     // 🔴 LOT DM : « Suivi Chiffre d'affaires » › « Transaction vente »
     expect(ARIANE.criterimmo.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'CRITERIMMO']);
     expect(ARIANE.fusion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Transaction vente', 'FUSION CRITERIMMO & MACJ']);
+    // 🔴 LOT DX : « Suivi Chiffre d'affaires » › « Location & Gestion » › Location | Gestion | FUSION Location & Gestion
+    expect(ARIANE.gestion).toEqual([{ libelle: 'Suivi Chiffre d’affaires', href: '/admin/transaction' }, { libelle: 'Location & Gestion', href: '/admin/transaction/location-gestion' }, { libelle: 'Gestion' }]);
+    expect(ARIANE.location.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Location & Gestion', 'Location']);
+    expect(ARIANE.fusionLocationGestion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Location & Gestion', 'FUSION Location & Gestion']);
+    expect(ARIANE.locationGestion.map((e) => e.libelle)).toEqual(['Suivi Chiffre d’affaires', 'Location & Gestion']);
   });
   it('les anciennes adresses restent valides : /criterimmo, /macj, /global ; une adresse du mois (?annee&mois) rouvre « Le mois »', () => {
     for (const f of ['criterimmo', 'macj', 'global']) expect(existsSync(`${T}/${f}/page.tsx`)).toBe(true);
@@ -3354,5 +3372,25 @@ describe('🔴 LOT DU — la ligne d’explication sous le titre des tuiles de C
       societe: { ca: 'honoraires encaissés par la société', net: 'CA − commissions, rétrocessions et reversé inter-cabinet' } });
     const { CSS_TRANSACTION } = await import('./commun');
     expect(CSS_TRANSACTION.replace(/\s+/g, ' ')).toContain('.tdb-tuile-mot>.trx-tuile-explication{display:block;');
+  });
+});
+
+describe('🔴 LOT DX — « Location & Gestion » : la Gestion inchangée, ses anciens liens, les pages en construction', () => {
+  const T = 'app/(admin)/admin/(protected)/transaction';
+  it('la page Gestion garde son adresse et son écran (EcranGestion, les paramètres de l’adresse) ; seuls son fil d’Ariane et son « ← Retour » montent d’un niveau', () => {
+    const src = readFileSync(`${T}/gestion/page.tsx`, 'utf8');
+    expect([existsSync(`${T}/gestion/page.tsx`), src.includes('<EcranGestion />'), src.includes('ARIANE.gestion'), src.includes('accesTransaction()')]).toEqual([true, true, true, true]);
+    // les liens vers la Gestion (CA global : « ?annee= ») ne changent pas
+    expect(readFileSync(`${T}/EcransTransaction.tsx`, 'utf8')).toContain("gestion: '/admin/transaction/gestion'");
+  });
+  it('Location et FUSION Location & Gestion : un encadré « En construction », aucun chiffre ni donnée ; le même droit que la Gestion', async () => {
+    for (const f of ['location/page.tsx', 'location-gestion/fusion/page.tsx']) {
+      const src = readFileSync(`${T}/${f}`, 'utf8');
+      expect([f, src.includes('<EnConstruction />'), src.includes('accesTransaction()'), src.includes('REFUS_TRANSACTION'), /fetch|EcranSociete|EcranGestion|lire[A-Z]/.test(src)]).toEqual([f, true, true, true, false]);
+    }
+    const { EnConstruction } = await import('./EnConstruction');
+    await act(async () => { root.render(createElement(EnConstruction)); });
+    expect(texte('[data-en-construction]')).toBe('En construction — cette page sera construite au prochain lot.');
+    expect(container.querySelector('[data-en-construction]')!.textContent).not.toMatch(/\d/);
   });
 });

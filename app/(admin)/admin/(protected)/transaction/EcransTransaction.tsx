@@ -66,10 +66,13 @@ const SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 
 export const ADRESSES_TRANSACTION = {
   accueil: '/admin/transaction', ventes: '/admin/transaction/ventes', gestion: '/admin/transaction/gestion', global: '/admin/transaction/global',
   criterimmo: '/admin/transaction/criterimmo', macj: '/admin/transaction/macj', fusion: '/admin/transaction/fusion',
+  // 🔴 LOT DX — « Location & Gestion » : l'écran intermédiaire, la Location et leur FUSION (la Gestion garde son adresse)
+  locationGestion: '/admin/transaction/location-gestion', location: '/admin/transaction/location', fusionLocationGestion: '/admin/transaction/location-gestion/fusion',
 } as const;
 const CASES = [
   { href: ADRESSES_TRANSACTION.ventes, titre: 'Transaction vente', phrase: 'Les ventes et compromis de CRITERIMMO et de MACJ : les compromis, le mois, l’année, les négociateurs, les apporteurs.', cle: 'ventes' },
-  { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', phrase: 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.', cle: 'gestion' },
+  // 🔴 LOT DX (Arno) — « Gestion » devient « Location & Gestion » : un écran intermédiaire (Location, Gestion, leur FUSION)
+  { href: ADRESSES_TRANSACTION.locationGestion, titre: 'Location & Gestion', phrase: 'Le chiffre d’affaires de la location et de la gestion : chaque activité, puis les deux réunies.', cle: 'location-gestion' },
   { href: ADRESSES_TRANSACTION.global, titre: 'CA global', phrase: 'Tous les CA réunis : CRITERIMMO (vente, location, gestion), MACJ (vente), puis les deux — par mois et par année, face à N−1.', cle: 'global' },
 ];
 const CASES_VENTES = [
@@ -77,6 +80,14 @@ const CASES_VENTES = [
   { href: ADRESSES_TRANSACTION.macj, titre: 'MACJ', phrase: 'Les compromis, le mois, l’année, les négociateurs et les apporteurs de MACJ.', cle: 'macj' },
   // 🔴 LOT DM — les deux sociétés réunies (le même écran ; chaque vente une fois, l'inter-cabinet entre elles neutralisé)
   { href: ADRESSES_TRANSACTION.fusion, titre: 'FUSION CRITERIMMO & MACJ', phrase: 'Les ventes et compromis des deux sociétés réunis.', cle: 'fusion' },
+];
+
+/** 🔴 LOT DX — « Location & Gestion » : la Location (nouvelle), la Gestion (la page existante, inchangée) et leur FUSION. */
+const PHRASE_GESTION = 'Les honoraires du parc envoyés chaque mois par le comptable : lots, honoraires, ADHOC, salarié, reste — par mois et par année.';
+const CASES_LOCATION_GESTION = [
+  { href: ADRESSES_TRANSACTION.location, titre: 'Location', phrase: 'Les honoraires de location : baux signés, propriétaire et locataire, par mois et par année.', cle: 'location' },
+  { href: ADRESSES_TRANSACTION.gestion, titre: 'Gestion', phrase: PHRASE_GESTION, cle: 'gestion' },
+  { href: ADRESSES_TRANSACTION.fusionLocationGestion, titre: 'FUSION Location & Gestion', phrase: 'Les CA de la location et de la gestion réunis.', cle: 'fusion-location-gestion' },
 ];
 
 function Cases({ cases, libelle, deux = false }: { cases: readonly { href: string; titre: string; phrase: string; cle: string }[]; libelle: string;
@@ -98,6 +109,8 @@ function Cases({ cases, libelle, deux = false }: { cases: readonly { href: strin
 export const AccueilTransaction = () => <Cases cases={CASES} libelle="Les tuiles de la Transaction" />;
 /** LOT L — « Transaction vente » : « CRITERIMMO », « MACJ » et (LOT DM) « FUSION CRITERIMMO & MACJ » — trois cases de même taille. */
 export const AccueilVentes = () => <Cases cases={CASES_VENTES} libelle="Les sociétés" />;
+/** 🔴 LOT DX — « Location & Gestion » : trois cases de même taille, comme « Transaction vente » (une colonne au téléphone). */
+export const AccueilLocationGestion = () => <Cases cases={CASES_LOCATION_GESTION} libelle="La location et la gestion" />;
 
 // ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 

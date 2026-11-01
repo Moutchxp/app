@@ -34,12 +34,17 @@ export function FilAriane({ etapes }: { etapes: readonly EtapeAriane[] }) {
 // 🔴 LOT DM (Arno) — « Suivi Chiffre d'affaires » (ex-« Transaction ») › « Transaction vente » › CRITERIMMO | MACJ | FUSION ; les adresses ne changent pas.
 const SUIVI = 'Suivi Chiffre d’affaires';
 const VENTE = 'Transaction vente';
+const LOC_GESTION = 'Location & Gestion';
 export const ARIANE = {
   accueil: [{ libelle: SUIVI }],
   ventes: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE }],
   criterimmo: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'CRITERIMMO' }],
   macj: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'MACJ' }],
   fusion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: VENTE, href: '/admin/transaction/ventes' }, { libelle: 'FUSION CRITERIMMO & MACJ' }],
-  gestion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: 'Gestion' }],
+  // 🔴 LOT DX (Arno) — « Location & Gestion » › Location | Gestion (la page existante) | FUSION Location & Gestion
+  locationGestion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: LOC_GESTION }],
+  location: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: LOC_GESTION, href: '/admin/transaction/location-gestion' }, { libelle: 'Location' }],
+  gestion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: LOC_GESTION, href: '/admin/transaction/location-gestion' }, { libelle: 'Gestion' }],
+  fusionLocationGestion: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: LOC_GESTION, href: '/admin/transaction/location-gestion' }, { libelle: 'FUSION Location & Gestion' }],
   global: [{ libelle: SUIVI, href: '/admin/transaction' }, { libelle: 'CA global' }],
 } as const satisfies Record<string, readonly EtapeAriane[]>;

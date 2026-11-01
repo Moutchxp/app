@@ -6,9 +6,10 @@ import { ARIANE, FilAriane } from '../FilAriane';
 /** TUILE TRANSACTION, LOT L — « Gestion » : la saisie mensuelle des honoraires du parc (déplacée du CA global), par mois et par année. */
 export default async function Page() {
   const { autorise } = await accesTransaction();
+  // 🔴 LOT DX (Arno) — la Gestion est sous « Location & Gestion » (fil d'Ariane et « ← Retour ») ; l'écran et son adresse ne changent pas.
   return (
     <section className="gst-page">
-      <EnTetePage titre="Gestion" intro="Les honoraires du parc envoyés chaque mois par le comptable : nombre de lots, honoraires HT, ADHOC, salarié, reste." retour="/admin/transaction">
+      <EnTetePage titre="Gestion" intro="Les honoraires du parc envoyés chaque mois par le comptable : nombre de lots, honoraires HT, ADHOC, salarié, reste." retour="/admin/transaction/location-gestion">
         <FilAriane etapes={ARIANE.gestion} /></EnTetePage>
       {autorise ? <EcranGestion /> : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_TRANSACTION}</div>}
     </section>

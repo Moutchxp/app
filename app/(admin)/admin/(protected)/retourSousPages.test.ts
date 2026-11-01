@@ -56,7 +56,11 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'transaction/criterimmo': [{ fichier: `${RACINE}/transaction/criterimmo/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
   // 🔴 LOT DM — la FUSION des deux sociétés, sous « Transaction vente »
   'transaction/fusion': [{ fichier: `${RACINE}/transaction/fusion/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
-  'transaction/gestion': [{ fichier: `${RACINE}/transaction/gestion/page.tsx`, lien: 'retour="/admin/transaction"' }],
+  // 🔴 LOT DX — « Location & Gestion » sous l'accueil ; la Location, la Gestion et leur FUSION sous « Location & Gestion »
+  'transaction/gestion': [{ fichier: `${RACINE}/transaction/gestion/page.tsx`, lien: 'retour="/admin/transaction/location-gestion"' }],
+  'transaction/location': [{ fichier: `${RACINE}/transaction/location/page.tsx`, lien: 'retour="/admin/transaction/location-gestion"' }],
+  'transaction/location-gestion': [{ fichier: `${RACINE}/transaction/location-gestion/page.tsx`, lien: 'retour="/admin/transaction"' }],
+  'transaction/location-gestion/fusion': [{ fichier: `${RACINE}/transaction/location-gestion/fusion/page.tsx`, lien: 'retour="/admin/transaction/location-gestion"' }],
   'transaction/global': [{ fichier: `${RACINE}/transaction/global/page.tsx`, lien: 'retour="/admin/transaction"' }],
   'transaction/macj': [{ fichier: `${RACINE}/transaction/macj/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
   'transaction/ventes': [{ fichier: `${RACINE}/transaction/ventes/page.tsx`, lien: 'retour="/admin/transaction"' }],
