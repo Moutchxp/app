@@ -105,3 +105,30 @@ describe('🔴 le graphique de l’accueil : mes compromis en cours mois par moi
     expect(st.annees.find((x) => x.annee === 2026)!.ca).toEqual(s.annees.find((x) => x.annee === 2026)!.ca);
   });
 });
+
+describe('🔴 décision 13 — mon CA net = la colonne « CA net » de MA ligne de l’Espace par négociateur (au centime, mois par mois, par année)', () => {
+  const statuts = { 'Léa': 'independant' as const, 'Marc': 'independant' as const };
+  const opts = { retros: [{ id: 1, societe: 'criterimmo' as const, annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null } as Retrocession],
+    statutDuLibelle: (l: string) => statuts[l as 'Léa'] ?? null };
+  const commission = (v: Vente, nego: string, ttc: number): Vente => ({ ...v, lignes: [...v.lignes, { id: 900 + v.id, negociateur: nego, role: 'negociateur', montantTtc: ttc, nature: 'vente', compte: true,
+    origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, cote: 'entree' } as Vente['lignes'][number]] });
+  const ventes = [commission(partagee, 'Léa', 1234.56), commission(juin, 'Léa', 777.77), sansMois, compromis, an2025];
+  const st = statistiquesMonEspace(ventes, LEA, JOUR, opts as never);
+  const maLigne = (vs: Vente[]) => espaceNegociateurs(vs, null, opts as never).filter((l) => l.negociateur === 'Léa').reduce((t, l) => ({ htC: t.htC + l.net.htC, ttcC: t.ttcC + l.net.ttcC }), { htC: 0, ttcC: 0 });
+  it('mars et juin 2026 : chaque mois = ma ligne de l’Espace par négociateur sur les ventes du mois', () => {
+    const a = st.annees.find((x) => x.annee === 2026)!;
+    expect(a.net![2]).toEqual(maLigne([ventes[0]]));
+    expect(a.net![5]).toEqual(maLigne([ventes[1]]));
+    expect(a.net![5].htC).toBeLessThan(a.ca[5].htC); // ma commission et la rétrocession de mon côté déduites
+    expect(a.netAConfirmer).toEqual(maLigne([sansMois]));
+  });
+  it('l’année = la somme de ses mois + « mois à confirmer » = ma ligne sur toutes mes ventes actées de l’année', () => {
+    const a = st.annees.find((x) => x.annee === 2026)!;
+    const somme = [...a.net!, a.netAConfirmer!].reduce((t, m) => ({ htC: t.htC + m.htC, ttcC: t.ttcC + m.ttcC }), { htC: 0, ttcC: 0 });
+    expect(somme).toEqual(maLigne([ventes[0], ventes[1], sansMois]));
+  });
+  it('jamais la ligne de Marc : le CA net de Léa ne dépend pas de la commission de Marc', () => {
+    const avecMarc = statistiquesMonEspace([commission(ventes[0], 'Marc', 999.99), ...ventes.slice(1)], LEA, JOUR, opts as never).annees.find((x) => x.annee === 2026)!;
+    expect(avecMarc.net![2]).toEqual(st.annees.find((x) => x.annee === 2026)!.net![2]);
+  });
+});

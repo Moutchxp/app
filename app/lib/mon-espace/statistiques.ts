@@ -2,7 +2,7 @@ import { pourLaVue } from '../transaction/compromisEnCours';
 import { moisSoulignes } from '../transaction/periodeAnnees';
 import { compromisDuMode, compromisReportes, parApporteur, type LigneApporteur, type Retrocession, type Vente } from '../transaction/modele';
 import type { MontantC } from '../transaction/partAgence';
-import { estAMoi, monCa, type Moi } from './mesAffaires';
+import { estAMoi, monCa, monCaNet, type Moi } from './mesAffaires';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 8 (Arno, 02/11/2026) — « MES STATISTIQUES » (PUR) ═════════════════════════════════════════════════════════════════════════
@@ -22,7 +22,9 @@ export const sommeC = (xs: readonly MontantC[]): MontantC => xs.reduce(plus, RIE
 export interface StatsAnnee { annee: number; ca: MontantC[]; nb: number[]; aConfirmer: MontantC; aConfirmerNb: number;
   /** Le graphique « vendu + compromis » de l'accueil : MES compromis en cours placés par la règle du Suivi CA (`compromisDuMode`, « Vendu +
    *  compromis ») — mon CA (ma part, décision 6) et leur nombre, chaque mois. Absents : aucun (le mode agence a son propre graphique). */
-  caComp?: MontantC[]; nbComp?: number[] }
+  caComp?: MontantC[]; nbComp?: number[];
+  /** 🔴 Décision 13 — MON CA NET (`monCaNet`) : chaque mois, les « mois à confirmer », et mes compromis en cours (même placement). */
+  net?: MontantC[]; netAConfirmer?: MontantC; netComp?: MontantC[] }
 export interface StatsMonEspace { annees: StatsAnnee[];
   /** Mes compromis en cours non datés de l'année, comptés au mois en cours (la mention du graphique). */
   reportes?: number }
@@ -32,7 +34,7 @@ export const mesVentesActees = (ventes: readonly Vente[], moi: Moi): Vente[] =>
   ventes.filter((v) => v.statut === 'vendue' && pourLaVue(v, null) && estAMoi(v, moi));
 
 /** Mes chiffres par année (l'année en cours et la précédente toujours présentes), mois par mois. PUR. */
-export function statistiquesMonEspace(ventes: readonly Vente[], moi: Moi, aujourdhui: string): StatsMonEspace {
+export function statistiquesMonEspace(ventes: readonly Vente[], moi: Moi, aujourdhui: string, o: Parameters<typeof monCaNet>[2] = {}): StatsMonEspace {
   const actees = mesVentesActees(ventes, moi);
   const an = Number(aujourdhui.slice(0, 4));
   const annees = [...new Set([an, an - 1, ...actees.map((v) => v.annee)])].sort((a, b) => a - b);
@@ -43,7 +45,9 @@ export function statistiquesMonEspace(ventes: readonly Vente[], moi: Moi, aujour
     const duMois = (m: number | null) => de.filter((v) => v.mois === m);
     return { annee: a, ca: Array.from({ length: 12 }, (_, i) => monCa(duMois(i + 1), moi)), nb: Array.from({ length: 12 }, (_, i) => duMois(i + 1).length),
       aConfirmer: monCa(duMois(null), moi), aConfirmerNb: duMois(null).length,
-      caComp: Array.from({ length: 12 }, (_, i) => monCa(comp(a, i + 1), moi)), nbComp: Array.from({ length: 12 }, (_, i) => comp(a, i + 1).length) };
+      caComp: Array.from({ length: 12 }, (_, i) => monCa(comp(a, i + 1), moi)), nbComp: Array.from({ length: 12 }, (_, i) => comp(a, i + 1).length),
+      net: Array.from({ length: 12 }, (_, i) => monCaNet(duMois(i + 1), moi, o)), netAConfirmer: monCaNet(duMois(null), moi, o),
+      netComp: Array.from({ length: 12 }, (_, i) => monCaNet(comp(a, i + 1), moi, o)) };
   }), reportes: compromisReportes(compromisDuMode(mesComp, an, null, 'tous', aujourdhui), aujourdhui).length };
 }
 

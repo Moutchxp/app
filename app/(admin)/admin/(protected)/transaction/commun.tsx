@@ -483,6 +483,13 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
   .trx-rangee-mois{flex-direction:column-reverse;align-items:stretch;gap:0}
   .trx-rangee-mois .trx-choix-periode{align-self:flex-end}
 }
+/* 🔴 Arno (02/11/2026) — LES 12 MOIS ENTIERS (plus de « Décem… ») : au-dessus de 720 px, la taille et l'espacement des mois suivent la LARGEUR DE LA
+   RANGÉE (unité de conteneur cqi, bornée) — même famille, même graisse ; Transaction et « Mon espace » (le même composant, la même règle).
+   En dessous du plancher (rangée trop étroite), le défilement horizontal d'avant reste. La rangée des années n'est pas touchée. */
+@media (min-width:721px){
+  .trx-rangee-mois:not(.trx-rangee-annees){container-type:inline-size}
+  .trx-rangee-mois:not(.trx-rangee-annees) .tdb-onglets .tdb-onglet{font-size:clamp(.78rem, calc((100cqi - 230px) / 75), 1rem);padding-left:clamp(3px, calc((100cqi - 900px) / 40), 12px);padding-right:clamp(3px, calc((100cqi - 900px) / 40), 12px)}
+}
 /* LOT CO — tri de l'Espace par négociateur : l'intitulé est un bouton, deux flèches grises, celle du tri en cours en vert ; sur téléphone
    (en-tête replié en cartes) les deux tris passent au-dessus du tableau. */
 .trx-tri{appearance:none;border:0;background:transparent;padding:4px 2px;margin:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:6px;min-height:32px}

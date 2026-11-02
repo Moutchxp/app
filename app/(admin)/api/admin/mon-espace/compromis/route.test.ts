@@ -5,13 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * simulée (rien n'est écrit). `enregistrerDossier` (la fonction de la tuile Suivi CA) est espionnée : on vérifie qu'elle reçoit la saisie telle
  * quelle, ou qu'elle n'est JAMAIS appelée quand « Mon espace » refuse.
  */
-const h = vi.hoisted(() => ({ garde: vi.fn(), enregistrer: vi.fn(), role: 'collaborateur', mandat: true, prise: null as unknown }));
+const h = vi.hoisted(() => ({ garde: vi.fn(), enregistrer: vi.fn(), role: 'collaborateur', mandat: true, prise: null as unknown,
+  // 🔴 Décision 12 — le rattachement du profil (transaction_societe_compte) ; vide : aucun rattachement enregistré (la question reste)
+  periodes: [] as { societe: string; depuis: string }[] }));
 vi.mock('../../../../../lib/mon-espace/garde', () => ({ exigerMonEspace: h.garde }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 5, libelle: 'lea@x.fr' }) }));
 vi.mock('../../../../../lib/db/client', () => ({ query: async () => ({ rows: [{ role: h.role }] }) }));
 vi.mock('../../../../../lib/admin/schemaDroits', () => ({ mandatDisponible: async () => h.mandat, repartitionDisponible: async () => true,
   personneTypeDisponible: async () => true, prixVenteDisponible: async () => true, uniteCommissionDisponible: async () => true }));
-vi.mock('../../../../../lib/transaction/repo', () => ({ enregistrerDossier: h.enregistrer, lireNegociateurs: async () => [], lireVentes: async () => [] }));
+vi.mock('../../../../../lib/transaction/repo', () => ({ enregistrerDossier: h.enregistrer, lireNegociateurs: async () => [], lireVentes: async () => [],
+  lirePeriodesSociete: async (ids: number[]) => new Map(ids.map((id) => [id, h.periodes])) }));
 vi.mock('../../../../../lib/transaction/mandatRepo', async (orig) => ({ ...(await orig<object>()), venteDuMandat: async () => h.prise }));
 
 import { POST } from './route';
@@ -27,7 +30,7 @@ const poster = async (corps: Record<string, unknown>) => {
   return { status: r.status, corps: await r.json() as { etat?: string; motif?: string; data?: unknown } };
 };
 beforeEach(() => {
-  h.garde.mockResolvedValue({ auteurId: 5 }); h.role = 'collaborateur'; h.mandat = true; h.prise = null;
+  h.garde.mockResolvedValue({ auteurId: 5 }); h.role = 'collaborateur'; h.mandat = true; h.prise = null; h.periodes = [];
   h.enregistrer.mockReset().mockResolvedValue({ ok: true, valeur: 99 });
 });
 
@@ -76,6 +79,23 @@ describe('🔴 POST /api/admin/mon-espace/compromis — créer depuis « Mon esp
     expect((await poster({ dossier: dossier({ statut: 'vendue', dateActe: '2026-11-02' }) })).status).toBe(422);
     expect((await poster({ id: 12, dossier: dossier() })).status).toBe(404);
     expect(h.enregistrer).not.toHaveBeenCalled();
+  });
+  it('🔴 décision 12 — rattaché à CRITERIMMO seule : l’autre structure est refusée (403), à la création comme à la vérification du n° ; la sienne passe', async () => {
+    h.periodes = [{ societe: 'criterimmo', depuis: '2020-01-01' }];
+    const r = await poster({ dossier: dossier({ societe: 'macj' }) });
+    expect([r.status, r.corps.motif]).toEqual([403, 'Votre profil est rattaché à CRITERIMMO : le compromis se crée dans cette structure. Rien n’a été enregistré.']);
+    expect(h.enregistrer).not.toHaveBeenCalled();
+    expect((await verifier(new Request('http://local/api/admin/mon-espace/mandat?societe=macj&numero=M-42'))).status).toBe(403);
+    expect((await poster({ dossier: dossier() })).status).toBe(200);
+    expect((await verifier(new Request('http://local/api/admin/mon-espace/mandat?societe=criterimmo&numero=M-42'))).status).toBe(200);
+  });
+  it('🔴 décision 12 — rattaché aux DEUX, ou sans rattachement enregistré : les deux structures restent possibles ; un administrateur (mode agence) aussi', async () => {
+    h.periodes = [{ societe: 'les_deux', depuis: '2020-01-01' }];
+    expect((await poster({ dossier: dossier({ societe: 'macj' }) })).status).toBe(200);
+    h.periodes = [];
+    expect((await poster({ dossier: dossier({ societe: 'macj' }) })).status).toBe(200);
+    h.periodes = [{ societe: 'criterimmo', depuis: '2020-01-01' }]; h.role = 'administrateur';
+    expect((await poster({ dossier: dossier({ societe: 'macj' }) })).status).toBe(200);
   });
   it('sans le droit « Mon espace » : 403', async () => {
     h.garde.mockResolvedValue({ refus: Response.json({ erreur: 'ACCES_REVOQUE' }, { status: 403 }) });

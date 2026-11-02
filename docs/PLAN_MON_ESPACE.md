@@ -32,9 +32,22 @@ unicité du mandat par structure (n° + société).
    02/11/2026) : les tuiles de l'accueil les remplacent, avec le même clic vers la liste (« Mes compromis en cours », « Mes ventes » de l'année).
 9. **La liste déroulante « Année » au-dessus de la rangée des mois est RETIRÉE** (accord explicite d'Arno, 02/11/2026) : la rangée des années de
    l'onglet « Année(s) » la remplace. Aucun autre retrait.
+10. **La phrase « Le montant est votre CA : … » est RETIRÉE** de « Mon espace » (accord explicite d'Arno, 02/11/2026) ; celle du mode agence reste.
+11. **Les onglets « Mes compromis en cours », « Mes ventes », « Mes statistiques » sont à RETIRER** (doublons de Compromis / Mois / Année(s)) ;
+    « Mes apporteurs » reste. Inventaire fait avant (02/11/2026) : « Mes compromis en cours » = l'onglet « Compromis » (même liste, mêmes gestes)
+    → RETIRÉ. « Mes ventes » (la liste des ventes actées par année, cartes dépliables, gestes, historique) et « Mes statistiques » (par apporteur ;
+    en mode agence, par négociateur) n'ont PAS d'autre accès → GARDÉS, en attente de la réponse d'Arno sur leur nouvel emplacement.
+12. **Nouveau compromis : « Pour quelle structure ? » n'est posée qu'aux collaborateurs rattachés aux DEUX structures.** Source : le rattachement du
+    profil (`transaction_societe_compte`, daté). Rattaché à une seule : étape sautée, « Structure : … (celle de votre profil) » en lecture seule,
+    imposée aussi par le serveur (création et vérification du n° : 403 pour l'autre structure ; un administrateur et le mode agence : inchangés).
+    Sans rattachement enregistré (au 02/11/2026 : Augustin Jorel, actif ; Test Test, inactif) : la question reste, en attente d'Arno.
+13. **« CA net » en vue « Mon espace » = mon CA moins ma commission déduite, moins les rétrocessions de mon côté** : la colonne « CA net » de MA ligne
+    dans l'Espace par négociateur du Suivi CA (`monCaNet` → `espaceNegociateurs`, options de la page FUSION), calculée côté serveur ; mesure
+    « CA net » des graphiques Mois / Année(s) et carte « Mon CA net » (comme la carte « CA net » du mode agence).
 
-Navigation (après le lot 10, 02/11/2026 ; mise à jour le même jour : la barre d'onglets JUSTE SOUS la ligne « Voir … », HT | TTC et la phrase du
-CA sous les onglets) : en tête, la ligne « Voir … » + « + Nouveau compromis », puis les onglets du Suivi CA
+Navigation (après le lot 10, 02/11/2026 ; mise à jour le même jour : la barre d'onglets JUSTE SOUS la ligne « Voir … », HT | TTC sous les
+onglets ; décisions 10 et 11 : plus de phrase du CA, plus d'onglet « Mes compromis en cours » ; la rangée des mois entière, sans troncature,
+par une taille fluide selon sa largeur — la même règle au Suivi CA) : en tête, la ligne « Voir … » + « + Nouveau compromis », puis les onglets du Suivi CA
 (`OngletsVues`, le même composant que la Transaction : « Compromis | Mois | Année(s) », « Compromis » par défaut, l'adresse ?vue= / ?vue-mois= /
 ?vue-annee= comme la Transaction) suivis, dans la même barre, des onglets « Mes compromis en cours | Mes ventes | Mes statistiques | Mes apporteurs »
 (inchangés). « Mois » = l'accueil au format « Le mois » ; « Année(s) » = le format de « L'année » (rangée des années, Année | Période | Tout, tuiles,
@@ -42,7 +55,7 @@ CA sous les onglets) : en tête, la ligne « Voir … » + « + Nouveau compromi
 expressions des écrans du Suivi CA (`accueil.ts`). GRAPHIQUES : ceux de la page du Suivi CA eux-mêmes (`GrapheMois`, `GrapheAnnees`, en « Vendu + compromis »), avec une source facultative
 (`app/lib/transaction/sourceGraphe.ts`) : sans elle le Suivi CA calcule comme avant (captures avant / après identiques au pixel) ; « Mon espace »
 leur passe MES chiffres (le vendu de « Mes statistiques », mes compromis en cours placés par la règle du Suivi CA, ma part : `sourceMoisPerso`,
-`sourceAnneesPerso`). ❓ « CA net » d'un espace personnel : non défini — question posée à Arno ; d'ici là, la mesure n'existe qu'en mode agence.
+`sourceAnneesPerso`). « CA net » d'un espace personnel : décision 13 (mon CA net).
 L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px, mesuré au banc sur les deux pages).
 
 Mise en œuvre du lot 2 (n° de mandat, migration 449) :

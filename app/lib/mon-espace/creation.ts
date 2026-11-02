@@ -13,6 +13,8 @@ import type { DossierSaisie } from '../transaction/saisie';
 export const MOTIF_CREATION_COMPROMIS = 'Depuis « Mon espace », on crée un compromis (l’acte se signe ensuite). Rien n’a été enregistré.';
 export const MOTIF_CREATION_SANS_MANDAT = 'Le n° de mandat est obligatoire pour créer un compromis. Rien n’a été enregistré.';
 export const MOTIF_CREATION_SANS_449 = 'La création depuis « Mon espace » est disponible après la mise à jour de la base (migration 449 : n° de mandat). Rien n’a été enregistré.';
+/** 🔴 Décision 12 (Arno, 02/11/2026) — un collaborateur rattaché à UNE structure ne crée (ni ne vérifie un n°) que dans la sienne. */
+export const motifStructureImposee = (imposee: string): string => `Votre profil est rattaché à ${imposee} : le compromis se crée dans cette structure. Rien n’a été enregistré.`;
 export const MOTIF_CREATION_PAS_SUR_UN_COTE = 'Vous devez figurer vous-même sur un côté du compromis (entrée ou sortie du mandat). Rien n’a été enregistré.';
 
 /** Le titulaire est-il sur un côté de la saisie ? PUR. */

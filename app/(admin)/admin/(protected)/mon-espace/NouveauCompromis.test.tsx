@@ -29,12 +29,15 @@ const aRejoindre = { ...venteCreee, id: 3, libelle: 'DUPONT / MARTIN', numeroMan
   mesCotes: [], commissionsRetirees: true };
 let cree = false;
 let prise: unknown = null;
+// 🔴 Décision 12 — la structure du profil (une seule) ; null : les deux, ou aucun rattachement (la question reste)
+let imposee: string | null = null;
+let admin = false;
 let posts: { url: string; corps: Record<string, unknown> }[];
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
-  cree = false; prise = null; posts = [];
+  cree = false; prise = null; posts = []; imposee = null; admin = false;
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -42,11 +45,13 @@ beforeEach(() => {
     const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) });
     if (init?.method === 'POST') { posts.push({ url: u, corps: JSON.parse(String(init.body)) }); cree = true; return ok(99); }
     if (u.startsWith(URL_REFERENCES)) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaireId: 5, administrateur: false, lotD: true, personneType: true, prixVente: true,
-      mandat: true, uniteCommission: true, negociateurs: [LEA, MARC], apporteurs: [], personnes: [] });
+      mandat: true, uniteCommission: true, negociateurs: [LEA, MARC], apporteurs: [], personnes: [], structureImposee: imposee });
     if (u.startsWith(URL_MANDAT)) return ok(prise === null ? { libre: true, numero: 'M-42' } : { libre: false, numero: 'M-42', transaction: prise });
     if (u.startsWith(URL_VENTE)) return ok(aRejoindre);
     const ventes = cree ? [ancienne, venteCreee] : [ancienne];
-    return ok({ disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes,
+    if (u.includes('agence=')) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: true }, ventes: [], agence: { cle: 'macj', societe: 'macj' },
+      compteurs: { compromis: vide, actees: { ...vide, annee: 2026 }, parAnnee: [] } });
+    return ok({ disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: admin }, ventes,
       schema: { lotD: true, personneType: true, uniteCommission: true, prixVente: true, mandat: true },
       compteurs: { compromis: { nb: ventes.length, ids: ventes.map((v) => v.id), ca: { htC: 0, ttcC: 0 } }, actees: { ...vide, annee: 2026 }, parAnnee: [] } });
   }) as unknown as typeof fetch;
@@ -94,7 +99,7 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5 } });
     await calmer();
     expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
-    expect(container.querySelector('[data-onglet-mon-espace="compromis"]')!.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true'); // « Compromis » (décision 11)
     // en haut malgré une date de compromis plus ancienne, et déplié
     expect([...container.querySelectorAll('[data-ma-vente]')].map((x) => x.getAttribute('data-ma-vente'))).toEqual(['99', '50']);
     expect(container.querySelector('[data-ma-vente="99"] [data-colonne="vendeur"]')).not.toBeNull();
@@ -143,5 +148,31 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect(container.querySelector('[data-rejoindre-cote]')).toBeNull();
     expect(container.querySelector('[data-deux-cotes-tenus]')).not.toBeNull();
     expect(posts).toEqual([]);
+  });
+});
+
+describe('🔴 décision 12 — la structure du nouveau compromis', () => {
+  it('rattachée à UNE structure : la question n’est pas posée ; « Structure : CRITERIMMO » en lecture seule ; la vérification part dans CETTE structure', async () => {
+    imposee = 'criterimmo';
+    await ouvrir();
+    expect(container.querySelector('[data-parcours="structure"]')).toBeNull();
+    expect(container.querySelector('[data-parcours="mandat"]')).not.toBeNull();
+    expect(texte('[data-structure-imposee]')).toBe('Structure : CRITERIMMO (celle de votre profil)');
+    expect([...container.querySelectorAll('[data-parcours] button')].map((b) => b.textContent)).not.toContain('Changer de structure');
+    await saisir('[data-parcours-mandat]', 'M-42');
+    await cliquer('[data-parcours-verifier]');
+    expect((globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map((c) => String(c[0])).find((u) => u.startsWith(URL_MANDAT))).toContain('societe=criterimmo');
+  });
+  it('rattachée aux deux (ou sans rattachement) : la question reste', async () => {
+    await ouvrir();
+    expect(container.querySelector('[data-parcours="structure"]')).not.toBeNull();
+    expect(container.querySelector('[data-structure-imposee]')).toBeNull();
+  });
+  it('mode agence (administrateur) : la question reste, même si son profil n’a qu’une structure', async () => {
+    imposee = 'criterimmo'; admin = true;
+    await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer();
+    await cliquer('[data-espace="macj"]');
+    await cliquer('[data-nouveau-compromis-mon-espace]');
+    expect(container.querySelector('[data-parcours="structure"]')).not.toBeNull();
   });
 });

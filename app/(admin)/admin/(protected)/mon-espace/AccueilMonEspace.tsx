@@ -55,7 +55,7 @@ export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires;
     <div className="mes-accueil tdb loc-page" data-transaction={agence?.cle ?? 'moi'} data-accueil-mon-espace={agence?.cle ?? 'moi'}>
       <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={moisPeriodeAnnee} onMois={choisirMois} onDecoupage={choisirDecoupage} />
       {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
-      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${moisMot} ${annee}`} data-tuiles-accueil>
+      <ul className={`tdb-tuiles trx-tuiles-alignees${agence === null && t.net !== undefined ? ' trx-tuiles-gestion' : ''}`} aria-label={`L’essentiel — ${moisMot} ${annee}`} data-tuiles-accueil>
         <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-mois">
           <span className="tdb-tuile-mot">{mot(`CA ${MOT}`)} — {moisMot}{agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="ca">{grand(t.ca.valeur)}</strong>
@@ -69,13 +69,14 @@ export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires;
           <strong className="tdb-tuile-valeur" data-valeur-tuile="cumul">{grand(t.cumul.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.cumul.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="cumul">{n1(t.cumul.n1, t.cumul.pct)}</span></button></li>
-        {t.net !== undefined ? (
+        {t.net !== undefined && (
           <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-net-cumul">
-            <span className="tdb-tuile-mot">{mot(`CA net ${MOT}`)} cumulé {annee} ({t.cumul.mot})<Explication sorte="net" /></span>
+            <span className="tdb-tuile-mot">{agence === null ? `Mon CA net ${MOT}` : mot(`CA net ${MOT}`)} cumulé {annee} ({t.cumul.mot}){agence !== null && <Explication sorte="net" />}</span>
             <strong className="tdb-tuile-valeur" data-ca-net-cumul>{grand(t.net.valeur)}</strong>
             <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.net.valeur)}</small>
             <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{n1(t.net.n1, t.net.pct)}</span></button></li>
-        ) : (
+        )}
+        {agence === null && (
           <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('compromis')} data-tuile="mes-compromis">
             <span className="tdb-tuile-mot">Mes compromis en cours ({MOT}) <small className="trx-tuile-explication">ma part, le prévisionnel</small></span>
             <strong className="tdb-tuile-valeur" data-valeur-tuile="previsionnel">{grand(prev)}</strong>

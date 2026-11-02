@@ -64,7 +64,7 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir }:
     <div className="mes-annees tdb loc-page" data-transaction={agence?.cle ?? 'moi'} data-annees-mon-espace={agence?.cle ?? 'moi'}>
       <LigneDesAnnees annees={visibles} decoupage={choixA.decoupage} annee={annee} choisies={sel} onAnnee={choisirAnnee} onDecoupage={choisirDecoupageAnnees} />
       {choixA.decoupage === 'periode' && refusAnnees && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
-      <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${lib}`} data-tuiles-annees>
+      <ul className={`tdb-tuiles trx-tuiles-alignees${agence === null && t.net !== undefined ? ' trx-tuiles-gestion' : ''}`} aria-label={`L’essentiel — ${lib}`} data-tuiles-annees>
         <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-annee">
           <span className="tdb-tuile-mot">{mot(`CA ${MOT}`)} — {lib}{agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="ca-annee">{grand(t.ca.valeur)}</strong>
@@ -78,13 +78,14 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir }:
           <strong className="tdb-tuile-valeur" data-valeur-tuile="a-date">{grand(t.aDate.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.aDate.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="a-date">{n1(t.aDate.n1, t.aDate.pct)}</span></button></li>
-        {t.net !== undefined ? (
+        {t.net !== undefined && (
           <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-net-annee">
-            <span className="tdb-tuile-mot">{mot(`CA net ${MOT}`)} — {lib}<Explication sorte="net" /></span>
+            <span className="tdb-tuile-mot">{agence === null ? `Mon CA net ${MOT}` : mot(`CA net ${MOT}`)} — {lib}{agence !== null && <Explication sorte="net" />}</span>
             <strong className="tdb-tuile-valeur" data-ca-net-annee>{grand(t.net.valeur)}</strong>
             <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.net.valeur)}</small>
             <span className="tdb-tuile-n1" data-tuile-n1="ca-net">{n1(t.net.n1, t.net.pct)}</span></button></li>
-        ) : (
+        )}
+        {agence === null && (
           <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('compromis')} data-tuile="mes-compromis">
             <span className="tdb-tuile-mot">Mes compromis en cours ({MOT}) <small className="trx-tuile-explication">ma part, le prévisionnel</small></span>
             <strong className="tdb-tuile-valeur" data-valeur-tuile="previsionnel">{grand(prev)}</strong>

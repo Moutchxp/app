@@ -141,3 +141,28 @@ describe('🔴 les sources du graphique du Suivi CA sur mes chiffres', () => {
     expect(src.valeur(2024, 'tous', 'ca', 'ht')).toBe(0);
   });
 });
+
+describe('🔴 décision 13 — « CA net » en vue perso : la carte et le graphique', () => {
+  const m = (ht: number) => ({ htC: ht, ttcC: Math.round(ht * 1.2) });
+  const z = { htC: 0, ttcC: 0 };
+  const douze = (vals: Record<number, number>) => Array.from({ length: 12 }, (_, i) => (vals[i + 1] === undefined ? z : m(vals[i + 1])));
+  const st = { annees: [
+    { annee: 2025, ca: douze({ 3: 300000 }), nb: Array(12).fill(0), aConfirmer: z, aConfirmerNb: 0, net: douze({ 3: 250000 }), netAConfirmer: z, netComp: douze({}) },
+    { annee: 2026, ca: douze({ 3: 600000, 6: 500000 }), nb: Array(12).fill(0), aConfirmer: m(100000), aConfirmerNb: 1,
+      net: douze({ 3: 450000, 6: 420000 }), netAConfirmer: m(80000), netComp: douze({ 11: 123400 }), caComp: douze({ 11: 150000 }), nbComp: Array(12).fill(0) }] };
+  it('« Mois », Année : « Mon CA net cumulé » = mes mois de janvier à la borne ; N−1 aussi', () => {
+    const t = tuilesPerso(st, { decoupage: 'annee', annee: 2026, mois: 11, moisPeriode: [] }, JOUR);
+    expect(t.net!.valeur.ht).toBe(8700);
+    expect(t.net!.n1!.ht).toBe(2500);
+  });
+  it('« Année(s) » : l’année = 12 mois + « mois à confirmer »', () => {
+    expect(tuilesAnneesPerso(st, [2026], false, JOUR).net!.valeur.ht).toBe(9500);
+  });
+  it('le graphique : « CA net » du vendu ; « Vendu + compromis » : + mes compromis', () => {
+    const src = sourceMoisPerso(st, 2026);
+    expect(src.net!(2026, 'vendu')[5].htC).toBe(420000);
+    expect(src.net!(2026, 'tous')[10].htC).toBe(123400);
+    expect(sourceAnneesPerso(st).valeur(2026, 'tous', 'net', 'ht')).toBe((450000 + 420000 + 80000 + 123400) / 100);
+    expect(sourceAnneesPerso(st).avecNet).toBe(true);
+  });
+});

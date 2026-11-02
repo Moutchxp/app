@@ -56,6 +56,14 @@ export function monCa(ventes: readonly Vente[], moi: Moi): MontantC {
   return espaceNegociateurs(ventes, null).filter((l) => moi.libelles.has(l.negociateur))
     .reduce((t, l) => ({ htC: t.htC + l.ca.htC, ttcC: t.ttcC + l.ca.ttcC }), { htC: 0, ttcC: 0 });
 }
+/**
+ * 🔴 Décision 13 (Arno, 02/11/2026) — MON CA NET : la colonne « CA net » de MES lignes de l'Espace par négociateur (vue FUSION) — mon CA, moins ma
+ * commission déduite, moins les rétrocessions de mon côté — avec les options de la page du Suivi CA (rétrocessions, statut des négociateurs). PUR.
+ */
+export function monCaNet(ventes: readonly Vente[], moi: Moi, o: Parameters<typeof espaceNegociateurs>[2] = {}): MontantC {
+  return espaceNegociateurs(ventes, null, o).filter((l) => moi.libelles.has(l.negociateur))
+    .reduce((t, l) => ({ htC: t.htC + l.net.htC, ttcC: t.ttcC + l.net.ttcC }), { htC: 0, ttcC: 0 });
+}
 
 export interface Compteur { nb: number; ids: number[]; ca: MontantC }
 export interface CompteursMonEspace { compromis: Compteur; actees: Compteur & { annee: number };

@@ -2,7 +2,7 @@ import { caNetParMoisMode, caNetVente, resultatDesCartes } from '../transaction/
 import { cumuler } from '../transaction/cumul';
 import { borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../transaction/periodeMois';
-import { caHtParMoisMode, sansN1Pour, TVA, variation, type DonneesSociete } from '../transaction/modele';
+import { caHtParMoisMode, sansN1Pour, TVA, variation, type DonneesSociete, type ModeMois } from '../transaction/modele';
 import type { MontantC } from '../transaction/partAgence';
 import { resolveurDe } from '../transaction/statutLigne';
 import { sommeC, totauxDuChoix, type StatsMonEspace } from './statistiques';
@@ -43,10 +43,15 @@ export function tuilesPerso(s: StatsMonEspace, c: ChoixAccueil, jour: string): T
   const b = borne(c, jour);
   const cumulDe = (a: number): MontantC => sommeC((s.annees.find((x) => x.annee === a)?.ca ?? []).slice(0, b.fin));
   const [cu, cu1] = [cumulDe(c.annee), cumulDe(c.annee - 1)];
+  // 🔴 Décision 13 — mon CA net cumulé, de janvier à la même borne (la carte « CA net cumulé » du mode agence) ; absent des statistiques : pas de carte.
+  const netDe = (a: number): MontantC => sommeC((s.annees.find((x) => x.annee === a)?.net ?? []).slice(0, b.fin));
+  const avecNet = s.annees.some((x) => x.net !== undefined);
+  const [ne, ne1] = [netDe(c.annee), netDe(c.annee - 1)];
   return {
     ca: { valeur: deC(t.n.ca), n1: t.n1 === null ? null : deC(t.n1.ca), pct: t.n1 === null ? null : variation(t.n.ca.htC, t.n1.ca.htC) },
     nb: { valeur: t.n.nb, n1: t.n1?.nb ?? null },
     cumul: { valeur: deC(cu), n1: deC(cu1), pct: variation(cu.htC, cu1.htC), fin: b.fin, mot: b.mot },
+    ...(avecNet ? { net: { valeur: deC(ne), n1: deC(ne1), pct: variation(ne.htC, ne1.htC) } } : {}),
   };
 }
 
@@ -98,10 +103,15 @@ export function tuilesAnneesPerso(s: StatsMonEspace, sel: readonly number[], tou
   const aDateDe = (a: number, nb: number): MontantC => { const x = an(a); return x === undefined ? { htC: 0, ttcC: 0 } : sommeC([...x.ca.slice(0, nb), ...(nb >= 12 ? [x.aConfirmer] : [])]); };
   const n = somme(sel); const n1 = somme(sel.map((a) => a - 1));
   const d = sommeC(sel.map((a) => aDateDe(a, moisADate(a, jour)))); const d1 = sommeC(sel.map((a) => aDateDe(a - 1, moisADate(a, jour))));
+  // 🔴 Décision 13 — mon CA net des années (12 mois + « mois à confirmer », comme le CA) ; absent des statistiques : pas de carte.
+  const netAn = (a: number): MontantC => { const x = an(a); return x?.net === undefined ? { htC: 0, ttcC: 0 } : sommeC([...x.net, x.netAConfirmer ?? { htC: 0, ttcC: 0 }]); };
+  const avecNet = s.annees.some((x) => x.net !== undefined);
+  const [na, na1] = [sommeC(sel.map(netAn)), sommeC(sel.map((a) => netAn(a - 1)))];
   return {
     ca: { valeur: deC(n.ca), ...avec(deC(n1.ca), variation(n.ca.htC, n1.ca.htC), tout, false) },
     nb: { valeur: n.nb, n1: tout ? null : n1.nb },
     aDate: { valeur: deC(d), ...avec(deC(d1), variation(d.htC, d1.htC), tout, false) },
+    ...(avecNet ? { net: { valeur: deC(na), ...avec(deC(na1), variation(na.htC, na1.htC), tout, false) } } : {}),
   };
 }
 
@@ -128,9 +138,11 @@ export function tuilesAnneesAgence(dx: DonneesAgence, sel: readonly number[], to
  * ══ LE GRAPHIQUE DU SUIVI CA SUR MES CHIFFRES (« Mon espace ») ══════════════════════════════════════════════════════════════════════════════════════
  * Les graphiques de « Le mois » / « L'année » (`GrapheMois`, `GrapheAnnees`), en « Vendu + compromis » comme la page du Suivi CA, avec MES chiffres :
  * le vendu = « Mes statistiques » (mon CA, décision 1), les compromis = mes compromis en cours placés par la règle du Suivi CA (ma part, décision 6).
- * Aucun montant d'un autre collaborateur : le serveur ne calcule que mon CA. Sans « CA net » (non défini pour un espace personnel). PUR.
+ * Aucun montant d'un autre collaborateur : le serveur ne calcule que mon CA. « CA net » (décision 13) : mon CA net (`monCaNet`), de même. PUR.
  */
 const RIEN_C: MontantC = { htC: 0, ttcC: 0 };
+/** Décision 13 — la définition de MON CA net, dite sous le graphique. */
+export const NOTE_NET_PERSO = 'Mon CA net : mon CA moins ma commission déduite et les rétrocessions de mon côté (la colonne « CA net » de ma ligne dans l’Espace par négociateur du Suivi CA).';
 const anDe = (s: StatsMonEspace, a: number) => s.annees.find((x) => x.annee === a);
 const douze = <T>(f: (i: number) => T): T[] => Array.from({ length: 12 }, (_, i) => f(i));
 /** Pas d'année précédente à comparer pour l'année `a` : ni vente ni compromis l'année d'avant (la règle `sansN1Pour` en « Vendu + compromis »). */
@@ -141,7 +153,10 @@ const sansN1Perso = (s: StatsMonEspace, a: number): boolean => {
 export function sourceMoisPerso(s: StatsMonEspace, annee: number): SourceGrapheMois {
   const ht = (a: number, avecComp: boolean): number[] => { const x = anDe(s, a); return douze((i) => (x === undefined ? 0 : (x.ca[i].htC + (avecComp ? (x.caComp?.[i] ?? RIEN_C).htC : 0)) / 100)); };
   const nb = (a: number, avecComp: boolean): number[] => { const x = anDe(s, a); return douze((i) => (x === undefined ? 0 : x.nb[i] + (avecComp ? x.nbComp?.[i] ?? 0 : 0))); };
-  return { ca: (a) => ht(a, true), caVendu: (a) => ht(a, false), nb: (a) => nb(a, true), nbVendu: (a) => nb(a, false), sansN1: sansN1Perso(s, annee), nbReportes: s.reportes ?? 0 };
+  // « CA net » : mon CA net de chaque mois ; « Vendu + compromis » : + celui de mes compromis en cours (le même placement)
+  const net = (a: number, mode: ModeMois): MontantC[] => { const x = anDe(s, a); return douze((i) => (x === undefined ? RIEN_C
+    : sommeC([x.net?.[i] ?? RIEN_C, ...(mode === 'tous' ? [x.netComp?.[i] ?? RIEN_C] : [])]))); };
+  return { ca: (a) => ht(a, true), caVendu: (a) => ht(a, false), nb: (a) => nb(a, true), nbVendu: (a) => nb(a, false), sansN1: sansN1Perso(s, annee), nbReportes: s.reportes ?? 0, net, noteNet: NOTE_NET_PERSO };
 }
 export function sourceAnneesPerso(s: StatsMonEspace): SourceGrapheAnnees {
   return {
@@ -149,10 +164,13 @@ export function sourceAnneesPerso(s: StatsMonEspace): SourceGrapheAnnees {
       const x = anDe(s, a);
       if (x === undefined) return 0;
       const comp = mode === 'tous';
+      if (mesure === 'net') { const n = sommeC([...(x.net ?? []), x.netAConfirmer ?? RIEN_C, ...(comp ? x.netComp ?? [] : [])]); return (unite === 'ht' ? n.htC : n.ttcC) / 100; }
       if (mesure === 'nombre') return x.nb.reduce((t, n) => t + n, 0) + x.aConfirmerNb + (comp ? (x.nbComp ?? []).reduce((t, n) => t + n, 0) : 0);
       const m = sommeC([...x.ca, x.aConfirmer, ...(comp ? x.caComp ?? [] : [])]);
       return (unite === 'ht' ? m.htC : m.ttcC) / 100;
     },
     nbReportes: s.reportes ?? 0,
+    avecNet: true,
+    noteNet: NOTE_NET_PERSO,
   };
 }

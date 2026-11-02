@@ -6,6 +6,7 @@ import { comptesRapprochesDesLibelles, libellesDePaye, lireRetrocessions, lireSt
 import { mesVentesActees, statistiquesMonEspace } from './statistiques';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import type { Vente } from '../transaction/modele';
+import { resolveurDe } from '../transaction/statutLigne';
 import { compteursMonEspace, empreinteDe, estAMoi, libellesDeVente, mesCotes, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
 
 const VIDE = (aujourdhui: string): CompteursMonEspace => ({ compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } },
@@ -67,9 +68,13 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
   // 🔴 LOT 8 — mes statistiques (sur les ventes ENTIÈRES : aucun montant faussé par une commission retirée) et les rétrocessions liées à mes ventes
   // actées, ou saisies à mon nom (le bloc « par apporteur », comme celui du Suivi CA).
-  const statistiques = statistiquesMonEspace(toutes, moi, aujourdhui);
+  // 🔴 Décision 13 — mon CA net : la colonne « CA net » de MES lignes de l'Espace par négociateur, avec les options de la page FUSION du Suivi CA
+  // (toutes les rétrocessions, le statut des négociateurs payés) ; calculé ICI, seul mon montant part au navigateur.
+  const toutesRetros = await lireRetrocessions(null).catch(() => []);
+  const statutsTous = await lireStatutsNegociateurs(libellesDePaye(toutes)).catch(() => ({}));
+  const statistiques = statistiquesMonEspace(toutes, moi, aujourdhui, { retros: toutesRetros, statutDuLibelle: resolveurDe(statutsTous) });
   const mesIds = new Set(mesVentesActees(toutes, moi).map((v) => v.id));
-  const retrocessions = (await lireRetrocessions(null).catch(() => [])).filter((r) => (r.venteId !== null && mesIds.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
+  const retrocessions = toutesRetros.filter((r) => (r.venteId !== null && mesIds.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
   return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs, statistiques, retrocessions };
 }
 

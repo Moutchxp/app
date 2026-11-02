@@ -96,12 +96,12 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(euros(texte('[data-valeur-tuile="ca"]'))).toBe(6000);
     expect(texte('[data-tuile-n1="ca"]')).toContain('en 2025 (+100');
   });
-  it('décisions 8 et 9 : ni compteurs ni liste « Année » au-dessus des mois ; les 3 onglets du Suivi CA puis les 4 de « Mon espace »', async () => {
+  it('décisions 8, 9 et 11 : ni compteurs ni liste « Année » au-dessus des mois ; les 3 onglets du Suivi CA puis ceux de « Mon espace » (sans « Mes compromis en cours »)', async () => {
     await ouvrir();
     expect(container.querySelectorAll('[data-compteur]').length).toBe(0);
     expect(container.querySelector('[data-accueil-mon-espace] [data-filtre="annee"]')).toBeNull();
     expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.getAttribute('data-vue') ?? b.getAttribute('data-onglet-mon-espace')))
-      .toEqual(['compromis', 'mois', 'annee', 'compromis', 'ventes', 'statistiques', 'apporteurs']);
+      .toEqual(['compromis', 'mois', 'annee', 'ventes', 'statistiques', 'apporteurs']);
   });
   it('mode agence : 4ᵉ tuile « CA net HT cumulé », le graphique du Suivi CA (avec « CA net »)', async () => {
     admin = true;
@@ -113,22 +113,23 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(container.querySelector('[data-bloc="histogramme-mois"] [data-mesure-bouton="net"]')?.textContent).toBe('CA net');
     expect(euros(texte('[data-valeur-tuile="ca"]'))).toBe(10000);
   });
-  it('la barre d’onglets suit IMMÉDIATEMENT la ligne « Voir … » ; HT | TTC et la phrase du CA dessous ; les 7 onglets', async () => {
+  it('la barre d’onglets suit IMMÉDIATEMENT la ligne « Voir … » ; HT | TTC dessous ; décision 10 : plus de phrase « Le montant est votre CA »', async () => {
     admin = true;
     await ouvrir();
     const ligne = container.querySelector('[data-ligne-espace]')!;
     expect(ligne.nextElementSibling?.classList.contains('trx-barre')).toBe(true);
     const apres = ligne.nextElementSibling!.nextElementSibling!;
     expect(apres.classList.contains('mes-compteurs-tete')).toBe(true);
-    expect(apres.nextElementSibling?.hasAttribute('data-note-ca')).toBe(true);
-    expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(7);
+    expect(container.querySelector('[data-note-ca]')).toBeNull();
+    expect(container.textContent).not.toContain('Le montant est votre CA');
+    expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(6);
   });
-  it('vue perso : LE graphique du Suivi CA en « Vendu + compromis » (vendu en bas, mes compromis au-dessus) ; mesures CA et Nombre, sans « CA net »', async () => {
+  it('vue perso : LE graphique du Suivi CA en « Vendu + compromis » (vendu en bas, mes compromis au-dessus) ; mesures CA, CA net (décision 13), Nombre', async () => {
     await ouvrir();
     const g = container.querySelector('[data-bloc="histogramme-mois"]')!;
     expect(g).not.toBeNull();
     expect(g.querySelector('[data-legende-empile]')).not.toBeNull();
-    expect([...g.querySelectorAll('[data-mesure-bouton]')].map((b) => b.getAttribute('data-mesure-bouton'))).toEqual(['ca', 'nombre']);
+    expect([...g.querySelectorAll('[data-mesure-bouton]')].map((b) => b.getAttribute('data-mesure-bouton'))).toEqual(['ca', 'net', 'nombre']);
     // la bascule Mensuel / Cumul
     await cliquer('[data-bloc="histogramme-mois"] [data-cumul-bouton]');
     expect(container.querySelector('[data-bloc="histogramme-mois"] [data-cumul-bouton]')?.getAttribute('data-cumul-etat')).toBe('cumul');

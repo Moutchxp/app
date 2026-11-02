@@ -27,7 +27,9 @@ export const URL_COMPROMIS = '/api/admin/mon-espace/compromis';
 export const URL_VENTE = '/api/admin/mon-espace/vente';
 export const URL_JOURNAL = '/api/admin/mon-espace/journal';
 
-type Refs = References & { titulaireId: number; administrateur: boolean; aujourdhui: string };
+type Refs = References & { titulaireId: number; administrateur: boolean; aujourdhui: string;
+  /** 🔴 Décision 12 — la structure de mon profil (rattaché à une seule) ; null : les deux, ou aucun rattachement enregistré (la question reste). */
+  structureImposee?: Societe | null };
 type Etape = 'structure' | 'mandat' | 'pris' | 'rejoindre' | 'cote' | 'formulaire' | 'formulaireRejoindre';
 type Cote = 'entree' | 'sortie' | 'aucun';
 
@@ -46,7 +48,9 @@ export async function envoyerMonEspace(corps: Record<string, unknown>): Promise<
   }
 }
 
-export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; onCree: (id: number) => void }) {
+export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onFermer: () => void; onCree: (id: number) => void;
+  /** Le mode agence (administrateurs) : la question de la structure reste toujours posée (inchangé). */
+  modeAgence?: boolean }) {
   const [etape, setEtape] = useState<Etape>('structure');
   const [societe, setSociete] = useState<Societe | null>(null);
   const [numero, setNumero] = useState('');
@@ -65,12 +69,17 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
       try {
         const r = await fetch(URL_REFERENCES, { cache: 'no-store' });
         const j = (await r.json()) as { etat?: string; data?: Refs };
-        if (vivant && r.ok && j.etat === 'ok' && j.data !== undefined) setRefs(j.data);
+        if (vivant && r.ok && j.etat === 'ok' && j.data !== undefined) {
+          setRefs(j.data);
+          // 🔴 Décision 12 — rattaché à UNE structure : la question n'est pas posée, la structure de mon profil est imposée (le serveur l'impose aussi).
+          const imposee = modeAgence ? null : j.data.structureImposee ?? null;
+          if (imposee !== null) { setSociete(imposee); setEtape((e) => (e === 'structure' ? 'mandat' : e)); }
+        }
         else if (vivant) setMotif('Le formulaire n’a pas pu être préparé. Rechargez la page.');
       } catch { if (vivant) setMotif('Le formulaire n’a pas pu être préparé. Rechargez la page.'); }
     })();
     return () => { vivant = false; };
-  }, []);
+  }, [modeAgence]);
 
   const verifier = async (): Promise<void> => {
     if (societe === null || numero.trim() === '') return;
@@ -95,7 +104,10 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
     } catch { setMotif('L’affaire n’a pas pu être lue : le serveur n’a pas répondu.'); } finally { setEnvoi(false); }
   };
 
-  const titre = <h3 className="mes-parcours-titre">Nouveau compromis{societe !== null && etape !== 'structure' ? ` — ${LIBELLE_SOCIETE[societe]}` : ''}</h3>;
+  const imposee = modeAgence ? null : refs?.structureImposee ?? null;
+  const titre = <><h3 className="mes-parcours-titre">Nouveau compromis{societe !== null && etape !== 'structure' ? ` — ${LIBELLE_SOCIETE[societe]}` : ''}</h3>
+    {imposee !== null && <p className="loc-muet mes-structure-imposee" data-structure-imposee={imposee}>Structure : {LIBELLE_SOCIETE[imposee]} (celle de votre profil)</p>}</>;
+  const messageStructure = imposee === null ? undefined : `Structure : ${LIBELLE_SOCIETE[imposee]} (celle de votre profil).`;
   const fermer = <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-parcours-fermer>Fermer</button>;
   const ligne = (mot: string, valeur: string | null) => <div className="mes-parcours-info"><dt>{mot}</dt><dd className={valeur === null ? 'trx-a-renseigner' : undefined}>{valeur ?? 'à renseigner'}</dd></div>;
 
@@ -113,6 +125,7 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
     const repartition = cote === 'aucun' ? base : changerNegociateur(base, cote, refs.titulaireId, negos);
     return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerMonEspace}
+      {...(messageStructure === undefined ? {} : { message: messageStructure })}
       onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) onCree(e.id); else onFermer(); }} />;
   }
 
@@ -133,7 +146,7 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
           <input value={numero} onChange={(e) => setNumero(e.target.value)} required maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" autoFocus data-parcours-mandat /></label>
         <div className="trx-plein trx-actions">
           <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || numero.trim() === ''} data-parcours-verifier>Vérifier et continuer</button>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setEtape('structure'); setMotif(null); }}>Changer de structure</button>
+          {imposee === null && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setEtape('structure'); setMotif(null); }}>Changer de structure</button>}
           {fermer}
         </div>
       </form>}

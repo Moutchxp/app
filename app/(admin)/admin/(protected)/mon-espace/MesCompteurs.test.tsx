@@ -89,9 +89,8 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
     // l'onglet « Compromis » du Suivi CA, ouvert par défaut (comme la Transaction) : la même liste que « Mes compromis en cours »
     expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true');
     expect(listees()).toEqual(['2', '1']);
-    await cliquer('[data-onglet-mon-espace="compromis"]');
-    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('false');
-    expect(listees()).toEqual(['2', '1']);
+    // décision 11 : l'onglet « Mes compromis en cours » (doublon) est retiré
+    expect(container.querySelector('[data-onglet-mon-espace="compromis"]')).toBeNull();
     expect(container.textContent).not.toContain('PAS À MOI');
   });
   it('carte repliée : le côté de l’autre n’affiche ni com négo ni reste ; le mien, oui', async () => {

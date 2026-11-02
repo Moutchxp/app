@@ -442,7 +442,7 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
   const moisPeriodeAnnee = periodeAnnee ?? [];
   const [cumul, setCumul] = useState(false);
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
-  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && source === undefined ? 'net' : 'ca'));
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && (source === undefined || source.net !== undefined) ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
   const parMois = source ? source.ca(annee) : caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
   const parMoisN1 = source ? source.ca(annee - 1) : caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
@@ -464,7 +464,8 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
   const sc = (xs: readonly number[]): number[] => xs.map(U.en);
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
   const optsNet = { retros: tout.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) };
-  const netDe = (ventesX: readonly Vente[], a: number, m: ModeMois): number[] => (mesure === 'net' ? caNetParMoisMode(ventesX, a, d.societe, m, jour, optsNet).map(enUnite) : Array(12).fill(0));
+  const netDe = (ventesX: readonly Vente[], a: number, m: ModeMois): number[] => (mesure !== 'net' ? Array(12).fill(0)
+    : source ? (source.net ? source.net(a, m).map(enUnite) : Array(12).fill(0)) : caNetParMoisMode(ventesX, a, d.societe, m, jour, optsNet).map(enUnite));
   const netN = netDe(d.ventes, annee, mode);
   const netN1 = netDe(d.ventes, annee - 1, mode);
   const netVenduN = mode === 'tous' ? netDe(d.ventes, annee, 'vendu') : netN;
@@ -527,7 +528,7 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
           écoulés ; la règle partagée des graphiques « mois par mois » (`StyleMoisRouges`, `moisSoulignes`). */}
       <StyleMoisRouges mois={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source && !source.net ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
       {entete}
       {/* 🔴 LOT DE (Arno) — en mode « Mois », l'encadré au repos montre le mois choisi (au survol, le mois survolé ; en quittant le graphique, le mois
@@ -553,7 +554,7 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
             ...(mode === 'tous' ? { empile: { bas: basN[i], basN1: sansN1 ? null : basN1[i] } } : {}) }))} />
       )}
       {/* 🔴 LOT CW — la définition, en petit, dans l'onglet « CA net ». */}
-      {net && <p className="loc-muet trx-note-ca-net" data-note-ca-net>CA net : honoraires moins commissions des négociateurs (salariés compris), rétrocessions d’apporteurs et reversé inter-cabinet.</p>}
+      {net && <p className="loc-muet trx-note-ca-net" data-note-ca-net>{source?.noteNet ?? 'CA net : honoraires moins commissions des négociateurs (salariés compris), rétrocessions d’apporteurs et reversé inter-cabinet.'}</p>}
       {mode === 'tous' && !cumul && series === null && <p className="loc-muet trx-legende-empile" data-legende-empile>
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>
@@ -1299,7 +1300,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
   const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   const [cumul, setCumul] = useState(false);
-  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && source === undefined ? 'net' : 'ca'));
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && (source === undefined || source.avecNet) ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
   const nombre = mesure === 'nombre';
   const net = mesure === 'net';
@@ -1308,7 +1309,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
   /** La valeur d'une année (la mesure affichée) : le CA des cartes, le CA net, ou le nombre ; `m` : le mode (« vendu » : la part du bas). */
   const valeur = (dx: DonneesSociete, a: number, m: ModeMois = mode): number => {
-    if (source) return source.valeur(a, m, nombre ? 'nombre' : 'ca', U.u);
+    if (source) return source.valeur(a, m, nombre ? 'nombre' : net ? 'net' : 'ca', U.u);
     const l = listeDesAnnees(dx.ventes, [a], m, jour);
     return nombre ? l.length : net ? enUnite(sommeMontants(l.map((v) => caNetVente(v, d.societe, opts)))) : enUnite(resultatDesCartes(l, d.societe, opts).ca);
   };
@@ -1351,7 +1352,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
       {/* Arno (01/11/2026) — Période / Tout : les années soulignées en rouge (`anneesSoulignees`), les autres estompées ; la règle partagée */}
       <StyleAnneesRouges annees={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-annees" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel"
-        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source && !source.avecNet ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {entete}
       {series !== null ? (
@@ -1370,7 +1371,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
           barres={annees.map((a, k) => ({ cle: a, libelle: String(a), valeur: a > anneeEnCours ? null : vals[k], info: info(a, false),
             ...(mode === 'tous' ? { empile: { bas: bas[k] } } : {}) }))} />
       )}
-      {net && <p className="loc-muet trx-note-ca-net" data-note-ca-net>CA net : honoraires moins commissions des négociateurs (salariés compris), rétrocessions d’apporteurs et reversé inter-cabinet.</p>}
+      {net && <p className="loc-muet trx-note-ca-net" data-note-ca-net>{source?.noteNet ?? 'CA net : honoraires moins commissions des négociateurs (salariés compris), rétrocessions d’apporteurs et reversé inter-cabinet.'}</p>}
       {mode === 'tous' && !cumul && series === null && <p className="loc-muet trx-legende-empile" data-legende-empile>
         <span className="trx-pastille-empile trx-pastille-empile--bas" aria-hidden="true" /> vendu · <span className="trx-pastille-empile trx-pastille-empile--haut" aria-hidden="true" /> compromis (au-dessus)</p>}
     </section>

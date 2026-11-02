@@ -75,7 +75,7 @@ describe('🔴 le mode agence', () => {
     await ouvrir();
     await cliquer('[data-espace="macj"]');
     expect(urls).toContain(`${URL_MES_AFFAIRES}?agence=macj`);
-    expect(texte('[data-onglet-mon-espace="compromis"]')).toBe('Compromis en cours');
+    expect(container.querySelector('[data-onglet-mon-espace="compromis"]')).toBeNull(); // décision 11
     expect(texte('[data-onglet-mon-espace="ventes"]')).toBe('Ventes');
     expect(texte('[data-note-ca]')).toContain('le CA de MACJ, calculé comme dans le Suivi CA');
     expect(cartes()).toEqual(['1', '2']);
@@ -113,7 +113,7 @@ describe('🔴 le mode agence', () => {
     await cliquer('[data-espace="tous"]');
     expect(texte('[data-note-ca]')).toContain('le CA de FUSION');
     await cliquer('[data-espace="moi"]');
-    expect(texte('[data-onglet-mon-espace="compromis"]')).toBe('Mes compromis en cours');
-    expect(texte('[data-note-ca]')).toContain('Le montant est votre CA');
+    expect(texte('[data-onglet-mon-espace="ventes"]')).toBe('Mes ventes');
+    expect(container.querySelector('[data-note-ca]')).toBeNull(); // décision 10
   });
 });

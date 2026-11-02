@@ -2,15 +2,31 @@
 // `enregistrerDossier` de la tuile Suivi CA, telle quelle (aucune copie de logique) ; la recherche du n° est `venteDuMandat` (lot 2). Pas de
 // `import 'server-only'` (même convention que les dépôts de la Transaction, lus par les épreuves).
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
-import { enregistrerDossier, lireNegociateurs, lireVentes, type AuteurTx, type Issue } from '../transaction/repo';
+import { enregistrerDossier, lireNegociateurs, lirePeriodesSociete, lireVentes, type AuteurTx, type Issue } from '../transaction/repo';
+import { societeALaDate, societeDOffice } from '../transaction/societeNegociateur';
 import { venteDuMandat } from '../transaction/mandatRepo';
-import { libellePersonne, type Societe } from '../transaction/modele';
+import { LIBELLE_SOCIETE, libellePersonne, type Societe } from '../transaction/modele';
 import type { DossierSaisie } from '../transaction/saisie';
-import { refusCreation, type TransactionDuMandat } from './creation';
+import { motifStructureImposee, refusCreation, type TransactionDuMandat } from './creation';
 
 import { estAdministrateur } from './compteRepo';
 import { lireMesApporteurs } from './apporteursRepo';
 export { estAdministrateur };
+
+/**
+ * 🔴 Décision 12 (Arno, 02/11/2026) — LA STRUCTURE DE MON PROFIL, aujourd'hui : le rattachement enregistré sur le compte (`transaction_societe_compte`,
+ * daté ; `societeALaDate`) — CRITERIMMO ou MACJ : imposée (la question « Pour quelle structure ? » n'est pas posée) ; les deux, ou aucun rattachement
+ * enregistré : null (la question reste). LECTURE SEULE.
+ */
+export async function structureImposee(compteId: number, aujourdhui: string): Promise<Societe | null> {
+  return societeDOffice(societeALaDate((await lirePeriodesSociete([compteId])).get(compteId) ?? [], aujourdhui));
+}
+/** Côté serveur : un COLLABORATEUR rattaché à une seule structure ne travaille que dans la sienne (un administrateur : le mode agence, inchangé). */
+export async function refusStructure(compteId: number, societe: Societe, aujourdhui: string): Promise<string | null> {
+  if (await estAdministrateur(compteId)) return null;
+  const imposee = await structureImposee(compteId, aujourdhui);
+  return imposee === null || imposee === societe ? null : motifStructureImposee(LIBELLE_SOCIETE[imposee]);
+}
 
 /**
  * Ce que le formulaire de compromis propose depuis « Mon espace » : les négociateurs actifs (pour l'autre côté, décision 2), MES apporteurs (🔴 lot 9 :
@@ -22,7 +38,9 @@ export async function referencesMonEspace(compteId: number, _administrateur: boo
   const [negociateurs, mes] = await Promise.all([lireNegociateurs(aujourdhui), lireMesApporteurs(compteId)]);
   return { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(),
     uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif),
-    apporteurs: mes.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, recherche: a.recherche, libelle: a.libelle })), collegues: mes.collegues, personnes: [] };
+    apporteurs: mes.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, recherche: a.recherche, libelle: a.libelle })), collegues: mes.collegues, personnes: [],
+    // 🔴 Décision 12 — la structure de mon profil (null : les deux, ou aucun rattachement enregistré : la question reste)
+    structureImposee: await structureImposee(compteId, aujourdhui) };
 }
 
 /** La transaction qui porte déjà ce n° dans cette structure (sans montant), ou null : le n° est libre. LECTURE SEULE. */
@@ -45,6 +63,8 @@ export async function creerCompromisMonEspace(compteId: number, s: DossierSaisie
   Promise<{ ok: true; id: number } | { ok: false; statut: 403 | 422; motif: string }> {
   const refus = refusCreation(s, { compteId, administrateur: await estAdministrateur(compteId), mandatDisponible: await mandatDisponible() });
   if (refus !== null) return { ok: false, ...refus };
+  const autre = await refusStructure(compteId, s.societe, aujourdhui);
+  if (autre !== null) return { ok: false, statut: 403, motif: autre };
   const r: Issue<number> = await enregistrerDossier(null, s, aujourdhui, auteur);
   return r.ok ? { ok: true, id: r.valeur as number } : { ok: false, statut: 422, motif: r.motif };
 }

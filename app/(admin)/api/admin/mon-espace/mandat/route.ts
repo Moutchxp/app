@@ -1,5 +1,6 @@
 import { exigerMonEspace } from '../../../../../lib/mon-espace/garde';
-import { transactionDuMandat } from '../../../../../lib/mon-espace/creationRepo';
+import { refusStructure, transactionDuMandat } from '../../../../../lib/mon-espace/creationRepo';
+import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { lireNumeroMandat } from '../../../../../lib/transaction/mandat';
 import { estSociete } from '../../../../../lib/transaction/modele';
 
@@ -22,6 +23,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!n.ok) return json({ etat: 'refus', motif: n.motif }, 422);
   if (n.valeur === null) return json({ etat: 'refus', motif: 'Le n° de mandat est obligatoire.' }, 422);
   try {
+    // 🔴 Décision 12 — un collaborateur rattaché à une seule structure ne vérifie un n° que dans la sienne
+    const autre = garde.auteurId === null ? null : await refusStructure(garde.auteurId, societe, aujourdhuiParis());
+    if (autre !== null) return json({ etat: 'refus', motif: autre }, 403);
     const transaction = await transactionDuMandat(societe, n.valeur.saisi);
     return json({ etat: 'ok', data: transaction === null ? { libre: true, numero: n.valeur.saisi } : { libre: false, numero: n.valeur.saisi, transaction } });
   } catch (e) {
