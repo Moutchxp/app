@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { EcranLocationCA, lienSuiviDuMois, oublierTriEspaceLocation } from './EcranLocationCA';
-import { ligneLocationCa, type LigneLocationCa } from '../../../../lib/transaction/locationCa';
+import { AIDE_VARIABLE_NEGOCIATEUR, ligneLocationCa, type LigneLocationCa } from '../../../../lib/transaction/locationCa';
 import type { ActiviteLue } from '../../../../lib/location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../../../../lib/location/suivi/suivi';
 
@@ -54,6 +54,11 @@ const fermer = async () => { await act(async () => { window.dispatchEvent(new Ke
 const deplierCategories = async () => { for (const b of [...document.querySelectorAll<HTMLButtonElement>('[data-deplier-categorie][aria-expanded="false"]')]) await act(async () => { b.click(); }); };
 /** 🔴 LOT LO11 — le variable du négociateur de septembre 2025 (15 % × (900 − 90) + 15 % × 100), sans TVA. */
 const VARIABLE_SEPT = 13650;
+/**
+ * 🔴 Arno (02/11/2026) — les primes de gestion de septembre 2025 (150 € + 150 € : les deux mandats de gestion) : le variable AFFICHÉ les ajoute (`variableNegociateur`), et elles
+ * ne sont déduites qu'une fois, par leur propre ligne — le CA net ne change pas.
+ */
+const PRIMES_SEPT = 30000;
 const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
 
 describe('🔴 LOT LO1 — « Location » : Le mois', () => {
@@ -117,7 +122,7 @@ describe('🔴 LOT LO1 — « Location » : Le mois', () => {
   it('le Résultat (CA brut − apporteurs − primes − variable − salaires = CA net) ; l’Espace par négociateur retire aussi le variable (🔴 LOT LO12) ; tri CA net', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9');
     // 🔴 LOT LO11 — le variable devient un coût : 610 − 136,50
-    expect([centimes(texte('[data-resultat-net]')), centimes(texte('[data-resultat-variable]')), centimes(texte('[data-resultat-salaires]'))]).toEqual([61000 - VARIABLE_SEPT, VARIABLE_SEPT, 0]);
+    expect([centimes(texte('[data-resultat-net]')), centimes(texte('[data-resultat-variable]')), centimes(texte('[data-resultat-salaires]'))]).toEqual([61000 - VARIABLE_SEPT, VARIABLE_SEPT + PRIMES_SEPT, 0]);
     await cliquer('[data-deplier="negociateurs-location"]');
     // 🔴 LOT LO12 — l'Espace retire aussi le variable (mois sans salaires) : son total = le CA net du Résultat
     expect(centimes(texte('[data-total-espace-net]'))).toBe(61000 - VARIABLE_SEPT);
@@ -160,8 +165,9 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(doc('[data-fenetre-couts-location] [data-dossiers]')).toBe('2 baux concernés');
       expect(grand('[data-sous-total-location="primes"]')).toBe(30000); // 🔴 LOT LO14 — sans TVA
       expect(grand('[data-sous-total-location="apporteurs"]')).toBe(9000);
-      expect(grand('[data-sous-total-location="variable"]')).toBe(VARIABLE_SEPT);
-      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((t, k) => t + grand(`[data-sous-total-location="${k}"]`), 0)).toBe(grand('[data-fenetre-total]'));
+      expect(grand('[data-sous-total-location="variable"]')).toBe(VARIABLE_SEPT + PRIMES_SEPT);
+      // les primes comptées UNE fois : le variable affiché les contient, le total des coûts ne les retire pas deux fois
+      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((t, k) => t + grand(`[data-sous-total-location="${k}"]`), 0) - PRIMES_SEPT).toBe(grand('[data-fenetre-total]'));
       // les primes, du plus récent au plus ancien : le mandat seul de Mélanie (20/09), puis le bail avec gestion (02/09)
       expect([...document.querySelectorAll('[data-ligne-prime]')].map((x) => Number(x.getAttribute('data-ligne-prime')))).toEqual([lignes[3].id, lignes[1].id]);
       expect(doc(`[data-ligne-prime="${lignes[1].id}"] [data-nego]`)).toBe('Jean-Baptiste PONS');
@@ -188,7 +194,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(document.querySelector('[data-fenetre-net-location] [data-location-net-apporteurs]')).not.toBeNull(); // 🔴 LOT LO13 — quitte la tuile
       expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
       const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
-      expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent))
+      expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent!.replace(/ — dont .* de primes de gestion, déjà déduites$/, '')))
         .toEqual(['CA brut', '− Commissions d’apporteurs (sans TVA)', '= CA net d’apporteurs', '− Primes de nouvelle gestion (sans TVA)', '− Variable du négociateur (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']); // 🔴 LOT LO14
       const ca = grand('[data-net-ca-montant]'); const app = grand('[data-fenetre-net-location] [data-sous-total-location="apporteurs"]');
       const nap = grand('[data-net-apporteurs-montant]'); const pr = grand('[data-fenetre-net-location] [data-sous-total-location="primes"]');
@@ -196,7 +202,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(ca).toBe(centimes(texte('[data-location-ca]')));
       expect(net).toBe(centimes(texte('[data-location-net]')));
       const vr = grand('[data-fenetre-net-location] [data-sous-total-location="variable"]'); const sa = grand('[data-fenetre-net-location] [data-sous-total-location="salaires"]');
-      expect([ca - app, nap - pr - vr - sa, vr]).toEqual([nap, net, VARIABLE_SEPT]);
+      expect([ca - app, nap - pr - (vr - pr) - sa, vr]).toEqual([nap, net, VARIABLE_SEPT + PRIMES_SEPT]);
       expect(doc('[data-net-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € HT · locataire 450 € HT' : 'dont propriétaire 660 € TTC · locataire 540 € TTC');
       expect(document.querySelector('[data-net-ca-montant]')!.className).toContain('trx-vert');
       expect(doc('[data-fenetre-net-location] [data-dossiers]')).toBe('3 baux');
@@ -207,7 +213,8 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
         const id = b.getAttribute('data-bail-net');
         const [c, ap, p, v] = [`[data-ca-bail="${id}"]`, `[data-bail-net="${id}"] [data-cout-bail="apporteur"]`, `[data-bail-net="${id}"] [data-cout-bail="prime"]`,
           `[data-bail-net="${id}"] [data-cout-bail="variable"]`].map(grand);
-        expect(c - ap - p - v).toBe(grand(`[data-net-bail="${id}"]`));
+        // 🔴 (02/11/2026) — le variable du bail porte sa prime, déduite une seule fois (sur sa ligne « Prime »)
+        expect(c - ap - p - (v - p)).toBe(grand(`[data-net-bail="${id}"]`));
       }
       expect(blocs.reduce((t, b) => t + grand(`[data-net-bail="${b.getAttribute('data-bail-net')}"]`), 0)).toBe(net);
     });
@@ -309,7 +316,7 @@ describe('🔴 LOT LG3 — fenêtres « Primes et rétrocessions » et « CA net
         .toEqual([['primes', 'false'], ['apporteurs', 'false'], ['variable', 'false'], ['salaires', 'false']]); // 🔴 LOT LO11 — variable et salaires
       expect(document.querySelectorAll('[data-ligne-prime], [data-groupe-apporteur]')).toHaveLength(0);
       const sous = (k: string) => centimes(document.querySelector(`[data-sous-total-location="${k}"] strong`)!.textContent!);
-      expect(sous('primes') + sous('apporteurs') + sous('variable') + sous('salaires')).toBe(couts);
+      expect(sous('primes') + sous('apporteurs') + (sous('variable') - sous('primes')) + sous('salaires')).toBe(couts);
       await act(async () => { (document.querySelector('[data-deplier-categorie="primes"]') as HTMLElement).click(); });
       await act(async () => { (document.querySelector('[data-deplier-categorie="apporteurs"]') as HTMLElement).click(); });
       expect([document.querySelectorAll('[data-ligne-prime]').length, document.querySelectorAll('[data-groupe-apporteur]').length]).toEqual([2, 1]);
@@ -587,7 +594,10 @@ describe('🔴 LOT LO12 — Location : avec / sans salaires, Espace, période co
     await ouvrir('/?vue=mois&annee=2025&mois=9');
     await cliquer('[data-deplier="negociateurs-location"]');
     const net = (n: string) => centimes(texte(`[data-espace-net="${n}"]`));
-    expect([centimes(texte('[data-espace-variable="Jean-Baptiste PONS"]')), centimes(texte('[data-espace-variable="Mélanie"]'))]).toEqual([VARIABLE_SEPT, 0]);
+    // 🔴 (02/11/2026) — chacun son variable + SES primes de gestion (Mélanie : sa prime seule)
+    const primes = (n: string) => centimes(texte(`[data-espace-primes="${n}"]`));
+    expect([centimes(texte('[data-espace-variable="Jean-Baptiste PONS"]')), centimes(texte('[data-espace-variable="Mélanie"]'))]).toEqual([VARIABLE_SEPT + primes('Jean-Baptiste PONS'), primes('Mélanie')]);
+    expect(primes('Jean-Baptiste PONS') + primes('Mélanie')).toBe(PRIMES_SEPT);
     expect(net('Jean-Baptiste PONS') + net('Mélanie')).toBe(centimes(texte('[data-resultat-net]')));
   });
   it('une période non contiguë : « 2 mois de 2025 », la liste complète en infobulle (tuiles, liste, Résultat) ; l’en-tête de la liste sur deux lignes', async () => {
@@ -652,11 +662,70 @@ describe('🔴 LOT LO13 — tuiles épurées, fenêtre « CA brut »', () => {
   it('Sans salaires : la fenêtre « Coûts hors salaires » porte les familles (salaires non comptés) et N−1 ; « CA net » son CA net d’apporteurs', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9&salaires=sans');
     await cliquer('[data-tuile="location-couts"]');
-    expect(doc('[data-fenetre-couts-location] [data-location-couts-detail]')).toContain('variable 136,50 €');
+    expect(doc('[data-fenetre-couts-location] [data-location-couts-detail]')).toContain('variable 436,50 € (dont 300 € de primes de gestion, déjà déduites)');
     expect(doc('[data-fenetre-couts-location] [data-tuile-n1="location-couts"]')).toContain('en 2024');
     await fermer();
     await cliquer('[data-tuile="location-net"]');
     expect(doc('[data-fenetre-net-location] h2')).toBe('CA net hors salaires — septembre 2025');
     expect(centimes(doc('[data-fenetre-net-location] [data-location-net-apporteurs] strong'))).toBe(91000);
+  });
+});
+
+/**
+ * 🔴 Arno (02/11/2026) — la colonne « Variable négociateur » du tableau « [année] mois par mois » AJOUTE les primes de gestion du mois (règle du
+ * 25/10/2026) ; le CA net ne change pas (les primes ne sont déduites qu'une fois, par leur colonne) ; un négociateur filtré : ses primes seules ;
+ * la bulle « i » de l'en-tête dit la formule du code.
+ */
+describe('🔴 Arno (02/11/2026) — « Variable négociateur » + primes de gestion ; bulle « i »', () => {
+  const cellule = (rang: string, k: string) => centimes(texte(`[data-rangee-location="${rang}"] [${k}]`));
+  it('Tous : septembre = calcul + primes (136,50 + 300 = 436,50) ; chaque mois et le Total : CA net = honoraires − primes − apporteurs − (variable − primes), inchangé', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    expect([cellule('2025-9', 'data-location-variable'), cellule('2025-9', 'data-location-primes')]).toEqual([VARIABLE_SEPT + PRIMES_SEPT, PRIMES_SEPT]);
+    // le CA net du mois : celui d'avant, au centime (1 000 − 300 − 90 − 136,50)
+    expect(cellule('2025-9', 'data-location-net-mois')).toBe(100000 - PRIMES_SEPT - 9000 - VARIABLE_SEPT);
+    const rangs = [...container.querySelectorAll<HTMLElement>('[data-rangee-location], [data-total-location]')];
+    expect(rangs).toHaveLength(13);
+    for (const r of rangs) {
+      const v = (k: string) => centimes(r.querySelector(`[${k}]`)!.textContent!.replace(/\s/g, ' '));
+      const apporteurs = centimes(r.querySelector('[data-mot="Commissions d’apporteurs"]')!.textContent!);
+      // aucun salaire saisi : rien n'est « inclus » ; les primes ne sont retirées qu'UNE fois
+      expect(v('data-location-net-mois')).toBe(v('data-location-honoraires') - v('data-location-primes') - apporteurs - (v('data-location-variable') - v('data-location-primes')));
+    }
+    // le Total = la somme des mois, variable compris
+    const somme = [...container.querySelectorAll('[data-rangee-location]')].reduce((t, r) => t + centimes(r.querySelector('[data-location-variable]')!.textContent!), 0);
+    expect(centimes(texte('[data-total-location] [data-location-variable]'))).toBe(somme);
+    // la tuile CA net et le Résultat : inchangés
+    expect([centimes(texte('[data-location-net]')), centimes(texte('[data-resultat-net]'))]).toEqual([100000 - 39000 - VARIABLE_SEPT, 100000 - 39000 - VARIABLE_SEPT]);
+  });
+  it('un négociateur filtré : seules SES primes s’ajoutent à son variable (Jean-Baptiste : 136,50 + 150 ; Mélanie : 0 + 150)', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9&negociateur=Jean-Baptiste%20PONS');
+    expect([cellule('2025-9', 'data-location-variable'), cellule('2025-9', 'data-location-primes')]).toEqual([VARIABLE_SEPT + 15000, 15000]);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir('/?vue=mois&annee=2025&mois=9&negociateur=M%C3%A9lanie');
+    expect([cellule('2025-9', 'data-location-variable'), cellule('2025-9', 'data-location-primes')]).toEqual([15000, 15000]);
+  });
+  it('la bulle « i » de l’en-tête : la formule du code ; au clic (toucher) et au survol, fermable (×, Échap) ; un vrai bouton (clavier), cible ≥ 44 px', async () => {
+    await ouvrir('/?vue=mois&annee=2025&mois=9');
+    const entete = container.querySelector('[data-table-location] thead [data-entete-variable="tableau-location"]')!;
+    expect(entete.textContent).toContain('Variable négociateur');
+    const bouton = entete.querySelector<HTMLButtonElement>('button.svv-pil-ib-btn')!;
+    expect([bouton.type, bouton.disabled, bouton.getAttribute('aria-expanded'), bouton.getAttribute('aria-label')]).toEqual(['button', false, 'false', 'Comment le variable du négociateur est calculé']);
+    expect(document.head.textContent + [...container.querySelectorAll('style')].map((x) => x.textContent).join('')).toContain('min-width:44px;min-height:44px');
+    // au clic (le toucher d'un iPhone) : ouverte, le texte de la formule ; × la ferme
+    await act(async () => { bouton.click(); });
+    expect([bouton.getAttribute('aria-expanded'), entete.querySelector('[role="tooltip"]')!.textContent]).toEqual(['true', `${AIDE_VARIABLE_NEGOCIATEUR}×`]);
+    await act(async () => { entete.querySelector<HTMLButtonElement>('.svv-pil-ib-fermer')!.click(); });
+    expect(entete.querySelector('[role="tooltip"]')).toBeNull();
+    // au clavier : focus, ouverture (Entrée = clic d'un bouton), Échap ferme
+    bouton.focus(); expect(document.activeElement).toBe(bouton);
+    await act(async () => { bouton.click(); });
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(bouton.getAttribute('aria-expanded')).toBe('false');
+    // au survol : ouverte, refermée en le quittant
+    const zone = entete.querySelector('.svv-pil-ib')!;
+    await act(async () => { zone.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); });
+    expect(bouton.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => { zone.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
+    expect(bouton.getAttribute('aria-expanded')).toBe('false');
   });
 });

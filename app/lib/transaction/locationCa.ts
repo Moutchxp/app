@@ -150,6 +150,18 @@ export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: re
   return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, salairesSaisis, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1,
     moisAvecSalaires: avec ? 1 : 0, moisSaisis: saisi ? 1 : 0 };
 }
+/**
+ * ══ 🔴 Arno (règle du 25/10/2026, chantier du 02/11/2026) — LE VARIABLE DU NÉGOCIATEUR, TEL QU'IL EST AFFICHÉ ══════════════════════════════════
+ * Le calcul (`variableC` des dossiers − rétrocessions) + les primes de gestion de la même période et du même négociateur : on lui passe les primes
+ * des MÊMES lignes (un négociateur filtré : les siennes ; « Tous » : leur somme). LA fonction de tous les écrans qui montrent le variable.
+ * ⚠️ Les primes restent déduites UNE seule fois, par leur propre colonne : ce montant ne se déduit jamais — les coûts et le CA net retirent
+ * `variableDeduit` (hors primes) et `primesDeduites`, inchangés. PUR.
+ */
+export const variableNegociateur = (variable: MontantC, primes: MontantC): MontantC => plusC(variable, primes);
+/** Le texte de la bulle « i » du variable : la formule du code (`ligneLocationCa`, `coutsLocationMois`, `variableNegociateur`). */
+export const AIDE_VARIABLE_NEGOCIATEUR = 'Variable négociateur = (honoraires HT − commissions versées aux apporteurs et collègues, hors commissions récurrentes de gestion) '
+  + '× taux commercial du négociateur (celui de la date de signature de chaque bail) − rétrocessions du négociateur + primes de gestion. '
+  + 'Les primes de gestion restent déduites une seule fois, dans leur colonne : le CA net ne change pas.';
 const sommeCouts = (xs: readonly CoutsLocation[]): CoutsLocation => {
   const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'salairesSaisis', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
   return { ...Object.fromEntries(k.map((x) => [x, xs.reduce((s, c) => plusC(s, c[x]), RIEN)])) as Pick<CoutsLocation, (typeof k)[number]>,

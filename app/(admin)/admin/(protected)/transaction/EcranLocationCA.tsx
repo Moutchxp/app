@@ -9,14 +9,14 @@ import { libellePeriode, libellePeriodeComplet, MOT_A_SAISIR, motSalairesASaisir
 import { correspond, CLE_TRI_LISTE, estTriListe, LIBELLE_TRI_LISTE, SEUIL_RECHERCHE, TRI_LISTE_DEFAUT, TRIS_LISTE, type TriListe } from '../../../../lib/transaction/listeCartes';
 import {
   anneesLocation, apporteursLocation, COMPTER_LOCATION, estCompterLocation, ficheRechercheLocation, filtrerLocation, LIBELLE_COMPTER_LOCATION,
-  coutsLocation, espaceLocationRegle, lignesDesAnnees, moinsC as moinsM, lignesDesMois, negociateursLocation, salairesLocationDuMois, titreBail, totauxLocation, trierLocation, type CompterLocation, type CoutsLocation,
+  coutsLocation, espaceLocationRegle, lignesDesAnnees, moinsC as moinsM, lignesDesMois, negociateursLocation, salairesLocationDuMois, titreBail, totauxLocation, trierLocation, variableNegociateur, type CompterLocation, type CoutsLocation,
   type LigneEspaceRegle, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa,
 } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
-import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { AideVariableMobile, BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, EnteteVariableNegociateur, FournisseurAffichage, Montants, MOT_UNITE, motPrimesDuVariable, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { Journal } from './FormulaireVente';
 import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAnnee, attributAnneesRouges, StyleAnneesRouges, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
@@ -317,8 +317,8 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
     {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }}
       reperes={<Reperes donnee="couts" lignes={[
         // 🔴 LOT LO13 — ce qui a quitté la tuile « Coûts » : les familles (ce qui est déduit ; « inclus » ; salaires non comptés) et N−1
-        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(T.c.variableDeduit))} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
-          {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(T.c.variable, T.c.variableDeduit)))} inclus dans les salaires</span>}</span> },
+        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(variableNegociateur(T.c.variableDeduit, T.c.primesDeduites)))}{T.c.primesDeduites.htC !== 0 && <span data-variable-dont-primes> ({motPrimesDuVariable(eur(U.en(T.c.primesDeduites)))})</span>} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
+          {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(variableNegociateur(T.c.variable, T.c.primes), variableNegociateur(T.c.variableDeduit, T.c.primesDeduites))))} inclus dans les salaires</span>}</span> },
         ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span> },
       ]} />} />}
@@ -617,7 +617,10 @@ function ResultatLocation({ T, aSaisir }: { T: TotauxRegle; aSaisir: number }) {
       <dt>CA brut ({MOT})</dt><dd><Mt {...m(T.ca)} donnees={{ 'data-resultat-ca': '' }} /></dd>
       <dt>− Rétrocessions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
       <dt>− Primes de nouvelle gestion (sans TVA){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
-      <dt>− Variable du négociateur (sans TVA){inclus(c.variable, c.variableDeduit)}</dt><dd><Mt {...m(c.variableDeduit)} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
+      {/* 🔴 Arno (02/11/2026) — le variable avec les primes de gestion (`variableNegociateur`) ; les primes ne sont déduites qu'une fois, par leur ligne */}
+      <dt>− Variable du négociateur (sans TVA){inclus(variableNegociateur(c.variable, c.primes), variableNegociateur(c.variableDeduit, c.primesDeduites))}
+        {c.primesDeduites.htC !== 0 && <small className="loc-muet" data-variable-dont-primes> ({motPrimesDuVariable(eur((MOT === 'TTC' ? c.primesDeduites.ttcC : c.primesDeduites.htC) / 100))})</small>}</dt>
+      <dd><Mt {...m(variableNegociateur(c.variableDeduit, c.primesDeduites))} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi, en gris, « non comptés » (non déduit) */}
       {avec ? <><dt>− Salaires chargés (sans TVA){aSaisir > 0 && <small className="loc-muet trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
         : <><dt className="loc-muet">Salaires chargés (sans TVA) — non comptés{aSaisir > 0 && <small className="trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd className="loc-muet" data-resultat-salaires-non-comptes>{eur((MOT === 'TTC' ? c.salairesSaisis.ttcC : c.salairesSaisis.htC) / 100)}</dd></>}
@@ -652,7 +655,7 @@ function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: read
       <td data-mot="Honoraires" data-location-honoraires>{montant(t.ca)}</td>
       <td data-mot="Primes de gestion" data-location-primes>{montant(t.c.primes, { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
       <td data-mot="Commissions d’apporteurs">{montant(t.apporteurs, { cout: true })}</td>
-      <td data-mot="Variable négociateur" data-location-variable>{montant(t.c.variable, { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
+      <td data-mot="Variable négociateur" data-location-variable>{montant(variableNegociateur(t.c.variable, t.c.primes), { gris: inclus })}{inclus && <small className="loc-muet trx-ligne-bloc">inclus dans les salaires</small>}</td>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi en gris, « non comptés » */}
       <td data-mot={LIBELLE_SALAIRES_LOCATION} data-location-salaires>{t.c.moisSaisis === 0 ? (aSaisir > 0 ? <em className="loc-muet trx-a-saisir" data-salaires-a-saisir>{MOT_A_SAISIR}</em> : '—')
         : x.avecSalaires ? <>{montant(t.c.salaires, { cout: true })}{motASaisir}</>
@@ -667,10 +670,11 @@ function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: read
     <>
       <style>{'[data-table-location] .trx-ligne-bloc{display:block;font-size:.78rem}'}</style>
       <h3 id="trx-tableau-location">{titre} <small className="loc-muet">({U.MOT}{U.u === 'ttc' ? ' ; primes, commissions d’apporteurs, variable et salaires chargés sans TVA' : ''})</small></h3>
+      <AideVariableMobile cible="tableau-location" />
       <div className="trx-fusion-defile">
         <table className="tdb-table tdb-table--large" data-table-location>
           <thead><tr><th scope="col">{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th><th scope="col">Baux</th><th scope="col">Honoraires</th><th scope="col">Primes de gestion<small className="loc-muet"> (sans TVA)</small></th>
-            <th scope="col">Commissions d’apporteurs<small className="loc-muet"> (sans TVA)</small></th><th scope="col">Variable négociateur</th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
+            <th scope="col">Commissions d’apporteurs<small className="loc-muet"> (sans TVA)</small></th><th scope="col"><EnteteVariableNegociateur cible="tableau-location" /></th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
             <th scope="col">Honoraires {rangees[0]?.mois === null ? 'un an plus tôt' : annee - 1}</th>{rangees[0]?.mois !== null && <th scope="col">Saisie</th>}</tr></thead>
           <tbody>
             {rangees.map((r) => {
@@ -778,9 +782,10 @@ function EspaceLocation({ espace, T }: { espace: readonly LigneEspaceRegle[]; T:
   return <>
     <style>{'[data-table-negociateurs-location] .trx-ligne-bloc{display:block;font-size:.78rem}'}</style>
     <div className="trx-tri-mobile" role="group" aria-label="Trier l'espace par négociateur">{bouton('ca', <>CA {MOT} généré</>, true)}{bouton('net', <>{motNet}</>, true)}</div>
+    <AideVariableMobile cible="espace-location" />
     <table className="tdb-table tdb-table--large" data-table-negociateurs-location>
       <thead><tr><th scope="col">Négociateur</th><th scope="col">Baux</th><th scope="col" aria-sort={ariaSort('ca')} data-entete-tri="ca">{bouton('ca', <>CA {MOT} généré</>)}</th>
-        <th scope="col">Primes (sans TVA)</th><th scope="col">Rétrocessions (sans TVA)</th><th scope="col">Variable (sans TVA)</th>
+        <th scope="col">Primes (sans TVA)</th><th scope="col">Rétrocessions (sans TVA)</th><th scope="col"><EnteteVariableNegociateur libelle="Variable" cible="espace-location" apres=" (sans TVA)" /></th>
         <th scope="col" aria-sort={ariaSort('net')} data-entete-tri="net">{bouton('net', <>{motNet}</>)}</th></tr></thead>
       <tbody>{triees.map((g) => (
         <tr key={g.cle} data-negociateur-location={g.nom}>
@@ -788,7 +793,7 @@ function EspaceLocation({ espace, T }: { espace: readonly LigneEspaceRegle[]; T:
           <td data-mot={`CA ${MOT} généré`}><Mt {...m(g.ca)} donnees={{ 'data-espace-ca': g.nom }} /></td>
           <td data-mot={`Primes ${MOT}`}><Mt {...m(g.primesDeduites)} cout donnees={{ 'data-espace-primes': g.nom }} />{inclus(g.primes, g.primesDeduites, `primes-${g.nom}`)}</td>
           <td data-mot={`Rétrocessions ${MOT}`}><Mt {...m(g.apporteurs)} cout donnees={{ 'data-espace-apporteurs': g.nom }} /></td>
-          <td data-mot="Variable (sans TVA)"><Mt {...m(g.variableDeduit)} cout donnees={{ 'data-espace-variable': g.nom }} />{inclus(g.variable, g.variableDeduit, `variable-${g.nom}`)}</td>
+          <td data-mot="Variable (sans TVA)"><Mt {...m(variableNegociateur(g.variableDeduit, g.primesDeduites))} cout donnees={{ 'data-espace-variable': g.nom }} />{inclus(variableNegociateur(g.variable, g.primes), variableNegociateur(g.variableDeduit, g.primesDeduites), `variable-${g.nom}`)}</td>
           <td data-mot={motNet} className="trx-vert"><Mt {...m(g.net)} donnees={{ 'data-espace-net': g.nom }} /></td>
         </tr>
       ))}
@@ -797,7 +802,7 @@ function EspaceLocation({ espace, T }: { espace: readonly LigneEspaceRegle[]; T:
           <td data-mot="Salaires chargés"><Mt {...m(T.c.salaires)} cout donnees={{ 'data-espace-salaires-montant': '' }} /></td></tr>}
         <tr className="tdb-fort trx-ligne-total" data-total-espace-location><th scope="row">Total</th><td data-mot="Baux">{T.nb}</td>
           <td data-mot={`CA ${MOT} généré`}><Mt {...m(somme((g) => g.ca))} /></td><td data-mot={`Primes ${MOT}`}><Mt {...m(somme((g) => g.primesDeduites))} cout /></td>
-          <td data-mot={`Rétrocessions ${MOT}`}><Mt {...m(somme((g) => g.apporteurs))} cout /></td><td data-mot="Variable (sans TVA)"><Mt {...m(somme((g) => g.variableDeduit))} cout /></td>
+          <td data-mot={`Rétrocessions ${MOT}`}><Mt {...m(somme((g) => g.apporteurs))} cout /></td><td data-mot="Variable (sans TVA)"><Mt {...m(somme((g) => variableNegociateur(g.variableDeduit, g.primesDeduites)))} cout donnees={{ 'data-total-espace-variable': '' }} /></td>
           <td data-mot={motNet} className="trx-vert"><Mt {...m(moinsM(netNegos, T.c.salaires))} donnees={{ 'data-total-espace-net': '' }} /></td></tr>
       </tbody>
     </table>

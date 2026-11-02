@@ -101,7 +101,9 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion');
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
       expect(['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="salairesLocation"]',
-        '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]'].reduce((s, x) => s + grand(x), 0)).toBe(couts);
+        '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]'].reduce((s, x) => s + grand(x), 0)
+        // 🔴 Arno (02/11/2026) — le variable affiché porte les primes de gestion, comptées UNE fois dans le total
+        - grand('[data-sous-total-location="primes"]')).toBe(couts);
       await cliquer('[data-fermer-fenetre]');
       // la fenêtre « CA net » : ordre comptable, total = tuile 4 ; dont location + dont gestion = total
       await cliquer('[data-tuile="fusion-net"]'); await deplierCategories();
@@ -132,7 +134,7 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     await cliquer('[data-activite="location"]'); const l = lire();
     expect(new URLSearchParams(window.location.search).get('activite')).toBe('location');
     await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
-    const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]'));
+    const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]').split(' (dont')[0]);
     await cliquer('[data-fermer-fenetre]');
     await cliquer('[data-activite="gestion"]'); const gg = lire();
     // 🔴 LOT LO15 — une partition exacte : la location seule (la page Location) + la gestion seule = les deux, au centime
@@ -232,7 +234,8 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(boutons().every((b) => b.querySelector('.svv-triangle-boite') !== null && b.querySelector('[data-titre-categorie]') !== null)).toBe(true);
       // les sous-totaux restent sur la ligne fermée ; total haut = total bas = tuile
       const sous = ['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]']
-        .reduce((x, y) => x + grand(y), 0) + (sal === 'avec' ? grand('[data-sous-total-fusion="salaries"]') + grand('[data-sous-total-fusion="salairesLocation"]') : 0);
+        .reduce((x, y) => x + grand(y), 0) + (sal === 'avec' ? grand('[data-sous-total-fusion="salaries"]') + grand('[data-sous-total-fusion="salairesLocation"]') : 0)
+        - grand('[data-sous-total-location="primes"]'); // 🔴 (02/11/2026) — les primes, dans le variable affiché, comptées une fois
       expect([sous, grand('[data-fenetre-couts-fusion] [data-fenetre-total]'), centimes(texte('[data-fenetre-couts-fusion] [data-fenetre-total-haut] strong'))]).toEqual([couts, couts, couts]);
       // un clic ouvre, plusieurs ouvertes, un nouveau clic ferme
       await cliquer('[data-deplier-categorie="adhoc"]');

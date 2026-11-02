@@ -5,9 +5,9 @@ import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { coutsGlobaux, coutsGlobauxAnnees, type CoutsGlobaux, type EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { NOMS_MOIS, variation } from '../../../../lib/transaction/modele';
 import { MOT_A_SAISIR, moisCommence, nbMoisSalairesASaisir } from '../../../../lib/transaction/periodeMois';
-import { salairesLocationDuMois } from '../../../../lib/transaction/locationCa';
+import { salairesLocationDuMois, variableNegociateur } from '../../../../lib/transaction/locationCa';
 import { aSaisirGestion } from '../../../../lib/transaction/gestionVue';
-import { classeSens, ecartEur, eur, Montants, MOT_UNITE, signePct, useAffichage } from './commun';
+import { classeSens, ecartEur, EnteteVariableNegociateur, eur, Montants, MOT_UNITE, motPrimesDuVariable, signePct, useAffichage } from './commun';
 import { ListeRepliable } from '../location/ListeRepliable';
 import { SelecteurSalaires } from './ChoixSalaires';
 import { sensDe } from '../location/TableauBordSuivi';
@@ -63,7 +63,10 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
       {L === null ? <><td data-mot="Apporteurs (location)">—</td><td data-mot="Primes de gestion">—</td><td data-mot="Variable négociateur">—</td><td data-mot="Salaires chargés (location)">—</td></> : <>
         <td data-mot="Apporteurs (location)" data-cout="location-apporteurs">{montant(L.apporteurs)}</td>
         <td data-mot="Primes de gestion" data-cout="location-primes">{montant(L.primesDeduites)}{inclus(L.primes, L.primesDeduites)}</td>
-        <td data-mot="Variable négociateur" data-cout="location-variable">{montant(L.variableDeduit)}{inclus(L.variable, L.variableDeduit)}</td>
+        {/* 🔴 Arno (02/11/2026) — le variable avec les primes de gestion (`variableNegociateur`) ; le Total coûts les compte une seule fois (colonne Primes) */}
+        <td data-mot="Variable négociateur" data-cout="location-variable">{montant(variableNegociateur(L.variableDeduit, L.primesDeduites))}
+          {inclus(variableNegociateur(L.variable, L.primes), variableNegociateur(L.variableDeduit, L.primesDeduites))}
+          {L.primesDeduites.htC !== 0 && petit(motPrimesDuVariable(eur(enU(L.primesDeduites))), 'data-variable-dont-primes')}</td>
         <td data-mot="Salaires chargés (location)" data-cout="location-salaires">{caseSalaires(L.salaires, L.salairesSaisis, L.moisSaisis, aSaisirL)}</td></>}
       <td data-mot="ADHOC" data-cout="gestion-adhoc">{montant(c.gestion.adhoc)}</td>
       <td data-mot="MONGA" data-cout="gestion-monga">{montant(c.gestion.monga)}</td>
@@ -108,7 +111,7 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
               <th scope="colgroup" colSpan={3} data-groupe-couts="gestion">Gestion</th>
               <th scope="colgroup" colSpan={3} data-groupe-couts="total">Total et comparaison</th></tr>
             <tr><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th>
-              <th scope="col">Apporteurs</th><th scope="col">Primes de gestion</th><th scope="col">Variable négociateur</th><th scope="col">Salaires chargés</th>
+              <th scope="col">Apporteurs</th><th scope="col">Primes de gestion</th><th scope="col"><EnteteVariableNegociateur cible={`couts-${donnee}`} /></th><th scope="col">Salaires chargés</th>
               <th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salaires chargés</th>
               <th scope="col">Total coûts</th><th scope="col">{n1}</th><th scope="col">Écart</th></tr>
           </thead>

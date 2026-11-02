@@ -5,6 +5,8 @@ import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/tr
 import { centimesAffiches, ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
 import { TVA } from '../../../../lib/transaction/modele';
 import { CSS_TRIANGLE, CSS_TRIANGLE_BOITE } from '../_composants/TriangleDepliage';
+import { AIDE_VARIABLE_NEGOCIATEUR } from '../../../../lib/transaction/locationCa';
+import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 
 /** TUILE TRANSACTION — le socle des écrans : lecture de la route, envoi d'un geste, formats. Aucun calcul métier ici (`modele.ts`). */
 export const API_TRANSACTION = '/api/admin/transaction';
@@ -171,6 +173,31 @@ export const COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.',
  *  Les adresses (vue=mois, vue=annee) et le sélecteur « Mois | Période | Année » de la rangée des mois ne changent pas. */
 export const ONGLET_MOIS = 'Mois';
 export const ONGLET_ANNEES = 'Année(s)';
+
+/**
+ * 🔴 Arno (02/11/2026) — le variable du négociateur est montré AVEC les primes de gestion (`variableNegociateur`). Là où les primes ont aussi leur
+ * propre ligne déduite (Résultat, fenêtres Coûts et CA net, carte « Coûts », Espace par négociateur), cette mention dit qu'elles ne le sont qu'une fois.
+ */
+export const motPrimesDuVariable = (primes: string): string => `dont ${primes} de primes de gestion, déjà déduites`;
+/**
+ * 🔴 Arno (02/11/2026) — l'en-tête « Variable négociateur » et sa bulle « i » (le composant partagé `InfoBulle`) : la formule du code
+ * (`AIDE_VARIABLE_NEGOCIATEUR`) ; ouverte au clic, au toucher, au clavier ET au survol, fermable (×, Échap, clic ailleurs).
+ */
+export function EnteteVariableNegociateur({ libelle = 'Variable négociateur', cible, apres = null }: { libelle?: string; cible: string; apres?: ReactNode }) {
+  return <span className="trx-entete-aide" data-entete-variable={cible}><style>{INFOBULLE_CSS + '.trx-entete-aide{display:inline-flex;align-items:center;gap:.15rem}'
+    // dans un en-tête de tableau (capitales, gras, aligné à droite) : la bulle garde l'écriture d'une phrase
+    + '.trx-entete-aide .svv-pil-ib-bulle{text-transform:none;text-align:left;letter-spacing:normal;font-weight:400}'}</style>
+    {libelle}{apres}<InfoBulle libelle={libelle} cible={`trx-variable-${cible}`} etiquette="Comment le variable du négociateur est calculé" texte={AIDE_VARIABLE_NEGOCIATEUR} dansLEcran auSurvol /></span>;
+}
+/**
+ * 🔴 Arno (02/11/2026) — au téléphone (≤ 1024 px), les grands tableaux passent en cartes et leur en-tête disparaît (`cartes`, TableauBordSuivi) :
+ * la même bulle, posée au-dessus du tableau, n'apparaît qu'à cette largeur — l'aide reste joignable sur iPhone, sans doublon sur grand écran.
+ */
+export function AideVariableMobile({ cible }: { cible: string }) {
+  return <p className="trx-aide-variable-mobile loc-muet" data-aide-variable-mobile={cible}>
+    <style>{'.trx-aide-variable-mobile{display:none;margin:0 0 6px;font-size:.85rem}@media (max-width:1024px){.trx-aide-variable-mobile{display:block}}'}</style>
+    <EnteteVariableNegociateur cible={`${cible}-mobile`} /></p>;
+}
 export function parametre(nom: string): string | null {
   return typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(nom);
 }

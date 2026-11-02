@@ -3,9 +3,9 @@
 import type { ReactNode } from 'react';
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
-import { detailCoutsLocation, moinsC, parDateDecroissante, plusC, titreBail, totauxLocation, type CoutsLocation, type LigneLocationCa } from '../../../../lib/transaction/locationCa';
+import { detailCoutsLocation, moinsC, parDateDecroissante, plusC, titreBail, totauxLocation, variableNegociateur, type CoutsLocation, type LigneLocationCa } from '../../../../lib/transaction/locationCa';
 import type { MoisChoisi } from '../../../../lib/transaction/periodeMois';
-import { classeSens, ESPACE, eur, MOT_UNITE, useAffichage } from './commun';
+import { classeSens, ESPACE, eur, MOT_UNITE, motPrimesDuVariable, useAffichage } from './commun';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 
 /**
@@ -99,22 +99,33 @@ const avecSalaires = (couts: CoutsFenetre) => (l: LigneLocationCa): boolean => c
 const inclusMot = (tout: MontantC, deduit: MontantC, en: (m: MontantC) => string): ReactNode => (tout.htC === deduit.htC ? null
   : <small className="trx-fc-sous" data-inclus-salaires> — dont {en(moinsC(tout, deduit))} inclus dans les salaires</small>);
 
+/**
+ * 🔴 Arno (02/11/2026) — le variable d'un bail, montré avec sa prime de gestion (`variableNegociateur`) : la prime a sa propre ligne, déduite une
+ * seule fois (le « Versé » et le « CA net » du bail ne changent pas) ; un mois avec salaires, elle est « inclus dans les salaires » comme le variable.
+ */
+const variableDuBail = (l: LigneLocationCa): MontantC => variableNegociateur(l.variableC, l.primeC);
+const dontPrimeDuBail = (l: LigneLocationCa, compte: boolean, en: (m: MontantC) => string): ReactNode => (!nonNul(l.primeC) ? null
+  : <small className="trx-fc-sous" data-variable-dont-primes> — {compte ? `dont prime de gestion ${en(l.primeC)}, déjà déduite` : `dont prime de gestion ${en(l.primeC)}`}</small>);
+
 /** Les catégories « Variable du négociateur » et « Salaires chargés » : un mois par ligne. */
 function SectionsVariableSalaires({ couts, moins }: { couts: CoutsFenetre; moins: boolean }) {
   const u = useAffichage();
   const en = (m: MontantC): string => `${eur((u === 'ht' ? m.htC : m.ttcC) / 100)}${ESPACE}${MOT_UNITE[u]}`;
   const t = couts.total;
-  const moisV = couts.mois.filter((x) => nonNul(x.c.variable));
+  // 🔴 Arno (02/11/2026) — le variable avec les primes de gestion ; les primes ont leur propre catégorie, déduite une seule fois
+  const vTout = variableNegociateur(t.variable, t.primes); const vDeduit = variableNegociateur(t.variableDeduit, t.primesDeduites);
+  const moisV = couts.mois.filter((x) => nonNul(variableNegociateur(x.c.variable, x.c.primes)));
   const moisS = couts.mois.filter((x) => x.c.moisAvecSalaires > 0);
   const moisSaisis = couts.mois.filter((x) => x.c.moisSaisis > 0);
   return <>
     <CategorieRepliable cle="variable" donnees={{ 'data-categorie-location': 'variable', 'aria-label': 'Variable du négociateur' }}
-      titre={<>{moins ? '− ' : ''}Variable du négociateur (sans TVA){inclusMot(t.variable, t.variableDeduit, en)}</>}
-      montant={<Montant htC={t.variableDeduit.htC} ttcC={t.variableDeduit.ttcC} versee donnees={{ 'data-sous-total-location': 'variable' }} />}>
+      titre={<>{moins ? '− ' : ''}Variable du négociateur (sans TVA){inclusMot(vTout, vDeduit, en)}
+        {nonNul(t.primesDeduites) && <small className="trx-fc-sous" data-variable-dont-primes> — {motPrimesDuVariable(en(t.primesDeduites))}</small>}</>}
+      montant={<Montant htC={vDeduit.htC} ttcC={vDeduit.ttcC} versee donnees={{ 'data-sous-total-location': 'variable' }} />}>
       {moisV.length === 0 ? aucune('variable') : <ul className="trx-fc-lignes">{moisV.map(({ m, c }) => (
         <li key={`${m.annee}-${m.mois}`} className={c.moisAvecSalaires > 0 ? 'trx-fc-ligne trx-fc-info' : 'trx-fc-ligne'} data-ligne-variable={`${m.annee}-${m.mois}`}>
           <span className="trx-fc-quoi">{moisFr(m)}{c.moisAvecSalaires > 0 && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}</span>
-          <Montant htC={c.variable.htC} ttcC={c.variable.ttcC} versee={c.moisAvecSalaires === 0} /></li>))}</ul>}
+          <Montant htC={variableNegociateur(c.variable, c.primes).htC} ttcC={variableNegociateur(c.variable, c.primes).ttcC} versee={c.moisAvecSalaires === 0} /></li>))}</ul>}
     </CategorieRepliable>
     {couts.sans ? <CategorieRepliable cle="salaires" donnees={{ 'data-categorie-location': 'salaires', 'aria-label': 'Salaires chargés — non comptés' }}
       titre={<span className="loc-muet">Salaires chargés (sans TVA) — non comptés</span>}
@@ -159,10 +170,10 @@ export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts, re
   const bloc = (l: LigneLocationCa) => {
     const inc = inclus(l);
     const verse = plusC(plusC(l.apporteurC, inc ? { htC: 0, ttcC: 0 } : l.primeC), inc ? { htC: 0, ttcC: 0 } : l.variableC);
-    const ligneC = (cle: string, mot: string, qui: string, m: MontantC, compte: boolean) => (!nonNul(m) ? null
+    const ligneC = (cle: string, mot: string, qui: string, m: MontantC, compte: boolean, apres: ReactNode = null) => (!nonNul(m) ? null
       : <li className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-bail={cle}>
         <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{mot}</span><span data-qui>{qui}</span>
-          {!compte && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}</span>
+          {!compte && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}{apres}</span>
         <Montant htC={m.htC} ttcC={m.ttcC} versee={compte} /></li>);
     return (
       <section key={l.id} className="trx-fc-section" data-bail-couts={l.id} aria-label={titreBail(l)}>
@@ -170,7 +181,7 @@ export function FenetreCoutsLocation({ lignes, lib, onFermer, onAller, couts, re
         <ul className="trx-fc-lignes">
           {ligneC('prime', 'Prime', l.negociateur.nom, l.primeC, !inc)}
           {ligneC('apporteur', 'Apporteur', l.apporteur ?? 'Apporteur', l.apporteurC, true)}
-          {ligneC('variable', 'Variable', l.negociateur.nom, l.variableC, !inc)}
+          {ligneC('variable', 'Variable', l.negociateur.nom, variableDuBail(l), !inc, dontPrimeDuBail(l, !inc, en))}
         </ul>
         <div className="trx-fc-sous-total trx-somme"><span>Versé sur ce bail</span><Montant htC={verse.htC} ttcC={verse.ttcC} versee donnees={{ 'data-verse-bail': String(l.id) }} /></div>
       </section>
@@ -213,10 +224,10 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts, repe
   const t = couts.total;
   const inclus = avecSalaires(couts);
   const total = <><span>= CA net{hors(couts)}</span><Montant htC={t.net.htC} ttcC={t.net.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
-  const ligneCout = (cle: string, etiquette: string, qui: string, m: MontantC, compte = true) => (
+  const ligneCout = (cle: string, etiquette: string, qui: string, m: MontantC, compte = true, apres: ReactNode = null) => (
     <li className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-bail={cle}>
       <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{compte ? '− ' : ''}{etiquette}</span><span data-qui>{qui}</span>
-        {!compte && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}</span>
+        {!compte && <small className="trx-fc-sous" data-inclus-salaires> — inclus dans les salaires</small>}{apres}</span>
       <Montant htC={m.htC} ttcC={m.ttcC} versee={compte} /></li>
   );
   const bloc = (l: LigneLocationCa) => {
@@ -228,7 +239,7 @@ export function FenetreNetLocation({ lignes, lib, onFermer, onAller, couts, repe
         <ul className="trx-fc-lignes">
           {ligneCout('apporteur', 'Apporteur', l.apporteur ?? 'aucun', l.apporteurC)}
           {ligneCout('prime', 'Prime', l.negociateur.nom, l.primeC, !inc)}
-          {ligneCout('variable', 'Variable', l.negociateur.nom, l.variableC, !inc)}
+          {ligneCout('variable', 'Variable', l.negociateur.nom, variableDuBail(l), !inc, dontPrimeDuBail(l, !inc, en))}
         </ul>
         <div className="trx-fc-sous-total trx-somme"><span>= CA net du bail</span><Montant htC={net.htC} ttcC={net.ttcC} versee={false} recu donnees={{ 'data-net-bail': String(l.id) }} /></div>
       </section>

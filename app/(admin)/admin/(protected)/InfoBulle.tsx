@@ -10,7 +10,7 @@ import { useState, useEffect, useRef, type ReactNode } from 'react';
  * Le CSS associé (classes `svv-pil-ib-*` + badge `svv-pil-statut--vive`) est exporté dans
  * INFOBULLE_CSS et DOIT être injecté UNE fois par page (dans un `<style>`).
  */
-export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcran = false }: {
+export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcran = false, auSurvol = false }: {
   libelle: string; texte?: string; cible: string;
   /** Le libellé accessible complet du picto (par défaut « Aide : {libelle} »). — tuile Location, 20/10/2026 */
   etiquette?: string;
@@ -18,8 +18,15 @@ export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcra
   contenu?: ReactNode;
   /** La bulle est décalée pour ne JAMAIS sortir de l'écran (téléphone). Absent : placement d'origine, inchangé. */
   dansLEcran?: boolean;
+  /**
+   * 🔴 Arno (02/11/2026, colonne « Variable négociateur ») — la bulle s'ouvre AUSSI au survol de la souris (et se referme en le quittant, sauf si
+   * elle a été ouverte au clic). Le clic, le toucher et le clavier restent : rien ne dépend du survol seul. Absent : au clic seulement, inchangé.
+   */
+  auSurvol?: boolean;
 }) {
-  const [ouvert, setOuvert] = useState(false);
+  const [ouvertClic, setOuvert] = useState(false);
+  const [survol, setSurvol] = useState(false);
+  const ouvert = ouvertClic || (auSurvol && survol);
   const conteneur = useRef<HTMLSpanElement>(null);
   const [decalage, setDecalage] = useState(0);
   const bulleId = `svv-ib-${cible}`;
@@ -29,7 +36,7 @@ export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcra
    * et la largeur la plus grande que la bulle peut prendre (min(280 px, écran − 40 px)), marge de 8 px. La bulle ne déborde
    * donc jamais, même un instant (au téléphone, un débordement d'une image suffit à élargir la page).
    */
-  const ouvrirOuFermer = (): void => {
+  const placer = (): void => {
     if (!ouvert && dansLEcran && conteneur.current !== null && typeof document !== 'undefined') {
       const largeur = document.documentElement.clientWidth || window.innerWidth;
       const gauche = conteneur.current.getBoundingClientRect().left;
@@ -38,16 +45,22 @@ export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcra
       if (gauche + dx < 8) dx = 8 - gauche;
       setDecalage(dx);
     }
-    setOuvert((v) => !v);
+  };
+  const fermer = (): void => { setOuvert(false); setSurvol(false); };
+  const ouvrirOuFermer = (): void => {
+    placer();
+    // ouverte au survol : le clic (ou le toucher, qui « survole » d'abord) la garde ouverte ; elle ne se referme plus en quittant la souris
+    if (auSurvol && survol && !ouvertClic) { setOuvert(true); return; }
+    if (ouvertClic) fermer(); else setOuvert(true);
   };
 
   useEffect(() => {
     if (!ouvert) return;
     function surClicHors(e: MouseEvent) {
-      if (conteneur.current && !conteneur.current.contains(e.target as Node)) setOuvert(false);
+      if (conteneur.current && !conteneur.current.contains(e.target as Node)) { setOuvert(false); setSurvol(false); }
     }
     function surEchap(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOuvert(false);
+      if (e.key === 'Escape') { setOuvert(false); setSurvol(false); }
     }
     document.addEventListener('mousedown', surClicHors);
     document.addEventListener('keydown', surEchap);
@@ -60,7 +73,8 @@ export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcra
   if (!texte && contenu === undefined) return null;
 
   return (
-    <span className="svv-pil-ib" ref={conteneur}>
+    <span className="svv-pil-ib" ref={conteneur}
+      {...(auSurvol ? { onMouseEnter: () => { placer(); setSurvol(true); }, onMouseLeave: () => setSurvol(false) } : {})}>
       <button
         type="button"
         className="svv-pil-ib-btn"
@@ -79,7 +93,7 @@ export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcra
             type="button"
             className="svv-pil-ib-fermer"
             aria-label="Fermer l’aide"
-            onClick={() => setOuvert(false)}
+            onClick={fermer}
           >
             ×
           </button>

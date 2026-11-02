@@ -6,14 +6,14 @@ import { NOMS_MOIS, variation, type GestionMois } from '../../../../lib/transact
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, anneesSoulignees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
-import { lignesDesMois, moinsC, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
+import { lignesDesMois, moinsC, variableNegociateur, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
 import {
   ACTIVITES_FUSION, anneesFusion, aSaisirFusion, estActiviteFusion, FAMILLES_COUTS, LIBELLE_ACTIVITE_FUSION, moisDeGestion, totauxFusion, type ActiviteFusion, type FamilleCout, type TotauxFusion,
 } from '../../../../lib/transaction/fusionLocationGestion';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeChoix } from '../location/ListeChoix';
-import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ESPACE, eur, FournisseurAffichage, MOT_UNITE, motPrimesDuVariable, parametre, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAnnee, attributAnneesRouges, StyleAnneesRouges, douzeMois, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
@@ -273,9 +273,9 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
         { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-fusion-couts-familles>{familles.map((f, i) => {
           const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
           const gris = salaire && !salaires;
-          return <span key={f.cle} className={gris ? 'loc-muet' : undefined} data-famille-tuile={f.cle}>{i > 0 ? ' · ' : ''}{gris ? `${motFamille(f.cle)} (non comptés)` : motFamille(f.cle)} {eur(U.en(gris ? T.couts[f.cle] : T.deduits[f.cle]))}</span>;
+          return <span key={f.cle} className={gris ? 'loc-muet' : undefined} data-famille-tuile={f.cle}>{i > 0 ? ' · ' : ''}{gris ? `${motFamille(f.cle)} (non comptés)` : motFamille(f.cle)} {eur(U.en(affiche(f.cle, gris ? T.couts : T.deduits)))}{f.cle === 'variable' && T.deduits.primes.htC !== 0 ? ` (${motPrimesDuVariable(eur(U.en(T.deduits.primes)))})` : ''}</span>;
         })}
-          {T.inclus.mois > 0 && <span className="trx-ligne-bloc loc-muet" data-fusion-inclus>primes {eur(U.en(T.inclus.primes))} et variable {eur(U.en(T.inclus.variable))} inclus dans les salaires</span>}</span> },
+          {T.inclus.mois > 0 && <span className="trx-ligne-bloc loc-muet" data-fusion-inclus>primes {eur(U.en(T.inclus.primes))} et variable {eur(U.en(variableNegociateur(T.inclus.variable, T.inclus.primes)))} inclus dans les salaires</span>}</span> },
         ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="fusion-couts">{n1(T.coutsTotal, T1.coutsTotal)}</span> },
       ]} />} />}
@@ -310,6 +310,11 @@ function VueFusion({ lignes, gestion, jour, activite, liens, salaires, onSalaire
 
 /** 🔴 LOT LO14 — les familles sans TVA (TTC = HT) : primes, commissions d'apporteurs, variable, salaires chargés. */
 const SANS_TVA_FUSION: readonly FamilleCout[] = ['primes', 'apporteurs', 'variable', 'salairesLocation', 'salaries'];
+/**
+ * 🔴 Arno (02/11/2026) — le montant AFFICHÉ d'une famille : le variable du négociateur avec les primes de gestion (`variableNegociateur`), les
+ * autres tels quels. Les totaux, les coûts et le CA net ne lisent jamais ce montant : les primes n'y sont déduites qu'une fois, par leur famille.
+ */
+const affiche = (k: FamilleCout, x: Readonly<Record<FamilleCout, MontantC>>): MontantC => (k === 'variable' ? variableNegociateur(x.variable, x.primes) : x[k]);
 const motFamille = (f: FamilleCout): string => ({ primes: 'primes', apporteurs: 'apporteurs', variable: 'variable', salairesLocation: 'salaires location', adhoc: 'ADHOC', monga: 'MONGA', salaries: 'salaires gestion' } as const)[f];
 
 /**
@@ -334,7 +339,7 @@ function ResultatFusion({ T }: { T: TotauxFusion }) {
         <dt>CA brut location ({MOT})</dt><dd><Mt {...m(T.location.ca)} donnees={{ 'data-resultat-fusion': 'location-ca' }} /></dd>
         <dt>− Commissions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.location.deduits.apporteurs)} cout donnees={{ 'data-resultat-fusion': 'apporteurs' }} /></dd>
         <dt>− Primes de nouvelle gestion (sans TVA){inclus(T.location.couts.primes, T.location.deduits.primes)}</dt><dd><Mt {...m(T.location.deduits.primes)} cout donnees={{ 'data-resultat-fusion': 'primes' }} /></dd>
-        <dt>− Variable du négociateur (sans TVA){inclus(T.location.couts.variable, T.location.deduits.variable)}</dt><dd><Mt {...m(T.location.deduits.variable)} cout donnees={{ 'data-resultat-fusion': 'variable' }} /></dd>
+        <dt>− Variable du négociateur (sans TVA){inclus(affiche('variable', T.location.couts), affiche('variable', T.location.deduits))}{T.location.deduits.primes.htC !== 0 && <small className="loc-muet trx-ligne-bloc" data-variable-dont-primes> {motPrimesDuVariable(en(T.location.deduits.primes))}</small>}</dt><dd><Mt {...m(affiche('variable', T.location.deduits))} cout donnees={{ 'data-resultat-fusion': 'variable' }} /></dd>
         {salaire('salairesLocation', 'Salaires chargés — location', T.location)}
         <dt className="trx-total">= CA net location</dt><dd className="trx-total trx-vert"><Mt {...m(T.location.net)} donnees={{ 'data-resultat-fusion': 'location-net' }} /></dd>
       </>}
@@ -555,21 +560,24 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
   const inclusMois = (a: number, k: number): boolean => parMois.some((x) => x.m.annee === a && x.m.mois === k && x.t.inclus.mois > 0);
   const nonCompte = (k: FamilleCout): boolean => (k === 'salaries' || k === 'salairesLocation') && !salaires;
   const mention = (k: FamilleCout, t: TotauxFusion): ReactNode => (nonCompte(k) ? <small className="trx-fc-sous"> — non comptés</small>
-    : (k === 'primes' || k === 'variable') && t.couts[k].htC !== t.deduits[k].htC
-      ? <small className="trx-fc-sous" data-inclus-salaires> — {t.deduits[k].htC === 0 ? 'inclus dans les salaires' : `dont ${eur(U.en(moinsC(t.couts[k], t.deduits[k])))} inclus dans les salaires`}</small> : null);
+    : (k === 'primes' || k === 'variable') && affiche(k, t.couts).htC !== affiche(k, t.deduits).htC
+      ? <small className="trx-fc-sous" data-inclus-salaires> — {affiche(k, t.deduits).htC === 0 ? 'inclus dans les salaires' : `dont ${eur(U.en(moinsC(affiche(k, t.couts), affiche(k, t.deduits))))} inclus dans les salaires`}</small> : null);
+  // 🔴 Arno (02/11/2026) — le variable montré avec les primes de gestion : celles qui ont déjà leur ligne déduite
+  const dontPrimes = (k: FamilleCout, t: TotauxFusion): ReactNode => (k === 'variable' && t.deduits.primes.htC !== 0
+    ? <small className="trx-fc-sous" data-variable-dont-primes> — {motPrimesDuVariable(eur(U.en(t.deduits.primes)))}</small> : null);
   /** Une famille, un mois par ligne (variable, salaires, ADHOC, MONGA). */
   const sectionMois = (k: FamilleCout, libelle: string) => {
-    const mois = parMois.filter((x) => x.t.couts[k].htC !== 0);
-    const total = nonCompte(k) ? T.couts[k] : T.deduits[k];
+    const mois = parMois.filter((x) => affiche(k, x.t.couts).htC !== 0);
+    const total = affiche(k, nonCompte(k) ? T.couts : T.deduits);
     return (
       // 🔴 LOT LG3 — fermée à l'ouverture : le nom et le sous-total ; un clic montre les mois
       <CategorieRepliable key={k} cle={k} donnees={{ 'data-categorie-fusion': k, 'aria-label': libelle }} classeTitre={nonCompte(k) ? 'loc-muet' : undefined}
-        titre={<>{libelle}{mention(k, T)}</>}
+        titre={<>{libelle}{mention(k, T)}{dontPrimes(k, T)}</>}
         montant={<Montant htC={total.htC} ttcC={total.ttcC} versee={!nonCompte(k)} donnees={{ 'data-sous-total-fusion': k }} />}>
         {mois.length === 0 ? <p className="trx-fc-aucune" data-aucune={k}>Aucune</p> : <ul className="trx-fc-lignes">{mois.map(({ m, t }) => {
-          const compte = !nonCompte(k) && t.deduits[k].htC === t.couts[k].htC;
+          const compte = !nonCompte(k) && affiche(k, t.deduits).htC === affiche(k, t.couts).htC;
           return <li key={`${m.annee}-${m.mois}`} className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-ligne-fusion={`${k}-${m.annee}-${m.mois}`}>
-            <span className="trx-fc-quoi">{moisLib(m)}{mention(k, t)}</span><Montant htC={t.couts[k].htC} ttcC={t.couts[k].ttcC} versee={compte} /></li>;
+            <span className="trx-fc-quoi">{moisLib(m)}{mention(k, t)}{dontPrimes(k, t)}</span><Montant htC={affiche(k, t.couts).htC} ttcC={affiche(k, t.couts).ttcC} versee={compte} /></li>;
         })}</ul>}
       </CategorieRepliable>
     );
@@ -594,11 +602,11 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
         </> : nbMois === 0 ? <p className="trx-fc-aucune" data-aucun-mois>Aucun coût sur la période.</p> : blocs.map(({ m, t }) => (
           <section key={`${m.annee}-${m.mois}`} className="trx-fc-section" data-mois-fusion={`${m.annee}-${m.mois}`} aria-label={moisLib(m)}>
             <div className="trx-fc-tete trx-fc-tete--affaire"><span className="trx-fc-titre-affaire"><h3>{moisLib(m)}</h3></span></div>
-            <ul className="trx-fc-lignes">{FAMILLES_COUTS.filter((f) => (f.activite === 'location' ? avecL : avecG) && (t.couts[f.cle].htC !== 0 || t.couts[f.cle].ttcC !== 0)).map((f) => {
-              const compte = !nonCompte(f.cle) && t.deduits[f.cle].htC === t.couts[f.cle].htC;
+            <ul className="trx-fc-lignes">{FAMILLES_COUTS.filter((f) => (f.activite === 'location' ? avecL : avecG) && (affiche(f.cle, t.couts).htC !== 0 || affiche(f.cle, t.couts).ttcC !== 0)).map((f) => {
+              const compte = !nonCompte(f.cle) && affiche(f.cle, t.deduits).htC === affiche(f.cle, t.couts).htC;
               return <li key={f.cle} className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-mois={f.cle}>
-                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{SANS_TVA_FUSION.includes(f.cle) ? ' (sans TVA)' : ''}{mention(f.cle, t)}</span>
-                <Montant htC={t.couts[f.cle].htC} ttcC={t.couts[f.cle].ttcC} versee={compte} /></li>;
+                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{SANS_TVA_FUSION.includes(f.cle) ? ' (sans TVA)' : ''}{mention(f.cle, t)}{dontPrimes(f.cle, t)}</span>
+                <Montant htC={affiche(f.cle, t.couts).htC} ttcC={affiche(f.cle, t.couts).ttcC} versee={compte} /></li>;
             })}</ul>
             <div className="trx-fc-sous-total trx-somme"><span>Coûts du mois</span><Montant htC={t.coutsTotal.htC} ttcC={t.coutsTotal.ttcC} versee donnees={{ 'data-couts-mois': `${m.annee}-${m.mois}` }} /></div>
           </section>
@@ -626,12 +634,15 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
     const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
     const sansTva = salaire || f.cle === 'variable' || f.cle === 'primes' || f.cle === 'apporteurs' ? ' (sans TVA)' : ''; // 🔴 LOT LO14 — primes et apporteurs aussi
     const ou = <small className="trx-fc-sous">{f.activite === 'location' ? 'location' : 'gestion'}</small>;
-    if (salaire && !salaires) return ligneM(f.cle, <span className="loc-muet">{f.libelle}{sansTva} — non déduite {ou}</span>, T.couts[f.cle], 'info', { 'data-net-fusion-famille': f.cle });
+    // 🔴 Arno (02/11/2026) — le variable : montré avec les primes de gestion (`affiche`), qui ne sont déduites qu'une fois, par leur ligne
+    const tout = affiche(f.cle, T.couts); const deduit = affiche(f.cle, T.deduits);
+    if (salaire && !salaires) return ligneM(f.cle, <span className="loc-muet">{f.libelle}{sansTva} — non déduite {ou}</span>, tout, 'info', { 'data-net-fusion-famille': f.cle });
     // 🔴 LOT LO11 — primes et variable des mois avec salaires : « inclus dans les salaires », non déduits
-    if (T.deduits[f.cle].htC === 0 && T.couts[f.cle].htC !== 0) return ligneM(f.cle, <span className="loc-muet">{f.libelle}{sansTva} — inclus dans les salaires, non déduit {ou}</span>, T.couts[f.cle], 'info', { 'data-net-fusion-famille': f.cle });
-    const partiel = T.deduits[f.cle].htC !== T.couts[f.cle].htC
-      ? <small className="trx-fc-sous" data-inclus-salaires> (dont {eur(U.en(moinsC(T.couts[f.cle], T.deduits[f.cle])))} inclus dans les salaires, non déduit)</small> : null;
-    return ligneM(f.cle, <>− {f.libelle}{sansTva}{partiel} {ou}</>, T.deduits[f.cle], 'verse', { 'data-net-fusion-famille': f.cle });
+    if (deduit.htC === 0 && tout.htC !== 0) return ligneM(f.cle, <span className="loc-muet">{f.libelle}{sansTva} — inclus dans les salaires, non déduit {ou}</span>, tout, 'info', { 'data-net-fusion-famille': f.cle });
+    const partiel = deduit.htC !== tout.htC
+      ? <small className="trx-fc-sous" data-inclus-salaires> (dont {eur(U.en(moinsC(tout, deduit)))} inclus dans les salaires, non déduit)</small> : null;
+    const primes = f.cle === 'variable' && T.deduits.primes.htC !== 0 ? <small className="trx-fc-sous" data-variable-dont-primes> ({motPrimesDuVariable(eur(U.en(T.deduits.primes)))})</small> : null;
+    return ligneM(f.cle, <>− {f.libelle}{sansTva}{partiel}{primes} {ou}</>, deduit, 'verse', { 'data-net-fusion-famille': f.cle });
   };
   const total = <><span>= CA net{hors(salaires)}</span><Montant htC={T.net.htC} ttcC={T.net.ttcC} versee={false} recu donnees={{ 'data-fenetre-total': '' }} /></>;
   const blocs = ms.map((m) => ({ m, t: tf(lignes, gestion, [m], activite, salaires) })).filter((x) => x.t.ca.htC !== 0 || x.t.coutsTotal.htC !== 0).reverse();
