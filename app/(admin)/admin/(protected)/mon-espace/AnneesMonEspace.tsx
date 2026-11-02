@@ -9,7 +9,8 @@ import { anneesSoulignees } from '../../../../lib/transaction/periodeAnnees';
 import { motSansN1Pour, type DonneesSociete } from '../../../../lib/transaction/modele';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { totauxDuChoix } from '../../../../lib/mon-espace/statistiques';
-import { sourceAnneesPerso, sourceMoisPerso, tuilesAnneesAgence, tuilesAnneesPerso, type Montant } from '../../../../lib/mon-espace/accueil';
+import { periodeAnnees, sourceAnneesPerso, sourceMoisPerso, tuilesAnneesAgence, tuilesAnneesPerso, type Montant } from '../../../../lib/mon-espace/accueil';
+import { ListeAffairesPeriode, type RendreCarte } from './ListeAffairesPeriode';
 
 /**
  * ══ 🔴 MON ESPACE (Arno, 02/11/2026) — L'ONGLET « ANNÉE(S) » AU FORMAT DU SUIVI CA ═════════════════════════════════════════════════════════════════
@@ -22,8 +23,10 @@ import { sourceAnneesPerso, sourceMoisPerso, tuilesAnneesAgence, tuilesAnneesPer
  *   · mode agence : les tuiles de « L'année » (`tuilesAnneesAgence`) et les graphiques sur la structure (avec « CA net ») ; 4ᵉ tuile : « CA net ».
  */
 type LigneAnnees = ReturnType<typeof useLigneDesAnnees>;
-export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir }: { data: MesAffaires; ligne: LigneAnnees; annees: readonly number[];
-  onOuvrirMois: (a: number, m: number) => void; onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void }) {
+export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir, carte }: { data: MesAffaires; ligne: LigneAnnees; annees: readonly number[];
+  onOuvrirMois: (a: number, m: number) => void; onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void;
+  /** La carte d'une affaire (celle de l'onglet « Compromis ») : la liste sous le graphique. */
+  carte: RendreCarte }) {
   const jour = data.aujourdhui;
   const u = useAffichage();
   const cons = useConsolide();
@@ -101,6 +104,8 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir }:
           : <GrapheMois d={dSoc ?? sansDonnees(jour)} tout={dSoc ?? sansDonnees(jour)} annee={annee} mois={0} jour={jour} mode="tous" series={null} onMois={(m) => onOuvrirMois(annee, m)}
             moisSeul={false} periodeAnnee={null} rouges={rougesMois} entete={choixEchelle} {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />}
       </FournisseurConsolide>
+      {/* Les affaires qui font exactement ces cartes et ce graphique (les années choisies ; un clic sur une année la change, la liste suit). */}
+      <ListeAffairesPeriode data={data} periode={periodeAnnees(sel, agence === null, jour)} libelle={lib} carte={carte} />
     </div>
   );
 }

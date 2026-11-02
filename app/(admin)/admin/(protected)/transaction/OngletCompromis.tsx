@@ -403,12 +403,15 @@ export const ligneAuTitulaire = (p: VuePersonnelle, cote: 'entree' | 'sortie' | 
  *   · toute la ligne déplie (triangle rouge à gauche) ; dépliée : `children` (la fiche, lot BU).
  * `etiquetteActe` (onglet « Compromis », vue « Du mois ») : l'étiquette « acte signé » à côté du titre d'une vente déjà signée.
  */
-export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, section = 'compromis', donnees, vue, retros, statutDuLibelle, personnel }: {
+export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, section = 'compromis', donnees, vue, retros, statutDuLibelle, personnel, montant }: {
   v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; section?: string; donnees?: Record<string, string>;
   /** 🔴 LOT CC — la société vue (null : CA global), et ce que « Le mois » connaît en plus (rétrocessions saisies, statut des négociateurs importés). */
   vue: Societe | null; retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle;
   /** 🔴 MON ESPACE, LOT 4 — la vue personnelle d'un collaborateur ; absente (la tuile Suivi CA) : rien ne change. */
-  personnel?: VuePersonnelle }) {
+  personnel?: VuePersonnelle;
+  /** 🔴 MON ESPACE — le montant à afficher à droite (la liste sous le graphique : ma part, ou la carte de la structure) et son mot ; absent (la tuile
+   *  Suivi CA) : la commission de la vente, comme toujours. */
+  montant?: { m: { htC: number; ttcC: number }; mot?: string } }) {
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const c = carteCompromis(v, aujourdhui);
   const acteSigne = v.statut === 'vendue';
@@ -422,7 +425,12 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
   );
   const droite = (
     <span className="trx-carte-droite" data-carte="montants">
-      <Montants ht={c.commissionHt} ttc={c.commissionTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
+      {montant === undefined
+        ? <Montants ht={c.commissionHt} ttc={c.commissionTtc} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'commission-ht' }} donneesTtc={{ 'data-carte': 'commission' }} />
+        : <>
+          <Montants ht={montant.m.htC / 100} ttc={montant.m.ttcC / 100} sens="recu" classe="trx-carte-montants" donneesHt={{ 'data-carte': 'part-ht' }} donneesTtc={{ 'data-carte': 'part' }} />
+          {montant.mot !== undefined && <span className="trx-carte-pct" data-carte="part-mot">{montant.mot}</span>}
+        </>}
       {c.pctPrix !== null && <span className="trx-carte-pct" data-carte="pct-prix">{nombreFr(c.pctPrix, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{ESPACE}% du prix</span>}
     </span>
   );

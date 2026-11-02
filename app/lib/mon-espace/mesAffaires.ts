@@ -97,7 +97,10 @@ export function libellesDeVente(v: Vente): string[] {
  */
 export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[]; commissionsRetirees?: boolean;
   /** 🔴 LOT 7 — l'auteur de la dernière écriture (l'entrée du journal qui fait la version) : « Léa a mis à jour … » quand ce n'est pas moi. */
-  derniereModification?: { auteurId: number | null; prenom: string | null; libelle: string } | null };
+  derniereModification?: { auteurId: number | null; prenom: string | null; libelle: string } | null;
+  /** 🔴 La liste sous le graphique (Arno, 02/11/2026) — MA PART de cette affaire, calculée par le serveur sur la vente ENTIÈRE (`monCa`, `monCaNet` :
+   *  les fonctions de « Mon CA ») : la somme de la liste = les cartes, au centime. Absente : le mode agence (la carte de la structure). */
+  maPart?: { ca: MontantC; net: MontantC } };
 
 /** La réponse de /api/admin/mon-espace/affaires. */
 export interface MesAffaires {

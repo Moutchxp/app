@@ -1,11 +1,13 @@
 import { caNetParMoisMode, caNetVente, resultatDesCartes } from '../transaction/carteAffaireLignes';
 import { cumuler } from '../transaction/cumul';
-import { borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
+import { aConfirmerDesAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
+import { pourLaVue } from '../transaction/compromisEnCours';
+import { trierListe } from '../transaction/listeCartes';
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../transaction/periodeMois';
-import { caHtParMoisMode, sansN1Pour, TVA, variation, type DonneesSociete, type ModeMois } from '../transaction/modele';
+import { caHtParMoisMode, compromisDuMode, sansN1Pour, TVA, variation, type DonneesSociete, type ModeMois, type Vente } from '../transaction/modele';
 import type { MontantC } from '../transaction/partAgence';
 import { resolveurDe } from '../transaction/statutLigne';
-import { sommeC, totauxDuChoix, type StatsMonEspace } from './statistiques';
+import { moisDuChoix, sommeC, totauxDuChoix, type StatsMonEspace } from './statistiques';
 import type { SourceGrapheAnnees, SourceGrapheMois } from '../transaction/sourceGraphe';
 
 /**
@@ -174,3 +176,57 @@ export function sourceAnneesPerso(s: StatsMonEspace): SourceGrapheAnnees {
     noteNet: NOTE_NET_PERSO,
   };
 }
+
+/**
+ * ══ 🔴 LA LISTE SOUS LE GRAPHIQUE (Arno, 02/11/2026) — LES AFFAIRES QUI FONT EXACTEMENT LES CARTES ET LE GRAPHIQUE ════════════════════════════════
+ * Pour la sélection de la rangée (Mois, Période, Année ; dans « Année(s) » : une, plusieurs, toutes les années) et la vue :
+ *   · « Vendus » : les ventes signées que la carte « CA » additionne — choisies par LA MÊME fonction que la carte (« Mon espace » : les mois de
+ *     `moisDuChoix`, le « mois à confirmer » en Année, comme « Mes statistiques » ; mode agence : `ventesPeriode` / `ventesDesAnnees`, comme le Suivi
+ *     CA) ; le montant de chacune = sa part dans la carte (ma part, décision 1, calculée par le serveur ; en agence, sa carte `resultatDesCartes`) :
+ *     la somme = la carte « CA », le nombre = la carte « Ventes », au centime ;
+ *   · « Compromis » : les compromis en cours que le graphique place au-dessus du vendu, sur les mêmes mois (`compromisDuMode` en « Vendu +
+ *     compromis » ; en Année : les 12 mois) — ma part en « Mon espace ».
+ * Tri : date décroissante (`trierListe`, la règle des listes du Suivi CA). PUR.
+ */
+export interface AffaireListee<V> { v: V; m: MontantC }
+export interface AffairesPeriode<V> { vendus: AffaireListee<V>[]; compromis: AffaireListee<V>[]; totalVendus: MontantC; totalCompromis: MontantC }
+/** Ce que la rangée a choisi : des années, et pour chacune ses mois du vendu, ses mois des compromis, et le « mois à confirmer » (oui / non). */
+export interface PeriodeListe { annees: { annee: number; moisVendus: readonly number[]; moisCompromis: readonly number[]; aConfirmer: boolean }[] }
+const DOUZE = Array.from({ length: 12 }, (_, i) => i + 1);
+/** L'onglet « Mois » : en « Mon espace », les mois de « Mes statistiques » (`moisDuChoix`) ; en agence, ceux de « Le mois » (Année : les 12). */
+export function periodeMois(c: ChoixAccueil, perso: boolean, jour: string): PeriodeListe {
+  const moisV = perso ? moisDuChoix({ mode: c.decoupage, annee: c.annee, mois: c.mois, periode: c.decoupage === 'periode' ? c.moisPeriode : [c.mois] }, jour) : moisDeLAccueil(c);
+  return { annees: [{ annee: c.annee, moisVendus: moisV, moisCompromis: c.decoupage === 'annee' ? DOUZE : moisDeLAccueil(c), aConfirmer: perso && c.decoupage === 'annee' }] };
+}
+/** L'onglet « Année(s) » : chaque année choisie, ses 12 mois (« Mon espace » : ceux de « Mes statistiques », Année) et son « mois à confirmer ». */
+export function periodeAnnees(sel: readonly number[], perso: boolean, jour: string): PeriodeListe {
+  return { annees: sel.map((a) => ({ annee: a, moisVendus: perso ? moisDuChoix({ mode: 'annee', annee: a, mois: 1, periode: [1] }, jour) : DOUZE, moisCompromis: DOUZE, aConfirmer: true })) };
+}
+type VenteListe = Vente & { mesCotes?: readonly string[]; maPart?: { ca: MontantC } };
+const parDate = <V extends Vente>(xs: AffaireListee<V>[]): AffaireListee<V>[] => {
+  const ordre = trierListe(xs.map((x) => x.v), 'date-recent', () => 0, (v) => v.libelle);
+  return ordre.map((v) => xs.find((x) => x.v === v)!);
+};
+function assembler<V extends Vente>(vendus: V[], compromis: V[], montant: (v: V) => MontantC): AffairesPeriode<V> {
+  const a = (vs: V[]) => parDate(vs.map((v) => ({ v, m: montant(v) })));
+  const [lv, lc] = [a(vendus), a(compromis)];
+  return { vendus: lv, compromis: lc, totalVendus: sommeC(lv.map((x) => x.m)), totalCompromis: sommeC(lc.map((x) => x.m)) };
+}
+/** « Mon espace » : MES affaires (les miennes, `mesCotes`), à MA part (`maPart`, le serveur). */
+export function affairesPerso<V extends VenteListe>(ventes: readonly V[], p: PeriodeListe, jour: string): AffairesPeriode<V> {
+  const miennes = ventes.filter((v) => (v.mesCotes?.length ?? 0) > 0 && pourLaVue(v, null));
+  const vendues = miennes.filter((v) => v.statut === 'vendue');
+  const comp = miennes.filter((v) => v.statut === 'compromis');
+  const vendus = p.annees.flatMap((x) => vendues.filter((v) => v.annee === x.annee && (v.mois === null ? x.aConfirmer : x.moisVendus.includes(v.mois))));
+  const compromis = uniques(p.annees.flatMap((x) => x.moisCompromis.flatMap((m) => compromisDuMode(comp, x.annee, m, 'tous', jour)))) as V[];
+  return assembler<V>(vendus, compromis, (v) => v.maPart?.ca ?? RIEN_C);
+}
+/** Mode agence : les affaires de la structure (les fonctions de « Le mois » / « L'année »), chacune à sa carte. */
+export function affairesAgence<V extends Vente>(d: { societe: DonneesSociete['societe']; ventes: readonly V[]; retrocessions: DonneesSociete['retrocessions']; statutsNegociateurs?: DonneesSociete['statutsNegociateurs'] },
+  p: PeriodeListe, jour: string): AffairesPeriode<V> {
+  const opts = { retros: d.retrocessions, statutDuLibelle: resolveurDe(d.statutsNegociateurs) };
+  const vendus = p.annees.flatMap((x) => [...ventesPeriode(d.ventes, x.moisVendus.map((mois) => ({ annee: x.annee, mois }))), ...(x.aConfirmer ? aConfirmerDesAnnees(d.ventes, [x.annee]) : [])]) as V[];
+  const compromis = uniques(p.annees.flatMap((x) => x.moisCompromis.flatMap((m) => compromisDuMode(d.ventes, x.annee, m, 'tous', jour)))) as V[];
+  return assembler(vendus, compromis, (v) => resultatDesCartes([v], d.societe, opts).ca);
+}
+const uniques = <V extends { id: number }>(vs: V[]): V[] => vs.filter((v, i) => vs.findIndex((x) => x.id === v.id) === i);

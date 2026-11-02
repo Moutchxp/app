@@ -16,6 +16,7 @@ import { GestesAffaire } from './GestesAffaire';
 import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
 import { AccueilMonEspace } from './AccueilMonEspace';
 import { AnneesMonEspace } from './AnneesMonEspace';
+import { CSS_LISTE_PERIODE } from './ListeAffairesPeriode';
 import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
 import { ecrireAdresse, parametre } from '../transaction/commun';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -269,10 +270,10 @@ export function MesCompteurs() {
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
   const relire = (): void => setLecture((x) => x + 1);
-  const carte = (v: VenteMonEspace, section: 'compromis' | 'vente') => (
+  const carte = (v: VenteMonEspace, section: 'compromis' | 'vente', montant?: { m: { htC: number; ttcC: number }; mot?: string }) => (
     <div key={v.id} className={eclairees.includes(v.id) ? 'mes-eclairee' : undefined} data-eclairee={eclairees.includes(v.id) ? 'oui' : undefined}>
     <CarteAffaire v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={agence?.societe ?? null} retros={agence === null ? undefined : data.retrocessions} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
-      donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle}>
+      donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle} {...(montant === undefined ? {} : { montant })}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
       {/* 🔴 LOT 6 — « Modifier » : ses négociateurs et les administrateurs (le serveur refuse les autres, 403) ; l'historique, en lecture. */}
       <div className="trx-actions trx-barre-actions mes-actions">
@@ -291,7 +292,7 @@ export function MesCompteurs() {
     <ContexteNouvelApporteur.Provider value={facon}>
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
     <div className="mes-compteurs-bloc" data-espace-vu={espace}>
-      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}</style>
+      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}{CSS_LISTE_PERIODE}</style>
       {/* L'accueil : « Voir … » à gauche (administrateurs), « + Nouveau compromis » à droite, sur la même ligne (au téléphone : dessous, à droite). */}
       <div className="mes-ligne-espace" data-ligne-espace>
         {selecteur}
@@ -301,13 +302,16 @@ export function MesCompteurs() {
       {/* Les onglets du Suivi CA (« Compromis | Mois | Année(s) », le même composant), puis, à la suite, ceux de « Mon espace » (inchangés) ; JUSTE SOUS « Voir … ». */}
       {/* Décision 11 (Arno, 02/11/2026) : « Mes compromis en cours » retiré (doublon de « Compromis ») ; « Mes ventes » et « Mes statistiques »
           restent tant que leurs fonctions n'ont pas d'autre accès (la liste des ventes actées ; les tableaux par apporteur / par négociateur). */}
-      <OngletsVues vue={vue} onVue={choisirVue} apres={(['ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
-        <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
-          onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
-      ))} />
+      {/* Une seule ligne : les onglets à gauche, « Montants en HT | TTC » à droite (au téléphone : les onglets défilent, HT | TTC dessous). */}
+      <div className="mes-ligne-onglets" data-ligne-onglets>
+        <OngletsVues vue={vue} onVue={choisirVue} apres={(['ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
+          <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
+            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
+        ))} />
+        <div className="mes-compteurs-tete">
+          <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
+      </div>
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
-      <div className="mes-compteurs-tete">
-        <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       {/* Décision 10 (Arno, 02/11/2026) : la phrase « Le montant est votre CA … » est retirée de « Mon espace » ; celle du mode agence reste. */}
       {nomAgence !== null && <p className="loc-muet mes-compteurs-note" data-note-ca>{`Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>}
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}
@@ -323,8 +327,8 @@ export function MesCompteurs() {
       {parcours && <NouveauCompromis modeAgence={espace !== 'moi'} onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); choisirVue('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
       <div id="mon-espace-listes" role="tabpanel" ref={listes} data-liste-mon-espace={onglet ?? `vue-${vue}`}>
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
-        {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} />
-        : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrir={ouvrir} />
+        {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
+        : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrir={ouvrir} carte={carte} />
         /* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */
         : onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : vue === 'compromis' || onglet === 'compromis' ? (
           <>
@@ -366,12 +370,34 @@ export function MesCompteurs() {
 const CSS_MES_COMPTEURS = `
 .mes-ligne-espace{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
 .mes-ligne-espace .mes-nouveau{width:auto;flex:0 0 auto;margin-left:auto;min-height:44px;padding:0 1.25rem}
+/* Arno (02/11/2026) — « Mois » / « Année(s) » : la rangée (sélecteur compris) a la largeur du graphique ; les mois (les années) se RÉPARTISSENT
+   sur toute la largeur disponible, centrés, tous entiers (au téléphone : défilement, comme le Suivi CA). Les cartes : des colonnes égales
+   qui tiennent toujours dans la largeur du conteneur (et non de l'écran), titres qui passent à la ligne, jamais coupés. */
+@media (min-width:721px){
+  .mes-accueil .trx-rangee-mois .tdb-onglets>.tdb-onglet,.mes-annees .trx-rangee-mois .tdb-onglets>.tdb-onglet{flex:1 1 auto;text-align:center}
+}
+.mes-accueil{container-type:inline-size;container-name:mes-accueil}
+.mes-annees{container-type:inline-size;container-name:mes-annees}
+.mes-accueil .tdb-tuiles,.mes-annees .tdb-tuiles{grid-template-columns:repeat(4,minmax(0,1fr))}
+.mes-accueil .tdb-tuiles.trx-tuiles-gestion,.mes-annees .tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(5,minmax(0,1fr))}
+@container mes-accueil (max-width:900px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@container mes-annees (max-width:900px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@container mes-accueil (max-width:620px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@container mes-annees (max-width:620px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@container mes-accueil (max-width:380px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:minmax(0,1fr)} }
+@container mes-annees (max-width:380px){ .tdb-tuiles,.tdb-tuiles.trx-tuiles-gestion{grid-template-columns:minmax(0,1fr)} }
+.mes-accueil .tdb-tuile>*,.mes-annees .tdb-tuile>*{overflow-wrap:anywhere;white-space:normal}
 /* sous la barre d'onglets : le même écart que la page d'une structure du Suivi CA (.tdb : 18 px) */
 #mon-espace-listes{margin-top:18px}
 .mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
 .mes-espaces .trx-unites{flex-wrap:wrap}
 .mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
+.mes-ligne-onglets{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 .75rem;border-bottom:1px solid var(--color-svv-line)}
+.mes-ligne-onglets .trx-barre{flex:1 1 auto;min-width:0;margin:0}
+.mes-ligne-onglets .trx-vues{overflow-x:auto;scrollbar-width:thin;border-bottom:0}
+.mes-ligne-onglets .mes-compteurs-tete{flex:0 0 auto;margin:0 0 6px}
+@media (max-width:720px){ .mes-ligne-onglets{flex-direction:column;align-items:stretch;gap:6px} .mes-ligne-onglets .mes-compteurs-tete{align-self:flex-end} }
 .mes-compteurs-note{margin:.75rem 0 1rem;font-size:.9rem}
 .mes-ventes-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .75rem}
 .mes-annee{display:flex;align-items:center;gap:.5rem;font-weight:600}

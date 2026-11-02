@@ -7,7 +7,8 @@ import { moisSoulignes } from '../../../../lib/transaction/periodeAnnees';
 import { motSansN1Pour, NOMS_MOIS, type DonneesSociete } from '../../../../lib/transaction/modele';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { totauxDuChoix } from '../../../../lib/mon-espace/statistiques';
-import { sourceMoisPerso, tuilesAgence, tuilesPerso, type ChoixAccueil, type Montant } from '../../../../lib/mon-espace/accueil';
+import { periodeMois, sourceMoisPerso, tuilesAgence, tuilesPerso, type ChoixAccueil, type Montant } from '../../../../lib/mon-espace/accueil';
+import { ListeAffairesPeriode, type RendreCarte } from './ListeAffairesPeriode';
 
 /**
  * ══ 🔴 MON ESPACE (Arno, 02/11/2026) — L'ACCUEIL AU FORMAT « LE MOIS » DU SUIVI CA ══════════════════════════════════════════════════════════════════
@@ -23,8 +24,10 @@ import { sourceMoisPerso, tuilesAgence, tuilesPerso, type ChoixAccueil, type Mon
  * L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px) ; `data-transaction` : sa marque, à
  * laquelle tiennent des règles de son graphique (largeur des onglets de mesure, encadré).
  */
-export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires; ligne: ReturnType<typeof useLigneDesMois>;
-  onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void }) {
+export function AccueilMonEspace({ data, ligne, onOuvrir, carte }: { data: MesAffaires; ligne: ReturnType<typeof useLigneDesMois>;
+  onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void;
+  /** La carte d'une affaire (celle de l'onglet « Compromis ») : la liste sous le graphique. */
+  carte: RendreCarte }) {
   const jour = data.aujourdhui;
   const u = useAffichage();
   const cons = useConsolide();
@@ -91,6 +94,8 @@ export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires;
           moisSeul={decoupage === 'mois'} periodeAnnee={moisPeriodeAnnee} rouges={rouges} finPeriode={decoupage === 'periode' ? t.cumul.fin : null}
           {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />
       </FournisseurConsolide>
+      {/* Les affaires qui font exactement ces cartes et ce graphique (la sélection de la rangée ; un clic sur un mois la change, la liste suit). */}
+      <ListeAffairesPeriode data={data} periode={periodeMois(choix, agence === null, jour)} libelle={`${moisMot} ${annee}`} carte={carte} />
     </div>
   );
 }

@@ -113,13 +113,14 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(container.querySelector('[data-bloc="histogramme-mois"] [data-mesure-bouton="net"]')?.textContent).toBe('CA net');
     expect(euros(texte('[data-valeur-tuile="ca"]'))).toBe(10000);
   });
-  it('la barre d’onglets suit IMMÉDIATEMENT la ligne « Voir … » ; HT | TTC dessous ; décision 10 : plus de phrase « Le montant est votre CA »', async () => {
+  it('la barre d’onglets suit IMMÉDIATEMENT la ligne « Voir … », sur LA MÊME LIGNE que « Montants en HT | TTC » ; décision 10 : plus de phrase', async () => {
     admin = true;
     await ouvrir();
     const ligne = container.querySelector('[data-ligne-espace]')!;
-    expect(ligne.nextElementSibling?.classList.contains('trx-barre')).toBe(true);
-    const apres = ligne.nextElementSibling!.nextElementSibling!;
-    expect(apres.classList.contains('mes-compteurs-tete')).toBe(true);
+    const suivante = ligne.nextElementSibling!;
+    expect(suivante.hasAttribute('data-ligne-onglets')).toBe(true);
+    expect([...suivante.children].map((e) => e.className)).toEqual(['trx-barre', 'mes-compteurs-tete']);
+    expect(suivante.querySelector('[data-afficher="ttc"]')).not.toBeNull();
     expect(container.querySelector('[data-note-ca]')).toBeNull();
     expect(container.textContent).not.toContain('Le montant est votre CA');
     expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(6);

@@ -56,6 +56,12 @@ expressions des écrans du Suivi CA (`accueil.ts`). GRAPHIQUES : ceux de la page
 (`app/lib/transaction/sourceGraphe.ts`) : sans elle le Suivi CA calcule comme avant (captures avant / après identiques au pixel) ; « Mon espace »
 leur passe MES chiffres (le vendu de « Mes statistiques », mes compromis en cours placés par la règle du Suivi CA, ma part : `sourceMoisPerso`,
 `sourceAnneesPerso`). « CA net » d'un espace personnel : décision 13 (mon CA net).
+MISE EN PAGE (02/11/2026) : les onglets et « Montants en HT | TTC » sur UNE ligne (au téléphone : HT | TTC dessous) ; dans « Mois » / « Année(s) »,
+la rangée a la largeur du graphique et ses mois (années) se répartissent sur toute la largeur, entiers ; les cartes : des colonnes égales selon la
+largeur du CONTENEUR (requêtes de conteneur), jamais coupées. LA LISTE SOUS LE GRAPHIQUE (`ListeAffairesPeriode`, `affairesPerso` /
+`affairesAgence`) : les affaires des cartes et du graphique pour la sélection — « Vendus » (total = la carte « CA », nombre = « Ventes », au centime ;
+« Mon espace » : ma part, `maPart` calculée par le serveur sur la vente entière) puis « Compromis » (placés comme le graphique) ; chaque affaire :
+la carte de l'onglet « Compromis » (mêmes gestes) ; tri par date décroissante.
 L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px, mesuré au banc sur les deux pages).
 
 Mise en œuvre du lot 2 (n° de mandat, migration 449) :
