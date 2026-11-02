@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, montantAffiche, useAffichageRetenu } from '../transaction/commun';
+import { AGENCES, caAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
+import { LIBELLE_TRI_LISTE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
+import { personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
+import { negociateursDe } from '../../../../lib/transaction/modele';
 import { CSS } from '../transaction/EcransTransaction';
 import { CarteAffaire, DetailAffaire, useColonnesNegociateurs, type HoteDetail, type VuePersonnelle } from '../transaction/OngletCompromis';
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
@@ -43,12 +47,22 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  *   · LOT 7 : les gestes (« Acte signé », « Annuler le compromis », « Revenir en compromis », `GestesAffaire`, confirmés dans la page) ; le
  *     RAFRAÎCHISSEMENT AUTOMATIQUE (`rafraichir.ts`) : l'empreinte relue toutes les 15 s et au retour sur l'onglet, les listes relues seulement si
  *     elle a changé, jamais pendant une saisie ou une confirmation ; « Léa a mis à jour « X » » et la ligne éclairée quand c'est un autre.
+ *   · LOT 10 : le MODE AGENCE (administrateurs seulement ; le serveur refuse les autres, 403) : « Mon espace / Agence : CRITERIMMO / MACJ / FUSION ».
+ *     Les mêmes onglets, sur toute la structure : les données et les chiffres du Suivi CA (`agence.ts`), la carte complète (commissions des deux
+ *     côtés), tri et filtre par négociateur sur les compromis ; les gestes et le rafraîchissement restent (empreinte de la structure).
  */
+type Espace = 'moi' | Agence;
+/** L'adresse de lecture (et d'empreinte) d'un espace : le mien, ou une structure (`?agence=`). PUR. */
+export const avecEspace = (url: string, e: Espace): string => (e === 'moi' ? url : `${url}?agence=${e}`);
+/** En mode agence, la carte et la fiche montrent tout (les deux côtés, leurs commissions), en lecture : les gestes passent par « Mon espace ». */
+const TOUT_VOIR: VuePersonnelle = { mesCotes: ['entree', 'sortie', 'unique'], commissionsRetirees: false };
 export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
 type Onglet = 'compromis' | 'ventes' | 'statistiques' | 'apporteurs';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
+const MOTS_ONGLETS: Record<Onglet, string> = { compromis: 'Mes compromis en cours', ventes: 'Mes ventes', statistiques: 'Mes statistiques', apporteurs: 'Mes apporteurs' };
+const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { compromis: 'Compromis en cours', ventes: 'Ventes', statistiques: 'Statistiques', apporteurs: 'Apporteurs' };
 const rien = (): void => {};
 
 /** Tri : compromis par date de signature (plus récent en haut, sans date en bas) ; ventes par date d'acte (à défaut, son mois). PUR. */
@@ -64,6 +78,13 @@ export function MesCompteurs() {
   const [lu, setLu] = useState<Lu>({ etat: 'chargement' });
   const [unite, setUnite] = useAffichageRetenu();
   const [onglet, setOnglet] = useState<Onglet>('compromis');
+  // 🔴 LOT 10 — l'espace vu (le mien, ou une structure : administrateurs) ; tri et filtre « Négociateur » des compromis de la structure.
+  const [espace, setEspace] = useState<Espace>('moi');
+  const espaceVu = useRef<Espace>('moi');
+  const [tri, setTri] = useState<TriListe>(TRI_LISTE_DEFAUT);
+  const [filtreNego, setFiltreNego] = useState('');
+  // retenu d'une lecture à l'autre : le sélecteur reste pendant le chargement d'un autre espace
+  const [estAdmin, setEstAdmin] = useState(false);
   const [annee, setAnnee] = useState<number | null>(null);
   // 🔴 LOT 5 — le parcours de création ouvert ; l'affaire qui vient d'être créée (en haut, dépliée) ; le compteur de relecture.
   const [parcours, setParcours] = useState(false);
@@ -103,7 +124,7 @@ export function MesCompteurs() {
     let vivant = true;
     void (async () => {
       try {
-        const r = await fetch(URL_MES_AFFAIRES, { cache: 'no-store' });
+        const r = await fetch(avecEspace(URL_MES_AFFAIRES, espace), { cache: 'no-store' });
         const j = (await r.json()) as { etat?: string; data?: MesAffaires };
         if (!vivant) return;
         if (!(r.ok && j.etat === 'ok' && j.data !== undefined)) { if (!relectureAuto.current) setLu({ etat: 'erreur' }); relectureAuto.current = false; return; }
@@ -118,17 +139,18 @@ export function MesCompteurs() {
         // L'empreinte de RÉFÉRENCE = celle des affaires réellement chargées (la même fonction que le serveur) : un changement survenu entre ce
         // chargement et le battement suivant n'est jamais perdu.
         empreinteVue.current = empreinteDe(nouvelles);
+        setEstAdmin(j.data.titulaire.administrateur);
         setLu({ etat: 'ok', data: j.data });
       } catch { if (vivant && !relectureAuto.current) setLu({ etat: 'erreur' }); relectureAuto.current = false; }
     })();
     return () => { vivant = false; };
-  }, [lecture]);
+  }, [lecture, espace]);
   useEffect(() => {
     let vivant = true;
     const battre = async (): Promise<void> => {
       if (!peutBattre({ visible: document.visibilityState === 'visible', chargementEnCours: false, gesteEnCours: enPause(), releveEnCours: false })) return;
       try {
-        const r = await fetch(URL_EMPREINTE, { cache: 'no-store' });
+        const r = await fetch(avecEspace(URL_EMPREINTE, espaceVu.current), { cache: 'no-store' });
         if (!vivant) return;
         // session expirée : « reconnectez-vous » ; toute autre panne : nouvel essai silencieux au prochain battement (aucun faux message)
         if (r.status === 401) { setReconnexion(true); return; }
@@ -157,17 +179,34 @@ export function MesCompteurs() {
     utiliser: async (id) => { await posterApporteur({ action: 'utiliser', apporteurId: id }); },
     collegueDefaut: titulaireId,
   }), [titulaireId]);
+  const agence = data?.agence ?? null;
+  const changerEspace = (e: Espace): void => {
+    if (e === espace) return;
+    // une autre liste : rien à comparer (aucun « X a mis à jour »), l'empreinte de référence sera celle du nouveau chargement
+    espaceVu.current = e; precedentes.current = null; empreinteVue.current = null; relectureAuto.current = false;
+    setEspace(e); setLu({ etat: 'chargement' }); setAnnee(null); setFiltreNego(''); setMiseAJour(null); setHistorique(null); setEdition(null);
+  };
   const hote = useMemo((): HoteDetail | null => (data === null ? null : {
     d: { lotD: data.schema?.lotD ?? true, personneType: data.schema?.personneType ?? true, uniteCommission: data.schema?.uniteCommission ?? true,
       prixVente: data.schema?.prixVente ?? true, mandat: data.schema?.mandat ?? false, negociateurs: [], apporteurs: [], personnes: [], disponible: data.disponible,
       aujourdhui: data.aujourdhui, annulation: false },
-    vue: null, societe: 'tous', statutDuLibelle: resolveurDe(data.statutsNegociateurs), relire: rien, signalerPorteuse: rien,
+    vue: data.agence?.societe ?? null, societe: data.agence?.cle ?? 'tous', statutDuLibelle: resolveurDe(data.statutsNegociateurs), relire: rien, signalerPorteuse: rien,
     enregistrerApporteur: async () => null, ouvrirEdition: rien, ouvrirPersonnes: rien, acte: null, setActe: rien, signer: async () => {},
     historique: null, setHistorique: rien, ouvrirAnnulation: rien,
   }), [data]);
 
-  if (lu.etat === 'chargement') return <p className="loc-muet" role="status" data-mon-espace-chargement>Chargement de vos affaires…</p>;
-  if (lu.etat === 'erreur' || data === null || hote === null) return <p className="loc-alerte loc-alerte--orange" role="alert" data-mon-espace-erreur>Vos affaires n’ont pas pu être lues. Rechargez la page.</p>;
+  // 🔴 LOT 10 — le sélecteur, pour un administrateur seulement (vu une fois les affaires lues : le serveur dit qui est administrateur).
+  const selecteur = estAdmin && (
+    <div className="mes-espaces" role="group" aria-label="Espace affiché" data-selecteur-espace>
+      <span className="loc-muet">Voir</span>
+      <div className="trx-unites">
+        {(['moi', ...AGENCES] as const).map((e) => <button key={e} type="button" className="trx-unite" aria-pressed={espace === e} onClick={() => changerEspace(e)}
+          data-espace={e}>{e === 'moi' ? 'Mon espace' : e === 'criterimmo' ? `Agence : ${LIBELLE_AGENCE[e]}` : LIBELLE_AGENCE[e]}</button>)}
+      </div>
+    </div>
+  );
+  if (lu.etat === 'chargement') return <>{selecteur}<p className="loc-muet" role="status" data-mon-espace-chargement>{espace === 'moi' ? 'Chargement de vos affaires…' : `Chargement de ${LIBELLE_AGENCE[espace]}…`}</p></>;
+  if (lu.etat === 'erreur' || data === null || hote === null) return <>{selecteur}<p className="loc-alerte loc-alerte--orange" role="alert" data-mon-espace-erreur>{espace === 'moi' ? 'Vos affaires n’ont pas pu être lues.' : `Les affaires de ${LIBELLE_AGENCE[espace]} n’ont pas pu être lues.`} Rechargez la page.</p></>;
   const { compteurs, disponible } = data;
   const total = (c: { ca: { htC: number; ttcC: number } }): string => montantAffiche(unite, c.ca.htC / 100, c.ca.ttcC / 100);
   const nombre = (n: number, un: string, plusieurs: string): string => `${n} ${n > 1 ? plusieurs : un}`;
@@ -177,17 +216,26 @@ export function MesCompteurs() {
   const anneeVue = annee ?? compteurs.actees.annee;
   const choixAnnees = [...new Set([compteurs.actees.annee, ...annees.map((a) => a.annee)])].sort((a, b) => b - a);
   const anneeChoisie = annees.find((a) => a.annee === anneeVue) ?? { annee: anneeVue, nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } };
-  const tries = trierMesCompromis(des(compteurs.compromis.ids));
+  // 🔴 LOT 10 — mode agence : le tri des listes du Suivi CA (`trierListe`, CA = la somme des cartes) et le filtre « Négociateur » (une personne).
+  const dAgence = agence === null ? null : { societe: agence.societe, ventes: data.ventes, retrocessions: data.retrocessions ?? [], statutsNegociateurs: data.statutsNegociateurs };
+  const nommer = (l: string): string => data.nomsNegociateurs?.[l] ?? l;
+  const tousCompromis = des(compteurs.compromis.ids);
+  const personnes = agence === null ? [] : personnesNegociateurs([...new Set(tousCompromis.flatMap(negociateursDe))], nommer);
+  const libellesFiltre = personnes.find((p) => p.nom === filtreNego)?.libelles ?? null;
+  const filtres = libellesFiltre === null ? tousCompromis : tousCompromis.filter((v) => negociateursDe(v).some((l) => libellesFiltre.includes(l)));
+  const tries = dAgence === null ? trierMesCompromis(filtres)
+    : trierListe(filtres, tri, (v) => { const c = caAgence(dAgence, [v]); return unite === 'ht' ? c.htC : c.ttcC; }, (v) => v.libelle);
   // 🔴 LOT 5 — l'affaire qui vient d'être créée : en haut, quelle que soit sa date de compromis.
   const compromis = nouvelle === null ? tries : [...tries.filter((v) => v.id === nouvelle), ...tries.filter((v) => v.id !== nouvelle)];
   const ventes = trierMesVentes(des(anneeChoisie.ids));
   const ouvrir = (o: Onglet): void => { setOnglet(o); if (o === 'ventes') setAnnee(compteurs.actees.annee); };
-  const personnel = (v: VenteMonEspace): VuePersonnelle => ({ mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
+  const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
+  const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
   const relire = (): void => setLecture((x) => x + 1);
   const carte = (v: VenteMonEspace, section: 'compromis' | 'vente') => (
     <div key={v.id} className={eclairees.includes(v.id) ? 'mes-eclairee' : undefined} data-eclairee={eclairees.includes(v.id) ? 'oui' : undefined}>
-    <CarteAffaire v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={null} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
+    <CarteAffaire v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={agence?.societe ?? null} retros={agence === null ? undefined : data.retrocessions} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
       donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
       {/* 🔴 LOT 6 — « Modifier » : ses négociateurs et les administrateurs (le serveur refuse les autres, 403) ; l'historique, en lecture. */}
@@ -205,9 +253,10 @@ export function MesCompteurs() {
   );
   return (
     <ContexteNouvelApporteur.Provider value={facon}>
-    <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value>
-    <div className="mes-compteurs-bloc">
+    <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
+    <div className="mes-compteurs-bloc" data-espace-vu={espace}>
       <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}</style>
+      {selecteur}
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
       <div className="mes-compteurs-tete">
         {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
@@ -225,33 +274,47 @@ export function MesCompteurs() {
         envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
       {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
       <div className="mes-compteurs">
-        <button type="button" className="svv-card mes-compteur" aria-label={`Mes compromis en cours : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}
+        <button type="button" className="svv-card mes-compteur" aria-label={`${nomAgence === null ? 'Mes compromis en cours' : `Compromis en cours — ${nomAgence}`} : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}
           aria-controls="mon-espace-listes" aria-pressed={onglet === 'compromis'} onClick={() => ouvrir('compromis')} data-compteur="compromis">
-          <span className="mes-compteur-titre">Mes compromis en cours</span>
+          <span className="mes-compteur-titre">{nomAgence === null ? 'Mes compromis en cours' : `Compromis en cours — ${nomAgence}`}</span>
           <span className="mes-compteur-chiffres"><span data-compteur-nb>{nombre(compteurs.compromis.nb, 'compromis', 'compromis')}</span>
             <span aria-hidden="true"> — </span><strong data-compteur-total>{total(compteurs.compromis)}</strong></span>
         </button>
-        <button type="button" className="svv-card mes-compteur" aria-label={`Mes ventes actées en ${compteurs.actees.annee} : ${nombre(compteurs.actees.nb, 'vente', 'ventes')}, ${total(compteurs.actees)}`}
+        <button type="button" className="svv-card mes-compteur" aria-label={`${nomAgence === null ? 'Mes ventes actées' : `Ventes actées — ${nomAgence}`} en ${compteurs.actees.annee} : ${nombre(compteurs.actees.nb, 'vente', 'ventes')}, ${total(compteurs.actees)}`}
           aria-controls="mon-espace-listes" aria-pressed={onglet === 'ventes'} onClick={() => ouvrir('ventes')} data-compteur="actees">
-          <span className="mes-compteur-titre">Mes ventes actées cette année ({compteurs.actees.annee})</span>
+          <span className="mes-compteur-titre">{nomAgence === null ? `Mes ventes actées cette année (${compteurs.actees.annee})` : `Ventes actées en ${compteurs.actees.annee} — ${nomAgence}`}</span>
           <span className="mes-compteur-chiffres"><span data-compteur-nb>{nombre(compteurs.actees.nb, 'vente', 'ventes')}</span>
             <span aria-hidden="true"> — </span><strong data-compteur-total>{total(compteurs.actees)}</strong></span>
         </button>
       </div>
-      <p className="loc-muet mes-compteurs-note">Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.</p>
+      <p className="loc-muet mes-compteurs-note" data-note-ca>{nomAgence === null ? 'Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.'
+        : `Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>
 
-      <div className="mes-onglets" role="tablist" aria-label="Mes affaires">
+      <div className="mes-onglets" role="tablist" aria-label={nomAgence === null ? 'Mes affaires' : `Les affaires de ${nomAgence}`}>
         {(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="mes-onglet"
-            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{o === 'compromis' ? 'Mes compromis en cours' : o === 'ventes' ? 'Mes ventes' : o === 'statistiques' ? 'Mes statistiques' : 'Mes apporteurs'}</button>
+            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
         ))}
       </div>
       <div id="mon-espace-listes" role="tabpanel" aria-labelledby={`mon-espace-onglet-${onglet}`} ref={listes} data-liste-mon-espace={onglet}>
         {/* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */}
         {onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : onglet === 'compromis' ? (
-          compromis.length === 0
-            ? <p className="loc-muet mes-vide" data-liste-vide="compromis">Aucun compromis en cours à votre nom.</p>
-            : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>
+          <>
+          {agence !== null && tousCompromis.length > 0 && (
+            <div className="mes-ventes-tete" data-outils-agence>
+              <label className="mes-annee">Négociateur
+                <select value={filtreNego} onChange={(e) => setFiltreNego(e.target.value)} data-filtre-negociateur>
+                  <option value="">Tous</option>
+                  {personnes.map((p) => <option key={p.nom} value={p.nom}>{p.nom}</option>)}</select></label>
+              <label className="mes-annee">Trier
+                <select value={tri} onChange={(e) => setTri(e.target.value as TriListe)} data-tri-compromis>
+                  {TRIS_LISTE.map((t) => <option key={t} value={t}>{LIBELLE_TRI_LISTE[t]}</option>)}</select></label>
+            </div>
+          )}
+          {compromis.length === 0
+            ? <p className="loc-muet mes-vide" data-liste-vide="compromis">{nomAgence === null ? 'Aucun compromis en cours à votre nom.' : libellesFiltre === null ? `Aucun compromis en cours pour ${nomAgence}.` : 'Aucun compromis en cours pour ce négociateur.'}</p>
+            : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>}
+          </>
         ) : <>
           <div className="mes-ventes-tete">
             <label className="mes-annee">Année
@@ -261,7 +324,7 @@ export function MesCompteurs() {
             <p className="mes-ventes-total" data-total-mes-ventes>{nombre(anneeChoisie.nb, 'vente', 'ventes')} en {anneeVue} — <strong>{total(anneeChoisie)}</strong></p>
           </div>
           {ventes.length === 0
-            ? <p className="loc-muet mes-vide" data-liste-vide="ventes">Aucune vente actée à votre nom en {anneeVue}.</p>
+            ? <p className="loc-muet mes-vide" data-liste-vide="ventes">{nomAgence === null ? `Aucune vente actée à votre nom en ${anneeVue}.` : `Aucune vente actée pour ${nomAgence} en ${anneeVue}.`}</p>
             : <div className="trx-cartes mes-cartes">{ventes.map((v) => carte(v, 'vente'))}</div>}
         </>}
       </div>
@@ -273,6 +336,9 @@ export function MesCompteurs() {
 
 // Les jetons de la charte seulement (Clair et Sombre) ; cibles de 44 px au moins ; une colonne sur téléphone.
 const CSS_MES_COMPTEURS = `
+.mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
+.mes-espaces .trx-unites{flex-wrap:wrap}
+.mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
 .mes-compteurs-tete .mes-nouveau{margin-right:auto}
 .mes-compteurs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.75rem}

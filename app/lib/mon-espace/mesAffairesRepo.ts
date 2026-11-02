@@ -29,6 +29,22 @@ export async function moiDansLesVentes(compteId: number, ventes: readonly Vente[
   return { compteId, libelles };
 }
 
+/** 🔴 LOT 4 — ce que la fiche dépliée lit d'ordinaire dans les références de la Transaction (les migrations appliquées), rien de plus. LECTURE SEULE. */
+export async function schemaMonEspace(): Promise<NonNullable<MesAffaires['schema']>> {
+  return { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), uniteCommission: await uniteCommissionDisponible(),
+    prixVente: await prixVenteDisponible(), mandat: await mandatDisponible() };
+}
+
+/** 🔴 LOT 7 — l'auteur de la dernière écriture de chaque affaire (l'entrée du journal qui fait sa version), pour « Léa a mis à jour … ». LECTURE SEULE. */
+export async function poserAuteurs(ventes: VenteMonEspace[]): Promise<void> {
+  const versions = [...new Set(ventes.map((v) => v.version ?? 0).filter((x) => x > 0))];
+  const { rows: auteurs } = versions.length === 0 ? { rows: [] as Record<string, unknown>[] } : await query<Record<string, unknown>>(
+    `SELECT j.id, j.auteur_id, j.auteur_libelle, u.prenom FROM transaction_journal j LEFT JOIN admin_utilisateur u ON u.id = j.auteur_id WHERE j.id = ANY($1::bigint[])`, [versions]);
+  const parVersion = new Map(auteurs.map((a) => [Number(a.id), { auteurId: a.auteur_id == null ? null : Number(a.auteur_id), prenom: a.prenom == null ? null : String(a.prenom),
+    libelle: String(a.auteur_libelle) }]));
+  for (const v of ventes) v.derniereModification = parVersion.get(v.version ?? 0) ?? null;
+}
+
 /** « Mes affaires » du compte `compteId` (le droit est déjà vérifié par la route). LECTURE SEULE. */
 export async function lireMesAffaires(compteId: number, aujourdhui: string): Promise<MesAffaires> {
   const { rows } = await query<{ role: string; prenom: string | null }>('SELECT role, prenom FROM admin_utilisateur WHERE id = $1', [compteId]);
@@ -45,16 +61,8 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
       const reduite = sansCommissionsDesAutres(v, moi);
       return { ...reduite, mesCotes: mesCotes(v, moi), commissionsRetirees: reduite.lignes.length !== v.lignes.length };
     });
-  // 🔴 LOT 4 — ce que la fiche dépliée lit d'ordinaire dans les références de la Transaction, calculé sur la SEULE réponse (rien de plus).
-  const schema = { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), uniteCommission: await uniteCommissionDisponible(),
-    prixVente: await prixVenteDisponible(), mandat: await mandatDisponible() };
-  // 🔴 LOT 7 — l'auteur de la dernière écriture de chaque affaire (l'entrée du journal qui fait sa version), pour « Léa a mis à jour … ».
-  const versions = [...new Set(ventes.map((v) => v.version ?? 0).filter((x) => x > 0))];
-  const { rows: auteurs } = versions.length === 0 ? { rows: [] as Record<string, unknown>[] } : await query<Record<string, unknown>>(
-    `SELECT j.id, j.auteur_id, j.auteur_libelle, u.prenom FROM transaction_journal j LEFT JOIN admin_utilisateur u ON u.id = j.auteur_id WHERE j.id = ANY($1::bigint[])`, [versions]);
-  const parVersion = new Map(auteurs.map((a) => [Number(a.id), { auteurId: a.auteur_id == null ? null : Number(a.auteur_id), prenom: a.prenom == null ? null : String(a.prenom),
-    libelle: String(a.auteur_libelle) }]));
-  for (const v of ventes) v.derniereModification = parVersion.get(v.version ?? 0) ?? null;
+  const schema = await schemaMonEspace();
+  await poserAuteurs(ventes);
   const nomsNegociateurs = await nomsAffichesNegociateurs([...new Set(ventes.flatMap(libellesDeVente))]).catch(() => ({}));
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
   // 🔴 LOT 8 — mes statistiques (sur les ventes ENTIÈRES : aucun montant faussé par une commission retirée) et les rétrocessions liées à mes ventes

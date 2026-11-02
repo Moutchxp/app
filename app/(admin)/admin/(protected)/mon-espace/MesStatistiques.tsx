@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { COURT, ecartEur, montantAffiche, MOT_UNITE, signePct, useAffichage } from '../transaction/commun';
+import { COURT, ecartEur, montantAffiche, MOT_UNITE, signePct, useAffichage, useNommer } from '../transaction/commun';
 import { attributMoisRouges, StyleMoisRouges } from '../transaction/EcransTransaction';
 import { CourbeCumul, EnteteGraphe, Histogramme, type InfoBarre } from '../location/TableauBordSuivi';
 import { cumuler } from '../../../../lib/transaction/cumul';
 import { NOMS_MOIS, type Vente } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
+import { apporteursAgence, LIBELLE_AGENCE, negociateursAgence } from '../../../../lib/mon-espace/agence';
 import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, type ModeStats } from '../../../../lib/mon-espace/statistiques';
 
 /**
@@ -19,12 +20,20 @@ import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, 
  *     règle `moisSoulignes`) ; le cumul : la fonction partagée (`cumuler`) ;
  *   · par apporteur : `parApporteur` du Suivi CA, sur les rétrocessions de la période liées à mes ventes.
  * La bascule « HT | TTC » est celle de l'espace (même mémoire que le Suivi CA).
+ * 🔴 LOT 10 — en MODE AGENCE (`data.agence`), le même écran sur toute la structure : les chiffres du serveur sont ceux du Suivi CA (`agence.ts`),
+ * le prévisionnel = les compromis en cours de la structure, et deux blocs suivent le choix : par négociateur (`espaceNegociateurs`) et par
+ * apporteur (`parApporteur`, comme « L'année »).
  */
 const MODES: readonly { cle: ModeStats; mot: string }[] = [{ cle: 'mois', mot: 'Mois' }, { cle: 'periode', mot: 'Période' }, { cle: 'annee', mot: 'Année' }, { cle: 'tout', mot: 'Tout' }];
 
 export function MesStatistiques({ data }: { data: MesAffaires }) {
   const u = useAffichage();
+  const nommer = useNommer();
   const jour = data.aujourdhui;
+  const agence = data.agence ?? null;
+  const dAgence = agence === null ? null : { societe: agence.societe, ventes: data.ventes as Vente[], retrocessions: data.retrocessions ?? [], statutsNegociateurs: data.statutsNegociateurs };
+  const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
+  const motCa = nomAgence === null ? 'Mon CA' : `CA ${nomAgence}`;
   const anCourant = Number(jour.slice(0, 4));
   const moisCourant = Number(jour.slice(5, 7));
   const s = data.statistiques ?? { annees: [] };
@@ -41,7 +50,8 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
   const prev = data.compteurs.compromis.ca;
   const acteAnnee = totauxDuChoix(s, { ...choix, mode: 'annee', annee: anCourant }, jour).n.ca;
   const projection = { htC: acteAnnee.htC + prev.htC, ttcC: acteAnnee.ttcC + prev.ttcC };
-  const apporteurs = mesApporteurs(data.retrocessions ?? [], data.ventes as Vente[], choix, jour);
+  const apporteurs = dAgence === null ? mesApporteurs(data.retrocessions ?? [], data.ventes as Vente[], choix, jour) : apporteursAgence(dAgence, choix, jour);
+  const negociateurs = dAgence === null ? null : negociateursAgence(dAgence, choix, jour);
   const annees = s.annees.map((x) => x.annee).sort((a, b) => b - a);
   const an = s.annees.find((x) => x.annee === choix.annee);
   const an1 = s.annees.find((x) => x.annee === choix.annee - 1);
@@ -57,11 +67,11 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
     const autreC = an === undefined || nombre ? null : (cumule ? cumuler(an.ca.map(autre)) : an.ca.map(autre))[k - 1];
     const autreC1 = an1 === undefined || nombre ? null : (cumule ? cumuler(an1.ca.map(autre)) : an1.ca.map(autre))[k - 1];
     return { titre: cumule ? `Cumul ${choix.annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${choix.annee}`,
-      ...(nombre ? { compte: 'Ventes actées' } : { motCa: `Mon CA ${MOT_UNITE[u]}` }), motNb: 'Ventes', sansN1: `${choix.annee - 1} : aucune vente`,
+      ...(nombre ? { compte: 'Ventes actées' } : { motCa: `${motCa} ${MOT_UNITE[u]}` }), motNb: 'Ventes', sansN1: `${choix.annee - 1} : aucune vente`,
       courant: { libelle: String(choix.annee), ca: k > dernier ? 0 : c[k - 1], nb: nombre || an === undefined ? null : an.nb[k - 1], ...(autreC === null ? {} : { caAutre: autreC }) },
       precedent: c1 === null ? null : { libelle: String(choix.annee - 1), ca: c1[k - 1], nb: nombre || an1 === undefined ? null : an1.nb[k - 1], ...(autreC1 === null ? {} : { caAutre: autreC1 }) } };
   };
-  const mot = nombre ? 'ventes actées' : `mon CA ${MOT_UNITE[u]}`;
+  const mot = nombre ? 'ventes actées' : `${nomAgence === null ? 'mon CA' : `CA ${nomAgence}`} ${MOT_UNITE[u]}`;
   const ecart = t.n1 === null ? null : { eur: v(t.n.ca) - v(t.n1.ca), pct: variation(t.n.ca.htC, t.n1.ca.htC) };
 
   return (
@@ -90,8 +100,8 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
       </div>
 
       <div className="mes-compteurs mes-stats-cartes">
-        <section className="svv-card mes-carte" aria-label={`Mon CA, ${libelleChoix}`} data-carte-stats="ca">
-          <h3>Mon CA — {libelleChoix}</h3>
+        <section className="svv-card mes-carte" aria-label={`${motCa}, ${libelleChoix}`} data-carte-stats="ca">
+          <h3>{motCa} — {libelleChoix}</h3>
           <p className="mes-carte-valeur" data-valeur-ca>{txt(t.n.ca)}</p>
           {t.n1 === null ? <p className="loc-muet">Sans comparaison sur toutes les années.</p>
             : <p className="loc-muet" data-n1-ca>{choix.annee - 1}, même période : {txt(t.n1.ca)} — <span data-ecart-ca>{ecartEur(ecart!.eur)} ({signePct(ecart!.pct)})</span></p>}
@@ -101,8 +111,8 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
           <p className="mes-carte-valeur" data-valeur-nb>{t.n.nb}</p>
           {t.n1 !== null && <p className="loc-muet" data-n1-nb>{choix.annee - 1}, même période : {t.n1.nb}</p>}
         </section>
-        <section className="svv-card mes-carte" aria-label="Mon prévisionnel" data-carte-stats="previsionnel">
-          <h3>Prévisionnel (mes compromis en cours)</h3>
+        <section className="svv-card mes-carte" aria-label={nomAgence === null ? 'Mon prévisionnel' : `Prévisionnel ${nomAgence}`} data-carte-stats="previsionnel">
+          <h3>{nomAgence === null ? 'Prévisionnel (mes compromis en cours)' : `Prévisionnel (compromis en cours — ${nomAgence})`}</h3>
           <p className="mes-carte-valeur" data-valeur-previsionnel>{txt(prev)}</p>
           <p className="loc-muet" data-projection>Projection {anCourant} : {txt(acteAnnee)} acté + {txt(prev)} prévisionnel = <strong>{txt(projection)}</strong></p>
         </section>
@@ -112,7 +122,7 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
         <section className="tdb-section" aria-labelledby="mes-histo" data-bloc="mes-stats-mois" {...attributMoisRouges(rouges)}>
           <StyleMoisRouges mois={rouges} />
           <EnteteGraphe<'ca' | 'nombre'> id="mes-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-            mesures={[{ cle: 'ca', mot: 'Mon CA' }, { cle: 'nombre', mot: 'Ventes actées' }]}
+            mesures={[{ cle: 'ca', mot: motCa }, { cle: 'nombre', mot: 'Ventes actées' }]}
             titre={<>Mois par mois — {choix.annee} <small className="loc-muet">({mot}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
           {cumul
             ? <CourbeCumul courant={cumuler(valeurs).slice(0, dernier)} n1={valeursN1 === null ? null : cumuler(valeursN1)} annee={choix.annee} selection={choix.mode === 'mois' ? choix.mois : dernier || 12}
@@ -125,9 +135,25 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
         </section>
       )}
 
+      {negociateurs !== null && (
+        <section className="tdb-section" aria-labelledby="agence-negociateurs" data-bloc="agence-negociateurs">
+          <h3 id="agence-negociateurs">Par négociateur — {libelleChoix}</h3>
+          {negociateurs.length === 0 ? <p className="loc-muet" data-negociateurs-vide>Aucune vente actée sur la période.</p> : (
+            <table className="tdb-table mes-table-apporteurs">
+              <thead><tr><th scope="col">Négociateur</th><th scope="col">Ventes</th><th scope="col">CA généré</th><th scope="col">CA net</th></tr></thead>
+              <tbody>{negociateurs.map((l) => (
+                <tr key={l.negociateur} data-negociateur-agence={l.negociateur}>
+                  <th scope="row">{nommer(l.negociateur)}</th><td data-mot="Ventes">{l.ids.length}</td>
+                  <td data-mot="CA généré">{txt(l.ca)}</td><td data-mot="CA net">{txt(l.net)}</td>
+                </tr>))}</tbody>
+            </table>
+          )}
+        </section>
+      )}
+
       <section className="tdb-section" aria-labelledby="mes-apporteurs" data-bloc="mes-apporteurs">
         <h3 id="mes-apporteurs">Par apporteur d’affaires — {libelleChoix}</h3>
-        {apporteurs.length === 0 ? <p className="loc-muet" data-apporteurs-vide>Aucune rétrocession d’apporteur sur vos ventes de la période.</p> : (
+        {apporteurs.length === 0 ? <p className="loc-muet" data-apporteurs-vide>{nomAgence === null ? 'Aucune rétrocession d’apporteur sur vos ventes de la période.' : 'Aucune rétrocession d’apporteur sur la période.'}</p> : (
           <table className="tdb-table mes-table-apporteurs">
             <thead><tr><th scope="col">Apporteur</th><th scope="col">Ventes</th><th scope="col">CA des ventes apportées</th><th scope="col">Rétrocessions versées</th></tr></thead>
             <tbody>{apporteurs.map((a) => (

@@ -21,8 +21,10 @@ describe('🔴 LOT CG — nomAffiche', () => {
   });
 
   it('la route envoie la table aux deux vues (société, compromis) ; la commande pose le prénom et le nom (essai par défaut, journalisé) ; migration 445', () => {
-    const route = readFileSync('app/(admin)/api/admin/transaction/route.ts', 'utf8');
+    // 🔴 MON ESPACE, LOT 10 — la vue « société » lit par `lireDonneesSociete` (déplacée telle quelle) : un appel dans la route, un dans ce module.
+    const route = readFileSync('app/(admin)/api/admin/transaction/route.ts', 'utf8') + readFileSync('app/lib/transaction/donneesSociete.ts', 'utf8');
     expect(route.match(/nomsAffichesNegociateurs\(libellesNegociateurs\(/g)?.length).toBe(2);
+    expect(route).toContain('await lireDonneesSociete(');
     const cli = readFileSync('app/scripts/transaction-statut-negociateur.ts', 'utf8');
     expect(cli).toContain("if (prenom !== null || nomFamille !== null) return nommer(argv, libelles, prenom, nomFamille, ecrire);");
     const repo = readFileSync('app/lib/transaction/statutSansCompte.ts', 'utf8');

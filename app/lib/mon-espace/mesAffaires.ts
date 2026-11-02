@@ -107,6 +107,9 @@ export interface MesAffaires {
   statistiques?: import('./statistiques').StatsMonEspace;
   retrocessions?: import('../transaction/modele').Retrocession[];
   statutsNegociateurs?: Record<string, 'associe' | 'salarie' | 'independant' | 'observateur' | null>;
+  /** 🔴 LOT 10 — le MODE AGENCE (administrateurs) : la structure lue ; les compteurs, les statistiques et les listes sont alors ceux de la structure
+   *  entière (les fonctions du Suivi CA, `agence.ts`), et `retrocessions` toutes celles de la structure. Absent : l'espace personnel. */
+  agence?: { cle: import('./agence').Agence; societe: import('../transaction/modele').Societe | null };
 }
 
 /** 🔴 LOT 7 — l'empreinte de « mes affaires » : les affaires visibles et leur version ; elle change dès qu'une écriture les touche. PUR. */

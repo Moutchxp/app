@@ -7,7 +7,7 @@ import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireSalairesLocationSaisie, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
+  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, mandatDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
@@ -16,6 +16,7 @@ import { lireCaLocationHtTtc, lireLocationCa } from '../../../../lib/transaction
 import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
+import { lireDonneesSociete } from '../../../../lib/transaction/donneesSociete';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -68,14 +69,8 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 LOT DM — « tous » : la FUSION des deux sociétés (toutes les ventes, chacune une fois : `lireVentes(null)`, comme le CA global)
       const brut = url.searchParams.get('societe');
       if (brut !== 'tous' && !estSociete(brut)) return json({ etat: 'refus', motif: 'Société inconnue.' }, 400);
-      const societe = brut === 'tous' ? null : brut;
-      if (!disponible) return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes: [], retrocessions: [], aRattacher: [], doubles: [] } });
-      const [ventes, retrocessions, aRattacher, doubles] = await Promise.all([lireVentes(societe), lireRetrocessions(societe), lireARattacher(societe), lireNotesDoubles(societe)]);
-      // LOT Q — le statut du compte rapproché de chaque négociateur payé (paye importée) : le « Reste à l'agence » ne déduit que les indépendants.
-      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
-      // 🔴 LOT CG — le nom affiché (« Prénom NOM ») de chaque libellé de négociateur.
-      const nomsNegociateurs = await nomsAffichesNegociateurs(libellesNegociateurs([...ventes, ...doubles], retrocessions)).catch(() => ({}));
-      return json({ etat: 'ok', data: { disponible, societe, aujourdhui, ventes, retrocessions, aRattacher, doubles, statutsNegociateurs, nomsNegociateurs } });
+      // 🔴 MON ESPACE, LOT 10 — la lecture est `lireDonneesSociete` (la même pour le mode agence de « Mon espace »), déplacée telle quelle.
+      return json({ etat: 'ok', data: await lireDonneesSociete(brut === 'tous' ? null : brut, aujourdhui) });
     }
     if (vue === 'global') {
       // 🔴 LOT CG1 — la location en HT et en TTC (centimes, la règle de la page « Suivi CA › Location »)

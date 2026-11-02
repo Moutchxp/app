@@ -26,6 +26,8 @@ unicité du mandat par structure (n° + société).
 4. **Aucun doublon** : ni de vente (même mandat), ni d'apporteur.
 5. **Acte signé, retour en compromis, annulation** : autorisés aux collaborateurs présents sur au moins un côté (vendeur ou acquéreur) de la
    vente, et aux administrateurs. Tous les autres : refus côté serveur (403), bouton absent.
+6. **Prévisionnel de « Mon espace » = MA PART des compromis en cours** (pas la commission entière) : validé par Arno (02/11/2026). Ne plus reposer.
+7. **Co-négociateur : UN SEUL négociateur par côté.** « Rejoindre » ne propose que le côté libre ; pas de lot dédié (Arno, 02/11/2026). Ne plus reposer.
 
 Mise en œuvre du lot 2 (n° de mandat, migration 449) :
 - la comparaison passe par UNE fonction, `normaliserMandat` (`app/lib/transaction/mandat.ts`) : sans accents, majuscules, lettres et
@@ -113,13 +115,62 @@ Mise en œuvre du lot 9 (« Mes apporteurs » ; migration 450, livrée NON appli
 - 450 (`mon_espace_apporteur`) : le lien « ce collaborateur utilise cet apporteur », la seule chose qu'aucune table ne portait ; sans elle,
   « L'utiliser » choisit l'apporteur pour la vente en cours, et l'onglet le dit.
 
-## ❓ Question ouverte à Arno (lot 6)
+## ✅ Question du lot 6, tranchée (décision 7)
 
-- **Un co-négociateur sur un côté déjà tenu.** La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les
+- **Un co-négociateur sur un côté déjà tenu** — tranché : un seul négociateur par côté (décision 7). Le constat d'origine : La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les
   parties en ne gardant que la première de chaque côté, et la ventilation, la commission par côté et l'espace par négociateur lisent une seule
   partie par côté. Ajouter un 2ᵉ négociateur au même côté sans changer ces calculs ferait perdre sa part à la modification suivante et fausserait
   les montants. Aujourd'hui : « Rejoindre » ne propose que le côté libre ; deux côtés tenus → « demandez à un administrateur ». Le permettre
-  demande un lot dédié (parties multiples par côté, partage de la part du côté, une commission par négociateur), à décider.
+  demanderait un lot dédié (parties multiples par côté, partage de la part du côté, une commission par négociateur) : écarté par Arno.
+
+Mise en œuvre du lot 10 (mode agence, administrateurs ; aucune migration) :
+- SÉLECTEUR « Mon espace / Agence : CRITERIMMO / MACJ / FUSION » en tête de l'espace, pour les administrateurs seulement (défaut : « Mon espace ») ;
+  `GET /api/admin/mon-espace/affaires?agence=criterimmo|macj|tous` et `/empreinte?agence=…` : 403 pour un non-administrateur (le rôle est relu en
+  base par `agenceRepo.ts`), 400 pour une structure inconnue ;
+- UNE LECTURE : les données de la page de la structure du Suivi CA (`lireDonneesSociete`, `app/lib/transaction/donneesSociete.ts` : le corps de
+  `GET /api/admin/transaction?vue=societe`, déplacé tel quel et appelé par la route du Suivi CA ET par « Mon espace ») — chaque vente une fois en
+  FUSION, lignes miroir de l'inter-cabinet comprises pour CRITERIMMO et MACJ ;
+- LES CHIFFRES (`app/lib/mon-espace/agence.ts`, pur) : CA et nombre = la somme des cartes (`resultatDesCartes`) des ventes signées de la période
+  (`ventesDuMois`, `ventesPeriode`, `ventesDesAnnees`), la tuile « CA » de « Le mois » / « L'année » ; compromis en cours = `totalCompromisEnCours` ;
+  par négociateur = `espaceNegociateurs` ; par apporteur = `parApporteur` (le bloc de « L'année ») ; égalité au centime prouvée par
+  `agence.test.ts` et `agence.itest.ts` (CRITERIMMO, MACJ, FUSION ; HT et TTC ; Mois / Période / Année / Tout) ; la somme des espaces personnels
+  de tous les collaborateurs = le CA de FUSION ;
+- LES ONGLETS : les mêmes (« Compromis en cours », « Ventes », « Statistiques », « Apporteurs ») ; la carte et la fiche COMPLÈTES (commissions
+  des deux côtés) ; filtre « Négociateur » (une personne) et tri du Suivi CA (`trierListe`) sur les compromis ; les gestes, « Modifier » et
+  l'historique restent (garde de version, journal) ; le rafraîchissement lit l'empreinte de la structure entière.
+
+## ✅ Fin du chantier (02/11/2026) — 10 lots livrés
+
+| Lot | Commit |
+|---|---|
+| 1 droit et tuile | 9a3b3b8a |
+| 2 n° de mandat | a4683950 |
+| 3 mes affaires | 279d7d70 |
+| 4 mes listes | 719d370b |
+| 5 créer un compromis | c46ffef7 |
+| 6 rejoindre, modifier, garde de version | 0850b8bb |
+| 7 gestes, rafraîchissement | 8353eff8 |
+| 8 statistiques (et le cumul unique : 4cb574a9) | da33ecb7 |
+| 9 mes apporteurs | ce3a2108 |
+| 10 mode agence | (ce commit) |
+
+Migrations du chantier :
+
+| N° | Objet | État au 02/11/2026 |
+|---|---|---|
+| 448 `mon_espace_droit` | le droit « Mon espace » (`perm_mon_espace`) | appliquée par Arno sur la base de dev |
+| 449 `transaction_numero_mandat` | n° de mandat + unicité par structure | appliquée par Arno sur la base de dev |
+| 450 `mon_espace_apporteur_utilise` | « L'utiliser » un apporteur | livrée, NON appliquée (code compatible sans elle) |
+
+Toutes les trois sont dans `db/migrations/` et partent à la prochaine mise à jour de production (registre `migrationsEnAttente.test.ts`).
+
+Limites connues :
+- **Rattachement par prénom des ventes importées** : un libellé des fichiers rattaché par le seul prénom (« ANTOINE ») va au seul compte qui
+  porte ce prénom ; un futur collaborateur homonyme d'un ancien hériterait de son historique tant qu'un alias n'est pas posé (règle existante).
+- **10 compromis anciens sans n° de mandat** : le n° n'est obligatoire qu'à la création ; ils restent sans n° jusqu'à ce qu'on l'ajoute (on ne
+  peut pas les « rejoindre » par leur n° d'ici là).
+- **20 ventes notées deux fois « à attribuer »** (41 fiches) : écartées de tous les chiffres (personnels, agence, Suivi CA) tant qu'elles ne
+  sont pas attribuées dans la tuile ; la somme des espaces = le CA de la structure HORS ces ventes.
 
 ---
 
@@ -196,4 +247,5 @@ Contrôle de fin de chaque lot : `npm test` complet vert + `tsc` + preuve curl (
 
 ## Questions à Arno
 
-Les cinq questions de la recon sont tranchées : voir « Décisions métier » ci-dessus (02/11/2026).
+Les cinq questions de la recon sont tranchées : voir « Décisions métier » ci-dessus (02/11/2026), ainsi que les décisions 6 (prévisionnel = ma
+part) et 7 (un négociateur par côté). Aucune question ouverte.
