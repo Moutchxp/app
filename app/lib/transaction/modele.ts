@@ -653,6 +653,16 @@ export const caHtCompromisParMois = (ventes: readonly Vente[], annee: number, so
   Array.from({ length: 12 }, (_, i) => compromisDuMois(ventes, annee, i + 1).reduce((s, v) => s + caHt(v, societe), 0));
 /** Y a-t-il des compromis datés cette année (la comparaison N−1 du mode « compromis ») ? PUR. */
 export const aDesCompromisDates = (ventes: readonly Vente[], annee: number): boolean => compromisDuMois(ventes, annee, null).length > 0;
+/**
+ * Pas d'année précédente à comparer (« N−1 non importé ») pour l'année `a` selon le mode : aucune vente de l'année précédente (vendu), aucun
+ * compromis daté (compromis), ni l'un ni l'autre (les deux). PUR. (Déplacée telle quelle d'`EcransTransaction.tsx`.)
+ */
+export const sansN1Pour = (ventes: readonly Vente[], a: number, mode: ModeMois): boolean => {
+  const sansVenduN1 = !ventes.some((v) => v.annee === a - 1);
+  return mode === 'vendu' ? sansVenduN1 : mode === 'compromis' ? !aDesCompromisDates(ventes, a - 1) : sansVenduN1 && !aDesCompromisDates(ventes, a - 1);
+};
+/** Ce que dit une tuile ou l'encadré sans année précédente. PUR. */
+export const motSansN1Pour = (a: number, mode: ModeMois): string => (mode === 'compromis' ? `${a - 1} : aucun compromis daté` : `${a - 1} : non importé`);
 
 /** La somme de deux totaux, champ par champ (les identifiants mis bout à bout). PUR. */
 export function additionnerTotaux(a: Totaux, b: Totaux): Totaux {

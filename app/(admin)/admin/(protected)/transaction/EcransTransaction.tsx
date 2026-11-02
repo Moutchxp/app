@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
 import {
-  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, sommeSocietes, caHtParMois, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
+  anneesDe, APPORTEUR_NON_NOMME, bilanVente, caHt, motSansN1Pour, sansN1Pour, sommeSocietes, caHtParMois, compteDansSociete, groupesDoubles, historique, ht, LIBELLE_SOCIETE, moisAConfirmer, negociateursDe, SOCIETES,
   NOMS_MOIS, parApporteur, parNegociateur, payeParClasseTtc, payeTtcDe, previsionnel, resteGestionPropose, resteTtcDe, retroTtcDe, retrosDuMois,
   variation, ventesDeLAnnee, ventesDuMois, ventesProposees, type CaARattacher, type DonneesSociete, type EntreesGlobal, type GestionMois,
   type Retrocession, type Societe, type Vente, TVA,
-  aDesCompromisDates, caHtParMoisMode, compromisDuMode, compromisReportes, mentionReportes, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
+  caHtParMoisMode, compromisDuMode, compromisReportes, mentionReportes, estModeMois, MODES_MOIS, nombreParMoisMode, totauxMoisMode, type ModeMois,
 } from '../../../../lib/transaction/modele';
 import { CourbeCumul, CSS_TABLEAU_BORD, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, sensDe, sommeAffichee, type InfoBarre } from '../location/TableauBordSuivi';
 import { CSS_FEUILLE_MOIS } from '../location/FeuilleDuMois';
@@ -368,7 +368,7 @@ export const EXPLICATIONS_TUILES = {
   fusion: { ca: 'CRITERIMMO + MACJ, sans doublon d’inter-cabinet', net: 'CA consolidé − commissions et rétrocessions versées' },
   societe: { ca: 'honoraires encaissés par la société', net: 'CA − commissions, rétrocessions et reversé inter-cabinet' },
 } as const;
-function Explication({ sorte }: { sorte: 'ca' | 'net' }) {
+export function Explication({ sorte }: { sorte: 'ca' | 'net' }) {
   const fusion = useConsolide()('CA') !== 'CA';
   return <small className="trx-tuile-explication" data-tuile-explication={sorte}>{EXPLICATIONS_TUILES[fusion ? 'fusion' : 'societe'][sorte]}</small>;
 }
@@ -404,13 +404,10 @@ type MesureTrx = 'ca' | 'net' | 'nombre';
  * pour son mois ou sa période, « L'année » pour l'année montrée (`mois` 0 : aucun mois choisi, l'encadré au repos du lot CV). `entete` : ce que
  * l'écran ajoute dans l'en-tête du graphique (« L'année » : le choix de l'échelle).
  */
-export const sansN1Pour = (ventes: readonly Vente[], a: number, mode: ModeMois): boolean => {
-  const sansVenduN1 = !ventes.some((v) => v.annee === a - 1);
-  return mode === 'vendu' ? sansVenduN1 : mode === 'compromis' ? !aDesCompromisDates(ventes, a - 1) : sansVenduN1 && !aDesCompromisDates(ventes, a - 1);
-};
-/** Ce que dit une tuile ou l'encadré sans année précédente. */
-export const motSansN1Pour = (a: number, mode: ModeMois): string => (mode === 'compromis' ? `${a - 1} : aucun compromis daté` : `${a - 1} : non importé`);
-function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, rouges = null, finPeriode = null, entete }: {
+// 🔴 MON ESPACE (Arno, 02/11/2026) — `sansN1Pour` et `motSansN1Pour` sont dans `modele.ts` (déplacées telles quelles : l'accueil de « Mon espace »
+// les appelle) ; réexportées ici pour les écrans qui les importaient d'ici. `GrapheMois` et `Explication` sont exportés (code inchangé).
+export { sansN1Pour, motSansN1Pour };
+export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, rouges = null, finPeriode = null, entete }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois;
   series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onMois: (m: number) => void;
   /** 🔴 LOT DE — le mode « Mois » (l'encadré au repos = le mois choisi). */

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { COURT, ecartEur, montantAffiche, MOT_UNITE, signePct, useAffichage, useNommer } from '../transaction/commun';
 import { attributMoisRouges, StyleMoisRouges } from '../transaction/EcransTransaction';
 import { CourbeCumul, EnteteGraphe, Histogramme, type InfoBarre } from '../location/TableauBordSuivi';
@@ -9,7 +9,7 @@ import { NOMS_MOIS, type Vente } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { apporteursAgence, LIBELLE_AGENCE, negociateursAgence } from '../../../../lib/mon-espace/agence';
-import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, type ModeStats } from '../../../../lib/mon-espace/statistiques';
+import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, type ModeStats, type StatsMonEspace } from '../../../../lib/mon-espace/statistiques';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 8 (Arno, 02/11/2026) — L'ONGLET « MES STATISTIQUES » ════════════════════════════════════════════════════════════════════════
@@ -38,10 +38,7 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
   const moisCourant = Number(jour.slice(5, 7));
   const s = data.statistiques ?? { annees: [] };
   const [choix, setChoix] = useState<ChoixStats>({ mode: 'annee', annee: anCourant, mois: moisCourant, periode: [1, moisCourant] });
-  const [cumul, setCumul] = useState(false);
-  const [mesure, setMesure] = useState<'ca' | 'nombre'>('ca');
   const v = (m: MontantC): number => (u === 'ht' ? m.htC : m.ttcC) / 100;
-  const autre = (m: MontantC): number => (u === 'ht' ? m.ttcC : m.htC) / 100;
   const txt = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
   const t = totauxDuChoix(s, choix, jour);
   const libelleChoix = choix.mode === 'tout' ? 'toutes années' : choix.mode === 'annee' ? String(choix.annee)
@@ -54,24 +51,7 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
   const negociateurs = dAgence === null ? null : negociateursAgence(dAgence, choix, jour);
   const annees = s.annees.map((x) => x.annee).sort((a, b) => b - a);
   const an = s.annees.find((x) => x.annee === choix.annee);
-  const an1 = s.annees.find((x) => x.annee === choix.annee - 1);
-  const nombre = mesure === 'nombre';
-  const serie = (x: typeof an): number[] => (x === undefined ? Array(12).fill(0) : nombre ? x.nb : x.ca.map(v));
-  const valeurs = serie(an);
-  const valeursN1 = an1 === undefined ? null : serie(an1);
-  const dernier = choix.annee < anCourant ? 12 : choix.annee > anCourant ? 0 : moisCourant;
   const rouges = choix.mode === 'tout' ? null : moisDuChoix(choix, jour);
-  const info = (k: number, cumule: boolean): InfoBarre => {
-    const c = cumule ? cumuler(valeurs) : valeurs;
-    const c1 = valeursN1 === null ? null : cumule ? cumuler(valeursN1) : valeursN1;
-    const autreC = an === undefined || nombre ? null : (cumule ? cumuler(an.ca.map(autre)) : an.ca.map(autre))[k - 1];
-    const autreC1 = an1 === undefined || nombre ? null : (cumule ? cumuler(an1.ca.map(autre)) : an1.ca.map(autre))[k - 1];
-    return { titre: cumule ? `Cumul ${choix.annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${choix.annee}`,
-      ...(nombre ? { compte: 'Ventes actées' } : { motCa: `${motCa} ${MOT_UNITE[u]}` }), motNb: 'Ventes', sansN1: `${choix.annee - 1} : aucune vente`,
-      courant: { libelle: String(choix.annee), ca: k > dernier ? 0 : c[k - 1], nb: nombre || an === undefined ? null : an.nb[k - 1], ...(autreC === null ? {} : { caAutre: autreC }) },
-      precedent: c1 === null ? null : { libelle: String(choix.annee - 1), ca: c1[k - 1], nb: nombre || an1 === undefined ? null : an1.nb[k - 1], ...(autreC1 === null ? {} : { caAutre: autreC1 }) } };
-  };
-  const mot = nombre ? 'ventes actées' : `${nomAgence === null ? 'mon CA' : `CA ${nomAgence}`} ${MOT_UNITE[u]}`;
   const ecart = t.n1 === null ? null : { eur: v(t.n.ca) - v(t.n1.ca), pct: variation(t.n.ca.htC, t.n1.ca.htC) };
 
   return (
@@ -119,20 +99,12 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
       </div>
 
       {choix.mode !== 'tout' && (
-        <section className="tdb-section" aria-labelledby="mes-histo" data-bloc="mes-stats-mois" {...attributMoisRouges(rouges)}>
-          <StyleMoisRouges mois={rouges} />
-          <EnteteGraphe<'ca' | 'nombre'> id="mes-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-            mesures={[{ cle: 'ca', mot: motCa }, { cle: 'nombre', mot: 'Ventes actées' }]}
-            titre={<>Mois par mois — {choix.annee} <small className="loc-muet">({mot}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
-          {cumul
-            ? <CourbeCumul courant={cumuler(valeurs).slice(0, dernier)} n1={valeursN1 === null ? null : cumuler(valeursN1)} annee={choix.annee} selection={choix.mode === 'mois' ? choix.mois : dernier || 12}
-              entier={nombre} aria={`${mot} cumulé ${choix.annee}`} bulle={(k) => info(k, true)} />
-            : <Histogramme attribut="data-barre-mois" courante={choix.mode === 'mois' ? choix.mois : rouges?.at(-1) ?? 0} onChoisir={(k) => setChoix({ ...choix, mode: 'mois', mois: k })}
-              entier={nombre} aria={`${mot} par mois, ${choix.annee}`} legende={{ courant: String(choix.annee), n1: valeursN1 === null ? null : String(choix.annee - 1) }}
-              barres={valeurs.map((x, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernier ? null : x, n1: valeursN1?.[i] ?? null, info: info(i + 1, false) }))} />}
+        <GrapheMoisStats s={s} annee={choix.annee} jour={jour} id="mes-histo" bloc="mes-stats-mois" rouges={rouges} motCa={motCa} motCaTitre={nomAgence === null ? 'mon CA' : `CA ${nomAgence}`} motNombre="Ventes actées"
+          courante={choix.mode === 'mois' ? choix.mois : rouges?.at(-1) ?? 0} selectionCumul={choix.mode === 'mois' ? choix.mois : 0}
+          onChoisir={(k) => setChoix({ ...choix, mode: 'mois', mois: k })}>
           {an !== undefined && an.aConfirmerNb > 0 && <p className="loc-muet" data-a-confirmer>Dont {an.aConfirmerNb} vente{an.aConfirmerNb > 1 ? 's' : ''} au mois à confirmer
             ({txt(an.aConfirmer)}) : comptée{an.aConfirmerNb > 1 ? 's' : ''} dans l’année, dans aucun mois.</p>}
-        </section>
+        </GrapheMoisStats>
       )}
 
       {negociateurs !== null && (
@@ -166,6 +138,59 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Le graphique « Mois par mois » des statistiques d'un espace (mes chiffres, ou ceux de la structure en mode agence) : les briques du Suivi CA
+ * (`EnteteGraphe`, `Histogramme`, `CourbeCumul`, barres N, N−1 hachurées, Mensuel / Cumul, les mois soulignés en rouge) sur les mois du serveur.
+ * Partagé par « Mes statistiques » et l'accueil de « Mon espace » (aucune copie). `selectionCumul` : le point mis en avant du cumul (0 : le dernier).
+ */
+export function GrapheMoisStats({ s, annee, jour, id, bloc, rouges, motCa, motCaTitre, motNombre, courante, selectionCumul, onChoisir, cumulCliquable = false, children }: {
+  s: StatsMonEspace; annee: number; jour: string; id: string; bloc: string; rouges: readonly number[] | null;
+  /** L'onglet et la bulle (« Mon CA ») ; le titre (« mon CA »). */
+  motCa: string; motCaTitre: string; motNombre: string;
+  courante: number; selectionCumul: number; onChoisir: (k: number) => void;
+  /** Un point de la courbe cumulée s'ouvre d'un clic (l'accueil, comme le Suivi CA) ; « Mes statistiques » : non, comme avant. */
+  cumulCliquable?: boolean; children?: ReactNode }) {
+  const u = useAffichage();
+  const [cumul, setCumul] = useState(false);
+  const [mesure, setMesure] = useState<'ca' | 'nombre'>('ca');
+  const anCourant = Number(jour.slice(0, 4));
+  const v = (m: MontantC): number => (u === 'ht' ? m.htC : m.ttcC) / 100;
+  const autre = (m: MontantC): number => (u === 'ht' ? m.ttcC : m.htC) / 100;
+  const an = s.annees.find((x) => x.annee === annee);
+  const an1 = s.annees.find((x) => x.annee === annee - 1);
+  const nombre = mesure === 'nombre';
+  const serie = (x: typeof an): number[] => (x === undefined ? Array(12).fill(0) : nombre ? x.nb : x.ca.map(v));
+  const valeurs = serie(an);
+  const valeursN1 = an1 === undefined ? null : serie(an1);
+  const dernier = annee < anCourant ? 12 : annee > anCourant ? 0 : Number(jour.slice(5, 7));
+  const info = (k: number, cumule: boolean): InfoBarre => {
+    const c = cumule ? cumuler(valeurs) : valeurs;
+    const c1 = valeursN1 === null ? null : cumule ? cumuler(valeursN1) : valeursN1;
+    const autreC = an === undefined || nombre ? null : (cumule ? cumuler(an.ca.map(autre)) : an.ca.map(autre))[k - 1];
+    const autreC1 = an1 === undefined || nombre ? null : (cumule ? cumuler(an1.ca.map(autre)) : an1.ca.map(autre))[k - 1];
+    return { titre: cumule ? `Cumul ${annee} à fin ${NOMS_MOIS[k - 1].toLowerCase()}` : `${NOMS_MOIS[k - 1]} ${annee}`,
+      ...(nombre ? { compte: motNombre } : { motCa: `${motCa} ${MOT_UNITE[u]}` }), motNb: 'Ventes', sansN1: `${annee - 1} : aucune vente`,
+      courant: { libelle: String(annee), ca: k > dernier ? 0 : c[k - 1], nb: nombre || an === undefined ? null : an.nb[k - 1], ...(autreC === null ? {} : { caAutre: autreC }) },
+      precedent: c1 === null ? null : { libelle: String(annee - 1), ca: c1[k - 1], nb: nombre || an1 === undefined ? null : an1.nb[k - 1], ...(autreC1 === null ? {} : { caAutre: autreC1 }) } };
+  };
+  const mot = nombre ? motNombre.toLowerCase() : `${motCaTitre} ${MOT_UNITE[u]}`;
+  return (
+    <section className="tdb-section" aria-labelledby={id} data-bloc={bloc} {...attributMoisRouges(rouges)}>
+      <StyleMoisRouges mois={rouges} />
+      <EnteteGraphe<'ca' | 'nombre'> id={id} mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
+        mesures={[{ cle: 'ca', mot: motCa }, { cle: 'nombre', mot: motNombre }]}
+        titre={<>Mois par mois — {annee} <small className="loc-muet">({mot}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
+      {cumul
+        ? <CourbeCumul courant={cumuler(valeurs).slice(0, dernier)} n1={valeursN1 === null ? null : cumuler(valeursN1)} annee={annee} selection={selectionCumul || dernier || 12}
+          entier={nombre} aria={`${mot} cumulé ${annee}`} bulle={(k) => info(k, true)} {...(cumulCliquable ? { onChoisir } : {})} />
+        : <Histogramme attribut="data-barre-mois" courante={courante} onChoisir={onChoisir}
+          entier={nombre} aria={`${mot} par mois, ${annee}`} legende={{ courant: String(annee), n1: valeursN1 === null ? null : String(annee - 1) }}
+          barres={valeurs.map((x, i) => ({ cle: i + 1, libelle: COURT[i], valeur: i + 1 > dernier ? null : x, n1: valeursN1?.[i] ?? null, info: info(i + 1, false) }))} />}
+      {children}
+    </section>
   );
 }
 

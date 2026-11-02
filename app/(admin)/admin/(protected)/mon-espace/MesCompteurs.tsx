@@ -14,6 +14,7 @@ import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENC
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
+import { AccueilMonEspace } from './AccueilMonEspace';
 import { MesApporteurs, posterApporteur, URL_APPORTEURS } from './MesApporteurs';
 import { ContexteNouvelApporteur, type FaconNouvelApporteur } from '../transaction/NouvelApporteur';
 import type { Doublon, SaisieApporteur } from '../../../../lib/mon-espace/apporteurs';
@@ -205,8 +206,8 @@ export function MesCompteurs() {
       </div>
     </div>
   );
-  if (lu.etat === 'chargement') return <>{selecteur}<p className="loc-muet" role="status" data-mon-espace-chargement>{espace === 'moi' ? 'Chargement de vos affaires…' : `Chargement de ${LIBELLE_AGENCE[espace]}…`}</p></>;
-  if (lu.etat === 'erreur' || data === null || hote === null) return <>{selecteur}<p className="loc-alerte loc-alerte--orange" role="alert" data-mon-espace-erreur>{espace === 'moi' ? 'Vos affaires n’ont pas pu être lues.' : `Les affaires de ${LIBELLE_AGENCE[espace]} n’ont pas pu être lues.`} Rechargez la page.</p></>;
+  if (lu.etat === 'chargement') return <><div className="mes-ligne-espace" data-ligne-espace>{selecteur}</div><p className="loc-muet" role="status" data-mon-espace-chargement>{espace === 'moi' ? 'Chargement de vos affaires…' : `Chargement de ${LIBELLE_AGENCE[espace]}…`}</p></>;
+  if (lu.etat === 'erreur' || data === null || hote === null) return <><div className="mes-ligne-espace" data-ligne-espace>{selecteur}</div><p className="loc-alerte loc-alerte--orange" role="alert" data-mon-espace-erreur>{espace === 'moi' ? 'Vos affaires n’ont pas pu être lues.' : `Les affaires de ${LIBELLE_AGENCE[espace]} n’ont pas pu être lues.`} Rechargez la page.</p></>;
   const { compteurs, disponible } = data;
   const total = (c: { ca: { htC: number; ttcC: number } }): string => montantAffiche(unite, c.ca.htC / 100, c.ca.ttcC / 100);
   const nombre = (n: number, un: string, plusieurs: string): string => `${n} ${n > 1 ? plusieurs : un}`;
@@ -256,11 +257,14 @@ export function MesCompteurs() {
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
     <div className="mes-compteurs-bloc" data-espace-vu={espace}>
       <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}</style>
-      {selecteur}
-      {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
-      <div className="mes-compteurs-tete">
+      {/* L'accueil : « Voir … » à gauche (administrateurs), « + Nouveau compromis » à droite, sur la même ligne (au téléphone : dessous, à droite). */}
+      <div className="mes-ligne-espace" data-ligne-espace>
+        {selecteur}
         {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
         {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
+      </div>
+      {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
+      <div className="mes-compteurs-tete">
         <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}
       {/* 🔴 LOT 7 — ce qu'un collègue vient de changer (discret) ; une session expirée (jamais un faux message de panne). */}
@@ -273,6 +277,8 @@ export function MesCompteurs() {
         repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
         envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
       {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
+      {/* L'accueil au format « Le mois » du Suivi CA : la rangée des mois, les quatre tuiles, le graphique « Mois par mois ». */}
+      <AccueilMonEspace data={data} onOuvrir={ouvrir} />
       <div className="mes-compteurs">
         <button type="button" className="svv-card mes-compteur" aria-label={`${nomAgence === null ? 'Mes compromis en cours' : `Compromis en cours — ${nomAgence}`} : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}
           aria-controls="mon-espace-listes" aria-pressed={onglet === 'compromis'} onClick={() => ouvrir('compromis')} data-compteur="compromis">
@@ -336,11 +342,13 @@ export function MesCompteurs() {
 
 // Les jetons de la charte seulement (Clair et Sombre) ; cibles de 44 px au moins ; une colonne sur téléphone.
 const CSS_MES_COMPTEURS = `
-.mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
+.mes-ligne-espace{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
+.mes-ligne-espace .mes-nouveau{width:auto;flex:0 0 auto;margin-left:auto;min-height:44px;padding:0 1.25rem}
+.mes-accueil{margin:0 0 1rem}
+.mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
 .mes-espaces .trx-unites{flex-wrap:wrap}
 .mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
-.mes-compteurs-tete .mes-nouveau{margin-right:auto}
 .mes-compteurs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.75rem}
 .mes-compteur{display:flex;flex-direction:column;align-items:flex-start;gap:.4rem;min-height:44px;width:100%;text-align:left;cursor:pointer;font:inherit;color:var(--color-svv-ink);
   border:1px solid var(--color-svv-line);background:var(--color-svv-surface)}
