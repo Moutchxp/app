@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, montantAffiche, useAffichageRetenu } from '../transaction/commun';
 import { CSS } from '../transaction/EcransTransaction';
 import { CarteAffaire, DetailAffaire, useColonnesNegociateurs, type HoteDetail, type VuePersonnelle } from '../transaction/OngletCompromis';
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
-import type { MesAffaires, VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
+import { empreinteDe, type MesAffaires, type VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
 import { HistoriqueAffaire } from './HistoriqueAffaire';
+import { GestesAffaire } from './GestesAffaire';
+import { DUREE_SURBRILLANCE_MS, doitRelire, messageMiseAJour, misesAJourDesAutres, peutBattre, PERIODE_MON_ESPACE_MS } from '../../../../lib/mon-espace/rafraichir';
 import { FormulaireDossier, etatRepartitionDe, type References } from '../transaction/FormulaireDossier';
 
 /**
@@ -22,7 +24,11 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  *     cours », la nouvelle affaire en haut, dépliée.
  *   · LOT 6 : sous la fiche dépliée, « Modifier » (ses négociateurs et les administrateurs : le formulaire de la tuile, les commissions non
  *     visibles pour un collaborateur, garde de version) et « Historique des modifications » (lecture seule).
+ *   · LOT 7 : les gestes (« Acte signé », « Annuler le compromis », « Revenir en compromis », `GestesAffaire`, confirmés dans la page) ; le
+ *     RAFRAÎCHISSEMENT AUTOMATIQUE (`rafraichir.ts`) : l'empreinte relue toutes les 15 s et au retour sur l'onglet, les listes relues seulement si
+ *     elle a changé, jamais pendant une saisie ou une confirmation ; « Léa a mis à jour « X » » et la ligne éclairée quand c'est un autre.
  */
+export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
 type Onglet = 'compromis' | 'ventes';
 
@@ -63,17 +69,68 @@ export function MesCompteurs() {
   };
   const listes = useRef<HTMLDivElement>(null);
   useColonnesNegociateurs(listes);
+  // 🔴 LOT 7 — le rafraîchissement automatique : l'empreinte vue en dernier, les affaires d'avant (pour dire qui a changé quoi), la relecture en
+  // cours est-elle automatique, les gestes ouverts (pause) ; le message, les lignes éclairées, « reconnectez-vous ».
+  const empreinteVue = useRef<string | null>(null);
+  const precedentes = useRef<VenteMonEspace[] | null>(null);
+  const relectureAuto = useRef(false);
+  const gestesOuverts = useRef(new Set<number>());
+  const occupe = useRef(false);
+  const [miseAJour, setMiseAJour] = useState<string | null>(null);
+  const [eclairees, setEclairees] = useState<number[]>([]);
+  const [reconnexion, setReconnexion] = useState(false);
+  const surOccupe = useCallback((id: number, o: boolean): void => { if (o) gestesOuverts.current.add(id); else gestesOuverts.current.delete(id); }, []);
+  useEffect(() => { occupe.current = parcours || edition !== null || lu.etat === 'chargement'; });
+  // un geste ouvert (saisie, confirmation) ne redessine pas cet écran : la pause relit l'ensemble des gestes ouverts au moment du battement
+  const enPause = (): boolean => occupe.current || gestesOuverts.current.size > 0;
   useEffect(() => {
     let vivant = true;
     void (async () => {
       try {
         const r = await fetch(URL_MES_AFFAIRES, { cache: 'no-store' });
         const j = (await r.json()) as { etat?: string; data?: MesAffaires };
-        if (vivant) setLu(r.ok && j.etat === 'ok' && j.data !== undefined ? { etat: 'ok', data: j.data } : { etat: 'erreur' });
-      } catch { if (vivant) setLu({ etat: 'erreur' }); }
+        if (!vivant) return;
+        if (!(r.ok && j.etat === 'ok' && j.data !== undefined)) { if (!relectureAuto.current) setLu({ etat: 'erreur' }); relectureAuto.current = false; return; }
+        const nouvelles = j.data.ventes;
+        // 🔴 LOT 7 — une relecture AUTOMATIQUE : ce qu'un AUTRE collaborateur a changé se dit, et sa ligne s'éclaire brièvement.
+        if (relectureAuto.current && precedentes.current !== null) {
+          const m = misesAJourDesAutres(precedentes.current, nouvelles, j.data.titulaire.id);
+          if (m.length > 0) { setMiseAJour(messageMiseAJour(m)); setEclairees(m.map((x) => x.id)); setTimeout(() => { if (vivant) setEclairees([]); }, DUREE_SURBRILLANCE_MS); }
+        }
+        relectureAuto.current = false;
+        precedentes.current = nouvelles;
+        // L'empreinte de RÉFÉRENCE = celle des affaires réellement chargées (la même fonction que le serveur) : un changement survenu entre ce
+        // chargement et le battement suivant n'est jamais perdu.
+        empreinteVue.current = empreinteDe(nouvelles);
+        setLu({ etat: 'ok', data: j.data });
+      } catch { if (vivant && !relectureAuto.current) setLu({ etat: 'erreur' }); relectureAuto.current = false; }
     })();
     return () => { vivant = false; };
   }, [lecture]);
+  useEffect(() => {
+    let vivant = true;
+    const battre = async (): Promise<void> => {
+      if (!peutBattre({ visible: document.visibilityState === 'visible', chargementEnCours: false, gesteEnCours: enPause(), releveEnCours: false })) return;
+      try {
+        const r = await fetch(URL_EMPREINTE, { cache: 'no-store' });
+        if (!vivant) return;
+        // session expirée : « reconnectez-vous » ; toute autre panne : nouvel essai silencieux au prochain battement (aucun faux message)
+        if (r.status === 401) { setReconnexion(true); return; }
+        if (!r.ok) return;
+        const j = (await r.json()) as { data?: { empreinte?: unknown } };
+        const e = j.data?.empreinte;
+        if (typeof e !== 'string') return;
+        setReconnexion(false);
+        if (enPause()) return;
+        if (doitRelire(empreinteVue.current, e)) { relectureAuto.current = true; setLecture((x) => x + 1); }
+      } catch { /* réseau : nouvel essai silencieux */ }
+    };
+    const minuterie = setInterval(() => { void battre(); }, PERIODE_MON_ESPACE_MS);
+    const auRetour = (): void => { if (document.visibilityState === 'visible') void battre(); };
+    document.addEventListener('visibilitychange', auRetour);
+    void battre();
+    return () => { vivant = false; clearInterval(minuterie); document.removeEventListener('visibilitychange', auRetour); };
+  }, []);
   const data = lu.etat === 'ok' ? lu.data : null;
   const hote = useMemo((): HoteDetail | null => (data === null ? null : {
     d: { lotD: data.schema?.lotD ?? true, personneType: data.schema?.personneType ?? true, uniteCommission: data.schema?.uniteCommission ?? true,
@@ -101,19 +158,25 @@ export function MesCompteurs() {
   const ventes = trierMesVentes(des(anneeChoisie.ids));
   const ouvrir = (o: Onglet): void => { setOnglet(o); if (o === 'ventes') setAnnee(compteurs.actees.annee); };
   const personnel = (v: VenteMonEspace): VuePersonnelle => ({ mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
+  const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
+  const relire = (): void => setLecture((x) => x + 1);
   const carte = (v: VenteMonEspace, section: 'compromis' | 'vente') => (
-    <CarteAffaire key={v.id} v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={null} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
+    <div key={v.id} className={eclairees.includes(v.id) ? 'mes-eclairee' : undefined} data-eclairee={eclairees.includes(v.id) ? 'oui' : undefined}>
+    <CarteAffaire v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={null} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
       donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
       {/* 🔴 LOT 6 — « Modifier » : ses négociateurs et les administrateurs (le serveur refuse les autres, 403) ; l'historique, en lecture. */}
       <div className="trx-actions trx-barre-actions mes-actions">
-        {(v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void modifier(v)}
+        {/* 🔴 LOT 7 — les gestes (décision 5) : un négociateur de l'affaire ou un administrateur ; confirmés dans la page. */}
+        <GestesAffaire v={v} aujourdhui={data.aujourdhui} peutAgir={peutAgir(v)} onFait={relire} onOccupe={surOccupe} />
+        {peutAgir(v) && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void modifier(v)}
           data-modifier-mon-espace={v.id}>Modifier</button>}
         <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-expanded={historique === v.id} onClick={() => setHistorique(historique === v.id ? null : v.id)}
           data-historique-bouton={v.id}>{historique === v.id ? 'Masquer l’historique' : 'Historique des modifications'}</button>
       </div>
       {historique === v.id && <HistoriqueAffaire id={v.id} />}
     </CarteAffaire>
+    </div>
   );
   return (
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value>
@@ -125,6 +188,10 @@ export function MesCompteurs() {
         {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
         <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}
+      {/* 🔴 LOT 7 — ce qu'un collègue vient de changer (discret) ; une session expirée (jamais un faux message de panne). */}
+      {miseAJour !== null && <p className="mes-mise-a-jour" role="status" data-mise-a-jour>{miseAJour}
+        <button type="button" className="mes-mise-a-jour-fermer" aria-label="Fermer le message" onClick={() => setMiseAJour(null)}>×</button></p>}
+      {reconnexion && <p className="loc-alerte loc-alerte--orange" role="alert" data-reconnexion>Votre session a expiré : <a href="/admin/login">reconnectez-vous</a> pour voir les dernières mises à jour.</p>}
       {/* 🔴 LOT 6 — le formulaire de la tuile, sur l'affaire telle que je la reçois ; la version lue part avec l'enregistrement (409 si un collègue a
           enregistré entre-temps : le message le dit, rien n'est écrasé). */}
       {edition !== null && refs !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={refs}
@@ -201,5 +268,12 @@ const CSS_MES_COMPTEURS = `
 .mes-cartes{display:flex;flex-direction:column;gap:.5rem}
 .mes-vide{margin:.5rem 0}
 .trx-negociateur-lecture{margin:.25rem 0;font-weight:600}
+.mes-mise-a-jour{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .75rem;padding:.25rem .25rem .25rem .75rem;border-radius:8px;
+  background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-amber)}
+.mes-mise-a-jour-fermer{min-width:44px;min-height:44px;font:inherit;font-size:1.25rem;background:none;border:0;color:var(--color-svv-ink);cursor:pointer}
+.mes-eclairee{border-radius:12px;outline:2px solid var(--color-svv-amber);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){.mes-eclairee{animation:mes-eclat 1s ease-out}@keyframes mes-eclat{from{outline-color:transparent}to{outline-color:var(--color-svv-amber)}}}
+.mes-confirmation{display:flex;flex-direction:column;gap:.5rem;width:100%}
+.mes-confirmation-question{margin:0;font-weight:600}
 .trx-societe-cote-lecture{font-weight:600;color:var(--color-svv-muted)}
 `;

@@ -5,7 +5,7 @@ import { query } from '../db/client';
 import { comptesRapprochesDesLibelles, libellesDePaye, lireStatutsNegociateurs, lireVentes, nomsAffichesNegociateurs, transactionDisponible } from '../transaction/repo';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import type { Vente } from '../transaction/modele';
-import { compteursMonEspace, estAMoi, libellesDeVente, mesCotes, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
+import { compteursMonEspace, empreinteDe, estAMoi, libellesDeVente, mesCotes, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
 
 const VIDE = (aujourdhui: string): CompteursMonEspace => ({ compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } },
   actees: { annee: Number(aujourdhui.slice(0, 4)), nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } } });
@@ -47,7 +47,27 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   // 🔴 LOT 4 — ce que la fiche dépliée lit d'ordinaire dans les références de la Transaction, calculé sur la SEULE réponse (rien de plus).
   const schema = { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), uniteCommission: await uniteCommissionDisponible(),
     prixVente: await prixVenteDisponible(), mandat: await mandatDisponible() };
+  // 🔴 LOT 7 — l'auteur de la dernière écriture de chaque affaire (l'entrée du journal qui fait sa version), pour « Léa a mis à jour … ».
+  const versions = [...new Set(ventes.map((v) => v.version ?? 0).filter((x) => x > 0))];
+  const { rows: auteurs } = versions.length === 0 ? { rows: [] as Record<string, unknown>[] } : await query<Record<string, unknown>>(
+    `SELECT j.id, j.auteur_id, j.auteur_libelle, u.prenom FROM transaction_journal j LEFT JOIN admin_utilisateur u ON u.id = j.auteur_id WHERE j.id = ANY($1::bigint[])`, [versions]);
+  const parVersion = new Map(auteurs.map((a) => [Number(a.id), { auteurId: a.auteur_id == null ? null : Number(a.auteur_id), prenom: a.prenom == null ? null : String(a.prenom),
+    libelle: String(a.auteur_libelle) }]));
+  for (const v of ventes) v.derniereModification = parVersion.get(v.version ?? 0) ?? null;
   const nomsNegociateurs = await nomsAffichesNegociateurs([...new Set(ventes.flatMap(libellesDeVente))]).catch(() => ({}));
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
   return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs };
+}
+
+/**
+ * 🔴 LOT 7 — l'empreinte de « mes affaires » (le rafraîchissement automatique) : les affaires que ce compte voit (un administrateur : toutes) et
+ * leur version — la même règle que `lireMesAffaires`, sans rien d'autre. LECTURE SEULE.
+ */
+export async function empreinteMesAffaires(compteId: number): Promise<string> {
+  if (!(await transactionDisponible())) return '';
+  const { rows } = await query<{ role: string }>('SELECT role FROM admin_utilisateur WHERE id = $1', [compteId]);
+  const toutes = await lireVentes(null);
+  if (rows[0]?.role === 'administrateur') return empreinteDe(toutes);
+  const moi = await moiDansLesVentes(compteId, toutes);
+  return empreinteDe(toutes.filter((v) => estAMoi(v, moi)));
 }

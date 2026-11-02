@@ -87,7 +87,9 @@ export function libellesDeVente(v: Vente): string[] {
  * `commissionsRetirees` (🔴 LOT 4) — vrai si la commission d'un autre a été retirée : l'écran ne montre alors ni sa commission ni ce qui en
  * dépend (« reste », part de l'agence), au lieu d'un « 0 € » ou d'un chiffre recalculé.
  */
-export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[]; commissionsRetirees?: boolean };
+export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[]; commissionsRetirees?: boolean;
+  /** 🔴 LOT 7 — l'auteur de la dernière écriture (l'entrée du journal qui fait la version) : « Léa a mis à jour … » quand ce n'est pas moi. */
+  derniereModification?: { auteurId: number | null; prenom: string | null; libelle: string } | null };
 
 /** La réponse de /api/admin/mon-espace/affaires. */
 export interface MesAffaires {
@@ -103,3 +105,7 @@ export interface MesAffaires {
   nomsNegociateurs?: Record<string, string>;
   statutsNegociateurs?: Record<string, 'associe' | 'salarie' | 'independant' | 'observateur' | null>;
 }
+
+/** 🔴 LOT 7 — l'empreinte de « mes affaires » : les affaires visibles et leur version ; elle change dès qu'une écriture les touche. PUR. */
+export const empreinteDe = (ventes: readonly Pick<Vente, 'id' | 'version'>[]): string =>
+  `${ventes.map((v) => v.id).sort((a, b) => a - b).join(',')}#${ventes.reduce((m, v) => Math.max(m, v.version ?? 0), 0)}`;

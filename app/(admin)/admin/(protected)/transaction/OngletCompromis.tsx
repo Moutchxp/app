@@ -1427,7 +1427,9 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
  * mêmes classes, posée dans la racine du thème). Motif obligatoire (« Défaut de crédit » proposé, ou « Autre motif » écrit), date
  * (aujourd'hui par défaut), note facultative ; « Confirmer l'annulation » (rouge) et « Fermer ». Un refus laisse la saisie.
  */
-function ModaleAnnulation({ vente, aujourdhui, onFermer, onFait }: { vente: Vente; aujourdhui: string; onFermer: () => void; onFait: () => void }) {
+export function ModaleAnnulation({ vente, aujourdhui, onFermer, onFait, envoyer }: { vente: Vente; aujourdhui: string; onFermer: () => void; onFait: () => void;
+  /** 🔴 MON ESPACE, LOT 7 — l'envoi de l'annulation : par défaut la tuile (`compromis-annuler`, inchangé) ; « Mon espace » passe le sien (même fonction). */
+  envoyer?: (corps: { id: number; version?: number; annulation: Record<string, unknown> }) => Promise<string | null> }) {
   const fermer = useRef<HTMLButtonElement | null>(null);
   const [sorte, setSorte] = useState<'defaut_credit' | 'autre'>('defaut_credit');
   const [autre, setAutre] = useState('');
@@ -1444,7 +1446,8 @@ function ModaleAnnulation({ vente, aujourdhui, onFermer, onFait }: { vente: Vent
   const confirmer = async (): Promise<void> => {
     if (sorte === 'autre' && autre.trim() === '') { setMotif('Écrivez le motif de l’annulation (« Autre motif »).'); return; }
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'compromis-annuler', id: vente.id, version: vente.version, annulation: { motif: sorte, autre, date, note } });
+    const corps = { id: vente.id, version: vente.version, annulation: { motif: sorte, autre, date, note } };
+    const r = envoyer !== undefined ? await envoyer(corps) : await posterTransaction({ action: 'compromis-annuler', ...corps });
     setEnvoi(false);
     if (r === null) onFait(); else setMotif(r);
   };

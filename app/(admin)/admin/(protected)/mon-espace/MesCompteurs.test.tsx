@@ -163,8 +163,7 @@ describe('🔴 NON-RÉGRESSION : sans l’option « vue personnelle » (la tuile
       aujourdhui: '2026-11-02', annulation: true }, vue: null, societe: 'tous', statutDuLibelle: undefined, relire: () => {}, signalerPorteuse: () => {},
       enregistrerApporteur: async () => null, ouvrirEdition: () => {}, ouvrirPersonnes: () => {}, acte: null, setActe: () => {}, signer: async () => {},
       historique: null, setHistorique: () => {}, ouvrirAnnulation: () => {} };
-    await act(async () => { root.render(createElement(FournisseurAffichage, { value: 'ht' }, createElement(CarteAffaire, { v, aujourdhui: '2026-11-02', vue: null, ouvertInitial: true,
-      children: createElement(DetailAffaire, { v, hote }) }))); });
+    await act(async () => { root.render(<FournisseurAffichage value="ht"><CarteAffaire v={v} aujourdhui="2026-11-02" vue={null} ouvertInitial><DetailAffaire v={v} hote={hote} /></CarteAffaire></FournisseurAffichage>); });
     await calmer();
     expect(texte('[data-negociateur-carte="sortie"]')).toBe('Négociateur : Marc DURAND · 40 %');
     for (const sel of ['[data-commission-negociateur="entree"]', '[data-commission-negociateur="sortie"]', '[data-nego-ligne="sortie"] [data-nego-com]',

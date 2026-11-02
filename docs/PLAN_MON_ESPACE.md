@@ -77,6 +77,16 @@ Mise en œuvre du lot 6 (rejoindre, modifier, garde de version, journal ; aucune
 - JOURNAL : celui de la tuile (qui figé, quand, avant → après), en lecture dans « Mon espace » ; un collaborateur n'y lit pas les entrées
   « commissions » (montants et taux des deux côtés).
 
+Mise en œuvre du lot 7 (gestes, rafraîchissement ; aucune migration) :
+- GESTES (décision 5) : « Acte signé » (date, confirmation dans la page), « Annuler le compromis » (la fenêtre de la tuile : motif, date, note),
+  « Revenir en compromis » ; `POST /api/admin/mon-espace/geste` → `acteSigne` / `annulerCompromis` / `retourCompromis` de la tuile (journal,
+  inter-cabinet, garde de version : 409) ; négociateur de l'affaire ou administrateur (403 sinon, bouton absent) ;
+- RAFRAÎCHISSEMENT : l'empreinte de « mes affaires » (affaires visibles + leur version, `empreinteDe`, `GET /api/admin/mon-espace/empreinte`)
+  relue toutes les 15 s et au retour sur l'onglet ; relecture seulement si elle a changé, jamais pendant une saisie ou une confirmation
+  (`peutBattre` de la Gestion) ; la RÉFÉRENCE est l'empreinte des affaires réellement chargées (aucun changement perdu entre le chargement et
+  le premier battement) ; « Marc a mis à jour « X » » et la ligne éclairée (sans animation si prefers-reduced-motion) quand l'auteur de la
+  dernière écriture n'est pas moi ; 401 → « reconnectez-vous » ; autre panne → nouvel essai silencieux.
+
 ## ❓ Question ouverte à Arno (lot 6)
 
 - **Un co-négociateur sur un côté déjà tenu.** La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les
