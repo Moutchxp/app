@@ -6,14 +6,17 @@ import { changerNegociateur } from '../transaction/Repartition';
 import { LIBELLE_SOCIETE, SOCIETES, type Societe } from '../../../../lib/transaction/modele';
 import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
 import type { TransactionDuMandat } from '../../../../lib/mon-espace/creation';
+import type { VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 5 (Arno, 02/11/2026) — « + NOUVEAU COMPROMIS » DEPUIS « MON ESPACE », EN TROIS TEMPS ═════════════════════════════════════
  *   ① la structure (CRITERIMMO ou MACJ), rien d'autre à l'écran ;
  *   ② le n° de mandat, obligatoire (impossible d'avancer sans lui) ;
  *   ③ la vérification dans la structure choisie (`/api/admin/mon-espace/mandat`, les fonctions uniques du lot 2) : libre → ④ ; déjà pris → la
- *      transaction existante (bien, parties, structure, statut, date du compromis, collègues rattachés) et « Rejoindre cette transaction » —
- *      à ce lot, un écran d'attente honnête ; aucun doublon possible (le serveur refuse aussi, 422) ;
+ *      transaction existante (bien, parties, structure, statut, date du compromis, collègues rattachés) et « Rejoindre cette transaction » ;
+ *      aucun doublon possible (le serveur refuse aussi, 422) ;
+ *   🔴 LOT 6 — « Rejoindre » : je choisis un côté LIBRE (un côté déjà tenu ne se rejoint pas : la répartition tient un négociateur par côté), puis
+ *      le formulaire EXISTANT s'ouvre sur CETTE affaire (sans la commission des autres) pour y renseigner ce qui manque ; aucune vente n'est créée ;
  *   ④ le côté que je tiens (entrée ou sortie ; un administrateur peut créer pour un collègue), puis le formulaire EXISTANT de la tuile Suivi CA
  *      (`FormulaireDossier`), la structure et le n° posés (n° non modifiable), moi à mon côté ; l'autre côté se remplit aussi (décision 2).
  * L'envoi passe par /api/admin/mon-espace/compromis, qui enregistre par la MÊME fonction que la tuile.
@@ -21,15 +24,18 @@ import type { TransactionDuMandat } from '../../../../lib/mon-espace/creation';
 export const URL_REFERENCES = '/api/admin/mon-espace/references';
 export const URL_MANDAT = '/api/admin/mon-espace/mandat';
 export const URL_COMPROMIS = '/api/admin/mon-espace/compromis';
+export const URL_VENTE = '/api/admin/mon-espace/vente';
+export const URL_JOURNAL = '/api/admin/mon-espace/journal';
 
 type Refs = References & { titulaireId: number; administrateur: boolean; aujourdhui: string };
-type Etape = 'structure' | 'mandat' | 'pris' | 'rejoindre' | 'cote' | 'formulaire';
+type Etape = 'structure' | 'mandat' | 'pris' | 'rejoindre' | 'cote' | 'formulaire' | 'formulaireRejoindre';
 type Cote = 'entree' | 'sortie' | 'aucun';
 
 const jourFr = (d: string | null): string | null => (d === null ? null : d.split('-').reverse().join('/'));
 
-/** Envoie le dossier à la route de « Mon espace » ; rend le motif d'un refus (null : accepté) et l'id du compromis créé. */
-async function envoyerMonEspace(corps: { id: number | null; dossier: Record<string, unknown> }): Promise<{ motif: string | null; data: number | null }> {
+/** Envoie le dossier à la route de « Mon espace » ; rend le motif d'un refus (null : accepté) et l'id du compromis. 🔴 LOT 6 : aussi une modification
+ *  (`id`, `version`) ou un « Rejoindre » (`rejoindre: { numero }`). */
+export async function envoyerMonEspace(corps: Record<string, unknown>): Promise<{ motif: string | null; data: number | null }> {
   try {
     const r = await fetch(URL_COMPROMIS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
     const d = (await r.json()) as { etat?: string; motif?: string; message?: string; erreur?: string; data?: number };
@@ -50,6 +56,9 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
   const [refs, setRefs] = useState<Refs | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // 🔴 LOT 6 — l'affaire à rejoindre (lue avec son n°, sans la commission des autres) et le côté libre choisi.
+  const [aRejoindre, setARejoindre] = useState<VenteMonEspace | null>(null);
+  const [coteRejoint, setCoteRejoint] = useState<'entree' | 'sortie' | null>(null);
   useEffect(() => {
     let vivant = true;
     void (async () => {
@@ -75,9 +84,29 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
     } catch { setMotif('Vérification impossible : le serveur n’a pas répondu.'); } finally { setEnvoi(false); }
   };
 
+  const rejoindre = async (c: 'entree' | 'sortie'): Promise<void> => {
+    if (transaction === null || verifie === null) return;
+    setEnvoi(true); setMotif(null);
+    try {
+      const r = await fetch(`${URL_VENTE}?id=${transaction.id}&numero=${encodeURIComponent(verifie)}`, { cache: 'no-store' });
+      const j = (await r.json()) as { etat?: string; motif?: string; data?: VenteMonEspace };
+      if (j.etat !== 'ok' || j.data === undefined) { setMotif(j.motif ?? 'L’affaire n’a pas pu être lue.'); return; }
+      setARejoindre(j.data); setCoteRejoint(c); setEtape('formulaireRejoindre');
+    } catch { setMotif('L’affaire n’a pas pu être lue : le serveur n’a pas répondu.'); } finally { setEnvoi(false); }
+  };
+
   const titre = <h3 className="mes-parcours-titre">Nouveau compromis{societe !== null && etape !== 'structure' ? ` — ${LIBELLE_SOCIETE[societe]}` : ''}</h3>;
   const fermer = <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-parcours-fermer>Fermer</button>;
   const ligne = (mot: string, valeur: string | null) => <div className="mes-parcours-info"><dt>{mot}</dt><dd className={valeur === null ? 'trx-a-renseigner' : undefined}>{valeur ?? 'à renseigner'}</dd></div>;
+
+  // 🔴 LOT 6 — le formulaire EXISTANT sur l'affaire rejointe : moi au côté libre choisi, les négociateurs présents gardés ; commissions non visibles.
+  if (etape === 'formulaireRejoindre' && refs !== null && aRejoindre !== null && coteRejoint !== null && verifie !== null) {
+    const base = etatRepartitionDe(aRejoindre, refs.negociateurs, refs.uniteCommission === true);
+    return <FormulaireDossier societe={aRejoindre.societe} vente={aRejoindre} references={refs} repartitionInitiale={changerNegociateur(base, coteRejoint, refs.titulaireId, refs.negociateurs)}
+      commissionsMasquees={!refs.administrateur} message={`Vous rejoignez cette affaire à ${coteRejoint === 'entree' ? 'l’entrée du mandat (côté vendeur)' : 'la sortie du mandat (côté acquéreur)'} : complétez ce qui manque, puis enregistrez.`}
+      envoyer={(c) => envoyerMonEspace({ ...c, rejoindre: { numero: verifie } })}
+      onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) onCree(e.id); else onFermer(); }} />;
+  }
 
   if (etape === 'formulaire' && refs !== null && societe !== null && verifie !== null && cote !== null) {
     const negos = refs.negociateurs;
@@ -129,8 +158,19 @@ export function NouveauCompromis({ onFermer, onCree }: { onFermer: () => void; o
           {fermer}
         </div>
       </>}
-      {etape === 'rejoindre' && <>
-        <p role="status" data-rejoindre-attente>Rejoindre une transaction existante (y renseigner votre côté) sera disponible au prochain lot. Aucun nouveau compromis n’a été créé.</p>
+      {etape === 'rejoindre' && transaction !== null && <>
+        <p className="mes-parcours-question">De quel côté rejoignez-vous « {transaction.libelle} » ?</p>
+        <div className="mes-parcours-choix" role="group" aria-label="Le côté que vous rejoignez">
+          {(['entree', 'sortie'] as const).map((c) => {
+            const tenu = c === 'entree' ? transaction.entree : transaction.sortie;
+            const mot = c === 'entree' ? 'Entrée du mandat (côté vendeur)' : 'Sortie du mandat (côté acquéreur)';
+            return tenu === null
+              ? <button key={c} type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void rejoindre(c)} disabled={envoi || refs === null} data-rejoindre-cote={c}>{mot}</button>
+              : <p key={c} className="loc-muet mes-parcours-tenu" data-cote-tenu={c}>{mot} : déjà tenue par {tenu}.</p>;
+          })}
+        </div>
+        {transaction.entree !== null && transaction.sortie !== null && <p className="loc-alerte loc-alerte--orange" role="status" data-deux-cotes-tenus>Les deux côtés sont déjà tenus.
+          Un deuxième négociateur sur un même côté n’existe pas encore dans la répartition : demandez à un administrateur.</p>}
         <div className="trx-actions">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape('pris')}>Revenir à la transaction</button>
           {fermer}
@@ -167,4 +207,5 @@ export const CSS_NOUVEAU_COMPROMIS = `
 .mes-parcours-info dt{font-size:.85rem;color:var(--color-svv-muted)}
 .mes-parcours-info dd{margin:0;font-weight:600;color:var(--color-svv-ink)}
 .mes-nouveau{min-height:44px}
+.mes-parcours-tenu{margin:0;flex:1 1 220px;align-self:center}
 `;

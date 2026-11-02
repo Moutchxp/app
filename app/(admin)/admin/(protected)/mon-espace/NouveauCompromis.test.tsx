@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MesCompteurs } from './MesCompteurs';
-import { URL_COMPROMIS, URL_MANDAT, URL_REFERENCES } from './NouveauCompromis';
+import { URL_COMPROMIS, URL_MANDAT, URL_REFERENCES, URL_VENTE } from './NouveauCompromis';
 
 /**
  * 🔴 MON ESPACE, LOT 5 — le parcours « + Nouveau compromis » dans le VRAI écran de « Mon espace », routes simulées (rien n'est écrit) :
  * ① la structure seule ; ② le n° obligatoire (impossible d'avancer sans lui) ; ③ libre → le côté, puis le formulaire EXISTANT (structure et n°
  * posés, n° non modifiable, moi à mon côté), envoyé à la route de « Mon espace » ; enregistré → « Mes compromis en cours », la nouvelle affaire
- * en haut, dépliée ; ③ pris → la transaction existante, « Rejoindre » mène à l'écran d'attente, rien n'est envoyé. Données fictives.
+ * en haut, dépliée ; ③ pris → la transaction existante ; 🔴 LOT 6 : « Rejoindre » → un côté LIBRE, puis le formulaire EXISTANT sur CETTE affaire
+ * (commissions non visibles), envoyé avec la preuve du n° et la version ; deux côtés tenus : aucun bouton. Données fictives.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const LEA = { id: 5, nom: 'Léa MARTIN', societe: 'criterimmo' as const };
@@ -21,6 +22,11 @@ const venteCreee = { id: 99, societe: 'criterimmo', libelle: 'NOUVEAU / ACHETEUR
   dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa MARTIN' }, sortie: { id: 5, nom: 'Léa MARTIN' }, apporteurId: null, personnes: [] },
   mesCotes: ['entree', 'sortie'], commissionsRetirees: false };
 const ancienne = { ...venteCreee, id: 50, libelle: 'PLUS RÉCENTE', dateCompromis: '2026-10-30' };
+// 🔴 LOT 6 — l'affaire qui porte déjà le n° : Marc (7) à l'entrée, la sortie libre ; telle que Léa la reçoit (sans la commission de Marc).
+const aRejoindre = { ...venteCreee, id: 3, libelle: 'DUPONT / MARTIN', numeroMandat: 'M-0042', version: 41, honorairesTtc: 12000,
+  repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: 'Marc DURAND', societe: 'macj', nom: null, coordonnees: null, pourcentage: 100, montantHt: null }] },
+  dossier: { adresseBien: '1 rue A, Puteaux', dateActePrevue: null, dateActe: null, entree: { id: 7, nom: 'Marc DURAND' }, sortie: null, apporteurId: null, personnes: [] },
+  mesCotes: [], commissionsRetirees: true };
 let cree = false;
 let prise: unknown = null;
 let posts: { url: string; corps: Record<string, unknown> }[];
@@ -37,6 +43,7 @@ beforeEach(() => {
     if (u.startsWith(URL_REFERENCES)) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaireId: 5, administrateur: false, lotD: true, personneType: true, prixVente: true,
       mandat: true, uniteCommission: true, negociateurs: [LEA, MARC], apporteurs: [], personnes: [] });
     if (u.startsWith(URL_MANDAT)) return ok(prise === null ? { libre: true, numero: 'M-42' } : { libre: false, numero: 'M-42', transaction: prise });
+    if (u.startsWith(URL_VENTE)) return ok(aRejoindre);
     const ventes = cree ? [ancienne, venteCreee] : [ancienne];
     return ok({ disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes,
       schema: { lotD: true, personneType: true, uniteCommission: true, prixVente: true, mandat: true },
@@ -92,7 +99,7 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect(container.querySelector('[data-ma-vente="99"] [data-colonne="vendeur"]')).not.toBeNull();
   });
 
-  it('n° déjà pris : la transaction existante décrite ; « Rejoindre » → écran d’attente ; aucun envoi, aucun formulaire de création', async () => {
+  it('n° déjà pris : la transaction existante décrite ; « Rejoindre » → le côté libre seulement → le formulaire EXISTANT sur CETTE affaire, sans ses commissions ; envoyé avec la preuve et la version', async () => {
     prise = { id: 3, societe: 'criterimmo', numero: 'M-0042', libelle: 'DUPONT / MARTIN', statut: 'compromis', dateCompromis: '2026-10-01', dateActe: null,
       adresseBien: '1 rue A, Puteaux', vendeurs: ['M. Paul DUPONT'], acquereurs: ['Mme Anne MARTIN'], entree: 'Marc DURAND', sortie: null };
     await ouvrir();
@@ -108,7 +115,32 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect(texte(d)).toContain('Négociateur d’entréeMarc DURAND');
     expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
     await cliquer('[data-rejoindre]');
-    expect(texte('[data-rejoindre-attente]')).toBe('Rejoindre une transaction existante (y renseigner votre côté) sera disponible au prochain lot. Aucun nouveau compromis n’a été créé.');
+    // l'entrée est tenue (un texte, pas un bouton) ; la sortie est libre (un bouton)
+    expect(texte('[data-cote-tenu="entree"]')).toBe('Entrée du mandat (côté vendeur) : déjà tenue par Marc DURAND.');
+    expect(container.querySelector('[data-rejoindre-cote="entree"]')).toBeNull();
+    await cliquer('[data-rejoindre-cote="sortie"]');
+    // le formulaire EXISTANT sur l'affaire 3 (aucune création), moi à la sortie, Marc gardé à l'entrée ; commissions non visibles
+    expect(container.querySelector('[data-formulaire-dossier="3"]')).not.toBeNull();
+    expect(container.querySelector('[data-commission-masquee="entree"]')).not.toBeNull();
+    expect(container.querySelector('[data-champ="commission-entree"]')).toBeNull();
+    expect(container.querySelector('[data-champ="commission-sortie"]')).toBeNull();
+    await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); });
+    await calmer();
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe(URL_COMPROMIS);
+    expect(posts[0].corps).toMatchObject({ id: 3, version: 41, rejoindre: { numero: 'M-42' }, dossier: { entreeId: 7, sortieId: 5 } });
+  });
+
+  it('les deux côtés déjà tenus : aucun côté à rejoindre, le message le dit ; rien n’est envoyé', async () => {
+    prise = { id: 3, societe: 'criterimmo', numero: 'M-0042', libelle: 'DUPONT / MARTIN', statut: 'compromis', dateCompromis: null, dateActe: null,
+      adresseBien: null, vendeurs: [], acquereurs: [], entree: 'Marc DURAND', sortie: 'Zoé ITEST' };
+    await ouvrir();
+    await cliquer('[data-structure="criterimmo"]');
+    await saisir('[data-parcours-mandat]', 'M-42');
+    await cliquer('[data-parcours-verifier]');
+    await cliquer('[data-rejoindre]');
+    expect(container.querySelector('[data-rejoindre-cote]')).toBeNull();
+    expect(container.querySelector('[data-deux-cotes-tenus]')).not.toBeNull();
     expect(posts).toEqual([]);
   });
 });

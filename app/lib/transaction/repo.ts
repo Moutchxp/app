@@ -25,11 +25,32 @@ import { MOTIF_MANDAT_INEFFACABLE, MOTIF_MANDAT_OBLIGATOIRE, MOTIF_SANS_449, mot
 import { venteDuMandat } from './mandatRepo';
 
 export interface AuteurTx { id: number | null; libelle: string }
-export type Issue<T = undefined> = { ok: true; valeur?: T } | { ok: false; motif: string };
+export type Issue<T = undefined> = { ok: true; valeur?: T } | { ok: false; motif: string;
+  /** 🔴 MON ESPACE, LOT 6 — la vente a changé depuis que l'écran l'a lue (garde de version) : la route répond 409, rien n'est écrit. */
+  conflit?: true };
 
 /** Les tables de la tuile existent-elles (migration 433) ? Sonde mémorisée (« oui » seulement), partagée avec le droit. */
 export const transactionDisponible = (): Promise<boolean> => droitTransactionDisponible();
 export const MOTIF_SANS_MIGRATION = 'Disponible après la mise à jour de la base (migration 433) : rien n’a été enregistré.';
+
+/**
+ * ══ 🔴 MON ESPACE, LOT 6 (Arno, 02/11/2026) — LA GARDE DE VERSION D'UNE VENTE (« Mon espace » ET la tuile Suivi CA) ══════════════════════════════
+ * La VERSION d'une vente = le dernier numéro du journal (`transaction_journal`, en ajout seul — verrou en base) qui la concerne : ses gestes et
+ * ceux de ses lignes. Chaque écriture journalisée la fait avancer ; elle ne recule jamais ; aucune migration. L'écran lit la version avec la
+ * vente et la renvoie avec son geste ; le serveur, la vente VERROUILLÉE (`lireLigne` : FOR UPDATE), la relit : différente, il refuse AVANT
+ * toute écriture (409) — un collègue a enregistré entre-temps, rien n'est écrasé. Sans version envoyée (un écran d'avant) : pas de contrôle.
+ */
+export const MOTIF_CONFLIT_VERSION = 'Un collègue vient de modifier cette affaire — rechargez pour voir ses changements avant d’enregistrer.';
+/** La version d'une vente, en SQL (`col` : l'expression de son id). */
+export const sqlVersionVente = (col: string): string =>
+  `GREATEST((SELECT coalesce(max(j.id), 0) FROM transaction_journal j WHERE j.entite = 'vente' AND j.entite_id = ${col}),
+    (SELECT coalesce(max(j.id), 0) FROM transaction_journal j JOIN transaction_vente_ligne l ON j.entite = 'vente_ligne' AND j.entite_id = l.id WHERE l.vente_id = ${col}))`;
+/** Le refus si la vente a changé depuis `attendue` (null : rien à contrôler). À appeler la vente verrouillée, avant toute écriture. */
+async function garderVersion(q: RequeteTx, id: number, attendue: number | null | undefined): Promise<{ ok: false; motif: string; conflit: true } | null> {
+  if (attendue == null) return null;
+  const { rows } = await q<{ v: string }>(`SELECT ${sqlVersionVente('$1::bigint')} AS v`, [id]);
+  return Number(rows[0]?.v ?? 0) === attendue ? null : { ok: false, motif: MOTIF_CONFLIT_VERSION, conflit: true };
+}
 
 const n = (v: unknown): number => Number(v);
 const nOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
@@ -63,7 +84,7 @@ function venteDe(r: Record<string, unknown>, lignes: LigneVente[], lotD?: { part
   const avecAnnulation = 'annulation_motif' in r
     ? { annulation: r.annulation_motif == null ? null : { date: jour(r.annulation_date), motif: String(r.annulation_motif), note: t(r.annulation_note) } } : {};
   return { ...avecLotD, ...avecAnnulation, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}),
-    ...('numero_mandat' in r ? { numeroMandat: t(r.numero_mandat) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
+    ...('numero_mandat' in r ? { numeroMandat: t(r.numero_mandat) } : {}), ...('version' in r ? { version: n(r.version) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
     annee: n(r.annee), mois: moisDe(r.mois_acte), dateCompromis: jour(r.date_compromis), apporteur: t(r.apporteur), note: t(r.note),
     origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes,
     double: r.double_cle === null || r.double_cle === undefined ? null : { cle: String(r.double_cle), attribution: r.attribution as Attribution } };
@@ -128,7 +149,7 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
     `SELECT v.id, v.societe, v.libelle, v.honoraires_ttc, v.statut, v.annee, to_char(v.mois_acte, 'YYYY-MM-DD') AS mois_acte,
             to_char(v.date_compromis, 'YYYY-MM-DD') AS date_compromis, v.apporteur, v.note, v.origine, v.source_fichier, v.source_onglet, v.source_ligne,
-            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${avecMandat ? ', v.numero_mandat' : ''}${avecAnnulation
+            v.double_cle, v.attribution, ${sqlVersionVente('v.id')} AS version${avecPrix ? ', v.prix_vente' : ''}${avecMandat ? ', v.numero_mandat' : ''}${avecAnnulation
               ? ", to_char(v.annulation_date, 'YYYY-MM-DD') AS annulation_date, v.annulation_motif, v.annulation_note" : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
             to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,${avecUnite ? ' v.retro_apporteur_ht,' : ''}
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
@@ -475,11 +496,14 @@ function colonnesDeChamps(ch: ChampsVente, actuel: Record<string, unknown>): Rec
   return c;
 }
 
-export async function modifierVente(id: number, ch: ChampsVente, auteur: AuteurTx): Promise<Issue> {
+export async function modifierVente(id: number, ch: ChampsVente, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     // 🔴 MON ESPACE, LOT 2 — le n° de mandat : ajouté ou corrigé (libre dans la structure), jamais effacé ; absent de la saisie : inchangé.
     const mandat = await mandatAEcrire(q, { creation: false, compromis: false, saisi: ch.numeroMandat, actuel: actuel.numero_mandat_normalise,
       societe: actuel.societe as Societe, id });
@@ -493,11 +517,14 @@ export async function modifierVente(id: number, ch: ChampsVente, auteur: AuteurT
 }
 
 /** Retirer (réversible) ou rétablir une vente : `retire_le`, journalisé. Ses lignes ne sont pas touchées (elles suivent la vente). */
-export async function retirerVente(id: number, retirer: boolean, auteur: AuteurTx): Promise<Issue> {
+export async function retirerVente(id: number, retirer: boolean, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null) return { ok: false, motif: 'Vente introuvable.' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     if ((actuel.retire_le !== null) === retirer) return { ok: false, motif: retirer ? 'Vente déjà retirée.' : 'Vente non retirée.' };
     const r = await ecrire(q, 'vente', id, { retire_le: retirer ? new Date() : null }, true);
     if (retirer) await q('UPDATE transaction_vente SET retire_par_libelle = $2 WHERE id = $1', [id, auteur.libelle]);
@@ -739,7 +766,7 @@ const anneeDe = (d: string | null): number | null => (d === null ? null : Number
  * base, avec sa société À LA DATE DE LA VENTE (acte, sinon compromis, sinon aujourd'hui), figée sur la partie. Les personnes déjà connues
  * sont RÉUTILISÉES (jamais de doublon). Journalisé : la vente, les personnes (ensemble), la répartition (ensemble) — chaque geste se défait.
  */
-export async function enregistrerDossier(id: number | null, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx): Promise<Issue<number>> {
+export async function enregistrerDossier(id: number | null, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue<number>> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
   // LOT I — sans la 437, tout reste en TTC comme avant : une saisie en HT, ou une commission de négociateur par côté, est refusée (rien n'est écrit).
@@ -864,6 +891,9 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     } else {
       const actuel = await lireLigne(q, 'vente', id);
       if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+      // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+      const conflitVersion = await garderVersion(q, id, versionAttendue);
+      if (conflitVersion !== null) return conflitVersion;
       // 🔴 MON ESPACE, LOT 2 — le n° de mandat d'une fiche existante : ajouté ou corrigé (libre dans la structure porteuse), jamais effacé.
       const mandat = await mandatAEcrire(q, { creation: false, compromis: s.statut === 'compromis', saisi: s.numeroMandat, actuel: actuel.numero_mandat_normalise,
         societe: porteuse ?? actuel.societe as Societe, id });
@@ -1101,7 +1131,7 @@ async function poserCommissions(q: RequeteTx, venteId: number, statut: string, v
  */
 export async function enregistrerCommissionCote(id: number, cote: 'entree' | 'sortie', montant: MontantSaisi | null, taux: number | null, auteur: AuteurTx,
   /** 🔴 LOT V — « calculee » (Appliquer / Revenir au calcul, taux modifié) ou « manuelle » (montant tapé) ; null : inconnu. */
-  mode: ModeCommission | null = null): Promise<Issue> {
+  mode: ModeCommission | null = null, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (!(await repartitionDisponible())) return { ok: false, motif: MOTIF_SANS_434 };
   if (!(await uniteCommissionDisponible())) return { ok: false, motif: MOTIF_SANS_437 };
@@ -1112,6 +1142,9 @@ export async function enregistrerCommissionCote(id: number, cote: 'entree' | 'so
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     const negoId = cote === 'entree' ? actuel.negociateur_entree_id : actuel.negociateur_sortie_id;
     if (negoId == null) return { ok: false, motif: `Choisissez le négociateur ${cote === 'entree' ? 'd’entrée' : 'de sortie'} avant de saisir sa rémunération.` };
     const { rows: c } = await q<{ nom: string; role: string; commissionne: string | null }>(
@@ -1151,11 +1184,14 @@ async function remplacerEnsemble(q: RequeteTx, action: 'repartition' | 'personne
 }
 
 /** « Acte signé » : le compromis devient une vente encaissée au mois de l'acte (date saisie). Journalisé ; « Revenir en compromis » le défait. */
-export async function acteSigne(id: number, dateActe: string, auteur: AuteurTx): Promise<Issue> {
+export async function acteSigne(id: number, dateActe: string, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     if (actuel.statut !== 'compromis') return { ok: false, motif: 'Ce n’est pas un compromis en cours.' };
     const lotD = await repartitionDisponible();
     const r = await ecrire(q, 'vente', id, { statut: 'vendue', annee: Number(dateActe.slice(0, 4)), mois_acte: `${dateActe.slice(0, 7)}-01`, ...(lotD ? { date_acte: dateActe } : {}) }, true);
@@ -1167,11 +1203,14 @@ export async function acteSigne(id: number, dateActe: string, auteur: AuteurTx):
 }
 
 /** « Revenir en compromis » : la vente redevient un compromis en cours (année : celle de l'acte prévu, sinon l'année actuelle). Journalisé. */
-export async function retourCompromis(id: number, auteur: AuteurTx): Promise<Issue> {
+export async function retourCompromis(id: number, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     if (actuel.statut !== 'vendue') return { ok: false, motif: 'Ce n’est pas une vente encaissée.' };
     const lotD = await repartitionDisponible();
     const prevue = typeof actuel.date_acte_prevue === 'string' ? Number(actuel.date_acte_prevue.slice(0, 4)) : null;
@@ -1191,12 +1230,15 @@ export const MOTIF_SANS_436 = 'Disponible après la mise à jour de la base (mig
  * « Confirmer l'annulation » : le compromis passe « annulé » (motif, date, note) — il sort des compromis en cours et du prévisionnel, ne
  * compte dans aucun CA, et reste consultable. Rien n'est supprimé ; journalisé ; « Rétablir le compromis » le défait.
  */
-export async function annulerCompromis(id: number, a: AnnulationSaisie, auteur: AuteurTx): Promise<Issue> {
+export async function annulerCompromis(id: number, a: AnnulationSaisie, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (!(await annulationDisponible())) return { ok: false, motif: MOTIF_SANS_436 };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     if (actuel.statut !== 'compromis') return { ok: false, motif: 'Ce n’est pas un compromis en cours.' };
     const r = await ecrire(q, 'vente', id, { statut: 'annulee', annulation_date: a.date, annulation_motif: a.motif, annulation_note: a.note }, true);
     await journaliser(q, { entite: 'vente', id, action: 'annulation_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
@@ -1207,12 +1249,15 @@ export async function annulerCompromis(id: number, a: AnnulationSaisie, auteur: 
 }
 
 /** « Rétablir le compromis » : il redevient un compromis en cours (motif, date et note de l'annulation vidés, gardés au journal). */
-export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<Issue> {
+export async function retablirCompromis(id: number, auteur: AuteurTx, versionAttendue: number | null = null): Promise<Issue> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (!(await annulationDisponible())) return { ok: false, motif: MOTIF_SANS_436 };
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
+    // 🔴 MON ESPACE, LOT 6 — la garde de version : un collègue a enregistré depuis la lecture de l'écran → 409, rien n'est écrit.
+    const conflitVersion = await garderVersion(q, id, versionAttendue);
+    if (conflitVersion !== null) return conflitVersion;
     if (actuel.statut !== 'annulee' || actuel.annulation_motif == null) return { ok: false, motif: 'Ce compromis n’est pas annulé.' };
     // 🔴 MON ESPACE, LOT 2 — son n° de mandat, libéré par l'annulation, a pu être repris par une autre vente de la structure : refus, avec son résumé.
     if (typeof actuel.numero_mandat === 'string') {

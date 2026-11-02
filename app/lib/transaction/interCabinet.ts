@@ -73,6 +73,8 @@ export function ligneMiroir(v: Vente, s: Societe, partHt: number, pourcentage: n
     repartition: null, annulation, retroApporteur: null, prixVente: null,
     // 🔴 MON ESPACE, LOT 2 — le n° de mandat de la vente d'origine : la même vente, le même mandat, chez les deux sociétés.
     ...(v.numeroMandat !== undefined ? { numeroMandat: v.numeroMandat } : {}),
+    // 🔴 MON ESPACE, LOT 6 — la version de la vente d'origine : un geste depuis la ligne miroir agit sur elle.
+    ...(v.version !== undefined ? { version: v.version } : {}),
     dossier: v.dossier == null ? null : { ...v.dossier, apporteurId: null },
     miroir: { origineId: v.id, porteuse, libelleOrigine: v.libelle, partHt, pourcentage, etat, cotes },
   };

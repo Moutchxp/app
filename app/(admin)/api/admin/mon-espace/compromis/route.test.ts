@@ -72,9 +72,9 @@ describe('🔴 POST /api/admin/mon-espace/compromis — créer depuis « Mon esp
     expect((await poster({ dossier: autrui })).status).toBe(200);
     expect(h.enregistrer).toHaveBeenCalledTimes(1);
   });
-  it('ni une vente directement actée, ni une modification (id) : refusées', async () => {
+  it('pas de vente directement actée à la création ; 🔴 LOT 6 — un id : la voie de la MODIFICATION (ici, affaire inconnue : 404), jamais une création', async () => {
     expect((await poster({ dossier: dossier({ statut: 'vendue', dateActe: '2026-11-02' }) })).status).toBe(422);
-    expect((await poster({ id: 12, dossier: dossier() })).status).toBe(422);
+    expect((await poster({ id: 12, dossier: dossier() })).status).toBe(404);
     expect(h.enregistrer).not.toHaveBeenCalled();
   });
   it('sans le droit « Mon espace » : 403', async () => {

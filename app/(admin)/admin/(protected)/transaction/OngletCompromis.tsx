@@ -80,7 +80,7 @@ export function OngletCompromis({ societe, fusion = false, selecteurUnite = fals
   const [fenetrePersonnes, setFenetrePersonnes] = useState<{ venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null } | null>(null);
   // LOT G — la modale « Annulation » ouverte sur un compromis.
   const [annulation, setAnnulation] = useState<Vente | null>(null);
-  const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
+  const [acte, setActe] = useState<{ id: number; date: string; version?: number } | null>(null);
   const [fait, setFait] = useState<{ id: number; libelle: string } | null>(null);
   // 🔴 LOT AE — la vente vient d'être enregistrée ici mais elle est PORTÉE par l'autre société (son négociateur d'entrée y travaille).
   const [portee, setPortee] = useState<{ id: number; porteuse: Societe; recue: boolean } | null>(null);
@@ -156,7 +156,7 @@ export function OngletCompromis({ societe, fusion = false, selecteurUnite = fals
   };
   const signer = async (): Promise<void> => {
     if (acte === null) return;
-    const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date });
+    const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date, version: acte.version });
     setMotif(r);
     if (r === null) { setFait({ id: acte.id, libelle: liste.find((v) => v.id === acte.id)?.libelle ?? '' }); setActe(null); relire(); }
   };
@@ -311,7 +311,7 @@ export function OngletCompromis({ societe, fusion = false, selecteurUnite = fals
 export async function enregistrerDossierAvec(v: Vente, d: Pick<References, 'negociateurs' | 'uniteCommission'>, change: Partial<EtatRepartition>,
   personnes: PersonneEcran[] = personnesDe(v)): Promise<string | null> {
   const etat: EtatRepartition = { ...etatRepartitionDe(v, d.negociateurs, d.uniteCommission === true), ...change };
-  return posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnes, etat) });
+  return posterTransaction({ action: 'dossier-enregistrer', id: v.id, version: v.version, dossier: corpsDossier(v.societe, v.statut === 'vendue' ? 'vendue' : 'compromis', champsDe(v), personnes, etat) });
 }
 
 /**
@@ -324,7 +324,7 @@ export function useHoteAffaires({ d, vue, societe, statutDuLibelle, relire, vent
   const [edition, setEdition] = useState<{ vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number } | null>(null);
   const [fenetrePersonnes, setFenetrePersonnes] = useState<{ venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null } | null>(null);
   const [annulation, setAnnulation] = useState<Vente | null>(null);
-  const [acte, setActe] = useState<{ id: number; date: string } | null>(null);
+  const [acte, setActe] = useState<{ id: number; date: string; version?: number } | null>(null);
   const [historique, setHistorique] = useState<number | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const enregistrerApporteur = async (v: Vente, change: Partial<EtatRepartition>, personnes?: PersonneEcran[]): Promise<string | null> => {
@@ -334,7 +334,7 @@ export function useHoteAffaires({ d, vue, societe, statutDuLibelle, relire, vent
   };
   const signer = async (): Promise<void> => {
     if (acte === null) return;
-    const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date });
+    const r = await posterTransaction({ action: 'acte-signe', id: acte.id, dateActe: acte.date, version: acte.version });
     setMotif(r);
     if (r === null) { setActe(null); relire(); }
   };
@@ -368,7 +368,7 @@ export interface HoteDetail {
   enregistrerApporteur: (v: Vente, change: Partial<EtatRepartition>) => Promise<string | null>;
   ouvrirEdition: (x: { vente: Vente; ajouter: 'vendeur' | 'acquereur' | null; repartition?: EtatRepartition; message?: string; personneVisee?: number }) => void;
   ouvrirPersonnes: (x: { venteId: number; role: 'vendeur' | 'acquereur'; personneVisee: number | null }) => void;
-  acte: { id: number; date: string } | null; setActe: (x: { id: number; date: string } | null) => void; signer: () => Promise<void>;
+  acte: { id: number; date: string; version?: number } | null; setActe: (x: { id: number; date: string; version?: number } | null) => void; signer: () => Promise<void>;
   historique: number | null; setHistorique: (x: number | null) => void;
   ouvrirAnnulation: (v: Vente) => void;
 }
@@ -726,7 +726,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
       <div className="trx-actions trx-barre-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>
         {/* 🔴 LOT BU — « Acte signé » et « Annulation » : seulement pour un compromis (une vente déjà signée, ouverte depuis « Le mois », ne les a pas). */}
-      {v.statut === 'compromis' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setActe({ id: v.id, date: d.aujourdhui })} disabled={!d.disponible} data-acte-signe={v.id}>Acte signé</button>}
+      {v.statut === 'compromis' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setActe({ id: v.id, date: d.aujourdhui, version: v.version })} disabled={!d.disponible} data-acte-signe={v.id}>Acte signé</button>}
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setHistorique(historique === v.id ? null : v.id)}>{historique === v.id ? 'Masquer l’historique' : 'Historique'}</button>
         {/* LOT G — « Annulation », à droite, contour et texte rouges : le mot accompagne la couleur. */}
         {v.statut === 'compromis' && <button type="button" className="trx-btn-annulation" onClick={() => setAnnulation(v)} disabled={!d.disponible || d.annulation !== true}
@@ -735,7 +735,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
       </div>
       {acte?.id === v.id && (
         <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void signer(); }} data-form-acte={v.id}>
-          <label>Date de l’acte (son mois est le mois du CA)<input type="date" value={acte.date} onChange={(e) => setActe({ id: v.id, date: e.target.value })} required data-date-acte /></label>
+          <label>Date de l’acte (son mois est le mois du CA)<input type="date" value={acte.date} onChange={(e) => setActe({ id: v.id, date: e.target.value, version: v.version })} required data-date-acte /></label>
           <div className="trx-actions"><button type="submit" className="svv-btn svv-btn-primary gst-btn" data-confirmer-acte>Confirmer l’acte</button>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setActe(null)}>Abandonner</button></div>
         </form>
@@ -840,7 +840,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
     const somme = etatSomme(etat, v.honorairesTtc);
     if (somme.motif !== null) { setOuvert(false); onRevoir(etat, `Le négociateur de ${mot} a changé : la répartition est à revoir. ${somme.motif}`); return; }
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, version: v.version, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
     setEnvoi(false);
     if (r === null) { onEnregistre?.(etat); setOuvert(false); onFait(); } else setMotif(r);
   };
@@ -865,7 +865,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   const appliquer = (r: Remuneration): void => {
     const u = r.saisie?.unite ?? 'ttc';
     setEnvoi(true);
-    void posterTransaction({ action: 'commission-cote', id: v.id, cote, montant: { montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, taux: r.taux, mode: 'calculee' })
+    void posterTransaction({ action: 'commission-cote', id: v.id, version: v.version, cote, montant: { montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, taux: r.taux, mode: 'calculee' })
       .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); });
   };
   const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} lectureSeule={lecture !== undefined}
@@ -1201,7 +1201,7 @@ function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onE
     if (bloque !== null) { setMotif(`${bloque} Rien n’a été enregistré.`); return; }
     if (JSON.stringify(versModele(etat.parties)) === JSON.stringify(versModele(base.parties))) { setEtat(null); return; }
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
+    const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, version: v.version, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
     setEnvoi(false);
     if (r === null) { onEnregistre?.(etat); setEtat(null); onFait(); } else setMotif(r);
   };
@@ -1321,7 +1321,7 @@ export function DetailMiroir({ v, references, aujourdhui, disponible, onFait, st
         <AlerteVentilation v={v} vue={v.societe} />
         <p className="loc-muet trx-miroir-note" data-miroir-lecture-seule>Ligne miroir : suit la vente d’origine ; seule la rémunération du négociateur se modifie ici.</p>
         {m.cotes.length === 0 ? <p className="loc-muet">Aucun négociateur de {LIBELLE_SOCIETE[v.societe]} sur cette vente.</p>
-          : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
+          : m.cotes.map((x) => <RemunerationCote key={x.cote} statutDuLibelle={statutDuLibelle} venteId={m.origineId} version={v.version} cote={x.cote} negociateur={x.negociateur} societe={v.societe} statut={x.statut}
             ventilation={ventilation[x.cote]}
             baseTtc={x.baseTtc} pct={m.pourcentage} ligne={v.lignes.find((l) => l.role === 'negociateur' && l.cote === x.cote)} commissionne={x.commissionne !== false}
             disponible={disponible && references.uniteCommission === true} onFait={onFait} />)}
@@ -1334,7 +1334,9 @@ export function DetailMiroir({ v, references, aujourdhui, disponible, onFait, st
  * sa société) et, si la valeur saisie en diffère, « valeur saisie — calcul proposé : X € » et « Appliquer le calcul » (un geste humain,
  * journalisé : rien n'est jamais recalculé tout seul) ; « Modifier la rémunération » : le taux OU le montant (l'un recalcule l'autre).
  */
-export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, statutDuLibelle, ventilation }: {
+export function RemunerationCote({ venteId, cote, negociateur, societe, statut, baseTtc, pct, ligne, disponible, onFait, commissionne = true, statutDuLibelle, ventilation, version }: {
+  /** 🔴 MON ESPACE, LOT 6 — la version de la vente d'origine (garde de version). */
+  version?: number;
   /** 🔴 LOT AY — la ventilation de ce côté (part de l'agence de la société qui reçoit). */
   ventilation?: VentilationCote;
   /** LOT Y — le résolveur des libellés importés (la règle du cumul). */
@@ -1356,7 +1358,7 @@ export function RemunerationCote({ venteId, cote, negociateur, societe, statut, 
   const propose = { pct: pct ?? 0, baseTtc, taux: tauxDe(champ), ttc: (baseTtc * tauxDe(champ)) / 100 };
   const envoyer = async (montant: { montant: number; unite: 'ht' | 'ttc' } | null, taux: number, mode: 'calculee' | 'manuelle'): Promise<void> => {
     setEnvoi(true); setMotif(null);
-    const res = await posterTransaction({ action: 'commission-cote', id: venteId, cote, montant, taux, mode });
+    const res = await posterTransaction({ action: 'commission-cote', id: venteId, version, cote, montant, taux, mode });
     setEnvoi(false);
     if (res === null) { setOuvert(false); onFait(); } else setMotif(res);
   };
@@ -1442,7 +1444,7 @@ function ModaleAnnulation({ vente, aujourdhui, onFermer, onFait }: { vente: Vent
   const confirmer = async (): Promise<void> => {
     if (sorte === 'autre' && autre.trim() === '') { setMotif('Écrivez le motif de l’annulation (« Autre motif »).'); return; }
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'compromis-annuler', id: vente.id, annulation: { motif: sorte, autre, date, note } });
+    const r = await posterTransaction({ action: 'compromis-annuler', id: vente.id, version: vente.version, annulation: { motif: sorte, autre, date, note } });
     setEnvoi(false);
     if (r === null) onFait(); else setMotif(r);
   };
@@ -1486,7 +1488,7 @@ const CSS_ANNULATION = `
 /** LOT G — « Compromis annulés (N) », replié sous la liste (LOT AT : rendu seulement s'il y en a au moins un) : motif, date, note ; « Rétablir le compromis » (journalisé). */
 function CompromisAnnules({ annules, disponible, onFait, onMotif }: { annules: readonly Vente[]; disponible: boolean; onFait: () => void; onMotif: (m: string | null) => void }) {
   const retablir = async (id: number): Promise<void> => {
-    const r = await posterTransaction({ action: 'compromis-retablir', id });
+    const r = await posterTransaction({ action: 'compromis-retablir', id, version: annules.find((x) => x.id === id)?.version });
     onMotif(r);
     if (r === null) onFait();
   };

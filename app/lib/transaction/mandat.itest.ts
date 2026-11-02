@@ -15,6 +15,8 @@
  * VRAIES fonctions, VRAIE base (schéma copié, VIDE). 🔒 REFUSE de tourner ailleurs que sur une base `svav_jetable…` ou `svav_test…`.
  *   DATABASE_URL=postgresql://localhost:5432/svav_jetable_mandat \
  *     npx vitest run --config vitest.integration.config.ts app/lib/transaction/mandat.itest.ts
+ * ⚠️ L'étape ⓪ veut une base SANS la 449. La base de développement l'a reçue (02/11/2026) : sur la COPIE jetable seulement, avant l'épreuve,
+ *   psql -d svav_jetable_mandat -c "DROP INDEX IF EXISTS transaction_vente_mandat_unique; ALTER TABLE transaction_vente DROP COLUMN IF EXISTS numero_mandat_normalise, DROP COLUMN IF EXISTS numero_mandat;"
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';

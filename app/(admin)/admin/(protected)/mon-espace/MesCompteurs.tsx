@@ -6,7 +6,9 @@ import { CSS } from '../transaction/EcransTransaction';
 import { CarteAffaire, DetailAffaire, useColonnesNegociateurs, type HoteDetail, type VuePersonnelle } from '../transaction/OngletCompromis';
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import type { MesAffaires, VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
-import { CSS_NOUVEAU_COMPROMIS, NouveauCompromis } from './NouveauCompromis';
+import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
+import { HistoriqueAffaire } from './HistoriqueAffaire';
+import { FormulaireDossier, etatRepartitionDe, type References } from '../transaction/FormulaireDossier';
 
 /**
  * 🔴 MON ESPACE (Arno, 02/11/2026) — l'accueil de l'espace.
@@ -18,6 +20,8 @@ import { CSS_NOUVEAU_COMPROMIS, NouveauCompromis } from './NouveauCompromis';
  *     pour moi (les mêmes identifiants que les compteurs), rien d'autre.
  *   · LOT 5 : « + Nouveau compromis » (le parcours `NouveauCompromis`) ; enregistré, l'écran relit ses affaires et rouvre « Mes compromis en
  *     cours », la nouvelle affaire en haut, dépliée.
+ *   · LOT 6 : sous la fiche dépliée, « Modifier » (ses négociateurs et les administrateurs : le formulaire de la tuile, les commissions non
+ *     visibles pour un collaborateur, garde de version) et « Historique des modifications » (lecture seule).
  */
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
 type Onglet = 'compromis' | 'ventes';
@@ -43,6 +47,20 @@ export function MesCompteurs() {
   const [parcours, setParcours] = useState(false);
   const [nouvelle, setNouvelle] = useState<number | null>(null);
   const [lecture, setLecture] = useState(0);
+  // 🔴 LOT 6 — l'affaire en cours de modification, l'historique ouvert, les références du formulaire (lues à la première modification).
+  const [edition, setEdition] = useState<VenteMonEspace | null>(null);
+  const [historique, setHistorique] = useState<number | null>(null);
+  const [refs, setRefs] = useState<(References & { titulaireId: number; administrateur: boolean }) | null>(null);
+  const [motifEdition, setMotifEdition] = useState<string | null>(null);
+  const modifier = async (v: VenteMonEspace): Promise<void> => {
+    setMotifEdition(null);
+    if (refs !== null) { setEdition(v); return; }
+    try {
+      const r = await fetch(URL_REFERENCES, { cache: 'no-store' });
+      const j = (await r.json()) as { etat?: string; data?: References & { titulaireId: number; administrateur: boolean } };
+      if (r.ok && j.etat === 'ok' && j.data !== undefined) { setRefs(j.data); setEdition(v); } else setMotifEdition('Le formulaire n’a pas pu être préparé. Rechargez la page.');
+    } catch { setMotifEdition('Le formulaire n’a pas pu être préparé. Rechargez la page.'); }
+  };
   const listes = useRef<HTMLDivElement>(null);
   useColonnesNegociateurs(listes);
   useEffect(() => {
@@ -87,6 +105,14 @@ export function MesCompteurs() {
     <CarteAffaire key={v.id} v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={null} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
       donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
+      {/* 🔴 LOT 6 — « Modifier » : ses négociateurs et les administrateurs (le serveur refuse les autres, 403) ; l'historique, en lecture. */}
+      <div className="trx-actions trx-barre-actions mes-actions">
+        {(v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void modifier(v)}
+          data-modifier-mon-espace={v.id}>Modifier</button>}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-expanded={historique === v.id} onClick={() => setHistorique(historique === v.id ? null : v.id)}
+          data-historique-bouton={v.id}>{historique === v.id ? 'Masquer l’historique' : 'Historique des modifications'}</button>
+      </div>
+      {historique === v.id && <HistoriqueAffaire id={v.id} />}
     </CarteAffaire>
   );
   return (
@@ -98,6 +124,12 @@ export function MesCompteurs() {
         {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
         {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
         <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
+      {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}
+      {/* 🔴 LOT 6 — le formulaire de la tuile, sur l'affaire telle que je la reçois ; la version lue part avec l'enregistrement (409 si un collègue a
+          enregistré entre-temps : le message le dit, rien n'est écrasé). */}
+      {edition !== null && refs !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={refs}
+        repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
+        envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
       {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
       <div className="mes-compteurs">
         <button type="button" className="svv-card mes-compteur" aria-label={`Mes compromis en cours : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}

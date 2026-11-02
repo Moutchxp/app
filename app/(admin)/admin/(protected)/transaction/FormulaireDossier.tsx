@@ -100,14 +100,16 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe }: {
+export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false }: {
   /**
    * 🔴 MON ESPACE, LOT 5 — l'envoi du dossier : par défaut, la tuile Suivi CA (`dossier-enregistrer`, inchangé) ; « Mon espace » passe le sien
    * (sa route, qui enregistre par la MÊME fonction). Rend le motif d'un refus (null : accepté) et l'id de l'affaire.
    */
-  envoyer?: (corps: { id: number | null; dossier: Record<string, unknown> }) => Promise<{ motif: string | null; data: number | null }>;
+  envoyer?: (corps: { id: number | null; version?: number; dossier: Record<string, unknown> }) => Promise<{ motif: string | null; data: number | null }>;
   /** 🔴 MON ESPACE, LOT 5 — le n° de mandat déjà vérifié par le parcours : affiché, non modifiable à cette étape. */
   mandatFixe?: string;
+  /** 🔴 MON ESPACE, LOT 6 — la vue personnelle : les commissions des négociateurs ne se voient ni ne se modifient (le serveur garde celles enregistrées). */
+  commissionsMasquees?: boolean;
   /** 🔴 LOT BJ — « Modifier » depuis la fenêtre d'une personne : sa ligne prend le focus. */
   personneVisee?: number | null;
   /** LOT G — une répartition déjà changée (négociateur choisi depuis la carte) à revoir, et le message qui le dit. */
@@ -169,7 +171,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   })();
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
-    const corps = { id: vente?.id ?? null, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
+    // 🔴 MON ESPACE, LOT 6 — la version lue avec la vente : le serveur refuse (409) si un collègue a enregistré entre-temps.
+    const corps = { id: vente?.id ?? null, version: vente?.version, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
     const r = envoyer !== undefined ? await envoyer(corps) : await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', ...corps });
     setEnvoi(false);
     if (r.motif === null) onFait({ id: Number(r.data ?? vente?.id ?? 0), repartition, honorairesTtc: nombre(champs.commission) ?? 0 }); else setMotif(r.motif);
@@ -220,6 +223,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
                 : unite === 'ttc' ? `soit ${eur(ht(commission))}${ESPACE}HT` : `soit ${eur(commission)}${ESPACE}TTC`}</span></label>
             <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
             <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
+              commissionsMasquees={commissionsMasquees}
               societeVente={vente?.societe ?? societe}
               // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
               // « Enregistrer » l'écrit (journalisé).
@@ -238,7 +242,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
               {somme.motif === null && manqueSociete !== null && <span className="trx-explication" data-enregistrer-bloque-societe>Enregistrer est désactivé : {manqueSociete}</span>}
             </div>
           </form>
-          {vente !== null && <Journal entite="vente" id={vente.id} onFait={onFait} />}
+          {/* 🔴 MON ESPACE, LOT 6 — l'historique avec « Annuler ce geste » est celui de la tuile ; « Mon espace » (`envoyer`) a le sien, en lecture. */}
+          {vente !== null && envoyer === undefined && <Journal entite="vente" id={vente.id} onFait={onFait} />}
         </div>
       </div>
     </div>

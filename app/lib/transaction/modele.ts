@@ -107,6 +107,8 @@ export interface Vente {
   prixVente?: number | null;
   /** 🔴 MON ESPACE, LOT 2 (migration 449) — le n° de mandat tel que saisi ; absent (sans la 449) ou null : non renseigné. */
   numeroMandat?: string | null;
+  /** 🔴 MON ESPACE, LOT 6 — la version de la vente (le dernier n° de son journal) : renvoyée avec chaque geste (garde de version). */
+  version?: number;
   /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */
   dossier?: DossierVente | null;
   /**

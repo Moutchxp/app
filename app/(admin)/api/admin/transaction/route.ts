@@ -145,8 +145,10 @@ export async function POST(request: Request): Promise<Response> {
   const auteur = await auteurDeLaRequete(request);
   const id = Number(corps.id);
   const idValide = Number.isInteger(id) && id > 0;
-  const rendre = (r: { ok: true; valeur?: unknown } | { ok: false; motif: string }): Response =>
-    (r.ok ? json({ etat: 'ok', data: r.valeur ?? null }) : json({ etat: 'refus', motif: r.motif }, 422));
+  const rendre = (r: { ok: true; valeur?: unknown } | { ok: false; motif: string; conflit?: true }): Response =>
+    (r.ok ? json({ etat: 'ok', data: r.valeur ?? null }) : json({ etat: 'refus', motif: r.motif, ...(r.conflit ? { conflit: true } : {}) }, r.conflit ? 409 : 422));
+  // 🔴 MON ESPACE, LOT 6 — la version de la vente lue par l'écran (garde de version) ; absente : un écran d'avant, pas de contrôle.
+  const version = typeof corps.version === 'number' && Number.isInteger(corps.version) && corps.version >= 0 ? corps.version : null;
   try {
     switch (corps.action) {
       case 'vente-saisir': {
@@ -156,11 +158,11 @@ export async function POST(request: Request): Promise<Response> {
       case 'vente-modifier': {
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
         const ch = lireModification(corps.champs);
-        return ch.ok ? rendre(await modifierVente(id, ch.valeur, auteur)) : rendre(ch);
+        return ch.ok ? rendre(await modifierVente(id, ch.valeur, auteur, version)) : rendre(ch);
       }
       case 'vente-retirer':
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
-        return rendre(await retirerVente(id, corps.retirer !== false, auteur));
+        return rendre(await retirerVente(id, corps.retirer !== false, auteur, version));
       case 'retro-rattacher': {
         if (!idValide) return json({ etat: 'refus', motif: 'Rétrocession inconnue.' }, 400);
         const venteId = corps.venteId === null ? null : Number(corps.venteId);
@@ -197,25 +199,25 @@ export async function POST(request: Request): Promise<Response> {
         if (corps.id != null && !idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
         const dossierId = corps.id == null ? null : id;
         const d = lireDossier(corps.dossier);
-        return d.ok ? rendre(await enregistrerDossier(dossierId, d.valeur, aujourdhuiParis(), auteur)) : rendre(d);
+        return d.ok ? rendre(await enregistrerDossier(dossierId, d.valeur, aujourdhuiParis(), auteur, version)) : rendre(d);
       }
       case 'acte-signe': {
         if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
         const d = lireDateActe(corps.dateActe);
-        return d.ok ? rendre(await acteSigne(id, d.valeur, auteur)) : rendre(d);
+        return d.ok ? rendre(await acteSigne(id, d.valeur, auteur, version)) : rendre(d);
       }
       case 'compromis-annuler': {
         // LOT G — « Confirmer l'annulation » (motif, date, note).
         if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
         const a = lireAnnulation(corps.annulation);
-        return a.ok ? rendre(await annulerCompromis(id, a.valeur, auteur)) : rendre(a);
+        return a.ok ? rendre(await annulerCompromis(id, a.valeur, auteur, version)) : rendre(a);
       }
       case 'compromis-retablir':
         if (!idValide) return json({ etat: 'refus', motif: 'Compromis inconnu.' }, 400);
-        return rendre(await retablirCompromis(id, auteur));
+        return rendre(await retablirCompromis(id, auteur, version));
       case 'retour-compromis':
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
-        return rendre(await retourCompromis(id, auteur));
+        return rendre(await retourCompromis(id, auteur, version));
       case 'commission-cote': {
         // 🔴 LOT R — la rémunération d'un côté (montant dans son unité, taux de rémunération) ; montant null : retirée.
         if (!idValide) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
@@ -226,7 +228,7 @@ export async function POST(request: Request): Promise<Response> {
         if (x === undefined || t === undefined || (m !== null && m.unite !== 'ht' && m.unite !== 'ttc')) return json({ etat: 'refus', motif: 'Rémunération illisible.' }, 400);
         // 🔴 LOT V — le mode : « calculee » (Appliquer / Revenir au calcul, taux modifié) ou « manuelle » (montant tapé) ; autre : inconnu.
         const mode = corps.mode === 'calculee' || corps.mode === 'manuelle' ? corps.mode : null;
-        return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur, mode));
+        return rendre(await enregistrerCommissionCote(id, corps.cote, m === null || x === null ? null : { montant: x, unite: m.unite as 'ht' | 'ttc' }, t, auteur, mode, version));
       }
       case 'apporteur-creer': {
         // 🔴 LOT AC (Arno) — un nouvel apporteur depuis le choix de l'apporteur d'un compromis : le MÊME annuaire que la Location (`creerApporteur` :

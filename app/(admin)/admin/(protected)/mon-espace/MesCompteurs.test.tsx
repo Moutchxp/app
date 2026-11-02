@@ -97,7 +97,7 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
     expect(container.querySelector(`${carte} [data-nego-ligne="sortie"] [data-nego-com]`)).toBeNull();
     expect(container.querySelector(`${carte} [data-nego-ligne="sortie"] [data-nego-reste]`)).toBeNull();
   });
-  it('fiche dépliée : ma commission et mon taux ; ni la commission ni le taux de l’autre (pas de « 0 € », pas de calcul) ; aucun geste', async () => {
+  it('fiche dépliée : ma commission et mon taux ; ni la commission ni le taux de l’autre (pas de « 0 € », pas de calcul) ; aucun geste de la tuile', async () => {
     reponse = { status: 200, corps: reponseLea() };
     await rendre();
     await cliquer('[data-ma-vente="1"] button[data-deplier]');
@@ -115,7 +115,10 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
     // aucun geste : ni barre d'actions, ni réglage, ni bouton de négociateur, ni ajout, ni « Appliquer le calcul »
     for (const sel of ['[data-modifier-compromis]', '[data-acte-signe]', '[data-annulation-compromis]', 'button[data-negociateur-carte]', 'button[data-societe-cote]',
       '[data-ajouter-personne-carte]', '[data-appliquer-calcul-carte]']) expect(container.querySelector(`${f} ${sel}`), sel).toBeNull();
-    expect(container.querySelector(f)!.textContent).not.toContain('Historique');
+    // 🔴 LOT 6 — à la place, sous la fiche : « Modifier » (le formulaire de « Mon espace ») et l'historique en lecture — jamais « Annuler ce geste »
+    expect(container.querySelector(`${f} [data-modifier-mon-espace="1"]`)).not.toBeNull();
+    expect(container.querySelector(`${f} [data-historique-bouton="1"]`)).not.toBeNull();
+    expect(container.querySelector(`${f} [data-annuler-geste]`)).toBeNull();
   });
 });
 

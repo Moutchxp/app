@@ -65,14 +65,14 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
           dateActePrevue: '', dateActe, adresseBien: '', note, prixVente, ...(mandatDisponible ? { numeroMandat } : {}) }, [], repartition, parts), apporteurNom: apporteur } }))
       : vente === null
       ? await posterTransaction({ action: 'vente-saisir', vente: { societe, ...champs, parts } })
-      : await posterTransaction({ action: 'vente-modifier', id: vente.id, champs });
+      : await posterTransaction({ action: 'vente-modifier', id: vente.id, version: vente.version, champs });
     setEnvoi(false);
     if (r === null) onFait(); else setMotif(r);
   };
   const retirer = async (): Promise<void> => {
     if (vente === null) return;
     setEnvoi(true);
-    const r = await posterTransaction({ action: 'vente-retirer', id: vente.id, retirer: true });
+    const r = await posterTransaction({ action: 'vente-retirer', id: vente.id, version: vente.version, retirer: true });
     setEnvoi(false);
     if (r === null) onFait(); else setMotif(r);
   };
@@ -161,8 +161,8 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
   );
 }
 
-interface Geste { id: number; action: string; avant: unknown; apres: unknown; commentaire: string | null; auteur: string; le: string; annuleJournalId: number | null; annulePar: number | null }
-const LIBELLE_ACTION: Record<string, string> = { saisie: 'Saisie', modification: 'Modification', retrait: 'Retrait', retablissement: 'Rétablissement',
+export interface Geste { id: number; action: string; avant: unknown; apres: unknown; commentaire: string | null; auteur: string; le: string; annuleJournalId: number | null; annulePar: number | null }
+export const LIBELLE_ACTION: Record<string, string> = { saisie: 'Saisie', modification: 'Modification', retrait: 'Retrait', retablissement: 'Rétablissement',
   rattachement: 'Rattachement', annulation: 'Annulation', import_fichier: 'Import du fichier', attribution: 'Attribution',
   // LOT D (434)
   repartition: 'Répartition des honoraires', personnes: 'Vendeurs et acquéreurs', acte_signe: 'Acte signé', retour_compromis: 'Retour en compromis',
@@ -170,7 +170,7 @@ const LIBELLE_ACTION: Record<string, string> = { saisie: 'Saisie', modification:
   annulation_compromis: 'Annulation du compromis', retablissement_compromis: 'Compromis rétabli',
   // LOT I (437)
   commissions: 'Commissions versées aux négociateurs' };
-const resume = (x: unknown): string => (x === null || typeof x !== 'object' ? '—' : Object.entries(x as Record<string, unknown>)
+export const resume = (x: unknown): string => (x === null || typeof x !== 'object' ? '—' : Object.entries(x as Record<string, unknown>)
   .filter(([k]) => k !== 'parts' && k !== 'lignes').map(([k, v]) => `${k} : ${v === null ? 'vide' : String(v)}`).join(' · ') || '—');
 
 /** L'historique d'une ligne (le plus récent d'abord), chaque geste avec « Annuler » s'il ne l'a pas déjà été. */

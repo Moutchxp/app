@@ -65,6 +65,26 @@ Mise en œuvre du lot 5 (créer un compromis, aucune migration) :
 - la structure choisie est vérifiée à l'étape ③ ; si le négociateur d'entrée travaille pour l'autre structure, la vente est portée par elle
   (règle existante) et le serveur revérifie le n° dans CETTE structure à l'enregistrement.
 
+Mise en œuvre du lot 6 (rejoindre, modifier, garde de version, journal ; aucune migration) :
+- GARDE DE VERSION, pour toutes les écritures d'une vente (tuile Suivi CA et « Mon espace ») : la version = le dernier n° du journal
+  (`transaction_journal`, en ajout seul, verrouillé en base) qui concerne la vente et ses lignes (`sqlVersionVente`) ; lue avec chaque vente,
+  renvoyée avec chaque geste ; contrôlée la vente verrouillée, avant toute écriture → 409 « Un collègue vient de modifier cette affaire — rechargez
+  pour voir ses changements avant d'enregistrer. » ; sans version envoyée (écran d'avant) : pas de contrôle. Aucune migration 450 nécessaire ;
+- MODIFIER depuis « Mon espace » : négociateur présent (son compte, ou un libellé des fichiers rattaché) ou administrateur (403 sinon) ; il reste
+  sur un côté ; même écriture que la tuile (`enregistrerDossier`) ; les commissions ne se voient ni ne s'envoient : le serveur reprend celles qui
+  sont enregistrées côté par côté (`commissionsConservees`) — jamais écrasées ; « calculée » suit la répartition, « manuelle » reste ;
+- REJOINDRE : preuve = le n° de mandat de l'affaire ; un côté LIBRE seulement ; les négociateurs présents restent ; aucune vente créée ;
+- JOURNAL : celui de la tuile (qui figé, quand, avant → après), en lecture dans « Mon espace » ; un collaborateur n'y lit pas les entrées
+  « commissions » (montants et taux des deux côtés).
+
+## ❓ Question ouverte à Arno (lot 6)
+
+- **Un co-négociateur sur un côté déjà tenu.** La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les
+  parties en ne gardant que la première de chaque côté, et la ventilation, la commission par côté et l'espace par négociateur lisent une seule
+  partie par côté. Ajouter un 2ᵉ négociateur au même côté sans changer ces calculs ferait perdre sa part à la modification suivante et fausserait
+  les montants. Aujourd'hui : « Rejoindre » ne propose que le côté libre ; deux côtés tenus → « demandez à un administrateur ». Le permettre
+  demande un lot dédié (parties multiples par côté, partage de la part du côté, une commission par négociateur), à décider.
+
 ---
 
 ## 🔴 RÈGLE TRANSVERSE — À VÉRIFIER À CHAQUE LOT 2 → 10 (exigence d'Arno, 02/11/2026)
