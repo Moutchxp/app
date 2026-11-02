@@ -103,6 +103,9 @@ export interface MesAffaires {
    *  le nom affiché de chaque libellé (« Prénom NOM ») et le statut des négociateurs dont une paye figure dans la réponse. */
   schema?: { lotD: boolean; personneType: boolean; uniteCommission: boolean; prixVente: boolean; mandat: boolean };
   nomsNegociateurs?: Record<string, string>;
+  /** 🔴 LOT 8 — « Mes statistiques » : mon CA mois par mois, par année (statistiques.ts), et les rétrocessions liées à mes ventes (par apporteur). */
+  statistiques?: import('./statistiques').StatsMonEspace;
+  retrocessions?: import('../transaction/modele').Retrocession[];
   statutsNegociateurs?: Record<string, 'associe' | 'salarie' | 'independant' | 'observateur' | null>;
 }
 

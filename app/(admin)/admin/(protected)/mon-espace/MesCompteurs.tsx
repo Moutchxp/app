@@ -9,6 +9,7 @@ import { empreinteDe, type MesAffaires, type VenteMonEspace } from '../../../../
 import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
+import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
 import { DUREE_SURBRILLANCE_MS, doitRelire, messageMiseAJour, misesAJourDesAutres, peutBattre, PERIODE_MON_ESPACE_MS } from '../../../../lib/mon-espace/rafraichir';
 import { FormulaireDossier, etatRepartitionDe, type References } from '../transaction/FormulaireDossier';
 
@@ -30,7 +31,7 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  */
 export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
-type Onglet = 'compromis' | 'ventes';
+type Onglet = 'compromis' | 'ventes' | 'statistiques';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
 const rien = (): void => {};
@@ -181,7 +182,7 @@ export function MesCompteurs() {
   return (
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value>
     <div className="mes-compteurs-bloc">
-      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}</style>
+      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}</style>
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
       <div className="mes-compteurs-tete">
         {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
@@ -215,13 +216,14 @@ export function MesCompteurs() {
       <p className="loc-muet mes-compteurs-note">Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.</p>
 
       <div className="mes-onglets" role="tablist" aria-label="Mes affaires">
-        {(['compromis', 'ventes'] as const).map((o) => (
+        {(['compromis', 'ventes', 'statistiques'] as const).map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="mes-onglet"
-            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{o === 'compromis' ? 'Mes compromis en cours' : 'Mes ventes'}</button>
+            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{o === 'compromis' ? 'Mes compromis en cours' : o === 'ventes' ? 'Mes ventes' : 'Mes statistiques'}</button>
         ))}
       </div>
       <div id="mon-espace-listes" role="tabpanel" aria-labelledby={`mon-espace-onglet-${onglet}`} ref={listes} data-liste-mon-espace={onglet}>
-        {onglet === 'compromis' ? (
+        {/* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */}
+        {onglet === 'statistiques' ? <MesStatistiques data={data} /> : onglet === 'compromis' ? (
           compromis.length === 0
             ? <p className="loc-muet mes-vide" data-liste-vide="compromis">Aucun compromis en cours à votre nom.</p>
             : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>

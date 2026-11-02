@@ -87,6 +87,15 @@ Mise en œuvre du lot 7 (gestes, rafraîchissement ; aucune migration) :
   le premier battement) ; « Marc a mis à jour « X » » et la ligne éclairée (sans animation si prefers-reduced-motion) quand l'auteur de la
   dernière écriture n'est pas moi ; 401 → « reconnectez-vous » ; autre panne → nouvel essai silencieux.
 
+Mise en œuvre du lot 8 (statistiques ; aucune migration) :
+- le cumul des graphiques : UNE fonction (`app/lib/transaction/cumul.ts`), utilisée par les cinq écrans qui le recopiaient et par « Mon espace »
+  (commit à part, non-régression prouvée : `cumul.test.ts` + les tests des écrans du Suivi CA, inchangés) ;
+- « Mes statistiques » (`app/lib/mon-espace/statistiques.ts`) : mon CA mois par mois par année (`monCa`, sur mes ventes actées, `pourLaVue`),
+  la vente au mois à confirmer dans son année ; Mois / Période / Année / Tout et N−1 sur les MÊMES mois (`moisSoulignes`) ; par apporteur :
+  `parApporteur` du Suivi CA sur les rétrocessions liées à mes ventes ; le prévisionnel = mon CA sur mes compromis en cours (la même sélection que
+  `totalCompromisEnCours`, mais MA part : sinon une vente partagée compterait deux fois entre deux espaces) ; projection = acté + prévisionnel ;
+- la somme des statistiques de tous les collaborateurs = le CA de l'agence, au centime (épreuve `statistiques.itest.ts`).
+
 ## ❓ Question ouverte à Arno (lot 6)
 
 - **Un co-négociateur sur un côté déjà tenu.** La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les

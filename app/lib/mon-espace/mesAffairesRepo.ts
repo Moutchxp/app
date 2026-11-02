@@ -2,7 +2,8 @@
 // (`lireVentes(null)`), filtrées et réduites ICI, côté serveur, pour le compte qui demande (mesAffaires.ts). Pas de `import 'server-only'` (même
 // convention que les dépôts de la Transaction, lus par les épreuves).
 import { query } from '../db/client';
-import { comptesRapprochesDesLibelles, libellesDePaye, lireStatutsNegociateurs, lireVentes, nomsAffichesNegociateurs, transactionDisponible } from '../transaction/repo';
+import { comptesRapprochesDesLibelles, libellesDePaye, lireRetrocessions, lireStatutsNegociateurs, lireVentes, nomsAffichesNegociateurs, transactionDisponible } from '../transaction/repo';
+import { mesVentesActees, statistiquesMonEspace } from './statistiques';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import type { Vente } from '../transaction/modele';
 import { compteursMonEspace, empreinteDe, estAMoi, libellesDeVente, mesCotes, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
@@ -56,7 +57,12 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   for (const v of ventes) v.derniereModification = parVersion.get(v.version ?? 0) ?? null;
   const nomsNegociateurs = await nomsAffichesNegociateurs([...new Set(ventes.flatMap(libellesDeVente))]).catch(() => ({}));
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
-  return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs };
+  // 🔴 LOT 8 — mes statistiques (sur les ventes ENTIÈRES : aucun montant faussé par une commission retirée) et les rétrocessions liées à mes ventes
+  // actées, ou saisies à mon nom (le bloc « par apporteur », comme celui du Suivi CA).
+  const statistiques = statistiquesMonEspace(toutes, moi, aujourdhui);
+  const mesIds = new Set(mesVentesActees(toutes, moi).map((v) => v.id));
+  const retrocessions = (await lireRetrocessions(null).catch(() => [])).filter((r) => (r.venteId !== null && mesIds.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
+  return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs, statistiques, retrocessions };
 }
 
 /**
