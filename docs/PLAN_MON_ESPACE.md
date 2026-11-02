@@ -36,6 +36,17 @@ Mise en œuvre du lot 2 (n° de mandat, migration 449) :
   est refusé avec le résumé de la vente qui le porte ;
 - la création d'un compromis par l'ancienne action « vente-saisir » (aucun écran ne l'ouvre plus) suit la même règle.
 
+Mise en œuvre du lot 3 (« mes affaires », lecture seule, aucune migration) :
+- `GET /api/admin/mon-espace/affaires` (droit « Mon espace », relu en base) lit les ventes du Suivi CA (`lireVentes(null)`, vue FUSION) et les
+  filtre côté serveur (`app/lib/mon-espace/mesAffaires.ts`) : une vente est « à moi » si mon compte est l'entrée, la sortie ou une partie, ou si
+  un libellé des fichiers m'est rattaché par la règle existante (`comptesRapprochesDesLibelles`) ;
+- un collaborateur reçoit ses ventes SANS les lignes « paye du négociateur » d'un autre (commission, taux, mode retirés de la réponse) ; un
+  administrateur reçoit toutes les ventes telles quelles, chacune marquée des côtés qu'il tient (`mesCotes`) ; ses compteurs restent les siens ;
+- « Mon CA » = la somme de mes lignes de l'« Espace par négociateur » (`espaceNegociateurs`, vue FUSION) ; les ventes notées chez les deux
+  sociétés et non attribuées sont écartées comme partout (`pourLaVue`) ;
+- limite connue, héritée de la règle existante : un libellé des fichiers rattaché par le seul PRÉNOM (« ANTOINE ») va au seul compte qui porte
+  ce prénom — un futur collaborateur homonyme d'un ancien hériterait de son historique tant qu'un alias n'est pas posé.
+
 ---
 
 ## 🔴 RÈGLE TRANSVERSE — À VÉRIFIER À CHAQUE LOT 2 → 10 (exigence d'Arno, 02/11/2026)
