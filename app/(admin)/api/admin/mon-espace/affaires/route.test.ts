@@ -11,8 +11,12 @@ vi.mock('../../../../../lib/transaction/repo', () => ({
   transactionDisponible: async () => true,
   lireVentes: async (s: unknown) => { if (s !== null) throw new Error('« Mon espace » lit toutes les ventes une fois (vue FUSION)'); return h.ventes; },
   // La règle de rattachement existante, simulée : « LEA » → le compte de Léa (5), « MARC » → Marc (7).
+  // 🔴 LOT 4 — les noms affichés et le statut des négociateurs de la réponse (lecture des références, sans y donner accès).
+  libellesDePaye: () => [], lireStatutsNegociateurs: async () => ({}), nomsAffichesNegociateurs: async () => ({}),
   comptesRapprochesDesLibelles: async (ls: string[]) => Object.fromEntries(ls.map((l) => [l, l === 'LEA' || l === 'Léa MARTIN' ? { id: 5 } : l === 'MARC' || l === 'Marc DURAND' ? { id: 7 } : null])),
 }));
+vi.mock('../../../../../lib/admin/schemaDroits', () => ({ repartitionDisponible: async () => true, personneTypeDisponible: async () => true,
+  uniteCommissionDisponible: async () => true, prixVenteDisponible: async () => true, mandatDisponible: async () => true }));
 vi.mock('../../../../../lib/db/client', () => ({ query: async (_sql: string, p: unknown[]) => ({ rows: [{ role: h.roles[Number(p[0])] ?? 'collaborateur', prenom: 'Prénom' }] }) }));
 
 import { GET } from './route';

@@ -2,7 +2,8 @@
 // (`lireVentes(null)`), filtrées et réduites ICI, côté serveur, pour le compte qui demande (mesAffaires.ts). Pas de `import 'server-only'` (même
 // convention que les dépôts de la Transaction, lus par les épreuves).
 import { query } from '../db/client';
-import { comptesRapprochesDesLibelles, lireVentes, transactionDisponible } from '../transaction/repo';
+import { comptesRapprochesDesLibelles, libellesDePaye, lireStatutsNegociateurs, lireVentes, nomsAffichesNegociateurs, transactionDisponible } from '../transaction/repo';
+import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import type { Vente } from '../transaction/modele';
 import { compteursMonEspace, estAMoi, libellesDeVente, mesCotes, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
 
@@ -38,7 +39,15 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   // Les compteurs se calculent sur les ventes ENTIÈRES (aucune donnée retirée ne fausse un montant) ; la réponse, elle, est réduite.
   const compteurs = compteursMonEspace(toutes, moi, aujourdhui);
   const ventes: VenteMonEspace[] = administrateur
-    ? toutes.map((v) => ({ ...v, mesCotes: mesCotes(v, moi) }))
-    : toutes.filter((v) => estAMoi(v, moi)).map((v) => ({ ...sansCommissionsDesAutres(v, moi), mesCotes: mesCotes(v, moi) }));
-  return { disponible: true, aujourdhui, titulaire, ventes, compteurs };
+    ? toutes.map((v) => ({ ...v, mesCotes: mesCotes(v, moi), commissionsRetirees: false }))
+    : toutes.filter((v) => estAMoi(v, moi)).map((v) => {
+      const reduite = sansCommissionsDesAutres(v, moi);
+      return { ...reduite, mesCotes: mesCotes(v, moi), commissionsRetirees: reduite.lignes.length !== v.lignes.length };
+    });
+  // 🔴 LOT 4 — ce que la fiche dépliée lit d'ordinaire dans les références de la Transaction, calculé sur la SEULE réponse (rien de plus).
+  const schema = { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), uniteCommission: await uniteCommissionDisponible(),
+    prixVente: await prixVenteDisponible(), mandat: await mandatDisponible() };
+  const nomsNegociateurs = await nomsAffichesNegociateurs([...new Set(ventes.flatMap(libellesDeVente))]).catch(() => ({}));
+  const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
+  return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs };
 }

@@ -79,10 +79,13 @@ describe('« Mon CA » (décision 1) = les honoraires de mes côtés, par l’Es
     // C (importée) : la part de LEA telle que l'Espace par négociateur la donne (la règle du partage d'une vente importée, inchangée).
     const caC = espaceNegociateurs([C], null).find((l) => l.negociateur === 'LEA')!.ca;
     expect([lea.compromis.ids, lea.compromis.ca.htC, lea.actees.ids, lea.actees.ca, lea.actees.annee]).toEqual([[1], 600000, [3], caC, 2026]);
+    // 🔴 LOT 4 — « Mes ventes » : mes ventes actées par année de l'acte (la plus récente d'abord)
+    const ancienne = { ...C, id: 5, annee: 2024 };
+    expect(compteursMonEspace([A, C, ancienne], LEA, '2026-11-02').parAnnee?.map((a) => [a.annee, a.ids])).toEqual([[2026, [3]], [2024, [5]]]);
     const marc = compteursMonEspace([A, B, C], MARC, '2026-11-02');
     expect([marc.compromis.ids, marc.compromis.ca.htC]).toEqual([[1, 2], 400000 + 1000000]);
     expect(compteursMonEspace([A, B, C], AUTRE, '2026-11-02')).toEqual({ compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } },
-      actees: { annee: 2026, nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } } });
+      actees: { annee: 2026, nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } }, parAnnee: [] });
   });
   it('une vente notée chez les deux sociétés, pas encore attribuée : comptée nulle part (comme le Suivi CA)', () => {
     const double = { ...C, id: 4, double: { cle: 'd', attribution: 'a_attribuer' as const } };

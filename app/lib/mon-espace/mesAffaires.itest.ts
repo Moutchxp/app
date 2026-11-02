@@ -9,6 +9,8 @@
  *   ③ acte signé → il passe des compromis aux ventes actées de l'année, dans le bon mois ; retour en compromis → il revient ;
  *   ④ annulé → il disparaît des compteurs ;
  *   ⑤ une vente importée de l'onglet « LEA » des fichiers : à Léa (rattachement existant par le prénom), jamais à Marc.
+ * 🔴 LOT 4 — les listes de « Mon espace » sont ces mêmes identifiants (« Mes compromis en cours » : `compteurs.compromis.ids` ; « Mes ventes » :
+ * `compteurs.parAnnee`) : chaque étape vérifie aussi le bon onglet et la bonne année.
  *
  * VRAIES fonctions, VRAIE base (schéma copié, VIDE ; la 449 y est appliquée par l'épreuve). 🔒 REFUSE de tourner ailleurs que sur `svav_jetable…`
  * ou `svav_test…`.
@@ -72,15 +74,19 @@ describe.skipIf(!baseEssai)('🔴 « Mon espace » lit les gestes de la tuile Su
     issue(await acteSigne(partage, '2026-11-20', AUTEUR));
     const c = await compteurs(lea);
     expect([c.compromis.nb, c.actees.ids, c.actees.ca.htC, c.actees.annee]).toEqual([0, [partage], 700000, 2026]);
+    // « Mes ventes » : dans l'année 2026 de Léa ET de Marc ; plus dans « Mes compromis en cours »
+    for (const id of [lea, marc]) expect((await compteurs(id)).parAnnee?.find((a) => a.annee === 2026)?.ids).toContain(partage);
     const v = (await lireMesAffaires(marc, JOUR)).ventes.find((x) => x.id === partage);
     expect([v?.statut, v?.mois, v?.annee]).toEqual(['vendue', 11, 2026]);
     issue(await retourCompromis(partage, AUTEUR));
-    expect([(await compteurs(marc)).compromis.ids, (await compteurs(marc)).actees.nb]).toEqual([[partage], 0]);
+    expect([(await compteurs(marc)).compromis.ids, (await compteurs(marc)).actees.nb, (await compteurs(marc)).parAnnee]).toEqual([[partage], 0, []]);
   });
 
   it('④ annulé : il disparaît des compteurs des deux collègues', async () => {
     issue(await annulerCompromis(partage, { motif: 'Défaut de crédit', date: '2026-11-02', note: null }, AUTEUR));
     expect([(await compteurs(lea)).compromis.nb, (await compteurs(marc)).compromis.nb]).toEqual([0, 0]);
+    // ni dans un onglet ni dans l'autre ; la vente reste lisible (statut « annulée ») dans la réponse, comme dans le Suivi CA
+    expect([(await compteurs(lea)).parAnnee, (await lireMesAffaires(lea, JOUR)).ventes.find((v) => v.id === partage)?.statut]).toEqual([[], 'annulee']);
   });
 
   it('⑤ une vente importée de l’onglet « LEA » (rattachée par le prénom) : à Léa, jamais à Marc', async () => {
@@ -88,6 +94,7 @@ describe.skipIf(!baseEssai)('🔴 « Mon espace » lit les gestes de la tuile Su
     if (!v.ok) throw new Error(v.motif);
     const id = issue(await creerVente(v.valeur, AUTEUR));
     expect((await compteurs(lea)).actees.ids).toContain(id);
+    expect((await compteurs(lea)).parAnnee?.map((a) => [a.annee, a.ids])).toEqual([[2026, [id]]]);
     expect((await lireMesAffaires(marc, JOUR)).ventes.map((x) => x.id)).not.toContain(id);
   });
 });

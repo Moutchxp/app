@@ -379,6 +379,21 @@ export interface HoteDetail {
  * l'onglet « Compromis » et les listes de « Le mois » le rendent tel quel ; il suit le sélecteur « HT | TTC » de son hôte.
  */
 /**
+ * ══ 🔴 MON ESPACE, LOT 4 (Arno, 02/11/2026) — LA VUE PERSONNELLE d'une affaire (« Mon espace ») : les MÊMES composants (carte repliée, fiche
+ * dépliée), avec ces différences seulement, et seulement quand cette option est passée :
+ *   · le serveur a RETIRÉ la commission (et le taux) de l'autre collègue : ce qui en dépend n'est pas affiché pour SON côté (com négo, reste,
+ *     taux sur le bouton, cadre « Commission du négociateur », part de l'agence) — jamais un « 0 € » ni un chiffre recalculé ;
+ *   · aucun geste : ni « Modifier », ni « Acte signé », ni « Historique », ni « Annulation », ni les réglages de la carte (ils arrivent aux lots 5
+ *     à 7) — les informations restent, en lecture ;
+ *   · `mesCotes` : les côtés que le titulaire tient ; `commissionsRetirees` : une commission d'un autre a été retirée de la réponse.
+ * Sans l'option (la tuile Suivi CA), rien ne change.
+ */
+export interface VuePersonnelle { mesCotes: readonly ('entree' | 'sortie' | 'unique')[]; commissionsRetirees: boolean }
+/** La ligne d'un négociateur de la carte est-elle entièrement au titulaire (sa commission est là) ? PUR. */
+export const ligneAuTitulaire = (p: VuePersonnelle, cote: 'entree' | 'sortie' | null): boolean =>
+  (cote === null ? !p.commissionsRetirees : p.mesCotes.includes(cote));
+
+/**
  * ══ 🔴 LOT CA (Arno, 30/10/2026) — LA CARTE D'AFFAIRE REPLIÉE, UN SEUL COMPOSANT : l'onglet « Compromis » et les listes « Les ventes du mois » /
  * « Les compromis du mois » de « Le mois » (une seule esthétique). Le corps de la carte du lot F, inchangé :
  *   · à gauche, le titre (libellé, ou « VENDEURS / ACQUÉREURS ») et, en gris, adresse · prix · « acte au plus tard le … » (compromis) ou « acte
@@ -388,10 +403,12 @@ export interface HoteDetail {
  *   · toute la ligne déplie (triangle rouge à gauche) ; dépliée : `children` (la fiche, lot BU).
  * `etiquetteActe` (onglet « Compromis », vue « Du mois ») : l'étiquette « acte signé » à côté du titre d'une vente déjà signée.
  */
-export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, section = 'compromis', donnees, vue, retros, statutDuLibelle }: {
+export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, etiquetteActe = false, section = 'compromis', donnees, vue, retros, statutDuLibelle, personnel }: {
   v: Vente; aujourdhui: string; children: ReactNode; ouvertInitial?: boolean; etiquetteActe?: boolean; section?: string; donnees?: Record<string, string>;
   /** 🔴 LOT CC — la société vue (null : CA global), et ce que « Le mois » connaît en plus (rétrocessions saisies, statut des négociateurs importés). */
-  vue: Societe | null; retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle }) {
+  vue: Societe | null; retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle;
+  /** 🔴 MON ESPACE, LOT 4 — la vue personnelle d'un collaborateur ; absente (la tuile Suivi CA) : rien ne change. */
+  personnel?: VuePersonnelle }) {
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
   const c = carteCompromis(v, aujourdhui);
   const acteSigne = v.statut === 'vendue';
@@ -400,7 +417,7 @@ export function CarteAffaire({ v, aujourdhui, children, ouvertInitial = false, e
       {/* 🔴 LOT DP (retrait autorisé par Arno) — l'étiquette de société à côté du nom (« CRITERIMMO », « MACJ », « CRITERIMMO + MACJ ») est retirée ;
           à sa place, seulement pour une vente partagée entre nos deux sociétés, l'étiquette ROUGE « Inter-cabinet [porteuse] – [l'autre] ». */}
       <LigneUneCarte v={v} titre={<>{c.titre}<EtiquetteInterCabinet v={v} />{etiquetteActe && acteSigne && <> <span className="loc-pastille trx-pastille--verte" data-acte-signe-etiquette>acte signé</span></>}</>} aujourdhui={aujourdhui} />
-      <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle, nommer })} />
+      <LignesNegociateurs l={lignesCarteAffaire(v, vue, { retros, statutDuLibelle, nommer })} personnel={personnel} />
     </span>
   );
   const droite = (
@@ -452,7 +469,7 @@ function EtiquetteInterCabinet({ v }: { v: Vente }) {
  * « [Nom] · entrée — honoraires … · com négo … · reste … » ; l'apporteur une fois (ligne d'entrée) ; l'inter-cabinet versé : « reversé à … » à la
  * place de com négo / reste. Les montants des cadres de la fiche (`lignesCarteAffaire`).
  */
-function LignesNegociateurs({ l }: { l: LignesCarte }) {
+function LignesNegociateurs({ l, personnel }: { l: LignesCarte; personnel?: VuePersonnelle }) {
   const u = useAffichage();
   // 🔴 LOT DP — la page FUSION : la société du négociateur à la vente, dans sa colonne (vide si inconnue, même largeur).
   const societes = usePageFusion();
@@ -471,6 +488,8 @@ function LignesNegociateurs({ l }: { l: LignesCarte }) {
           <span className="trx-nego-col" data-col="3"><span className="trx-nego-lib"><span className="trx-nego-sep">— </span><span className={deduit ? 'trx-rouge trx-nego-mot' : 'trx-nego-mot'} data-nego-nets={deduit ? 'deduit' : ''}>honoraires nets</span></span> <span className="trx-nego-montant" data-nego-honoraires>{m(x.honoraires)}</span></span>{' '}
           {x.reverse !== null
             ? <span className={`trx-nego-col trx-nego-col--double ${classeSens('verse', x.reverse.m.htC, x.reverse.m.ttcC)}`} data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
+            // 🔴 MON ESPACE, LOT 4 — vue personnelle : la ligne d'un autre (sa commission retirée par le serveur) n'affiche ni com négo ni reste.
+            : personnel !== undefined && !ligneAuTitulaire(personnel, x.cote) ? null
             : <>
               <span className={`trx-nego-col${x.comptabilisee ? ` ${classeSens('verse', x.com.htC, x.com.ttcC)}` : ''}`} data-col="4"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>com négo</span> <span className="trx-nego-val" data-nego-com>{m(x.com)}</span></span>{' '}
               <span className="trx-nego-col trx-vert" data-col="5"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>reste</span> <span className="trx-nego-val" data-nego-reste>{m(x.reste)}</span></span>
@@ -506,7 +525,9 @@ export function useColonnesNegociateurs(conteneur: RefObject<HTMLElement | null>
  * `etiquettes` (🔴 LOT BZ, fiche dépliée depuis les listes de « Le mois ») : ce que la ligne repliée ne montre plus, dans les Informations
  * communes — les étiquettes « compromis », « mois à confirmer », « répartie » et la source d'import (fichier › onglet › ligne), discrètes.
  */
-export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vente; hote: HoteDetail; etiquettes?: boolean;
+export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }: { v: Vente; hote: HoteDetail; etiquettes?: boolean;
+  /** 🔴 MON ESPACE, LOT 4 — la vue personnelle (lecture, sans la commission de l'autre) ; absente (la tuile Suivi CA) : rien ne change. */
+  personnel?: VuePersonnelle;
   /** 🔴 LOT CD — « Le mois » : les rétrocessions saisies au mois et rattachées à cette vente (la carte repliée ne les dit plus) ; absent : rien. */
   retros?: readonly Retrocession[] }) {
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
@@ -531,13 +552,13 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
         {/* 🔴 LOT T (Arno) — la première ligne : le titre à gauche, à droite la société de ce côté et sa part (« CRITERIMMO · 40 % »),
             qui ouvre le réglage de la répartition ; sur téléphone, le bouton passe sous le titre. */}
         <BoutonSocieteCote titre={mot} v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire}
-          onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} />
+          onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} lecture={personnel !== undefined} />
         {gens.length === 0 ? <p className="loc-muet" data-aucune-personne={role}>{role === 'vendeur' ? 'Aucun vendeur enregistré' : 'Aucun acquéreur enregistré'}</p>
           // 🔴 LOT BJ (retrait autorisé par Arno : plus de coordonnées en clair) — un bouton par personne, sa fenêtre de détail ; sans la 443 : la liste d'avant.
           : d.personneType === true ? (
           <div className="trx-personnes-boutons" data-personnes-compromis={role}>
             {gens.map((p) => <BoutonPersonne key={`${p.role}-${p.id}`} p={p}
-              onModifier={d.disponible ? () => setFenetrePersonnes({ venteId: v.id, role: p.role, personneVisee: p.id }) : undefined} />)}
+              onModifier={d.disponible && personnel === undefined ? () => setFenetrePersonnes({ venteId: v.id, role: p.role, personneVisee: p.id }) : undefined} />)}
           </div>
         ) : (
           <ul className="trx-personnes" data-personnes-compromis={role}>
@@ -549,13 +570,14 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
             ))}
           </ul>
         )}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFenetrePersonnes({ venteId: v.id, role, personneVisee: null })} disabled={!d.disponible}
-          data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>
+        {personnel === undefined && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFenetrePersonnes({ venteId: v.id, role, personneVisee: null })} disabled={!d.disponible}
+          data-ajouter-personne-carte={role}>{role === 'vendeur' ? '+ Ajouter un vendeur' : '+ Ajouter un acquéreur'}</button>}
         {/* LOT G — le négociateur de ce côté : d'ENTRÉE du mandat chez les vendeurs, de SORTIE chez les acquéreurs (la même donnée que
             « Négociateur d'entrée / de sortie » du formulaire et des informations communes). */}
         <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
           onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} ventilation={ventilation[role === 'vendeur' ? 'entree' : 'sortie']}
-          onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })} />
+          onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })}
+          lecture={personnel === undefined ? undefined : personnel.mesCotes.includes(role === 'vendeur' ? 'entree' : 'sortie') ? 'mien' : 'autre'} />
       </section>
     );
   };
@@ -623,7 +645,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
               {/* 🔴 LOT BH (Arno) — ajouter, modifier ou retirer l'apporteur de l'affaire ; chaque geste s'enregistre aussitôt (journalisé) et
                   tout se recalcule (relecture, sans recharger la page). Un observateur ne voit pas ces boutons. */}
               <ApporteurAffaire actuel={{ id: v.dossier?.apporteurId ?? null, nom: v.apporteur ?? null, montant: m }} annuaire={d.apporteurs} collegues={d.collegues}
-                modifiable={d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
+                modifiable={personnel === undefined && d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
                 onValider={(c) => enregistrerApporteur(v, { apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false })}
                 onRetirer={() => enregistrerApporteur(v, { apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true })} /></span>; })(), 'apporteur')}
           {/* 🔴 MON ESPACE, LOT 2 (Arno) — le n° de mandat (migration 449) ; sans lui : « à renseigner » (il s'ajoute par « Modifier ») ; sans la 449 : rien. */}
@@ -699,6 +721,8 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
           );
         })() : <p className="loc-muet">Répartition : toute la commission à {LIBELLE_SOCIETE[v.societe]} (historique, avant la répartition entre parties).</p>}
       </section>
+      {/* 🔴 MON ESPACE, LOT 4 — la vue personnelle n'a aucun geste (ils arrivent aux lots 5 à 7) : ni barre d'actions, ni acte, ni historique. */}
+      {personnel === undefined && <>
       <div className="trx-actions trx-barre-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition({ vente: v, ajouter: null })} disabled={!d.disponible} data-modifier-compromis={v.id}>Modifier</button>
         {/* 🔴 LOT BU — « Acte signé » et « Annulation » : seulement pour un compromis (une vente déjà signée, ouverte depuis « Le mois », ne les a pas). */}
@@ -717,6 +741,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
         </form>
       )}
       {historique === v.id && <Journal entite="vente" id={v.id} onFait={relire} />}
+      </>}
     </div>
   );
 }
@@ -749,7 +774,12 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map(personneEcran
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre, ventilation }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre, ventilation, lecture }: {
+  /**
+   * 🔴 MON ESPACE, LOT 4 — la vue personnelle : « mien » (le côté du titulaire : tout, en lecture, sans bouton) ; « autre » (le côté d'un autre
+   * collègue, dont le serveur a retiré la commission : son nom et ses honoraires seulement) ; absent (la tuile Suivi CA) : rien ne change.
+   */
+  lecture?: 'mien' | 'autre';
   v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void; onRevoir: (r: EtatRepartition, message: string) => void;
   /** LOT Y — le résolveur des libellés importés, celui des tuiles (la même règle du cumul). */
   statutDuLibelle?: StatutDuLibelle;
@@ -838,16 +868,20 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
     void posterTransaction({ action: 'commission-cote', id: v.id, cote, montant: { montant: u === 'ttc' ? r.calculTtc : r.calculTtc / TVA, unite: u }, taux: r.taux, mode: 'calculee' })
       .then((x) => { setEnvoi(false); if (x === null) onFait(); else setMotif(x); });
   };
-  const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote}
+  const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} lectureSeule={lecture !== undefined}
     premier={`Honoraires nets partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
     rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} sansCadre={ventilation?.conserve != null} />;
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       {/* 🔴 LOT T (Arno) — « Négociateur : Prénom NOM · 25 % » : son TAUX DE COMMISSIONNEMENT sur cette vente (la société et la part sont dans le
           bouton de la première ligne) ; non commissionné (lot S) : « · non commissionné ». */}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
+      {lecture !== undefined
+        // 🔴 MON ESPACE, LOT 4 — en lecture : le nom (et, de mon côté seulement, mon taux) ; aucun bouton.
+        ? <p className="trx-negociateur-lecture" data-negociateur-carte={cote} data-negociateur-lecture={lecture}>{actuel === null ? 'Négociateur : à renseigner'
+          : `Négociateur : ${nommer(actuel.nom)}${lecture === 'autre' ? '' : ` · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}`}</p>
+        : <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-large" onClick={() => setOuvert((o) => !o)} disabled={!disponible} aria-expanded={ouvert}
         data-negociateur-carte={cote}>{actuel === null ? '+ Ajouter un négociateur'
-          : `Négociateur : ${nommer(actuel.nom)} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>
+          : `Négociateur : ${nommer(actuel.nom)} · ${actuelNonCommissionne ? 'non commissionné' : `${pctFr(tauxDuCote(v, cote))} %`}`}</button>}
       {/* 🔴 LOT AB (accord d'Arno) — un négociateur de l'autre société : plus de bloc « Rémunéré par … » sous les honoraires (il reste dans le
           panneau du négociateur, « Commission réglée chez … ») ; ses honoraires, versés en inter-cabinet, sont encadrés de rouge. */}
       {/* 🔴 LOT AZ (Arno) — l'ordre des cadres : les lignes sans cadre (honoraires de la partie, statut), puis les cadres VERTS (part de l'agence,
@@ -867,7 +901,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
           mention du bloc) ; gardée sans bloc — un non commissionné : « Statut à la vente : Associé — non commissionné ».
           🔴 LOT BE (retrait autorisé par Arno) — plus pour un non commissionné : son nom est sur son bouton, un associé est nommé dans « Part de
           l'agence » (« Rattachée au CA de … ») ; le statut figé reste en base et sert aux calculs. */}
-      {actuel !== null && partieDuCote !== undefined && rem === null && !actuelNonCommissionne && (() => {
+      {lecture !== 'autre' && actuel !== null && partieDuCote !== undefined && rem === null && !actuelNonCommissionne && (() => {
         const st = statutDePartie(partieDuCote);
         const classe = classeCommission(st);
         return <span className={classe === 'a_renseigner' ? 'loc-muet trx-negociateur-commission trx-alerte' : 'loc-muet trx-negociateur-commission'} data-statut-vente={cote}>
@@ -875,12 +909,15 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
           {actuelNonCommissionne ? ' — non commissionné' : classe === 'independant' ? ' — commission déduite' : classe === 'interne' ? ' — commission interne, non déduite' : ' — commission non déduite'}</span>;
       })()}
       {/* 🔴 LOT AY (Arno) — sous la ou les commissions : 100 % des honoraires de la partie ventilés, jusqu'à la part de l'agence. */}
-      {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
-      {actuel !== null && classe !== 'independant' && lignes('commission')}
-      {actuel !== null && classe === 'independant' && lignes('commission')}
-      {ventilation !== undefined && <VentilationPartie x={ventilation} groupe="rouge" />}
+      {/* 🔴 MON ESPACE, LOT 4 — le côté d'un autre collègue (sa commission retirée par le serveur) : ni sa commission, ni la part de l'agence ni
+          les cadres qui en dépendent — une mention à la place. */}
+      {lecture === 'autre' && actuel !== null && <p className="loc-muet trx-negociateur-commission" data-commission-autre={cote}>La commission de ce côté n’est visible que de son négociateur.</p>}
+      {lecture !== 'autre' && ventilation !== undefined && <VentilationPartie x={ventilation} groupe="vert" />}
+      {lecture !== 'autre' && actuel !== null && classe !== 'independant' && lignes('commission')}
+      {lecture !== 'autre' && actuel !== null && classe === 'independant' && lignes('commission')}
+      {lecture !== 'autre' && ventilation !== undefined && <VentilationPartie x={ventilation} groupe="rouge" />}
       {actuel !== null && ventilation === undefined && versesVers !== null && lignes('honoraires')}
-      {ouvert && (
+      {ouvert && lecture === undefined && (
         <div className="trx-choix-negociateur" role="group" aria-label={`Négociateur de ${mot} du mandat`} data-choix-negociateur={cote}>
           <div className="trx-form-affichage" data-affichage-panneau={`negociateur-${cote}`}><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
           <label>Négociateur de {mot} du mandat
@@ -987,7 +1024,9 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
  *   · une commission d'avant qui diffère du calcul : « Commission enregistrée : X » en rouge et « Appliquer le calcul » (comportement du lot T).
  * Non commissionné (`rem` null) : la première ligne seule.
  */
-function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout', baseAffichee, sansCadre = false }: {
+function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onAppliquer, appliquerSiVide = false, classe = null, mention, honorairesVersesVers = null, montrer = 'tout', baseAffichee, sansCadre = false, lectureSeule = false }: {
+  /** 🔴 MON ESPACE, LOT 4 — en lecture (vue personnelle) : les mêmes lignes, sans « Appliquer le calcul » ni « Revenir au calcul ». */
+  lectureSeule?: boolean;
   /** 🔴 LOT BI (Arno) — le côté d'un associé : sa commission n'est pas distinguée (pas de cadre ; le cadre vert porte tout le côté). */
   sansCadre?: boolean;
   /** 🔴 LOT BA — la base montrée dans l'opération de la commission : celle de l'en-tête de la carte (centimes du lot AH) ; la commission ne change pas. */
@@ -1006,11 +1045,11 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
   /** Ligne miroir : « Appliquer le calcul » aussi quand rien n'est encore enregistré (comme au lot R). */
   appliquerSiVide?: boolean;
 }) {
-  const bouton = (r: Remuneration, mot = 'Appliquer le calcul') => <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={() => onAppliquer(r)}
-    data-appliquer-calcul-carte={cote}>{mot}</button>;
+  const bouton = (r: Remuneration, mot = 'Appliquer le calcul') => (lectureSeule ? null : <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={() => onAppliquer(r)}
+    data-appliquer-calcul-carte={cote}>{mot}</button>);
   const manuelle = rem !== null && rem.saisie !== null && rem.modeEnregistre && rem.mode === 'manuelle';
   const u = useAffichage();
-  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers, baseAffichee, sansCadre }}
+  if (montrer !== 'tout') return <LignesCalcul {...{ cote, premier, enregistree, occupe, onAppliquer, appliquerSiVide, classe, mention, honorairesVersesVers, baseAffichee, sansCadre, lectureSeule }}
     honoraires={montrer === 'honoraires' ? honoraires : null} rem={montrer === 'commission' ? rem : null} />;
   return <>
     {honoraires !== null && (
@@ -1134,8 +1173,10 @@ function pctLigne(p: PartieEcran | undefined, netHt: number): number {
  * 🔴 LOT V — une commission calculée suit la nouvelle répartition (recalculée et enregistrée, « recalculée suite à … ») ; une commission
  * saisie à la main reste telle quelle.
  */
-function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onEnregistre }: {
+function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onEnregistre, lecture = false }: {
   titre: string; v: Vente; cote: 'entree' | 'sortie'; references: References; disponible: boolean; onFait: () => void;
+  /** 🔴 MON ESPACE, LOT 4 — en lecture (vue personnelle) : la société et la part du côté, sans le réglage de la répartition. */
+  lecture?: boolean;
   /** LOT AE — la répartition enregistrée (la société porteuse peut avoir changé : société choisie d'un collaborateur des deux). */
   onEnregistre?: (etat: EtatRepartition) => void;
 }) {
@@ -1167,8 +1208,9 @@ function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onE
   return <>
     <div className="trx-colonne-tete">
       <h4>{titre}</h4>
-      <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-societe-cote" onClick={() => { setMotif(null); setEtat(ouvert ? null : base); }} disabled={!disponible}
-        aria-expanded={ouvert} data-societe-cote={cote}>{societe} · {pctFr(part)} %</button>
+      {lecture ? <span className="trx-societe-cote-lecture" data-societe-cote={cote}>{societe} · {pctFr(part)} %</span>
+        : <button type="button" className="svv-btn svv-btn-outline gst-btn trx-btn-societe-cote" onClick={() => { setMotif(null); setEtat(ouvert ? null : base); }} disabled={!disponible}
+        aria-expanded={ouvert} data-societe-cote={cote}>{societe} · {pctFr(part)} %</button>}
     </div>
     {etat !== null && (
       <div className="trx-choix-negociateur trx-reglage-repartition" role="group" aria-label={`Répartition des honoraires — ${titre}`} data-reglage-repartition={cote}>

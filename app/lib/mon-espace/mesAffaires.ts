@@ -58,16 +58,21 @@ export function monCa(ventes: readonly Vente[], moi: Moi): MontantC {
 }
 
 export interface Compteur { nb: number; ids: number[]; ca: MontantC }
-export interface CompteursMonEspace { compromis: Compteur; actees: Compteur & { annee: number } }
+export interface CompteursMonEspace { compromis: Compteur; actees: Compteur & { annee: number };
+  /** 🔴 LOT 4 — « Mes ventes » : mes ventes actées, par année de l'acte (la plus récente d'abord), chacune son nombre et mon CA. */
+  parAnnee?: (Compteur & { annee: number })[] }
 
 /** Les deux compteurs de l'accueil : mes compromis en cours, mes ventes actées de l'année (année de l'acte). PUR. */
 export function compteursMonEspace(ventes: readonly Vente[], moi: Moi, aujourdhui: string): CompteursMonEspace {
   const annee = Number(aujourdhui.slice(0, 4));
   const miennes = ventes.filter((v) => pourLaVue(v, null) && estAMoi(v, moi));
   const compteur = (xs: readonly Vente[]): Compteur => ({ nb: xs.length, ids: xs.map((v) => v.id), ca: monCa(xs, moi) });
+  const vendues = miennes.filter((v) => v.statut === 'vendue');
+  const annees = [...new Set(vendues.map((v) => v.annee))].sort((a, b) => b - a);
   return {
     compromis: compteur(miennes.filter((v) => v.statut === 'compromis')),
-    actees: { annee, ...compteur(miennes.filter((v) => v.statut === 'vendue' && v.annee === annee)) },
+    actees: { annee, ...compteur(vendues.filter((v) => v.annee === annee)) },
+    parAnnee: annees.map((a) => ({ annee: a, ...compteur(vendues.filter((v) => v.annee === a)) })),
   };
 }
 
@@ -77,8 +82,12 @@ export function libellesDeVente(v: Vente): string[] {
     ...(v.dossier?.entree?.nom ? [v.dossier.entree.nom] : []), ...(v.dossier?.sortie?.nom ? [v.dossier.sortie.nom] : [])])].filter((x) => x.trim() !== '');
 }
 
-/** Une vente telle que « Mon espace » la renvoie : la vente (réduite pour un collaborateur) et les côtés que le titulaire y tient. */
-export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[] };
+/**
+ * Une vente telle que « Mon espace » la renvoie : la vente (réduite pour un collaborateur), les côtés que le titulaire y tient, et
+ * `commissionsRetirees` (🔴 LOT 4) — vrai si la commission d'un autre a été retirée : l'écran ne montre alors ni sa commission ni ce qui en
+ * dépend (« reste », part de l'agence), au lieu d'un « 0 € » ou d'un chiffre recalculé.
+ */
+export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[]; commissionsRetirees?: boolean };
 
 /** La réponse de /api/admin/mon-espace/affaires. */
 export interface MesAffaires {
@@ -88,4 +97,9 @@ export interface MesAffaires {
   /** Collaborateur : SES ventes, sans la commission des autres. Administrateur : toutes les ventes, telles quelles (« mesCotes » vide : pas à lui). */
   ventes: VenteMonEspace[];
   compteurs: CompteursMonEspace;
+  /** 🔴 LOT 4 — ce que la fiche dépliée lit d'ordinaire dans les références de la Transaction (sans y donner accès) : les migrations appliquées,
+   *  le nom affiché de chaque libellé (« Prénom NOM ») et le statut des négociateurs dont une paye figure dans la réponse. */
+  schema?: { lotD: boolean; personneType: boolean; uniteCommission: boolean; prixVente: boolean; mandat: boolean };
+  nomsNegociateurs?: Record<string, string>;
+  statutsNegociateurs?: Record<string, 'associe' | 'salarie' | 'independant' | 'observateur' | null>;
 }

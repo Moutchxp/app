@@ -47,6 +47,13 @@ Mise en œuvre du lot 3 (« mes affaires », lecture seule, aucune migration) :
 - limite connue, héritée de la règle existante : un libellé des fichiers rattaché par le seul PRÉNOM (« ANTOINE ») va au seul compte qui porte
   ce prénom — un futur collaborateur homonyme d'un ancien hériterait de son historique tant qu'un alias n'est pas posé.
 
+Mise en œuvre du lot 4 (mes listes, lecture seule) :
+- « Mes compromis en cours » et « Mes ventes » (toutes années, sélecteur, total) affichent EXACTEMENT les ventes que le serveur compte pour moi
+  (`compteurs.compromis.ids`, `compteurs.parAnnee`), avec `CarteAffaire` / `DetailAffaire` de la tuile Suivi CA ;
+- option `personnel` (`VuePersonnelle` : mes côtés, commission d'un autre retirée) sur ces composants : pour le côté d'un autre, ni com négo,
+  ni reste, ni taux, ni cadre de commission, ni part de l'agence (au lieu de « 0 € » ou d'un calcul refait sur un taux par défaut) ; aucun geste
+  (ils arrivent aux lots 5 à 7). Sans l'option, la tuile Suivi CA est inchangée (épreuve de non-régression).
+
 ---
 
 ## 🔴 RÈGLE TRANSVERSE — À VÉRIFIER À CHAQUE LOT 2 → 10 (exigence d'Arno, 02/11/2026)
