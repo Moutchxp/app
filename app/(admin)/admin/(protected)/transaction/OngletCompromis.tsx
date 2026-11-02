@@ -626,6 +626,8 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros }: { v: Vent
                 modifiable={d.disponible && d.lotD} avecUnite={d.uniteCommission === true}
                 onValider={(c) => enregistrerApporteur(v, { apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false })}
                 onRetirer={() => enregistrerApporteur(v, { apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true })} /></span>; })(), 'apporteur')}
+          {/* 🔴 MON ESPACE, LOT 2 (Arno) — le n° de mandat (migration 449) ; sans lui : « à renseigner » (il s'ajoute par « Modifier ») ; sans la 449 : rien. */}
+          {v.numeroMandat !== undefined && info('N° de mandat', v.numeroMandat === null ? <span className="trx-a-renseigner">{A_RENSEIGNER}</span> : v.numeroMandat, 'mandat')}
         </dl>
         {r !== null && ps !== null ? (() => {
           // 🔴 LOT AH (Arno) — LA RÉPARTITION EN LOGIQUE COMPTABLE, de haut en bas : la commission de la vente (CA de la porteuse), − l'apporteur,
@@ -1245,6 +1247,9 @@ export function DetailMiroir({ v, references, aujourdhui, disponible, onFait, st
           <h4>Inter-cabinet reçu</h4>
           <dl className="trx-couples">
             <div className="trx-couple" data-miroir-info="porteuse"><dt>Société porteuse du mandat</dt><dd>{LIBELLE_SOCIETE[m.porteuse]}</dd></div>
+            {/* 🔴 MON ESPACE, LOT 2 — le n° de mandat de la vente d'origine (migration 449) ; sans la 449 : rien. */}
+            {v.numeroMandat !== undefined && <div className="trx-couple" data-miroir-info="mandat"><dt>N° de mandat</dt>
+              <dd className={v.numeroMandat === null ? 'trx-a-renseigner' : undefined}>{v.numeroMandat ?? A_RENSEIGNER}</dd></div>}
             <div className="trx-couple" data-miroir-info="origine"><dt>Vente d’origine</dt><dd>{m.libelleOrigine}
               {' '}<a className="trx-lien" href={adresseOrigine(m.porteuse, m.origineId)} data-voir-origine={m.origineId}>Voir la vente d’origine</a></dd></div>
             <div className="trx-couple" data-miroir-info="part"><dt>Part reçue</dt>

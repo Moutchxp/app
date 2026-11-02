@@ -6,6 +6,7 @@ import { BlocRepartition, commissionsResolues, texteDansUnite, texteTaux, etatSo
 import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, SelecteurAffichage, useAffichage } from './commun';
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
+import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
 import { Journal } from './FormulaireVente';
 import { BlocPersonnes, decrire, personneEcranDe, personneVide, type PersonneEcran, type PersonneRef } from './PersonnesDossier';
 import { ApporteurAffaire } from './ApporteurAffaire';
@@ -31,7 +32,9 @@ export interface References { lotD: boolean; negociateurs: NegociateurRef[]; app
   /** LOT I — la migration 437 (commissions versées, saisie en HT ou en TTC) est-elle appliquée ? Absent : non (tout en TTC, comme avant). */
   uniteCommission?: boolean;
   /** 🔴 LOT BJ — la migration 443 (particulier / société, civilité, prénom, représentants) est-elle appliquée ? Absent : non (l'ancien formulaire). */
-  personneType?: boolean }
+  personneType?: boolean;
+  /** 🔴 MON ESPACE, LOT 2 — la migration 449 (n° de mandat) est-elle appliquée ? Absent : non (champ absent, mention « disponible après la mise à jour »). */
+  mandat?: boolean }
 
 const texteMontant = (x: number): string => String(x).replace('.', ',');
 
@@ -78,13 +81,15 @@ function avecSortieDuMeme(lignes: ReturnType<typeof lignesDe>, negos: readonly N
 
 /** Le corps envoyé à `dossier-enregistrer` (la saisie telle quelle : le serveur relit et vérifie tout). */
 export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', champs: { libelle: string; commission: string; dateCompromis: string; dateActePrevue: string;
-  dateActe: string; adresseBien: string; note: string; prixVente?: string }, personnes: readonly PersonneEcran[], etat: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
+  dateActe: string; adresseBien: string; note: string; prixVente?: string; numeroMandat?: string }, personnes: readonly PersonneEcran[], etat: EtatRepartition, lignes?: unknown[]): Record<string, unknown> {
   const r = commissionsResolues(etat, nombre(champs.commission) ?? Number.NaN);
   // 🔴 LOT V — le mode de chaque côté : proposée (« auto ») = calculée, le serveur la recalcule sur ce qui s'enregistre ; tapée = à la main.
   const modeDe = (cote: 'entree' | 'sortie'): 'calculee' | 'manuelle' => (etat.commissions?.[cote].auto === true ? 'calculee' : 'manuelle');
   return { societe, statut, libelle: champs.libelle, honorairesTtc: champs.commission, prixVente: champs.prixVente ?? '', dateCompromis: champs.dateCompromis || null, dateActePrevue: champs.dateActePrevue || null,
     dateActe: champs.dateActe || null, adresseBien: champs.adresseBien, note: champs.note, entreeId: r.entreeId, sortieId: r.sortieId, apporteurId: r.apporteurId,
     retroApporteurTtc: r.retroTexte, retroApporteurUnite: r.retroUnite ?? 'ttc', personnes: personnes.map((p) => ({ ...p })), parties: versModele(r.parties), ...(lignes ? { lignes } : {}),
+    // 🔴 MON ESPACE, LOT 2 — le n° de mandat, seulement quand le formulaire le porte (migration 449) : absent, le n° enregistré reste tel quel.
+    ...(champs.numeroMandat !== undefined ? { numeroMandat: champs.numeroMandat } : {}),
     // 🔴 LOT BH — l'apporteur écrit hors annuaire, gardé ; « Supprimer » : le lien est retiré.
     ...(etat.apporteurId === null && (etat.apporteurNom ?? '') !== '' && etat.retirerApporteur !== true ? { apporteurNom: etat.apporteurNom } : {}),
     ...(etat.retirerApporteur === true ? { retirerApporteur: true } : {}),
@@ -111,7 +116,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const [champs, setChamps] = useState({ libelle: vente?.libelle ?? '', commission: vente === null ? '' : String(vente.honorairesTtc).replace('.', ','),
     dateCompromis: vente?.dateCompromis ?? '', dateActePrevue: d?.dateActePrevue ?? '', dateActe: d?.dateActe ?? (vente?.statut === 'vendue' && vente.mois !== null
       ? `${vente.annee}-${String(vente.mois).padStart(2, '0')}-01` : ''), adresseBien: d?.adresseBien ?? '', note: vente?.note ?? '',
-    prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ',') });
+    prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ','), numeroMandat: vente?.numeroMandat ?? '' });
   const [personnes, setPersonnes] = useState<PersonneEcran[]>(() => {
     const lues = (d?.personnes ?? []).map(personneEcranDe);
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
@@ -157,11 +162,14 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   })();
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, champs, personnes, repartition) });
+    const r = await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) });
     setEnvoi(false);
     if (r.motif === null) onFait({ id: Number(r.data ?? vente?.id ?? 0), repartition, honorairesTtc: nombre(champs.commission) ?? 0 }); else setMotif(r.motif);
   };
 
+  // 🔴 MON ESPACE, LOT 2 (Arno) — le n° de mandat (migration 449) : OBLIGATOIRE à la création d'un compromis, facultatif pour une fiche existante.
+  const avecMandat = references.mandat === true;
+  const mandatObligatoire = avecMandat && vente === null && statut === 'compromis';
   const titre = vente === null ? `Nouveau compromis — ${LIBELLE_SOCIETE[societe]}` : `${statut === 'compromis' ? 'Compromis' : 'Vente'} — ${vente.libelle}`;
   const blocPersonnes = (role: PersonneEcran['role'], mot: string) => (
     <BlocPersonnes role={role} mot={mot} personnes={personnes} onChange={setPersonnes} annuaire={references.personnes} avecType={references.personneType === true} focus={focus} />
@@ -178,6 +186,10 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
           <div className="trx-form-affichage" data-affichage-formulaire><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
           <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
+            <label className="trx-plein" data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : avecMandat ? ' (facultatif pour une fiche existante)' : ''}
+              {avecMandat
+                ? <input value={champs.numeroMandat} onChange={champ('numeroMandat')} required={mandatObligatoire} maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" data-champ="numero-mandat" />
+                : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>
             {blocPersonnes('vendeur', 'Vendeur(s)')}
             {blocPersonnes('acquereur', 'Acquéreur(s)')}
             <label className="trx-plein" data-champ-adresse-bien>Adresse du bien

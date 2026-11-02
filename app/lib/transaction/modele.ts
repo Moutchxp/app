@@ -105,6 +105,8 @@ export interface Vente {
   retroApporteur?: MontantSaisi | null;
   /** LOT E (migration 435) — le prix de vente du bien (€), facultatif ; absent ou null : à renseigner. */
   prixVente?: number | null;
+  /** 🔴 MON ESPACE, LOT 2 (migration 449) — le n° de mandat tel que saisi ; absent (sans la 449) ou null : non renseigné. */
+  numeroMandat?: string | null;
   /** LOT D — le dossier du compromis (personnes, bien, dates, négociateurs, apporteur) ; absent ou null : non renseigné. */
   dossier?: DossierVente | null;
   /**

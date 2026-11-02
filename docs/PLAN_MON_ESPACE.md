@@ -16,6 +16,28 @@ unicité du mandat par structure (n° + société).
 
 ---
 
+## 🔴 Décisions métier (Arno, 02/11/2026, 20h16) — à respecter dans TOUS les lots
+
+1. **« Mon CA » = les honoraires rattachés au titulaire de l'espace** (le côté qu'il porte). Sa commission est affichée à part.
+2. **Chaque collaborateur de la vente peut remplir LES DEUX côtés** (parties, honoraires). Garde de version obligatoire (lot 6) et
+   traçabilité de chaque modification (qui, quand, quoi). Par défaut, le taux de commission personnel de l'AUTRE collègue reste masqué.
+3. **N° de mandat OBLIGATOIRE pour toute CRÉATION de compromis** (depuis « Mon espace » comme depuis la tuile Suivi CA / Transaction).
+   Facultatif pour les compromis et ventes existants (on peut l'ajouter ou le corriger).
+4. **Aucun doublon** : ni de vente (même mandat), ni d'apporteur.
+5. **Acte signé, retour en compromis, annulation** : autorisés aux collaborateurs présents sur au moins un côté (vendeur ou acquéreur) de la
+   vente, et aux administrateurs. Tous les autres : refus côté serveur (403), bouton absent.
+
+Mise en œuvre du lot 2 (n° de mandat, migration 449) :
+- la comparaison passe par UNE fonction, `normaliserMandat` (`app/lib/transaction/mandat.ts`) : sans accents, majuscules, lettres et
+  chiffres seuls (espaces, tirets, points ignorés), sans zéros de tête (« m-0042 » = « M42 ») ; la recherche « ce mandat existe-t-il déjà
+  dans cette structure ? » est `venteDuMandat` (`app/lib/transaction/mandatRepo.ts`) — réutilisées telles quelles par les lots 5 et 6 ;
+- la « structure » est la société PORTEUSE de la vente (colonne `societe`, celle du négociateur d'entrée) ;
+- un n° posé ne s'efface pas (on le corrige) ; un n° annulé ou retiré redevient libre ; « Rétablir » un compromis dont le n° a été repris
+  est refusé avec le résumé de la vente qui le porte ;
+- la création d'un compromis par l'ancienne action « vente-saisir » (aucun écran ne l'ouvre plus) suit la même règle.
+
+---
+
 ## 🔴 RÈGLE TRANSVERSE — À VÉRIFIER À CHAQUE LOT 2 → 10 (exigence d'Arno, 02/11/2026)
 
 Tout compromis créé, complété, passé en « acte signé » (vente actée), annulé ou remis en compromis depuis « Mon espace » se
@@ -64,7 +86,7 @@ sur une base d'essai ou en transaction annulée — jamais `npm run test:integra
 | Lot | Contenu | À l'écran | Règle transverse |
 |---|---|---|---|
 | 1 | Droit et tuile : migration 448 `perm_mon_espace` (non appliquée), `session.ts`, `menuAdmin.ts`, `proxy.ts` (refus par défaut), Comptes (case + repli `schemaDroits.ts`), page vide protégée | Tuile « Mon espace », case dans la fiche d'un compte, page d'accueil de l'espace | Non concerné (ne touche pas aux ventes) |
-| 2 | N° de mandat : migration 449 (colonne + unicité n° + société, hors retirées/annulées), normalisation et recherche pures, champ FACULTATIF dans le formulaire de la Transaction, affiché sur la carte | « N° de mandat » dans le formulaire existant et la ligne dépliée | Le n° saisi d'un côté se lit de l'autre |
+| 2 | N° de mandat : migration 449 (colonne + unicité n° + société, hors retirées/annulées), normalisation et recherche pures, champ OBLIGATOIRE à la création d'un compromis et facultatif pour une fiche existante (décision 3), affiché sur la ligne dépliée et la ligne miroir | « N° de mandat » dans les formulaires existants et la ligne dépliée | Le n° saisi apparaît partout où la vente est affichée (société, FUSION, ligne miroir) |
 | 3 | Lire « mes affaires » : adresse de données dédiée `/api/admin/mon-espace`, filtrée côté serveur (côtés, parties, libellés rattachés), commission de l'autre retirée ; tests de sécurité | Compteurs « mes compromis / mes ventes » | Une saisie Transaction apparaît dans l'espace des concernés |
 | 4 | Mes listes : même `CarteAffaire` / `DetailAffaire` (option « vue personnelle », tuile Transaction inchangée), historique des ventes | Liste dépliable identique à la Transaction | Idem lot 3, sur les listes |
 | 5 | Créer : ① structure ② n° de mandat obligatoire ③ vérification ④ `FormulaireDossier` pré-rempli | Parcours de création | Créer → Suivi CA, FUSION, CA global, inter-cabinet, autre collègue |
@@ -87,10 +109,6 @@ Contrôle de fin de chaque lot : `npm test` complet vert + `tsc` + preuve curl (
   et fausseraient des statistiques personnelles ; les 10 compromis en cours doivent recevoir leur n° avant l'ouverture.
 - **Annuaire des apporteurs** commun avec la Location, nom unique pour toute l'agence.
 
-## Questions ouvertes à Arno
+## Questions à Arno
 
-1. « Mon CA » = ma part des honoraires (les espaces s'additionnent en CA agence) ou ma commission ?
-2. Sur une vente à deux, qui fixe le partage (50/50, 60/40…) et que faire en cas de désaccord ?
-3. N° de mandat obligatoire aussi dans la tuile Transaction ?
-4. Apporteur déjà connu d'un collègue : le signaler et le partager, ou permettre un homonyme ?
-5. « Revenir en compromis » / « Annuler » ouverts aux collaborateurs ou réservés aux administrateurs ?
+Les cinq questions de la recon sont tranchées : voir « Décisions métier » ci-dessus (02/11/2026).

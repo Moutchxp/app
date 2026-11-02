@@ -1,5 +1,6 @@
 import { formeNom, formePrenom } from './personnes';
 import { estCivilite, estModeCommission, estSociete, STATUTS, type Civilite, type ModeCommission, type MontantSaisi, type RoleLigne, type Societe, type SortePartie, type StatutVente } from './modele';
+import { lireNumeroMandat, type NumeroMandat } from './mandat';
 
 /**
  * TUILE « TRANSACTION » — la LECTURE d'une saisie venue de l'écran (vente, rétrocession, gestion du mois), avant toute écriture.
@@ -19,6 +20,8 @@ export interface VenteSaisie {
   note: string | null;
   /** LOT E (435) — le prix de vente (€), facultatif. */
   prixVente?: number | null;
+  /** 🔴 MON ESPACE, LOT 2 (449) — le n° de mandat ; null : vide ; absent : la saisie n'en parle pas (écran d'avant). */
+  numeroMandat?: NumeroMandat | null;
   parts: PartSaisie[];
 }
 /** Les champs modifiables d'une vente (une modification n'en porte que certains). */
@@ -72,6 +75,11 @@ function lireChamps(c: Record<string, unknown>, tous: boolean): Lu<ChampsVente> 
     if (p === undefined || (p !== null && p < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
     v.prixVente = p;
   }
+  if ('numeroMandat' in c) {
+    const m = lireNumeroMandat(c.numeroMandat);
+    if (!m.ok) return refus(m.motif);
+    v.numeroMandat = m.valeur;
+  }
   return { ok: true, valeur: v };
 }
 
@@ -101,7 +109,8 @@ export function lireVente(brut: unknown): Lu<VenteSaisie> {
   const parts = lp.valeur;
   const v = ch.valeur as Required<ChampsVente>;
   return { ok: true, valeur: { societe: c.societe, libelle: v.libelle, honorairesTtc: v.honorairesTtc, statut: v.statut, annee: v.annee, mois: v.mois,
-    dateCompromis: v.dateCompromis, apporteur: v.apporteur, note: v.note, ...(ch.valeur.prixVente !== undefined ? { prixVente: ch.valeur.prixVente } : {}), parts } };
+    dateCompromis: v.dateCompromis, apporteur: v.apporteur, note: v.note, ...(ch.valeur.prixVente !== undefined ? { prixVente: ch.valeur.prixVente } : {}),
+    ...(ch.valeur.numeroMandat !== undefined ? { numeroMandat: ch.valeur.numeroMandat } : {}), parts } };
 }
 
 /** Une modification : au moins un champ, chacun relu comme à la saisie. */
@@ -197,6 +206,11 @@ export interface DossierSaisie {
   parties: PartieSaisie[];
   /** LOT E (435) — le prix de vente (€), facultatif. */
   prixVente: number | null;
+  /**
+   * 🔴 MON ESPACE, LOT 2 (449) — le n° de mandat (obligatoire à la création d'un compromis, facultatif ensuite) ; null : champ vide ; absent :
+   * la saisie n'en parle pas (écran d'avant la 449) — le n° enregistré reste tel quel.
+   */
+  numeroMandat?: NumeroMandat | null;
   /** « Nouvelle vente » : les négociateurs et leurs parts / payes saisis comme avant (posés à la création seulement). */
   lignes: PartSaisie[];
 }
@@ -299,7 +313,9 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
   }
   const prix = montant(c.prixVente);
   if (prix === undefined || (prix !== null && prix < 0)) return refus('Le prix de vente doit être un montant positif (ou vide).');
-  return { ok: true, valeur: { prixVente: prix, lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
+  const mandat = 'numeroMandat' in c ? lireNumeroMandat(c.numeroMandat) : null;
+  if (mandat !== null && !mandat.ok) return refus(mandat.motif);
+  return { ok: true, valeur: { ...(mandat !== null && mandat.ok ? { numeroMandat: mandat.valeur } : {}), prixVente: prix, lignes: lignes.valeur, societe: c.societe, statut: c.statut, libelle: texte(c.libelle), honorairesTtc: h, dateCompromis: dates.dateCompromis,
     dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
     entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: c.retirerApporteur === true ? null : ids.apporteurId, apporteurNom: c.retirerApporteur === true ? null : texte(c.apporteurNom),
     retroApporteurTtc: c.retirerApporteur === true ? 0 : r ?? 0, retroUnite, ...(c.retirerApporteur === true ? { retirerApporteur: true } : {}),

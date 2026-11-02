@@ -85,6 +85,14 @@ export function prixVenteDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.prix_vente', () => colonneExiste('transaction_vente', 'prix_vente'));
 }
 
+/**
+ * MON ESPACE, LOT 2 — la migration 449 (le n° de mandat d'une vente) est-elle appliquée ? Sans elle : le champ est absent des formulaires
+ * (« disponible après la mise à jour »), rien ne lit ni n'écrit les colonnes, et la création d'un compromis fonctionne comme avant.
+ */
+export function mandatDisponible(): Promise<boolean> {
+  return memoiser('transaction_vente.numero_mandat_normalise', () => colonneExiste('transaction_vente', 'numero_mandat_normalise'));
+}
+
 /** TRANSACTION, LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? Sans elle : bouton visible mais inactif. */
 export function annulationDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.annulation_motif', () => colonneExiste('transaction_vente', 'annulation_motif'));

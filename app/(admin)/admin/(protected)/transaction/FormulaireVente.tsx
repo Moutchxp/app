@@ -6,6 +6,7 @@ import { LIBELLE_ROLE, LIBELLE_SOCIETE, LIBELLE_STATUT, NOMS_MOIS, STATUTS, ht, 
 import { API_TRANSACTION, eur, posterTransaction } from './commun';
 import { BlocRepartition, etatSomme, type EtatRepartition } from './Repartition';
 import { corpsDossier, etatRepartitionDe, type References } from './FormulaireDossier';
+import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
 
 /**
  * TUILE TRANSACTION — SAISIR ou MODIFIER une vente (journalisé, réversible). Une vente neuve porte ses négociateurs et leurs parts ;
@@ -32,6 +33,10 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
   // LOT E (435) — le prix de vente, facultatif (grisé sans la migration).
   const [prixVente, setPrixVente] = useState(vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ','));
   const prixDisponible = references?.prixVente === true;
+  // 🔴 MON ESPACE, LOT 2 (449) — le n° de mandat : obligatoire pour un compromis neuf, facultatif pour une fiche existante (ajouter, corriger).
+  const [numeroMandat, setNumeroMandat] = useState(vente?.numeroMandat ?? '');
+  const mandatDisponible = references?.mandat === true;
+  const mandatObligatoire = mandatDisponible && vente === null && statut === 'compromis';
   const [parts, setParts] = useState<Part[]>([vide()]);
   const [repartition, setRepartition] = useState<EtatRepartition>(() => etatRepartitionDe(null, references?.negociateurs ?? []));
   /** LOT D — une vente neuve avec un négociateur d'entrée ou de sortie suit la répartition (enregistrée avec son dossier). */
@@ -51,13 +56,13 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
     const champs = { libelle, honorairesTtc: honoraires, statut, annee: an, mois: m === '' ? null : m, dateCompromis: dateCompromis || null, apporteur, note,
-      ...(prixDisponible ? { prixVente } : {}) };
+      ...(prixDisponible ? { prixVente } : {}), ...(mandatDisponible ? { numeroMandat } : {}) };
     const dateActe = statut === 'vendue' && m !== '' ? `${an}-${String(m).padStart(2, '0')}-01` : '';
     const r = repartie
       ? (statut === 'annulee' ? 'Une vente répartie est un compromis ou une vente (pas « annulée »).'
         : statut === 'vendue' && dateActe === '' ? 'Une vente répartie porte le mois de l’acte.'
         : await posterTransaction({ action: 'dossier-enregistrer', id: null, dossier: { ...corpsDossier(societe, statut, { libelle, commission: honoraires, dateCompromis,
-          dateActePrevue: '', dateActe, adresseBien: '', note, prixVente }, [], repartition, parts), apporteurNom: apporteur } }))
+          dateActePrevue: '', dateActe, adresseBien: '', note, prixVente, ...(mandatDisponible ? { numeroMandat } : {}) }, [], repartition, parts), apporteurNom: apporteur } }))
       : vente === null
       ? await posterTransaction({ action: 'vente-saisir', vente: { societe, ...champs, parts } })
       : await posterTransaction({ action: 'vente-modifier', id: vente.id, champs });
@@ -84,6 +89,10 @@ export function FormulaireVente({ societe, vente, annee, mois, negociateurs, ref
           <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <label className="trx-plein">Vendeur / acquéreur
               <input value={libelle} onChange={(e) => setLibelle(e.target.value)} required autoFocus data-champ="libelle" /></label>
+            <label data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : mandatDisponible ? ' (facultatif pour une fiche existante)' : ''}
+              {mandatDisponible
+                ? <input value={numeroMandat} onChange={(e) => setNumeroMandat(e.target.value)} required={mandatObligatoire} maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" data-champ="numero-mandat" />
+                : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>
             <label>Honoraires TTC
               <input value={honoraires} onChange={(e) => setHonoraires(e.target.value)} inputMode="decimal" required data-champ="honoraires" />
               <span className="loc-muet">{Number.isFinite(honorairesNombre) && honoraires !== '' ? `soit ${eur(ht(honorairesNombre))} HT` : 'HT = TTC ÷ 1,2'}</span></label>

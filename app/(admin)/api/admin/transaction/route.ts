@@ -9,11 +9,13 @@ import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGes
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireARattacher, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
   lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
-import { annulationDisponible, interCabinetDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
+import { annulationDisponible, interCabinetDisponible, mandatDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireCaLocationHtTtc, lireLocationCa } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
+import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
+import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -49,7 +51,7 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
     lireComptesInterface().catch(() => []),
     lotD ? lirePersonnes() : Promise.resolve([]),
   ]);
-  return { lotD, personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
+  return { lotD, personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
     // LOT AC — la recherche (nom, prénom, société, téléphones, e-mails) et le libellé de l'annuaire (homonymes).
     recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), collegues, personnes };
 }
@@ -241,6 +243,9 @@ export async function POST(request: Request): Promise<Response> {
         return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);
     }
   } catch (e) {
+    // 🔴 MON ESPACE, LOT 2 — la base refuse un doublon de n° de mandat (deux saisies simultanées, rétablissement, annulation d'un geste) :
+    // un refus clair, rien n'est écrit (la transaction est annulée).
+    if (estDoublonMandat(e)) return json({ etat: 'refus', motif: MOTIF_DOUBLON_MANDAT }, 422);
     console.error('[transaction] écriture', e);
     return json({ etat: 'erreur', message: 'Enregistrement impossible.' }, 500);
   }

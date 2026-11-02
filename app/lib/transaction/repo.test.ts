@@ -18,7 +18,9 @@ const lotBJ = vi.fn<() => Promise<boolean>>(async () => false);
 const lotGE3 = vi.fn<() => Promise<boolean>>(async () => false);
 vi.mock('../admin/schemaDroits', () => ({ droitTransactionDisponible: () => disponible(), repartitionDisponible: () => lotD(), prixVenteDisponible: () => lotE(),
   annulationDisponible: () => lotG(), uniteCommissionDisponible: () => lotI(), statutDisponible: () => lotP(), interCabinetDisponible: () => lotR(), commissionneDisponible: () => lotS(),
-  modeCommissionDisponible: () => lotV(), personneTypeDisponible: () => lotBJ(), mongaDisponible: () => lotGE3() }));
+  modeCommissionDisponible: () => lotV(), personneTypeDisponible: () => lotBJ(), mongaDisponible: () => lotGE3(),
+  // 🔴 MON ESPACE, LOT 2 — la 449 (n° de mandat) absente : ces épreuves gardent le comportement d'avant (son effet : mandat.test.ts, mandat.itest.ts).
+  mandatDisponible: async () => false }));
 const appels: { sql: string; params: unknown[] }[] = [];
 let reponses: ((sql: string) => { rows: Record<string, unknown>[] } | undefined)[] = [];
 const q = vi.fn(async (sql: string, params: unknown[] = []) => {

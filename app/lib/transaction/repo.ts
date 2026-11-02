@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -21,6 +21,8 @@ import { lireFichesStatut, statutDeFiche } from './statutSansCompte';
 import { nomAffiche } from './nomNegociateur';
 import { normaliserLibelle } from '../location/suivi/negociateurIdentite';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
+import { MOTIF_MANDAT_INEFFACABLE, MOTIF_MANDAT_OBLIGATOIRE, MOTIF_SANS_449, motifMandatPris, type NumeroMandat } from './mandat';
+import { venteDuMandat } from './mandatRepo';
 
 export interface AuteurTx { id: number | null; libelle: string }
 export type Issue<T = undefined> = { ok: true; valeur?: T } | { ok: false; motif: string };
@@ -60,7 +62,8 @@ function venteDe(r: Record<string, unknown>, lignes: LigneVente[], lotD?: { part
   } : {};
   const avecAnnulation = 'annulation_motif' in r
     ? { annulation: r.annulation_motif == null ? null : { date: jour(r.annulation_date), motif: String(r.annulation_motif), note: t(r.annulation_note) } } : {};
-  return { ...avecLotD, ...avecAnnulation, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
+  return { ...avecLotD, ...avecAnnulation, ...('prix_vente' in r ? { prixVente: nOuNull(r.prix_vente) } : {}),
+    ...('numero_mandat' in r ? { numeroMandat: t(r.numero_mandat) } : {}), id: n(r.id), societe: r.societe as Societe, libelle: String(r.libelle), honorairesTtc: n(r.honoraires_ttc), statut: r.statut as Vente['statut'],
     annee: n(r.annee), mois: moisDe(r.mois_acte), dateCompromis: jour(r.date_compromis), apporteur: t(r.apporteur), note: t(r.note),
     origine: r.origine as Vente['origine'], sourceFichier: t(r.source_fichier), sourceOnglet: t(r.source_onglet), sourceLigne: nOuNull(r.source_ligne), lignes,
     double: r.double_cle === null || r.double_cle === undefined ? null : { cle: String(r.double_cle), attribution: r.attribution as Attribution } };
@@ -113,6 +116,7 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
   const avecUnite = await uniteCommissionDisponible();
   const avecTaux = await interCabinetDisponible();
   const avecMode = await modeCommissionDisponible();
+  const avecMandat = await mandatDisponible();
   // 🔴 LOT R — une vente répartie se lit pour sa société de saisie et pour chaque société d'une de ses parties (la porteuse ou celle qui
   // reçoit) ; avec le registre (440), aussi pour une société qui ne reçoit plus rien (sa ligne miroir annulée). `venteDansSociete` tranche.
   const filtre = lotD
@@ -124,7 +128,7 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
     // Les dates en TEXTE (« AAAA-MM-JJ ») : lues en Date, le pilote les placerait à minuit LOCAL (la veille en UTC).
     `SELECT v.id, v.societe, v.libelle, v.honoraires_ttc, v.statut, v.annee, to_char(v.mois_acte, 'YYYY-MM-DD') AS mois_acte,
             to_char(v.date_compromis, 'YYYY-MM-DD') AS date_compromis, v.apporteur, v.note, v.origine, v.source_fichier, v.source_onglet, v.source_ligne,
-            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${avecAnnulation
+            v.double_cle, v.attribution${avecPrix ? ', v.prix_vente' : ''}${avecMandat ? ', v.numero_mandat' : ''}${avecAnnulation
               ? ", to_char(v.annulation_date, 'YYYY-MM-DD') AS annulation_date, v.annulation_motif, v.annulation_note" : ''}${lotD ? `, v.adresse_bien, to_char(v.date_acte_prevue, 'YYYY-MM-DD') AS date_acte_prevue,
             to_char(v.date_acte, 'YYYY-MM-DD') AS date_acte, v.negociateur_entree_id, v.negociateur_sortie_id, v.apporteur_id, v.retro_apporteur_ttc,${avecUnite ? ' v.retro_apporteur_ht,' : ''}
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
@@ -304,6 +308,8 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
 /** LOT D — les colonnes de la vente portées par la 434 : lues et écrites SEULEMENT quand elle est appliquée. */
 const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'negociateur_entree_id', 'negociateur_sortie_id', 'apporteur_id', 'retro_apporteur_ttc', 'repartition'];
 const DATES = ['mois_acte', 'date_compromis', 'date_acte_prevue', 'date_acte', 'annulation_date'];
+/** 🔴 MON ESPACE, LOT 2 (449) — le n° de mandat : un TEXTE, même tout en chiffres (« 0042 » n'est pas le nombre 42, ni au journal ni à l'annulation). */
+const COLONNES_MANDAT = ['numero_mandat', 'numero_mandat_normalise'];
 async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   const c = COLONNES[entite].colonnes;
   // 🔴 LOT BJ — type, civilité, prénom d'une fiche (443) : lus et écrits SEULEMENT quand la migration est appliquée.
@@ -315,11 +321,14 @@ async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
     ...((await annulationDisponible()) ? ['annulation_date', 'annulation_motif', 'annulation_note'] : []),
     // LOT I — la rétrocession de l'apporteur saisie en HT (437).
-    ...((await uniteCommissionDisponible()) ? ['retro_apporteur_ht'] : [])];
+    ...((await uniteCommissionDisponible()) ? ['retro_apporteur_ht'] : []),
+    // 🔴 MON ESPACE, LOT 2 — le n° de mandat (449), tel que saisi et sa forme de comparaison : toujours écrits ensemble.
+    ...((await mandatDisponible()) ? COLONNES_MANDAT : [])];
 }
 
-/** La valeur d'une colonne comme le journal la garde (numeric en nombre, date en « AAAA-MM-JJ », instant en ISO). */
-function valeurJournal(v: unknown): unknown {
+/** La valeur d'une colonne comme le journal la garde (numeric en nombre, date en « AAAA-MM-JJ », instant en ISO ; le n° de mandat : tel quel). */
+function valeurJournal(v: unknown, colonne?: string): unknown {
+  if (colonne !== undefined && COLONNES_MANDAT.includes(colonne)) return v ?? null;
   if (v instanceof Date) return v.toISOString();
   if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) return Number(v);
   return v ?? null;
@@ -330,7 +339,7 @@ async function lireLigne(q: RequeteTx, entite: Entite, id: number): Promise<Reco
   const { rows } = await q<Record<string, unknown>>(
     `SELECT ${colonnes.map((x) => (DATES.includes(x) ? `to_char(${x}, 'YYYY-MM-DD') AS ${x}` : x)).join(', ')}
        FROM ${c.table} WHERE id = $1 FOR UPDATE`, [id]);
-  return rows[0] === undefined ? null : Object.fromEntries(Object.entries(rows[0]).map(([k, v]) => [k, valeurJournal(v)]));
+  return rows[0] === undefined ? null : Object.fromEntries(Object.entries(rows[0]).map(([k, v]) => [k, valeurJournal(v, k)]));
 }
 /** Écrit des colonnes (de la liste fermée) sur une ligne ; rend la valeur d'avant et d'après des SEULES colonnes changées. */
 async function ecrire(q: RequeteTx, entite: Entite, id: number, valeurs: Record<string, unknown>, avecModifie: boolean):
@@ -339,9 +348,9 @@ async function ecrire(q: RequeteTx, entite: Entite, id: number, valeurs: Record<
   const colonnes = await colonnesDe(entite);
   const actuel = await lireLigne(q, entite, id);
   if (actuel === null) return null;
-  const changees = Object.entries(valeurs).filter(([k, v]) => colonnes.includes(k) && JSON.stringify(actuel[k] ?? null) !== JSON.stringify(valeurJournal(v)));
+  const changees = Object.entries(valeurs).filter(([k, v]) => colonnes.includes(k) && JSON.stringify(actuel[k] ?? null) !== JSON.stringify(valeurJournal(v, k)));
   const avant = Object.fromEntries(changees.map(([k]) => [k, actuel[k] ?? null]));
-  const apres = Object.fromEntries(changees.map(([k, v]) => [k, valeurJournal(v)]));
+  const apres = Object.fromEntries(changees.map(([k, v]) => [k, valeurJournal(v, k)]));
   if (changees.length === 0) return { avant, apres };
   const sets = changees.map(([k], i) => `${k} = $${i + 2}`);
   if (avecModifie) sets.push('modifie_le = now()');
@@ -394,12 +403,37 @@ async function synchroniserInterCabinet(q: RequeteTx, venteId: number, auteur: A
   }
 }
 
+// ── 🔴 MON ESPACE, LOT 2 : le n° de mandat d'une vente (migration 449) ─────────────────────────────────────────────────────────
+
+/**
+ * Les colonnes du n° de mandat à écrire, ou le refus — UNE règle pour toutes les écritures d'une vente (Décisions d'Arno, 02/11/2026) :
+ *   · CRÉATION d'un compromis : le n° est obligatoire ;
+ *   · fiche existante : facultatif — on l'ajoute ou on le corrige, on ne l'efface pas ; `saisi` absent : la saisie n'en parle pas, rien ne change ;
+ *   · aucun doublon : un n° déjà porté par une autre vente vivante et non annulée de la même structure est refusé, avec son résumé.
+ * Sans la 449 : rien n'est exigé ni écrit (un n° envoyé quand même est refusé). À appeler AVANT toute écriture de la transaction.
+ */
+async function mandatAEcrire(q: RequeteTx, o: { creation: boolean; compromis: boolean; saisi: NumeroMandat | null | undefined; actuel: unknown;
+  societe: Societe; id: number | null }): Promise<{ ok: true; valeurs: Record<string, unknown> } | { ok: false; motif: string }> {
+  if (!(await mandatDisponible())) return o.saisi == null ? { ok: true, valeurs: {} } : { ok: false, motif: MOTIF_SANS_449 };
+  if (o.saisi == null) {
+    if (o.creation && o.compromis) return { ok: false, motif: MOTIF_MANDAT_OBLIGATOIRE };
+    if (o.saisi === null && !o.creation && o.actuel != null) return { ok: false, motif: MOTIF_MANDAT_INEFFACABLE };
+    return { ok: true, valeurs: {} };
+  }
+  const pris = await venteDuMandat(o.societe, o.saisi.saisi, o.id, q);
+  if (pris !== null) return { ok: false, motif: motifMandatPris(pris) };
+  return { ok: true, valeurs: { numero_mandat: o.saisi.saisi, numero_mandat_normalise: o.saisi.normalise } };
+}
+
 // ── Les ventes ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   const avecPrix = await prixVenteDisponible();
   return withTransaction(async (q) => {
+    // 🔴 MON ESPACE, LOT 2 — un compromis ne se crée qu'avec son n° de mandat, libre dans sa structure (vérifié avant toute écriture).
+    const mandat = await mandatAEcrire(q, { creation: true, compromis: s.statut === 'compromis', saisi: s.numeroMandat, actuel: null, societe: s.societe, id: null });
+    if (!mandat.ok) return mandat;
     const { rows } = await q<{ id: string }>(
       `INSERT INTO transaction_vente (societe, libelle, honoraires_ttc, statut, annee, mois_acte, date_compromis, apporteur, note, origine, cree_par, cree_par_libelle)
        VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8, $9, 'saisie', $10, $11) RETURNING id`,
@@ -408,6 +442,9 @@ export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issu
     const id = n(rows[0].id);
     // LOT E — le prix de vente (435), posé à part : sans la colonne, rien n'est tenté.
     if (avecPrix && s.prixVente != null) await q('UPDATE transaction_vente SET prix_vente = $2 WHERE id = $1', [id, s.prixVente]);
+    if (Object.keys(mandat.valeurs).length > 0) {
+      await q('UPDATE transaction_vente SET numero_mandat = $2, numero_mandat_normalise = $3 WHERE id = $1', [id, mandat.valeurs.numero_mandat, mandat.valeurs.numero_mandat_normalise]);
+    }
     for (const p of s.parts) {
       await q(`INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, nature, compte, origine, cree_par_libelle)
                VALUES ($1, $2, $3, $4, $5, $6, 'saisie', $7)`,
@@ -443,7 +480,11 @@ export async function modifierVente(id: number, ch: ChampsVente, auteur: AuteurT
   return withTransaction(async (q) => {
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
-    const r = await ecrire(q, 'vente', id, colonnesDeChamps(ch, actuel), true);
+    // 🔴 MON ESPACE, LOT 2 — le n° de mandat : ajouté ou corrigé (libre dans la structure), jamais effacé ; absent de la saisie : inchangé.
+    const mandat = await mandatAEcrire(q, { creation: false, compromis: false, saisi: ch.numeroMandat, actuel: actuel.numero_mandat_normalise,
+      societe: actuel.societe as Societe, id });
+    if (!mandat.ok) return mandat;
+    const r = await ecrire(q, 'vente', id, { ...colonnesDeChamps(ch, actuel), ...mandat.valeurs }, true);
     if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
     await journaliser(q, { entite: 'vente', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
     await synchroniserInterCabinet(q, id, auteur);
@@ -804,6 +845,10 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     // LOT V — la vente telle qu'elle était (commission, apporteur) : pour dire pourquoi une commission calculée a été recalculée.
     let avantVente: Record<string, unknown> | null = null;
     if (id === null) {
+      // 🔴 MON ESPACE, LOT 2 — la création d'un compromis exige son n° de mandat, libre dans la structure porteuse (vérifié avant toute écriture).
+      const mandat = await mandatAEcrire(q, { creation: true, compromis: s.statut === 'compromis', saisi: s.numeroMandat, actuel: null, societe: porteuse ?? s.societe, id: null });
+      if (!mandat.ok) return mandat;
+      Object.assign(valeurs, mandat.valeurs);
       const cols = Object.keys(valeurs);
       const { rows } = await q<{ id: string }>(
         `INSERT INTO transaction_vente (societe, origine, cree_par, cree_par_libelle, ${cols.join(', ')})
@@ -819,6 +864,11 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
     } else {
       const actuel = await lireLigne(q, 'vente', id);
       if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Vente introuvable (ou retirée).' };
+      // 🔴 MON ESPACE, LOT 2 — le n° de mandat d'une fiche existante : ajouté ou corrigé (libre dans la structure porteuse), jamais effacé.
+      const mandat = await mandatAEcrire(q, { creation: false, compromis: s.statut === 'compromis', saisi: s.numeroMandat, actuel: actuel.numero_mandat_normalise,
+        societe: porteuse ?? actuel.societe as Societe, id });
+      if (!mandat.ok) return mandat;
+      Object.assign(valeurs, mandat.valeurs);
       avantVente = actuel;
       // LOT F — compléter un compromis (personnes, prix…) ne change aucun montant de place : sans date pour la fixer, il garde SON année
       // (le prévisionnel d'un compromis importé reste où il était) ; sans apporteur de l'annuaire, il garde l'apporteur écrit du fichier.
@@ -1164,6 +1214,11 @@ export async function retablirCompromis(id: number, auteur: AuteurTx): Promise<I
     const actuel = await lireLigne(q, 'vente', id);
     if (actuel === null || actuel.retire_le !== null) return { ok: false, motif: 'Compromis introuvable (ou retiré).' };
     if (actuel.statut !== 'annulee' || actuel.annulation_motif == null) return { ok: false, motif: 'Ce compromis n’est pas annulé.' };
+    // 🔴 MON ESPACE, LOT 2 — son n° de mandat, libéré par l'annulation, a pu être repris par une autre vente de la structure : refus, avec son résumé.
+    if (typeof actuel.numero_mandat === 'string') {
+      const pris = await venteDuMandat(actuel.societe as Societe, actuel.numero_mandat, id, q);
+      if (pris !== null) return { ok: false, motif: motifMandatPris(pris) };
+    }
     const r = await ecrire(q, 'vente', id, { statut: 'compromis', annulation_date: null, annulation_motif: null, annulation_note: null }, true);
     await journaliser(q, { entite: 'vente', id, action: 'retablissement_compromis', avant: r?.avant ?? null, apres: r?.apres ?? null, auteur,
       commentaire: 'Compromis rétabli : de nouveau en cours.' });
