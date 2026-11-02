@@ -106,6 +106,8 @@ const RACINES: readonly (readonly [string, string])[] = [
   ['Location', 'app/(admin)/admin/(protected)/location/page.tsx'],
   // TRANSACTION (27/10/2026) — la tuile « Transaction » (accueil ; ses trois sous-pages sont des sous-dossiers de la même racine).
   ['Transaction', 'app/(admin)/admin/(protected)/transaction/page.tsx'],
+  // MON ESPACE (02/11/2026) — la tuile « Mon espace » (lot 1 : la page d'accueil de l'espace).
+  ['Mon espace', 'app/(admin)/admin/(protected)/mon-espace/page.tsx'],
   ['Audit', 'app/(admin)/admin/(protected)/audit/page.tsx'],
   ['Administratif — comptes', 'app/(admin)/admin/(protected)/comptes/page.tsx'],
   // 🔴 LOT TACHES-ACCEPTATION — « Mes tâches » (réponse aux demandes d’acceptation), sous la même garde que les autres.

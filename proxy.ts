@@ -37,6 +37,7 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/admin/gestion', 'gestion'], // GESTION (lot 2) — module gardé (perm_gestion, migration 228)
   ['/admin/location', 'location'], // LOCATION (17/10/2026) — module gardé (perm_location, migration 371)
   ['/admin/transaction', 'transaction'], // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433)
+  ['/admin/mon-espace', 'mon_espace'], // MON ESPACE (02/11/2026) — tuile gardée (perm_mon_espace, migration 448)
   // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET dans chaque handler via garde.ts).
   ['/api/admin/config', 'pilotage'],
   ['/api/admin/cartes-annee', 'cartes_annee'],
@@ -56,6 +57,8 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/api/admin/location', 'location'],
   // TRANSACTION (27/10/2026) — même patron : tout /api/admin/transaction/* exige le droit, refus ici même sinon.
   ['/api/admin/transaction', 'transaction'],
+  // MON ESPACE (02/11/2026) — même patron : tout /api/admin/mon-espace/* exige le droit, refus ici même sinon.
+  ['/api/admin/mon-espace', 'mon_espace'],
 ];
 
 /** Permission requise pour un chemin, ou `null` si aucune (chemin authentifié suffit). */

@@ -37,6 +37,7 @@ export async function POST(request: Request, ctx: Ctx) {
     gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
     location: pb.location === true, // LOCATION (17/10/2026) — module « Location » (migration 371)
     transaction: pb.transaction === true, // TRANSACTION (27/10/2026) — module « Transaction » (migration 433)
+    mon_espace: pb.mon_espace === true, // MON ESPACE (02/11/2026) — tuile « Mon espace » (migration 448)
   };
 
   /**

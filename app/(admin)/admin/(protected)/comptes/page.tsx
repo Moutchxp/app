@@ -102,8 +102,9 @@ const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'gestion', libelle: 'Gestion' }, // GESTION (lot 2) — module gardé (perm_gestion), AJOUTÉ en fin de liste : les cases existantes ne bougent pas
   { cle: 'location', libelle: 'Location' }, // LOCATION (17/10/2026) — module gardé (perm_location, migration 371), AJOUTÉ en fin de liste
   { cle: 'transaction', libelle: 'Transaction' }, // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433), AJOUTÉ en fin de liste
+  { cle: 'mon_espace', libelle: 'Mon espace' }, // MON ESPACE (02/11/2026) — tuile gardée (perm_mon_espace, migration 448), AJOUTÉE en fin de liste
 ];
-const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false });
+const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false });
 
 /** LOT 5-DROITS — réponse à la question d'envoi : `null` = pas encore répondu (« à décider »). */
 export type ReponseEnvoi = boolean | null;

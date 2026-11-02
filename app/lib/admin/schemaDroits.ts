@@ -63,6 +63,15 @@ export function droitTransactionDisponible(): Promise<boolean> {
 }
 
 /**
+ * MON ESPACE (02/11/2026) — la migration 448 est-elle appliquée ? Elle porte le droit de la tuile « Mon espace » (`perm_mon_espace`).
+ * Tant qu'elle ne l'est pas : la colonne est lue comme `false` partout, la tuile n'apparaît qu'aux administrateurs, et la case de
+ * l'écran des comptes n'écrit rien. Aucune connexion n'échoue.
+ */
+export function droitMonEspaceDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_mon_espace', () => colonneExiste('admin_utilisateur', 'perm_mon_espace'));
+}
+
+/**
  * TRANSACTION, LOT D (Arno, 27/10/2026) — la migration 434 est-elle appliquée ? Elle porte l'onglet « Compromis » (personnes, dates,
  * négociateurs d'entrée et de sortie), la société datée de chaque collaborateur et la répartition de la commission. Tant qu'elle ne
  * l'est pas : la tuile lit comme avant, la page Comptes montre la société sans l'exiger ni l'écrire. Aucune connexion n'en dépend.

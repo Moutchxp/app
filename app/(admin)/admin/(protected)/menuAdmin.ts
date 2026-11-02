@@ -59,6 +59,12 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
     slug: '/admin/transaction', libelle: 'Suivi Chiffre d’affaires', perm: 'transaction',
     desc: 'CA de la vente CRITERIMMO et MACJ, et CA global transaction et gestion.',
   },
+  // MON ESPACE (Arno, 02/11/2026) — tuile GARDÉE (perm_mon_espace, migration 448), AJOUTÉE EN FIN DE LISTE, juste après « Suivi Chiffre
+  //   d'affaires » : aucune tuile existante n'est retirée ni déplacée. L'espace personnel de chaque collaborateur (plan docs/PLAN_MON_ESPACE.md).
+  {
+    slug: '/admin/mon-espace', libelle: 'Mon espace', perm: 'mon_espace',
+    desc: 'Mes ventes, mes compromis en cours et mes chiffres.',
+  },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */
