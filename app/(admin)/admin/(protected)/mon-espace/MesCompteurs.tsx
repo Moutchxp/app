@@ -15,6 +15,12 @@ import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
 import { AccueilMonEspace } from './AccueilMonEspace';
+import { AnneesMonEspace } from './AnneesMonEspace';
+import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
+import { ecrireAdresse, parametre } from '../transaction/commun';
+import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
+import { ecrireAnnees, listeDesAnnees } from '../../../../lib/transaction/periodeAnnees';
+import { anneesDe } from '../../../../lib/transaction/modele';
 import { MesApporteurs, posterApporteur, URL_APPORTEURS } from './MesApporteurs';
 import { ContexteNouvelApporteur, type FaconNouvelApporteur } from '../transaction/NouvelApporteur';
 import type { Doublon, SaisieApporteur } from '../../../../lib/mon-espace/apporteurs';
@@ -78,7 +84,15 @@ export function trierMesVentes(vs: readonly VenteMonEspace[]): VenteMonEspace[] 
 export function MesCompteurs() {
   const [lu, setLu] = useState<Lu>({ etat: 'chargement' });
   const [unite, setUnite] = useAffichageRetenu();
-  const [onglet, setOnglet] = useState<Onglet>('compromis');
+  // Les onglets : « Compromis | Mois | Année(s) » du Suivi CA (`vue`, l'adresse ?vue= comme la Transaction), puis à la suite « Mes compromis en
+  // cours | Mes ventes | Mes statistiques | Mes apporteurs » (`onglet`) ; un seul des deux est choisi à la fois.
+  const jourEcran = aujourdhuiParis();
+  const avecMois = parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null;
+  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => vueInitiale(parametre('vue'), avecMois));
+  const [onglet, setOngletEtat] = useState<Onglet | null>(null);
+  const choisirVue = (v: 'compromis' | 'mois' | 'annee'): void => { setVueEtat(v); setOngletEtat(null); };
+  const setOnglet = (o: Onglet): void => { setOngletEtat(o); setVueEtat(null); };
+  const ligneMois = useLigneDesMois(jourEcran);
   // 🔴 LOT 10 — l'espace vu (le mien, ou une structure : administrateurs) ; tri et filtre « Négociateur » des compromis de la structure.
   const [espace, setEspace] = useState<Espace>('moi');
   const espaceVu = useRef<Espace>('moi');
@@ -86,7 +100,7 @@ export function MesCompteurs() {
   const [filtreNego, setFiltreNego] = useState('');
   // retenu d'une lecture à l'autre : le sélecteur reste pendant le chargement d'un autre espace
   const [estAdmin, setEstAdmin] = useState(false);
-  const [annee, setAnnee] = useState<number | null>(null);
+  const [annee, setAnnee] = useState<number | null>(null); // l'année de « Mes ventes »
   // 🔴 LOT 5 — le parcours de création ouvert ; l'affaire qui vient d'être créée (en haut, dépliée) ; le compteur de relecture.
   const [parcours, setParcours] = useState(false);
   const [nouvelle, setNouvelle] = useState<number | null>(null);
@@ -181,6 +195,25 @@ export function MesCompteurs() {
     collegueDefaut: titulaireId,
   }), [titulaireId]);
   const agence = data?.agence ?? null;
+  // « Année(s) » : les années (celles du Suivi CA en mode agence, `anneesDe` ; les miennes sinon) et celles qui ont une donnée comptée (lot DH).
+  const anneesDispo = data === null ? null : agence !== null ? anneesDe({ ventes: data.ventes, retrocessions: data.retrocessions ?? [] }, data.aujourdhui)
+    : (data.statistiques?.annees ?? []).map((x) => x.annee);
+  const compteAnnee = (a: number): boolean => data !== null && (agence !== null
+    ? listeDesAnnees(data.ventes, [a], 'vendu', data.aujourdhui).length > 0 || (data.retrocessions ?? []).some((r) => r.annee === a)
+    : (data.statistiques?.annees ?? []).some((x) => x.annee === a && (x.nb.some((n) => n > 0) || x.aConfirmerNb > 0)));
+  const ligneAnnees = useLigneDesAnnees(jourEcran, anneesDispo, vueInitiale(parametre('vue'), false) === 'annee', compteAnnee);
+  // L'adresse, comme la Transaction : ?vue=mois (son mois, sa période) / ?vue=annee (ses années) ; « Compromis » et les onglets « Mes … » : rien.
+  const { annee: anM, mois: moM, decoupage: decM, periodeTexte } = ligneMois;
+  const { choixA, cleChoixA } = ligneAnnees;
+  useEffect(() => {
+    ecrireAdresse(vue === 'mois' ? { vue: 'mois', annee: String(anM), mois: String(moM), debut: null, fin: null, 'vue-mois': decM, periode: decM === 'periode' ? periodeTexte : null }
+      : vue === 'annee' ? (choixA === null ? {} : { vue: 'annee', annee: String(choixA.annee), mois: null, debut: null, fin: null, periode: null, 'vue-mois': null,
+        'vue-annee': choixA.decoupage === 'annee' ? null : choixA.decoupage, annees: choixA.decoupage === 'periode' ? ecrireAnnees(choixA.annees) : null })
+      : { vue: null, annee: null, mois: null, debut: null, fin: null, periode: null, 'vue-mois': null });
+    if (vue !== 'annee') ecrireAdresse({ 'vue-annee': null, annees: null, graphe: null });
+  }, [vue, anM, moM, decM, periodeTexte, cleChoixA]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** « Année(s) » : un mois du graphique ouvre l'onglet « Mois » sur ce mois (comme la Transaction). */
+  const ouvrirMois = (a: number, m: number): void => { ligneMois.setAnneeEntiere(false); ligneMois.setPeriode(null); ligneMois.setAnnee(a); ligneMois.setMois(m); choisirVue('mois'); };
   const changerEspace = (e: Espace): void => {
     if (e === espace) return;
     // une autre liste : rien à comparer (aucun « X a mis à jour »), l'empreinte de référence sera celle du nouveau chargement
@@ -229,7 +262,8 @@ export function MesCompteurs() {
   // 🔴 LOT 5 — l'affaire qui vient d'être créée : en haut, quelle que soit sa date de compromis.
   const compromis = nouvelle === null ? tries : [...tries.filter((v) => v.id === nouvelle), ...tries.filter((v) => v.id !== nouvelle)];
   const ventes = trierMesVentes(des(anneeChoisie.ids));
-  const ouvrir = (o: Onglet): void => { setOnglet(o); if (o === 'ventes') setAnnee(compteurs.actees.annee); };
+  // Une tuile ouvre la liste de ses affaires (décision 8 : comme les compteurs retirés) : « Mes ventes » de son année, « Mes compromis en cours ».
+  const ouvrir = (o: Onglet, a?: number): void => { setOnglet(o); if (o === 'ventes') setAnnee(a ?? compteurs.actees.annee); };
   const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
@@ -277,34 +311,20 @@ export function MesCompteurs() {
         repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
         envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
       {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
-      {/* L'accueil au format « Le mois » du Suivi CA : la rangée des mois, les quatre tuiles, le graphique « Mois par mois ». */}
-      <AccueilMonEspace data={data} onOuvrir={ouvrir} />
-      <div className="mes-compteurs">
-        <button type="button" className="svv-card mes-compteur" aria-label={`${nomAgence === null ? 'Mes compromis en cours' : `Compromis en cours — ${nomAgence}`} : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}
-          aria-controls="mon-espace-listes" aria-pressed={onglet === 'compromis'} onClick={() => ouvrir('compromis')} data-compteur="compromis">
-          <span className="mes-compteur-titre">{nomAgence === null ? 'Mes compromis en cours' : `Compromis en cours — ${nomAgence}`}</span>
-          <span className="mes-compteur-chiffres"><span data-compteur-nb>{nombre(compteurs.compromis.nb, 'compromis', 'compromis')}</span>
-            <span aria-hidden="true"> — </span><strong data-compteur-total>{total(compteurs.compromis)}</strong></span>
-        </button>
-        <button type="button" className="svv-card mes-compteur" aria-label={`${nomAgence === null ? 'Mes ventes actées' : `Ventes actées — ${nomAgence}`} en ${compteurs.actees.annee} : ${nombre(compteurs.actees.nb, 'vente', 'ventes')}, ${total(compteurs.actees)}`}
-          aria-controls="mon-espace-listes" aria-pressed={onglet === 'ventes'} onClick={() => ouvrir('ventes')} data-compteur="actees">
-          <span className="mes-compteur-titre">{nomAgence === null ? `Mes ventes actées cette année (${compteurs.actees.annee})` : `Ventes actées en ${compteurs.actees.annee} — ${nomAgence}`}</span>
-          <span className="mes-compteur-chiffres"><span data-compteur-nb>{nombre(compteurs.actees.nb, 'vente', 'ventes')}</span>
-            <span aria-hidden="true"> — </span><strong data-compteur-total>{total(compteurs.actees)}</strong></span>
-        </button>
-      </div>
       <p className="loc-muet mes-compteurs-note" data-note-ca>{nomAgence === null ? 'Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.'
         : `Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>
 
-      <div className="mes-onglets" role="tablist" aria-label={nomAgence === null ? 'Mes affaires' : `Les affaires de ${nomAgence}`}>
-        {(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
-          <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="mes-onglet"
-            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
-        ))}
-      </div>
-      <div id="mon-espace-listes" role="tabpanel" aria-labelledby={`mon-espace-onglet-${onglet}`} ref={listes} data-liste-mon-espace={onglet}>
-        {/* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */}
-        {onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : onglet === 'compromis' ? (
+      {/* Les onglets du Suivi CA (« Compromis | Mois | Année(s) », le même composant), puis, à la suite, ceux de « Mon espace » (inchangés). */}
+      <OngletsVues vue={vue} onVue={choisirVue} apres={(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
+        <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
+          onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
+      ))} />
+      <div id="mon-espace-listes" role="tabpanel" ref={listes} data-liste-mon-espace={onglet ?? `vue-${vue}`}>
+        {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
+        {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} />
+        : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrir={ouvrir} />
+        /* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */
+        : onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : vue === 'compromis' || onglet === 'compromis' ? (
           <>
           {agence !== null && tousCompromis.length > 0 && (
             <div className="mes-ventes-tete" data-outils-agence>
@@ -344,24 +364,13 @@ export function MesCompteurs() {
 const CSS_MES_COMPTEURS = `
 .mes-ligne-espace{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
 .mes-ligne-espace .mes-nouveau{width:auto;flex:0 0 auto;margin-left:auto;min-height:44px;padding:0 1.25rem}
-.mes-accueil{margin:0 0 1rem}
+/* sous la barre d'onglets : le même écart que la page d'une structure du Suivi CA (.tdb : 18 px) */
+#mon-espace-listes{margin-top:18px}
 .mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
 .mes-espaces .trx-unites{flex-wrap:wrap}
 .mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
-.mes-compteurs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.75rem}
-.mes-compteur{display:flex;flex-direction:column;align-items:flex-start;gap:.4rem;min-height:44px;width:100%;text-align:left;cursor:pointer;font:inherit;color:var(--color-svv-ink);
-  border:1px solid var(--color-svv-line);background:var(--color-svv-surface)}
-.mes-compteur[aria-pressed="true"]{border-color:var(--color-svv-red);box-shadow:inset 0 0 0 1px var(--color-svv-red)}
-.mes-compteur:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.mes-compteur-titre{font-weight:700;font-size:1rem}
-.mes-compteur-chiffres{font-size:1.15rem}
-.mes-compteur-chiffres strong{color:var(--color-svv-green)}
 .mes-compteurs-note{margin:.75rem 0 1rem;font-size:.9rem}
-.mes-onglets{display:flex;flex-wrap:wrap;gap:.5rem;margin:0 0 .75rem;border-bottom:1px solid var(--color-svv-line)}
-.mes-onglet{min-height:44px;padding:.5rem 1rem;font:inherit;font-weight:600;color:var(--color-svv-muted);background:none;border:0;border-bottom:3px solid transparent;cursor:pointer}
-.mes-onglet[aria-selected="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}
-.mes-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .mes-ventes-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .75rem}
 .mes-annee{display:flex;align-items:center;gap:.5rem;font-weight:600}
 .mes-annee select{min-height:44px;padding:0 .75rem;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:8px}

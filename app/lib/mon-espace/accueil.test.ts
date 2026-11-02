@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { caNetParMoisMode, resultatDesCartes } from '../transaction/carteAffaireLignes';
+import { caNetParMoisMode, caNetVente, resultatDesCartes } from '../transaction/carteAffaireLignes';
 import { cumuler } from '../transaction/cumul';
-import { borneCumul, cumulA } from '../transaction/periodeAnnees';
+import { borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode } from '../transaction/periodeMois';
 import { caHtParMoisMode, variation, type DonneesSociete, type Vente } from '../transaction/modele';
 import { resolveurDe } from '../transaction/statutLigne';
-import { moisDeLAccueil, tuilesAgence, tuilesPerso, type ChoixAccueil } from './accueil';
+import { moisDeLAccueil, tuilesAgence, tuilesAnneesAgence, tuilesAnneesPerso, tuilesPerso, type ChoixAccueil } from './accueil';
 import { statistiquesAgence } from './agence';
 import { sommeC, totauxDuChoix } from './statistiques';
 
@@ -81,5 +81,39 @@ describe('🔴 accueil en mode agence : les tuiles de « Le mois » du Suivi CA'
   it('sans année précédente importée : N−1 « non importé » (null), comme le Suivi CA', () => {
     const t = tuilesAgence({ ...d, ventes: d.ventes.filter((v) => v.annee === 2026) }, CHOIX[0][1], JOUR);
     expect([t.ca.n1, t.nb.n1, t.cumul.n1, t.net!.n1]).toEqual([null, null, null, null]);
+  });
+});
+
+describe('🔴 onglet « Année(s) » : « Mon espace » = « Mes statistiques », mode agence = « L’année » du Suivi CA', () => {
+  const annee = (a: number) => totauxDuChoix(s, { mode: 'annee', annee: a, mois: 1, periode: [1] }, JOUR).n;
+  it('« Mon espace », Année 2026 : CA et nombre = « Mes statistiques » (Année) ; N−1 = 2025 ; à date = janvier → novembre', () => {
+    const t = tuilesAnneesPerso(s, [2026], false, JOUR);
+    expect(t.ca.valeur).toEqual({ ht: annee(2026).ca.htC / 100, ttc: annee(2026).ca.ttcC / 100 });
+    expect(t.ca.n1).toEqual({ ht: annee(2025).ca.htC / 100, ttc: annee(2025).ca.ttcC / 100 });
+    expect([t.nb.valeur, t.nb.n1]).toEqual([annee(2026).nb, annee(2025).nb]);
+    const x = s.annees.find((y) => y.annee === 2026)!;
+    expect(t.aDate.valeur.ht).toBe(sommeC(x.ca.slice(0, moisADate(2026, JOUR))).htC / 100);
+    expect(t.net).toBeUndefined();
+  });
+  it('« Mon espace », Période 2025 + 2026 : la somme des deux années ; Tout : sans N−1', () => {
+    const t = tuilesAnneesPerso(s, [2025, 2026], false, JOUR);
+    expect(t.ca.valeur.ht).toBe((annee(2025).ca.htC + annee(2026).ca.htC) / 100);
+    expect(tuilesAnneesPerso(s, [2025, 2026], true, JOUR).ca.n1).toBeNull();
+  });
+  it.each([[[2026]], [[2025, 2026]]])('mode agence %j : chaque tuile = l’expression de « L’année » (mode Vendu)', (sel) => {
+    const cartes = (vs: Vente[]) => resultatDesCartes(vs, d.societe, opts).ca;
+    const sel1 = sel.map((a) => a - 1);
+    const t = tuilesAnneesAgence(d, sel, false, JOUR);
+    expect(t.ca.valeur).toEqual((() => { const c = cartes(ventesDesAnnees(d.ventes, sel)); return { ht: c.htC / 100, ttc: c.ttcC / 100 }; })());
+    expect(t.nb.valeur).toBe(ventesDesAnnees(d.ventes, sel).length);
+    const aDate = cartes(sel.flatMap((a) => listeADate(d.ventes, a, moisADate(a, JOUR), 'vendu', JOUR)));
+    expect(t.aDate.valeur.ht).toBe(aDate.htC / 100);
+    const net = sommeC(ventesDesAnnees(d.ventes, sel).map((v) => caNetVente(v, d.societe, opts)));
+    expect(t.net!.valeur.ht).toBe(net.htC / 100);
+    if (sel.length === 1) {
+      const r1 = cartes(listeDesAnnees(d.ventes, sel1, 'vendu', JOUR));
+      expect(t.ca.n1!.ht).toBe(r1.htC / 100);
+      expect(t.ca.pct).toBe(variation(cartes(ventesDesAnnees(d.ventes, sel)).htC, r1.htC));
+    } else expect(t.ca.n1).toBeNull(); // 2024 non importée : « non importé », comme le Suivi CA
   });
 });

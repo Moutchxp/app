@@ -20,6 +20,7 @@ let donnees: Record<string, unknown>;
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
   donnees = { disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes: [vendue],
     compteurs: { compromis: { nb: 1, ids: [4], ca: m(750000) }, actees: { nb: 2, ids: [1, 2], annee: 2026, ca: m(1300000) }, parAnnee: [] },
     statistiques: { annees: [

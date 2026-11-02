@@ -28,6 +28,17 @@ unicité du mandat par structure (n° + société).
    vente, et aux administrateurs. Tous les autres : refus côté serveur (403), bouton absent.
 6. **Prévisionnel de « Mon espace » = MA PART des compromis en cours** (pas la commission entière) : validé par Arno (02/11/2026). Ne plus reposer.
 7. **Co-négociateur : UN SEUL négociateur par côté.** « Rejoindre » ne propose que le côté libre ; pas de lot dédié (Arno, 02/11/2026). Ne plus reposer.
+8. **Les deux compteurs « Mes compromis en cours » et « Mes ventes actées cette année » sont RETIRÉS** de « Mon espace » (accord explicite d'Arno,
+   02/11/2026) : les tuiles de l'accueil les remplacent, avec le même clic vers la liste (« Mes compromis en cours », « Mes ventes » de l'année).
+9. **La liste déroulante « Année » au-dessus de la rangée des mois est RETIRÉE** (accord explicite d'Arno, 02/11/2026) : la rangée des années de
+   l'onglet « Année(s) » la remplace. Aucun autre retrait.
+
+Navigation (après le lot 10, 02/11/2026) : en tête, la ligne « Voir … » + « + Nouveau compromis », puis HT | TTC, puis les onglets du Suivi CA
+(`OngletsVues`, le même composant que la Transaction : « Compromis | Mois | Année(s) », « Compromis » par défaut, l'adresse ?vue= / ?vue-mois= /
+?vue-annee= comme la Transaction) suivis, dans la même barre, des onglets « Mes compromis en cours | Mes ventes | Mes statistiques | Mes apporteurs »
+(inchangés). « Mois » = l'accueil au format « Le mois » ; « Année(s) » = le format de « L'année » (rangée des années, Année | Période | Tout, tuiles,
+« Année par année » cliquable, « Mois par mois » de l'année, Annuel / Cumul). Chiffres : « Mon espace » = « Mes statistiques » ; mode agence = les
+expressions des écrans du Suivi CA (`accueil.ts`). L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px, mesuré au banc sur les deux pages).
 
 Mise en œuvre du lot 2 (n° de mandat, migration 449) :
 - la comparaison passe par UNE fonction, `normaliserMandat` (`app/lib/transaction/mandat.ts`) : sans accents, majuscules, lettres et

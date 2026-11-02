@@ -1,6 +1,6 @@
-import { caNetParMoisMode, resultatDesCartes } from '../transaction/carteAffaireLignes';
+import { caNetParMoisMode, caNetVente, resultatDesCartes } from '../transaction/carteAffaireLignes';
 import { cumuler } from '../transaction/cumul';
-import { borneCumul, cumulA } from '../transaction/periodeAnnees';
+import { borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../transaction/periodeMois';
 import { caHtParMoisMode, sansN1Pour, TVA, variation, type DonneesSociete } from '../transaction/modele';
 import type { MontantC } from '../transaction/partAgence';
@@ -70,5 +70,55 @@ export function tuilesAgence(d: DonneesAgence, c: ChoixAccueil, jour: string): T
     nb: { valeur: T.nbVentes, n1: sansN1 ? null : T1.nbVentes },
     cumul: { valeur: depuisHt(cu), n1: sansN1 ? null : depuisHt(cu1), pct: sansN1 ? null : variation(cu, cu1), fin: b.fin, mot: b.mot },
     net: { valeur: deC(net), n1: sansN1 ? null : deC(net1), pct: sansN1 ? null : variation(net.htC, net1.htC) },
+  };
+}
+
+/**
+ * ══ L'ONGLET « ANNÉE(S) » : LES QUATRE TUILES ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+ * `sel` : les années montrées (Année : une ; Période : celles cochées ; Tout : toutes) ; `tout` : sans comparaison N−1 (null).
+ *   · « Mon espace » : mes chiffres de « Mes statistiques » (une année = ses 12 mois + ses ventes « mois à confirmer », comme « L'année ») ; « à
+ *     date » : les mois de janvier au mois du jour (une année passée : l'année entière), N−1 sur le même nombre de mois ;
+ *   · mode agence : les expressions de « L'année » du Suivi CA (mode « Vendu ») : la somme des cartes de `ventesDesAnnees`, `listeDesAnnees` pour
+ *     N−1, `listeADate` pour « à date », `caNetVente` pour le CA net. PUR.
+ */
+export interface TuilesAnnees {
+  ca: { valeur: Montant; n1: Montant | null; pct: number | null };
+  nb: { valeur: number; n1: number | null };
+  aDate: { valeur: Montant; n1: Montant | null; pct: number | null };
+  net?: { valeur: Montant; n1: Montant | null; pct: number | null };
+}
+const avec = (a: Montant | null, pct: number | null, tout: boolean, sansN1: boolean) => (tout || sansN1 ? { n1: null, pct: null } : { n1: a, pct });
+
+export function tuilesAnneesPerso(s: StatsMonEspace, sel: readonly number[], tout: boolean, jour: string): TuilesAnnees {
+  const an = (a: number) => s.annees.find((x) => x.annee === a);
+  const annee = (a: number) => totauxDuChoix(s, { mode: 'annee', annee: a, mois: 1, periode: [1] }, jour).n;
+  const somme = (as: readonly number[]) => as.map(annee).reduce((t, x) => ({ ca: sommeC([t.ca, x.ca]), nb: t.nb + x.nb }), { ca: { htC: 0, ttcC: 0 }, nb: 0 });
+  /** L'année `a` sur `nb` mois (12 : avec ses « mois à confirmer », comme `listeADate`). */
+  const aDateDe = (a: number, nb: number): MontantC => { const x = an(a); return x === undefined ? { htC: 0, ttcC: 0 } : sommeC([...x.ca.slice(0, nb), ...(nb >= 12 ? [x.aConfirmer] : [])]); };
+  const n = somme(sel); const n1 = somme(sel.map((a) => a - 1));
+  const d = sommeC(sel.map((a) => aDateDe(a, moisADate(a, jour)))); const d1 = sommeC(sel.map((a) => aDateDe(a - 1, moisADate(a, jour))));
+  return {
+    ca: { valeur: deC(n.ca), ...avec(deC(n1.ca), variation(n.ca.htC, n1.ca.htC), tout, false) },
+    nb: { valeur: n.nb, n1: tout ? null : n1.nb },
+    aDate: { valeur: deC(d), ...avec(deC(d1), variation(d.htC, d1.htC), tout, false) },
+  };
+}
+
+export function tuilesAnneesAgence(dx: DonneesAgence, sel: readonly number[], tout: boolean, jour: string): TuilesAnnees {
+  const opts = { retros: dx.retrocessions, statutDuLibelle: resolveurDe(dx.statutsNegociateurs) };
+  const cartes = (vs: Parameters<typeof resultatDesCartes>[0]) => resultatDesCartes(vs, dx.societe, opts).ca;
+  const sel1 = sel.map((a) => a - 1);
+  const sansN1 = sel.some((a) => sansN1Pour(dx.ventes, a, 'vendu'));
+  const liste = ventesDesAnnees(dx.ventes, sel);
+  const liste1 = listeDesAnnees(dx.ventes, sel1, 'vendu', jour);
+  const [rc, r1] = [cartes(liste), cartes(liste1)];
+  const [rd, rd1] = [cartes(sel.flatMap((a) => listeADate(dx.ventes, a, moisADate(a, jour), 'vendu', jour))), cartes(sel.flatMap((a) => listeADate(dx.ventes, a - 1, moisADate(a, jour), 'vendu', jour)))];
+  const net = (vs: typeof liste): MontantC => sommeC(vs.map((v) => caNetVente(v, dx.societe, opts)));
+  const [na, na1] = [net(liste), net(ventesDesAnnees(dx.ventes, sel1))];
+  return {
+    ca: { valeur: deC(rc), ...avec(deC(r1), variation(rc.htC, r1.htC), tout, sansN1) },
+    nb: { valeur: liste.length, n1: tout || sansN1 ? null : liste1.length },
+    aDate: { valeur: deC(rd), ...avec(deC(rd1), variation(rd.htC, rd1.htC), tout, sansN1) },
+    net: { valeur: deC(na), ...avec(deC(na1), variation(na.htC, na1.htC), tout, sansN1) },
   };
 }

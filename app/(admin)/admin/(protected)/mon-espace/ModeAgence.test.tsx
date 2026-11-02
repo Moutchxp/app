@@ -34,6 +34,7 @@ let admin: boolean;
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
   urls = []; admin = true;
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -70,16 +71,19 @@ describe('🔴 le mode agence', () => {
     expect(container.querySelector('[data-espace="moi"]')?.getAttribute('aria-pressed')).toBe('true');
     expect(urls.filter((u) => u.startsWith(URL_MES_AFFAIRES))).toEqual([URL_MES_AFFAIRES]);
   });
-  it('MACJ : la structure lue (?agence=macj), ses compteurs et ses onglets ; l’empreinte de la structure', async () => {
+  it('MACJ : la structure lue (?agence=macj), ses tuiles et ses onglets ; l’empreinte de la structure', async () => {
     await ouvrir();
     await cliquer('[data-espace="macj"]');
     expect(urls).toContain(`${URL_MES_AFFAIRES}?agence=macj`);
-    expect(texte('[data-compteur="compromis"]')).toContain('Compromis en cours — MACJ');
-    expect(texte('[data-compteur="compromis"]')).toContain('2 compromis');
-    expect(texte('[data-compteur="actees"]')).toContain('10 000 € HT');
+    expect(texte('[data-onglet-mon-espace="compromis"]')).toBe('Compromis en cours');
     expect(texte('[data-onglet-mon-espace="ventes"]')).toBe('Ventes');
-    expect(texte('[data-note-ca]')).toContain('calculé comme dans le Suivi CA');
+    expect(texte('[data-note-ca]')).toContain('le CA de MACJ, calculé comme dans le Suivi CA');
     expect(cartes()).toEqual(['1', '2']);
+    // décision 8 : plus de compteurs ; « Mois » : les tuiles de la structure
+    expect(container.querySelector('[data-compteur]')).toBeNull();
+    await cliquer('[data-vue="mois"]');
+    expect(texte('[data-valeur-tuile="ca"]')).toBe('10 000 €');
+    expect(texte('[data-valeur-tuile="nombre"]')).toBe('1');
   });
   it('les compromis : filtre « Négociateur » (une personne) et tri (CA décroissant)', async () => {
     await ouvrir();
@@ -107,8 +111,9 @@ describe('🔴 le mode agence', () => {
   it('retour à « Mon espace » : l’espace personnel relu, sans ?agence=', async () => {
     await ouvrir();
     await cliquer('[data-espace="tous"]');
-    expect(texte('[data-compteur="compromis"]')).toContain('Compromis en cours — FUSION');
+    expect(texte('[data-note-ca]')).toContain('le CA de FUSION');
     await cliquer('[data-espace="moi"]');
-    expect(texte('[data-compteur="compromis"]')).toContain('Mes compromis en cours');
+    expect(texte('[data-onglet-mon-espace="compromis"]')).toBe('Mes compromis en cours');
+    expect(texte('[data-note-ca]')).toContain('Le montant est votre CA');
   });
 });

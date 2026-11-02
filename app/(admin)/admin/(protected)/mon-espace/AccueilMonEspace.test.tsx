@@ -32,6 +32,7 @@ let admin: boolean;
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
   admin = false;
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -51,7 +52,8 @@ const cliquer = async (sel: string) => { await act(async () => { (container.quer
 const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
 /** Le montant écrit (« 13 000,00 € », « 13 000 € HT ») en euros. */
 const euros = (t: string): number => Number(t.replace(/[^\d,]/g, '').replace(',', '.'));
-const ouvrir = async () => { await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer(); };
+/** L'écran, puis l'onglet « Mois » (l'onglet par défaut est « Compromis », comme la Transaction). */
+const ouvrir = async () => { await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer(); await cliquer('[data-vue="mois"]'); };
 
 describe('🔴 la ligne du sélecteur et l’accueil', () => {
   it('« + Nouveau compromis » est sur la ligne du sélecteur (après lui) ; un collaborateur : le bouton seul sur la ligne', async () => {
@@ -94,10 +96,12 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(euros(texte('[data-valeur-tuile="ca"]'))).toBe(6000);
     expect(texte('[data-tuile-n1="ca"]')).toContain('en 2025 (+100');
   });
-  it('les compteurs et les onglets restent sous l’accueil', async () => {
+  it('décisions 8 et 9 : ni compteurs ni liste « Année » au-dessus des mois ; les 3 onglets du Suivi CA puis les 4 de « Mon espace »', async () => {
     await ouvrir();
-    expect(container.querySelectorAll('[data-compteur]').length).toBe(2);
-    expect(container.querySelectorAll('[data-onglet-mon-espace]').length).toBe(4);
+    expect(container.querySelectorAll('[data-compteur]').length).toBe(0);
+    expect(container.querySelector('[data-accueil-mon-espace] [data-filtre="annee"]')).toBeNull();
+    expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.getAttribute('data-vue') ?? b.getAttribute('data-onglet-mon-espace')))
+      .toEqual(['compromis', 'mois', 'annee', 'compromis', 'ventes', 'statistiques', 'apporteurs']);
   });
   it('mode agence : 4ᵉ tuile « CA net HT cumulé », le graphique du Suivi CA (avec « CA net »)', async () => {
     admin = true;

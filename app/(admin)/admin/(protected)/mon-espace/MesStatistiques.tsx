@@ -146,13 +146,15 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
  * (`EnteteGraphe`, `Histogramme`, `CourbeCumul`, barres N, N−1 hachurées, Mensuel / Cumul, les mois soulignés en rouge) sur les mois du serveur.
  * Partagé par « Mes statistiques » et l'accueil de « Mon espace » (aucune copie). `selectionCumul` : le point mis en avant du cumul (0 : le dernier).
  */
-export function GrapheMoisStats({ s, annee, jour, id, bloc, rouges, motCa, motCaTitre, motNombre, courante, selectionCumul, onChoisir, cumulCliquable = false, children }: {
+export function GrapheMoisStats({ s, annee, jour, id, bloc, rouges, motCa, motCaTitre, motNombre, courante, selectionCumul, onChoisir, cumulCliquable = false, entete, children }: {
   s: StatsMonEspace; annee: number; jour: string; id: string; bloc: string; rouges: readonly number[] | null;
   /** L'onglet et la bulle (« Mon CA ») ; le titre (« mon CA »). */
   motCa: string; motCaTitre: string; motNombre: string;
   courante: number; selectionCumul: number; onChoisir: (k: number) => void;
   /** Un point de la courbe cumulée s'ouvre d'un clic (l'accueil, comme le Suivi CA) ; « Mes statistiques » : non, comme avant. */
-  cumulCliquable?: boolean; children?: ReactNode }) {
+  cumulCliquable?: boolean;
+  /** Ce que l'écran ajoute sous l'en-tête (l'onglet « Année(s) » : le choix de l'échelle), comme `GrapheMois`. */
+  entete?: ReactNode; children?: ReactNode }) {
   const u = useAffichage();
   const [cumul, setCumul] = useState(false);
   const [mesure, setMesure] = useState<'ca' | 'nombre'>('ca');
@@ -183,6 +185,7 @@ export function GrapheMoisStats({ s, annee, jour, id, bloc, rouges, motCa, motCa
       <EnteteGraphe<'ca' | 'nombre'> id={id} mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
         mesures={[{ cle: 'ca', mot: motCa }, { cle: 'nombre', mot: motNombre }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({mot}{cumul ? ', cumulé depuis janvier' : ''})</small></>} />
+      {entete}
       {cumul
         ? <CourbeCumul courant={cumuler(valeurs).slice(0, dernier)} n1={valeursN1 === null ? null : cumuler(valeursN1)} annee={annee} selection={selectionCumul || dernier || 12}
           entier={nombre} aria={`${mot} cumulé ${annee}`} bulle={(k) => info(k, true)} {...(cumulCliquable ? { onChoisir } : {})} />

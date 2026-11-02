@@ -47,6 +47,7 @@ let reponse: { status: number; corps: unknown };
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string) => {
@@ -62,15 +63,16 @@ const texte = (sel: string): string => container.querySelector(sel)?.textContent
 const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
 const listees = (): string[] => [...container.querySelectorAll('[data-liste-mon-espace] [data-ma-vente]')].map((x) => x.getAttribute('data-ma-vente')!);
 
-describe('🔴 les compteurs de « Mon espace »', () => {
-  it('« 2 compromis — 10 000 € HT » et « 1 vente — 5 000 € HT » ; la bascule TTC montre les montants TTC', async () => {
+describe('🔴 les compteurs de « Mon espace » (retirés, décision 8 d’Arno : les tuiles de « Mois » les remplacent)', () => {
+  it('plus de compteur ; « Mois » : « Mes compromis en cours » (2 — 10 000 € HT) ; la bascule TTC montre les montants TTC', async () => {
     reponse = { status: 200, corps: reponseLea() };
     await rendre();
-    expect(texte('[data-compteur="compromis"] .mes-compteur-chiffres')).toBe('2 compromis — 10 000 € HT');
-    expect(texte('[data-compteur="actees"] .mes-compteur-titre')).toBe('Mes ventes actées cette année (2026)');
-    expect(texte('[data-compteur="actees"] .mes-compteur-chiffres')).toBe('1 vente — 5 000 € HT');
+    expect(container.querySelector('[data-compteur]')).toBeNull();
+    await cliquer('[data-vue="mois"]');
+    expect(texte('[data-tuile-nb-compromis]')).toBe('2 compromis');
+    expect(texte('[data-valeur-tuile="previsionnel"]')).toBe('10 000 €');
     await cliquer('[data-afficher="ttc"]');
-    expect(texte('[data-compteur="compromis"] [data-compteur-total]')).toBe('12 000 € TTC');
+    expect(texte('[data-valeur-tuile="previsionnel"]')).toBe('12 000 €');
   });
   it('lecture refusée ou impossible : un message, pas de compteur', async () => {
     reponse = { status: 403, corps: { erreur: 'ACCES_REVOQUE' } };
@@ -84,7 +86,11 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
   it('EXACTEMENT les ventes comptées par le serveur (jamais une vente reçue mais pas à moi), la plus récente en haut', async () => {
     reponse = { status: 200, corps: reponseLea() };
     await rendre();
-    expect(container.querySelector('[data-onglet-mon-espace="compromis"]')!.getAttribute('aria-selected')).toBe('true');
+    // l'onglet « Compromis » du Suivi CA, ouvert par défaut (comme la Transaction) : la même liste que « Mes compromis en cours »
+    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true');
+    expect(listees()).toEqual(['2', '1']);
+    await cliquer('[data-onglet-mon-espace="compromis"]');
+    expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('false');
     expect(listees()).toEqual(['2', '1']);
     expect(container.textContent).not.toContain('PAS À MOI');
   });
@@ -123,10 +129,11 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
 });
 
 describe('🔴 « Mes ventes » : toutes années, sélecteur d’année, total de l’année', () => {
-  it('le compteur « ventes actées » ouvre l’onglet sur l’année en cours ; une autre année se choisit, avec son total', async () => {
+  it('la tuile « Ventes » de « Mois » ouvre l’onglet sur son année (comme le compteur retiré) ; une autre année se choisit, avec son total', async () => {
     reponse = { status: 200, corps: reponseLea() };
     await rendre();
-    await cliquer('[data-compteur="actees"]');
+    await cliquer('[data-vue="mois"]');
+    await cliquer('[data-tuile="ventes-mois"]');
     expect(container.querySelector('[data-onglet-mon-espace="ventes"]')!.getAttribute('aria-selected')).toBe('true');
     expect([...container.querySelectorAll<HTMLOptionElement>('[data-annee-mes-ventes] option')].map((o) => o.value)).toEqual(['2026', '2025']);
     expect(listees()).toEqual(['4']);
@@ -148,8 +155,9 @@ describe('compte sans aucune vente', () => {
     reponse = { status: 200, corps: { etat: 'ok', data: { disponible: true, aujourdhui: '2026-11-02', ventes: [], titulaire: { id: 9, prenom: null, administrateur: false },
       compteurs: { compromis: vide, actees: { ...vide, annee: 2026 }, parAnnee: [] } } } };
     await rendre();
-    expect([texte('[data-compteur="compromis"] .mes-compteur-chiffres'), texte('[data-compteur="actees"] .mes-compteur-chiffres')]).toEqual(['0 compromis — 0 € HT', '0 vente — 0 € HT']);
     expect(texte('[data-liste-vide="compromis"]')).toBe('Aucun compromis en cours à votre nom.');
+    await cliquer('[data-vue="mois"]');
+    expect([texte('[data-tuile-nb-compromis]'), texte('[data-valeur-tuile="nombre"]'), texte('[data-valeur-tuile="ca"]')]).toEqual(['0 compromis', '0', '0 €']);
     await cliquer('[data-onglet-mon-espace="ventes"]');
     expect(texte('[data-liste-vide="ventes"]')).toBe('Aucune vente actée à votre nom en 2026.');
     expect(container.querySelector('[data-mon-espace-erreur]')).toBeNull();

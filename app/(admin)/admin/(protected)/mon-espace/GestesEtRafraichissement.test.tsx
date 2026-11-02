@@ -32,6 +32,7 @@ let container: HTMLDivElement;
 let root: Root;
 const compteur = (ids: number[]) => ({ nb: ids.length, ids, ca: { htC: 0, ttcC: 0 } });
 beforeEach(() => {
+  window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
   ventes = [compromis(41), vendue, pasAMoi]; empreinte = { status: 200, valeur: 'E1' }; appels = [];
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -82,7 +83,7 @@ describe('🔴 les gestes depuis « Mon espace »', () => {
   });
   it('« Mes ventes » : « Revenir en compromis », confirmé dans la page', async () => {
     await ouvrir();
-    await cliquer('[data-compteur="actees"]');
+    await cliquer('[data-onglet-mon-espace="ventes"]'); // décision 8 : le compteur retiré ; l'onglet « Mes ventes » (année en cours)
     await cliquer('[data-ma-vente="2"] button[data-deplier]');
     expect(container.querySelector('[data-acte-signe-mon-espace="2"]')).toBeNull();
     await cliquer('[data-retour-mon-espace="2"]');

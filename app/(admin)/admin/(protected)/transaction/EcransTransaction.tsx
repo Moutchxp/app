@@ -285,13 +285,7 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
     <div className="tdb loc-page" data-transaction={societe}>
       <style>{CSS}</style>
       {!d.disponible && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-migration>{SANS_MIGRATION}</p>}
-      <div className="trx-barre">
-        <div className="trx-vues" role="tablist" aria-label={`Compromis, ${ONGLET_MOIS} ou ${ONGLET_ANNEES}`}>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'compromis'} onClick={() => setVue('compromis')} data-vue="compromis">Compromis</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => setVue('mois')} data-vue="mois">{ONGLET_MOIS}</button>
-          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
-        </div>
-      </div>
+      <OngletsVues vue={vue} onVue={setVue} />
       {vue === 'compromis' ? <OngletCompromis societe={societe} fusion={societe === 'tous'} /> : <>
       <form className="tdb-filtres" aria-label="Filtres" onSubmit={(e) => e.preventDefault()}>
         {/* 🔴 LOT DG — « L'année » : les filtres Début / Fin sont remplacés par la ligne des années (accord d'Arno). */}
@@ -337,6 +331,24 @@ export function EcranSociete({ societe }: { societe: Societe | 'tous' }) {
         negociateurs={negos} references={references} onFermer={() => setEdition(null)} onFait={fini} />}
     </div>
     </FournisseurConsolide>
+  );
+}
+
+/**
+ * 🔴 MON ESPACE (Arno, 02/11/2026) — LES ONGLETS « Compromis | Le mois | L'année » des pages Transaction, en un composant (déplacé d'`EcranSociete`,
+ * à l'identique) : « Mon espace » rend le même. `vue` null : aucun des trois n'est choisi (un onglet de `apres` l'est) ; `apres` : des onglets
+ * ajoutés à la suite, dans la même barre (« Mon espace » seulement ; la Transaction n'en passe pas).
+ */
+export function OngletsVues({ vue, onVue, apres }: { vue: 'compromis' | 'mois' | 'annee' | null; onVue: (v: 'compromis' | 'mois' | 'annee') => void; apres?: ReactNode }) {
+  return (
+      <div className="trx-barre">
+        <div className="trx-vues" role="tablist" aria-label={`Compromis, ${ONGLET_MOIS} ou ${ONGLET_ANNEES}`}>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'compromis'} onClick={() => onVue('compromis')} data-vue="compromis">Compromis</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'mois'} onClick={() => onVue('mois')} data-vue="mois">{ONGLET_MOIS}</button>
+          <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => onVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
+          {apres}
+        </div>
+      </div>
   );
 }
 
@@ -1272,7 +1284,7 @@ export function libelleAnnees(c: Pick<ChoixAnnees, 'decoupage' | 'annees'>): str
 const sommeMontants = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
 
 /** 🔴 LOT DG — « Année par année » : un point par année ; Annuel (barres) / Cumul (courbe) ; CA | CA net | Nombre ; 2 à 5 négociateurs : une série chacun. */
-function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete, comparaison = null }: {
+export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete, comparaison = null }: {
   d: DonneesSociete; tout: DonneesSociete; annees: readonly number[]; selection: readonly number[]; annee: number; decoupage: DecoupageAnnees; jour: string;
   mode: ModeMois; series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onAnnee: (a: number) => void; entete: ReactNode;
   /** 🔴 LOT DH — « Tout » : ce que dit l'encadré à la place de l'année précédente (« Toutes les années (2019 → 2026) ») ; null : la comparaison N−1. */
