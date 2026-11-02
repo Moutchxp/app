@@ -161,7 +161,7 @@ export const variableNegociateur = (variable: MontantC, primes: MontantC): Monta
 /** Le texte de la bulle « i » du variable : la formule du code (`ligneLocationCa`, `coutsLocationMois`, `variableNegociateur`). */
 export const AIDE_VARIABLE_NEGOCIATEUR = 'Variable négociateur = (honoraires HT − commissions versées aux apporteurs et collègues, hors commissions récurrentes de gestion) '
   + '× taux commercial du négociateur (celui de la date de signature de chaque bail) − rétrocessions du négociateur + primes de gestion. '
-  + 'Les primes de gestion restent déduites une seule fois, dans leur colonne : le CA net ne change pas.';
+  + "Les primes de gestion apparaissent aussi dans leur colonne pour information : elles ne sont déduites qu'une fois du CA net.";
 const sommeCouts = (xs: readonly CoutsLocation[]): CoutsLocation => {
   const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'salairesSaisis', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
   return { ...Object.fromEntries(k.map((x) => [x, xs.reduce((s, c) => plusC(s, c[x]), RIEN)])) as Pick<CoutsLocation, (typeof k)[number]>,

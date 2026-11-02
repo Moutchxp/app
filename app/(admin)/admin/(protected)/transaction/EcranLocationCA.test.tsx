@@ -166,12 +166,15 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(grand('[data-sous-total-location="primes"]')).toBe(30000); // 🔴 LOT LO14 — sans TVA
       expect(grand('[data-sous-total-location="apporteurs"]')).toBe(9000);
       expect(grand('[data-sous-total-location="variable"]')).toBe(VARIABLE_SEPT + PRIMES_SEPT);
-      // les primes comptées UNE fois : le variable affiché les contient, le total des coûts ne les retire pas deux fois
-      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((t, k) => t + grand(`[data-sous-total-location="${k}"]`), 0) - PRIMES_SEPT).toBe(grand('[data-fenetre-total]'));
+      // 🔴 Arno (02/11/2026) — les lignes comptées (apporteurs, variable primes incluses, salaires) font le total ; « dont primes » : en retrait, non comptée
+      expect(['apporteurs', 'variable', 'salaires'].reduce((t, k) => t + grand(`[data-sous-total-location="${k}"]`), 0)).toBe(grand('[data-fenetre-total]'));
+      expect([...document.querySelectorAll('[data-fenetre-couts-location] [data-categorie-location]')].map((x) => x.getAttribute('data-categorie-location'))).toEqual(['apporteurs', 'variable', 'primes', 'salaires']);
+      expect(document.querySelector('[data-fenetre-couts-location] [data-categorie-location="primes"]')!.hasAttribute('data-dont-primes')).toBe(true);
+      expect(doc('[data-fenetre-couts-location] [data-categorie-location="primes"] [data-titre-categorie]')).toBe('dont primes de nouvelle gestion (sans TVA)');
       // les primes, du plus récent au plus ancien : le mandat seul de Mélanie (20/09), puis le bail avec gestion (02/09)
       expect([...document.querySelectorAll('[data-ligne-prime]')].map((x) => Number(x.getAttribute('data-ligne-prime')))).toEqual([lignes[3].id, lignes[1].id]);
       expect(doc(`[data-ligne-prime="${lignes[1].id}"] [data-nego]`)).toBe('Jean-Baptiste PONS');
-      expect(document.querySelector('[data-sous-total-location="primes"]')!.className).toContain('trx-rouge');
+      expect(document.querySelector('[data-sous-total-location="primes"]')!.className).not.toContain('trx-rouge'); // une sous-ligne « dont » : pas un coût
       expect(doc('[data-groupe-apporteur="Agence Martin"] .trx-fc-sous')).toBe('1 bail');
       expect(grand('[data-cumul-apporteur="Agence Martin"]')).toBe(9000);
       expect(document.querySelectorAll('[data-fenetre-couts-location] input, [data-fenetre-couts-location] textarea, [data-fenetre-couts-location] select')).toHaveLength(0);
@@ -180,7 +183,9 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(doc('[data-mode-fenetre="transaction"]')).toBe('Par bail');
       // 🔴 LOT LO11 — un bail qui ne porte que du variable (15 € sur 100 €) a son bloc
       expect([...document.querySelectorAll('[data-bail-couts]')].map((x) => Number(x.getAttribute('data-bail-couts')))).toEqual([lignes[3].id, lignes[2].id, lignes[1].id]);
-      expect([...document.querySelectorAll(`[data-bail-couts="${lignes[1].id}"] [data-etiquette]`)].map((x) => x.textContent)).toEqual(['Prime', 'Apporteur', 'Variable']);
+      expect([...document.querySelectorAll(`[data-bail-couts="${lignes[1].id}"] [data-etiquette]`)].map((x) => x.textContent)).toEqual(['Apporteur', 'Variable (primes incluses)', 'dont prime']);
+      // le « Versé » du bail = ses lignes comptées (apporteur + variable primes incluses), la prime « dont » non recomptée
+      expect(grand(`[data-bail-couts="${lignes[1].id}"] [data-cout-bail="apporteur"]`) + grand(`[data-bail-couts="${lignes[1].id}"] [data-cout-bail="variable"]`)).toBe(grand(`[data-verse-bail="${lignes[1].id}"]`));
       expect(grand(`[data-verse-bail="${lignes[1].id}"]`)).toBe(24000 + 12150); // 🔴 LOT LO14 — prime et apporteur sans TVA
       expect(doc(`[data-bail-couts="${lignes[1].id}"] [data-signe]`)).toBe('Signé en septembre 2025');
       expect([...document.querySelectorAll('[data-verse-bail]')].reduce((t, x) => t + centimes(x.querySelector('strong')!.textContent!), 0)).toBe(grand('[data-fenetre-total]'));
@@ -194,15 +199,16 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(document.querySelector('[data-fenetre-net-location] [data-location-net-apporteurs]')).not.toBeNull(); // 🔴 LOT LO13 — quitte la tuile
       expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
       const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
-      expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent!.replace(/ — dont .* de primes de gestion, déjà déduites$/, '')))
-        .toEqual(['CA brut', '− Commissions d’apporteurs (sans TVA)', '= CA net d’apporteurs', '− Primes de nouvelle gestion (sans TVA)', '− Variable du négociateur (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']); // 🔴 LOT LO14
+      expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent))
+        .toEqual(['CA brut', '− Commissions d’apporteurs (sans TVA)', '= CA net d’apporteurs', '− Variable du négociateur (sans TVA, primes incluses)', 'dont primes de nouvelle gestion (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']); // 🔴 Arno (02/11/2026)
       const ca = grand('[data-net-ca-montant]'); const app = grand('[data-fenetre-net-location] [data-sous-total-location="apporteurs"]');
       const nap = grand('[data-net-apporteurs-montant]'); const pr = grand('[data-fenetre-net-location] [data-sous-total-location="primes"]');
       const net = grand('[data-fenetre-net-location] [data-fenetre-total]');
       expect(ca).toBe(centimes(texte('[data-location-ca]')));
       expect(net).toBe(centimes(texte('[data-location-net]')));
       const vr = grand('[data-fenetre-net-location] [data-sous-total-location="variable"]'); const sa = grand('[data-fenetre-net-location] [data-sous-total-location="salaires"]');
-      expect([ca - app, nap - pr - (vr - pr) - sa, vr]).toEqual([nap, net, VARIABLE_SEPT + PRIMES_SEPT]);
+      // 🔴 Arno (02/11/2026) — chaque ligne « − » se soustrait vraiment : CA net d'apporteurs − variable (primes incluses) − salaires = CA net ; « dont primes » non soustraite
+      expect([ca - app, nap - vr - sa, vr, pr]).toEqual([nap, net, VARIABLE_SEPT + PRIMES_SEPT, PRIMES_SEPT]);
       expect(doc('[data-net-parts]')).toBe(u === 'ht' ? 'dont propriétaire 550 € HT · locataire 450 € HT' : 'dont propriétaire 660 € TTC · locataire 540 € TTC');
       expect(document.querySelector('[data-net-ca-montant]')!.className).toContain('trx-vert');
       expect(doc('[data-fenetre-net-location] [data-dossiers]')).toBe('3 baux');
@@ -213,8 +219,9 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
         const id = b.getAttribute('data-bail-net');
         const [c, ap, p, v] = [`[data-ca-bail="${id}"]`, `[data-bail-net="${id}"] [data-cout-bail="apporteur"]`, `[data-bail-net="${id}"] [data-cout-bail="prime"]`,
           `[data-bail-net="${id}"] [data-cout-bail="variable"]`].map(grand);
-        // 🔴 (02/11/2026) — le variable du bail porte sa prime, déduite une seule fois (sur sa ligne « Prime »)
-        expect(c - ap - p - (v - p)).toBe(grand(`[data-net-bail="${id}"]`));
+        // 🔴 Arno (02/11/2026) — CA − apporteur − variable (prime incluse) = CA net du bail ; la prime « dont » n'est pas soustraite
+        expect(c - ap - v).toBe(grand(`[data-net-bail="${id}"]`));
+        if (p !== 0) expect(document.querySelector(`[data-bail-net="${id}"] [data-dont-prime] [data-etiquette]`)!.textContent).toBe('dont prime');
       }
       expect(blocs.reduce((t, b) => t + grand(`[data-net-bail="${b.getAttribute('data-bail-net')}"]`), 0)).toBe(net);
     });
@@ -224,7 +231,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
     await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
     expect(doc('[data-dossiers]')).toBe('0 bail concerné');
     expect(grand('[data-fenetre-total]')).toBe(4500);
-    expect([...document.querySelectorAll('[data-aucune]')].map((x) => [x.getAttribute('data-aucune'), x.textContent])).toEqual([['primes', 'Aucune'], ['apporteurs', 'Aucune'], ['salaires', 'Aucun mois saisi']]);
+    expect([...document.querySelectorAll('[data-aucune]')].map((x) => [x.getAttribute('data-aucune'), x.textContent])).toEqual([['apporteurs', 'Aucune'], ['primes', 'Aucune'], ['salaires', 'Aucun mois saisi']]);
     await cliquerDoc('[data-fermer-fenetre]');
     expect(document.querySelector('[data-fenetre-couts-location]')).toBeNull();
     await cliquer('[data-tuile="location-net"]'); await deplierCategories();
@@ -313,10 +320,10 @@ describe('🔴 LOT LG3 — fenêtres « Primes et rétrocessions » et « CA net
       const couts = centimes(texte('[data-location-couts]'));
       await act(async () => { (container.querySelector('[data-tuile="location-couts"]') as HTMLElement).click(); }); await calmer();
       expect([...document.querySelectorAll('[data-deplier-categorie]')].map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded')]))
-        .toEqual([['primes', 'false'], ['apporteurs', 'false'], ['variable', 'false'], ['salaires', 'false']]); // 🔴 LOT LO11 — variable et salaires
+        .toEqual([['apporteurs', 'false'], ['variable', 'false'], ['primes', 'false'], ['salaires', 'false']]); // 🔴 Arno (02/11/2026) — « dont primes » sous le variable
       expect(document.querySelectorAll('[data-ligne-prime], [data-groupe-apporteur]')).toHaveLength(0);
       const sous = (k: string) => centimes(document.querySelector(`[data-sous-total-location="${k}"] strong`)!.textContent!);
-      expect(sous('primes') + sous('apporteurs') + (sous('variable') - sous('primes')) + sous('salaires')).toBe(couts);
+      expect(sous('apporteurs') + sous('variable') + sous('salaires')).toBe(couts); // « dont primes » : non comptée
       await act(async () => { (document.querySelector('[data-deplier-categorie="primes"]') as HTMLElement).click(); });
       await act(async () => { (document.querySelector('[data-deplier-categorie="apporteurs"]') as HTMLElement).click(); });
       expect([document.querySelectorAll('[data-ligne-prime]').length, document.querySelectorAll('[data-groupe-apporteur]').length]).toEqual([2, 1]);
@@ -461,7 +468,7 @@ describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négoc
       await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
       const g = (sel: string) => centimes(document.querySelector(`${sel} strong`)?.textContent ?? '');
       expect(g('[data-fenetre-total]')).toBe(couts);
-      expect(['primes', 'apporteurs', 'variable', 'salaires'].reduce((x, k) => x + g(`[data-sous-total-location="${k}"]`), 0)).toBe(couts);
+      expect(['apporteurs', 'variable', 'salaires'].reduce((x, k) => x + g(`[data-sous-total-location="${k}"]`), 0)).toBe(couts); // « dont primes » non comptée
       expect(document.querySelectorAll('[data-ligne-prime] [data-inclus-salaires]').length).toBe(2);
       await cliquerDoc('[data-fermer-fenetre]');
       await cliquer('[data-tuile="location-net"]'); await deplierCategories();
@@ -662,7 +669,7 @@ describe('🔴 LOT LO13 — tuiles épurées, fenêtre « CA brut »', () => {
   it('Sans salaires : la fenêtre « Coûts hors salaires » porte les familles (salaires non comptés) et N−1 ; « CA net » son CA net d’apporteurs', async () => {
     await ouvrir('/?vue=mois&annee=2025&mois=9&salaires=sans');
     await cliquer('[data-tuile="location-couts"]');
-    expect(doc('[data-fenetre-couts-location] [data-location-couts-detail]')).toContain('variable 436,50 € (dont 300 € de primes de gestion, déjà déduites)');
+    expect(doc('[data-fenetre-couts-location] [data-location-couts-detail]')).toContain('variable, primes incluses 436,50 € (dont primes 300 €)');
     expect(doc('[data-fenetre-couts-location] [data-tuile-n1="location-couts"]')).toContain('en 2024');
     await fermer();
     await cliquer('[data-tuile="location-net"]');
@@ -728,4 +735,66 @@ describe('🔴 Arno (02/11/2026) — « Variable négociateur » + primes de ges
     await act(async () => { zone.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
     expect(bouton.getAttribute('aria-expanded')).toBe('false');
   });
+});
+
+/**
+ * 🔴 Arno (02/11/2026, suite de f5b32a9) — AUCUNE LECTURE NE DOIT LAISSER CROIRE QUE LES PRIMES SONT DÉDUITES DEUX FOIS. Dans chaque décomposition
+ * « CA brut − … = CA net », chaque ligne « − » se soustrait vraiment et leur somme tombe sur le CA net affiché, au centime ; les primes restent
+ * visibles en sous-ligne « dont », sans signe, non soustraite. Le cas d'Arno (octobre 2026 : 11 177,77 − 840,81 − 1 850,55 − 0 = 8 486,41) et un mois
+ * quelconque (septembre 2025).
+ */
+describe('🔴 Arno (02/11/2026) — les décompositions se lisent de haut en bas : chaque « − » se soustrait, « dont primes » non', () => {
+  // octobre 2026 : JB 6 000 € (apporteur saisi 840,81 €) → variable 15 % × 5 159,19 = 773,88 ; Mélanie 5 177,77 € → 776,67 ; primes 150 + 150
+  const octobre = [
+    a({ dateSignature: '2026-10-08', honoProprietaireHt: 3500, honoLocataireHt: 2500, mandatGestion: true, avecGestion: true, apporteurId: 7, apporteurNom: 'Agence Martin', commissionSaisie: 840.81 }),
+    a({ dateSignature: '2026-10-21', honoProprietaireHt: 3000, honoLocataireHt: 2177.77, mandatGestion: true, avecGestion: true, negociateurId: 8, negociateurLibelle: 'Mélanie' }),
+  ].map((x) => ligneLocationCa(x, { regles, apporteurs }));
+  const lireMontant = (el: Element): number => centimes((el.querySelector('.trx-mt-liste-grand, strong') ?? el).textContent!);
+  const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  /** Le Résultat : [CA brut, lignes « − », lignes « dont », CA net]. */
+  const resultat = () => {
+    const dts = [...container.querySelectorAll('[data-resultat-location] dt')];
+    const val = (dt: Element) => lireMontant(dt.nextElementSibling!);
+    return { ca: val(dts[0]), moins: dts.filter((d) => d.textContent!.startsWith('− ')).map(val), dont: dts.filter((d) => d.textContent!.startsWith('dont ')).map(val),
+      net: val(dts.at(-1)!), signes: dts.map((d) => d.textContent!.slice(0, 2)) };
+  };
+  for (const cas of [{ nom: 'octobre 2026 (le cas d’Arno)', q: '/?vue=mois&annee=2026&mois=10', jour: '2026-11-02', lignes: octobre, attendu: [1117777, [84081, 185055, 0], [30000], 848641] as const },
+    { nom: 'septembre 2025 (un mois quelconque)', q: '/?vue=mois&annee=2025&mois=9', jour: '2025-10-27', lignes, attendu: [100000, [9000, VARIABLE_SEPT + PRIMES_SEPT, 0], [PRIMES_SEPT], 100000 - 9000 - VARIABLE_SEPT - PRIMES_SEPT] as const }]) {
+    it(`${cas.nom} : Résultat, fenêtres « CA net » et « Coûts » (par catégorie et par bail) — la somme des lignes « − » = le CA net affiché ; « dont primes » non soustraite`, async () => {
+      globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: { disponible: true, aujourdhui: cas.jour, lignes: cas.lignes } }) })) as unknown as typeof fetch;
+      vi.setSystemTime(new Date(`${cas.jour}T10:00:00Z`));
+      await ouvrir(cas.q);
+      // ① le Résultat : CA brut − apporteurs − variable (primes incluses) − salaires = CA net ; « dont primes » sans signe
+      const r = resultat();
+      expect([r.ca, r.moins, r.dont, r.net]).toEqual([cas.attendu[0], [...cas.attendu[1]], [...cas.attendu[2]], cas.attendu[3]]);
+      expect(r.ca - r.moins.reduce((t, x) => t + x, 0)).toBe(r.net);
+      expect(texte('[data-resultat-dont-primes]')).toBe('dont primes de nouvelle gestion (sans TVA)');
+      // l'invariant : la tuile CA net (le calcul) = le CA net du Résultat
+      expect(centimes(texte('[data-location-net]'))).toBe(cas.attendu[3]);
+      // ② la fenêtre « CA net », par catégorie : CA brut − chaque catégorie « − » = CA net ; la catégorie « dont primes » ne porte aucun signe
+      await cliquer('[data-tuile="location-net"]'); await deplierCategories();
+      const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
+      const cats = [...corps.querySelectorAll('[data-categorie-location]')].map((x) => ({ titre: x.querySelector('[data-titre-categorie]')!.textContent!, m: lireMontant(x.querySelector('[data-sous-total-location]')!) }));
+      const ca = lireMontant(document.querySelector('[data-net-ca-montant]')!);
+      const net = lireMontant(document.querySelector('[data-fenetre-net-location] [data-fenetre-total]')!);
+      expect(ca - cats.filter((c) => c.titre.startsWith('− ')).reduce((t, c) => t + c.m, 0)).toBe(net);
+      expect([net, cats.filter((c) => c.titre.startsWith('dont ')).map((c) => c.m)]).toEqual([cas.attendu[3], [...cas.attendu[2]]]);
+      // ③ par bail : CA du bail − ses lignes « − » = son CA net ; la prime en « dont »
+      await cliquerDoc('[data-mode-fenetre="transaction"]');
+      for (const b of document.querySelectorAll('[data-bail-net]')) {
+        const id = b.getAttribute('data-bail-net');
+        const moins = [...b.querySelectorAll('[data-cout-bail]')].filter((x) => x.querySelector('[data-etiquette]')!.textContent!.startsWith('− ')).reduce((t, x) => t + lireMontant(x), 0);
+        expect(lireMontant(document.querySelector(`[data-ca-bail="${id}"]`)!) - moins).toBe(lireMontant(document.querySelector(`[data-net-bail="${id}"]`)!));
+      }
+      await cliquerDoc('[data-mode-fenetre="categorie"]');
+      await fermer();
+      // ④ la fenêtre « Coûts » : les catégories comptées font le total ; « dont primes » non comptée
+      await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
+      const coutsCats = [...document.querySelectorAll('[data-fenetre-couts-location] [data-categorie-location]')];
+      const total = lireMontant(document.querySelector('[data-fenetre-couts-location] [data-fenetre-total]')!);
+      expect(coutsCats.filter((x) => !x.hasAttribute('data-dont-primes')).reduce((t, x) => t + lireMontant(x.querySelector('[data-sous-total-location]')!), 0)).toBe(total);
+      expect(cas.attendu[0] - total).toBe(cas.attendu[3]);
+      window.localStorage.removeItem('trx-location-net-mode'); window.localStorage.removeItem('trx-location-couts-mode');
+    });
+  }
 });

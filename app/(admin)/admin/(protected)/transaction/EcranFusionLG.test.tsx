@@ -100,10 +100,9 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(texte('[data-reperes="couts"] [data-salaires-a-saisir-nb]')).toBe('location : 1 mois de salaires à saisir');
       expect(texte('[data-famille-tuile="salaries"]')).toContain('salaires gestion');
       expect(grand('[data-fenetre-couts-fusion] [data-fenetre-total]')).toBe(couts);
-      expect(['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="salairesLocation"]',
-        '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]'].reduce((s, x) => s + grand(x), 0)
-        // 🔴 Arno (02/11/2026) — le variable affiché porte les primes de gestion, comptées UNE fois dans le total
-        - grand('[data-sous-total-location="primes"]')).toBe(couts);
+      // 🔴 Arno (02/11/2026) — les lignes comptées font le total ; « dont primes » (sous le variable qui les contient) n'est pas comptée
+      expect(['[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="salairesLocation"]',
+        '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]', '[data-sous-total-fusion="salaries"]'].reduce((s, x) => s + grand(x), 0)).toBe(couts);
       await cliquer('[data-fermer-fenetre]');
       // la fenêtre « CA net » : ordre comptable, total = tuile 4 ; dont location + dont gestion = total
       await cliquer('[data-tuile="fusion-net"]'); await deplierCategories();
@@ -134,7 +133,7 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
     await cliquer('[data-activite="location"]'); const l = lire();
     expect(new URLSearchParams(window.location.search).get('activite')).toBe('location');
     await cliquer('[data-tuile="fusion-couts"]'); // 🔴 LOT LG5 — les familles sont dans la fenêtre « Coûts »
-    const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]').split(' (dont')[0]);
+    const primes = centimes(texte('[data-famille-tuile="primes"]')); const variable = centimes(texte('[data-famille-tuile="variable"]').split('incluses')[1]);
     await cliquer('[data-fermer-fenetre]');
     await cliquer('[data-activite="gestion"]'); const gg = lire();
     // 🔴 LOT LO15 — une partition exacte : la location seule (la page Location) + la gestion seule = les deux, au centime
@@ -229,13 +228,13 @@ describe('🔴 LOT LG1 — FUSION Location & Gestion', () => {
       expect(boutons().map((b) => [b.getAttribute('data-deplier-categorie'), b.getAttribute('aria-expanded'), b.tagName, b.getAttribute('type')]))
         // 🔴 LOT LG4 — « Avec salaires » : pas de catégorie « Primes » (dans les salaires)
         // 🔴 LOT LO11 — primes (de retour, « inclus » les mois avec salaires), variable et salaires de la location
-        .toEqual(['primes', 'apporteurs', 'variable', 'salairesLocation', 'adhoc', 'monga', 'salaries'].map((k) => [k, 'false', 'BUTTON', 'button']));
+        // 🔴 Arno (02/11/2026) — « dont primes » juste sous le variable qui les contient
+        .toEqual(['apporteurs', 'variable', 'primes', 'salairesLocation', 'adhoc', 'monga', 'salaries'].map((k) => [k, 'false', 'BUTTON', 'button']));
       expect(document.querySelectorAll('[data-fenetre-couts-fusion] [data-detail-categorie]')).toHaveLength(0);
       expect(boutons().every((b) => b.querySelector('.svv-triangle-boite') !== null && b.querySelector('[data-titre-categorie]') !== null)).toBe(true);
       // les sous-totaux restent sur la ligne fermée ; total haut = total bas = tuile
-      const sous = ['[data-sous-total-location="primes"]', '[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]']
-        .reduce((x, y) => x + grand(y), 0) + (sal === 'avec' ? grand('[data-sous-total-fusion="salaries"]') + grand('[data-sous-total-fusion="salairesLocation"]') : 0)
-        - grand('[data-sous-total-location="primes"]'); // 🔴 (02/11/2026) — les primes, dans le variable affiché, comptées une fois
+      const sous = ['[data-sous-total-location="apporteurs"]', '[data-sous-total-fusion="variable"]', '[data-sous-total-fusion="adhoc"]', '[data-sous-total-fusion="monga"]']
+        .reduce((x, y) => x + grand(y), 0) + (sal === 'avec' ? grand('[data-sous-total-fusion="salaries"]') + grand('[data-sous-total-fusion="salairesLocation"]') : 0); // « dont primes » non comptée
       expect([sous, grand('[data-fenetre-couts-fusion] [data-fenetre-total]'), centimes(texte('[data-fenetre-couts-fusion] [data-fenetre-total-haut] strong'))]).toEqual([couts, couts, couts]);
       // un clic ouvre, plusieurs ouvertes, un nouveau clic ferme
       await cliquer('[data-deplier-categorie="adhoc"]');
@@ -427,6 +426,39 @@ describe('Arno (01/11/2026) — onglet « Année(s) » : en rouge, exactement le
       expect(rouges('histogramme-mois', 'data-barre-mois')).toEqual(attendu.filter((k) => avecBarre('histogramme-mois', 'data-barre-mois').includes(k)));
       expect(estompes('histogramme-mois', 'data-barre-mois')).toEqual(groupes('histogramme-mois', 'data-barre-mois').map((g) => Number(g.getAttribute('data-barre-mois')))
         .filter((k) => !(attendu as readonly number[]).includes(k)));
+    });
+  }
+});
+
+/**
+ * 🔴 Arno (02/11/2026, suite de f5b32a9) — FUSION : dans le Résultat et la fenêtre « CA net », chaque ligne « − » se soustrait vraiment (le variable,
+ * primes incluses) ; les primes restent visibles en « dont », sans signe, non soustraites ; la somme tombe sur le CA net affiché, au centime.
+ */
+describe('🔴 Arno (02/11/2026) — FUSION : les décompositions se lisent de haut en bas', () => {
+  const val = (el: Element): number => centimes((el.querySelector('.trx-mt-liste-grand, strong') ?? el).textContent!);
+  for (const sal of ['avec', 'sans'] as const) {
+    it(`septembre 2026 (${sal} salaires) : Résultat location — CA brut − lignes « − » = CA net location ; fenêtre CA net — CA brut − lignes « − » = CA net ; « dont primes » non soustraite`, async () => {
+      window.localStorage.setItem('trx-affichage-montants', 'ht');
+      await ouvrir(`/?vue=mois&annee=2026&mois=9&vue-mois=mois&salaires=${sal}`);
+      // ① le Résultat, partie Location
+      const dts = [...document.querySelectorAll('[data-resultat-fusion] dt')];
+      const debut = dts.findIndex((d) => d.textContent === 'Location'); const fin = dts.findIndex((d) => d.textContent!.startsWith('= CA net location'));
+      const loc = dts.slice(debut + 1, fin + 1);
+      const ca = val(loc[0].nextElementSibling!); const net = val(loc.at(-1)!.nextElementSibling!);
+      const moins = loc.filter((d) => d.textContent!.startsWith('− ')).reduce((t, d) => t + val(d.nextElementSibling!), 0);
+      expect(ca - moins).toBe(net);
+      const dont = loc.filter((d) => d.textContent!.startsWith('dont primes'));
+      expect([dont.length, val(dont[0].nextElementSibling!)]).toEqual([1, 15000]);
+      expect(loc.map((d) => d.textContent!).filter((t) => t.startsWith('− Primes'))).toEqual([]);
+      // ② la fenêtre « CA net » : les lignes « − » de la catégorie Coûts font « − Coûts » ; CA brut − Coûts = CA net ; « dont primes » sans signe
+      await cliquer('[data-tuile="fusion-net"]');
+      await cliquer('[data-fenetre-net-fusion] [data-deplier-categorie="couts"]');
+      const lignes = [...document.querySelectorAll('[data-fenetre-net-fusion] [data-ligne-net-fusion]')].filter((x) => x.closest('[data-net-fusion="couts"]') !== null);
+      const comptees = lignes.filter((x) => x.querySelector('.trx-fc-quoi')!.textContent!.startsWith('− ')).reduce((t, x) => t + val(x), 0);
+      expect(comptees).toBe(grand('[data-net-fusion-couts]'));
+      expect(grand('[data-net-fusion-ca]') - comptees).toBe(grand('[data-fenetre-net-fusion] [data-fenetre-total]'));
+      const ligneDont = lignes.find((x) => x.hasAttribute('data-dont-primes'))!;
+      expect(ligneDont.querySelector('.trx-fc-quoi')!.textContent!.startsWith('dont primes de nouvelle gestion')).toBe(true);
     });
   }
 });

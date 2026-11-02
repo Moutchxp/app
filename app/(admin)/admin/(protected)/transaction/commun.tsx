@@ -175,11 +175,6 @@ export const ONGLET_MOIS = 'Mois';
 export const ONGLET_ANNEES = 'Année(s)';
 
 /**
- * 🔴 Arno (02/11/2026) — le variable du négociateur est montré AVEC les primes de gestion (`variableNegociateur`). Là où les primes ont aussi leur
- * propre ligne déduite (Résultat, fenêtres Coûts et CA net, carte « Coûts », Espace par négociateur), cette mention dit qu'elles ne le sont qu'une fois.
- */
-export const motPrimesDuVariable = (primes: string): string => `dont ${primes} de primes de gestion, déjà déduites`;
-/**
  * 🔴 Arno (02/11/2026) — l'en-tête « Variable négociateur » et sa bulle « i » (le composant partagé `InfoBulle`) : la formule du code
  * (`AIDE_VARIABLE_NEGOCIATEUR`) ; ouverte au clic, au toucher, au clavier ET au survol, fermable (×, Échap, clic ailleurs).
  */
@@ -196,7 +191,7 @@ export function EnteteVariableNegociateur({ libelle = 'Variable négociateur', c
 export function AideVariableMobile({ cible }: { cible: string }) {
   return <p className="trx-aide-variable-mobile loc-muet" data-aide-variable-mobile={cible}>
     <style>{'.trx-aide-variable-mobile{display:none;margin:0 0 6px;font-size:.85rem}@media (max-width:1024px){.trx-aide-variable-mobile{display:block}}'}</style>
-    <EnteteVariableNegociateur cible={`${cible}-mobile`} /></p>;
+    <EnteteVariableNegociateur libelle="Variable négociateur (primes incluses)" cible={`${cible}-mobile`} /></p>;
 }
 export function parametre(nom: string): string | null {
   return typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(nom);
@@ -288,6 +283,8 @@ ${CSS_TRIANGLE_BOITE}
 .trx-resultat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;max-width:520px}
 .trx-resultat dt{color:var(--color-svv-muted)}
 .trx-resultat dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.trx-resultat .trx-resultat-dont{padding-left:1.25rem;font-size:.9em;color:var(--color-svv-muted)}
+.trx-fc-dont{margin-left:24px;font-size:.92em}
 .trx-alerte{color:var(--color-svv-red);font-weight:700;font-size:.85rem}
 .trx-parties .trx-partie{display:flex;flex-direction:column;gap:6px}
 .trx-partie-tete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}

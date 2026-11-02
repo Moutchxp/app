@@ -16,7 +16,7 @@ import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre 
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
-import { AideVariableMobile, BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, EnteteVariableNegociateur, FournisseurAffichage, Montants, MOT_UNITE, motPrimesDuVariable, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
+import { AideVariableMobile, BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, EnteteVariableNegociateur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { Journal } from './FormulaireVente';
 import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAnnee, attributAnneesRouges, StyleAnneesRouges, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
@@ -317,7 +317,7 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
     {fenetre === 'couts' && <FenetreCoutsLocation lignes={periode} couts={coutsF} lib={titreFenetre} onAller={allerA} onFermer={() => { setFenetre(null); tuileCouts.current?.focus(); }}
       reperes={<Reperes donnee="couts" lignes={[
         // 🔴 LOT LO13 — ce qui a quitté la tuile « Coûts » : les familles (ce qui est déduit ; « inclus » ; salaires non comptés) et N−1
-        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · primes {eur(U.en(T.c.primesDeduites))} · variable {eur(U.en(variableNegociateur(T.c.variableDeduit, T.c.primesDeduites)))}{T.c.primesDeduites.htC !== 0 && <span data-variable-dont-primes> ({motPrimesDuVariable(eur(U.en(T.c.primesDeduites)))})</span>} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
+        { cle: 'familles', mot: 'Familles', valeur: <span className="trx-fl-texte" data-location-couts-detail>apporteurs {eur(U.en(T.apporteurs))} · variable, primes incluses {eur(U.en(variableNegociateur(T.c.variableDeduit, T.c.primesDeduites)))}{T.c.primesDeduites.htC !== 0 && <span data-variable-dont-primes> (dont primes {eur(U.en(T.c.primesDeduites))})</span>} · {avec ? <>salaires {eur(U.en(T.c.salaires))}</> : <span className="loc-muet" data-location-salaires-non-comptes>salaires (non comptés) {eur(U.en(T.c.salairesSaisis))}</span>}
           {T.c.moisAvecSalaires > 0 && <span className="trx-ligne-bloc loc-muet" data-location-inclus>primes {eur(U.en(moinsM(T.c.primes, T.c.primesDeduites)))} et variable {eur(U.en(moinsM(variableNegociateur(T.c.variable, T.c.primes), variableNegociateur(T.c.variableDeduit, T.c.primesDeduites))))} inclus dans les salaires</span>}</span> },
         ...repereASaisir,
         { cle: 'n1', mot: 'Un an plus tôt', valeur: <span className="trx-fl-texte" data-tuile-n1="location-couts">{n1(T.couts, T1.couts)}</span> },
@@ -616,11 +616,12 @@ function ResultatLocation({ T, aSaisir }: { T: TotauxRegle; aSaisir: number }) {
     <dl className="trx-resultat" data-resultat-location>
       <dt>CA brut ({MOT})</dt><dd><Mt {...m(T.ca)} donnees={{ 'data-resultat-ca': '' }} /></dd>
       <dt>− Rétrocessions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
-      <dt>− Primes de nouvelle gestion (sans TVA){inclus(c.primes, c.primesDeduites)}</dt><dd><Mt {...m(c.primesDeduites)} cout donnees={{ 'data-resultat-primes': '' }} /></dd>
-      {/* 🔴 Arno (02/11/2026) — le variable avec les primes de gestion (`variableNegociateur`) ; les primes ne sont déduites qu'une fois, par leur ligne */}
-      <dt>− Variable du négociateur (sans TVA){inclus(variableNegociateur(c.variable, c.primes), variableNegociateur(c.variableDeduit, c.primesDeduites))}
-        {c.primesDeduites.htC !== 0 && <small className="loc-muet" data-variable-dont-primes> ({motPrimesDuVariable(eur((MOT === 'TTC' ? c.primesDeduites.ttcC : c.primesDeduites.htC) / 100))})</small>}</dt>
+      {/* 🔴 Arno (02/11/2026) — chaque ligne « − » se soustrait vraiment : le variable, primes de gestion incluses (`variableNegociateur`) ; les primes
+          suivent en sous-ligne « dont », sans signe, non soustraites */}
+      <dt>− Variable du négociateur (sans TVA, primes incluses){inclus(variableNegociateur(c.variable, c.primes), variableNegociateur(c.variableDeduit, c.primesDeduites))}</dt>
       <dd><Mt {...m(variableNegociateur(c.variableDeduit, c.primesDeduites))} cout donnees={{ 'data-resultat-variable': '' }} /></dd>
+      <dt className="trx-resultat-dont" data-resultat-dont-primes>dont primes de nouvelle gestion (sans TVA){inclus(c.primes, c.primesDeduites)}</dt>
+      <dd className="trx-resultat-dont"><Mt {...m(c.primesDeduites)} donnees={{ 'data-resultat-primes': '' }} /></dd>
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi, en gris, « non comptés » (non déduit) */}
       {avec ? <><dt>− Salaires chargés (sans TVA){aSaisir > 0 && <small className="loc-muet trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
         : <><dt className="loc-muet">Salaires chargés (sans TVA) — non comptés{aSaisir > 0 && <small className="trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd className="loc-muet" data-resultat-salaires-non-comptes>{eur((MOT === 'TTC' ? c.salairesSaisis.ttcC : c.salairesSaisis.htC) / 100)}</dd></>}
@@ -674,7 +675,7 @@ function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: read
       <div className="trx-fusion-defile">
         <table className="tdb-table tdb-table--large" data-table-location>
           <thead><tr><th scope="col">{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th><th scope="col">Baux</th><th scope="col">Honoraires</th><th scope="col">Primes de gestion<small className="loc-muet"> (sans TVA)</small></th>
-            <th scope="col">Commissions d’apporteurs<small className="loc-muet"> (sans TVA)</small></th><th scope="col"><EnteteVariableNegociateur cible="tableau-location" /></th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
+            <th scope="col">Commissions d’apporteurs<small className="loc-muet"> (sans TVA)</small></th><th scope="col"><EnteteVariableNegociateur libelle="Variable négociateur (primes incluses)" cible="tableau-location" /></th><th scope="col">{LIBELLE_SALAIRES_LOCATION}</th><th scope="col">CA net{hors(x.avecSalaires)}</th>
             <th scope="col">Honoraires {rangees[0]?.mois === null ? 'un an plus tôt' : annee - 1}</th>{rangees[0]?.mois !== null && <th scope="col">Saisie</th>}</tr></thead>
           <tbody>
             {rangees.map((r) => {
@@ -785,7 +786,7 @@ function EspaceLocation({ espace, T }: { espace: readonly LigneEspaceRegle[]; T:
     <AideVariableMobile cible="espace-location" />
     <table className="tdb-table tdb-table--large" data-table-negociateurs-location>
       <thead><tr><th scope="col">Négociateur</th><th scope="col">Baux</th><th scope="col" aria-sort={ariaSort('ca')} data-entete-tri="ca">{bouton('ca', <>CA {MOT} généré</>)}</th>
-        <th scope="col">Primes (sans TVA)</th><th scope="col">Rétrocessions (sans TVA)</th><th scope="col"><EnteteVariableNegociateur libelle="Variable" cible="espace-location" apres=" (sans TVA)" /></th>
+        <th scope="col">Primes (sans TVA)</th><th scope="col">Rétrocessions (sans TVA)</th><th scope="col"><EnteteVariableNegociateur libelle="Variable" cible="espace-location" apres=" (sans TVA, primes incluses)" /></th>
         <th scope="col" aria-sort={ariaSort('net')} data-entete-tri="net">{bouton('net', <>{motNet}</>)}</th></tr></thead>
       <tbody>{triees.map((g) => (
         <tr key={g.cle} data-negociateur-location={g.nom}>
