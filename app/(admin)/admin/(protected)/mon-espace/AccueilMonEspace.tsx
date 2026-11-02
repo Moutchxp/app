@@ -1,25 +1,27 @@
 'use client';
 
-import { ESPACE, MOT_UNITE, signePct, useAffichage, useConsolide } from '../transaction/commun';
+import { ESPACE, FournisseurConsolide, MOT_UNITE, signePct, useAffichage, useConsolide } from '../transaction/commun';
 import { Explication, GrapheMois, LigneDesMois, type useLigneDesMois } from '../transaction/EcransTransaction';
-import { GrapheMoisStats } from './MesStatistiques';
 import { eur } from '../../../../lib/transaction/format';
 import { moisSoulignes } from '../../../../lib/transaction/periodeAnnees';
 import { motSansN1Pour, NOMS_MOIS, type DonneesSociete } from '../../../../lib/transaction/modele';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { totauxDuChoix } from '../../../../lib/mon-espace/statistiques';
-import { tuilesAgence, tuilesPerso, type ChoixAccueil, type Montant } from '../../../../lib/mon-espace/accueil';
+import { sourceMoisPerso, tuilesAgence, tuilesPerso, type ChoixAccueil, type Montant } from '../../../../lib/mon-espace/accueil';
 
 /**
  * ══ 🔴 MON ESPACE (Arno, 02/11/2026) — L'ACCUEIL AU FORMAT « LE MOIS » DU SUIVI CA ══════════════════════════════════════════════════════════════════
  * Les briques de l'onglet « Le mois » des pages Transaction, telles quelles : la rangée des mois et « Mois | Période | Année » (`LigneDesMois`,
  * `useLigneDesMois` : « Année » par défaut, les mois écoulés soulignés en rouge), les tuiles (mêmes classes), le graphique « Mois par mois ».
- *   · « Mon espace » : mes chiffres (ceux de « Mes statistiques », `tuilesPerso`) ; le graphique de « Mes statistiques » (`GrapheMoisStats` :
- *     CA | Nombre de ventes, N−1 hachuré, Mensuel / Cumul) ; 4ᵉ tuile : « Mes compromis en cours » (ma part, décision 6) et la projection ;
- *   · MODE AGENCE : les tuiles de « Le mois » (`tuilesAgence`) et SON graphique (`GrapheMois`, avec « CA net ») ; 4ᵉ tuile : « CA net cumulé ».
+ *   · LE GRAPHIQUE : celui de la page du Suivi CA (`GrapheMois`, en « Vendu + compromis » : vendu en bas, compromis au-dessus, N−1 hachuré,
+ *     Mensuel / Cumul, l'encadré de détail) — en mode agence sur la structure (avec « CA net ») ; en « Mon espace » sur MES chiffres
+ *     (`sourceMoisPerso` : le vendu de « Mes statistiques », mes compromis en cours, ma part ; sans « CA net », non défini pour un espace) ;
+ *   · « Mon espace » : mes tuiles (celles de « Mes statistiques », `tuilesPerso`) ; 4ᵉ tuile : « Mes compromis en cours » (ma part, décision 6) ;
+ *   · MODE AGENCE : les tuiles de « Le mois » (`tuilesAgence`) ; 4ᵉ tuile : « CA net cumulé ».
  * Une tuile ouvre l'onglet qui liste ses affaires. La ligne des mois (`ligne`) est tenue par l'écran (l'onglet « Année(s) » ouvre un mois) ;
  * l'année se choisit dans l'onglet « Année(s) » (décision 9 d'Arno : la liste « Année » au-dessus de la rangée des mois est retirée).
- * L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px).
+ * L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px) ; `data-transaction` : sa marque, à
+ * laquelle tiennent des règles de son graphique (largeur des onglets de mesure, encadré).
  */
 export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires; ligne: ReturnType<typeof useLigneDesMois>;
   onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void }) {
@@ -49,9 +51,8 @@ export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires;
   const prev = { ht: data.compteurs.compromis.ca.htC / 100, ttc: data.compteurs.compromis.ca.ttcC / 100 };
   const acte = totauxDuChoix(s, { mode: 'annee', annee: anCourant, mois: 1, periode: [1] }, jour).n.ca;
   const projection = { ht: (acte.htC + data.compteurs.compromis.ca.htC) / 100, ttc: (acte.ttcC + data.compteurs.compromis.ca.ttcC) / 100 };
-  const courante = rouges !== null ? (rouges.includes(mois) ? mois : rouges.at(-1) ?? 0) : mois;
   return (
-    <div className="mes-accueil tdb loc-page" data-accueil-mon-espace={agence?.cle ?? 'moi'}>
+    <div className="mes-accueil tdb loc-page" data-transaction={agence?.cle ?? 'moi'} data-accueil-mon-espace={agence?.cle ?? 'moi'}>
       <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={moisPeriodeAnnee} onMois={choisirMois} onDecoupage={choisirDecoupage} />
       {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`L’essentiel — ${moisMot} ${annee}`} data-tuiles-accueil>
@@ -83,11 +84,15 @@ export function AccueilMonEspace({ data, ligne, onOuvrir }: { data: MesAffaires;
             <span className="tdb-tuile-n1" data-tuile-projection>Projection {anCourant} : {grand({ ht: acte.htC / 100, ttc: acte.ttcC / 100 })} acté + {grand(prev)} = {grand(projection)}</span></button></li>
         )}
       </ul>
-      {dSoc !== null
-        ? <GrapheMois d={dSoc} tout={dSoc} annee={annee} mois={mois} jour={jour} mode="vendu" series={null} onMois={choisirMois} moisSeul={decoupage === 'mois'}
-          periodeAnnee={moisPeriodeAnnee} rouges={rouges} finPeriode={decoupage === 'periode' ? t.cumul.fin : null} />
-        : <GrapheMoisStats s={s} annee={annee} jour={jour} id="accueil-histo" bloc="accueil-mois" rouges={rouges} motCa="CA" motCaTitre="mon CA" motNombre="Nombre de ventes"
-          courante={courante} selectionCumul={decoupage === 'mois' ? mois : 0} onChoisir={choisirMois} cumulCliquable />}
+      {/* Le graphique de la page du Suivi CA (« Vendu + compromis ») ; « Mon espace » : sur mes chiffres, aux intitulés d'une page non consolidée. */}
+      <FournisseurConsolide value={agence === null ? false : agence.cle === 'tous'}>
+        <GrapheMois d={dSoc ?? sansDonnees(jour)} tout={dSoc ?? sansDonnees(jour)} annee={annee} mois={mois} jour={jour} mode="tous" series={null} onMois={choisirMois}
+          moisSeul={decoupage === 'mois'} periodeAnnee={moisPeriodeAnnee} rouges={rouges} finPeriode={decoupage === 'periode' ? t.cumul.fin : null}
+          {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />
+      </FournisseurConsolide>
     </div>
   );
 }
+
+/** Aucune vente : les graphiques du Suivi CA, quand leurs chiffres viennent d'une source (« Mon espace »), ne lisent rien d'autre. */
+export const sansDonnees = (jour: string): DonneesSociete => ({ disponible: true, societe: null, aujourdhui: jour, ventes: [], retrocessions: [], aRattacher: [] });

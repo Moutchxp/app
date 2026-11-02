@@ -33,7 +33,7 @@ beforeEach(() => { container = document.createElement('div'); document.body.appe
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
 const rendre = (v: Vente, personnel?: VuePersonnelle) => act(() => {
   root.render(createElement(FournisseurAffichage, { value: 'ht' }, createElement(FournisseurConsolide, { value: true },
-    createElement(CarteAffaire, { v, aujourdhui: '2026-11-02', vue: null, personnel, section: 'compromis', children: null }))));
+    createElement(CarteAffaire, { v, aujourdhui: '2026-11-02', vue: null, personnel, section: 'compromis' } as unknown as Parameters<typeof CarteAffaire>[0]))));
 });
 /** Le nombre de cellules de grille d'une ligne (une cellule « reversé à … » en couvre deux) ; et la suite des colonnes. */
 const cellules = (l: Element) => [...l.children].reduce((t, c) => t + (c.classList.contains('trx-nego-col--double') ? 2 : 1), 0);

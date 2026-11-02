@@ -6,6 +6,7 @@ import { caHtParMoisMode, sansN1Pour, TVA, variation, type DonneesSociete } from
 import type { MontantC } from '../transaction/partAgence';
 import { resolveurDe } from '../transaction/statutLigne';
 import { sommeC, totauxDuChoix, type StatsMonEspace } from './statistiques';
+import type { SourceGrapheAnnees, SourceGrapheMois } from '../transaction/sourceGraphe';
 
 /**
  * ══ 🔴 MON ESPACE (Arno, 02/11/2026) — L'ACCUEIL AU FORMAT « LE MOIS » DU SUIVI CA : LES QUATRE TUILES (PUR) ══════════════════════════════════════
@@ -120,5 +121,38 @@ export function tuilesAnneesAgence(dx: DonneesAgence, sel: readonly number[], to
     nb: { valeur: liste.length, n1: tout || sansN1 ? null : liste1.length },
     aDate: { valeur: deC(rd), ...avec(deC(rd1), variation(rd.htC, rd1.htC), tout, sansN1) },
     net: { valeur: deC(na), ...avec(deC(na1), variation(na.htC, na1.htC), tout, sansN1) },
+  };
+}
+
+/**
+ * ══ LE GRAPHIQUE DU SUIVI CA SUR MES CHIFFRES (« Mon espace ») ══════════════════════════════════════════════════════════════════════════════════════
+ * Les graphiques de « Le mois » / « L'année » (`GrapheMois`, `GrapheAnnees`), en « Vendu + compromis » comme la page du Suivi CA, avec MES chiffres :
+ * le vendu = « Mes statistiques » (mon CA, décision 1), les compromis = mes compromis en cours placés par la règle du Suivi CA (ma part, décision 6).
+ * Aucun montant d'un autre collaborateur : le serveur ne calcule que mon CA. Sans « CA net » (non défini pour un espace personnel). PUR.
+ */
+const RIEN_C: MontantC = { htC: 0, ttcC: 0 };
+const anDe = (s: StatsMonEspace, a: number) => s.annees.find((x) => x.annee === a);
+const douze = <T>(f: (i: number) => T): T[] => Array.from({ length: 12 }, (_, i) => f(i));
+/** Pas d'année précédente à comparer pour l'année `a` : ni vente ni compromis l'année d'avant (la règle `sansN1Pour` en « Vendu + compromis »). */
+const sansN1Perso = (s: StatsMonEspace, a: number): boolean => {
+  const x = anDe(s, a - 1);
+  return x === undefined || (x.nb.every((n) => n === 0) && x.aConfirmerNb === 0 && (x.nbComp ?? []).every((n) => n === 0));
+};
+export function sourceMoisPerso(s: StatsMonEspace, annee: number): SourceGrapheMois {
+  const ht = (a: number, avecComp: boolean): number[] => { const x = anDe(s, a); return douze((i) => (x === undefined ? 0 : (x.ca[i].htC + (avecComp ? (x.caComp?.[i] ?? RIEN_C).htC : 0)) / 100)); };
+  const nb = (a: number, avecComp: boolean): number[] => { const x = anDe(s, a); return douze((i) => (x === undefined ? 0 : x.nb[i] + (avecComp ? x.nbComp?.[i] ?? 0 : 0))); };
+  return { ca: (a) => ht(a, true), caVendu: (a) => ht(a, false), nb: (a) => nb(a, true), nbVendu: (a) => nb(a, false), sansN1: sansN1Perso(s, annee), nbReportes: s.reportes ?? 0 };
+}
+export function sourceAnneesPerso(s: StatsMonEspace): SourceGrapheAnnees {
+  return {
+    valeur: (a, mode, mesure, unite) => {
+      const x = anDe(s, a);
+      if (x === undefined) return 0;
+      const comp = mode === 'tous';
+      if (mesure === 'nombre') return x.nb.reduce((t, n) => t + n, 0) + x.aConfirmerNb + (comp ? (x.nbComp ?? []).reduce((t, n) => t + n, 0) : 0);
+      const m = sommeC([...x.ca, x.aConfirmer, ...(comp ? x.caComp ?? [] : [])]);
+      return (unite === 'ht' ? m.htC : m.ttcC) / 100;
+    },
+    nbReportes: s.reportes ?? 0,
   };
 }

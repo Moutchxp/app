@@ -113,4 +113,24 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(container.querySelector('[data-bloc="histogramme-mois"] [data-mesure-bouton="net"]')?.textContent).toBe('CA net');
     expect(euros(texte('[data-valeur-tuile="ca"]'))).toBe(10000);
   });
+  it('la barre d’onglets suit IMMÉDIATEMENT la ligne « Voir … » ; HT | TTC et la phrase du CA dessous ; les 7 onglets', async () => {
+    admin = true;
+    await ouvrir();
+    const ligne = container.querySelector('[data-ligne-espace]')!;
+    expect(ligne.nextElementSibling?.classList.contains('trx-barre')).toBe(true);
+    const apres = ligne.nextElementSibling!.nextElementSibling!;
+    expect(apres.classList.contains('mes-compteurs-tete')).toBe(true);
+    expect(apres.nextElementSibling?.hasAttribute('data-note-ca')).toBe(true);
+    expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(7);
+  });
+  it('vue perso : LE graphique du Suivi CA en « Vendu + compromis » (vendu en bas, mes compromis au-dessus) ; mesures CA et Nombre, sans « CA net »', async () => {
+    await ouvrir();
+    const g = container.querySelector('[data-bloc="histogramme-mois"]')!;
+    expect(g).not.toBeNull();
+    expect(g.querySelector('[data-legende-empile]')).not.toBeNull();
+    expect([...g.querySelectorAll('[data-mesure-bouton]')].map((b) => b.getAttribute('data-mesure-bouton'))).toEqual(['ca', 'nombre']);
+    // la bascule Mensuel / Cumul
+    await cliquer('[data-bloc="histogramme-mois"] [data-cumul-bouton]');
+    expect(container.querySelector('[data-bloc="histogramme-mois"] [data-cumul-bouton]')?.getAttribute('data-cumul-etat')).toBe('cumul');
+  });
 });

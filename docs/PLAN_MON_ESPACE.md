@@ -33,12 +33,17 @@ unicité du mandat par structure (n° + société).
 9. **La liste déroulante « Année » au-dessus de la rangée des mois est RETIRÉE** (accord explicite d'Arno, 02/11/2026) : la rangée des années de
    l'onglet « Année(s) » la remplace. Aucun autre retrait.
 
-Navigation (après le lot 10, 02/11/2026) : en tête, la ligne « Voir … » + « + Nouveau compromis », puis HT | TTC, puis les onglets du Suivi CA
+Navigation (après le lot 10, 02/11/2026 ; mise à jour le même jour : la barre d'onglets JUSTE SOUS la ligne « Voir … », HT | TTC et la phrase du
+CA sous les onglets) : en tête, la ligne « Voir … » + « + Nouveau compromis », puis les onglets du Suivi CA
 (`OngletsVues`, le même composant que la Transaction : « Compromis | Mois | Année(s) », « Compromis » par défaut, l'adresse ?vue= / ?vue-mois= /
 ?vue-annee= comme la Transaction) suivis, dans la même barre, des onglets « Mes compromis en cours | Mes ventes | Mes statistiques | Mes apporteurs »
 (inchangés). « Mois » = l'accueil au format « Le mois » ; « Année(s) » = le format de « L'année » (rangée des années, Année | Période | Tout, tuiles,
 « Année par année » cliquable, « Mois par mois » de l'année, Annuel / Cumul). Chiffres : « Mon espace » = « Mes statistiques » ; mode agence = les
-expressions des écrans du Suivi CA (`accueil.ts`). L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px, mesuré au banc sur les deux pages).
+expressions des écrans du Suivi CA (`accueil.ts`). GRAPHIQUES : ceux de la page du Suivi CA eux-mêmes (`GrapheMois`, `GrapheAnnees`, en « Vendu + compromis »), avec une source facultative
+(`app/lib/transaction/sourceGraphe.ts`) : sans elle le Suivi CA calcule comme avant (captures avant / après identiques au pixel) ; « Mon espace »
+leur passe MES chiffres (le vendu de « Mes statistiques », mes compromis en cours placés par la règle du Suivi CA, ma part : `sourceMoisPerso`,
+`sourceAnneesPerso`). ❓ « CA net » d'un espace personnel : non défini — question posée à Arno ; d'ici là, la mesure n'existe qu'en mode agence.
+L'écart entre les blocs : `tdb loc-page`, les classes de la page d'une structure du Suivi CA (`.tdb` : 18 px, mesuré au banc sur les deux pages).
 
 Mise en œuvre du lot 2 (n° de mandat, migration 449) :
 - la comparaison passe par UNE fonction, `normaliserMandat` (`app/lib/transaction/mandat.ts`) : sans accents, majuscules, lettres et

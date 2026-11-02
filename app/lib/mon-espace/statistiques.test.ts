@@ -84,3 +84,24 @@ describe('🔴 par apporteur : parApporteur du Suivi CA, sur mes ventes de la p�
     expect(mesApporteurs(retros, VENTES, choix({ mode: 'tout' }), JOUR).map((a) => a.apporteur).sort()).toEqual(['AUTRE', 'DEBLOIS']);
   });
 });
+
+describe('🔴 le graphique de l’accueil : mes compromis en cours mois par mois (ma part, décision 6), placés par la règle du Suivi CA', () => {
+  const compPartage = base({ ...partagee, id: 8, statut: 'compromis', mois: null, annee: 2027, dateCompromis: '2026-09-15', honorairesTtc: 9000 });
+  const st = statistiquesMonEspace([...VENTES, compPartage], LEA, JOUR);
+  it('le compromis non daté de Léa : au mois en cours (novembre), une mention « reporté » ; le compromis daté de septembre : en septembre, SA part (60 %)', () => {
+    const a = st.annees.find((x) => x.annee === 2026)!;
+    expect(a.nbComp![10]).toBe(1);
+    expect(a.caComp![10].htC).toBe(750000); // 9 000 € TTC, Léa seule
+    expect(a.nbComp![8]).toBe(1);
+    expect(a.caComp![8].htC).toBe(450000); // 60 % de 7 500 € HT
+    expect(st.reportes).toBe(1);
+  });
+  it('jamais la part de Marc : son espace a la sienne (40 %), et la somme des deux = le compromis entier', () => {
+    const marc = statistiquesMonEspace([...VENTES, compPartage], MARC, JOUR).annees.find((x) => x.annee === 2026)!;
+    expect(marc.caComp![8].htC).toBe(300000);
+    expect(marc.caComp![10].htC).toBe(0);
+  });
+  it('le CA acté (« Mes statistiques ») ne change pas', () => {
+    expect(st.annees.find((x) => x.annee === 2026)!.ca).toEqual(s.annees.find((x) => x.annee === 2026)!.ca);
+  });
+});

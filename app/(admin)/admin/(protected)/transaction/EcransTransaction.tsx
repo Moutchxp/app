@@ -27,6 +27,7 @@ import { libellesDuFiltre, personnesNegociateurs } from '../../../../lib/transac
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { compromisEnCours, totalCompromisEnCours, type TotalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
+import type { SourceGrapheAnnees, SourceGrapheMois } from '../../../../lib/transaction/sourceGraphe';
 import { CSS_TABLES_GROUPES, TableauCoutsGlobaux } from './CoutsGlobaux';
 import { LigneResultatNet } from './ResultatNetGlobal';
 import { GrapheGlobal } from './GrapheGlobal';
@@ -419,7 +420,7 @@ type MesureTrx = 'ca' | 'net' | 'nombre';
 // 🔴 MON ESPACE (Arno, 02/11/2026) — `sansN1Pour` et `motSansN1Pour` sont dans `modele.ts` (déplacées telles quelles : l'accueil de « Mon espace »
 // les appelle) ; réexportées ici pour les écrans qui les importaient d'ici. `GrapheMois` et `Explication` sont exportés (code inchangé).
 export { sansN1Pour, motSansN1Pour };
-export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, rouges = null, finPeriode = null, entete }: {
+export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, moisSeul, periodeAnnee, rouges = null, finPeriode = null, entete, source }: {
   d: DonneesSociete; tout: DonneesSociete; annee: number; mois: number; jour: string; mode: ModeMois;
   series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onMois: (m: number) => void;
   /** 🔴 LOT DE — le mode « Mois » (l'encadré au repos = le mois choisi). */
@@ -431,6 +432,8 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
   /** 🔴 LOT DN — « Période » : la borne du cumul (`borneCumul` : le dernier mois choisi) — l'encadré du Cumul au repos s'y arrête ; null : la règle CV. */
   finPeriode?: number | null;
   entete?: ReactNode;
+  /** 🔴 MON ESPACE — d'autres chiffres déjà calculés (`SourceGrapheMois`) ; absente (le Suivi CA) : le calcul sur `d`, inchangé. Sans « CA net ». */
+  source?: SourceGrapheMois;
 }) {
   const U = useUnite();
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
@@ -439,17 +442,17 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
   const moisPeriodeAnnee = periodeAnnee ?? [];
   const [cumul, setCumul] = useState(false);
   // 🔴 LOT BS — « CA | Nombre » (l'organisation du graphique de la Location) ; gardé dans l'adresse (&mesure=nombre).
-  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' ? 'net' : 'ca'));
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && source === undefined ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
-  const parMois = caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
-  const parMoisN1 = caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
-  const vendusN = caHtParMois(d.ventes, annee, d.societe);
-  const vendusN1 = caHtParMois(d.ventes, annee - 1, d.societe);
-  const nbParMois = nombreParMoisMode(d.ventes, annee, mode, jour);
-  const nbParMoisN1 = nombreParMoisMode(d.ventes, annee - 1, mode, jour);
-  const nbVendusN = nombreParMoisMode(d.ventes, annee, 'vendu', jour);
-  const nbVendusN1 = nombreParMoisMode(d.ventes, annee - 1, 'vendu', jour);
-  const sansN1 = sansN1Pour(series !== null ? tout.ventes : d.ventes, annee, mode);
+  const parMois = source ? source.ca(annee) : caHtParMoisMode(d.ventes, annee, d.societe, mode, jour);
+  const parMoisN1 = source ? source.ca(annee - 1) : caHtParMoisMode(d.ventes, annee - 1, d.societe, mode, jour);
+  const vendusN = source ? source.caVendu(annee) : caHtParMois(d.ventes, annee, d.societe);
+  const vendusN1 = source ? source.caVendu(annee - 1) : caHtParMois(d.ventes, annee - 1, d.societe);
+  const nbParMois = source ? source.nb(annee) : nombreParMoisMode(d.ventes, annee, mode, jour);
+  const nbParMoisN1 = source ? source.nb(annee - 1) : nombreParMoisMode(d.ventes, annee - 1, mode, jour);
+  const nbVendusN = source ? source.nbVendu(annee) : nombreParMoisMode(d.ventes, annee, 'vendu', jour);
+  const nbVendusN1 = source ? source.nbVendu(annee - 1) : nombreParMoisMode(d.ventes, annee - 1, 'vendu', jour);
+  const sansN1 = source ? source.sansN1 : sansN1Pour(series !== null ? tout.ventes : d.ventes, annee, mode);
   const motSansN1 = motSansN1Pour(annee, mode);
   const cumulN = cumuler(parMois);
   const cumulN1 = cumuler(parMoisN1);
@@ -469,7 +472,7 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
   // 🔴 LOT CV (Arno) — le titre cite TOUJOURS l'année du graphique (« Cumul 2026 à fin mai », « Mai 2026 ») ; un mois à venir : « — à venir », à 0
   // (plus de case vide). `nbCumule` : le nombre cumulé (l'encadré « au repos » : le cumul de l'année) ; sinon le nombre du mois, comme avant.
   // 🔴 LOT DQ / DR — « Vendu + compromis » et « Compromis », année en cours : les compromis en cours non datés de l'année, comptés au mois en cours (la mention).
-  const nbReportes = mode !== 'vendu' && annee === anneeEnCours ? compromisReportes(compromisDuMode(d.ventes, annee, null, mode, jour), jour).length : 0;
+  const nbReportes = mode !== 'vendu' && annee === anneeEnCours ? (source ? source.nbReportes : compromisReportes(compromisDuMode(d.ventes, annee, null, mode, jour), jour).length) : 0;
   const moisDuJour = Number(jour.slice(5, 7));
   const info = (k: number, cumule: boolean, nbCumule = false): InfoBarre => {
     const note = nbReportes > 0 && (cumule ? k >= moisDuJour : k === moisDuJour) ? mentionReportes(nbReportes) : null;
@@ -524,7 +527,7 @@ export function GrapheMois({ d, tout, annee, mois, jour, mode, series, onMois, m
           écoulés ; la règle partagée des graphiques « mois par mois » (`StyleMoisRouges`, `moisSoulignes`). */}
       <StyleMoisRouges mois={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-histo" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Mensuel"
-        mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
         titre={<>Mois par mois — {annee} <small className="loc-muet">({motGraphe}{cumul ? ', cumulé depuis janvier' : ''} ; un mois s’ouvre d’un clic)</small></>} />
       {entete}
       {/* 🔴 LOT DE (Arno) — en mode « Mois », l'encadré au repos montre le mois choisi (au survol, le mois survolé ; en quittant le graphique, le mois
@@ -1284,17 +1287,19 @@ export function libelleAnnees(c: Pick<ChoixAnnees, 'decoupage' | 'annees'>): str
 const sommeMontants = (xs: readonly MontantC[]): MontantC => xs.reduce((t, x) => ({ htC: t.htC + x.htC, ttcC: t.ttcC + x.ttcC }), { htC: 0, ttcC: 0 });
 
 /** 🔴 LOT DG — « Année par année » : un point par année ; Annuel (barres) / Cumul (courbe) ; CA | CA net | Nombre ; 2 à 5 négociateurs : une série chacun. */
-export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete, comparaison = null }: {
+export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jour, mode, series, onAnnee, entete, comparaison = null, source }: {
   d: DonneesSociete; tout: DonneesSociete; annees: readonly number[]; selection: readonly number[]; annee: number; decoupage: DecoupageAnnees; jour: string;
   mode: ModeMois; series: readonly { nom: string; couleur: number; d: DonneesSociete }[] | null; onAnnee: (a: number) => void; entete: ReactNode;
   /** 🔴 LOT DH — « Tout » : ce que dit l'encadré à la place de l'année précédente (« Toutes les années (2019 → 2026) ») ; null : la comparaison N−1. */
   comparaison?: string | null;
+  /** 🔴 MON ESPACE — d'autres chiffres déjà calculés (`SourceGrapheAnnees`) ; absente (le Suivi CA) : le calcul sur `d`, inchangé. Sans « CA net ». */
+  source?: SourceGrapheAnnees;
 }) {
   const U = useUnite();
   const cons = useConsolide(); // 🔴 LOT DO — FUSION : les intitulés consolidés
   const M = consoliderMots(cons, motsEnUnite(MOTS_MODE[mode], U.MOT));
   const [cumul, setCumul] = useState(false);
-  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' ? 'net' : 'ca'));
+  const [mesure, setMesure] = useState<MesureTrx>(() => (parametre('mesure') === 'nombre' ? 'nombre' : parametre('mesure') === 'net' && source === undefined ? 'net' : 'ca'));
   useEffect(() => { ecrireAdresse({ mesure: mesure === 'ca' ? null : mesure }); }, [mesure]);
   const nombre = mesure === 'nombre';
   const net = mesure === 'net';
@@ -1303,12 +1308,13 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
   const enUnite = (m: MontantC): number => (U.u === 'ht' ? m.htC : m.ttcC) / 100;
   /** La valeur d'une année (la mesure affichée) : le CA des cartes, le CA net, ou le nombre ; `m` : le mode (« vendu » : la part du bas). */
   const valeur = (dx: DonneesSociete, a: number, m: ModeMois = mode): number => {
+    if (source) return source.valeur(a, m, nombre ? 'nombre' : 'ca', U.u);
     const l = listeDesAnnees(dx.ventes, [a], m, jour);
     return nombre ? l.length : net ? enUnite(sommeMontants(l.map((v) => caNetVente(v, d.societe, opts)))) : enUnite(resultatDesCartes(l, d.societe, opts).ca);
   };
   const vals = annees.map((a) => valeur(d, a));
   const valsN1 = annees.map((a) => valeur(d, a - 1));
-  const nbs = annees.map((a) => listeDesAnnees(d.ventes, [a], mode, jour).length);
+  const nbs = annees.map((a) => (source ? source.valeur(a, mode, 'nombre', U.u) : listeDesAnnees(d.ventes, [a], mode, jour).length));
   const bas = mode === 'tous' ? annees.map((a) => valeur(d, a, 'vendu')) : vals;
   const dernier = annees.filter((a) => a <= anneeEnCours).length;
   const motGraphe = nombre ? M.onglet.toLowerCase() : net ? cons(`CA net ${U.MOT}`) : M.graphe;
@@ -1318,7 +1324,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
   const cumule = (xs: readonly number[], k: number): number => xs.slice(0, k + 1).reduce((t, x) => t + x, 0);
   /** L'encadré d'une année (ou du cumul jusqu'à elle) : l'année, puis l'année d'avant. */
   // 🔴 LOT DQ / DR — la mention de l'année en cours (« Vendu + compromis » et « Compromis »)
-  const nbReportesAn = mode !== 'vendu' ? compromisReportes(compromisDuMode(d.ventes, anneeEnCours, null, mode, jour), jour).length : 0;
+  const nbReportesAn = mode !== 'vendu' ? (source ? source.nbReportes : compromisReportes(compromisDuMode(d.ventes, anneeEnCours, null, mode, jour), jour).length) : 0;
   const info = (a: number, enCumul: boolean): InfoBarre => {
     const note = nbReportesAn > 0 && (enCumul ? a >= anneeEnCours : a === anneeEnCours) ? mentionReportes(nbReportesAn) : null;
     const i = infoSansNote(a, enCumul);
@@ -1345,7 +1351,7 @@ export function GrapheAnnees({ d, tout, annees, selection, annee, decoupage, jou
       {/* Arno (01/11/2026) — Période / Tout : les années soulignées en rouge (`anneesSoulignees`), les autres estompées ; la règle partagée */}
       <StyleAnneesRouges annees={rouges} />
       <EnteteGraphe<MesureTrx> id="trx-annees" mesure={mesure} onMesure={setMesure} cumul={cumul} onBasculer={() => setCumul((c) => !c)} motPeriode="Annuel"
-        mesures={[{ cle: 'ca', mot: cons('CA') }, { cle: 'net', mot: cons('CA net') }, { cle: 'nombre', mot: M.onglet }]}
+        mesures={[{ cle: 'ca', mot: cons('CA') }, ...(source ? [] : [{ cle: 'net' as const, mot: cons('CA net') }]), { cle: 'nombre', mot: M.onglet }]}
         titre={<>Année par année <small className="loc-muet">({motGraphe}{cumul ? `, cumulé depuis ${annees[0]}` : ''} ; une année s’ouvre d’un clic)</small></>} />
       {entete}
       {series !== null ? (

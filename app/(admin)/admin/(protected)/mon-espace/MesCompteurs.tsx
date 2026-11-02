@@ -297,9 +297,16 @@ export function MesCompteurs() {
         {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
         {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
       </div>
+      {/* Les onglets du Suivi CA (« Compromis | Mois | Année(s) », le même composant), puis, à la suite, ceux de « Mon espace » (inchangés) ; JUSTE SOUS « Voir … ». */}
+      <OngletsVues vue={vue} onVue={choisirVue} apres={(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
+        <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
+          onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
+      ))} />
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
       <div className="mes-compteurs-tete">
         <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
+      <p className="loc-muet mes-compteurs-note" data-note-ca>{nomAgence === null ? 'Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.'
+        : `Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}
       {/* 🔴 LOT 7 — ce qu'un collègue vient de changer (discret) ; une session expirée (jamais un faux message de panne). */}
       {miseAJour !== null && <p className="mes-mise-a-jour" role="status" data-mise-a-jour>{miseAJour}
@@ -311,14 +318,6 @@ export function MesCompteurs() {
         repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
         envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
       {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
-      <p className="loc-muet mes-compteurs-note" data-note-ca>{nomAgence === null ? 'Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.'
-        : `Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>
-
-      {/* Les onglets du Suivi CA (« Compromis | Mois | Année(s) », le même composant), puis, à la suite, ceux de « Mon espace » (inchangés). */}
-      <OngletsVues vue={vue} onVue={choisirVue} apres={(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
-        <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
-          onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
-      ))} />
       <div id="mon-espace-listes" role="tabpanel" ref={listes} data-liste-mon-espace={onglet ?? `vue-${vue}`}>
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} />

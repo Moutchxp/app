@@ -5,7 +5,7 @@ import { borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnn
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode } from '../transaction/periodeMois';
 import { caHtParMoisMode, variation, type DonneesSociete, type Vente } from '../transaction/modele';
 import { resolveurDe } from '../transaction/statutLigne';
-import { moisDeLAccueil, tuilesAgence, tuilesAnneesAgence, tuilesAnneesPerso, tuilesPerso, type ChoixAccueil } from './accueil';
+import { moisDeLAccueil, sourceAnneesPerso, sourceMoisPerso, tuilesAgence, tuilesAnneesAgence, tuilesAnneesPerso, tuilesPerso, type ChoixAccueil } from './accueil';
 import { statistiquesAgence } from './agence';
 import { sommeC, totauxDuChoix } from './statistiques';
 
@@ -115,5 +115,29 @@ describe('🔴 onglet « Année(s) » : « Mon espace » = « Mes statistiques �
       expect(t.ca.n1!.ht).toBe(r1.htC / 100);
       expect(t.ca.pct).toBe(variation(cartes(ventesDesAnnees(d.ventes, sel)).htC, r1.htC));
     } else expect(t.ca.n1).toBeNull(); // 2024 non importée : « non importé », comme le Suivi CA
+  });
+});
+
+describe('🔴 les sources du graphique du Suivi CA sur mes chiffres', () => {
+  const st = { annees: [
+    { annee: 2025, ca: Array.from({ length: 12 }, (_, i) => (i === 2 ? { htC: 300000, ttcC: 360000 } : { htC: 0, ttcC: 0 })), nb: Array.from({ length: 12 }, (_, i) => (i === 2 ? 1 : 0)), aConfirmer: { htC: 0, ttcC: 0 }, aConfirmerNb: 0 },
+    { annee: 2026, ca: Array.from({ length: 12 }, (_, i) => (i === 5 ? { htC: 500000, ttcC: 600000 } : { htC: 0, ttcC: 0 })), nb: Array.from({ length: 12 }, (_, i) => (i === 5 ? 1 : 0)),
+      aConfirmer: { htC: 100000, ttcC: 120000 }, aConfirmerNb: 1,
+      caComp: Array.from({ length: 12 }, (_, i) => (i === 10 ? { htC: 250000, ttcC: 300000 } : { htC: 0, ttcC: 0 })), nbComp: Array.from({ length: 12 }, (_, i) => (i === 10 ? 1 : 0)) }],
+    reportes: 1 };
+  it('« Mois par mois » : le vendu = « Mes statistiques » ; vendu + compromis au-dessus ; N−1 présent', () => {
+    const src = sourceMoisPerso(st, 2026);
+    expect(src.caVendu(2026)[5]).toBe(5000);
+    expect(src.ca(2026)[10]).toBe(2500);
+    expect(src.ca(2026)[5]).toBe(5000);
+    expect([src.nb(2026)[10], src.nbVendu(2026)[10]]).toEqual([1, 0]);
+    expect([src.sansN1, src.nbReportes, sourceMoisPerso(st, 2025).sansN1]).toEqual([false, 1, true]);
+  });
+  it('« Année par année » : vendu (12 mois + mois à confirmer) = « Mes statistiques » (Année) ; + compromis en « Vendu + compromis » ; HT et TTC exacts', () => {
+    const src = sourceAnneesPerso(st);
+    expect(src.valeur(2026, 'vendu', 'ca', 'ht')).toBe(totauxDuChoix(st, { mode: 'annee', annee: 2026, mois: 1, periode: [1] }, JOUR).n.ca.htC / 100);
+    expect(src.valeur(2026, 'tous', 'ca', 'ttc')).toBe((600000 + 120000 + 300000) / 100);
+    expect(src.valeur(2026, 'tous', 'nombre', 'ht')).toBe(3);
+    expect(src.valeur(2024, 'tous', 'ca', 'ht')).toBe(0);
   });
 });

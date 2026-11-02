@@ -106,8 +106,9 @@ describe('🔴 l’onglet « Année(s) »', () => {
   it('« Mois par mois — 2026 » : le graphique de l’année ; un mois ouvre l’onglet « Mois » sur ce mois', async () => {
     await ouvrirAnnees();
     await cliquer('[data-echelle="mois"]');
-    expect(container.querySelector('[data-bloc="annees-mois"]')).not.toBeNull();
-    await cliquer('[data-bloc="annees-mois"] [data-barre-mois="3"]');
+    // le graphique « Mois par mois » de la page du Suivi CA (`GrapheMois`), sur mes chiffres
+    expect(container.querySelector('[data-bloc="histogramme-mois"]')).not.toBeNull();
+    await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="3"]');
     expect(container.querySelector('[data-vue="mois"]')?.getAttribute('aria-selected')).toBe('true');
     expect(container.querySelector('.trx-rangee-mois:not(.trx-rangee-annees)')?.getAttribute('data-decoupage')).toBe('mois');
     expect(texte('[data-tuile="ca-mois"] .tdb-tuile-mot')).toBe('CA HT — mars');
