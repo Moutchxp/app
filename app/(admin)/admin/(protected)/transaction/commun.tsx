@@ -375,6 +375,8 @@ tr.trx-somme-ligne > :last-child{border-top-right-radius:8px;border-bottom-right
 /* 🔴 LOT DP — l'étiquette ROUGE « Inter-cabinet … – … » après le nom de l'affaire (clair et sombre : fond rouge pâle, texte rouge) */
 .trx-pastille-inter{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);font-size:.72rem;letter-spacing:.02em;vertical-align:middle;white-space:nowrap}
 .trx-nego-societe{display:inline-block}
+/* Correctif (Arno, 02/11/2026) — l'étiquette de la société ne se coupe jamais (« CRITERI / MMO ») : la ligne, elle, peut revenir à la ligne entre les segments. */
+.trx-carte-negos .trx-pastille-societe{white-space:nowrap;overflow-wrap:normal}
 /* les séparateurs restent gris, quelle que soit la couleur du montant ; au téléphone, chaque segment est insécable (retour entre les segments) */
 .trx-carte-negos .trx-nego-sep{color:var(--color-svv-muted);font-weight:400}
 /* LOT CE — « honoraires nets » rouge (déduction) : le libellé seul ; le montant reste gris. */

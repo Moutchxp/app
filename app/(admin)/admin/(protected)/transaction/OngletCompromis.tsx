@@ -489,7 +489,12 @@ function LignesNegociateurs({ l, personnel }: { l: LignesCarte; personnel?: VueP
           {x.reverse !== null
             ? <span className={`trx-nego-col trx-nego-col--double ${classeSens('verse', x.reverse.m.htC, x.reverse.m.ttcC)}`} data-nego-reverse><span className="trx-nego-sep">· </span>reversé à {x.reverse.vers} {m(x.reverse.m)}</span>
             // 🔴 MON ESPACE, LOT 4 — vue personnelle : la ligne d'un autre (sa commission retirée par le serveur) n'affiche ni com négo ni reste.
-            : personnel !== undefined && !ligneAuTitulaire(personnel, x.cote) ? null
+            // Correctif (Arno, 02/11/2026) : leurs DEUX CELLULES restent, VIDES (aucun montant, aucune marque de valeur) — chaque côté garde ses
+            // colonnes dans la grille (`display:contents`) ; sans elles, les cellules du côté suivant remontaient sur cette ligne.
+            : personnel !== undefined && !ligneAuTitulaire(personnel, x.cote) ? <>
+              <span className="trx-nego-col" data-col="4" data-nego-masque="com" aria-hidden="true" />{' '}
+              <span className="trx-nego-col" data-col="5" data-nego-masque="reste" aria-hidden="true" />
+            </>
             : <>
               <span className={`trx-nego-col${x.comptabilisee ? ` ${classeSens('verse', x.com.htC, x.com.ttcC)}` : ''}`} data-col="4"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>com négo</span> <span className="trx-nego-val" data-nego-com>{m(x.com)}</span></span>{' '}
               <span className="trx-nego-col trx-vert" data-col="5"><span className="trx-nego-lib"><span className="trx-nego-sep">· </span>reste</span> <span className="trx-nego-val" data-nego-reste>{m(x.reste)}</span></span>
