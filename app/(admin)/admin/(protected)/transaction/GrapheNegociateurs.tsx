@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { AucuneDonnee, eurAxe, HAUSSE_TRACE, margeAxe } from '../location/TableauBordSuivi';
 import { COURT } from './commun';
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
+import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
 /**
  * ══ 🔴 LOT CU (Arno, 31/10/2026) — « MOIS PAR MOIS » DE 2 À 5 NÉGOCIATEURS : UNE SÉRIE PAR NÉGOCIATEUR ══════════════════════════════════════
@@ -24,7 +25,6 @@ export const MAX_NEGOCIATEURS = 5;
 export const ordreEncadre = <T extends { nom: string; ca: number; nb: number }>(lignes: readonly T[], nombre: boolean): T[] =>
   [...lignes].sort((a, b) => (nombre ? b.nb - a.nb : Math.round(b.ca * 100) - Math.round(a.ca * 100)) || a.nom.localeCompare(b.nom, 'fr')); // au centime affiché
 
-const cumuler =(xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 const montant = (x: number): string => `${x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 /**

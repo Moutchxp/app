@@ -52,6 +52,7 @@ function NonDeduits({ T }: { T: NonDeduitsMontants }) {
 }
 import { FormulaireDossier, type References } from './FormulaireDossier';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, useChoixSalaires } from './ChoixSalaires';
+import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
 /**
  * ══ 🔴 TUILE « TRANSACTION » (Arno, 27/10/2026) — LES ÉCRANS ═══════════════════════════════════════════════════════════════════
@@ -397,7 +398,6 @@ const MOTS_MODE: Record<ModeMois, { ca: string; nombre: string; onglet: string; 
 };
 /** 🔴 LOT CW — « CA | CA net | Nombre » (le CA net : `caNetVente`, ce que la vente rapporte réellement à l'agence). */
 type MesureTrx = 'ca' | 'net' | 'nombre';
-const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
 
 /**
  * 🔴 LOT DG (Arno) — LE GRAPHIQUE « MOIS PAR MOIS » de « Le mois », en un composant (déplacé de `VueMois`, à l'identique) : « Le mois » le rend

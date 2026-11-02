@@ -25,6 +25,7 @@ import { FenetreCaLocation, FenetreCoutsLocation, FenetreNetLocation, Reperes } 
 import { Montant } from './FenetreCommissions';
 import { useColonnesNegociateurs } from './OngletCompromis';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
+import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
 /**
  * ══ 🔴 LOT LO1 (Arno, 01/11/2026) — « SUIVI CHIFFRE D'AFFAIRES › LOCATION » : L'ACTIVITÉ ÉCONOMIQUE DE LA LOCATION ═══════════════════════════════════
@@ -419,7 +420,6 @@ function GrapheLocationMois({ lignes, toutes, jour, annee, g, series }: { lignes
   };
   const parMois = (ls: readonly LigneLocationCa[], a: number): number[] => Array.from({ length: 12 }, (_, i) => valeurDe(tot(ls, [{ annee: a, mois: i + 1 }]), mesure, U.en));
   const vals = parMois(lignes, annee); const vals1 = parMois(lignes, annee - 1);
-  const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
   const choisi = g.moisChoisis !== null ? (g.moisChoisis.length === 0 ? 0 : borneCumul('periode', annee, g.mois, g.moisChoisis, jour).fin) : g.mois;
   const finAnnee = borneCumul('annee', annee, 0, null, jour).fin;
   const repos = choisi === 0 ? info(finAnnee === 0 ? 1 : finAnnee) : undefined;

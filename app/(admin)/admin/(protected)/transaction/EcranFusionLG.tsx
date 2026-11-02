@@ -18,6 +18,7 @@ import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAn
 import { CategorieRepliable, CoqueFenetre, Montant } from './FenetreCommissions';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, horsSelecteur, useChoixSalaires } from './ChoixSalaires';
 import { CSS_FENETRES_LOCATION, Reperes, SectionApporteurs, SectionPrimes, useLienBail } from './FenetresLocation';
+import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
 /**
  * ══ 🔴 LOT LG1 (Arno, 01/11/2026) — « FUSION LOCATION & GESTION » : LE CUMUL DES DEUX ACTIVITÉS ═════════════════════════════════════════════════════
@@ -477,7 +478,6 @@ function GrapheFusionMois({ lignes, gestion, jour, activite, salaires, annee, g 
   const tous = (a: number) => Array.from({ length: 12 }, (_, i) => tf(lignes, gestion, [{ annee: a, mois: i + 1 }], activite, salaires));
   const ts = tous(annee); const ts1 = tous(annee - 1);
   const vals = ts.map((t) => valeurDe(t, mesure, U.en)); const vals1 = ts1.map((t) => valeurDe(t, mesure, U.en));
-  const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
   const choisi = g.moisChoisis !== null ? (g.moisChoisis.length === 0 ? 0 : borneCumul('periode', annee, g.mois, g.moisChoisis, jour).fin) : g.mois;
   const finAnnee = borneCumul('annee', annee, 0, null, jour).fin;
   const repos = choisi === 0 ? info(finAnnee === 0 ? 1 : finAnnee) : undefined;

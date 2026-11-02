@@ -14,6 +14,7 @@ import {
 import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
 import { AucuneDonnee, CourbeCumul, eurAxe, HAUSSE_TRACE, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
+import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
 /**
  * ══ 🔴 LOT CG9 (Arno) — LE GRAPHIQUE DU CA GLOBAL, SOUS LES TUILES ═══════════════════════════════════════════════════════════════════════════════
@@ -69,7 +70,6 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   const motMesure = `${MESURES_GRAPHE.find((m) => m.cle === f.mesure)!.mot.replace(' (CA − coûts)', '')} ${MOT_UNITE[u]}`;
   const seule = f.comparer === 'n1' || f.comparer === 'rien';
   const en = (m: MontantC): number => m[k] / 100;
-  const cumuler = (xs: readonly number[]): number[] => xs.reduce<number[]>((t, x) => [...t, (t.at(-1) ?? 0) + x], []);
   /** Les mentions d'un point : les mois de salaires à saisir (la règle des pages Location et Gestion). 🔴 LOT CG10 — les ventes à attribuer ne sont
    *  plus comptées : la mention sous le graphique dit leur montant. */
   const mentions = (i: number, jusqua: boolean): string | undefined => {
