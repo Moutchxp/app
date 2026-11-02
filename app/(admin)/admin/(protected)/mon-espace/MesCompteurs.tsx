@@ -217,6 +217,14 @@ export function MesCompteurs() {
   }, [vue, anM, moM, decM, periodeTexte, cleChoixA]); // eslint-disable-line react-hooks/exhaustive-deps
   /** « Année(s) » : un mois du graphique ouvre l'onglet « Mois » sur ce mois (comme la Transaction). */
   const ouvrirMois = (a: number, m: number): void => { ligneMois.setAnneeEntiere(false); ligneMois.setPeriode(null); ligneMois.setAnnee(a); ligneMois.setMois(m); choisirVue('mois'); };
+  /** Arno (03/11/2026) — « Mois » ouvert sur une ANNÉE entière (« Année ») : l'onglet « Mois » de la barre → l'année en cours, mois courant ; une année
+   *  du graphique « Année par année » → cette année-là (la seule navigation qui porte une autre année). */
+  const ouvrirAnnee = (a: number): void => {
+    const an = Number(jourEcran.slice(0, 4));
+    ligneMois.setPeriode(null); ligneMois.setAnneeEntiere(true); ligneMois.setAnnee(a); ligneMois.setMois(a === an ? Number(jourEcran.slice(5, 7)) : 12); choisirVue('mois');
+  };
+  /** La barre d'onglets : « Mois » repart TOUJOURS de l'année en cours (jamais l'année vue dans « Année(s) ») ; les autres onglets, inchangés. */
+  const choisirOnglet = (v: 'compromis' | 'mois' | 'annee'): void => { if (v === 'mois') ouvrirAnnee(Number(jourEcran.slice(0, 4))); else choisirVue(v); };
   const changerEspace = (e: Espace): void => {
     if (e === espace) return;
     // une autre liste : rien à comparer (aucun « X a mis à jour »), l'empreinte de référence sera celle du nouveau chargement
@@ -303,7 +311,7 @@ export function MesCompteurs() {
           cartes, mêmes gestes) et « Mes statistiques » (= cartes, graphique et tableaux sous le graphique) sont retirés ; « Mes apporteurs » reste. */}
       {/* Une seule ligne : les onglets à gauche, « Montants en HT | TTC » à droite (au téléphone : les onglets défilent, HT | TTC dessous). */}
       <div className="mes-ligne-onglets" data-ligne-onglets>
-        <OngletsVues vue={vue} onVue={choisirVue} apres={(['apporteurs'] as const).map((o) => (
+        <OngletsVues vue={vue} onVue={choisirOnglet} apres={(['apporteurs'] as const).map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
             onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
         ))} />
@@ -327,7 +335,7 @@ export function MesCompteurs() {
       <div id="mon-espace-listes" role="tabpanel" ref={listes} data-liste-mon-espace={onglet ?? `vue-${vue}`}>
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
-        : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrir={ouvrir} carte={carte} />
+        : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
         : onglet === 'apporteurs' ? <MesApporteurs /> : (
           <>
           {agence !== null && tousCompromis.length > 0 && (

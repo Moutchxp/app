@@ -17,7 +17,8 @@ const z = { htC: 0, ttcC: 0 };
 const m = (ht: number) => ({ htC: ht, ttcC: Math.round(ht * 1.2) });
 const mois12 = (vals: Record<number, number>) => Array.from({ length: 12 }, (_, i) => (vals[i + 1] === undefined ? z : m(vals[i + 1])));
 const nb12 = (vals: Record<number, number>) => Array.from({ length: 12 }, (_, i) => vals[i + 1] ?? 0);
-const perso = (administrateur: boolean) => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 5, prenom: 'Léa', administrateur }, ventes: [],
+let jourDonnees = JOUR; // le « aujourd'hui » du serveur simulé
+const perso = (administrateur: boolean) => ({ disponible: true, aujourdhui: jourDonnees, titulaire: { id: 5, prenom: 'Léa', administrateur }, ventes: [],
   compteurs: { compromis: { nb: 1, ids: [], ca: m(500000) }, actees: { nb: 0, ids: [], annee: 2026, ca: z }, parAnnee: [] },
   statistiques: { annees: [
     { annee: 2024, ca: mois12({ 5: 200000 }), nb: nb12({ 5: 1 }), aConfirmer: z, aConfirmerNb: 0 },
@@ -34,7 +35,7 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
-  admin = false;
+  admin = false; jourDonnees = JOUR;
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string) => {
@@ -88,11 +89,11 @@ describe('🔴 l’onglet « Année(s) »', () => {
     expect(texte('[data-tuile-n1="ca"]')).toContain('en 2025');
     expect(euros(texte('[data-valeur-tuile="previsionnel"]'))).toBe(5000);
   });
-  it('un clic sur une année (rangée ou graphique) l’ouvre ; Période : deux années additionnées ; Tout : toutes, sans N−1', async () => {
+  it('une année de la rangée la choisit ; Période : deux années additionnées ; Tout : toutes, sans N−1', async () => {
     await ouvrirAnnees();
     await cliquer('.trx-rangee-annees [data-onglet-annee="2025"]');
     expect(euros(texte('[data-valeur-tuile="ca-annee"]'))).toBe(3000);
-    await cliquer('[data-bloc="graphe-annees"] [data-barre-annee="2026"]');
+    await cliquer('.trx-rangee-annees [data-onglet-annee="2026"]');
     expect(euros(texte('[data-valeur-tuile="ca-annee"]'))).toBe(13000);
     await cliquer('[data-decouper-annees="periode"]');
     await cliquer('.trx-rangee-annees [data-onglet-annee="2025"]');
@@ -139,5 +140,52 @@ describe('🔴 décision 14 — les anciennes adresses des onglets retirés', ()
     await rendre();
     expect(container.querySelector('[data-vue="mois"]')?.getAttribute('aria-selected')).toBe('true');
     expect(container.querySelector('[data-accueil-mon-espace]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (03/11/2026) — l’onglet « Mois » : l’année en cours, janvier → mois en cours soulignés', () => {
+  const soulignes = () => [...container.querySelectorAll('.trx-rangee-mois:not(.trx-rangee-annees) [data-onglet-mois][aria-pressed="true"]')].map((b) => Number(b.getAttribute('data-onglet-mois')));
+  const anneeVue = () => texte('[data-tuile="cumul"] .tdb-tuile-mot');
+  it('« Année(s) » sur 2025, puis l’onglet « Mois » de la barre : 2026, « Année », janvier → novembre soulignés, décembre non', async () => {
+    await ouvrirAnnees();
+    await cliquer('.trx-rangee-annees [data-onglet-annee="2025"]');
+    expect(new URLSearchParams(window.location.search).get('annee')).toBe('2025');
+    await cliquer('[data-vue="mois"]');
+    expect(anneeVue()).toContain('cumulé 2026');
+    expect(container.querySelector('[data-decouper="annee"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(soulignes()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(new URLSearchParams(window.location.search).get('annee')).toBe('2026');
+  });
+  it('une adresse de « Année(s) » (?vue=annee&annee=2025) rechargée : « Mois » ne l’hérite pas (2026)', async () => {
+    window.history.replaceState(null, '', '/?vue=annee&annee=2025');
+    await rendre();
+    await cliquer('[data-vue="mois"]');
+    expect(anneeVue()).toContain('cumulé 2026');
+  });
+  it('la barre 2025 du graphique « Année par année » : « Mois » sur 2025, ses 12 mois soulignés (une année passée, entière)', async () => {
+    await ouvrirAnnees();
+    await cliquer('[data-bloc="graphe-annees"] [data-barre-annee="2025"]');
+    expect(container.querySelector('[data-vue="mois"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(anneeVue()).toContain('cumulé 2025');
+    expect(soulignes()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+  it('arrivée sans paramètre puis « Mois » : 2026 ; mode agence : pareil', async () => {
+    await rendre();
+    await cliquer('[data-vue="mois"]');
+    expect(anneeVue()).toContain('cumulé 2026');
+    act(() => { root.unmount(); }); root = createRoot(container); window.history.replaceState(null, '', '/'); admin = true;
+    await rendre();
+    await cliquer('[data-espace="macj"]');
+    await cliquer('[data-vue="annee"]');
+    await cliquer('.trx-rangee-annees [data-onglet-annee="2025"]');
+    await cliquer('[data-vue="mois"]');
+    expect(anneeVue()).toContain('cumulé 2026');
+    expect(soulignes()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  });
+  it.each([['2026-01-15T10:00:00Z', [1]], ['2026-12-10T10:00:00Z', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]] as const)('le %s : les mois soulignés de l’année en cours', async (date, attendus) => {
+    vi.setSystemTime(new Date(date)); jourDonnees = date.slice(0, 10);
+    await rendre();
+    await cliquer('[data-vue="mois"]');
+    expect(soulignes()).toEqual([...attendus]);
   });
 });

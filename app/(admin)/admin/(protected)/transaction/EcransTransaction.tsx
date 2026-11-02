@@ -152,7 +152,9 @@ export function useLigneDesMois(jour: string) {
   const [anneeEntiere, setAnneeEntiere] = useState(() => parametre('vue-mois') === 'annee'
     || (parametre('vue-mois') === null && parametre('mois') === null && parametre('periode') === null));
   const [refusPeriode, setRefusPeriode] = useState(false);
-  const [annee, setAnnee] = useState(() => entier(parametre('annee'), 2000, 2100) ?? lirePeriode(parametre('periode'))?.at(-1)?.annee ?? Number(jour.slice(0, 4)));
+  // Arno (03/11/2026) — l'« annee » d'une adresse de « L'année » (?vue=annee&annee=2025) est l'année de CET onglet : « Le mois » ne l'hérite pas
+  // (il démarre sur l'année en cours) ; une adresse du mois (?vue=mois&annee=…) la garde, comme avant.
+  const [annee, setAnnee] = useState(() => (parametre('vue') === 'annee' ? null : entier(parametre('annee'), 2000, 2100)) ?? lirePeriode(parametre('periode'))?.at(-1)?.annee ?? Number(jour.slice(0, 4)));
   const [mois, setMois] = useState(() => entier(parametre('mois'), 1, 12) ?? lirePeriode(parametre('periode'))?.at(-1)?.mois ?? Number(jour.slice(5, 7)));
   // 🔴 LOT CV (Arno) — les mois choisis appartiennent TOUJOURS à l'année du filtre : une période lue d'un lien, ou gardée d'avant un changement
   // d'année (cause du titre « janvier → décembre 2023 » sous une année 2026), est reportée sur cette année — les mêmes mois.

@@ -23,8 +23,10 @@ import { ListeAffairesPeriode, type RendreCarte } from './ListeAffairesPeriode';
  *   · mode agence : les tuiles de « L'année » (`tuilesAnneesAgence`) et les graphiques sur la structure (avec « CA net ») ; 4ᵉ tuile : « CA net ».
  */
 type LigneAnnees = ReturnType<typeof useLigneDesAnnees>;
-export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir, carte }: { data: MesAffaires; ligne: LigneAnnees; annees: readonly number[];
-  onOuvrirMois: (a: number, m: number) => void; onOuvrir: (o: 'compromis' | 'ventes') => void;
+export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrirAnnee, onOuvrir, carte }: { data: MesAffaires; ligne: LigneAnnees; annees: readonly number[];
+  onOuvrirMois: (a: number, m: number) => void;
+  /** Arno (03/11/2026) — une année du graphique « Année par année » s'ouvre d'un clic : l'onglet « Mois » sur cette année (« Année »). */
+  onOuvrirAnnee: (a: number) => void; onOuvrir: (o: 'compromis' | 'ventes') => void;
   /** La carte d'une affaire (celle de l'onglet « Compromis ») : la liste sous le graphique. */
   carte: RendreCarte }) {
   const jour = data.aujourdhui;
@@ -100,7 +102,7 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir, c
       <FournisseurConsolide value={agence === null ? false : agence.cle === 'tous'}>
         {echelle === 'annees'
           ? <GrapheAnnees d={dSoc ?? sansDonnees(jour)} tout={dSoc ?? sansDonnees(jour)} annees={visibles} selection={sel} comparaison={enTout ? toutes : null} annee={annee}
-            decoupage={choixA.decoupage} jour={jour} mode="tous" series={null} onAnnee={choisirAnnee} entete={choixEchelle} {...(dSoc === null ? { source: sourceAnneesPerso(s) } : {})} />
+            decoupage={choixA.decoupage} jour={jour} mode="tous" series={null} onAnnee={onOuvrirAnnee} entete={choixEchelle} {...(dSoc === null ? { source: sourceAnneesPerso(s) } : {})} />
           : <GrapheMois d={dSoc ?? sansDonnees(jour)} tout={dSoc ?? sansDonnees(jour)} annee={annee} mois={0} jour={jour} mode="tous" series={null} onMois={(m) => onOuvrirMois(annee, m)}
             moisSeul={false} periodeAnnee={null} rouges={rougesMois} entete={choixEchelle} {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />}
       </FournisseurConsolide>
