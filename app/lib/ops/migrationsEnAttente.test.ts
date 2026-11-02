@@ -137,6 +137,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 447 : les salaires chargés de la Location, mois par mois (Suivi CA › Location, LOT LO11, 01/11/2026).
   // 448 : le droit de la tuile « Mon espace » (lot 1 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
   // 449 : le n° de mandat d'une vente, unique par structure (lot 2 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
+  // 450 : « L'utiliser » — les apporteurs qu'un collaborateur utilise (lot 9 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -161,7 +162,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '439_admin_statut_compte.sql', '440_transaction_inter_cabinet.sql', '441_admin_commissionne.sql',
     '442_transaction_mode_commission.sql', '443_transaction_personne_type.sql', '444_transaction_negociateur_statut.sql',
     '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql', '447_transaction_location_salaires.sql',
-    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql'];
+    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -174,7 +175,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 449 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 450 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -184,14 +185,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (450)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (451)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(449\)/);
-    const renumerotee = planifier([...existants, { fichier: '450_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(450\)/);
+    const renumerotee = planifier([...existants, { fichier: '451_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['450_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['451_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -989,5 +990,21 @@ describe('449 (n° de mandat d’une vente) : enveloppée, deux colonnes et un i
     const index = contenu.replace(/\s+/g, ' ');
     expect(index).toContain('CREATE UNIQUE INDEX IF NOT EXISTS transaction_vente_mandat_unique ON transaction_vente (societe, numero_mandat_normalise)');
     expect(index).toContain("retire_le IS NULL AND statut <> 'annulee'");
+  });
+});
+
+describe('450 (« L’utiliser » un apporteur, Mon espace) : enveloppée, une table et un index, aucune ligne touchée', () => {
+  const contenu = lire(MIGRATIONS, '450_mon_espace_apporteur_utilise.sql');
+  const a = analyserMigration({ fichier: '450_mon_espace_apporteur_utilise.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; crée mon_espace_apporteur et rien d’autre', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect([...a.tablesCreees]).toEqual(['mon_espace_apporteur']);
+    expect(a.colonnesAjoutees).toEqual([]);
+  });
+  it('aucune donnée écrite ni supprimée ; une seule ligne vivante par (compte, apporteur)', () => {
+    expect(contenu).not.toMatch(/^\s*(INSERT|DELETE|TRUNCATE|DROP|UPDATE)\b/im);
+    expect(contenu.replace(/\s+/g, ' ')).toContain('CREATE UNIQUE INDEX IF NOT EXISTS mon_espace_apporteur_vivant_idx ON mon_espace_apporteur (compte_id, apporteur_id) WHERE retire_le IS NULL');
   });
 });

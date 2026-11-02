@@ -1,34 +1,28 @@
 // 🔴 MON ESPACE, LOT 5 (Arno, 02/11/2026) — CRÉER UN COMPROMIS DEPUIS « MON ESPACE » : les lectures du parcours et l'écriture. L'écriture est
 // `enregistrerDossier` de la tuile Suivi CA, telle quelle (aucune copie de logique) ; la recherche du n° est `venteDuMandat` (lot 2). Pas de
 // `import 'server-only'` (même convention que les dépôts de la Transaction, lus par les épreuves).
-import { query } from '../db/client';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { enregistrerDossier, lireNegociateurs, lireVentes, type AuteurTx, type Issue } from '../transaction/repo';
 import { venteDuMandat } from '../transaction/mandatRepo';
-import { lireApporteurs } from '../location/suivi/suiviRepo';
-import { libelleApporteur, texteRechercheApporteur } from '../location/suivi/suivi';
 import { libellePersonne, type Societe } from '../transaction/modele';
 import type { DossierSaisie } from '../transaction/saisie';
 import { refusCreation, type TransactionDuMandat } from './creation';
 
-/** Le compte qui agit : administrateur ou non (relu en base). */
-export async function estAdministrateur(compteId: number): Promise<boolean> {
-  const { rows } = await query<{ role: string }>('SELECT role FROM admin_utilisateur WHERE id = $1', [compteId]);
-  return rows[0]?.role === 'administrateur';
-}
+import { estAdministrateur } from './compteRepo';
+import { lireMesApporteurs } from './apporteursRepo';
+export { estAdministrateur };
 
 /**
- * Ce que le formulaire de compromis propose depuis « Mon espace » : les négociateurs actifs (pour l'autre côté, décision 2), les apporteurs du
- * titulaire (ceux qui lui sont rattachés, ou son propre compte d'apporteur interne ; un administrateur : tous — « chacun voit les siens »), les
- * migrations appliquées. Aucune fiche de vendeur / acquéreur de l'agence n'est proposée (pas d'annuaire des clients hors de la Transaction).
- * LECTURE SEULE.
+ * Ce que le formulaire de compromis propose depuis « Mon espace » : les négociateurs actifs (pour l'autre côté, décision 2), MES apporteurs (🔴 lot 9 :
+ * ceux de l'onglet « Mes apporteurs », la même règle — rattachés à moi, sur mes ventes, que j'utilise ; un administrateur : tous) et les collègues
+ * (« + Nouvel apporteur » : rattachement d'un externe), les migrations appliquées. Aucune fiche de vendeur / acquéreur de l'agence n'est proposée
+ * (pas d'annuaire des clients hors de la Transaction). LECTURE SEULE.
  */
-export async function referencesMonEspace(compteId: number, administrateur: boolean, aujourdhui: string): Promise<Record<string, unknown>> {
-  const [negociateurs, apporteurs] = await Promise.all([lireNegociateurs(aujourdhui), lireApporteurs().catch(() => [])]);
-  const siens = apporteurs.filter((a) => !a.archive && (administrateur || a.compteId === compteId || (a.collegues ?? []).some((c) => c.collegueId === compteId)));
+export async function referencesMonEspace(compteId: number, _administrateur: boolean, aujourdhui: string): Promise<Record<string, unknown>> {
+  const [negociateurs, mes] = await Promise.all([lireNegociateurs(aujourdhui), lireMesApporteurs(compteId)]);
   return { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(),
     uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif),
-    apporteurs: siens.map((a) => ({ id: a.id, nom: a.nom, recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), personnes: [] };
+    apporteurs: mes.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, recherche: a.recherche, libelle: a.libelle })), collegues: mes.collegues, personnes: [] };
 }
 
 /** La transaction qui porte déjà ce n° dans cette structure (sans montant), ou null : le n° est libre. LECTURE SEULE. */

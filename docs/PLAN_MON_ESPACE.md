@@ -96,6 +96,23 @@ Mise en œuvre du lot 8 (statistiques ; aucune migration) :
   `totalCompromisEnCours`, mais MA part : sinon une vente partagée compterait deux fois entre deux espaces) ; projection = acté + prévisionnel ;
 - la somme des statistiques de tous les collaborateurs = le CA de l'agence, au centime (épreuve `statistiques.itest.ts`).
 
+Mise en œuvre du lot 9 (« Mes apporteurs » ; migration 450, livrée NON appliquée, code compatible sans elle) :
+- UN SEUL ANNUAIRE : `gestion_location_apporteur` (la Location) ; création = `creerApporteur`, fiche = `enregistrerFicheApporteur` (journal,
+  garde de version de la fiche), telles quelles ; le formulaire = `NouvelApporteur.tsx` (le même), qui reçoit de « Mon espace » sa façon de créer
+  par un contexte facultatif (`ContexteNouvelApporteur`) — sans ce contexte (tuile, Location) rien ne change ;
+- JE VOIS (`mesApporteursAnnuaire`, pur) : mon compte d'apporteur interne, ceux dont je suis le collègue de rattachement aujourd'hui, ceux de mes
+  ventes (fiche, nom écrit, rétrocession), ceux que j'« utilise » (450) ; administrateur : tous. Chiffres : `parApporteur` du Suivi CA sur mes
+  ventes actées (= celui du Suivi CA pour un apporteur de mes seules ventes, épreuve `apporteurs.itest.ts`). Le formulaire de compromis propose
+  la même liste, avec « + Ajouter un nouvel apporteur » (la saisie du compromis reste ouverte) ;
+- ZÉRO DOUBLON (décision 4) : dès la saisie, sur TOUT l'annuaire côté serveur (`/apporteurs/doublons`) : homonyme (`homonymes`, la règle
+  existante, déplacée dans `app/lib/transaction/homonymesApporteur.ts`), même téléphone (chiffres, +33 → 0, 9 derniers), même e-mail (principal
+  et autres) → « Cet apporteur existe déjà, rattaché à … » + « L'utiliser » (aucune création ; rattachement et règles inchangés) ; création
+  bloquée ; le serveur refuse tout doublon par 409 (file d'attente d'une création à la fois + l'index unique du nom en base) ;
+- MODIFIER la fiche : son collègue de rattachement, l'interne lui-même, un administrateur (403 sinon) ; « Passer en interne » n'est pas proposé
+  depuis « Mon espace » (il reste dans la Location) ;
+- 450 (`mon_espace_apporteur`) : le lien « ce collaborateur utilise cet apporteur », la seule chose qu'aucune table ne portait ; sans elle,
+  « L'utiliser » choisit l'apporteur pour la vente en cours, et l'onglet le dit.
+
 ## ❓ Question ouverte à Arno (lot 6)
 
 - **Un co-négociateur sur un côté déjà tenu.** La répartition actuelle porte UN négociateur par côté (entrée, sortie) : l'écran reconstruit les

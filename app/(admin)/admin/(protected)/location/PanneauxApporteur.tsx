@@ -117,8 +117,12 @@ function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Appo
   );
 }
 
-export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false, message }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
+export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false, message, envoyer, sansPassage = false }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
   orphelin: boolean; onEnregistre: (message?: string) => void; comptes?: readonly { id: number; libelle: string; actif?: boolean }[]; apporteurs?: readonly Apporteur[]; passage?: boolean;
+  /** 🔴 MON ESPACE, LOT 9 — l'envoi de la fiche : par défaut la Location (`fiche-apporteur`, inchangé) ; « Mon espace » passe le sien (même fonction serveur). */
+  envoyer?: (corps: Record<string, unknown>) => Promise<{ motif: string | null; etat?: string }>;
+  /** 🔴 MON ESPACE, LOT 9 — sans « Passer en interne » (un geste d'administrateur de la Location) ; absent : rien ne change. */
+  sansPassage?: boolean;
   /** 🔴 Arno (24/10/2026) — le message de confirmation de la carte (« Fiche enregistrée »), près du bouton. */
   message?: React.ReactNode }) {
   const [f, setF] = useState<FicheApporteur>(() => ficheDe(a));
@@ -151,7 +155,8 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
   };
   const confirmer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterSuivi({ action: 'fiche-apporteur', apporteurId: a.id, fiche: f, version: a.version ?? null }, { propre: true });
+    const corps = { action: 'fiche-apporteur', apporteurId: a.id, fiche: f, version: a.version ?? null };
+    const r = envoyer !== undefined ? await envoyer(corps) : await posterSuivi(corps, { propre: true });
     setEnvoi(false); setRecap(false);
     if (r.motif !== null) { setMotif(r.motif); setConflit(r.etat === 'conflit'); return; }
     onEnregistre('Fiche enregistrée');
@@ -161,7 +166,7 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
       {/* 🔴 Arno (24/10/2026) — plus aucune commande technique à l'écran : la sorte de l'apporteur, et le bouton « Passer en interne » juste à côté. */}
       <div className="plo-fiche-sorte" data-fiche-sorte-ligne>
         <p className="plo-muet plo-petit-texte" data-fiche-sorte>Apporteur <strong>externe</strong> (sans accès à l’interface)</p>
-        <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />
+        {!sansPassage && <PasserEnInterne a={a} comptes={comptes} apporteurs={apporteurs} possible={passage} onFait={onEnregistre} />}
       </div>
       <div className="plo-grille">
         {identite && (

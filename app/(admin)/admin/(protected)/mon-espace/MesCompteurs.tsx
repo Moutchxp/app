@@ -10,6 +10,21 @@ import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENC
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
+import { MesApporteurs, posterApporteur, URL_APPORTEURS } from './MesApporteurs';
+import { ContexteNouvelApporteur, type FaconNouvelApporteur } from '../transaction/NouvelApporteur';
+import type { Doublon, SaisieApporteur } from '../../../../lib/mon-espace/apporteurs';
+
+/** 🔴 LOT 9 — les doublons de TOUT l'annuaire pour une saisie (le serveur) ; trop peu de saisi pour comparer : aucun. */
+async function chercherDoublons(s: SaisieApporteur): Promise<Doublon[]> {
+  const assez = `${s.prenom}${s.nom}`.replace(/\s/g, '').length >= 3 || s.telephone.replace(/\D/g, '').length >= 9 || s.email.includes('@');
+  if (!assez) return [];
+  try {
+    const q = new URLSearchParams({ nom: s.nom, prenom: s.prenom, telephone: s.telephone, email: s.email });
+    const r = await fetch(`${URL_APPORTEURS}/doublons?${q.toString()}`, { cache: 'no-store' });
+    const j = (await r.json()) as { etat?: string; data?: Doublon[] };
+    return j.etat === 'ok' && Array.isArray(j.data) ? j.data : [];
+  } catch { return []; }
+}
 import { DUREE_SURBRILLANCE_MS, doitRelire, messageMiseAJour, misesAJourDesAutres, peutBattre, PERIODE_MON_ESPACE_MS } from '../../../../lib/mon-espace/rafraichir';
 import { FormulaireDossier, etatRepartitionDe, type References } from '../transaction/FormulaireDossier';
 
@@ -31,7 +46,7 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  */
 export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
-type Onglet = 'compromis' | 'ventes' | 'statistiques';
+type Onglet = 'compromis' | 'ventes' | 'statistiques' | 'apporteurs';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
 const rien = (): void => {};
@@ -133,6 +148,15 @@ export function MesCompteurs() {
     return () => { vivant = false; clearInterval(minuterie); document.removeEventListener('visibilitychange', auRetour); };
   }, []);
   const data = lu.etat === 'ok' ? lu.data : null;
+  // 🔴 LOT 9 — « + Nouvel apporteur » (onglet et formulaire de compromis) : la façon de « Mon espace » (zéro doublon, « L'utiliser »).
+  const titulaireId = data?.titulaire.id ?? null;
+  const facon = useMemo((): FaconNouvelApporteur => ({
+    envoyer: async (apporteur) => { const r = await posterApporteur({ action: 'creer', apporteur }); return { motif: r.motif, id: r.data?.id, doublons: r.doublons }; },
+    chercher: chercherDoublons,
+    // Sans la 450, le refus est sans conséquence : l'apporteur est quand même choisi (dans le compromis, il est enregistré sur la vente).
+    utiliser: async (id) => { await posterApporteur({ action: 'utiliser', apporteurId: id }); },
+    collegueDefaut: titulaireId,
+  }), [titulaireId]);
   const hote = useMemo((): HoteDetail | null => (data === null ? null : {
     d: { lotD: data.schema?.lotD ?? true, personneType: data.schema?.personneType ?? true, uniteCommission: data.schema?.uniteCommission ?? true,
       prixVente: data.schema?.prixVente ?? true, mandat: data.schema?.mandat ?? false, negociateurs: [], apporteurs: [], personnes: [], disponible: data.disponible,
@@ -180,6 +204,7 @@ export function MesCompteurs() {
     </div>
   );
   return (
+    <ContexteNouvelApporteur.Provider value={facon}>
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value>
     <div className="mes-compteurs-bloc">
       <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}</style>
@@ -216,14 +241,14 @@ export function MesCompteurs() {
       <p className="loc-muet mes-compteurs-note">Le montant est votre CA : les honoraires du côté (vendeur ou acquéreur) que vous portez sur chaque affaire.</p>
 
       <div className="mes-onglets" role="tablist" aria-label="Mes affaires">
-        {(['compromis', 'ventes', 'statistiques'] as const).map((o) => (
+        {(['compromis', 'ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="mes-onglet"
-            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{o === 'compromis' ? 'Mes compromis en cours' : o === 'ventes' ? 'Mes ventes' : 'Mes statistiques'}</button>
+            onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{o === 'compromis' ? 'Mes compromis en cours' : o === 'ventes' ? 'Mes ventes' : o === 'statistiques' ? 'Mes statistiques' : 'Mes apporteurs'}</button>
         ))}
       </div>
       <div id="mon-espace-listes" role="tabpanel" aria-labelledby={`mon-espace-onglet-${onglet}`} ref={listes} data-liste-mon-espace={onglet}>
         {/* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */}
-        {onglet === 'statistiques' ? <MesStatistiques data={data} /> : onglet === 'compromis' ? (
+        {onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : onglet === 'compromis' ? (
           compromis.length === 0
             ? <p className="loc-muet mes-vide" data-liste-vide="compromis">Aucun compromis en cours à votre nom.</p>
             : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>
@@ -242,6 +267,7 @@ export function MesCompteurs() {
       </div>
     </div>
     </FournisseurConsolide></FournisseurChangerAffichage></FournisseurAffichage></FournisseurNoms>
+    </ContexteNouvelApporteur.Provider>
   );
 }
 

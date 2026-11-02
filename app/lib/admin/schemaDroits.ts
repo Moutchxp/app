@@ -93,6 +93,14 @@ export function mandatDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.numero_mandat_normalise', () => colonneExiste('transaction_vente', 'numero_mandat_normalise'));
 }
 
+/**
+ * MON ESPACE, LOT 9 — la migration 450 (« L'utiliser » : un apporteur existant dans la liste d'un collaborateur) est-elle appliquée ? Sans elle :
+ * « L'utiliser » choisit l'apporteur pour la vente en cours seulement ; l'onglet « Mes apporteurs » dit « disponible après la mise à jour ».
+ */
+export function apporteursUtilisesDisponible(): Promise<boolean> {
+  return memoiser('mon_espace_apporteur.apporteur_id', () => colonneExiste('mon_espace_apporteur', 'apporteur_id'));
+}
+
 /** TRANSACTION, LOT G — la migration 436 (annulation d'un compromis) est-elle appliquée ? Sans elle : bouton visible mais inactif. */
 export function annulationDisponible(): Promise<boolean> {
   return memoiser('transaction_vente.annulation_motif', () => colonneExiste('transaction_vente', 'annulation_motif'));
