@@ -1,10 +1,10 @@
-import { caNetParMoisMode, caNetVente, resultatDesCartes } from '../transaction/carteAffaireLignes';
+import { caNetParMoisMode, caNetVente, espaceNegociateurs, resultatDesCartes } from '../transaction/carteAffaireLignes';
 import { cumuler } from '../transaction/cumul';
 import { aConfirmerDesAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, ventesDesAnnees } from '../transaction/periodeAnnees';
 import { pourLaVue } from '../transaction/compromisEnCours';
 import { trierListe } from '../transaction/listeCartes';
 import { sommeDesMoisAffiches, totauxPeriode, unAnPlusTot, ventesPeriode, type MoisChoisi } from '../transaction/periodeMois';
-import { caHtParMoisMode, compromisDuMode, sansN1Pour, TVA, variation, type DonneesSociete, type ModeMois, type Vente } from '../transaction/modele';
+import { caHtParMoisMode, compromisDuMode, parApporteur, parNegociateur, sansN1Pour, TVA, variation, type DonneesSociete, type LigneApporteur, type ModeMois, type Retrocession, type Vente } from '../transaction/modele';
 import type { MontantC } from '../transaction/partAgence';
 import { resolveurDe } from '../transaction/statutLigne';
 import { moisDuChoix, sommeC, totauxDuChoix, type StatsMonEspace } from './statistiques';
@@ -230,3 +230,26 @@ export function affairesAgence<V extends Vente>(d: { societe: DonneesSociete['so
   return assembler(vendus, compromis, (v) => resultatDesCartes([v], d.societe, opts).ca);
 }
 const uniques = <V extends { id: number }>(vs: V[]): V[] => vs.filter((v, i) => vs.findIndex((x) => x.id === v.id) === i);
+
+/**
+ * ══ 🔴 Décision 14 (Arno, 02/11/2026) — LES TABLEAUX SOUS LE GRAPHIQUE, SUR LA MÊME SÉLECTION QUE LA LISTE ═══════════════════════════════════════
+ * « Par apporteur d'affaires » : `parApporteur` (la fonction du Suivi CA) avec la règle du bloc des apporteurs de « L'année » — les rétrocessions
+ * SAISIES sur la période et celles LIÉES aux ventes listées. « Mon espace » : seulement mes rétrocessions (le serveur ne renvoie que celles de mes
+ * ventes ou saisies à mon nom). « Par négociateur » (mode agence) : `parNegociateur` et `espaceNegociateurs` sur les ventes listées, comme
+ * l'« Espace par négociateur » du Suivi CA. PUR.
+ */
+/** La rétrocession ou la vente (année, mois ; null : « mois à confirmer ») est-elle dans la sélection ? PUR. */
+export const dansPeriode = (p: PeriodeListe, annee: number, mois: number | null): boolean =>
+  p.annees.some((x) => x.annee === annee && (mois === null ? x.aConfirmer : x.moisVendus.includes(mois)));
+export function apporteursPeriode(retros: readonly Retrocession[], vendus: readonly Vente[], toutes: readonly Vente[], p: PeriodeListe): LigneApporteur[] {
+  const ids = new Set(vendus.map((v) => v.id));
+  const saisies = retros.filter((r) => dansPeriode(p, r.annee, r.mois));
+  const liees = retros.filter((r) => r.venteId !== null && ids.has(r.venteId) && !saisies.some((x) => x.id === r.id));
+  return parApporteur([...saisies, ...liees], toutes);
+}
+export function negociateursPeriode(d: { societe: DonneesSociete['societe']; retrocessions: readonly Retrocession[]; statutsNegociateurs?: DonneesSociete['statutsNegociateurs'] }, vendus: readonly Vente[]) {
+  const ids = new Set(vendus.map((v) => v.id));
+  const statut = resolveurDe(d.statutsNegociateurs);
+  return { lignes: parNegociateur(vendus, d.retrocessions.filter((r) => r.venteId !== null && ids.has(r.venteId)), d.societe, statut),
+    espace: espaceNegociateurs(vendus, d.societe, { retros: d.retrocessions, statutDuLibelle: statut }) };
+}

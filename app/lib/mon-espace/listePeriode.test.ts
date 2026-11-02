@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Vente } from '../transaction/modele';
+import { parApporteur, type Retrocession, type Vente } from '../transaction/modele';
+import { espaceNegociateurs } from '../transaction/carteAffaireLignes';
+import { resolveurDe } from '../transaction/statutLigne';
 import { dateDeCarte } from '../transaction/listeCartes';
-import { affairesAgence, affairesPerso, periodeAnnees, periodeMois, tuilesAgence, tuilesAnneesAgence, tuilesAnneesPerso, tuilesPerso, type ChoixAccueil } from './accueil';
+import { affairesAgence, affairesPerso, apporteursPeriode, dansPeriode, negociateursPeriode, periodeAnnees, periodeMois, tuilesAgence, tuilesAnneesAgence, tuilesAnneesPerso, tuilesPerso, type ChoixAccueil } from './accueil';
 import { monCa, type Moi } from './mesAffaires';
 import { statistiquesMonEspace } from './statistiques';
 
@@ -77,5 +79,33 @@ describe('🔴 « Année(s) » : le total des Vendus = la carte « CA », le nom
   it('période vide : aucune affaire', () => {
     const l = affairesPerso(pourLea, periodeAnnees([2019], true, JOUR), JOUR);
     expect([l.vendus.length, l.compromis.length]).toEqual([0, 0]);
+  });
+});
+
+describe('🔴 décision 14 — les tableaux sous le graphique, sur la sélection de la liste', () => {
+  const retros = [
+    { id: 1, societe: 'criterimmo' as const, annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600.06, apporteur: 'DEBLOIS', venteId: 2, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null },
+    { id: 2, societe: 'criterimmo' as const, annee: 2026, mois: 2, negociateur: 'Léa', montantTtc: 120.12, apporteur: 'SEUL', venteId: null, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null },
+    { id: 3, societe: 'criterimmo' as const, annee: 2026, mois: 11, negociateur: 'Léa', montantTtc: 300, apporteur: 'TARDIF', venteId: 1, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null },
+  ] as unknown as Retrocession[];
+  it('par apporteur : saisies de la période + liées aux ventes listées (la règle de « L’année ») = parApporteur du Suivi CA', () => {
+    const p = periodeMois(c({ decoupage: 'mois', mois: 6 }), false, JOUR);
+    const vendus = affairesAgence(d, p, JOUR).vendus.map((x) => x.v);
+    expect(apporteursPeriode(retros, vendus, VENTES, p)).toEqual(parApporteur([retros[0]], VENTES));
+    const annee = periodeMois(c({}), false, JOUR);
+    const tous = apporteursPeriode(retros, affairesAgence(d, annee, JOUR).vendus.map((x) => x.v), VENTES, annee);
+    expect(tous.map((l) => l.apporteur).sort()).toEqual(['DEBLOIS', 'SEUL', 'TARDIF']);
+  });
+  it('par négociateur (agence) : `espaceNegociateurs` et `parNegociateur` sur les ventes listées — l’Espace par négociateur du Suivi CA', () => {
+    const p = periodeMois(c({}), false, JOUR);
+    const vendus = affairesAgence(d, p, JOUR).vendus.map((x) => x.v);
+    const n = negociateursPeriode({ societe: null, retrocessions: retros }, vendus);
+    expect(n.espace).toEqual(espaceNegociateurs(vendus, null, { retros, statutDuLibelle: resolveurDe(undefined) }));
+    expect(n.lignes.map((l) => l.negociateur).sort()).toEqual(['Léa', 'Marc']);
+  });
+  it('dansPeriode : un mois choisi, le « mois à confirmer » seulement si la sélection le compte', () => {
+    expect(dansPeriode(periodeMois(c({}), true, JOUR), 2026, null)).toBe(true);
+    expect(dansPeriode(periodeMois(c({}), false, JOUR), 2026, null)).toBe(false);
+    expect(dansPeriode(periodeMois(c({ decoupage: 'mois', mois: 6 }), true, JOUR), 2026, 7)).toBe(false);
   });
 });

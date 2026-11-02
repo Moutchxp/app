@@ -81,9 +81,9 @@ describe('🔴 les gestes depuis « Mon espace »', () => {
     await calmer();
     expect(posts().map((p) => p.corps)).toEqual([{ geste: 'compromis-annuler', id: 1, version: 41, annulation: { motif: 'defaut_credit', autre: '', date: '2026-11-02', note: '' } }]);
   });
-  it('« Mes ventes » : « Revenir en compromis », confirmé dans la page', async () => {
+  it('une vente actée (la liste sous le graphique, décision 14) : « Revenir en compromis », confirmé dans la page', async () => {
     await ouvrir();
-    await cliquer('[data-onglet-mon-espace="ventes"]'); // décision 8 : le compteur retiré ; l'onglet « Mes ventes » (année en cours)
+    await cliquer('[data-vue="mois"]'); // « Mes ventes » retiré : ses cartes et leurs gestes sont la liste « Vendus » de « Mois »
     await cliquer('[data-ma-vente="2"] button[data-deplier]');
     expect(container.querySelector('[data-acte-signe-mon-espace="2"]')).toBeNull();
     await cliquer('[data-retour-mon-espace="2"]');

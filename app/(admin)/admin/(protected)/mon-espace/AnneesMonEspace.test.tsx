@@ -130,3 +130,14 @@ describe('🔴 l’onglet « Année(s) »', () => {
     expect(euros(texte('[data-valeur-tuile="ca-annee"]'))).toBe(10000);
   });
 });
+
+describe('🔴 décision 14 — les anciennes adresses des onglets retirés', () => {
+  it('?vue=ventes / ?vue=statistiques → « Mois » (jamais une page vide) ; les autres : la règle de la Transaction', async () => {
+    const { vueDArrivee } = await import('./MesCompteurs');
+    expect([vueDArrivee('ventes', false), vueDArrivee('statistiques', false), vueDArrivee('annee', false), vueDArrivee(null, false)]).toEqual(['mois', 'mois', 'annee', 'compromis']);
+    window.history.replaceState(null, '', '/?vue=statistiques');
+    await rendre();
+    expect(container.querySelector('[data-vue="mois"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[data-accueil-mon-espace]')).not.toBeNull();
+  });
+});

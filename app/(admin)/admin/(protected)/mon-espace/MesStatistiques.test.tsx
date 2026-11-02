@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MesCompteurs, URL_MES_AFFAIRES } from './MesCompteurs';
+import { URL_MES_AFFAIRES } from './MesCompteurs';
+import { MesStatistiques } from './MesStatistiques';
+import { BoutonAffichage, FournisseurAffichage, useAffichageRetenu } from '../transaction/commun';
+import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 
 /**
  * 🔴 MON ESPACE, LOT 8 — l'onglet « Mes statistiques » dans le VRAI écran de « Mon espace », route simulée (rien n'est écrit). Les chiffres viennent
@@ -41,7 +44,12 @@ const choisir = async (sel: string, valeur: string) => {
   const el = container.querySelector(sel) as HTMLSelectElement;
   await act(async () => { el.value = valeur; el.dispatchEvent(new Event('change', { bubbles: true })); }); await calmer();
 };
-const ouvrir = async () => { await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer(); await cliquer('[data-onglet-mon-espace="statistiques"]'); };
+// 🔴 Décision 14 — l'onglet est retiré de la barre ; le composant (gardé) s'éprouve seul, avec la bascule HT | TTC de l'espace.
+function Banc() {
+  const [u, setU] = useAffichageRetenu();
+  return createElement(FournisseurAffichage, { value: u }, createElement(BoutonAffichage, { unite: u, onChange: setU }), createElement(MesStatistiques, { data: donnees as unknown as MesAffaires }));
+}
+const ouvrir = async () => { await act(async () => { root.render(createElement(Banc)); }); await calmer(); };
 
 describe('🔴 « Mes statistiques »', () => {
   it('Année 2026 : mon CA (la vente au mois à confirmer comprise) et N−1 sur la même période, en € et en % ; mes ventes', async () => {

@@ -83,10 +83,9 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(euros(texte('[data-valeur-tuile="previsionnel"]'))).toBe(7500);
     expect(texte('[data-tuile-nb-compromis]')).toBe('2 compromis');
     expect(container.querySelector('[data-tuile="ca-net-cumul"]')).toBeNull();
-    await cliquer('[data-onglet-mon-espace="statistiques"]');
-    expect(euros(texte('[data-valeur-ca]'))).toBe(caAccueil);
-    expect(texte('[data-valeur-nb]')).toBe(nbAccueil);
+    // les chiffres de l'ancien onglet « Mes statistiques » (Année 2026 : mars 6 000 + juin 5 000 + mois à confirmer 2 000 ; 3 ventes)
     expect(caAccueil).toBe(13000);
+    expect(nbAccueil).toBe('3');
   });
   it('« Mois » puis mars : les tuiles du mois (= « Mes statistiques », Mois, mars)', async () => {
     await ouvrir();
@@ -101,7 +100,7 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(container.querySelectorAll('[data-compteur]').length).toBe(0);
     expect(container.querySelector('[data-accueil-mon-espace] [data-filtre="annee"]')).toBeNull();
     expect([...container.querySelectorAll('.trx-vues [role="tab"]')].map((b) => b.getAttribute('data-vue') ?? b.getAttribute('data-onglet-mon-espace')))
-      .toEqual(['compromis', 'mois', 'annee', 'ventes', 'statistiques', 'apporteurs']);
+      .toEqual(['compromis', 'mois', 'annee', 'apporteurs']);
   });
   it('mode agence : 4ᵉ tuile « CA net HT cumulé », le graphique du Suivi CA (avec « CA net »)', async () => {
     admin = true;
@@ -123,7 +122,7 @@ describe('🔴 la ligne du sélecteur et l’accueil', () => {
     expect(suivante.querySelector('[data-afficher="ttc"]')).not.toBeNull();
     expect(container.querySelector('[data-note-ca]')).toBeNull();
     expect(container.textContent).not.toContain('Le montant est votre CA');
-    expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(6);
+    expect(container.querySelectorAll('.trx-barre [role="tab"]').length).toBe(4);
   });
   it('vue perso : LE graphique du Suivi CA en « Vendu + compromis » (vendu en bas, mes compromis au-dessus) ; mesures CA, CA net (décision 13), Nombre', async () => {
     await ouvrir();

@@ -128,19 +128,17 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
 });
 
 describe('🔴 « Mes ventes » : toutes années, sélecteur d’année, total de l’année', () => {
-  it('la tuile « Ventes » de « Mois » ouvre l’onglet sur son année (comme le compteur retiré) ; une autre année se choisit, avec son total', async () => {
+  it('décision 14 : « Mes ventes » retiré — les ventes actées sont la liste sous le graphique ; la tuile « Ventes » y mène (même onglet)', async () => {
     reponse = { status: 200, corps: reponseLea() };
     await rendre();
+    expect(container.querySelector('[data-onglet-mon-espace="ventes"]')).toBeNull();
     await cliquer('[data-vue="mois"]');
     await cliquer('[data-tuile="ventes-mois"]');
-    expect(container.querySelector('[data-onglet-mon-espace="ventes"]')!.getAttribute('aria-selected')).toBe('true');
-    expect([...container.querySelectorAll<HTMLOptionElement>('[data-annee-mes-ventes] option')].map((o) => o.value)).toEqual(['2026', '2025']);
-    expect(listees()).toEqual(['4']);
-    expect(texte('[data-total-mes-ventes]')).toBe('1 vente en 2026 — 5 000 € HT');
-    const select = container.querySelector('[data-annee-mes-ventes]') as HTMLSelectElement;
-    await act(async () => { select.value = '2025'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    expect(listees()).toEqual(['3']);
-    expect(texte('[data-total-mes-ventes]')).toBe('1 vente en 2025 — 5 000 € HT');
+    expect(container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')).toBe('true');
+    expect([...container.querySelectorAll('[data-groupe-periode="vendus"] [data-ma-vente]')].map((x) => x.getAttribute('data-ma-vente'))).toEqual(['4']);
+    // les gestes et l'historique des cartes de l'ancien onglet : sur la carte de la liste
+    await cliquer('[data-groupe-periode="vendus"] [data-ma-vente="4"] button[data-deplier]');
+    expect(container.querySelector('[data-groupe-periode="vendus"] [data-historique-bouton="4"]')).not.toBeNull();
   });
   it('tri : compromis par date du compromis, ventes par date de l’acte (plus récent en haut)', () => {
     expect(trierMesCompromis([c1, c2]).map((v) => v.id)).toEqual([2, 1]);
@@ -157,8 +155,7 @@ describe('compte sans aucune vente', () => {
     expect(texte('[data-liste-vide="compromis"]')).toBe('Aucun compromis en cours à votre nom.');
     await cliquer('[data-vue="mois"]');
     expect([texte('[data-tuile-nb-compromis]'), texte('[data-valeur-tuile="nombre"]'), texte('[data-valeur-tuile="ca"]')]).toEqual(['0 compromis', '0', '0 €']);
-    await cliquer('[data-onglet-mon-espace="ventes"]');
-    expect(texte('[data-liste-vide="ventes"]')).toBe('Aucune vente actée à votre nom en 2026.');
+    expect(texte('[data-liste-periode-vide]')).toBe('Aucune affaire sur cette période.');
     expect(container.querySelector('[data-mon-espace-erreur]')).toBeNull();
   });
 });

@@ -54,12 +54,12 @@ const ouvrir = async (vue: 'mois' | 'annee') => { await act(async () => { root.r
 const ids = (g: string) => [...container.querySelectorAll(`[data-groupe-periode="${g}"] [data-ma-vente]`)].map((e) => e.getAttribute('data-ma-vente'));
 
 describe('🔴 la liste sous le graphique', () => {
-  it('« Mois », Année : Vendus (total = carte « CA », nombre = « Ventes »), puis Compromis ; ma part ; jamais l’affaire de Marc', async () => {
+  it('« Mois », Année : Vendus (total = carte « CA », nombre = « Ventes ») ; décision 15 : pas de groupe Compromis ; ma part ; jamais l’affaire de Marc', async () => {
     await ouvrir('mois');
     expect(ids('vendus')).toEqual(['2', '1']);
     expect(euros(texte('[data-total-groupe="vendus"]'))).toBe(euros(texte('[data-valeur-tuile="ca"]')));
     expect(String(ids('vendus').length)).toBe(texte('[data-valeur-tuile="nombre"]'));
-    expect(ids('compromis')).toEqual(['5']);
+    expect(container.querySelector('[data-groupe-periode="compromis"]')).toBeNull();
     expect(container.querySelector('[data-liste-periode] [data-ma-vente="7"]')).toBeNull();
     expect(texte('[data-liste-periode] [data-ma-vente="1"] [data-carte="part-mot"]')).toBe('ma part');
   });
@@ -68,20 +68,28 @@ describe('🔴 la liste sous le graphique', () => {
     await cliquer('[data-afficher="ttc"]');
     expect(euros(texte('[data-total-groupe="vendus"]'))).toBe(euros(texte('[data-valeur-tuile="ca"]')));
   });
-  it('un clic sur un mois du graphique : la sélection change, la liste suit (juin : la vente de juin ; septembre : le compromis seul)', async () => {
+  it('un clic sur un mois du graphique : la sélection change, la liste suit (juin : la vente de juin ; septembre : aucun vendu)', async () => {
     await ouvrir('mois');
     await cliquer('[data-decouper="mois"]');
     await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="6"]');
     expect(ids('vendus')).toEqual(['2']);
     expect(euros(texte('[data-total-groupe="vendus"]'))).toBe(euros(texte('[data-valeur-tuile="ca"]')));
     await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="9"]');
-    expect([ids('vendus'), ids('compromis')]).toEqual([[], ['5']]);
-    await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="1"]');
     expect(texte('[data-liste-periode-vide]')).toBe('Aucune affaire sur cette période.');
   });
-  it('« Année(s) » : la même liste sous « Année par année », total = la carte « CA » de l’année', async () => {
+  it('« Année(s) » : la même liste sous « Année par année » (Vendus + Compromis), total = la carte « CA » de l’année', async () => {
     await ouvrir('annee');
     expect(ids('vendus')).toEqual(['2', '1']);
+    expect(ids('compromis')).toEqual(['5']);
     expect(euros(texte('[data-total-groupe="vendus"]'))).toBe(euros(texte('[data-valeur-tuile="ca-annee"]')));
+  });
+  it('décision 14 : sous la liste, « Par apporteur d’affaires » (vue perso : pas de « Par négociateur ») ; mêmes filtres', async () => {
+    await ouvrir('mois');
+    const liste = container.querySelector('[data-liste-periode]')!;
+    const apporteurs = container.querySelector('[data-bloc="mes-apporteurs"]')!;
+    expect(apporteurs).not.toBeNull();
+    expect(liste.compareDocumentPosition(apporteurs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026');
+    expect(container.querySelector('[data-bloc="negociateurs-periode-mon-espace"]')).toBeNull();
   });
 });

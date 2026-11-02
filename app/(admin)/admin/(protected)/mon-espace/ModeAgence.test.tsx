@@ -76,7 +76,7 @@ describe('🔴 le mode agence', () => {
     await cliquer('[data-espace="macj"]');
     expect(urls).toContain(`${URL_MES_AFFAIRES}?agence=macj`);
     expect(container.querySelector('[data-onglet-mon-espace="compromis"]')).toBeNull(); // décision 11
-    expect(texte('[data-onglet-mon-espace="ventes"]')).toBe('Ventes');
+    expect(texte('[data-onglet-mon-espace="apporteurs"]')).toBe('Apporteurs'); // décisions 11 et 14 : le seul onglet « Mes … » restant
     expect(texte('[data-note-ca]')).toContain('le CA de MACJ, calculé comme dans le Suivi CA');
     expect(cartes()).toEqual(['1', '2']);
     // décision 8 : plus de compteurs ; « Mois » : les tuiles de la structure
@@ -99,21 +99,25 @@ describe('🔴 le mode agence', () => {
     await cliquer('[data-espace="macj"]');
     expect(container.querySelectorAll('[data-nego-com]').length).toBeGreaterThanOrEqual(2);
   });
-  it('« Statistiques » : le CA de la structure (somme des cartes) et le bloc par négociateur', async () => {
+  it('décision 14 : sous le graphique de « Mois », « Par négociateur » (le tableau de l’Espace par négociateur du Suivi CA) et « Par apporteur »', async () => {
     await ouvrir();
     await cliquer('[data-espace="macj"]');
-    await cliquer('[data-onglet-mon-espace="statistiques"]');
-    expect(texte('[data-carte-stats="ca"] h3')).toBe('CA MACJ — 2026');
-    expect(texte('[data-valeur-ca]')).toBe('10 000 € HT');
-    expect(container.querySelector('[data-negociateur-agence="MYLENE"]')?.textContent).toContain('Mylène DUPONT');
-    expect(texte('[data-carte-stats="previsionnel"] h3')).toContain('compromis en cours — MACJ');
+    await cliquer('[data-vue="mois"]');
+    expect(container.querySelector('[data-onglet-mon-espace="statistiques"]')).toBeNull();
+    const negos = container.querySelector('[data-bloc="negociateurs-periode-mon-espace"]')!;
+    expect(negos).not.toBeNull();
+    expect(negos.textContent).toContain('Mylène DUPONT');
+    expect(texte('[data-bloc="negociateurs-periode-mon-espace"] h3')).toBe('Par négociateur — année 2026');
+    expect(container.querySelector('[data-bloc="mes-apporteurs"]')).not.toBeNull();
+    // la liste des Vendus = la carte « CA » (la structure, somme des cartes)
+    expect(texte('[data-total-groupe="vendus"]')).toBe('10 000 € HT');
   });
   it('retour à « Mon espace » : l’espace personnel relu, sans ?agence=', async () => {
     await ouvrir();
     await cliquer('[data-espace="tous"]');
     expect(texte('[data-note-ca]')).toContain('le CA de FUSION');
     await cliquer('[data-espace="moi"]');
-    expect(texte('[data-onglet-mon-espace="ventes"]')).toBe('Mes ventes');
+    expect(texte('[data-onglet-mon-espace="apporteurs"]')).toBe('Mes apporteurs');
     expect(container.querySelector('[data-note-ca]')).toBeNull(); // décision 10
   });
 });

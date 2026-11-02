@@ -9,9 +9,12 @@ import { NOMS_MOIS, type Vente } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { apporteursAgence, LIBELLE_AGENCE, negociateursAgence } from '../../../../lib/mon-espace/agence';
+import { TableauParApporteur } from './ListeAffairesPeriode';
 import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, type ModeStats, type StatsMonEspace } from '../../../../lib/mon-espace/statistiques';
 
 /**
+ * 🔴 Décision 14 (Arno, 02/11/2026) : l'onglet « Mes statistiques » est retiré de la barre ; ce composant n'est plus affiché (ses chiffres sont
+ * dans les cartes, le graphique et les tableaux sous le graphique de « Mois » / « Année(s) ») — gardé, éprouvé, pour mémoire.
  * ══ 🔴 MON ESPACE, LOT 8 (Arno, 02/11/2026) — L'ONGLET « MES STATISTIQUES » ════════════════════════════════════════════════════════════════════════
  * Les chiffres du titulaire, lus du serveur (le filtre du lot 3, `statistiques.ts`) — jamais la commission d'un autre collègue :
  *   · le choix : Mois / Période / Année / Tout, l'année ; mon CA (décision 1) et son N−1 sur la MÊME période, en € et en % ; mes ventes actées ;
@@ -123,20 +126,8 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
         </section>
       )}
 
-      <section className="tdb-section" aria-labelledby="mes-apporteurs" data-bloc="mes-apporteurs">
-        <h3 id="mes-apporteurs">Par apporteur d’affaires — {libelleChoix}</h3>
-        {apporteurs.length === 0 ? <p className="loc-muet" data-apporteurs-vide>{nomAgence === null ? 'Aucune rétrocession d’apporteur sur vos ventes de la période.' : 'Aucune rétrocession d’apporteur sur la période.'}</p> : (
-          <table className="tdb-table mes-table-apporteurs">
-            <thead><tr><th scope="col">Apporteur</th><th scope="col">Ventes</th><th scope="col">CA des ventes apportées</th><th scope="col">Rétrocessions versées</th></tr></thead>
-            <tbody>{apporteurs.map((a) => (
-              <tr key={a.apporteur} data-apporteur={a.apporteur}>
-                <th scope="row">{a.apporteur}</th><td data-mot="Ventes">{a.ventesIds.length}</td>
-                <td data-mot="CA des ventes apportées">{montantAffiche(u, a.caApporteHt, a.caApporteHt * 1.2)}</td>
-                <td data-mot="Rétrocessions versées" className="trx-rouge">{montantAffiche(u, a.retroHt, a.retroHt * 1.2)}</td>
-              </tr>))}</tbody>
-          </table>
-        )}
-      </section>
+      {/* Le tableau « Par apporteur d'affaires » : le composant déplacé sous le graphique (décision 14), le même ici. */}
+      <TableauParApporteur lignes={apporteurs} libelle={libelleChoix} agence={nomAgence !== null} />
     </div>
   );
 }

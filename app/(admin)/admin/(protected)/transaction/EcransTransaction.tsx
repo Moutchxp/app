@@ -126,7 +126,7 @@ export const AccueilLocationGestion = () => <Cases cases={CASES_LOCATION_GESTION
 
 // ── Une société ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Detail = { titre: string; ids: number[] } | null;
+export type Detail = { titre: string; ids: number[] } | null;
 const entier = (x: string | null, min: number, max: number): number | null => { const n = Number(x); return x !== null && Number.isInteger(n) && n >= min && n <= max ? n : null; };
 const moisCourt = (a: number, m: number): string => `${COURT[m - 1]} ${a}`;
 
@@ -1103,7 +1103,8 @@ function useTriEspace(): [TriEspace, (col: ColonneTriEspace) => void] {
   return [tri, trier];
 }
 
-function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; espace: readonly LigneEspace[]; onDetail: (x: Detail) => void; periode: string }) {
+// 🔴 MON ESPACE (Arno, 02/11/2026) — exporté (code inchangé) : le mode agence de « Mon espace » rend le même tableau sous son graphique.
+export function TableNegociateurs({ lignes, espace, onDetail, periode }: { lignes: ReturnType<typeof parNegociateur>; espace: readonly LigneEspace[]; onDetail: (x: Detail) => void; periode: string }) {
   const unite = useAffichage();
   const MOT = MOT_UNITE[unite];
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »

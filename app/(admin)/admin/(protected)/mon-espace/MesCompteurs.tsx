@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, montantAffiche, useAffichageRetenu } from '../transaction/commun';
+import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, useAffichageRetenu } from '../transaction/commun';
 import { AGENCES, caAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
 import { LIBELLE_TRI_LISTE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
@@ -13,7 +13,6 @@ import { empreinteDe, type MesAffaires, type VenteMonEspace } from '../../../../
 import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
-import { CSS_MES_STATISTIQUES, MesStatistiques } from './MesStatistiques';
 import { AccueilMonEspace } from './AccueilMonEspace';
 import { AnneesMonEspace } from './AnneesMonEspace';
 import { CSS_LISTE_PERIODE } from './ListeAffairesPeriode';
@@ -66,11 +65,15 @@ export const avecEspace = (url: string, e: Espace): string => (e === 'moi' ? url
 const TOUT_VOIR: VuePersonnelle = { mesCotes: ['entree', 'sortie', 'unique'], commissionsRetirees: false };
 export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
-type Onglet = 'compromis' | 'ventes' | 'statistiques' | 'apporteurs';
+// Décisions 11 et 14 (Arno, 02/11/2026) : des onglets « Mes … », seul « Mes apporteurs » reste.
+type Onglet = 'apporteurs';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
-const MOTS_ONGLETS: Record<Onglet, string> = { compromis: 'Mes compromis en cours', ventes: 'Mes ventes', statistiques: 'Mes statistiques', apporteurs: 'Mes apporteurs' };
-const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { compromis: 'Compromis en cours', ventes: 'Ventes', statistiques: 'Statistiques', apporteurs: 'Apporteurs' };
+const MOTS_ONGLETS: Record<Onglet, string> = { apporteurs: 'Mes apporteurs' };
+const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { apporteurs: 'Apporteurs' };
+/** L'onglet d'arrivée : la règle de la Transaction (`vueInitiale`) ; une adresse d'un onglet retiré (« Mes ventes », « Mes statistiques ») → « Mois ». PUR. */
+export const vueDArrivee = (vue: string | null, avecMois: boolean): 'compromis' | 'mois' | 'annee' =>
+  (vue === 'ventes' || vue === 'statistiques' || vue === 'mes-ventes' || vue === 'mes-statistiques' ? 'mois' : vueInitiale(vue, avecMois));
 const rien = (): void => {};
 
 /** Tri : compromis par date de signature (plus récent en haut, sans date en bas) ; ventes par date d'acte (à défaut, son mois). PUR. */
@@ -89,7 +92,7 @@ export function MesCompteurs() {
   // cours | Mes ventes | Mes statistiques | Mes apporteurs » (`onglet`) ; un seul des deux est choisi à la fois.
   const jourEcran = aujourdhuiParis();
   const avecMois = parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null;
-  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => vueInitiale(parametre('vue'), avecMois));
+  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => vueDArrivee(parametre('vue'), avecMois));
   const [onglet, setOngletEtat] = useState<Onglet | null>(null);
   const choisirVue = (v: 'compromis' | 'mois' | 'annee'): void => { setVueEtat(v); setOngletEtat(null); };
   const setOnglet = (o: Onglet): void => { setOngletEtat(o); setVueEtat(null); };
@@ -101,7 +104,6 @@ export function MesCompteurs() {
   const [filtreNego, setFiltreNego] = useState('');
   // retenu d'une lecture à l'autre : le sélecteur reste pendant le chargement d'un autre espace
   const [estAdmin, setEstAdmin] = useState(false);
-  const [annee, setAnnee] = useState<number | null>(null); // l'année de « Mes ventes »
   // 🔴 LOT 5 — le parcours de création ouvert ; l'affaire qui vient d'être créée (en haut, dépliée) ; le compteur de relecture.
   const [parcours, setParcours] = useState(false);
   const [nouvelle, setNouvelle] = useState<number | null>(null);
@@ -219,7 +221,7 @@ export function MesCompteurs() {
     if (e === espace) return;
     // une autre liste : rien à comparer (aucun « X a mis à jour »), l'empreinte de référence sera celle du nouveau chargement
     espaceVu.current = e; precedentes.current = null; empreinteVue.current = null; relectureAuto.current = false;
-    setEspace(e); setLu({ etat: 'chargement' }); setAnnee(null); setFiltreNego(''); setMiseAJour(null); setHistorique(null); setEdition(null);
+    setEspace(e); setLu({ etat: 'chargement' }); setFiltreNego(''); setMiseAJour(null); setHistorique(null); setEdition(null);
   };
   const hote = useMemo((): HoteDetail | null => (data === null ? null : {
     d: { lotD: data.schema?.lotD ?? true, personneType: data.schema?.personneType ?? true, uniteCommission: data.schema?.uniteCommission ?? true,
@@ -243,14 +245,8 @@ export function MesCompteurs() {
   if (lu.etat === 'chargement') return <><div className="mes-ligne-espace" data-ligne-espace>{selecteur}</div><p className="loc-muet" role="status" data-mon-espace-chargement>{espace === 'moi' ? 'Chargement de vos affaires…' : `Chargement de ${LIBELLE_AGENCE[espace]}…`}</p></>;
   if (lu.etat === 'erreur' || data === null || hote === null) return <><div className="mes-ligne-espace" data-ligne-espace>{selecteur}</div><p className="loc-alerte loc-alerte--orange" role="alert" data-mon-espace-erreur>{espace === 'moi' ? 'Vos affaires n’ont pas pu être lues.' : `Les affaires de ${LIBELLE_AGENCE[espace]} n’ont pas pu être lues.`} Rechargez la page.</p></>;
   const { compteurs, disponible } = data;
-  const total = (c: { ca: { htC: number; ttcC: number } }): string => montantAffiche(unite, c.ca.htC / 100, c.ca.ttcC / 100);
-  const nombre = (n: number, un: string, plusieurs: string): string => `${n} ${n > 1 ? plusieurs : un}`;
   const parId = new Map(data.ventes.map((v) => [v.id, v]));
   const des = (ids: readonly number[]): VenteMonEspace[] => ids.flatMap((id) => { const v = parId.get(id); return v === undefined ? [] : [v]; });
-  const annees = compteurs.parAnnee ?? [];
-  const anneeVue = annee ?? compteurs.actees.annee;
-  const choixAnnees = [...new Set([compteurs.actees.annee, ...annees.map((a) => a.annee)])].sort((a, b) => b - a);
-  const anneeChoisie = annees.find((a) => a.annee === anneeVue) ?? { annee: anneeVue, nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } };
   // 🔴 LOT 10 — mode agence : le tri des listes du Suivi CA (`trierListe`, CA = la somme des cartes) et le filtre « Négociateur » (une personne).
   const dAgence = agence === null ? null : { societe: agence.societe, ventes: data.ventes, retrocessions: data.retrocessions ?? [], statutsNegociateurs: data.statutsNegociateurs };
   const nommer = (l: string): string => data.nomsNegociateurs?.[l] ?? l;
@@ -262,10 +258,13 @@ export function MesCompteurs() {
     : trierListe(filtres, tri, (v) => { const c = caAgence(dAgence, [v]); return unite === 'ht' ? c.htC : c.ttcC; }, (v) => v.libelle);
   // 🔴 LOT 5 — l'affaire qui vient d'être créée : en haut, quelle que soit sa date de compromis.
   const compromis = nouvelle === null ? tries : [...tries.filter((v) => v.id === nouvelle), ...tries.filter((v) => v.id !== nouvelle)];
-  const ventes = trierMesVentes(des(anneeChoisie.ids));
-  // Une tuile ouvre la liste de ses affaires (décision 8 : comme les compteurs retirés) : « Mes ventes » de son année, « Mes compromis en cours ».
-  // Décision 11 : « Mes compromis en cours » est retiré (l'onglet « Compromis » : la même liste, les mêmes gestes) — une tuile y mène.
-  const ouvrir = (o: Onglet, a?: number): void => { if (o === 'compromis') { choisirVue('compromis'); return; } setOnglet(o); if (o === 'ventes') setAnnee(a ?? compteurs.actees.annee); };
+  // Une tuile ouvre la liste de ses affaires (décision 8) : les compromis → l'onglet « Compromis » (décision 11) ; les ventes → la liste de la
+  // période, juste sous le graphique du même onglet (décision 14 : elle remplace « Mes ventes »).
+  const ouvrir = (o: 'compromis' | 'ventes'): void => {
+    if (o === 'compromis') { choisirVue('compromis'); return; }
+    const l = document.querySelector('[data-liste-periode]');
+    if (l !== null && typeof (l as HTMLElement).scrollIntoView === 'function') (l as HTMLElement).scrollIntoView({ block: 'start' });
+  };
   const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
@@ -292,7 +291,7 @@ export function MesCompteurs() {
     <ContexteNouvelApporteur.Provider value={facon}>
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
     <div className="mes-compteurs-bloc" data-espace-vu={espace}>
-      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_MES_STATISTIQUES}{CSS_LISTE_PERIODE}</style>
+      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_LISTE_PERIODE}</style>
       {/* L'accueil : « Voir … » à gauche (administrateurs), « + Nouveau compromis » à droite, sur la même ligne (au téléphone : dessous, à droite). */}
       <div className="mes-ligne-espace" data-ligne-espace>
         {selecteur}
@@ -300,11 +299,11 @@ export function MesCompteurs() {
         {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
       </div>
       {/* Les onglets du Suivi CA (« Compromis | Mois | Année(s) », le même composant), puis, à la suite, ceux de « Mon espace » (inchangés) ; JUSTE SOUS « Voir … ». */}
-      {/* Décision 11 (Arno, 02/11/2026) : « Mes compromis en cours » retiré (doublon de « Compromis ») ; « Mes ventes » et « Mes statistiques »
-          restent tant que leurs fonctions n'ont pas d'autre accès (la liste des ventes actées ; les tableaux par apporteur / par négociateur). */}
+      {/* Décisions 11 et 14 (Arno, 02/11/2026) : « Mes compromis en cours » (= « Compromis »), « Mes ventes » (= la liste sous le graphique, mêmes
+          cartes, mêmes gestes) et « Mes statistiques » (= cartes, graphique et tableaux sous le graphique) sont retirés ; « Mes apporteurs » reste. */}
       {/* Une seule ligne : les onglets à gauche, « Montants en HT | TTC » à droite (au téléphone : les onglets défilent, HT | TTC dessous). */}
       <div className="mes-ligne-onglets" data-ligne-onglets>
-        <OngletsVues vue={vue} onVue={choisirVue} apres={(['ventes', 'statistiques', 'apporteurs'] as const).map((o) => (
+        <OngletsVues vue={vue} onVue={choisirVue} apres={(['apporteurs'] as const).map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
             onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
         ))} />
@@ -329,8 +328,7 @@ export function MesCompteurs() {
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrir={ouvrir} carte={carte} />
-        /* 🔴 LOT 8 — « Mes statistiques » : mon CA (N / N−1), mois par mois, par apporteur, le prévisionnel ; les données du serveur seules. */
-        : onglet === 'apporteurs' ? <MesApporteurs /> : onglet === 'statistiques' ? <MesStatistiques data={data} /> : vue === 'compromis' || onglet === 'compromis' ? (
+        : onglet === 'apporteurs' ? <MesApporteurs /> : (
           <>
           {agence !== null && tousCompromis.length > 0 && (
             <div className="mes-ventes-tete" data-outils-agence>
@@ -347,18 +345,7 @@ export function MesCompteurs() {
             ? <p className="loc-muet mes-vide" data-liste-vide="compromis">{nomAgence === null ? 'Aucun compromis en cours à votre nom.' : libellesFiltre === null ? `Aucun compromis en cours pour ${nomAgence}.` : 'Aucun compromis en cours pour ce négociateur.'}</p>
             : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>}
           </>
-        ) : <>
-          <div className="mes-ventes-tete">
-            <label className="mes-annee">Année
-              <select value={anneeVue} onChange={(e) => setAnnee(Number(e.target.value))} data-annee-mes-ventes>
-                {choixAnnees.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select></label>
-            <p className="mes-ventes-total" data-total-mes-ventes>{nombre(anneeChoisie.nb, 'vente', 'ventes')} en {anneeVue} — <strong>{total(anneeChoisie)}</strong></p>
-          </div>
-          {ventes.length === 0
-            ? <p className="loc-muet mes-vide" data-liste-vide="ventes">{nomAgence === null ? `Aucune vente actée à votre nom en ${anneeVue}.` : `Aucune vente actée pour ${nomAgence} en ${anneeVue}.`}</p>
-            : <div className="trx-cartes mes-cartes">{ventes.map((v) => carte(v, 'vente'))}</div>}
-        </>}
+        )}
       </div>
     </div>
     </FournisseurConsolide></FournisseurChangerAffichage></FournisseurAffichage></FournisseurNoms>
@@ -370,11 +357,12 @@ export function MesCompteurs() {
 const CSS_MES_COMPTEURS = `
 .mes-ligne-espace{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
 .mes-ligne-espace .mes-nouveau{width:auto;flex:0 0 auto;margin-left:auto;min-height:44px;padding:0 1.25rem}
-/* Arno (02/11/2026) — « Mois » / « Année(s) » : la rangée (sélecteur compris) a la largeur du graphique ; les mois (les années) se RÉPARTISSENT
-   sur toute la largeur disponible, centrés, tous entiers (au téléphone : défilement, comme le Suivi CA). Les cartes : des colonnes égales
+/* Arno (02/11/2026) — « Mois » : la rangée (sélecteur compris) a la largeur du graphique ; les mois se RÉPARTISSENT sur toute la largeur
+   disponible, centrés, tous entiers (au téléphone : défilement, comme le Suivi CA). Décision 16 : la rangée des ANNÉES garde le format du
+   Suivi CA (celui d'avant e83e882), sans répartition. Les cartes : des colonnes égales
    qui tiennent toujours dans la largeur du conteneur (et non de l'écran), titres qui passent à la ligne, jamais coupés. */
 @media (min-width:721px){
-  .mes-accueil .trx-rangee-mois .tdb-onglets>.tdb-onglet,.mes-annees .trx-rangee-mois .tdb-onglets>.tdb-onglet{flex:1 1 auto;text-align:center}
+  .mes-accueil .trx-rangee-mois:not(.trx-rangee-annees) .tdb-onglets>.tdb-onglet{flex:1 1 auto;text-align:center}
 }
 .mes-accueil{container-type:inline-size;container-name:mes-accueil}
 .mes-annees{container-type:inline-size;container-name:mes-annees}

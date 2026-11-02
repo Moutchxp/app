@@ -24,7 +24,7 @@ import { ListeAffairesPeriode, type RendreCarte } from './ListeAffairesPeriode';
  */
 type LigneAnnees = ReturnType<typeof useLigneDesAnnees>;
 export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir, carte }: { data: MesAffaires; ligne: LigneAnnees; annees: readonly number[];
-  onOuvrirMois: (a: number, m: number) => void; onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void;
+  onOuvrirMois: (a: number, m: number) => void; onOuvrir: (o: 'compromis' | 'ventes') => void;
   /** La carte d'une affaire (celle de l'onglet « Compromis ») : la liste sous le graphique. */
   carte: RendreCarte }) {
   const jour = data.aujourdhui;
@@ -68,21 +68,21 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrir, c
       <LigneDesAnnees annees={visibles} decoupage={choixA.decoupage} annee={annee} choisies={sel} onAnnee={choisirAnnee} onDecoupage={choisirDecoupageAnnees} />
       {choixA.decoupage === 'periode' && refusAnnees && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins une année reste choisie.</p>}
       <ul className={`tdb-tuiles trx-tuiles-alignees${agence === null && t.net !== undefined ? ' trx-tuiles-gestion' : ''}`} aria-label={`L’essentiel — ${lib}`} data-tuiles-annees>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-annee">
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ca-annee">
           <span className="tdb-tuile-mot">{mot(`CA ${MOT}`)} — {lib}{agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="ca-annee">{grand(t.ca.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.ca.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="ca">{n1(t.ca.n1, t.ca.pct)}</span></button></li>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ventes-annee">
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ventes-annee">
           <span className="tdb-tuile-mot">Ventes — {lib}</span><strong className="tdb-tuile-valeur" data-valeur-tuile="nombre-annee">{t.nb.valeur}</strong>
           <span className="tdb-tuile-n1" data-tuile-n1="nombre">{enTout ? toutes : t.nb.n1 === null ? sansN1 : `${t.nb.n1} ${enN1}`}</span></button></li>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-a-date">
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ca-a-date">
           <span className="tdb-tuile-mot">{enTout ? <>{mot(`CA ${MOT}`)} — à date (toutes les années)</> : <>{mot(`CA ${MOT}`)} — {lib} à date</>}{agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="a-date">{grand(t.aDate.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.aDate.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="a-date">{n1(t.aDate.n1, t.aDate.pct)}</span></button></li>
         {t.net !== undefined && (
-          <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-net-annee">
+          <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ca-net-annee">
             <span className="tdb-tuile-mot">{agence === null ? `Mon CA net ${MOT}` : mot(`CA net ${MOT}`)} — {lib}{agence !== null && <Explication sorte="net" />}</span>
             <strong className="tdb-tuile-valeur" data-ca-net-annee>{grand(t.net.valeur)}</strong>
             <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.net.valeur)}</small>

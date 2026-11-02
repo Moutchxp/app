@@ -44,6 +44,15 @@ unicité du mandat par structure (n° + société).
 13. **« CA net » en vue « Mon espace » = mon CA moins ma commission déduite, moins les rétrocessions de mon côté** : la colonne « CA net » de MA ligne
     dans l'Espace par négociateur du Suivi CA (`monCaNet` → `espaceNegociateurs`, options de la page FUSION), calculée côté serveur ; mesure
     « CA net » des graphiques Mois / Année(s) et carte « Mon CA net » (comme la carte « CA net » du mode agence).
+14. **Les tableaux « Par apporteur d'affaires » (et, en mode agence, « Par négociateur ») passent SOUS le graphique de « Mois » et « Année(s) »**,
+    après la liste des affaires, sur la même sélection ; puis les onglets « Mes ventes » et « Mes statistiques » sont RETIRÉS (accord explicite
+    d'Arno, 02/11/2026 ; inventaire fait : ventes actées, gestes et historique → la liste ; N / N−1, cumul, HT/TTC, prévisionnel → cartes et
+    graphique ; tableaux → sous le graphique). « Par négociateur » : LE tableau de l'« Espace par négociateur » du Suivi CA (`TableNegociateurs`) ;
+    « Par apporteur » : le tableau en lecture seule de l'ancien onglet (`parApporteur`, règle de « L'année ») — le bloc du Suivi CA porte des gestes
+    d'écriture (saisie, rattachement de rétrocessions) qui n'ont pas leur place ici. Une adresse ?vue=ventes / ?vue=statistiques ouvre « Mois ».
+15. **Onglet « Mois » : la liste ne montre plus que les « Vendus »** (accord explicite d'Arno, 02/11/2026) ; « Année(s) » garde Vendus + Compromis.
+16. **La rangée des ANNÉES revient au format du Suivi CA** (celui d'avant e83e882) ; la rangée des MOIS garde sa répartition sur toute la largeur.
+    Le profil « Augustin Jorel » est un profil de test : aucune action (Arno, 02/11/2026).
 
 Navigation (après le lot 10, 02/11/2026 ; mise à jour le même jour : la barre d'onglets JUSTE SOUS la ligne « Voir … », HT | TTC sous les
 onglets ; décisions 10 et 11 : plus de phrase du CA, plus d'onglet « Mes compromis en cours » ; la rangée des mois entière, sans troncature,

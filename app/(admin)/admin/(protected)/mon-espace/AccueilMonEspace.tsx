@@ -25,7 +25,7 @@ import { ListeAffairesPeriode, type RendreCarte } from './ListeAffairesPeriode';
  * laquelle tiennent des règles de son graphique (largeur des onglets de mesure, encadré).
  */
 export function AccueilMonEspace({ data, ligne, onOuvrir, carte }: { data: MesAffaires; ligne: ReturnType<typeof useLigneDesMois>;
-  onOuvrir: (o: 'compromis' | 'ventes', annee?: number) => void;
+  onOuvrir: (o: 'compromis' | 'ventes') => void;
   /** La carte d'une affaire (celle de l'onglet « Compromis ») : la liste sous le graphique. */
   carte: RendreCarte }) {
   const jour = data.aujourdhui;
@@ -59,21 +59,21 @@ export function AccueilMonEspace({ data, ligne, onOuvrir, carte }: { data: MesAf
       <LigneDesMois annee={annee} mois={mois} jour={jour} decoupage={decoupage} moisChoisis={moisPeriodeAnnee} onMois={choisirMois} onDecoupage={choisirDecoupage} />
       {decoupage === 'periode' && refusPeriode && <p className="loc-muet trx-periode-refus" role="status" data-periode-refus>Au moins un mois reste choisi.</p>}
       <ul className={`tdb-tuiles trx-tuiles-alignees${agence === null && t.net !== undefined ? ' trx-tuiles-gestion' : ''}`} aria-label={`L’essentiel — ${moisMot} ${annee}`} data-tuiles-accueil>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-mois">
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ca-mois">
           <span className="tdb-tuile-mot">{mot(`CA ${MOT}`)} — {moisMot}{agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="ca">{grand(t.ca.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.ca.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="ca">{n1(t.ca.n1, t.ca.pct)}</span></button></li>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ventes-mois">
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ventes-mois">
           <span className="tdb-tuile-mot">Ventes — {moisMot}</span><strong className="tdb-tuile-valeur" data-valeur-tuile="nombre">{t.nb.valeur}</strong>
           <span className="tdb-tuile-n1" data-tuile-n1="nombre">{t.nb.n1 === null ? sansN1 : `${t.nb.n1} en ${annee - 1}`}</span></button></li>
-        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="cumul" data-borne-cumul={t.cumul.fin}>
+        <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="cumul" data-borne-cumul={t.cumul.fin}>
           <span className="tdb-tuile-mot">{mot(`CA ${MOT}`)} cumulé {annee} ({t.cumul.mot}){agence !== null && <Explication sorte="ca" />}</span>
           <strong className="tdb-tuile-valeur" data-valeur-tuile="cumul">{grand(t.cumul.valeur)}</strong>
           <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.cumul.valeur)}</small>
           <span className="tdb-tuile-n1" data-tuile-n1="cumul">{n1(t.cumul.n1, t.cumul.pct)}</span></button></li>
         {t.net !== undefined && (
-          <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes', annee)} data-tuile="ca-net-cumul">
+          <li><button type="button" className="tdb-tuile" onClick={() => onOuvrir('ventes')} data-tuile="ca-net-cumul">
             <span className="tdb-tuile-mot">{agence === null ? `Mon CA net ${MOT}` : mot(`CA net ${MOT}`)} cumulé {annee} ({t.cumul.mot}){agence !== null && <Explication sorte="net" />}</span>
             <strong className="tdb-tuile-valeur" data-ca-net-cumul>{grand(t.net.valeur)}</strong>
             <small className="trx-montant-autre trx-tuile-autre" data-montant-autre>{petit(t.net.valeur)}</small>
@@ -95,7 +95,8 @@ export function AccueilMonEspace({ data, ligne, onOuvrir, carte }: { data: MesAf
           {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />
       </FournisseurConsolide>
       {/* Les affaires qui font exactement ces cartes et ce graphique (la sélection de la rangée ; un clic sur un mois la change, la liste suit). */}
-      <ListeAffairesPeriode data={data} periode={periodeMois(choix, agence === null, jour)} libelle={`${moisMot} ${annee}`} carte={carte} />
+      {/* Décision 15 (Arno, 02/11/2026) : dans « Mois », les « Vendus » seuls (les compromis restent dans le graphique et l'onglet « Compromis »). */}
+      <ListeAffairesPeriode data={data} periode={periodeMois(choix, agence === null, jour)} libelle={`${moisMot} ${annee}`} carte={carte} avecCompromis={false} />
     </div>
   );
 }
