@@ -1,0 +1,56 @@
+// 🔴 MON ESPACE, LOT 5 (Arno, 02/11/2026) — CRÉER UN COMPROMIS DEPUIS « MON ESPACE » : les lectures du parcours et l'écriture. L'écriture est
+// `enregistrerDossier` de la tuile Suivi CA, telle quelle (aucune copie de logique) ; la recherche du n° est `venteDuMandat` (lot 2). Pas de
+// `import 'server-only'` (même convention que les dépôts de la Transaction, lus par les épreuves).
+import { query } from '../db/client';
+import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { enregistrerDossier, lireNegociateurs, lireVentes, type AuteurTx, type Issue } from '../transaction/repo';
+import { venteDuMandat } from '../transaction/mandatRepo';
+import { lireApporteurs } from '../location/suivi/suiviRepo';
+import { libelleApporteur, texteRechercheApporteur } from '../location/suivi/suivi';
+import { libellePersonne, type Societe } from '../transaction/modele';
+import type { DossierSaisie } from '../transaction/saisie';
+import { refusCreation, type TransactionDuMandat } from './creation';
+
+/** Le compte qui agit : administrateur ou non (relu en base). */
+export async function estAdministrateur(compteId: number): Promise<boolean> {
+  const { rows } = await query<{ role: string }>('SELECT role FROM admin_utilisateur WHERE id = $1', [compteId]);
+  return rows[0]?.role === 'administrateur';
+}
+
+/**
+ * Ce que le formulaire de compromis propose depuis « Mon espace » : les négociateurs actifs (pour l'autre côté, décision 2), les apporteurs du
+ * titulaire (ceux qui lui sont rattachés, ou son propre compte d'apporteur interne ; un administrateur : tous — « chacun voit les siens »), les
+ * migrations appliquées. Aucune fiche de vendeur / acquéreur de l'agence n'est proposée (pas d'annuaire des clients hors de la Transaction).
+ * LECTURE SEULE.
+ */
+export async function referencesMonEspace(compteId: number, administrateur: boolean, aujourdhui: string): Promise<Record<string, unknown>> {
+  const [negociateurs, apporteurs] = await Promise.all([lireNegociateurs(aujourdhui), lireApporteurs().catch(() => [])]);
+  const siens = apporteurs.filter((a) => !a.archive && (administrateur || a.compteId === compteId || (a.collegues ?? []).some((c) => c.collegueId === compteId)));
+  return { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(),
+    uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif),
+    apporteurs: siens.map((a) => ({ id: a.id, nom: a.nom, recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), personnes: [] };
+}
+
+/** La transaction qui porte déjà ce n° dans cette structure (sans montant), ou null : le n° est libre. LECTURE SEULE. */
+export async function transactionDuMandat(societe: Societe, numero: string): Promise<TransactionDuMandat | null> {
+  const prise = await venteDuMandat(societe, numero);
+  if (prise === null) return null;
+  const v = (await lireVentes(null)).find((x) => x.id === prise.id);
+  const personnes = (role: 'vendeur' | 'acquereur'): string[] => (v?.dossier?.personnes ?? []).filter((p) => p.role === role)
+    .map(libellePersonne);
+  return { id: prise.id, societe: prise.societe, numero: prise.numero, libelle: prise.libelle, statut: prise.statut, dateCompromis: prise.dateCompromis,
+    dateActe: prise.dateActe, adresseBien: prise.adresseBien, vendeurs: personnes('vendeur'), acquereurs: personnes('acquereur'),
+    entree: v?.dossier?.entree?.nom ?? null, sortie: v?.dossier?.sortie?.nom ?? null };
+}
+
+/**
+ * Crée le compromis : les conditions de « Mon espace » (`refusCreation`), puis `enregistrerDossier` de la tuile Suivi CA (qui refuse aussi un n°
+ * déjà pris). Rend le statut HTTP d'un refus.
+ */
+export async function creerCompromisMonEspace(compteId: number, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx):
+  Promise<{ ok: true; id: number } | { ok: false; statut: 403 | 422; motif: string }> {
+  const refus = refusCreation(s, { compteId, administrateur: await estAdministrateur(compteId), mandatDisponible: await mandatDisponible() });
+  if (refus !== null) return { ok: false, ...refus };
+  const r: Issue<number> = await enregistrerDossier(null, s, aujourdhui, auteur);
+  return r.ok ? { ok: true, id: r.valeur as number } : { ok: false, statut: 422, motif: r.motif };
+}

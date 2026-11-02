@@ -1,0 +1,114 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { MesCompteurs } from './MesCompteurs';
+import { URL_COMPROMIS, URL_MANDAT, URL_REFERENCES } from './NouveauCompromis';
+
+/**
+ * 🔴 MON ESPACE, LOT 5 — le parcours « + Nouveau compromis » dans le VRAI écran de « Mon espace », routes simulées (rien n'est écrit) :
+ * ① la structure seule ; ② le n° obligatoire (impossible d'avancer sans lui) ; ③ libre → le côté, puis le formulaire EXISTANT (structure et n°
+ * posés, n° non modifiable, moi à mon côté), envoyé à la route de « Mon espace » ; enregistré → « Mes compromis en cours », la nouvelle affaire
+ * en haut, dépliée ; ③ pris → la transaction existante, « Rejoindre » mène à l'écran d'attente, rien n'est envoyé. Données fictives.
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const LEA = { id: 5, nom: 'Léa MARTIN', societe: 'criterimmo' as const };
+const MARC = { id: 7, nom: 'Marc DURAND', societe: 'macj' as const };
+const vide = { nb: 0, ids: [] as number[], ca: { htC: 0, ttcC: 0 } };
+const venteCreee = { id: 99, societe: 'criterimmo', libelle: 'NOUVEAU / ACHETEUR', honorairesTtc: 12000, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-01-01',
+  apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null, numeroMandat: 'M-42',
+  repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree_sortie', compteId: 5, negociateur: 'Léa MARTIN', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null }] },
+  dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa MARTIN' }, sortie: { id: 5, nom: 'Léa MARTIN' }, apporteurId: null, personnes: [] },
+  mesCotes: ['entree', 'sortie'], commissionsRetirees: false };
+const ancienne = { ...venteCreee, id: 50, libelle: 'PLUS RÉCENTE', dateCompromis: '2026-10-30' };
+let cree = false;
+let prise: unknown = null;
+let posts: { url: string; corps: Record<string, unknown> }[];
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  cree = false; prise = null; posts = [];
+  try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) });
+    if (init?.method === 'POST') { posts.push({ url: u, corps: JSON.parse(String(init.body)) }); cree = true; return ok(99); }
+    if (u.startsWith(URL_REFERENCES)) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaireId: 5, administrateur: false, lotD: true, personneType: true, prixVente: true,
+      mandat: true, uniteCommission: true, negociateurs: [LEA, MARC], apporteurs: [], personnes: [] });
+    if (u.startsWith(URL_MANDAT)) return ok(prise === null ? { libre: true, numero: 'M-42' } : { libre: false, numero: 'M-42', transaction: prise });
+    const ventes = cree ? [ancienne, venteCreee] : [ancienne];
+    return ok({ disponible: true, aujourdhui: '2026-11-02', titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes,
+      schema: { lotD: true, personneType: true, uniteCommission: true, prixVente: true, mandat: true },
+      compteurs: { compromis: { nb: ventes.length, ids: ventes.map((v) => v.id), ca: { htC: 0, ttcC: 0 } }, actees: { ...vide, annee: 2026 }, parAnnee: [] } });
+  }) as unknown as typeof fetch;
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T10:00:00Z'));
+});
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
+const calmer = async () => { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); };
+const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+const saisir = async (sel: string, valeur: string) => {
+  const el = container.querySelector(sel) as HTMLInputElement;
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => { set.call(el, valeur); el.dispatchEvent(new Event('input', { bubbles: true })); });
+};
+const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+const ouvrir = async () => { await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer(); await cliquer('[data-nouveau-compromis-mon-espace]'); };
+
+describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
+  it('① la structure seule ; ② impossible d’avancer sans n° (bouton désactivé, aucune vérification)', async () => {
+    await ouvrir();
+    expect(container.querySelector('[data-parcours="structure"]')).not.toBeNull();
+    expect([...container.querySelectorAll('[data-parcours] [data-structure]')].map((b) => b.textContent)).toEqual(['CRITERIMMO', 'MACJ']);
+    expect(container.querySelector('[data-parcours] input')).toBeNull();
+    await cliquer('[data-structure="criterimmo"]');
+    expect((container.querySelector('[data-parcours-verifier]') as HTMLButtonElement).disabled).toBe(true);
+    await saisir('[data-parcours-mandat]', '   ');
+    expect((container.querySelector('[data-parcours-verifier]') as HTMLButtonElement).disabled).toBe(true);
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).startsWith(URL_MANDAT))).toBe(false);
+  });
+
+  it('n° libre : mon côté, puis le formulaire EXISTANT (n° posé, non modifiable ; moi à l’entrée) ; enregistré → en haut de « Mes compromis », déplié', async () => {
+    await ouvrir();
+    await cliquer('[data-structure="criterimmo"]');
+    await saisir('[data-parcours-mandat]', 'M-42');
+    await cliquer('[data-parcours-verifier]');
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]) === `${URL_MANDAT}?societe=criterimmo&numero=M-42`)).toBe(true);
+    await cliquer('[data-cote="entree"]');
+    const champ = container.querySelector<HTMLInputElement>('[data-formulaire-dossier="nouveau"] [data-champ="numero-mandat"]')!;
+    expect([champ.value, champ.readOnly]).toEqual(['M-42', true]);
+    expect(texte('[data-formulaire-dossier="nouveau"] h3')).toBe('Nouveau compromis — CRITERIMMO');
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); });
+    await calmer();
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe(URL_COMPROMIS);
+    expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5 } });
+    await calmer();
+    expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
+    expect(container.querySelector('[data-onglet-mon-espace="compromis"]')!.getAttribute('aria-selected')).toBe('true');
+    // en haut malgré une date de compromis plus ancienne, et déplié
+    expect([...container.querySelectorAll('[data-ma-vente]')].map((x) => x.getAttribute('data-ma-vente'))).toEqual(['99', '50']);
+    expect(container.querySelector('[data-ma-vente="99"] [data-colonne="vendeur"]')).not.toBeNull();
+  });
+
+  it('n° déjà pris : la transaction existante décrite ; « Rejoindre » → écran d’attente ; aucun envoi, aucun formulaire de création', async () => {
+    prise = { id: 3, societe: 'criterimmo', numero: 'M-0042', libelle: 'DUPONT / MARTIN', statut: 'compromis', dateCompromis: '2026-10-01', dateActe: null,
+      adresseBien: '1 rue A, Puteaux', vendeurs: ['M. Paul DUPONT'], acquereurs: ['Mme Anne MARTIN'], entree: 'Marc DURAND', sortie: null };
+    await ouvrir();
+    await cliquer('[data-structure="criterimmo"]');
+    await saisir('[data-parcours-mandat]', 'm 42');
+    await cliquer('[data-parcours-verifier]');
+    const d = '[data-transaction-existante="3"]';
+    expect(texte(d)).toContain('N° de mandatM-0042');
+    expect(texte(d)).toContain('Bien1 rue A, Puteaux');
+    expect(texte(d)).toContain('Vendeur(s)M. Paul DUPONT');
+    expect(texte(d)).toContain('Statutcompromis en cours');
+    expect(texte(d)).toContain('Date du compromis01/10/2026');
+    expect(texte(d)).toContain('Négociateur d’entréeMarc DURAND');
+    expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
+    await cliquer('[data-rejoindre]');
+    expect(texte('[data-rejoindre-attente]')).toBe('Rejoindre une transaction existante (y renseigner votre côté) sera disponible au prochain lot. Aucun nouveau compromis n’a été créé.');
+    expect(posts).toEqual([]);
+  });
+});

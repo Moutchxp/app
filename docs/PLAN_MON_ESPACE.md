@@ -54,6 +54,17 @@ Mise en œuvre du lot 4 (mes listes, lecture seule) :
   ni reste, ni taux, ni cadre de commission, ni part de l'agence (au lieu de « 0 € » ou d'un calcul refait sur un taux par défaut) ; aucun geste
   (ils arrivent aux lots 5 à 7). Sans l'option, la tuile Suivi CA est inchangée (épreuve de non-régression).
 
+Mise en œuvre du lot 5 (créer un compromis, aucune migration) :
+- parcours : structure → n° (obligatoire) → vérification (`GET /api/admin/mon-espace/mandat`, `venteDuMandat` du lot 2) → libre : mon côté
+  (entrée / sortie ; un administrateur : « pour un collègue ») puis `FormulaireDossier` (n° figé) ; pris : la transaction existante et
+  « Rejoindre » (écran d'attente jusqu'au lot 6) ;
+- `POST /api/admin/mon-espace/compromis` : `lireDossier` puis `enregistrerDossier`, les fonctions de la tuile ; en plus (`refusCreation`) :
+  création de compromis seulement, n° obligatoire (et 449 appliquée), collaborateur sur un côté (403 sinon) ; doublon → 422 ;
+- le formulaire propose les négociateurs actifs et MES apporteurs (rattachés à moi ou mon compte interne ; administrateur : tous) ; aucune fiche
+  de client de l'agence (pas d'annuaire des personnes hors de la Transaction) ; la création d'un apporteur arrive au lot 9 ;
+- la structure choisie est vérifiée à l'étape ③ ; si le négociateur d'entrée travaille pour l'autre structure, la vente est portée par elle
+  (règle existante) et le serveur revérifie le n° dans CETTE structure à l'enregistrement.
+
 ---
 
 ## 🔴 RÈGLE TRANSVERSE — À VÉRIFIER À CHAQUE LOT 2 → 10 (exigence d'Arno, 02/11/2026)

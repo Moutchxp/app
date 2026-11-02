@@ -100,7 +100,14 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null }: {
+export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe }: {
+  /**
+   * 🔴 MON ESPACE, LOT 5 — l'envoi du dossier : par défaut, la tuile Suivi CA (`dossier-enregistrer`, inchangé) ; « Mon espace » passe le sien
+   * (sa route, qui enregistre par la MÊME fonction). Rend le motif d'un refus (null : accepté) et l'id de l'affaire.
+   */
+  envoyer?: (corps: { id: number | null; dossier: Record<string, unknown> }) => Promise<{ motif: string | null; data: number | null }>;
+  /** 🔴 MON ESPACE, LOT 5 — le n° de mandat déjà vérifié par le parcours : affiché, non modifiable à cette étape. */
+  mandatFixe?: string;
   /** 🔴 LOT BJ — « Modifier » depuis la fenêtre d'une personne : sa ligne prend le focus. */
   personneVisee?: number | null;
   /** LOT G — une répartition déjà changée (négociateur choisi depuis la carte) à revoir, et le message qui le dit. */
@@ -116,7 +123,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const [champs, setChamps] = useState({ libelle: vente?.libelle ?? '', commission: vente === null ? '' : String(vente.honorairesTtc).replace('.', ','),
     dateCompromis: vente?.dateCompromis ?? '', dateActePrevue: d?.dateActePrevue ?? '', dateActe: d?.dateActe ?? (vente?.statut === 'vendue' && vente.mois !== null
       ? `${vente.annee}-${String(vente.mois).padStart(2, '0')}-01` : ''), adresseBien: d?.adresseBien ?? '', note: vente?.note ?? '',
-    prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ','), numeroMandat: vente?.numeroMandat ?? '' });
+    prixVente: vente?.prixVente == null ? '' : String(vente.prixVente).replace('.', ','), numeroMandat: mandatFixe ?? vente?.numeroMandat ?? '' });
   const [personnes, setPersonnes] = useState<PersonneEcran[]>(() => {
     const lues = (d?.personnes ?? []).map(personneEcranDe);
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
@@ -162,7 +169,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   })();
   const enregistrer = async (): Promise<void> => {
     setEnvoi(true);
-    const r = await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', id: vente?.id ?? null, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) });
+    const corps = { id: vente?.id ?? null, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
+    const r = envoyer !== undefined ? await envoyer(corps) : await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', ...corps });
     setEnvoi(false);
     if (r.motif === null) onFait({ id: Number(r.data ?? vente?.id ?? 0), repartition, honorairesTtc: nombre(champs.commission) ?? 0 }); else setMotif(r.motif);
   };
@@ -188,7 +196,9 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
             <label className="trx-plein" data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : avecMandat ? ' (facultatif pour une fiche existante)' : ''}
               {avecMandat
-                ? <input value={champs.numeroMandat} onChange={champ('numeroMandat')} required={mandatObligatoire} maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" data-champ="numero-mandat" />
+                ? <><input value={champs.numeroMandat} onChange={champ('numeroMandat')} required={mandatObligatoire} maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" data-champ="numero-mandat"
+                  readOnly={mandatFixe !== undefined} aria-readonly={mandatFixe !== undefined} />
+                  {mandatFixe !== undefined && <span className="loc-muet" data-mandat-fixe>Vérifié : libre dans cette structure (non modifiable à cette étape).</span>}</>
                 : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>
             {blocPersonnes('vendeur', 'Vendeur(s)')}
             {blocPersonnes('acquereur', 'Acquéreur(s)')}

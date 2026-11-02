@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BoutonAffichage, FournisseurAffichage, FournisseurConsolide, FournisseurNoms, montantAffiche, useAffichageRetenu } from '../transaction/commun';
+import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, montantAffiche, useAffichageRetenu } from '../transaction/commun';
 import { CSS } from '../transaction/EcransTransaction';
 import { CarteAffaire, DetailAffaire, useColonnesNegociateurs, type HoteDetail, type VuePersonnelle } from '../transaction/OngletCompromis';
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import type { MesAffaires, VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
+import { CSS_NOUVEAU_COMPROMIS, NouveauCompromis } from './NouveauCompromis';
 
 /**
  * 🔴 MON ESPACE (Arno, 02/11/2026) — l'accueil de l'espace.
@@ -15,6 +16,8 @@ import type { MesAffaires, VenteMonEspace } from '../../../../lib/mon-espace/mes
  *     l'année) avec EXACTEMENT la carte et la fiche dépliée de la tuile Suivi CA (`CarteAffaire`, `DetailAffaire`), en vue personnelle : sans la
  *     commission de l'autre collègue, sans aucun geste (ils arrivent aux lots 5 à 7). Les listes montrent les ventes que le serveur a comptées
  *     pour moi (les mêmes identifiants que les compteurs), rien d'autre.
+ *   · LOT 5 : « + Nouveau compromis » (le parcours `NouveauCompromis`) ; enregistré, l'écran relit ses affaires et rouvre « Mes compromis en
+ *     cours », la nouvelle affaire en haut, dépliée.
  */
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
 type Onglet = 'compromis' | 'ventes';
@@ -36,6 +39,10 @@ export function MesCompteurs() {
   const [unite, setUnite] = useAffichageRetenu();
   const [onglet, setOnglet] = useState<Onglet>('compromis');
   const [annee, setAnnee] = useState<number | null>(null);
+  // 🔴 LOT 5 — le parcours de création ouvert ; l'affaire qui vient d'être créée (en haut, dépliée) ; le compteur de relecture.
+  const [parcours, setParcours] = useState(false);
+  const [nouvelle, setNouvelle] = useState<number | null>(null);
+  const [lecture, setLecture] = useState(0);
   const listes = useRef<HTMLDivElement>(null);
   useColonnesNegociateurs(listes);
   useEffect(() => {
@@ -48,7 +55,7 @@ export function MesCompteurs() {
       } catch { if (vivant) setLu({ etat: 'erreur' }); }
     })();
     return () => { vivant = false; };
-  }, []);
+  }, [lecture]);
   const data = lu.etat === 'ok' ? lu.data : null;
   const hote = useMemo((): HoteDetail | null => (data === null ? null : {
     d: { lotD: data.schema?.lotD ?? true, personneType: data.schema?.personneType ?? true, uniteCommission: data.schema?.uniteCommission ?? true,
@@ -70,22 +77,28 @@ export function MesCompteurs() {
   const anneeVue = annee ?? compteurs.actees.annee;
   const choixAnnees = [...new Set([compteurs.actees.annee, ...annees.map((a) => a.annee)])].sort((a, b) => b - a);
   const anneeChoisie = annees.find((a) => a.annee === anneeVue) ?? { annee: anneeVue, nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } };
-  const compromis = trierMesCompromis(des(compteurs.compromis.ids));
+  const tries = trierMesCompromis(des(compteurs.compromis.ids));
+  // 🔴 LOT 5 — l'affaire qui vient d'être créée : en haut, quelle que soit sa date de compromis.
+  const compromis = nouvelle === null ? tries : [...tries.filter((v) => v.id === nouvelle), ...tries.filter((v) => v.id !== nouvelle)];
   const ventes = trierMesVentes(des(anneeChoisie.ids));
   const ouvrir = (o: Onglet): void => { setOnglet(o); if (o === 'ventes') setAnnee(compteurs.actees.annee); };
   const personnel = (v: VenteMonEspace): VuePersonnelle => ({ mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const carte = (v: VenteMonEspace, section: 'compromis' | 'vente') => (
     <CarteAffaire key={v.id} v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={null} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
-      donnees={{ 'data-ma-vente': String(v.id) }}>
+      donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
     </CarteAffaire>
   );
   return (
-    <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurConsolide value>
+    <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value>
     <div className="mes-compteurs-bloc">
-      <style>{CSS}{CSS_MES_COMPTEURS}</style>
+      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}</style>
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
-      <div className="mes-compteurs-tete"><span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
+      <div className="mes-compteurs-tete">
+        {/* 🔴 LOT 5 — créer un compromis : structure, n° de mandat, vérification, puis le formulaire de la tuile Suivi CA. */}
+        {disponible && !parcours && <button type="button" className="svv-btn svv-btn-primary gst-btn mes-nouveau" onClick={() => setParcours(true)} data-nouveau-compromis-mon-espace>+ Nouveau compromis</button>}
+        <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
+      {parcours && <NouveauCompromis onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); setOnglet('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
       <div className="mes-compteurs">
         <button type="button" className="svv-card mes-compteur" aria-label={`Mes compromis en cours : ${nombre(compteurs.compromis.nb, 'compromis', 'compromis')}, ${total(compteurs.compromis)}`}
           aria-controls="mon-espace-listes" aria-pressed={onglet === 'compromis'} onClick={() => ouvrir('compromis')} data-compteur="compromis">
@@ -127,13 +140,14 @@ export function MesCompteurs() {
         </>}
       </div>
     </div>
-    </FournisseurConsolide></FournisseurAffichage></FournisseurNoms>
+    </FournisseurConsolide></FournisseurChangerAffichage></FournisseurAffichage></FournisseurNoms>
   );
 }
 
 // Les jetons de la charte seulement (Clair et Sombre) ; cibles de 44 px au moins ; une colonne sur téléphone.
 const CSS_MES_COMPTEURS = `
-.mes-compteurs-tete{display:flex;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
+.mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}
+.mes-compteurs-tete .mes-nouveau{margin-right:auto}
 .mes-compteurs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.75rem}
 .mes-compteur{display:flex;flex-direction:column;align-items:flex-start;gap:.4rem;min-height:44px;width:100%;text-align:left;cursor:pointer;font:inherit;color:var(--color-svv-ink);
   border:1px solid var(--color-svv-line);background:var(--color-svv-surface)}
