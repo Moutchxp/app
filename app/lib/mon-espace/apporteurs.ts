@@ -86,4 +86,6 @@ export function chercherApporteur(xs: readonly MonApporteur[], texte: string): M
 
 /** La réponse de GET /api/admin/mon-espace/apporteurs. */
 export interface MesApporteursLus { apporteurs: MonApporteur[]; collegues: { id: number; libelle: string }[]; titulaireId: number; administrateur: boolean;
-  utiliserDisponible: boolean; identite: boolean; nomPrenom: boolean }
+  utiliserDisponible: boolean; identite: boolean; nomPrenom: boolean;
+  /** 🔴 D26 — 419 (rémunération du collègue), 420 (« depuis toujours »), 422 (« Passer en interne ») : enregistrables ? Absents : non. */
+  avec419?: boolean; toujours?: boolean; passage?: boolean }

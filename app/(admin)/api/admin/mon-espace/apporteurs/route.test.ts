@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * 🔴 MON ESPACE, LOT 9 — la VRAIE route /api/admin/mon-espace/apporteurs, dépôt simulé : le titulaire est celui de la session (jamais du corps),
  * le 409 d'un doublon renvoie les fiches existantes, les actions inconnues et les ids illisibles sont refusés, un conflit de fiche reste un 409.
  */
-const h = vi.hoisted(() => ({ garde: vi.fn(), lire: vi.fn(), creer: vi.fn(), utiliser: vi.fn(), fiche: vi.fn(), doublons: vi.fn() }));
+const h = vi.hoisted(() => ({ garde: vi.fn(), lire: vi.fn(), creer: vi.fn(), utiliser: vi.fn(), fiche: vi.fn(), doublons: vi.fn(), geste: vi.fn() }));
 vi.mock('../../../../../lib/mon-espace/garde', () => ({ exigerMonEspace: h.garde }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 5, libelle: 'lea@x.fr' }) }));
 vi.mock('../../../../../lib/mon-espace/apporteursRepo', () => ({
-  lireMesApporteurs: h.lire, creerApporteurMonEspace: h.creer, utiliserApporteur: h.utiliser, modifierFicheMonEspace: h.fiche, doublonsDansLAnnuaire: h.doublons,
+  lireMesApporteurs: h.lire, creerApporteurMonEspace: h.creer, utiliserApporteur: h.utiliser, modifierFicheMonEspace: h.fiche, doublonsDansLAnnuaire: h.doublons, gesteAnnuaireMonEspace: h.geste,
 }));
 import { GET, POST } from './route';
 import { GET as GET_DOUBLONS } from './doublons/route';
@@ -25,6 +25,7 @@ beforeEach(() => {
   h.utiliser.mockReset().mockResolvedValue({ ok: true });
   h.fiche.mockReset().mockResolvedValue({ ok: true, data: { id: 1 } });
   h.doublons.mockReset().mockResolvedValue([DOUBLON]);
+  h.geste.mockReset().mockResolvedValue({ ok: true });
 });
 
 describe('🔴 /api/admin/mon-espace/apporteurs', () => {
@@ -51,6 +52,18 @@ describe('🔴 /api/admin/mon-espace/apporteurs', () => {
     h.fiche.mockResolvedValue({ ok: false, statut: 409, motif: 'conflit' });
     expect(await poster({ action: 'fiche', apporteurId: 1, fiche: {}, version: 'v1' })).toMatchObject({ status: 409, corps: { etat: 'conflit' } });
     expect(h.fiche).toHaveBeenLastCalledWith(5, 1, {}, 'v1', expect.anything());
+  });
+  it('🔴 D26 — rattachement, taux, rémunération : le compte de la SESSION, l’avertissement de création ; 403 et 409 tels quels', async () => {
+    expect(await poster({ action: 'rattachement', apporteurId: 3, collegueAvant: null, rattachement: { collegueId: 7 } })).toMatchObject({ status: 200, corps: { etat: 'ok' } });
+    expect(h.geste).toHaveBeenCalledWith(5, 3, 'rattachement', expect.objectContaining({ collegueAvant: null }), expect.anything());
+    await poster({ action: 'bareme-apporteur', apporteurId: 3, bareme: {} });
+    expect(h.geste).toHaveBeenLastCalledWith(5, 3, 'bareme-apporteur', expect.anything(), expect.anything());
+    h.geste.mockResolvedValue({ ok: false, statut: 403, motif: 'administrateur' });
+    expect((await poster({ action: 'remuneration-collegue', apporteurId: 3 })).status).toBe(403);
+    h.geste.mockResolvedValue({ ok: false, statut: 409, motif: 'changé' });
+    expect(await poster({ action: 'rattachement', apporteurId: 3 })).toMatchObject({ status: 409, corps: { etat: 'conflit' } });
+    h.creer.mockResolvedValue({ ok: true, id: 43, avertissement: 'Apporteur créé ; le reste…' });
+    expect(await poster({ action: 'creer', apporteur: {} })).toMatchObject({ corps: { data: { id: 43, avertissement: 'Apporteur créé ; le reste…' } } });
   });
   it('sans le droit « Mon espace » : le refus de la garde, rien n’est lu ni écrit', async () => {
     h.garde.mockResolvedValue({ refus: Response.json({ erreur: 'INTERDIT' }, { status: 403 }) });

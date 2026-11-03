@@ -29,7 +29,7 @@ export const MOT_RATTACHER_DABORD = 'Partenaire externe « à rattacher » : rat
 // ── « FICHE » ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Une liste de numéros ou d'adresses en plus du principal : ajouter, retirer. */
-function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string[]; onChange: (v: string[]) => void; mot: string; repere: string; mode: 'tel' | 'email' }) {
+export function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string[]; onChange: (v: string[]) => void; mot: string; repere: string; mode: 'tel' | 'email' }) {
   return (
     <div className="plo-champ" data-autres={repere}><span>{mot}</span>
       {valeurs.map((v, i) => (
@@ -53,7 +53,7 @@ function ListeAutres({ valeurs, onChange, mot, repere, mode }: { valeurs: string
  * choisissables, avec la mention), puis le récapitulatif, puis Confirmer / Revenir. Le serveur applique la règle du script
  * des apporteurs internes (`passerEnInterne`) et journalise.
  */
-function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Apporteur; comptes: readonly { id: number; libelle: string; actif?: boolean }[];
+export function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { a: Apporteur; comptes: readonly { id: number; libelle: string; actif?: boolean }[];
   apporteurs: readonly Apporteur[]; possible: boolean; onFait: (message: string) => void }) {
   const [ouvert, setOuvert] = useState(false);
   const [compte, setCompte] = useState('');

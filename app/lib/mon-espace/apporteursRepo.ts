@@ -4,8 +4,9 @@
 // e-mail) avant toute création, et qui peut modifier. Pas de `import 'server-only'` (même convention que les dépôts, lus par les épreuves).
 import { query } from '../db/client';
 import { apporteursUtilisesDisponible } from '../admin/schemaDroits';
-import { creerApporteur, enregistrerFicheApporteur, ficheIdentiteDisponible, lireApporteurs, lireComptesInterface, nomPrenomDisponible } from '../location/suivi/suiviRepo';
-import { aujourdhuiParis } from '../location/suivi/suivi';
+import { ajouterBaremeApporteur, ajouterRemunerationCollegue, creerApporteur, enregistrerFicheApporteur, enregistrerRattachement, ficheIdentiteDisponible, interneDisponible, lireApporteurs,
+  lireComptesInterface, nomPrenomDisponible, passageDisponible, toujoursDisponible } from '../location/suivi/suiviRepo';
+import { aujourdhuiParis, collegueADate } from '../location/suivi/suivi';
 import type { Auteur } from '../gestion/gestes';
 import { lireRetrocessions, lireVentes, transactionDisponible } from '../transaction/repo';
 import { parApporteur } from '../transaction/modele';
@@ -38,7 +39,9 @@ export async function lireMesApporteurs(compteId: number): Promise<MesApporteurs
     idsSurMesVentes: new Set(miennes.flatMap((v) => (v.dossier?.apporteurId == null ? [] : [v.dossier.apporteurId]))),
     nomsSurMesVentes: new Set([...miennes.flatMap((v) => (v.apporteur == null ? [] : [v.apporteur])), ...mesRetros.flatMap((r) => (r.apporteur == null ? [] : [r.apporteur]))]) });
   return { apporteurs, collegues: comptes.filter((c) => c.actif !== false).map((c) => ({ id: c.id, libelle: c.libelle })), titulaireId: compteId, administrateur,
-    utiliserDisponible: await apporteursUtilisesDisponible(), identite: await ficheIdentiteDisponible(), nomPrenom: await nomPrenomDisponible() };
+    utiliserDisponible: await apporteursUtilisesDisponible(), identite: await ficheIdentiteDisponible(), nomPrenom: await nomPrenomDisponible(),
+    // 🔴 D26 — les mises à jour de la base dont dépendent le rattachement, la rémunération du collègue et « Passer en interne » (comme la Location).
+    avec419: await interneDisponible(), toujours: await toujoursDisponible(), passage: await passageDisponible() };
 }
 
 /** Les doublons d'une saisie, sur TOUT l'annuaire (côté serveur) : « Cet apporteur existe déjà, rattaché à … ». LECTURE SEULE. */
@@ -56,7 +59,7 @@ const unParUn = <T>(f: () => Promise<T>): Promise<T> => { const r = file.then(f,
  * rattaché par défaut au titulaire ; puis `creerApporteur` de la Location, tel quel. L'apporteur créé est aussi « utilisé » par le titulaire (450).
  */
 export async function creerApporteurMonEspace(compteId: number, brut: Record<string, unknown>, auteur: Auteur):
-  Promise<{ ok: true; id: number } | { ok: false; statut: 409 | 422; motif: string; doublons?: Doublon[] }> {
+  Promise<{ ok: true; id: number; avertissement?: string } | { ok: false; statut: 409 | 422; motif: string; doublons?: Doublon[] }> {
   return unParUn(async () => {
     const interne = brut.interne === true;
     const nomComplet = String(brut.nom ?? '').trim();
@@ -74,6 +77,13 @@ export async function creerApporteurMonEspace(compteId: number, brut: Record<str
         return { ok: false, statut: 422, motif: 'motif' in r && typeof r.motif === 'string' ? r.motif : 'Création refusée.' } as const;
       }
       await utiliserApporteur(compteId, r.data.id, auteur);
+      // 🔴 D26 (Arno, 03/11/2026) — le formulaire de création est celui de la fiche : civilité, nom / prénom, autres téléphones et e-mails, adresse,
+      // notes s'enregistrent aussitôt, par la fonction de la Location (journal, garde de version) — l'apporteur, lui, est créé quoi qu'il arrive.
+      if (!interne && brut.fiche != null && typeof brut.fiche === 'object') {
+        const cree = (await lireApporteurs()).find((x) => x.id === r.data!.id);
+        const f = await enregistrerFicheApporteur(r.data.id, { fiche: brut.fiche, version: cree?.version ?? null }, auteur);
+        if (f.etat !== 'ok') return { ok: true, id: r.data.id, avertissement: `Apporteur créé ; le reste de sa fiche n’a pas été enregistré : ${'motif' in f ? f.motif : 'refus'}` } as const;
+      }
       return { ok: true, id: r.data.id } as const;
     } catch (e) {
       if ((e as { code?: string }).code === '23505') {
@@ -106,4 +116,29 @@ export async function modifierFicheMonEspace(compteId: number, apporteurId: numb
   const r = await enregistrerFicheApporteur(apporteurId, { fiche, version }, auteur);
   if (r.etat === 'ok') return { ok: true, data: r.data };
   return { ok: false, statut: r.etat === 'conflit' ? 409 : 422, motif: 'motif' in r && typeof r.motif === 'string' ? r.motif : 'Enregistrement refusé.' };
+}
+
+/**
+ * 🔴 D26 (Arno, 03/11/2026) — LE RATTACHEMENT, LA RÉMUNÉRATION DU COLLÈGUE ET LE TAUX DEPUIS LA FICHE DE « MON ESPACE ». Mêmes droits que la Location,
+ * où ces gestes sont réservés aux ADMINISTRATEURS (`ACTIONS_ADMIN` de la route du suivi) : jamais élargis ici. Puis les fonctions de la Location,
+ * telles quelles (une transaction, journal). Garde de version du rattachement : `collegueAvant` (le collègue lu à l'ouverture de la fiche, null :
+ * « à rattacher ») doit être celui d'aujourd'hui, sinon 409 — rien n'est écrit.
+ */
+export type GesteAnnuaire = 'rattachement' | 'bareme-apporteur' | 'remuneration-collegue';
+export const MOT_RATTACHEMENT_ADMIN = 'Le collègue rattaché, sa rémunération et le taux d’un apporteur se modifient par un administrateur (comme dans la Location).';
+export async function gesteAnnuaireMonEspace(compteId: number, apporteurId: number, geste: GesteAnnuaire, corps: Record<string, unknown>, auteur: Auteur):
+  Promise<{ ok: true } | { ok: false; statut: 403 | 404 | 409 | 422; motif: string }> {
+  if (!(await estAdministrateur(compteId))) return { ok: false, statut: 403, motif: MOT_RATTACHEMENT_ADMIN };
+  const a = (await lireApporteurs()).find((x) => x.id === apporteurId && !x.archive);
+  if (a === undefined) return { ok: false, statut: 404, motif: 'Apporteur inconnu.' };
+  if (geste === 'rattachement' && 'collegueAvant' in corps) {
+    const actuel = collegueADate(a, aujourdhuiParis())?.collegueId ?? null;
+    const lu = corps.collegueAvant == null ? null : Number(corps.collegueAvant);
+    if (actuel !== lu) return { ok: false, statut: 409, motif: 'Le collègue rattaché de cet apporteur a changé depuis l’ouverture de la fiche : rechargez-la, puis recommencez.' };
+  }
+  const r = geste === 'rattachement' ? await enregistrerRattachement(apporteurId, corps.rattachement, auteur)
+    : geste === 'bareme-apporteur' ? await ajouterBaremeApporteur(apporteurId, corps.bareme, auteur)
+      : await ajouterRemunerationCollegue(apporteurId, corps.remuneration, auteur);
+  if (r.etat === 'ok') return { ok: true };
+  return { ok: false, statut: 422, motif: 'motif' in r && typeof r.motif === 'string' ? r.motif : 'Enregistrement refusé.' };
 }

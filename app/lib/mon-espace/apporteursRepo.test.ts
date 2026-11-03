@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const h = vi.hoisted(() => ({
   annuaire: [] as Record<string, unknown>[], creer: vi.fn(), fiche: vi.fn(), requetes: [] as string[], admin: false, a450: true,
+  rattachement: vi.fn(), bareme: vi.fn(), remuneration: vi.fn(),
 }));
 vi.mock('../db/client', () => ({ query: async (sql: string) => { h.requetes.push(sql); return { rows: [{ n: 1 }] }; } }));
 vi.mock('../admin/schemaDroits', () => ({ apporteursUtilisesDisponible: async () => h.a450 }));
@@ -14,10 +15,12 @@ vi.mock('./compteRepo', () => ({ estAdministrateur: async () => h.admin }));
 vi.mock('../location/suivi/suiviRepo', () => ({
   lireApporteurs: async () => h.annuaire, creerApporteur: h.creer, enregistrerFicheApporteur: h.fiche,
   lireComptesInterface: async () => [], ficheIdentiteDisponible: async () => true, nomPrenomDisponible: async () => true,
+  enregistrerRattachement: h.rattachement, ajouterBaremeApporteur: h.bareme, ajouterRemunerationCollegue: h.remuneration,
+  interneDisponible: async () => true, toujoursDisponible: async () => true, passageDisponible: async () => true,
 }));
 vi.mock('../transaction/repo', () => ({ lireVentes: async () => [], lireRetrocessions: async () => [], transactionDisponible: async () => true }));
 vi.mock('./mesAffairesRepo', () => ({ moiDansLesVentes: async () => ({ ids: new Set(), libelles: new Set() }) }));
-import { creerApporteurMonEspace, modifierFicheMonEspace, utiliserApporteur } from './apporteursRepo';
+import { creerApporteurMonEspace, gesteAnnuaireMonEspace, modifierFicheMonEspace, utiliserApporteur } from './apporteursRepo';
 
 const AUTEUR = { id: 5, libelle: 'lea@x.fr' };
 const fiche = (id: number, nom: string, o: Record<string, unknown> = {}) => ({ id, nom, type: 'partenaire', baremes: [], archive: false, collegues: [], ...o });
@@ -31,6 +34,7 @@ beforeEach(() => {
     return { etat: 'ok', data: { id } };
   });
   h.fiche.mockReset().mockResolvedValue({ etat: 'ok', data: { id: 1 } });
+  for (const f of [h.rattachement, h.bareme, h.remuneration]) f.mockReset().mockResolvedValue({ etat: 'ok' });
 });
 
 describe('🔴 créer depuis « Mon espace » : jamais un doublon', () => {
@@ -86,5 +90,44 @@ describe('🔴 « L’utiliser » et modifier la fiche', () => {
     h.fiche.mockResolvedValue({ etat: 'conflit', motif: 'Un collègue vient de modifier cette fiche.' });
     expect(await modifierFicheMonEspace(5, 1, { nom: 'X' }, 'v0', AUTEUR)).toMatchObject({ ok: false, statut: 409 });
     expect(await modifierFicheMonEspace(5, 999, {}, null, AUTEUR)).toMatchObject({ ok: false, statut: 404 });
+  });
+});
+
+describe('🔴 D26 — la fiche de « Mon espace » : création complète, rattachement, taux (mêmes fonctions que la Location, mêmes droits)', () => {
+  it('création : le reste de la fiche (civilité, adresse, notes…) part aussitôt par la fonction de la Location, avec la version lue', async () => {
+    const fiche = { nomFamille: 'NOUVELLE', prenom: 'Zoé', adresse: '3 rue des Lilas', type: 'partenaire' };
+    const r = await creerApporteurMonEspace(5, { nom: 'Zoé NOUVELLE', telephone: '0699999999', fiche }, AUTEUR);
+    expect(r).toEqual({ ok: true, id: 101 });
+    expect(h.fiche).toHaveBeenCalledWith(101, { fiche, version: null }, AUTEUR);
+  });
+  it('création : la fiche refusée n’empêche pas l’apporteur d’exister — un avertissement le dit', async () => {
+    h.fiche.mockResolvedValue({ etat: 'refus', motif: 'L’e-mail « x » est mal écrit.' });
+    expect(await creerApporteurMonEspace(5, { nom: 'Zoé NOUVELLE', fiche: { type: 'partenaire' } }, AUTEUR))
+      .toMatchObject({ ok: true, id: 101, avertissement: expect.stringContaining('mal écrit') });
+  });
+  it('rattachement, taux, rémunération : un administrateur seulement (comme la Location) — 403 sinon, rien n’est écrit', async () => {
+    for (const g of ['rattachement', 'bareme-apporteur', 'remuneration-collegue'] as const) {
+      expect(await gesteAnnuaireMonEspace(7, 1, g, {}, AUTEUR)).toMatchObject({ ok: false, statut: 403 });
+    }
+    expect(h.rattachement).not.toHaveBeenCalled(); expect(h.bareme).not.toHaveBeenCalled(); expect(h.remuneration).not.toHaveBeenCalled();
+  });
+  it('administrateur : le rattachement passe par `enregistrerRattachement` (la fonction de la Location : même table, même journal)', async () => {
+    h.admin = true;
+    const rattachement = { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-03', remuneration: { remunere: false } };
+    expect(await gesteAnnuaireMonEspace(9, 1, 'rattachement', { collegueAvant: 7, rattachement }, AUTEUR)).toEqual({ ok: true });
+    expect(h.rattachement).toHaveBeenCalledWith(1, rattachement, AUTEUR);
+    await gesteAnnuaireMonEspace(9, 1, 'bareme-apporteur', { bareme: { taux: 3 } }, AUTEUR);
+    expect(h.bareme).toHaveBeenCalledWith(1, { taux: 3 }, AUTEUR);
+    await gesteAnnuaireMonEspace(9, 1, 'remuneration-collegue', { remuneration: { remunere: true } }, AUTEUR);
+    expect(h.remuneration).toHaveBeenCalledWith(1, { remunere: true }, AUTEUR);
+  });
+  it('écriture périmée : le collègue lu à l’ouverture n’est plus celui d’aujourd’hui → 409, rien n’est écrit ; un refus de la Location → 422', async () => {
+    h.admin = true;
+    expect(await gesteAnnuaireMonEspace(9, 1, 'rattachement', { collegueAvant: null, rattachement: {} }, AUTEUR)).toMatchObject({ ok: false, statut: 409 });
+    expect(await gesteAnnuaireMonEspace(9, 1, 'rattachement', { collegueAvant: 5, rattachement: {} }, AUTEUR)).toMatchObject({ ok: false, statut: 409 });
+    expect(h.rattachement).not.toHaveBeenCalled();
+    h.rattachement.mockResolvedValue({ etat: 'refus', motif: 'Un rattachement existe déjà à cette date.' });
+    expect(await gesteAnnuaireMonEspace(9, 1, 'rattachement', { collegueAvant: 7, rattachement: {} }, AUTEUR)).toEqual({ ok: false, statut: 422, motif: 'Un rattachement existe déjà à cette date.' });
+    expect(await gesteAnnuaireMonEspace(9, 999, 'rattachement', {}, AUTEUR)).toMatchObject({ ok: false, statut: 404 });
   });
 });

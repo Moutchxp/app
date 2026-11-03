@@ -317,3 +317,36 @@ part) et 7 (un négociateur par côté). Aucune question ouverte.
 - Le graphique du CA global est le MÊME composant que celui de Mon espace › « Les coûts » (`GrapheGlobal`) : la décision D25 s'y applique (ligne
   « Famille » Vente | Location | Gestion avec case d'inclusion et compteur, liste des coûts par famille, « Tout / Aucun » par famille, plus de
   « Tout / Aucun » global, ligne « Activité » fusionnée). Aucun calcul touché. Détail : `docs/PLAN_MON_ESPACE_COUTS.md`, section D25.
+
+## 🔴 D26 (Arno, 03/11/2026) — Fiche apporteur : rattachement modifiable, formulaire refait, tout modifiable
+
+- **Constat** (fiche BEAUCOURT Mme) : « Modifier la fiche » de « Mes apporteurs » s'affichait cassé (libellés collés à leur valeur, aucune case
+  visible, l'aide mêlée aux libellés, « Autres téléphones+ Ajouter » collés). **Cause** : le formulaire posé dans la carte (`PanneauFiche`) est stylé
+  par la feuille de la Location (`.plo-champ`, `.plo-grille`… dans `CSS_PARAMETRES` / `CSS_ONGLETS_SUIVI`), jamais chargée dans « Mon espace ».
+  **Correction** : la nouvelle fenêtre charge ces feuilles (la cause, pas un rapiéçage champ par champ). Mesuré au banc : avant, cinq champs sans case
+  et des libellés AU MÊME NIVEAU que leur valeur ; après, chaque libellé 4 px au-dessus de sa case, aucun débordement à 390 px.
+- **Une fenêtre, la même pour créer et pour modifier** (`mon-espace/FicheApporteurFenetre.tsx`), hors de la carte (plein écran au téléphone), sections
+  titrées, grille 2 colonnes (1 à 390 px), libellé au-dessus de chaque champ :
+  1. Identité : Externe / Interne (création ; en modification d'un externe, « Passer en interne » pour un administrateur — le geste de la Location) ·
+     Civilité · Catégorie (partenaire, agence…) · Nom · Prénom (aide courte + picto « i ») · Société ;
+  2. Contact : téléphone et e-mail principaux, autres téléphones et e-mails (« + Ajouter » sur sa ligne), adresse ;
+  3. Rattachement et rémunération : le collègue rattaché (collaborateurs actifs ; création : moi par défaut, modifiable) ; s'il change : « À partir
+     du » (ou « Depuis toujours » pour un « à rattacher ») et la question OBLIGATOIRE « touche-t-il des honoraires ? » (règle de la Location du
+     24/10/2026) ; le taux de l'apporteur et la rémunération du collègue EN VIGUEUR, et les panneaux de la Location pour les modifier ;
+  4. Notes.
+  Pied : « Annuler » + « Enregistrer » (actif dès qu'un champ change), puis le récapitulatif des champs modifiés (gardé : rien ne disparaît) et
+  « Confirmer » ; message d'erreur ou de succès lisible ; un 409 propose « Recharger ».
+- **Une seule source** : l'annuaire de la Location (`gestion_location_apporteur`), aucune copie ; les mêmes fonctions serveur (`creerApporteur`,
+  `enregistrerFicheApporteur`, `enregistrerRattachement`, `ajouterBaremeApporteur`, `ajouterRemunerationCollegue`) : même journal, même garde de
+  version (409) pour la fiche ; pour le rattachement, garde 409 ajoutée côté « Mon espace » (le collègue lu à l'ouverture doit être celui
+  d'aujourd'hui). Une modification ici se voit partout (carte, Location, compromis).
+- **Création** : tous les champs partent avec la création (civilité, adresse, notes… enregistrés aussitôt par `enregistrerFicheApporteur`) ; si ce
+  complément était refusé, l'apporteur existe quand même et un avertissement le dit. Zéro doublon et « L'utiliser » : inchangés.
+- **Droits — vérifiés, NON élargis** : l'identité : son collègue de rattachement, l'apporteur interne lui-même, un administrateur (inchangé) ; le
+  collègue rattaché, la rémunération du collègue et le taux : un ADMINISTRATEUR (comme dans la Location, où ces gestes sont réservés aux
+  administrateurs) — un non-administrateur les voit en lecture, avec la mention. Conséquence à connaître : un apporteur « à rattacher » ne se
+  rattache que par un administrateur (il n'a pas de collègue, donc personne d'autre ne peut modifier sa fiche). À la création, chacun choisit le
+  collègue (comme avant).
+- Aucune migration : tous les champs existent (406, 407, 414, 419-422).
+- Le formulaire « Nouvel apporteur » de la Transaction (choix de l'apporteur d'un compromis) et la fiche de la Location : inchangés.
+- Captures avant / après (1 440 × 900 et 390 px, clair et sombre ; modifier, « à rattacher », création) : `.captures/fiche-apporteur-fenetre/`.

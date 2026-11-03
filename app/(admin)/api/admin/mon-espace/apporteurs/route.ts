@@ -1,5 +1,5 @@
 import { exigerMonEspace } from '../../../../../lib/mon-espace/garde';
-import { creerApporteurMonEspace, lireMesApporteurs, modifierFicheMonEspace, utiliserApporteur } from '../../../../../lib/mon-espace/apporteursRepo';
+import { creerApporteurMonEspace, gesteAnnuaireMonEspace, lireMesApporteurs, modifierFicheMonEspace, utiliserApporteur } from '../../../../../lib/mon-espace/apporteursRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 
 /**
@@ -8,6 +8,8 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
  *   POST { action: 'creer', apporteur } : JAMAIS un doublon (409 avec les fiches existantes), puis la création de la Location ;
  *   POST { action: 'utiliser', apporteurId } : « L'utiliser » (migration 450) ;
  *   POST { action: 'fiche', apporteurId, fiche, version } : modifier la fiche (collègue de rattachement ou administrateur ; 403 sinon ; 409 conflit).
+ *   🔴 D26 — POST { action: 'rattachement', apporteurId, collegueAvant, rattachement } / 'bareme-apporteur' { bareme } / 'remuneration-collegue'
+ *   { remuneration } : le collègue rattaché, sa rémunération, le taux — ADMINISTRATEURS (comme la Location ; 403 sinon), 409 si le collègue a changé.
  * Droit « Mon espace » (proxy, puis relu en base). Jamais mise en cache.
  */
 export const runtime = 'nodejs';
@@ -37,7 +39,8 @@ export async function POST(request: Request): Promise<Response> {
     const auteur = await auteurDeLaRequete(request);
     if (corps.action === 'creer') {
       const r = await creerApporteurMonEspace(garde.auteurId, (corps.apporteur ?? {}) as Record<string, unknown>, auteur);
-      return r.ok ? json({ etat: 'ok', data: { id: r.id } }) : json({ etat: 'refus', motif: r.motif, ...(r.doublons ? { doublons: r.doublons } : {}) }, r.statut);
+      return r.ok ? json({ etat: 'ok', data: { id: r.id, ...(r.avertissement ? { avertissement: r.avertissement } : {}) } })
+        : json({ etat: 'refus', motif: r.motif, ...(r.doublons ? { doublons: r.doublons } : {}) }, r.statut);
     }
     if (!Number.isInteger(id) || id <= 0) return json({ etat: 'refus', motif: 'Apporteur inconnu.' }, 400);
     if (corps.action === 'utiliser') {
@@ -47,6 +50,10 @@ export async function POST(request: Request): Promise<Response> {
     if (corps.action === 'fiche') {
       const r = await modifierFicheMonEspace(garde.auteurId, id, corps.fiche, typeof corps.version === 'string' ? corps.version : null, auteur);
       return r.ok ? json({ etat: 'ok', data: r.data }) : json({ etat: r.statut === 409 ? 'conflit' : 'refus', motif: r.motif }, r.statut);
+    }
+    if (corps.action === 'rattachement' || corps.action === 'bareme-apporteur' || corps.action === 'remuneration-collegue') {
+      const r = await gesteAnnuaireMonEspace(garde.auteurId, id, corps.action, corps, auteur);
+      return r.ok ? json({ etat: 'ok', data: null }) : json({ etat: r.statut === 409 ? 'conflit' : 'refus', motif: r.motif }, r.statut);
     }
     return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);
   } catch (e) {

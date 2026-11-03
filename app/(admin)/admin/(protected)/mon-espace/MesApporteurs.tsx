@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { montantAffiche, useAffichage } from '../transaction/commun';
-import { NouvelApporteur } from '../transaction/NouvelApporteur';
-import { CSS_PANNEAUX_APPORTEUR, PanneauFiche } from '../location/PanneauxApporteur';
+import { CSS_PANNEAUX_APPORTEUR } from '../location/PanneauxApporteur';
+import { FicheApporteurFenetre } from './FicheApporteurFenetre';
 import { chercherApporteur, type Doublon, type MesApporteursLus } from '../../../../lib/mon-espace/apporteurs';
 
 /**
@@ -12,15 +12,17 @@ import { chercherApporteur, type Doublon, type MesApporteursLus } from '../../..
  * tous). Pour chacun : ses coordonnées, son collègue de rattachement, ses ventes et le CA apporté sur MES ventes (`parApporteur`, comme le Suivi
  * CA) ; la recherche (nom, téléphone, e-mail) ; « Modifier la fiche » (son collègue de rattachement ou un administrateur : la fiche de la
  * Location, journalisée, garde de version) ; « + Nouvel apporteur » (le formulaire existant ; zéro doublon : « L'utiliser »).
+ * 🔴 D26 (Arno, 03/11/2026) — créer ET modifier passent par la MÊME fenêtre (`FicheApporteurFenetre`) : tous les champs, le collègue rattaché,
+ * le taux et la rémunération ; la fiche posée dans la carte (cassée ici, faute des styles de la Location) est remplacée par cette fenêtre.
  */
 export const URL_APPORTEURS = '/api/admin/mon-espace/apporteurs';
 
 /** Envoie un geste sur un apporteur ; rend le motif d'un refus (null : accepté), l'état et ce que le serveur renvoie. */
-export async function posterApporteur(corps: Record<string, unknown>): Promise<{ motif: string | null; etat?: string; data?: { id?: number } | null;
+export async function posterApporteur(corps: Record<string, unknown>): Promise<{ motif: string | null; etat?: string; data?: { id?: number; avertissement?: string } | null;
   doublons?: Doublon[] }> {
   try {
     const r = await fetch(URL_APPORTEURS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-    const d = (await r.json()) as { etat?: string; motif?: string; message?: string; data?: { id?: number } | null; doublons?: Doublon[] };
+    const d = (await r.json()) as { etat?: string; motif?: string; message?: string; data?: { id?: number; avertissement?: string } | null; doublons?: Doublon[] };
     return d.etat === 'ok' ? { motif: null, data: d.data } : { motif: d.motif ?? d.message ?? 'Enregistrement refusé.', etat: d.etat, doublons: d.doublons };
   } catch {
     return { motif: 'Enregistrement impossible : le serveur n’a pas répondu.' };
@@ -50,6 +52,7 @@ export function MesApporteurs() {
   if (lu === 'erreur') return <p className="loc-alerte loc-alerte--orange" role="alert" data-apporteurs-erreur>Vos apporteurs n’ont pas pu être lus. Rechargez la page.</p>;
   const relire = (m?: string): void => { setMessage(m ?? null); setLecture((x) => x + 1); };
   const liste = chercherApporteur(lu.apporteurs, texte);
+  const ouverte = fiche === null ? undefined : lu.apporteurs.find((a) => a.id === fiche && a.modifiable);
   const montant = (ht: number): string => montantAffiche(u, ht, ht * 1.2);
   return (
     <div className="mes-apporteurs" data-mes-apporteurs>
@@ -59,10 +62,11 @@ export function MesApporteurs() {
           <input type="search" value={texte} onChange={(e) => setTexte(e.target.value)} data-recherche-apporteur /></label>
         {!nouveau && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setNouveau(true); setMessage(null); }} data-nouvel-apporteur-mon-espace>+ Nouvel apporteur</button>}
       </div>
-      {nouveau && <NouvelApporteur texte={texte} annuaire={lu.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, libelle: a.libelle, recherche: a.recherche }))}
-        collegues={lu.collegues} onFermer={() => setNouveau(false)}
+      {nouveau && <FicheApporteurFenetre lu={lu} texte={texte} envoyer={posterApporteur} onFermer={() => setNouveau(false)}
         onChoisir={() => { setNouveau(false); setMessage('Cet apporteur est déjà dans votre liste.'); }}
-        onCree={(a) => { setNouveau(false); relire(`« ${a.libelle ?? a.nom} » est dans votre liste.`); }} />}
+        onEnregistre={(m) => { setNouveau(false); relire(m); }} />}
+      {ouverte !== undefined && <FicheApporteurFenetre key={ouverte.id} a={ouverte.fiche} lu={lu} envoyer={posterApporteur} onFermer={() => setFiche(null)}
+        onEnregistre={(m) => { setFiche(null); relire(m); }} onRelire={() => setLecture((x) => x + 1)} />}
       {message !== null && <p className="mes-mise-a-jour" role="status" data-message-apporteurs>{message}</p>}
       {!lu.utiliserDisponible && <p className="loc-muet" data-utiliser-indisponible>« L’utiliser » garde un apporteur existant dans votre liste après la mise à jour de la base (migration 450) ;
         d’ici là, il se choisit dans le compromis.</p>}
@@ -81,11 +85,8 @@ export function MesApporteurs() {
               <p className="loc-muet" data-apporteur-collegue>{a.interne ? 'Apporteur interne (son compte de l’interface)' : `Collègue de rattachement : ${a.collegue ?? 'à rattacher'}`}</p>
               <p className="mes-apporteur-chiffres" data-apporteur-chiffres>Sur vos ventes : {a.nbVentes} vente{a.nbVentes > 1 ? 's' : ''} — CA apporté {montant(a.caApporteHt)}
                 {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge">{montant(a.retroHt)}</span></>}</p>
-              {a.modifiable && (fiche === a.id
-                ? <PanneauFiche a={a.fiche} nomPrenom={lu.nomPrenom} identite={lu.identite} orphelin={!a.interne && a.collegue === null} sansPassage
-                  envoyer={(c) => posterApporteur({ action: 'fiche', apporteurId: c.apporteurId, fiche: c.fiche, version: c.version })}
-                  onEnregistre={(m) => { setFiche(null); relire(m); }} />
-                : <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFiche(a.id)} data-modifier-apporteur={a.id}>Modifier la fiche</button>)}
+              {a.modifiable && <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-haspopup="dialog" onClick={() => { setFiche(a.id); setMessage(null); }}
+                data-modifier-apporteur={a.id}>Modifier la fiche</button>}
             </li>
           ))}
         </ul>
