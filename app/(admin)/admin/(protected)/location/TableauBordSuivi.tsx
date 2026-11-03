@@ -1021,6 +1021,15 @@ function LegendeHisto({ legende, courant, n1 }: { legende: { courant: string; n1
   );
 }
 
+/**
+ * 🔴 D34 (Arno, 03/11/2026) — LE MOT DU NOMBRE D'UN BLOC : « Ventes + compromis » seulement pour l'année EN COURS (ses compromis sont en cours) ;
+ * une autre année (le bloc d'une année passée, ou N−1) : « Ventes » (« Ventes + compromis (cumul) » → « Ventes (cumul) »). Texte seul : aucun
+ * nombre ne change. `libelle` : l'année du bloc (« 2025 ») ; un autre libellé : le mot tel quel. PUR.
+ */
+export function motNombreDeLAnnee(mot: string, libelle: string, anneeEnCours: number): string {
+  const a = libelle.trim();
+  return /^\d{4}$/.test(a) && Number(a) !== anneeEnCours ? mot.replace(/^Ventes \+ compromis/, 'Ventes') : mot;
+}
 /** La bulle d'une barre : l'en-tête, l'année affichée (rouge), N−1 (gris), l'écart (coloré par son signe) — ou « N−1 non importée ». */
 export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boolean }) {
   if (info.compte !== undefined) return <BulleCompte info={info} sous={sous} />;
@@ -1034,7 +1043,7 @@ export function BulleBarre({ info, sous = false }: { info: InfoBarre; sous?: boo
           {x.parts?.filter((p) => p.ca !== 0).map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{eur(p.ca)}</span></p>)}
           <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? info.motCa ?? 'CA HT' : `Total ${(info.motCa ?? 'CA HT').replace(/^CA /, '')}`}</span><span className="tdb-bulle-montant">{eur(x.ca)}
             {info.autre !== undefined && <small className="tdb-bulle-autre" data-bulle-autre> ({eur(x.caAutre ?? x.ca * info.autre.facteur)} {info.autre.mot})</small>}</span></p>
-          {info.sansNombre !== true && <p className="tdb-bulle-ligne"><span>{info.motNb ?? 'Baux'}</span><span className="tdb-bulle-montant">{x.nb}</span></p>}
+          {info.sansNombre !== true && <p className="tdb-bulle-ligne"><span data-mot-nombre>{motNombreDeLAnnee(info.motNb ?? 'Baux', x.libelle, Number(aujourdhuiParis().slice(0, 4)))}</span><span className="tdb-bulle-montant">{x.nb}</span></p>}
         </>
       )}
     </div>
@@ -1091,7 +1100,7 @@ function BulleCompte({ info, sous }: { info: InfoBarre; sous: boolean }) {
       <p className="tdb-bulle-annee">{x.libelle}</p>
       {x.ca === null ? <p className="tdb-bulle-ligne"><span>À venir</span></p>
         : <>{x.parts?.filter((p) => p.ca !== 0).map((p) => <p key={p.mot} className="tdb-bulle-ligne tdb-bulle-part" data-bulle-part={p.mot}><span>{p.mot}</span><span className="tdb-bulle-montant">{p.ca}</span></p>)}
-          <p className="tdb-bulle-ligne"><span>{x.parts === undefined ? mot : 'Total'}</span><span className="tdb-bulle-montant">{x.ca}</span></p></>}
+          <p className="tdb-bulle-ligne"><span data-mot-nombre>{x.parts === undefined ? motNombreDeLAnnee(mot, x.libelle, Number(aujourdhuiParis().slice(0, 4))) : 'Total'}</span><span className="tdb-bulle-montant">{x.ca}</span></p></>}
     </div>
   );
   return (

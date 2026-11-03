@@ -1643,6 +1643,8 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     await act(async () => { container.querySelector('[data-bloc="histogramme-mois"] [data-barre-mois="1"]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); }); // 🔴 LOT CV : l'encadré au repos montre le mois en cours ; janvier se survole
     expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="courant"] .tdb-bulle-ligne')].map((p) => p.textContent!.replace(/\s/g, ' ')))
       .toEqual(['Vendu9 187,50 €', 'Compromis5 000,00 €', 'Total HT14 187,50 € (17 025,00 € TTC)', 'Ventes + compromis2']);
+    // 🔴 D34 (Arno, 03/11/2026) — l'année en cours (2025 à l'horloge) : « Ventes + compromis » ; N−1 (2024, une année passée) : « Ventes » — mêmes nombres
+    expect([...container.querySelectorAll('[data-histo-detail] [data-bulle-bloc="n1"] [data-mot-nombre]')].map((p) => `${p.textContent}${p.nextElementSibling?.textContent}`)).toEqual(['Ventes1']);
     expect(container.querySelector('[data-legende-empile]')).not.toBeNull();
   });
 
@@ -4554,3 +4556,4 @@ describe('🔴 D33 (Arno, 03/11/2026) — graphique « Mois par mois » : « Act
     expect(graphe().querySelector('[data-liste-collaborateurs]')).toBeNull();
   });
 });
+

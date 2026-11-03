@@ -514,3 +514,11 @@ Le même composant (`FormulaireDossier`) dans le Suivi CA et dans Mon espace ; a
   gestion récurrente, collègues apporteurs) ne sont déduits que si toute l'activité est cochée (collaborateurs et « Non attribué ») ; sinon une
   mention sous le graphique. Aucun montant nouveau n'est envoyé au navigateur (les comptes, leurs fonctions et structures seulement).
 - Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre ; « CA net » filtré) : `.captures/graphe-collaborateurs/`.
+
+## 🔴 D34 (Arno, 03/11/2026) — « Ventes + compromis » seulement pour l'année en cours (texte seul)
+
+- Dans le panneau de détail des graphiques (Mon espace : Mois, Année(s) ; le Suivi CA : toutes les pages qui l'utilisent — le même composant,
+  `BulleBarre`), la ligne du nombre d'une année qui n'est PAS l'année en cours dit « Ventes » ; l'année en cours garde « Ventes + compromis »
+  (« … (cumul) » aussi). Règle unique : `motNombreDeLAnnee` (année du bloc ≠ année en cours → « Ventes »). Aucun nombre, aucun calcul changé.
+- Exemple (FUSION, base du 03/11/2026) : panneau « 2023 » → 2023 « Ventes 38 », 2022 « Ventes 47 » ; panneau « 2026 » → 2026 « Ventes + compromis
+  27 », 2025 « Ventes 40 ». Captures avant / après (1 440 × 900) : `.captures/libelle-ventes-compromis/`.
