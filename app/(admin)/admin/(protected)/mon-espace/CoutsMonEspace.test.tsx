@@ -417,3 +417,49 @@ describe('🔴 R2 / D22 (Arno, 03/11/2026)', () => {
     expect(posts).toEqual([{ action: 'ligne-ajouter', ligne: { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10, compteId: null, libelle: 'Assurance', montantHt: 100, tva: false } }]);
   });
 });
+
+describe('🔴 D23 / D24 (Arno, 03/11/2026) — un seul rappel ; le formulaire du mois, compact et séparé par activité', () => {
+  const LIGNES = [{ id: 31, societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 3, compteLibelle: 'Bruno', libelle: null, montantHt: 2100.5, tva: false, version: 8 },
+    { id: 33, societe: 'criterimmo', famille: 'vente', poste: 'autres', annee: 2026, mois: 10, compteId: null, compteLibelle: null, libelle: 'Portail', montantHt: 349, tva: true, version: 9 }];
+  beforeEach(() => {
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url); urls.push(u);
+      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' } } }) };
+      if (u.startsWith(URL_COUTS) && !u.includes('empreinte') && init?.method !== 'POST') return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true,
+        coutsLignes: LIGNES, coutsSaisis: [...SAISIS_COUTS, ...LIGNES], profils: [{ id: 3, libelle: 'Bruno', fonctions: ['gestion'] }], versionsGestion: {}, monga: true, validations: [] } }) };
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+  });
+  it('D23 — un seul cartouche (sur la ligne des onglets) ; le bouton « Saisir les coûts du mois » reste', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelectorAll('[data-rappel-couts]').length).toBe(1);
+    expect(container.querySelector('[data-rappel-tete]')).toBeNull();
+    expect(texte('[data-ouvrir-saisie]')).toBe('Saisir les coûts du mois');
+  });
+  it('D24 — trois blocs aux couleurs du graphique ; le total de chaque bloc = le tableau « Les coûts » du mois, au centime ; sous-tableaux ; pied : total + Enregistrer', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-ouvrir-saisie]');
+    const blocs = [...container.querySelectorAll('[data-bloc-saisie]')];
+    expect(blocs.map((b) => [b.getAttribute('data-bloc-saisie'), b.classList.contains(`trx-serie--${({ vente: 1, location: 3, gestion: 5 } as Record<string, number>)[b.getAttribute('data-bloc-saisie')!]}`)]))
+      .toEqual([['vente', true], ['location', true], ['gestion', true]]);
+    const e = { ...E_COUTS, saisis: [...SAISIS_COUTS, ...LIGNES] as typeof E_COUTS.saisis };
+    const oct = coutsDeLAnnee(e, 'criterimmo', 2026).mois[9];
+    const debut = (sel: string) => (texte(sel).split(' (')[0]);
+    expect(debut('[data-total-bloc="vente"]')).toBe(eur(oct.vente.total.htC / 100).replace(/\s/g, ' '));
+    expect(debut('[data-total-bloc="location"]')).toBe(eur(oct.location!.total.htC / 100).replace(/\s/g, ' '));
+    expect(debut('[data-total-bloc="gestion"]')).toBe(eur(oct.gestion!.total.htC / 100).replace(/\s/g, ' '));
+    // les sous-tableaux : la ligne du salarié (gestion), la ligne « Autres » (vente) avec sa TVA ; le sous-total du poste
+    expect(container.querySelector('[data-poste-saisie="gestion-salaires"] [data-brouillon="gestion-salaires-0"]')).not.toBeNull();
+    expect((container.querySelector('[data-tva-brouillon="vente-autres-0"]') as HTMLSelectElement).value).toBe('20');
+    expect(texte('[data-sous-total="gestion-salaires"]')).toBe(eur(2100.5).replace(/\s/g, ' '));
+    // les calculés : une ligne repliée par bloc ; le pied, toujours là
+    expect(container.querySelectorAll('details[data-auto-saisie]').length).toBe(2);
+    expect(container.querySelector('[data-saisie-pied] [data-enregistrer-mois]')).not.toBeNull();
+    expect(texte('[data-total-general] strong').split(' (')[0]).toBe(eur(oct.total.htC / 100).replace(/\s/g, ' '));
+  });
+  it('MACJ : le bloc Vente seul, et « vente seulement »', async () => {
+    await ouvrir('macj'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-ouvrir-saisie]');
+    expect([...container.querySelectorAll('[data-bloc-saisie]')].map((b) => b.getAttribute('data-bloc-saisie'))).toEqual(['vente']);
+    expect(texte('[data-saisie-macj]')).toContain('vente seulement');
+  });
+});

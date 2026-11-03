@@ -258,7 +258,7 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEc
       {/* 🔴 Lot 3 (C17) — le bouton « Saisir les coûts du mois » ; tant que le mois précédent est à compléter, il le dit */}
       {d.saisie === true && <div className="mes-couts-saisir" data-bouton-saisie>
         <button type="button" className={`svv-btn ${rappel !== null ? 'svv-btn-primary' : 'svv-btn-outline'} gst-btn`} onClick={() => setSaisie(true)} data-ouvrir-saisie>Saisir les coûts du mois</button>
-        {rappel !== null && <span className="mes-couts-rappel" data-rappel-tete>{rappel.mot}</span>}
+        {/* 🔴 D23 (accord d'Arno, 03/11/2026) — un seul cartouche à l'écran : celui de la ligne des onglets ; ici, le bouton seul (en couleur tant que le mois est à saisir) */}
       </div>}
       <LigneDesAnnees annees={annees} decoupage="annee" annee={annee} choisies={[annee]} onAnnee={setAnnee} onDecoupage={() => {}} uneSeule />
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`Les coûts ${annee} — ${nom}`} data-tuiles-couts>

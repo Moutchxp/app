@@ -555,3 +555,19 @@ n'a pas été touchée.
   retiré (non comptée, non concernée) ;
 - contrôle (lecture seule, 96 mois 2019 → 2026) : les seuls écarts de « Coûts globaux » sont ces 8 montants, au centime, sur les salaires de la
   gestion et le total ; vente, location, ADHOC, MONGA inchangés.
+
+## 🔴 Décisions d'Arno du 03/11/2026 (suite) — D23, D24
+
+- **D23.** Un seul cartouche « Coûts d'<mois> à saisir » à l'écran : celui de la ligne des onglets est GARDÉ ; celui à droite du bouton « Saisir les
+  coûts du mois » est RETIRÉ (accord d'Arno). Le bouton reste (en couleur tant que le mois précédent est à compléter).
+- **D24.** Le formulaire « Saisir les coûts du mois » refait, compact, activités séparées (même logique, mêmes gestes, même journal, même garde de
+  version, aucune route ni donnée touchée) :
+  - en-tête collant sur une ligne : mois · structure · état global · « Retour aux coûts » (au téléphone : sur deux lignes, sans le libellé en double) ;
+  - trois blocs (MACJ : Vente seul, puis « vente seulement ») avec une bande à la couleur de la famille dans le graphique (`trx-serie--1/3/5` : Vente
+    bleu, Location vert, Gestion rose), l'état « complet / à compléter » et le TOTAL du mois de l'activité (HT, TTC en petit) — celui des tableaux ;
+  - une grille par bloc : Poste | Montant HT | TVA | ✓ (picto « i » pour « complet », 0 compris) ; Salaires et « Autres » : un sous-tableau
+    (Salarié / Libellé | Montant | TVA | ×), « + ajouter », le sous-total du poste ; ADHOC, MONGA : un champ ;
+  - les postes calculés : une ligne repliée « Calculés automatiquement : X € » par bloc, le détail (dont le variable calculé, hors totaux) et
+    « Corriger à la source » ;
+  - pied collant : total du mois (HT / TTC) et « Enregistrer ».
+  - Hauteur de la page (CRITERIMMO, septembre 2026, données d'essai) : 1 832 → 1 179 px à 1 440 px de large ; 2 431 → 1 498 px à 390 px.
