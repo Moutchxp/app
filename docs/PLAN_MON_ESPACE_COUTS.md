@@ -31,6 +31,16 @@ côté de la vraie valeur.
 - **C9.** Fonction des profils : une case par fonction (vente / location / gestion) dans la page Comptes, pré-cochée d'après les données
   existantes, plusieurs fonctions possibles.
 
+- **C10.** La colonne « dont primes de gestion (dans le variable) » s'intitule « Primes de gestion » (elle ne contient que les primes). Plus aucun « dont ».
+- **C11.** Tableau LOCATION, ordre des colonnes : Mois | Apporteurs | Variable négo (calculé) (pour information, hors totaux) | Primes de gestion |
+  Variable négociateur (primes incluses) | Salaires chargés | Part de gestion versée aux apporteurs | Rémunération des collègues apporteurs | Autres |
+  Total location.
+- **C12.** Le tableau sous le graphique a QUATRE onglets : « Vente » (inchangé, par défaut) | « Location » (colonnes C11) | « Gestion » (Salaires
+  chargés, ADHOC, MONGA facture mensuelle, Autres, Total gestion) | « Synthèse location et gestion » (Mois | Total location | Total gestion | Total
+  location et gestion, ligne de l'année ; rien d'autre). La synthèse lit les MÊMES totaux que les onglets Location et Gestion. En MACJ : Location,
+  Gestion et Synthèse présents, chaque case « — », avec « MACJ : vente seulement ». L'onglet choisi est dans l'adresse (`?couts-tableau=`).
+  Aucun nouveau calcul : seuls l'ordre, les titres et la répartition en onglets changent (chantier du 03/11/2026).
+
 Ce que ces décisions changent dans le plan ci-dessous (les passages concernés sont réécrits) : plus de droit « Coûts » (C1 : le statut « Associé ») ;
 plus de ligne « Ajustement » ni de table de corrections (C4 + règle absolue) ; les salaires mensuels ne sont plus gardés à côté du détail, ils sont
 effacés au lot des salaires (C8) ; plus de devis MONGA (C6) ; la part de gestion récurrente des apporteurs et les collègues apporteurs deviennent

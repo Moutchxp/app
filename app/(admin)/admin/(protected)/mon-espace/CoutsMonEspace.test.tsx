@@ -96,22 +96,63 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     egal('[data-valeur-couts="total"]', c.total.ttcC);
     egal('[data-ligne-couts="annee"] [data-cout="vente-commissions"]', c.vente.commissions.ttcC);
   });
-  it('Location et gestion : chaque poste de l’année, mois par mois ; « Variable négo (calculé) » hors totaux ; postes futurs vides', async () => {
-    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="location-gestion"]');
-    const t = coutsDeLAnnee(E_COUTS, 'tous', 2026);
-    const L = t.annee.location!; const G = t.annee.gestion!;
-    egal('[data-ligne-couts="annee"] [data-cout="location-total"]', L.total.htC);
-    egal('[data-ligne-couts="annee"] [data-cout="gestion-total"]', G.total.htC);
-    egal('[data-ligne-couts="annee"] [data-cout="location-gestion-total"]', L.total.htC + G.total.htC);
-    egal('[data-ligne-couts="annee"] [data-cout="location-variable-calcule"]', L.variableCalcule.htC);
-    // août : salaires saisis → variable compté 0, calculé > 0 ; le total d'août n'en contient rien
-    const aout = t.mois[7].location!;
-    egal('[data-ligne-couts="8"] [data-cout="location-variable-calcule"]', aout.variableCalcule.htC);
-    egal('[data-ligne-couts="8"] [data-cout="location-total"]', aout.apporteurs.htC + aout.variable.htC + aout.salaires.htC);
+  it('C10 / C11 — Location : titres et ordre des colonnes ; aucun « dont »', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="location"]');
+    const titres = [...container.querySelectorAll('[data-table-couts-mon-espace="location"] thead th')].map((e) => e.firstChild?.textContent?.trim());
+    expect(titres).toEqual(['Mois', 'Apporteurs', 'Variable négo (calculé)', 'Primes de gestion', 'Variable négociateur', 'Salaires chargés', 'Part de gestion versée aux apporteurs',
+      'Rémunération des collègues apporteurs', 'Autres', 'Total location']);
+    expect(container.querySelector('[data-couts-mon-espace]')!.textContent).not.toMatch(/\bdont\b/i);
+    const cellules = [...container.querySelectorAll('[data-ligne-couts="annee"] td')].map((e) => e.getAttribute('data-cout') ?? (e.hasAttribute('data-poste-futur') ? 'futur' : ''));
+    expect(cellules).toEqual(['location-apporteurs', 'location-variable-calcule', 'location-primes', 'location-variable', 'location-salaires', 'futur', 'futur', 'futur', 'location-total']);
+  });
+  it.each(['tous', 'criterimmo'] as const)('C12 — %s : Location, Gestion, Synthèse = « Coûts globaux » au centime (2025, 2026) ; Variable négo (calculé) hors totaux', async (a) => {
+    await ouvrir(a); await cliquer('[data-onglet-mon-espace="couts"]');
+    for (const annee of [2025, 2026]) {
+      await cliquer(`[data-couts-mon-espace] [data-onglet-annee="${annee}"]`);
+      const t = coutsDeLAnnee(E_COUTS, a, annee); const c = coutsGlobaux(E_COUTS, annee, null);
+      const L = t.annee.location!; const G = t.annee.gestion!;
+      // les totaux de familles = les colonnes de « Coûts globaux »
+      expect(L.total.htC).toBe(c.location!.apporteurs.htC + c.location!.primesDeduites.htC + c.location!.variableDeduit.htC + c.location!.salaires.htC);
+      expect(G.total.htC).toBe(c.gestion.adhoc.htC + c.gestion.monga.htC + c.gestion.salaires.htC);
+      await cliquer('[data-tableau-couts="location"]');
+      egal('[data-ligne-couts="annee"] [data-cout="location-total"]', L.total.htC);
+      egal('[data-ligne-couts="annee"] [data-cout="location-variable-calcule"]', L.variableCalcule.htC);
+      for (let m = 1; m <= 12; m++) {
+        const x = t.mois[m - 1].location!;
+        const attendu = x.apporteurs.htC + x.variable.htC + x.salaires.htC; // jamais le variable calculé
+        // un mois à venir (décembre 2026) sans coût : « — », comme « Coûts globaux »
+        if (annee === 2026 && m > 11 && attendu === 0) expect(texte(`[data-ligne-couts="${m}"] [data-cout="location-total"]`)).toBe('—');
+        else egal(`[data-ligne-couts="${m}"] [data-cout="location-total"]`, attendu);
+      }
+      await cliquer('[data-tableau-couts="gestion"]');
+      egal('[data-ligne-couts="annee"] [data-cout="gestion-total"]', G.total.htC);
+      expect(container.querySelector('[data-table-couts-mon-espace="gestion"] [data-cout^="location"]')).toBeNull();
+      await cliquer('[data-tableau-couts="synthese"]');
+      const titres = [...container.querySelectorAll('[data-table-couts-mon-espace="synthese"] thead th')].map((e) => e.textContent);
+      expect(titres).toEqual(['Mois', 'Total location', 'Total gestion', 'Total location et gestion']);
+      egal('[data-table-couts-mon-espace="synthese"] [data-ligne-couts="annee"] [data-cout="location-total"]', L.total.htC);
+      egal('[data-table-couts-mon-espace="synthese"] [data-ligne-couts="annee"] [data-cout="gestion-total"]', G.total.htC);
+      egal('[data-table-couts-mon-espace="synthese"] [data-ligne-couts="annee"] [data-cout="location-gestion-total"]', L.total.htC + G.total.htC);
+      await cliquer('[data-tableau-couts="vente"]');
+    }
+  });
+  it('août 2026 (salaires saisis) : variable compté 0, calculé > 0 ; postes futurs vides ; TTC partout', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="location"]');
+    const t = coutsDeLAnnee(E_COUTS, 'tous', 2026); const aout = t.mois[7].location!;
     expect(aout.variableCalcule.htC).toBeGreaterThan(0);
-    egal('[data-ligne-couts="9"] [data-cout="gestion-adhoc"]', t.mois[8].gestion!.adhoc.htC);
-    expect(container.querySelectorAll('[data-ligne-couts="annee"] [data-poste-futur]').length).toBe(4);
+    egal('[data-ligne-couts="8"] [data-cout="location-variable-calcule"]', aout.variableCalcule.htC);
+    egal('[data-ligne-couts="8"] [data-cout="location-variable"]', 0);
+    expect(container.querySelectorAll('[data-ligne-couts="annee"] [data-poste-futur]').length).toBe(3);
     expect([...container.querySelectorAll('[data-entete-futur]')].every((e) => e.textContent?.includes('saisie au lot suivant'))).toBe(true);
+    await cliquer('[data-afficher="ttc"]'); await cliquer('[data-tableau-couts="synthese"]');
+    egal('[data-ligne-couts="annee"] [data-cout="location-gestion-total"]', t.annee.location!.total.ttcC + t.annee.gestion!.total.ttcC);
+  });
+  it('l’onglet du tableau est dans l’adresse ; « Vente » par défaut (rien dans l’adresse)', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelector('[data-tableau-couts="vente"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.search).not.toContain('couts-tableau');
+    await cliquer('[data-tableau-couts="gestion"]');
+    expect(new URLSearchParams(window.location.search).get('couts-tableau')).toBe('gestion');
   });
   it('2025 choisie : tuiles, tableau ET graphique passent à 2025 ; rien de 2026', async () => {
     await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
@@ -135,8 +176,14 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     egal('[data-valeur-couts="total"]', p.total.htC);
     egal('[data-valeur-couts="vente"]', p.vente.total.htC);
     expect(texte('[data-valeur-couts="location"]')).toBe('—');
-    await cliquer('[data-tableau-couts="location-gestion"]');
-    expect(container.querySelector('[data-couts-macj]')).not.toBeNull();
+    // C12 : Location, Gestion, Synthèse présents, chaque case « — », la mention ; rien n'est masqué
+    for (const o of ['location', 'gestion', 'synthese']) {
+      await cliquer(`[data-tableau-couts="${o}"]`);
+      expect(texte(`[data-couts-macj="${o}"]`)).toContain('MACJ : vente seulement');
+      const cases = [...container.querySelectorAll(`[data-table-couts-mon-espace="${o}"] tbody td`)];
+      expect(cases.length).toBeGreaterThan(0);
+      expect(cases.every((e) => e.textContent === '—')).toBe(true);
+    }
   });
   it('CRITERIMMO : sa vente + location + gestion = son total', async () => {
     await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]');
