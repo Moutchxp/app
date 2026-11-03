@@ -921,7 +921,7 @@ const CSS = `
 /* Oui / Non : deux cibles de 44 px qui passent à la ligne plutôt que de déborder. Aucune dépendance au survol. */
 .cpt-ouinon{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .cpt-ouinon__btn{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;min-width:88px;padding:.5rem .9rem;border-radius:.7rem;border:1.5px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem;font-weight:600;cursor:pointer}
-.cpt-ouinon__btn[aria-pressed="true"]{background:var(--color-svv-green-soft);border-color:var(--color-svv-green-ink);color:var(--color-svv-green-ink)}
+.cpt-ouinon__btn[aria-pressed="true"],.cpt-ouinon__btn[aria-checked="true"]{background:var(--color-svv-green-soft);border-color:var(--color-svv-green-ink);color:var(--color-svv-green-ink)}
 .cpt-ouinon__btn:disabled{cursor:not-allowed;opacity:.85}
 .cpt-ouinon__btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .cpt-ouinon__ind{font-size:.9rem;line-height:1}

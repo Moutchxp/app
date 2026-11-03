@@ -227,6 +227,10 @@ export function coutsSaisisDisponible(): Promise<boolean> {
 export function fonctionsComptesDisponible(): Promise<boolean> {
   return memoiser('admin_compte_fonction.fonction', () => colonneExiste('admin_compte_fonction', 'fonction'));
 }
+/** 🔴 D35 (453) — les fonctions datées et l'activité principale (salaire). Sans elle : les fonctions d'avant, un salaire garde sa famille enregistrée. */
+export function activitePrincipaleDisponible(): Promise<boolean> {
+  return memoiser('admin_compte_activite_principale.activite', () => colonneExiste('admin_compte_activite_principale', 'activite'));
+}
 /** 🔴 Mon espace « Les coûts », lot 3 (452) — la validation d'un poste du mois (« complet »). Sans elle : pas d'indicateur, pas de rappel. */
 export function coutsValidationDisponible(): Promise<boolean> {
   return memoiser('transaction_cout_validation.poste', () => colonneExiste('transaction_cout_validation', 'poste'));

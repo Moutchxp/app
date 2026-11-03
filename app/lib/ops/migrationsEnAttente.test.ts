@@ -140,6 +140,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 450 : « L'utiliser » — les apporteurs qu'un collaborateur utilise (lot 9 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
   // 451 : les coûts saisis (salaires par salarié, « Autres ») et la fonction des profils (Mon espace « Les coûts », lot 2, 03/11/2026).
   // 452 : la validation d'un poste du mois (« Saisir les coûts du mois », Mon espace « Les coûts », lot 3, 03/11/2026).
+  // 453 : les fonctions datées, l'activité principale (salaire) et le salaire rattaché au collaborateur (Mon espace « Les coûts », D35, 03/11/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -164,7 +165,8 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '439_admin_statut_compte.sql', '440_transaction_inter_cabinet.sql', '441_admin_commissionne.sql',
     '442_transaction_mode_commission.sql', '443_transaction_personne_type.sql', '444_transaction_negociateur_statut.sql',
     '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql', '447_transaction_location_salaires.sql',
-    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql', '451_couts_saisis.sql', '452_couts_validation.sql'];
+    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql', '451_couts_saisis.sql', '452_couts_validation.sql',
+    '453_fonctions_datees_activite_principale.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -177,7 +179,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 452 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 453 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -187,14 +189,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (453)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (454)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(452\)/);
-    const renumerotee = planifier([...existants, { fichier: '453_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(453\)/);
+    const renumerotee = planifier([...existants, { fichier: '454_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['453_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['454_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -1037,5 +1039,25 @@ describe('452 (« Saisir les coûts du mois » : un poste validé) : enveloppée
     expect([...a.tablesCreees]).toEqual(['transaction_cout_validation']);
     expect(contenu).not.toMatch(/^\s*(INSERT|DELETE|TRUNCATE|UPDATE)\b/im);
     expect(contenu.replace(/\s+/g, ' ')).toContain('CREATE UNIQUE INDEX IF NOT EXISTS transaction_cout_validation_vivante_idx ON transaction_cout_validation (societe, famille, poste, annee, mois) WHERE retire_le IS NULL');
+  });
+});
+
+describe('453 (D35 : fonctions datées, activité principale, salaire rattaché au collaborateur) : enveloppée, une table, aucune donnée effacée', () => {
+  const contenu = lire(MIGRATIONS, '453_fonctions_datees_activite_principale.sql');
+  const a = analyserMigration({ fichier: '453_fonctions_datees_activite_principale.sql', contenu });
+  it('passe le garde, enveloppée ; crée admin_compte_activite_principale et rien d’autre', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees]).toEqual(['admin_compte_activite_principale']);
+  });
+  it('ni DELETE ni TRUNCATE ; les ajouts : le pré-remplissage pour un profil SANS activité principale (une fonction seule, PONS → Location) ; jamais effacée', () => {
+    expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE)\b/im);
+    const t = contenu.replace(/\s+/g, ' ');
+    expect(t.match(/NOT EXISTS \(SELECT 1 FROM admin_compte_activite_principale p WHERE p.compte_id = \w+\.\w+ AND p.retire_le IS NULL\)/g)).toHaveLength(2);
+    expect(t).toContain('HAVING count(*) = 1');
+    expect(t).toContain('BEFORE DELETE ON admin_compte_activite_principale');
+    // le seul UPDATE : la famille des salaires VIVANTS (elle se calcule) ; une ligne retirée garde la sienne
+    expect(contenu.match(/^\s*UPDATE\b.*$/gim)).toEqual(["UPDATE transaction_cout_ligne SET famille = NULL WHERE poste = 'salaires' AND famille IS NOT NULL AND retire_le IS NULL;"]);
+    expect(t).toContain('ON transaction_cout_ligne (annee, mois, compte_id) WHERE poste = \'salaires\' AND retire_le IS NULL');
   });
 });

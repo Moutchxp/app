@@ -6,7 +6,8 @@ import { estMontantSaisi } from '../../../../lib/mon-espace/couts';
 import { coutsDuPoint } from '../../../../lib/mon-espace/couts';
 import { completude, libelleMois, moisProposes, postesSaisis, type MoisAn, type PosteDuMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
 import { profilsPourSalaire, type ProfilCout } from '../../../../lib/admin/fonctionsCompteModele';
-import type { CoutLigne, FamilleCout } from '../../../../lib/transaction/coutsSaisis';
+import { mentionProrata } from '../../../../lib/admin/activitePrincipale';
+import { partDuSalaire, type CoutLigne, type FamilleCout } from '../../../../lib/transaction/coutsSaisis';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import type { Societe } from '../../../../lib/transaction/modele';
@@ -70,9 +71,13 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, onRetour, onEcri
 function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, tete, retour, onFini, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; mois: MoisAn; societe: Societe;
   postes: readonly PosteDuMois[]; validations: readonly Validation[]; k: 'htC' | 'ttcC'; unite: string; tete: ReactNode; retour: ReactNode; onFini: () => void; onEcrit: () => void }) {
   const lignesDe = (p: PosteDuMois): CoutLigne[] => d.lignes.filter((l) => l.societe === societe && l.famille === p.famille && l.poste === p.poste && l.annee === mois.annee && l.mois === mois.mois);
+  // 🔴 D35 — le mois d'un changement d'activité principale, le salaire est dans les deux activités : il se modifie (mois entier) dans la NOUVELLE,
+  // l'autre montre sa part (« prorata 15/30 j »), en lecture
+  const modifiableIci = (l: CoutLigne): boolean => l.prorata === undefined || l.prorata.derniere;
+  const principalesDe = (compte: string) => d.profils.find((x) => String(x.id) === compte)?.principales;
   const g = d.gestionDuMois(mois);
   const [brouillons, setBrouillons] = useState<Record<string, Brouillon[]>>(() => Object.fromEntries(postes.filter((p) => p.poste === 'salaires' || p.poste === 'autres')
-    .map((p) => [cle(p), lignesDe(p).map((l) => { const montant = ecrireMontant(l.montantHt); const compte = String(l.compteId ?? ''); const libelle = l.libelle ?? '';
+    .map((p) => [cle(p), lignesDe(p).filter(modifiableIci).map((l) => { const montant = ecrireMontant(l.montantSaisiHt ?? l.montantHt); const compte = String(l.compteId ?? ''); const libelle = l.libelle ?? '';
       return { id: l.id, version: l.version, compte, libelle, montant, tva: l.tva === true, retirer: false, initial: `${compte}|${libelle}|${montant}|${l.tva === true}` }; })])));
   const [gestion, setGestion] = useState<Record<'adhoc' | 'monga', string>>({ adhoc: ecrireMontant(g.adhoc), monga: ecrireMontant(g.monga) });
   const [complets, setComplets] = useState<Record<string, boolean>>(() => Object.fromEntries(postes.map((p) => [cle(p), validations.some((v) => v.societe === societe
@@ -148,12 +153,16 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
   const lien = (f: FamilleCout) => (f === 'vente' ? `/admin/transaction/${societe}?vue=mois&annee=${mois.annee}&mois=${mois.mois}` : '/admin/location/outils/mois');
   const pastille = (complet: boolean | null, attr: string) => (complet === null ? null
     : <span className={`mes-saisie-etat${complet ? ' mes-saisie-etat--ok' : ''}`} data-etat-saisie={attr}>{complet ? 'complet' : 'à compléter'}</span>);
-  const sousTotal = (c: string): number => (brouillons[c] ?? []).filter((b) => !b.retirer).reduce((t, b) => { const m = lireMontant(b.montant); return t + (m !== null && Number.isFinite(m) ? m : 0); }, 0);
+  // 🔴 D35 — un salaire compte pour SA part de cette activité (la même règle que les tableaux) ; une part en lecture (l'ancienne activité) : telle quelle
+  const sousTotal = (c: string, p?: PosteDuMois): number => Math.round(((brouillons[c] ?? []).filter((b) => !b.retirer).reduce((t, b) => {
+    const m = lireMontant(b.montant); if (m === null || !Number.isFinite(m)) return t;
+    return t + (p?.poste === 'salaires' ? partDuSalaire(principalesDe(b.compte), mois.annee, mois.mois, m, p.famille) : m);
+  }, 0) + (p === undefined ? 0 : lignesDe(p).filter((l) => !modifiableIci(l)).reduce((t, l) => t + l.montantHt, 0))) * 100) / 100;
   const caseComplet = (c: string, libelle: string) => (
     <label className="mes-saisie-complet" title="Complet pour ce mois (0 compris)"><input type="checkbox" checked={complets[c] === true} disabled={d.validations === null}
       onChange={(e) => setComplets((x) => ({ ...x, [c]: e.target.checked }))} aria-label={`${libelle} : complet pour ce mois`} data-complet={c} /></label>
   );
-  const profilsDe = (f: FamilleCout) => ([1, 2, 3] as const).map((gp) => { const xs = profilsPourSalaire(f, d.profils).filter((x) => x.groupe === gp); return xs.length === 0 ? null
+  const profilsDe = (f: FamilleCout) => ([1, 2, 3] as const).map((gp) => { const xs = profilsPourSalaire(f, d.profils, mois).filter((x) => x.groupe === gp); return xs.length === 0 ? null
     : <optgroup key={gp} label={gp === 1 ? `Fonction ${MOT_FAMILLE[f].toLowerCase()}` : gp === 2 ? 'Location ou gestion' : 'Autres profils'}>
       {xs.map((x) => <option key={x.profil.id} value={x.profil.id}>{x.profil.libelle}</option>)}</optgroup>; });
   return (
@@ -184,7 +193,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
                   <div key={c} className="mes-saisie-poste" data-poste-saisie={c}>
                     <div className="mes-saisie-ligne" role="row">
                       <span role="cell" className="mes-saisie-nom">{p.libelle}</span>
-                      <span role="cell">{multi ? <span className="mes-saisie-sous-total" data-sous-total={c}>{eur(sousTotal(c))}</span>
+                      <span role="cell">{multi ? <span className="mes-saisie-sous-total" data-sous-total={c}>{eur(sousTotal(c, p))}</span>
                         : <input type="text" inputMode="decimal" value={gestion[p.poste as 'adhoc' | 'monga']} placeholder="vide : non saisi" aria-label={`${p.libelle} HT`}
                           onChange={(e) => setGestion((x) => ({ ...x, [p.poste]: e.target.value }))} data-montant-poste={c} />}</span>
                       <span role="cell" className="loc-muet mes-saisie-tva">{p.poste === 'autres' ? 'par ligne' : p.poste === 'salaires' ? '—' : '20 %'}</span>
@@ -202,6 +211,16 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
                             <option value="20">20 %</option><option value="0">sans TVA</option></select> : <span className="loc-muet mes-saisie-tva">—</span>}
                           {b.id !== null ? <button type="button" className="mes-saisie-x" aria-label={b.retirer ? 'Garder la ligne' : 'Retirer la ligne'} title={b.retirer ? 'Garder' : 'Retirer'}
                             onClick={() => changer(c, i, { retirer: !b.retirer })} data-retirer-brouillon={`${c}-${i}`}>{b.retirer ? '↺' : '×'}</button> : <span />}
+                          {(() => { const l = b.id === null ? undefined : lignesDe(p).find((x) => x.id === b.id);
+                            return l?.prorata === undefined ? null : <small className="loc-muet mes-saisie-prorata" data-prorata-brouillon={`${c}-${i}`}>{mentionProrata(l.prorata)} — part {MOT_FAMILLE[p.famille].toLowerCase()} :
+                              {' '}{eur(l.montantHt)} HT ; le montant tapé est le salaire du mois entier</small>; })()}
+                        </div>))}
+                      {/* 🔴 D35 — la part de l'ANCIENNE activité le mois d'un changement : en lecture (le salaire se modifie dans la nouvelle) */}
+                      {p.poste === 'salaires' && lignesDe(p).filter((l) => !modifiableIci(l)).map((l) => (
+                        <div key={`p${l.id}`} className="mes-saisie-sous-ligne mes-saisie-part" role="row" data-part-lecture={l.id}>
+                          <span>{l.compteLibelle ?? 'Salarié'}</span><span>{eur(l.montantHt)}</span><span className="loc-muet mes-saisie-tva">—</span><span />
+                          <small className="loc-muet mes-saisie-prorata">{l.prorata === undefined ? '' : mentionProrata(l.prorata)} — sur {eur(l.montantSaisiHt ?? l.montantHt)} (le mois entier) ;
+                            {' '}il se modifie dans le bloc de sa nouvelle activité</small>
                         </div>))}
                       <button type="button" className="trx-bouton-lien mes-saisie-ajouter" onClick={() => ajouterLigne(c)} data-ajouter-brouillon={c}>+ ajouter</button>
                     </div>}
@@ -267,6 +286,8 @@ const CSS_SAISIE_MOIS = `
 .mes-saisie-x{min-width:32px;min-height:32px;font:inherit;font-size:1.1rem;line-height:1;background:none;border:1px solid var(--color-svv-line);border-radius:6px;color:var(--color-svv-ink);cursor:pointer}
 .mes-saisie-ajouter{align-self:flex-start;font-size:.82rem;padding:0;min-height:26px}
 .mes-saisie-retiree{opacity:.5;text-decoration:line-through}
+.mes-saisie-prorata{grid-column:1/-1;font-size:.82rem}
+.mes-saisie-part>span:nth-child(2){text-align:right;font-variant-numeric:tabular-nums}
 .mes-saisie-calcules{margin:4px 0 0;padding:4px 0;font-size:.9rem}
 .mes-saisie-calcules summary{display:flex;justify-content:space-between;gap:8px;cursor:pointer;min-height:32px;align-items:center;color:var(--color-svv-muted)}
 .mes-saisie-calcules summary strong{color:var(--color-svv-ink);font-variant-numeric:tabular-nums}
@@ -289,6 +310,7 @@ const CSS_SAISIE_MOIS = `
   .mes-saisie-sous-ligne{grid-template-columns:1fr 6.5rem 2.5rem;grid-template-areas:"qui qui qui" "montant tva x"}
   .mes-saisie-sous-ligne>:nth-child(1){grid-area:qui} .mes-saisie-sous-ligne>:nth-child(2){grid-area:montant} .mes-saisie-sous-ligne>:nth-child(3){grid-area:tva}
   .mes-saisie-sous-ligne>:nth-child(4){grid-area:x;justify-self:center}
+  .mes-saisie-sous-ligne>.mes-saisie-prorata{grid-area:auto;grid-column:1/-1}
   .mes-saisie-pied .gst-btn{flex:1 1 auto}
 }
 `;

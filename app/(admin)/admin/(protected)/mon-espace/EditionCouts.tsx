@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { eur } from '../transaction/commun';
 import { estMontantSaisi, URL_COUTS } from '../../../../lib/mon-espace/couts';
-import { profilsPourSalaire, type ProfilCout } from '../../../../lib/admin/fonctionsCompteModele';
+import { LIBELLE_FONCTION, profilsPourSalaire, type ProfilCout } from '../../../../lib/admin/fonctionsCompteModele';
+import { mentionProrata, repartirSalaire } from '../../../../lib/admin/activitePrincipale';
 import type { CoutLigne, FamilleCout, PosteSaisi } from '../../../../lib/transaction/coutsSaisis';
 import { NOMS_MOIS, type Societe } from '../../../../lib/transaction/modele';
 
@@ -17,6 +18,9 @@ import { NOMS_MOIS, type Societe } from '../../../../lib/transaction/modele';
  *   · ADHOC, facture MONGA : le montant du mois (la Gestion du Suivi CA) ;
  *   · un coût AUTOMATIQUE : il se corrige à la source (C4) — l'affaire, le bail ou la règle de l'apporteur — ; le panneau dit où.
  * Montants saisis en HT ; « Autres » : la TVA par ligne (R2 : 20 % par défaut, ou sans TVA) ; salaires : jamais de TVA.
+ * 🔴 D35 — un salaire est UN montant par collaborateur et par mois, porté par son activité principale : le mois d'un changement, sa ligne est dans les
+ * deux activités (« prorata 15/30 j », la part de chacune) et le montant modifié est celui du MOIS ENTIER ; les profils suivent les fonctions en
+ * vigueur ce mois-là.
  */
 export type CibleCout =
   | { sorte: 'lignes'; famille: FamilleCout; poste: PosteSaisi; mois: number }
@@ -86,12 +90,19 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
   envoi: boolean; envoyer: (c: unknown) => Promise<boolean> }) {
   const siennes = d.lignes.filter((l) => l.societe === societe && l.famille === cible.famille && l.poste === cible.poste && l.annee === annee && l.mois === cible.mois);
   const salaires = cible.poste === 'salaires';
-  const ordre = profilsPourSalaire(cible.famille, d.profils);
-  const pris = new Set(siennes.map((l) => l.compteId));
+  const ordre = profilsPourSalaire(cible.famille, d.profils, { annee, mois: cible.mois });
+  // 🔴 D35 — un salarié a UN salaire par mois (toutes activités et structures) : déjà saisi ailleurs ce mois-là, il n'est plus proposé en ajout
+  const pris = new Set(salaires ? d.lignes.filter((l) => l.poste === 'salaires' && l.annee === annee && l.mois === cible.mois).map((l) => l.compteId) : siennes.map((l) => l.compteId));
+  // 🔴 D35 — où va le salaire d'un profil ce mois-là (son activité principale), quand ce n'est pas cette activité
+  const ailleurs = (p: ProfilCout): string => {
+    if (!salaires || p.principales === undefined) return '';
+    const fs = repartirSalaire(p.principales, annee, cible.mois, 1).map((x) => x.famille);
+    return fs.length === 0 ? ' — sans activité principale' : fs.includes(cible.famille) ? '' : ` — salaire en ${fs.map((f) => LIBELLE_FONCTION[f]).join(' puis ')}`;
+  };
   // R2 — « Autres » : la TVA de chaque ligne (20 % par défaut) ; salaires : jamais
   const [nouveau, setNouveau] = useState({ compte: '', libelle: '', montant: '', tva: true });
   const [edits, setEdits] = useState<Record<number, { montant: string; compte: string; libelle: string; tva: boolean }>>({});
-  const editDe = (l: CoutLigne) => edits[l.id] ?? { montant: ecrireMontant(l.montantHt), compte: String(l.compteId ?? ''), libelle: l.libelle ?? '', tva: l.tva === true };
+  const editDe = (l: CoutLigne) => edits[l.id] ?? { montant: ecrireMontant(l.montantSaisiHt ?? l.montantHt), compte: String(l.compteId ?? ''), libelle: l.libelle ?? '', tva: l.tva === true };
   const choixTva = (valeur: boolean, onChange: (v: boolean) => void, attr: string) => (
     <select value={valeur ? '20' : '0'} onChange={(e) => onChange(e.target.value === '20')} aria-label="TVA de la ligne" data-tva-ligne={attr}>
       <option value="20">TVA 20 %</option><option value="0">sans TVA</option></select>);
@@ -104,7 +115,7 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
       {([1, 2, 3] as const).map((g) => {
         const xs = ordre.filter((x) => x.groupe === g && (!exclus.has(x.profil.id) || String(x.profil.id) === valeur));
         return xs.length === 0 ? null : <optgroup key={g} label={g === 1 ? `Fonction ${MOT_FAMILLE[cible.famille]}` : g === 2 ? 'Location ou gestion' : 'Autres profils'} data-groupe-profils={g}>
-          {xs.map((x) => <option key={x.profil.id} value={x.profil.id}>{x.profil.libelle}</option>)}</optgroup>;
+          {xs.map((x) => <option key={x.profil.id} value={x.profil.id}>{x.profil.libelle}{ailleurs(x.profil)}</option>)}</optgroup>;
       })}
     </select>
   );
@@ -130,7 +141,7 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
           <li key={l.id} data-ligne-cout={l.id}>
             {salaires ? choixProfil(e.compte, (v) => changer({ compte: v }), pris, String(l.id))
               : <input type="text" value={e.libelle} onChange={(x) => changer({ libelle: x.target.value })} aria-label="Libellé" maxLength={120} data-libelle-ligne={l.id} />}
-            <input type="text" inputMode="decimal" value={e.montant} onChange={(x) => changer({ montant: x.target.value })} aria-label="Montant HT" data-montant-ligne={l.id} />
+            <input type="text" inputMode="decimal" value={e.montant} onChange={(x) => changer({ montant: x.target.value })} aria-label={l.prorata === undefined ? 'Montant HT' : 'Salaire du mois entier HT'} data-montant-ligne={l.id} />
             {!salaires && choixTva(e.tva, (v) => changer({ tva: v }), String(l.id))}
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} data-enregistrer-ligne={l.id} onClick={() => {
               const m = verifier(e.montant); if (m === null) return;
@@ -138,6 +149,9 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
             }}>Enregistrer</button>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} data-retirer-ligne={l.id}
               onClick={() => void envoyer({ action: 'ligne-retirer', id: l.id, version: l.version })}>Retirer</button>
+            {l.prorata !== undefined && <small className="loc-muet mes-couts-prorata" data-prorata-ligne={l.id}>{mentionProrata(l.prorata)} — part {MOT_FAMILLE[cible.famille]} : {eur(l.montantHt)} HT
+              sur {eur(l.montantSaisiHt ?? l.montantHt)} (le salaire du mois entier, réparti selon l’activité principale)</small>}
+            {l.sansPrincipale === true && <small className="loc-muet" data-sans-principale={l.id}>Sans activité principale ce mois-ci : compté en vente — posez-la dans Administratif › Comptes.</small>}
           </li>); })}
         <li data-nouvelle-ligne>
           {salaires ? choixProfil(nouveau.compte, (v) => setNouveau((s) => ({ ...s, compte: v })), pris, 'nouveau')
@@ -148,7 +162,7 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
         </li>
       </ul>
       {erreur !== null && <p className="trx-erreur" role="alert" data-erreur-saisie>{erreur}</p>}
-      <p className="loc-muet mes-couts-aide">Montants en euros HT{salaires ? ', chargés (sans TVA)' : ' ; TTC = HT × 1,20 pour une ligne « TVA 20 % », = HT pour une ligne « sans TVA »'}.</p>
+      <p className="loc-muet mes-couts-aide">Montants en euros HT{salaires ? ', chargés (sans TVA) — le salaire du mois entier, porté par l’activité principale du salarié (le mois d’un changement : au prorata des jours)' : ' ; TTC = HT × 1,20 pour une ligne « TVA 20 % », = HT pour une ligne « sans TVA »'}.</p>
     </div>
   );
 }
@@ -211,6 +225,7 @@ export const CSS_EDITION_COUTS = `
 .mes-couts-fermer{min-width:44px;min-height:44px;font:inherit;font-size:1.25rem;background:none;border:0;color:var(--color-svv-ink);cursor:pointer}
 .mes-couts-lignes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .mes-couts-lignes li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mes-couts-prorata{flex:1 1 100%}
 .mes-couts-editeur .gst-btn{width:auto;flex:0 0 auto;min-height:44px;padding:0 1rem}
 .mes-couts-editeur select,.mes-couts-editeur input{min-height:44px;padding:0 .6rem;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:8px}
 .mes-couts-editeur select{min-width:12rem;max-width:100%}

@@ -671,3 +671,59 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
   gestion récurrente, collègues apporteurs) ne sont déduits que si toute l'activité est cochée (collaborateurs et « Non attribué ») ; sinon une
   mention sous le graphique. Aucun montant nouveau n'est envoyé au navigateur (les comptes, leurs fonctions et structures seulement).
 - Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre ; « CA net » filtré) : `.captures/graphe-collaborateurs/`.
+
+## 🔴 D35 (Arno, 03/11/2026) — Changement d'activité daté, activité principale (salaire), prorata des salaires chargés
+
+**Décisions d'Arno** (deux messages du 03/11/2026) :
+1. Administratif › Comptes : les **Fonctions** (Vente / Location / Gestion) deviennent **datées**, comme la Société. Le bloc a un champ
+   « À compter du », le bouton « Enregistrer les fonctions » et un **historique lisible** (« Activité principale : Location → Gestion le 16/11/2026
+   — par Arnaud Jorel »). Les fonctions « (déduites) » d'avant deviennent l'état initial « Depuis toujours ».
+2. **Option C : UNE activité principale par collaborateur**, qui porte **100 % de son salaire chargé**. C'est un choix unique « Activité principale
+   (salaire) » parmi les fonctions cochées, daté (« À compter du ») et historisé. Les autres fonctions ne portent aucune part du salaire : elles
+   rangent seulement les profils proposés et la liste du graphique (D33).
+3. **Une seule comptabilité** : le salaire est UN montant par collaborateur et par mois, et sa répartition entre activités se **calcule** depuis
+   l'historique de l'activité principale :
+   - les mois avant le changement : 100 % pour l'ancienne activité ;
+   - le mois du changement : prorata en jours calendaires (les jours avant la date pour l'ancienne, ceux à partir de la date pour la nouvelle).
+     Chaque part est arrondie au centime, le reste va sur la nouvelle activité, et la somme est égale au salaire saisi ;
+   - les mois après : 100 % pour la nouvelle activité.
+
+   Un changement le 1er donne 100 % à la nouvelle activité dès ce mois.
+4. Les salaires sont **rattachés au collaborateur** : la base enregistre « collaborateur × mois × montant », sans famille (`famille` NULL). Un
+   salarié a UN salaire par mois, toutes activités et structures confondues.
+5. **La même fonction de répartition partout** (`repartirSalaire`, appliquée une seule fois à la lecture, `eclaterSalaires` dans
+   `lireCoutsLignes`) : Les coûts (Vente, Location, Gestion, Synthèse), les pages Location et Gestion, Coûts globaux / CA net, le graphique et les
+   collaborateurs D33. Le mois du changement, la ligne du salarié apparaît dans les deux activités avec « prorata 15/30 j » ; le montant modifié
+   est celui du mois entier.
+6. **Saisie** :
+   - un salaire ne se saisit que pour un collaborateur qui a une activité principale en vigueur ce mois-là ;
+   - il se saisit dans l'activité qui le porte (sinon le refus dit où le saisir) ;
+   - la location et la gestion restent sur CRITERIMMO (C7) ;
+   - les profils proposés suivent les fonctions EN VIGUEUR le mois saisi.
+7. **Pré-remplissage (migration 453)** :
+   - Jean-Baptiste PONS → Location depuis toujours (décision d'Arno ; sa fonction Vente avait été retirée par Arno à 17:48 le 03/11/2026,
+     journal n° 28, il relevait donc de la règle générale) ;
+   - un profil à une seule fonction → elle (Arnaud Jorel, Pierre Thevenin, Cédric JULLIEN → Vente) ;
+   - aucun profil salarié à plusieurs fonctions sans indice : aucune interruption.
+8. Les saisies de salaires des pages Location (`transaction_location_salaires_mois`) et Gestion (`salarie_ht`) sont **remplacées** comme en R3 : le
+   total de Les coûts est affiché avec le lien « Saisir dans Les coûts ». Les tables sont gardées et ne sont plus alimentées (déjà fait par R3 ;
+   0 ligne active mesurée).
+
+**Migration 453** (`db/migrations/453_fonctions_datees_activite_principale.sql`, appliquée sur la base de recette seulement, après la sauvegarde) :
+- `admin_compte_fonction.depuis` / `jusqua` (une période par fonction, une seule ouverte) ;
+- table `admin_compte_activite_principale` (versions datées, jamais effacées, trigger anti-DELETE) ;
+- `transaction_cout_ligne.famille` devient facultative pour un salaire (les lignes retirées gardent la leur) ;
+- index unique « un salaire par (année, mois, salarié) ».
+
+**Sauvegarde** : `.captures/sauvegardes/sansvisavis-avant-453-2026-11-03-175322.dump` (pg_dump complet, 5,3 Go, 3 552 entrées relues).
+
+**Contrôle avant / après** (`.captures/sauvegardes/controle-453-{avant,apres}-2026-11-03.json`, identiques) :
+
+| Contrôle | Avant | Après |
+|---|---|---|
+| Salaires de `transaction_cout_ligne` (par mois / activité / structure) | aucun | aucun |
+| Lignes de `transaction_cout_ligne` (toutes) | 0 | 0 |
+| `transaction_location_salaires_mois` (actives, non nulles) | aucune | aucune |
+| `transaction_gestion_mois.salarie_ht` (non nuls) | aucun | aucun |
+| Fonctions (compte : fonction) | 2 vente · 5 location · 8 vente · 9 vente | identiques (+ `depuis` / `jusqua` NULL) |
+| Activités principales | — | 2 vente · 5 location · 8 vente · 9 vente (depuis toujours, déduites) |

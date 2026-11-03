@@ -1,5 +1,6 @@
 import type { MontantC } from './partAgence';
 import { TVA, type Societe } from './modele';
+import { repartirSalaire, type VersionPrincipale } from '../admin/activitePrincipale';
 
 /**
  * ══ 🔴 MON ESPACE « LES COÛTS », LOT 2 (Arno, 03/11/2026, migration 451) — LES COÛTS SAISIS (PUR) ═════════════════════════════════════════════════
@@ -16,7 +17,32 @@ export interface CoutSaisi { societe: Societe; famille: FamilleCout; poste: Post
   /** R2 (Arno, 03/11/2026) — la TVA de la ligne : vrai → TTC = HT × 1,20 ; faux → TTC = HT. Salaires : jamais. Absente (ligne d'avant) : faux. */
   tva?: boolean }
 /** Une ligne telle que l'écran la reçoit : son id, son profil (salaires) ou son libellé (« Autres »), sa version (le dernier n° de son journal). */
-export interface CoutLigne extends CoutSaisi { id: number; compteId: number | null; compteLibelle: string | null; libelle: string | null; version: number }
+export interface CoutLigne extends CoutSaisi { id: number; compteId: number | null; compteLibelle: string | null; libelle: string | null; version: number;
+  /** 🔴 D35 — un salaire : le montant SAISI du mois (entier) ; `montantHt` est la part de CETTE activité (le mois d'un changement : son prorata). */
+  montantSaisiHt?: number;
+  /** 🔴 D35 — la part d'un mois partagé (« prorata 15/30 j ») ; absente : le mois entier. `derniere` : la part de la nouvelle activité (le reste). */
+  prorata?: { jours: number; joursMois: number; derniere: boolean };
+  /** 🔴 D35 — un salaire sans activité principale ce mois-là (impossible à saisir ; une principale retirée depuis) : compté en vente, signalé. */
+  sansPrincipale?: boolean }
+
+/**
+ * 🔴 D35 (Arno, 03/11/2026, option C) — LE SALAIRE RATTACHÉ AU COLLABORATEUR : une ligne de salaire sans famille enregistrée (`famille` null) devient
+ * UNE ligne par activité de son mois (`repartirSalaire` : l'activité principale en vigueur, au prorata des jours le mois d'un changement), chacune
+ * avec SA part en `montantHt` (la somme = le montant saisi, au centime) ; les autres lignes passent telles quelles. C'est le seul endroit où la famille
+ * d'un salaire se calcule : Les coûts, la Location, la Gestion, Coûts globaux, le CA net et le graphique lisent ces lignes. PUR.
+ */
+export function eclaterSalaires<T extends Omit<CoutLigne, 'famille'> & { famille: FamilleCout | null }>(lignes: readonly T[],
+  principales: ReadonlyMap<number, readonly VersionPrincipale[]>): CoutLigne[] {
+  const out: CoutLigne[] = [];
+  for (const l of lignes) {
+    if (l.famille !== null) { out.push(l as CoutLigne); continue; }
+    const parts = l.compteId === null ? [] : repartirSalaire(principales.get(l.compteId) ?? [], l.annee, l.mois, l.montantHt);
+    if (parts.length === 0) { out.push({ ...l, famille: 'vente', montantSaisiHt: l.montantHt, sansPrincipale: true }); continue; }
+    parts.forEach((p, i) => out.push({ ...l, famille: p.famille, montantHt: p.htC / 100, montantSaisiHt: l.montantHt,
+      ...(p.jours === p.joursMois ? {} : { prorata: { jours: p.jours, joursMois: p.joursMois, derniere: i === parts.length - 1 } }) }));
+  }
+  return out;
+}
 
 const centimes = (x: number): number => Math.round((x + Number.EPSILON) * 100);
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
@@ -41,6 +67,15 @@ export function salairesParMois(lignes: readonly Pick<CoutSaisi, 'famille' | 'po
     r.set(k, Math.round(((r.get(k) ?? 0) + l.montantHt) * 100) / 100);
   }
   return r;
+}
+
+/**
+ * 🔴 D35 — la part d'un salaire tapé (`montantHt`, le mois entier) qui revient à `famille` ce mois-là : la même règle (`repartirSalaire`) ; un profil
+ * sans activité principale connue (avant la 453) : le montant entier. Sert au sous-total d'un écran de saisie avant l'enregistrement. PUR.
+ */
+export function partDuSalaire(principales: readonly VersionPrincipale[] | undefined, annee: number, mois: number, montantHt: number, famille: FamilleCout): number {
+  if (principales === undefined || principales.length === 0) return montantHt;
+  return (repartirSalaire(principales, annee, mois, montantHt).find((p) => p.famille === famille)?.htC ?? 0) / 100;
 }
 
 /** Les lignes qui passent par `coutsGlobaux` (`saisis`) : tout sauf les salaires de la location et de la gestion (ils passent par leur page). PUR. */

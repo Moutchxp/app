@@ -3,9 +3,9 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { activitePrincipaleDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
-  type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
+  NOMS_MOIS, type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { miroirsAttendus, planRegistre, venteDansSociete, type EntreeRegistre } from './interCabinet';
@@ -15,7 +15,9 @@ import { statutLu, type Statut } from '../admin/statut';
 import { statutsDesComptes } from '../admin/statutCompte';
 import { commissionneEffectif, commissionneLu } from '../admin/commissionneCompte';
 import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suivi/negociateurIdentiteRepo';
-import { salairesParMois, type CoutLigne } from './coutsSaisis';
+import { eclaterSalaires, salairesParMois, type CoutLigne } from './coutsSaisis';
+import { aUnePrincipaleAuMois, repartirSalaire, type VersionPrincipale } from '../admin/activitePrincipale';
+import { LIBELLE_FONCTION } from '../admin/fonctionsCompteModele';
 import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
 import { comptesDeLOnglet } from './societeNegociateur';
 import { lireFichesStatut, statutDeFiche } from './statutSansCompte';
@@ -341,8 +343,19 @@ export async function lireCoutsLignes(): Promise<CoutLigne[] | null> {
             coalesce((SELECT max(j.id) FROM transaction_journal j WHERE j.entite = 'cout_ligne' AND j.entite_id = l.id), 0) AS version
        FROM transaction_cout_ligne l LEFT JOIN admin_utilisateur u ON u.id = l.compte_id
       WHERE l.retire_le IS NULL ORDER BY l.annee, l.mois, l.famille, l.poste, l.id`);
-  return rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, famille: r.famille as CoutLigne['famille'], poste: r.poste as CoutLigne['poste'], annee: n(r.annee),
+  const lues = rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, famille: (r.famille ?? null) as CoutLigne['famille'] | null, poste: r.poste as CoutLigne['poste'], annee: n(r.annee),
     mois: n(r.mois), compteId: nOuNull(r.compte_id), compteLibelle: t(r.compte_libelle), libelle: t(r.libelle), montantHt: n(r.montant_ht), tva: r.tva === true, version: n(r.version) }));
+  // 🔴 D35 (453) — un salaire sans famille enregistrée : sa famille se calcule (l'activité principale du collaborateur, au prorata le mois d'un changement)
+  return eclaterSalaires(lues, lues.some((l) => l.famille === null) ? await lirePrincipales() : new Map());
+}
+/** 🔴 D35 (453) — les versions vivantes de l'activité principale (salaire) de chaque profil. Sans la 453 : aucune. LECTURE SEULE. */
+export async function lirePrincipales(): Promise<Map<number, VersionPrincipale[]>> {
+  const m = new Map<number, VersionPrincipale[]>();
+  if (!(await activitePrincipaleDisponible().catch(() => false))) return m;
+  const { rows } = await query<{ compte_id: string; activite: VersionPrincipale['activite']; depuis: string | null }>(
+    `SELECT compte_id::text, activite, to_char(depuis, 'YYYY-MM-DD') AS depuis FROM admin_compte_activite_principale WHERE retire_le IS NULL ORDER BY compte_id, depuis NULLS FIRST`);
+  for (const r of rows) { const id = Number(r.compte_id); m.set(id, [...(m.get(id) ?? []), { activite: r.activite, depuis: r.depuis }]); }
+  return m;
 }
 /** Les lignes de salaires de la Location et de la Gestion (ce que leurs pages additionnent) ; sans la 451 : aucune. LECTURE SEULE. */
 async function lireCoutsSaisisPourPages(): Promise<CoutLigne[]> {
@@ -497,19 +510,41 @@ export interface SaisieCoutLigne { societe: Societe; famille: 'vente' | 'locatio
   compteId: number | null; libelle: string | null; montantHt: number;
   /** R2 — « Autres » : la TVA de la ligne (défaut 20 %) ; salaires : toujours sans. */
   tva?: boolean }
+/**
+ * 🔴 D35 — le refus d'un salaire (null : accepté) : le collaborateur a une activité principale ce mois-là (décision d'Arno), le salaire est saisi
+ * dans l'activité qui le porte (`famille` : celle de l'écran ; absente : non vérifiée) et la location ou la gestion sur CRITERIMMO (C7). PUR.
+ */
+export function motifSalaire(principales: ReadonlyMap<number, readonly VersionPrincipale[]>, compteId: number | null, societe: Societe, annee: number, mois: number,
+  famille: CoutLigne['famille'] | null): string | null {
+  const vs = compteId === null ? [] : principales.get(compteId) ?? [];
+  const leMois = `${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
+  if (!aUnePrincipaleAuMois(vs, annee, mois)) return `Ce collaborateur n’a pas d’activité principale (salaire) en ${leMois} : posez-la dans Administratif › Comptes (« Activité principale »), puis saisissez son salaire. Rien n’a été écrit.`;
+  const familles = repartirSalaire(vs, annee, mois, 1).map((p) => p.famille);
+  if (famille !== null && !familles.includes(famille)) return `Son salaire de ${leMois} va à son activité principale (${familles.map((f) => LIBELLE_FONCTION[f]).join(' puis ')}) : saisissez-le dans ${LIBELLE_FONCTION[familles[0]]}. Rien n’a été écrit.`;
+  if (societe !== 'criterimmo' && familles.some((f) => f !== 'vente')) return `Son salaire de ${leMois} va (en partie) à la ${familles.filter((f) => f !== 'vente').map((f) => LIBELLE_FONCTION[f].toLowerCase()).join(' et à la ')} : la location et la gestion sont à CRITERIMMO, saisissez-le sur CRITERIMMO. Rien n’a été écrit.`;
+  return null;
+}
 /** Ajoute une ligne (un salarié du mois, ou un frais « Autres ») ; journalisée. Un salarié déjà présent ce mois-là : refus (le modifier). */
 export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await coutsSaisisDisponible())) return { ok: false, motif: MOTIF_SANS_451 };
+  // 🔴 D35 (453) — un salaire est rattaché au COLLABORATEUR (une ligne par mois, sans famille enregistrée : elle se calcule de son activité principale)
+  const rattache = l.poste === 'salaires' && (await activitePrincipaleDisponible().catch(() => false));
+  if (rattache) {
+    const motif = motifSalaire(await lirePrincipales(), l.compteId, l.societe, l.annee, l.mois, l.famille);
+    if (motif !== null) return { ok: false, motif };
+  }
   return withTransaction(async (q) => {
     if (l.poste === 'salaires') {
-      const { rows } = await q<{ id: string }>(`SELECT id FROM transaction_cout_ligne WHERE retire_le IS NULL AND poste = 'salaires' AND societe = $1 AND famille = $2 AND annee = $3 AND mois = $4 AND compte_id = $5`,
-        [l.societe, l.famille, l.annee, l.mois, l.compteId]);
+      const { rows } = rattache
+        ? await q<{ id: string }>(`SELECT id FROM transaction_cout_ligne WHERE retire_le IS NULL AND poste = 'salaires' AND annee = $1 AND mois = $2 AND compte_id = $3`, [l.annee, l.mois, l.compteId])
+        : await q<{ id: string }>(`SELECT id FROM transaction_cout_ligne WHERE retire_le IS NULL AND poste = 'salaires' AND societe = $1 AND famille = $2 AND annee = $3 AND mois = $4 AND compte_id = $5`,
+          [l.societe, l.famille, l.annee, l.mois, l.compteId]);
       if (rows.length > 0) return { ok: false, motif: 'Ce salarié a déjà son salaire ce mois-ci : modifiez sa ligne.', conflit: true };
     }
     const { rows } = await q<{ id: string }>(
       `INSERT INTO transaction_cout_ligne (societe, famille, poste, annee, mois, compte_id, libelle, montant_ht, tva, cree_par_libelle)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [l.societe, l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt,
+      [l.societe, rattache ? null : l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt,
         l.poste === 'autres' ? l.tva !== false : false, auteur.libelle]);
     const id = n(rows[0].id);
     await journaliser(q, { entite: 'cout_ligne', id, action: 'saisie', avant: null, apres: l, auteur });
@@ -523,9 +558,19 @@ export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Pr
 export async function modifierCoutLigne(id: number, version: number, v: { montantHt?: number; compteId?: number | null; libelle?: string | null; tva?: boolean; retirer?: boolean }, auteur: AuteurTx): Promise<Issue> {
   if (!(await coutsSaisisDisponible())) return { ok: false, motif: MOTIF_SANS_451 };
   return withTransaction(async (q) => {
-    const { rows } = await q<{ poste: string; retire_le: unknown }>('SELECT poste, retire_le FROM transaction_cout_ligne WHERE id = $1 FOR UPDATE', [id]);
+    const { rows } = await q<{ poste: string; retire_le: unknown; famille: string | null; societe: Societe; annee: number; mois: number; compte_id: string | null }>(
+      'SELECT poste, retire_le, famille, societe, annee, mois, compte_id FROM transaction_cout_ligne WHERE id = $1 FOR UPDATE', [id]);
     if (rows.length === 0 || rows[0].retire_le != null) return { ok: false, motif: 'Cette ligne n’existe plus : rechargez.', conflit: true };
     if ((await versionDe(q, 'cout_ligne', id)) !== version) return { ok: false, motif: MOTIF_PERIME, conflit: true };
+    // 🔴 D35 — un salaire rattaché au collaborateur, changé de salarié : le nouveau doit avoir son activité principale ce mois-là (un par mois)
+    const x = rows[0];
+    if (v.retirer !== true && x.poste === 'salaires' && x.famille === null && v.compteId != null && v.compteId !== nOuNull(x.compte_id)) {
+      const motif = motifSalaire(await lirePrincipales(), v.compteId, x.societe, n(x.annee), n(x.mois), null);
+      if (motif !== null) return { ok: false, motif };
+      const { rows: d } = await q<{ id: string }>(`SELECT id FROM transaction_cout_ligne WHERE retire_le IS NULL AND poste = 'salaires' AND annee = $1 AND mois = $2 AND compte_id = $3 AND id <> $4`,
+        [x.annee, x.mois, v.compteId, id]);
+      if (d.length > 0) return { ok: false, motif: 'Ce salarié a déjà son salaire ce mois-ci : modifiez sa ligne.', conflit: true };
+    }
     const valeurs: Record<string, unknown> = v.retirer === true ? { retire_le: new Date().toISOString() }
       : { ...(v.montantHt === undefined ? {} : { montant_ht: v.montantHt }), ...(v.compteId === undefined || rows[0].poste !== 'salaires' ? {} : { compte_id: v.compteId }),
         ...(v.libelle === undefined || rows[0].poste !== 'autres' ? {} : { libelle: v.libelle }), ...(v.tva === undefined || rows[0].poste !== 'autres' ? {} : { tva: v.tva }) };
