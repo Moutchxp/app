@@ -7,7 +7,7 @@
 // par négociateur et les cartes tombent juste au centime, et « CA net = CA brut − primes − apporteurs » ligne par ligne.
 // N'entrent PAS dans les coûts (et le disent) : la part gestion « Récurrent » des apporteurs (due mois après mois, sans bail de la période), le dû
 // aux collègues, la commission du négociateur et ses rétrocessions (`gestion_location_retrocession` : elles diminuent SA commission, pas le CA).
-import { apporteurAffiche, caLigne, cleNegociateur, commissionCollegueSignatureDe, partGestionSignatureDe, partLocationDe, primeDe, tauxNegociateurDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
+import { aUnDuMensuel, apporteurAffiche, caLigne, cleNegociateur, commissionCollegueSignatureDe, duCollegueRecurrent, duRecurrent, moisDeLigne, partGestionSignatureDe, partLocationDe, primeDe, tauxNegociateurDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
 import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
 import { TVA } from './modele';
 import type { MontantC } from './partAgence';
@@ -130,14 +130,39 @@ export interface CoutsLocation {
   couts: MontantC; net: MontantC;
   /** Les mois comptés ; ceux dont les salaires sont comptés (primes et variable alors « inclus ») ; ceux qui ont des salaires saisis. */
   nbMois: number; moisAvecSalaires: number; moisSaisis: number;
+  /** 🔴 « Les coûts », C19 option A (Arno, 03/11/2026) — la part de gestion RÉCURRENTE due aux apporteurs et la rémunération des collègues
+   *  apporteurs, calculées par le module Location (`dusLocationParMois`) ; sans TVA ; comptées dans `couts` (0 sans ces données). */
+  partGestion: MontantC; collegues: MontantC;
 }
+/**
+ * 🔴 « Les coûts », C19 option A — CE QUE LE MODULE LOCATION DOIT CHAQUE MOIS, hors bail de la période : la part de gestion « Récurrent » des
+ * apporteurs (`duRecurrent`) et la rémunération des collègues apporteurs (à la signature, `commissionCollegueSignatureDe`, + leur récurrent,
+ * `duCollegueRecurrent`) — les fonctions de son Résumé de la période (`totauxPeriode`), sans copie. La part versée en une fois reste dans les
+ * « Apporteurs » (`partGestionSignatureDe`). En HT (euros), sans TVA.
+ */
+export interface DuLocationMois { annee: number; mois: number; partGestionHt: number; colleguesHt: number }
+export function dusLocationParMois(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui: string): DuLocationMois[] {
+  const recurrents = activites.filter((a) => aUnDuMensuel(a, apporteurs));
+  const mois = new Set<string>(activites.map(moisDeLigne));
+  // les mois des dus récurrents (jusqu'au mois en cours) : de la plus ancienne signature au mois en cours
+  const debut = [...mois].sort()[0];
+  if (debut !== undefined) for (let m = debut; m <= aujourdhui.slice(0, 7); m = moisSuivant(m)) mois.add(m);
+  return [...mois].sort().map((m) => {
+    const signes = activites.filter((a) => moisDeLigne(a) === m);
+    const colleguesHt = signes.reduce((t, a) => t + commissionCollegueSignatureDe(a, apporteurs), 0) + duCollegueRecurrent(recurrents, apporteurs, [m], aujourdhui);
+    return { annee: Number(m.slice(0, 4)), mois: Number(m.slice(5, 7)), partGestionHt: duRecurrent(recurrents, apporteurs, [m], aujourdhui), colleguesHt };
+  }).filter((d) => d.partGestionHt !== 0 || d.colleguesHt !== 0);
+}
+const moisSuivant = (m: string): string => { const a = Number(m.slice(0, 4)); const x = Number(m.slice(5, 7)); return x === 12 ? `${a + 1}-01` : `${a}-${String(x + 1).padStart(2, '0')}`; };
 const salaireDuMois = (salaires: readonly SalairesLocation[] | null, a: number, m: number): number | null =>
   salaires?.find((x) => x.annee === a && x.mois === m)?.salairesHt ?? null;
 /**
  * Les coûts d'UN mois (les lignes du mois, ses rétrocessions, ses salaires saisis ou null). 🔴 LOT LO12 — `avecSalaires` faux (« Sans salaires ») :
  * aucun salaire compté (le montant saisi reste montré), primes et variable toujours déduits. PUR.
  */
-export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null, avecSalaires = true): CoutsLocation {
+export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null, avecSalaires = true,
+  /** 🔴 C19 option A — les dus du mois (part de gestion récurrente, collègues) ; absent : 0 (les écrans d'avant). */
+  du: Pick<DuLocationMois, 'partGestionHt' | 'colleguesHt'> | null = null): CoutsLocation {
   const t = totauxLocation(lignes);
   const v = moinsC(lignes.reduce((x, l) => plusC(x, l.variableC), RIEN), retros.reduce((x, r) => ({ htC: x.htC + r.montantC.htC, ttcC: x.ttcC + r.montantC.htC }), RIEN));
   const saisi = salairesHt !== null;
@@ -146,9 +171,10 @@ export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: re
   const salairesSaisis = { htC: sal, ttcC: sal };
   const salaires = avec ? salairesSaisis : RIEN;
   const primesDeduites = avec ? RIEN : t.primes; const variableDeduit = avec ? RIEN : v;
-  const couts = plusC(plusC(plusC(t.apporteurs, primesDeduites), variableDeduit), salaires);
+  const partGestion = sansTva(du?.partGestionHt ?? 0); const collegues = sansTva(du?.colleguesHt ?? 0);
+  const couts = plusC(plusC(plusC(plusC(plusC(t.apporteurs, primesDeduites), variableDeduit), salaires), partGestion), collegues);
   return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, salairesSaisis, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1,
-    moisAvecSalaires: avec ? 1 : 0, moisSaisis: saisi ? 1 : 0 };
+    moisAvecSalaires: avec ? 1 : 0, moisSaisis: saisi ? 1 : 0, partGestion, collegues };
 }
 /**
  * ══ 🔴 Arno (règle du 25/10/2026, chantier du 02/11/2026) — LE VARIABLE DU NÉGOCIATEUR, TEL QU'IL EST AFFICHÉ ══════════════════════════════════
@@ -163,14 +189,15 @@ export const AIDE_VARIABLE_NEGOCIATEUR = 'Variable négociateur = (honoraires HT
   + '× taux commercial du négociateur (celui de la date de signature de chaque bail) − rétrocessions du négociateur + primes de gestion. '
   + "Les primes de gestion apparaissent aussi dans leur colonne pour information : elles ne sont déduites qu'une fois du CA net.";
 const sommeCouts = (xs: readonly CoutsLocation[]): CoutsLocation => {
-  const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'salairesSaisis', 'primesDeduites', 'variableDeduit', 'couts', 'net'] as const;
+  const k = ['ca', 'apporteurs', 'primes', 'variable', 'salaires', 'salairesSaisis', 'primesDeduites', 'variableDeduit', 'couts', 'net', 'partGestion', 'collegues'] as const;
   return { ...Object.fromEntries(k.map((x) => [x, xs.reduce((s, c) => plusC(s, c[x]), RIEN)])) as Pick<CoutsLocation, (typeof k)[number]>,
     nbMois: xs.reduce((s, c) => s + c.nbMois, 0), moisAvecSalaires: xs.reduce((s, c) => s + c.moisAvecSalaires, 0), moisSaisis: xs.reduce((s, c) => s + c.moisSaisis, 0) };
 };
 /** Les coûts d'un ensemble de mois : la somme de ses mois (chacun à sa règle). `retros` : déjà filtrées (négociateurs choisis). PUR. */
 export function coutsLocation(lignes: readonly LigneLocationCa[], ms: readonly { annee: number; mois: number }[], retros: readonly RetroLocation[],
-  salaires: readonly SalairesLocation[] | null, avecSalaires = true): CoutsLocation {
-  return sommeCouts(ms.map((m) => coutsLocationMois(lignesDesMois(lignes, [m]), retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salaireDuMois(salaires, m.annee, m.mois), avecSalaires)));
+  salaires: readonly SalairesLocation[] | null, avecSalaires = true, dus: readonly DuLocationMois[] | null = null): CoutsLocation {
+  return sommeCouts(ms.map((m) => coutsLocationMois(lignesDesMois(lignes, [m]), retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salaireDuMois(salaires, m.annee, m.mois), avecSalaires,
+    dus?.find((d) => d.annee === m.annee && d.mois === m.mois) ?? null)));
 }
 /** Les salaires saisis d'un mois (null : non saisi). PUR. */
 export const salairesLocationDuMois = salaireDuMois;

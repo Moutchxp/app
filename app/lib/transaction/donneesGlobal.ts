@@ -5,9 +5,10 @@
 import type { Vente } from './modele';
 import { compromisEnCours, totalCompromisEnCours } from './compromisEnCours';
 import { resolveurDe } from './statutLigne';
-import { libellesDePaye, lireGestion, lireNotesDoubles, lireRetrocessions, lireStatutsNegociateurs, lireVentes, transactionDisponible } from './repo';
+import { libellesDePaye, lireCoutsLignes, lireGestion, lireNotesDoubles, lireRetrocessions, lireStatutsNegociateurs, lireVentes, transactionDisponible } from './repo';
 import { lireCaLocationHtTtc, lireLocationCa } from './locationLue';
 import { mongaDisponible } from '../admin/schemaDroits';
+import { lignesPourCoutsGlobaux } from './coutsSaisis';
 
 /**
  * Le CA global : ventes COMPLÈTES des deux sociétés, gestion, location (CA HT et TTC), rétrocessions, statut des négociateurs payés, données de
@@ -25,6 +26,9 @@ export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boo
   // « Suivi CA › Location » (lignes, rétrocessions, salaires chargés), en lecture seule
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
   const locationCa = await lireLocationCa().catch(() => null);
+  // 🔴 « Les coûts », lot 2 (451) — les coûts saisis : salaires de la vente et « Autres » vont dans `coutsGlobaux` (`coutsSaisis`) ; les salaires
+  // de la Location et de la Gestion sont déjà dans leurs lectures (`lireSalairesLocation`, `lireGestion`). `coutsLignes` : toutes, pour la saisie.
+  const coutsLignes = await lireCoutsLignes().catch(() => null);
   let compromis: Record<string, unknown> = {};
   if (o.compromis !== false) {
     const [ventesC, ventesM] = await Promise.all([lireVentes('criterimmo'), lireVentes('macj')]);
@@ -37,7 +41,9 @@ export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boo
   }
   // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
   return { disponible, aujourdhui, gestion, location, locationTtcC, ...compromis, monga: await mongaDisponible().catch(() => false),
-    retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires } : null,
+    retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires,
+      dus: locationCa.dus ?? [] } : null,
+    coutsSaisis: lignesPourCoutsGlobaux(coutsLignes ?? []), coutsLignes,
     // 🔴 LOT CG2 — les ventes COMPLÈTES (les cartes de la page FUSION : répartition, lignes, dossier), plus seulement leurs champs du CA
     ventes };
 }

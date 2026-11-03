@@ -4,6 +4,7 @@ import { ligneLocationCa } from '../../transaction/locationCa';
 import type { GestionMois, LigneVente, Partie, Retrocession, Vente } from '../../transaction/modele';
 import type { EntreesCoutsGlobaux } from '../../transaction/coutsGlobal';
 import { resolveurDe } from '../../transaction/statutLigne';
+import type { CoutSaisi } from '../../transaction/coutsSaisis';
 
 /**
  * 🔴 « Les coûts » — données FICTIVES de deux années (2025, 2026), montants impairs : une vente partagée CRITERIMMO → MACJ (inter-cabinet), une vente
@@ -58,5 +59,14 @@ export const GESTION_COUTS = [g(2026, 9, {}), g(2026, 8, { mongaHt: null, salari
 // août 2026 : les salaires de la Location saisis → primes et variable « inclus dans les salaires »
 export const SALAIRES_LOCATION_COUTS = [{ annee: 2026, mois: 8, salairesHt: 1000.01, note: null }];
 
+// 🔴 Lot 2 — les dus du module Location (part de gestion récurrente, collègues) et des coûts saisis (salaires de la vente, « Autres »), deux structures
+export const DUS_COUTS = [{ annee: 2026, mois: 9, partGestionHt: 45.67, colleguesHt: 12.03 }, { annee: 2025, mois: 9, partGestionHt: 30.01, colleguesHt: 0 }];
+export const SAISIS_COUTS: CoutSaisi[] = [
+  { societe: 'criterimmo', famille: 'vente', poste: 'salaires', annee: 2026, mois: 9, montantHt: 2500.55 },
+  { societe: 'macj', famille: 'vente', poste: 'salaires', annee: 2026, mois: 9, montantHt: 1200.45 },
+  { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10, montantHt: 99.99 },
+  { societe: 'criterimmo', famille: 'location', poste: 'autres', annee: 2026, mois: 9, montantHt: 150.5 },
+  { societe: 'criterimmo', famille: 'gestion', poste: 'autres', annee: 2025, mois: 9, montantHt: 77.77 },
+];
 export const E_COUTS: EntreesCoutsGlobaux = { ventes: VENTES_COUTS, retrocessions: RETROS_COUTS, statutDuLibelle: resolveurDe(undefined),
-  location: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS }, gestion: GESTION_COUTS };
+  location: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS, dus: DUS_COUTS }, gestion: GESTION_COUTS, saisis: SAISIS_COUTS };

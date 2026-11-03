@@ -6,7 +6,8 @@ import { NOMS_MOIS, variation, type GestionMois } from '../../../../lib/transact
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { borneCumul, ecrireAnnees, moisADate, moisDesAnnees, moisSoulignes, anneesSoulignees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
 import { libellePeriode, libellePeriodeComplet, unAnPlusTot, type MoisChoisi } from '../../../../lib/transaction/periodeMois';
-import { lignesDesMois, moinsC, variableNegociateur, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
+import { lignesDesMois, moinsC, variableNegociateur, type DuLocationMois, type LigneLocationCa, type RetroLocation, type SalairesLocation } from '../../../../lib/transaction/locationCa';
+import type { CoutSaisi } from '../../../../lib/transaction/coutsSaisis';
 import {
   ACTIVITES_FUSION, anneesFusion, aSaisirFusion, estActiviteFusion, FAMILLES_COUTS, LIBELLE_ACTIVITE_FUSION, moisDeGestion, totauxFusion, type ActiviteFusion, type FamilleCout, type TotauxFusion,
 } from '../../../../lib/transaction/fusionLocationGestion';
@@ -28,8 +29,11 @@ import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — l
  * les fenêtres de détail, la trame des sommes. LECTURE SEULE : les données des deux pages (leurs routes), les chiffres par leurs fonctions
  * (`fusionLocationGestion` : aucun calcul propre) — chaque part = sa page d'origine, au centime. « Activité » : les deux | location | gestion.
  */
-interface DonneesLocation { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[]; retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null }
-interface DonneesGestion { disponible: boolean; gestion: GestionMois[] }
+interface DonneesLocation { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[]; retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null;
+  /** 🔴 « Les coûts », C19 option A — les dus du module Location (part de gestion récurrente, collègues). */
+  dus?: DuLocationMois[] }
+/** 🔴 « Les coûts », lot 2 — `coutsSaisis` : les « Autres » saisis (lus avec le CA global). */
+interface DonneesGestion { disponible: boolean; gestion: GestionMois[]; coutsSaisis?: CoutSaisi[] }
 
 const EXPLICATION = { ca: 'honoraires de location + honoraires de gestion', volume: 'baux signés · lots gérés', couts: 'apporteurs, ADHOC, MONGA, salaires chargés ; primes et variable les mois sans salaires de location',
   net: 'CA brut − coûts', coutsSans: 'primes, apporteurs, variable, ADHOC, MONGA — salaires chargés non comptés', netSans: 'CA brut − coûts hors salaires' } as const;
@@ -103,7 +107,8 @@ export function EcranFusionLocationGestion() {
           <button type="button" role="tab" className="tdb-onglet" aria-selected={vue === 'annee'} onClick={() => setVue('annee')} data-vue="annee">{ONGLET_ANNEES}</button>
         </div>
       </div>
-      <FournisseurAffichage value={unite}><ContexteLoc.Provider value={{ retros: luL.etat === 'ok' ? luL.data.retrocessions ?? [] : [], salaires: luL.etat === 'ok' ? luL.data.salaires ?? null : null }}>
+      <FournisseurAffichage value={unite}><ContexteLoc.Provider value={{ retros: luL.etat === 'ok' ? luL.data.retrocessions ?? [] : [], salaires: luL.etat === 'ok' ? luL.data.salaires ?? null : null,
+        dus: luL.etat === 'ok' ? luL.data.dus ?? null : null, saisis: luG.etat === 'ok' ? luG.data.coutsSaisis ?? [] : [] }}>
       {vue === 'mois' ? <>
         <form className="tdb-filtres" aria-label="Filtres" onSubmit={(x) => x.preventDefault()}>
           <label className="tdb-champ">Année
@@ -137,7 +142,7 @@ export function EcranFusionLocationGestion() {
 }
 
 /** 🔴 LOT LO11 — les données de la Location pour la règle des coûts (rétrocessions, salaires chargés saisis), et le calcul qui les prend. */
-const ContexteLoc = createContext<{ retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null }>({ retros: [], salaires: null });
+const ContexteLoc = createContext<{ retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null; dus?: readonly DuLocationMois[] | null; saisis?: readonly CoutSaisi[] }>({ retros: [], salaires: null });
 /** 🔴 LOT LO15 — le mot « N mois de salaires à saisir » d'un ensemble de mois (Location : ses salaires chargés ; Gestion : la case salarié). */
 function useASaisir(gestion: readonly GestionMois[], activite: ActiviteFusion, jour: string): (ms: readonly MoisChoisi[]) => string {
   const loc = useContext(ContexteLoc);
@@ -327,7 +332,8 @@ const ordreAffiche = <F extends { cle: FamilleCout }>(fs: readonly F[]): F[] => 
   return i < 0 ? [...fs] : [...autres.slice(0, i + 1), ...fs.filter((f) => f.cle === 'primes'), ...autres.slice(i + 1)];
 };
 const MOT_DONT_PRIMES = 'dont primes de nouvelle gestion';
-const motFamille = (f: FamilleCout): string => ({ primes: 'primes', apporteurs: 'apporteurs', variable: 'variable', salairesLocation: 'salaires location', adhoc: 'ADHOC', monga: 'MONGA', salaries: 'salaires gestion' } as const)[f];
+const motFamille = (f: FamilleCout): string => ({ primes: 'primes', apporteurs: 'apporteurs', variable: 'variable', salairesLocation: 'salaires location', adhoc: 'ADHOC', monga: 'MONGA', salaries: 'salaires gestion',
+  partGestion: 'part de gestion des apporteurs', collegues: 'collègues apporteurs', autresLocation: 'autres location', autresGestion: 'autres gestion' } as const)[f];
 
 /**
  * « Résultat de l'activité » : Location (CA brut − apporteurs − primes − variable − salaires chargés = CA net), Gestion (honoraires − ADHOC − MONGA −

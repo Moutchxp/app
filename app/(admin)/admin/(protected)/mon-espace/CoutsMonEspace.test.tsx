@@ -8,7 +8,7 @@ import { coutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { coutsDeLAnnee, coutsDuPoint, URL_COUTS } from '../../../../lib/mon-espace/couts';
 import { AIDE_POSTES_FUTURS } from './CoutsMonEspace';
 import type { Agence } from '../../../../lib/mon-espace/agence';
-import { E_COUTS, GESTION_COUTS, LIGNES_LOCATION_COUTS, RETROS_COUTS, SALAIRES_LOCATION_COUTS, VENTES_COUTS } from '../../../../lib/mon-espace/__fixtures__/couts';
+import { DUS_COUTS, E_COUTS, GESTION_COUTS, LIGNES_LOCATION_COUTS, RETROS_COUTS, SAISIS_COUTS, SALAIRES_LOCATION_COUTS, VENTES_COUTS } from '../../../../lib/mon-espace/__fixtures__/couts';
 
 /**
  * 🔴 « LES COÛTS » (Arno, 03/11/2026, lot C1) — dans le VRAI écran « Mon espace », routes simulées (rien n'est écrit) : l'onglet n'existe qu'en mode
@@ -22,7 +22,7 @@ const agence = (cle: Agence, associe: boolean) => ({ disponible: true, aujourdhu
   compteurs: VIDE, retrocessions: [], statutsNegociateurs: {}, nomsNegociateurs: {}, agence: { cle, societe: cle === 'tous' ? null : cle } });
 const perso = (associe: boolean) => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 1, prenom: 'Arno', administrateur: true, associe }, ventes: [], compteurs: VIDE, retrocessions: [] });
 const GLOBAL = { disponible: true, aujourdhui: JOUR, ventes: VENTES_COUTS, gestion: GESTION_COUTS, location: {}, locationTtcC: {}, retrocessions: RETROS_COUTS, statutsNegociateurs: {},
-  locationCa: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS } };
+  locationCa: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS, dus: DUS_COUTS }, coutsSaisis: SAISIS_COUTS, coutsLignes: [], saisie: false };
 let associe: boolean;
 let urls: string[];
 let container: HTMLDivElement;
@@ -97,7 +97,10 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     const c = coutsGlobaux(E_COUTS, 2026, null);
     egal('[data-valeur-couts="total"]', c.total.htC);
     egal('[data-ligne-couts="annee"] [data-cout="vente-commissions"]', c.vente.commissions.htC);
-    egal('[data-ligne-couts="annee"] [data-cout="vente-total"]', c.vente.commissions.htC + c.vente.apporteurs.htC + c.vente.exterieures.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="vente-total"]', c.vente.commissions.htC + c.vente.apporteurs.htC + c.vente.exterieures.htC + c.saisis.venteSalaires.htC + c.saisis.venteAutres.htC);
+    // 🔴 lot 2 — les coûts saisis de la vente (salaires, « Autres ») : ceux de « Coûts globaux »
+    egal('[data-ligne-couts="annee"] [data-cout="vente-salaires"]', c.saisis.venteSalaires.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="vente-autres"]', c.saisis.venteAutres.htC);
     await cliquer('[data-afficher="ttc"]');
     egal('[data-valeur-couts="total"]', c.total.ttcC);
     egal('[data-ligne-couts="annee"] [data-cout="vente-commissions"]', c.vente.commissions.ttcC);
@@ -108,8 +111,9 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     expect(titres).toEqual(['Mois', 'Apporteurs', 'Variable négo (calculé)', 'Primes de gestion', 'Variable négociateur', 'Salaires chargés', 'Part de gestion versée aux apporteurs',
       'Rémunération des collègues apporteurs', 'Autres', 'Total location']);
     expect(container.querySelector('[data-couts-mon-espace]')!.textContent).not.toMatch(/\bdont\b/i);
-    const cellules = [...container.querySelectorAll('[data-ligne-couts="annee"] td')].map((e) => e.getAttribute('data-cout') ?? (e.hasAttribute('data-poste-futur') ? 'futur' : ''));
-    expect(cellules).toEqual(['location-apporteurs', 'location-variable-calcule', 'location-primes', 'location-variable', 'location-salaires', 'futur', 'futur', 'futur', 'location-total']);
+    const cellules = [...container.querySelectorAll('[data-ligne-couts="annee"] td')].map((e) => e.getAttribute('data-cout'));
+    expect(cellules).toEqual(['location-apporteurs', 'location-variable-calcule', 'location-primes', 'location-variable', 'location-salaires', 'location-part-gestion', 'location-collegues',
+      'location-autres', 'location-total']);
   });
   it.each(['tous', 'criterimmo'] as const)('C12 — %s : Location, Gestion, Synthèse = « Coûts globaux » au centime (2025, 2026) ; Variable négo (calculé) hors totaux', async (a) => {
     await ouvrir(a); await cliquer('[data-onglet-mon-espace="couts"]');
@@ -118,14 +122,15 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
       const t = coutsDeLAnnee(E_COUTS, a, annee); const c = coutsGlobaux(E_COUTS, annee, null);
       const L = t.annee.location!; const G = t.annee.gestion!;
       // les totaux de familles = les colonnes de « Coûts globaux »
-      expect(L.total.htC).toBe(c.location!.apporteurs.htC + c.location!.primesDeduites.htC + c.location!.variableDeduit.htC + c.location!.salaires.htC);
-      expect(G.total.htC).toBe(c.gestion.adhoc.htC + c.gestion.monga.htC + c.gestion.salaires.htC);
+      expect(L.total.htC).toBe(c.location!.apporteurs.htC + c.location!.primesDeduites.htC + c.location!.variableDeduit.htC + c.location!.salaires.htC
+        + c.location!.partGestion.htC + c.location!.collegues.htC + c.saisis.locationAutres.htC);
+      expect(G.total.htC).toBe(c.gestion.adhoc.htC + c.gestion.monga.htC + c.gestion.salaires.htC + c.saisis.gestionAutres.htC);
       await cliquer('[data-tableau-couts="location"]');
       egal('[data-ligne-couts="annee"] [data-cout="location-total"]', L.total.htC);
       egal('[data-ligne-couts="annee"] [data-cout="location-variable-calcule"]', L.variableCalcule.htC);
       for (let m = 1; m <= 12; m++) {
         const x = t.mois[m - 1].location!;
-        const attendu = x.apporteurs.htC + x.variable.htC + x.salaires.htC; // jamais le variable calculé
+        const attendu = x.apporteurs.htC + x.variable.htC + x.salaires.htC + x.partGestion.htC + x.collegues.htC + x.autres.htC; // jamais le variable calculé
         // un mois à venir (décembre 2026) sans coût : « — », comme « Coûts globaux »
         if (annee === 2026 && m > 11 && attendu === 0) expect(texte(`[data-ligne-couts="${m}"] [data-cout="location-total"]`)).toBe('—');
         else egal(`[data-ligne-couts="${m}"] [data-cout="location-total"]`, attendu);
@@ -148,7 +153,10 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     expect(aout.variableCalcule.htC).toBeGreaterThan(0);
     egal('[data-ligne-couts="8"] [data-cout="location-variable-calcule"]', aout.variableCalcule.htC);
     egal('[data-ligne-couts="8"] [data-cout="location-variable"]', 0);
-    expect(container.querySelectorAll('[data-ligne-couts="annee"] [data-poste-futur]').length).toBe(3);
+    // 🔴 lot 2 — la part de gestion et les collègues (automatiques), « Autres » (saisi) : des montants
+    egal('[data-ligne-couts="9"] [data-cout="location-part-gestion"]', 4567);
+    egal('[data-ligne-couts="9"] [data-cout="location-collegues"]', 1203);
+    egal('[data-ligne-couts="9"] [data-cout="location-autres"]', 15050);
     await cliquer('[data-afficher="ttc"]'); await cliquer('[data-tableau-couts="synthese"]');
     egal('[data-ligne-couts="annee"] [data-cout="location-gestion-total"]', t.annee.location!.total.ttcC + t.annee.gestion!.total.ttcC);
   });
@@ -230,5 +238,77 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     expect(g!.querySelector('[data-filtre-graphe="Période"]')).not.toBeNull(); // Mensuel | Cumul
     // l'adresse de « Mon espace » n'est pas touchée par les filtres du graphique
     expect(window.location.search).not.toContain('g-');
+  });
+});
+
+describe('🔴 lot 2 — la saisie dans les tableaux (C15)', () => {
+  const LIGNES = [
+    { id: 31, societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 3, compteLibelle: 'Bruno GESTION', libelle: null, montantHt: 2100.5, version: 88 },
+  ];
+  const PROFILS = [{ id: 1, libelle: 'Zoé VENTE', fonctions: ['vente'] }, { id: 3, libelle: 'Bruno GESTION', fonctions: ['gestion'] }, { id: 4, libelle: 'Amélie', fonctions: [] },
+    { id: 5, libelle: 'Chloé LOCATION', fonctions: ['location'] }];
+  let posts: unknown[]; let reponsePost: { status: number; corps: unknown };
+  beforeEach(() => {
+    posts = []; reponsePost = { status: 200, corps: { etat: 'ok', data: { id: 50 } } };
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url); urls.push(u);
+      if (u.startsWith(URL_COUTS) && init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: reponsePost.status === 200, status: reponsePost.status, json: async () => reponsePost.corps }; }
+      if (u.startsWith(URL_COUTS) && !u.includes('empreinte')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true, coutsLignes: LIGNES, profils: PROFILS,
+        versionsGestion: { '2026-09': { version: 12, origine: 'saisie' } }, monga: true } }) };
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+  });
+  const lectures = () => urls.filter((u) => u === URL_COUTS).length;
+  it('FUSION : en lecture seule — aucune case modifiable, le message dit de choisir CRITERIMMO ou MACJ', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelector('[data-saisie-fusion]')?.textContent).toContain('choisissez CRITERIMMO ou MACJ');
+    expect(container.querySelector('[data-case-saisie]')).toBeNull();
+  });
+  it('MACJ : sa vente se saisit ; la location et la gestion (CRITERIMMO) non', async () => {
+    await ouvrir('macj'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelector('[data-case-saisie="vente-salaires-10"]')).not.toBeNull();
+    await cliquer('[data-tableau-couts="gestion"]');
+    expect(container.querySelector('[data-case-saisie]')).toBeNull();
+  });
+  it('CRITERIMMO, salaires de la gestion d’octobre : la ligne du salarié, les profils de la GESTION d’abord ; un ajout écrit la ligne et relit tout', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="gestion"]');
+    egal('[data-ligne-couts="10"] [data-cout="gestion-salaires"]', 0); // l'écran montre le calcul de la page Gestion (la route l'additionne ; ici simulée)
+    await cliquer('[data-case-saisie="gestion-salaires-10"]');
+    expect(container.querySelector('[data-panneau-couts="lignes"] h4')?.textContent).toBe('Salaires chargés — gestion, Octobre 2026');
+    expect(container.querySelector('[data-ligne-cout="31"] select')?.getAttribute('data-choix-profil')).toBe('31');
+    const groupes = [...container.querySelectorAll('[data-choix-profil="nouveau"] optgroup')].map((g) => [g.getAttribute('label'), [...g.querySelectorAll('option')].map((o) => o.textContent)]);
+    expect(groupes).toEqual([['Location ou gestion', ['Chloé LOCATION']], ['Autres profils', ['Amélie', 'Zoé VENTE']]]); // Bruno (gestion) a déjà sa ligne ce mois-ci
+    const avant = lectures();
+    await act(async () => {
+      const s = container.querySelector('[data-choix-profil="nouveau"]') as HTMLSelectElement; s.value = '5'; s.dispatchEvent(new Event('change', { bubbles: true }));
+      const m = container.querySelector('[data-montant-nouveau]') as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!; setter.call(m, '1 999,99'); m.dispatchEvent(new Event('input', { bubbles: true }));
+    }); await calmer();
+    await cliquer('[data-ajouter-ligne]');
+    expect(posts).toEqual([{ action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 5, libelle: null, montantHt: 1999.99 } }]);
+    expect(lectures()).toBeGreaterThan(avant); // tous les tableaux, la synthèse et le graphique relus
+  });
+  it('une écriture périmée : 409, le motif et « Recharger » ; rien de plus n’est envoyé', async () => {
+    reponsePost = { status: 409, corps: { etat: 'refus', motif: 'Ce coût a été modifié entre-temps' } };
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="gestion"]');
+    await cliquer('[data-case-saisie="gestion-salaires-10"]');
+    await cliquer('[data-retirer-ligne="31"]');
+    expect(posts).toEqual([{ action: 'ligne-retirer', id: 31, version: 88 }]);
+    expect(container.querySelector('[data-message-couts="conflit"]')?.textContent).toContain('modifié entre-temps');
+    expect(container.querySelector('[data-recharger-couts]')).not.toBeNull();
+  });
+  it('MONGA de septembre : le montant du mois, la version de la Gestion ; un coût automatique se corrige à la source (C4)', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="gestion"]');
+    await cliquer('[data-case-saisie="gestion-monga-9"]');
+    await cliquer('[data-enregistrer-gestion]');
+    expect(posts).toEqual([{ action: 'gestion-poste', annee: 2026, mois: 9, poste: 'monga', montantHt: 12.34, version: 12 }]);
+    await cliquer('[data-tableau-couts="vente"]');
+    await cliquer('[data-case-auto="vente-commissions-3"]');
+    expect(container.querySelector('[data-detail-auto="vente"]')?.textContent).toContain('PARTAGÉE');
+    expect(container.querySelector('[data-lien-source="vente"]')?.getAttribute('href')).toBe('/admin/transaction/criterimmo?vue=mois&annee=2026&mois=3');
+    // « Variable négo (calculé) » : jamais éditable
+    await cliquer('[data-tableau-couts="location"]');
+    expect(container.querySelector('[data-cout="location-variable-calcule"] button')).toBeNull();
   });
 });

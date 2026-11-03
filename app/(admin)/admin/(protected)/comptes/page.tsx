@@ -1,6 +1,7 @@
 'use client';
 
 import { AIDE_STATUT, BlocStatutCompte, ChoixStatut, MSG_STATUT_OBLIGATOIRE, type StatutVue } from './StatutCompte';
+import { BlocFonctionsCompte } from './FonctionsCompte';
 import { AIDE_COMMISSIONNE, BlocCommissionneCompte, ChoixCommissionne, MSG_COMMISSIONNE_OBLIGATOIRE, type CommissionneVue } from './CommissionneCompte';
 import { LIBELLE_STATUT_PERSONNE, type Statut } from '../../../../lib/admin/statut';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -292,6 +293,8 @@ export function DetailContenu({
 
       {/* 🔴 LOT S (Arno, 28/10/2026, 441) — « COMMISSIONNÉ / NON COMMISSIONNÉ » : administrateur seulement ; obligatoire, journalisé avec sa date. */}
       {compte.commissionneDetail !== undefined && <BlocCommissionneCompte key={`${compte.id}-c-${String(compte.commissionneDetail.valeur)}`} compteId={compte.id} etat={compte.commissionneDetail} onFait={() => onStatutEnregistre?.()} />}
+      {/* 🔴 « Les coûts », lot 2 (C9) — les fonctions du profil (vente / location / gestion), le bloc lit et enregistre lui-même */}
+      <BlocFonctionsCompte compteId={compte.id} />
 
       {/* ══ TRANSACTION, LOT D (Arno, 27/10/2026, 434) — « SOCIÉTÉ : CRITERIMMO / MACJ », obligatoire, datée : un changement vaut à compter
           de sa date et ne réécrit pas le passé (une vente garde la société de son négociateur au moment de la vente). */}

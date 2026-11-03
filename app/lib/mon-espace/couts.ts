@@ -2,6 +2,7 @@ import type { MontantC } from '../transaction/partAgence';
 import { coutsGlobaux, type EntreesCoutsGlobaux } from '../transaction/coutsGlobal';
 import { coutsVenteDeLaSociete } from '../transaction/grapheGlobal';
 import { variableNegociateur } from '../transaction/locationCa';
+import { montantSaisi } from '../transaction/coutsSaisis';
 import type { Agence } from './agence';
 
 /**
@@ -15,7 +16,9 @@ import type { Agence } from './agence';
  * (décision C3) est le variable calculé (`variableNegociateur(variable, primes)`, même les mois où il est « inclus dans les salaires ») : pour
  * information, jamais dans un total.
  */
-export interface CoutsVentePoste { commissions: MontantC; apporteurs: MontantC; exterieures: MontantC; total: MontantC }
+export interface CoutsVentePoste { commissions: MontantC; apporteurs: MontantC; exterieures: MontantC;
+  /** 🔴 Lot 2 (451) — saisis : salaires chargés (par salarié), « Autres ». */
+  salaires: MontantC; autres: MontantC; total: MontantC }
 export interface CoutsLocationPoste {
   apporteurs: MontantC;
   /** « dont primes de gestion » : comptées dans `variable` (information). */
@@ -25,9 +28,11 @@ export interface CoutsLocationPoste {
   salaires: MontantC;
   /** 🔴 C3 — pour information, hors totaux : le variable calculé, primes incluses. */
   variableCalcule: MontantC;
+  /** 🔴 C19 option A — automatiques (module Location) : la part de gestion récurrente des apporteurs, la rémunération des collègues ; lot 2 : « Autres » saisis. */
+  partGestion: MontantC; collegues: MontantC; autres: MontantC;
   total: MontantC;
 }
-export interface CoutsGestionPoste { salaires: MontantC; adhoc: MontantC; monga: MontantC; total: MontantC }
+export interface CoutsGestionPoste { salaires: MontantC; adhoc: MontantC; monga: MontantC; autres: MontantC; total: MontantC }
 export interface CoutsDuPoint {
   vente: CoutsVentePoste;
   /** null : MACJ (vente seulement), ou la location n'a pas pu être lue. */
@@ -49,15 +54,21 @@ export const avecLocationGestion = (agence: Agence): boolean => agence !== 'macj
 export function coutsDuPoint(e: EntreesCoutsGlobaux, agence: Agence, annee: number, mois: number | null): CoutsDuPoint {
   const c = coutsGlobaux(e, annee, mois, true);
   const v = agence === 'tous' ? c.vente : coutsVenteDeLaSociete(e, agence, annee, mois);
-  const vente: CoutsVentePoste = { commissions: v.commissions, apporteurs: v.apporteurs, exterieures: v.exterieures, total: somme([v.commissions, v.apporteurs, v.exterieures]) };
+  // les coûts saisis de la vente : ceux de « Coûts globaux » (FUSION), ou ceux de la structure (même fonction, `montantSaisi`)
+  const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois }];
+  const sv = agence === 'tous' ? { salaires: c.saisis.venteSalaires, autres: c.saisis.venteAutres }
+    : { salaires: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'salaires', ms, societe: agence }), autres: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'autres', ms, societe: agence }) };
+  const vente: CoutsVentePoste = { commissions: v.commissions, apporteurs: v.apporteurs, exterieures: v.exterieures, salaires: sv.salaires, autres: sv.autres,
+    total: somme([v.commissions, v.apporteurs, v.exterieures, sv.salaires, sv.autres]) };
   const L = avecLocationGestion(agence) ? c.location : null;
   const location: CoutsLocationPoste | null = L === null ? null : {
     apporteurs: L.apporteurs, primes: L.primesDeduites, variable: variableNegociateur(L.variableDeduit, L.primesDeduites), salaires: L.salaires,
-    variableCalcule: variableNegociateur(L.variable, L.primes),
-    total: somme([L.apporteurs, L.primesDeduites, L.variableDeduit, L.salaires]),
+    variableCalcule: variableNegociateur(L.variable, L.primes), partGestion: L.partGestion, collegues: L.collegues, autres: c.saisis.locationAutres,
+    total: somme([L.apporteurs, L.primesDeduites, L.variableDeduit, L.salaires, L.partGestion, L.collegues, c.saisis.locationAutres]),
   };
   const gestion: CoutsGestionPoste | null = !avecLocationGestion(agence) ? null
-    : { salaires: c.gestion.salaires, adhoc: c.gestion.adhoc, monga: c.gestion.monga, total: somme([c.gestion.salaires, c.gestion.adhoc, c.gestion.monga]) };
+    : { salaires: c.gestion.salaires, adhoc: c.gestion.adhoc, monga: c.gestion.monga, autres: c.saisis.gestionAutres,
+      total: somme([c.gestion.salaires, c.gestion.adhoc, c.gestion.monga, c.saisis.gestionAutres]) };
   // FUSION : le total de « Coûts globaux » lui-même ; une structure : la somme de ses familles
   const total = agence === 'tous' ? c.total : somme([vente.total, location?.total ?? RIEN, gestion?.total ?? RIEN]);
   return { vente, location, gestion, total };
@@ -96,3 +107,51 @@ export const URL_COUTS = '/api/admin/mon-espace/couts';
 /** L'onglet est-il proposé ? Décision C1 : un associé ; décision C2 : en mode agence (« Voir »), jamais dans la vue perso. PUR. */
 export const ongletCoutsVisible = (titulaire: { associe?: boolean; administrateur: boolean }, agence: Agence | null): boolean =>
   agence !== null && titulaire.associe === true && titulaire.administrateur;
+
+// ══ 🔴 LOT 2 (451) — LA SAISIE : ce que la route accepte (lu et vérifié ici, PUR) ══════════════════════════════════════════════════════════════
+export type GesteCout =
+  | { action: 'ligne-ajouter'; ligne: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres'; annee: number; mois: number;
+      compteId: number | null; libelle: string | null; montantHt: number } }
+  | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string }
+  | { action: 'ligne-retirer'; id: number; version: number }
+  | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number };
+/** Un montant saisi : un nombre ≥ 0, au plus 2 décimales, au plus 10 millions. PUR. */
+export const estMontantSaisi = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x < 1e7 && Math.abs(Math.round(x * 100) - x * 100) < 1e-6;
+const entier = (x: unknown, min: number, max: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= min && x <= max;
+/** Le geste demandé, ou le motif du refus (422). C7 : la location et la gestion se saisissent sur CRITERIMMO seulement. PUR. */
+export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok: false; motif: string } {
+  const o = (b ?? {}) as Record<string, unknown>;
+  const refus = (motif: string) => ({ ok: false as const, motif });
+  const moisOk = entier(o.annee, 2000, 2100) && entier(o.mois, 1, 12);
+  if (o.action === 'ligne-ajouter') {
+    const l = (o.ligne ?? {}) as Record<string, unknown>;
+    if (l.societe !== 'criterimmo' && l.societe !== 'macj') return refus('Structure attendue : CRITERIMMO ou MACJ (FUSION se lit, elle ne se saisit pas).');
+    if (l.famille !== 'vente' && l.famille !== 'location' && l.famille !== 'gestion') return refus('Famille inconnue.');
+    if (l.famille !== 'vente' && l.societe !== 'criterimmo') return refus('La location et la gestion sont à CRITERIMMO : saisissez-les sur CRITERIMMO.');
+    if (l.poste !== 'salaires' && l.poste !== 'autres') return refus('Poste inconnu.');
+    if (!entier(l.annee, 2000, 2100) || !entier(l.mois, 1, 12)) return refus('Mois invalide.');
+    if (!estMontantSaisi(l.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
+    if (l.poste === 'salaires' && !entier(l.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez le salarié.');
+    const libelle = typeof l.libelle === 'string' ? l.libelle.trim() : '';
+    if (l.poste === 'autres' && (libelle === '' || libelle.length > 120)) return refus('Donnez un libellé (120 caractères au plus).');
+    return { ok: true, geste: { action: 'ligne-ajouter', ligne: { societe: l.societe, famille: l.famille, poste: l.poste, annee: l.annee, mois: l.mois,
+      compteId: l.poste === 'salaires' ? l.compteId as number : null, libelle: l.poste === 'autres' ? libelle : null, montantHt: l.montantHt } } };
+  }
+  if (o.action === 'ligne-modifier' || o.action === 'ligne-retirer') {
+    if (!entier(o.id, 1, Number.MAX_SAFE_INTEGER) || !entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Ligne inconnue.');
+    if (o.action === 'ligne-retirer') return { ok: true, geste: { action: 'ligne-retirer', id: o.id, version: o.version } };
+    if (o.montantHt !== undefined && !estMontantSaisi(o.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
+    if (o.compteId !== undefined && !entier(o.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez le salarié.');
+    if (o.libelle !== undefined && (typeof o.libelle !== 'string' || o.libelle.trim() === '' || o.libelle.length > 120)) return refus('Donnez un libellé (120 caractères au plus).');
+    return { ok: true, geste: { action: 'ligne-modifier', id: o.id, version: o.version, ...(o.montantHt === undefined ? {} : { montantHt: o.montantHt as number }),
+      ...(o.compteId === undefined ? {} : { compteId: o.compteId as number }), ...(o.libelle === undefined ? {} : { libelle: (o.libelle as string).trim() }) } };
+  }
+  if (o.action === 'gestion-poste') {
+    if (!moisOk) return refus('Mois invalide.');
+    if (o.poste !== 'adhoc' && o.poste !== 'monga') return refus('Poste inconnu.');
+    if (o.montantHt !== null && !estMontantSaisi(o.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
+    if (!entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Version manquante : rechargez.');
+    return { ok: true, geste: { action: 'gestion-poste', annee: o.annee as number, mois: o.mois as number, poste: o.poste, montantHt: o.montantHt as number | null, version: o.version } };
+  }
+  return refus('Action inconnue.');
+}

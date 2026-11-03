@@ -12,6 +12,7 @@ import {
   coutsLocation, espaceLocationRegle, lignesDesAnnees, moinsC as moinsM, lignesDesMois, negociateursLocation, salairesLocationDuMois, titreBail, totauxLocation, trierLocation, variableNegociateur, type CompterLocation, type CoutsLocation,
   type LigneEspaceRegle, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa,
 } from '../../../../lib/transaction/locationCa';
+import type { DuLocationMois } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
@@ -38,7 +39,9 @@ import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — l
  */
 interface DonneesLocationCa { disponible: boolean; aujourdhui: string; lignes: LigneLocationCa[];
   /** 🔴 LOT LO11 — les rétrocessions des négociateurs (le variable du mois) et les salaires chargés saisis (447 ; null sans elle). */
-  retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null }
+  retrocessions?: RetroLocation[]; salaires?: SalairesLocation[] | null;
+  /** 🔴 « Les coûts », C19 option A (03/11/2026) — les dus du module Location : part de gestion récurrente des apporteurs, collègues apporteurs. */
+  dus?: DuLocationMois[] }
 
 /**
  * ══ 🔴 LOT LO11 (règle d'Arno) — LES COÛTS DE LA LOCATION, MOIS PAR MOIS, PARTOUT SUR LA PAGE ═════════════════════════════════════════════════
@@ -46,6 +49,8 @@ interface DonneesLocationCa { disponible: boolean; aujourdhui: string; lignes: L
  * salaires, qui ne se rattachent à aucun bail, ne sont pas comptés (règle « sans salaires ») ; les rétrocessions suivent le négociateur.
  */
 interface CtxCouts { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null; filtre: boolean;
+  /** 🔴 C19 option A — les dus du mois (sans filtre seulement : ils ne tiennent à aucun bail de la période, comme les salaires). */
+  dus?: readonly DuLocationMois[] | null;
   /** La saisie des salaires d'un mois (la 447 appliquée) ; null : non disponible. */
   onSaisir: ((m: MoisChoisi) => void) | null;
   /** 🔴 LOT LO12 — « Avec salaires » (true) | « Sans salaires » (false) : le choix partagé avec la Gestion et la FUSION. */
@@ -57,7 +62,7 @@ const hors = (avec: boolean): string => (avec ? '' : ' hors salaires');
 type TotauxRegle = TotauxLocationCa & { c: CoutsLocation };
 function useTotaux(): (ls: readonly LigneLocationCa[], ms: readonly MoisChoisi[]) => TotauxRegle {
   const x = useContext(ContexteCouts);
-  return (ls, ms) => { const t = totauxLocation(lignesDesMois(ls, ms)); const c = coutsLocation(ls, ms, x.retros, x.salaires, x.avecSalaires); return { ...t, couts: c.couts, net: c.net, c }; };
+  return (ls, ms) => { const t = totauxLocation(lignesDesMois(ls, ms)); const c = coutsLocation(ls, ms, x.retros, x.salaires, x.avecSalaires, x.dus ?? null); return { ...t, couts: c.couts, net: c.net, c }; };
 }
 
 const EXPLICATION = { ca: 'honoraires de location encaissés', couts: 'apporteurs, primes et variable — ou salaires chargés', net: 'CA brut − coûts',
@@ -107,7 +112,7 @@ export function EcranLocationCA() {
   const series = choisis.length >= 2 ? choisis.map((c, i) => ({ nom: c.nom, couleur: i + 1, lignes: filtrerLocation(d.lignes, compter, [c.cle]) })) : null;
   // 🔴 LOT LO11 — le contexte des coûts (voir `CtxCouts`)
   const filtre = compter !== 'tous' || choisis.length > 0;
-  const ctxCouts: CtxCouts = { filtre, salaires: filtre ? null : d.salaires ?? null,
+  const ctxCouts: CtxCouts = { filtre, salaires: filtre ? null : d.salaires ?? null, dus: filtre ? null : d.dus ?? null,
     retros: compter !== 'tous' ? [] : (d.retrocessions ?? []).filter((r) => choisis.length === 0 || choisis.some((c) => c.cle === r.negociateurCle)),
     onSaisir: d.salaires === undefined || d.salaires === null ? null : setSaisie, avecSalaires, onSalaires: setAvecSalaires };
   const champsCommuns = <>
@@ -223,7 +228,7 @@ function VueLocation({ lignes, toutes, jour, ms, annee, lib, libComplet, infobul
   const T = tot(lignes, ms);
   const ctxC = useContext(ContexteCouts);
   // 🔴 LOT LO11 — les coûts des fenêtres : la tuile et chaque mois de la période (sa règle)
-  const coutsF = { total: T.c, mois: ms.map((m) => ({ m, c: coutsLocation(lignes, [m], ctxC.retros, ctxC.salaires, ctxC.avecSalaires) })), sans: !ctxC.avecSalaires };
+  const coutsF = { total: T.c, mois: ms.map((m) => ({ m, c: coutsLocation(lignes, [m], ctxC.retros, ctxC.salaires, ctxC.avecSalaires, ctxC.dus ?? null) })), sans: !ctxC.avecSalaires };
   const avec = ctxC.avecSalaires;
   const espace = espaceLocationRegle(lignes, ms, ctxC.retros, ctxC.salaires, avec);
   // 🔴 LOT LO15 — les mois commencés de la période sans salaires chargés saisis : « N mois de salaires à saisir » (fenêtres, Résultat, encadré)
@@ -625,6 +630,9 @@ function ResultatLocation({ T, aSaisir }: { T: TotauxRegle; aSaisir: number }) {
       {/* 🔴 LOT LO12 — « Sans salaires » : le montant saisi, en gris, « non comptés » (non déduit) */}
       {avec ? <><dt>− Salaires chargés (sans TVA){aSaisir > 0 && <small className="loc-muet trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd><Mt {...m(c.salaires)} cout donnees={{ 'data-resultat-salaires': '' }} /></dd></>
         : <><dt className="loc-muet">Salaires chargés (sans TVA) — non comptés{aSaisir > 0 && <small className="trx-a-saisir" data-resultat-a-saisir> — {motSalairesASaisir(aSaisir)}</small>}</dt><dd className="loc-muet" data-resultat-salaires-non-comptes>{eur((MOT === 'TTC' ? c.salairesSaisis.ttcC : c.salairesSaisis.htC) / 100)}</dd></>}
+      {/* 🔴 « Les coûts », C19 option A — les dus du module Location, quand il y en a sur la période */}
+      {c.partGestion.htC !== 0 && <><dt>− Part de gestion versée aux apporteurs (récurrent, sans TVA)</dt><dd><Mt {...m(c.partGestion)} cout donnees={{ 'data-resultat-part-gestion': '' }} /></dd></>}
+      {c.collegues.htC !== 0 && <><dt>− Rémunération des collègues apporteurs (sans TVA)</dt><dd><Mt {...m(c.collegues)} cout donnees={{ 'data-resultat-collegues': '' }} /></dd></>}
       <dt className="trx-total">= CA net{hors(avec)} ({MOT})</dt><dd className="trx-total trx-vert"><Mt {...m(T.net)} donnees={{ 'data-resultat-net': '' }} /></dd>
     </dl>
   );

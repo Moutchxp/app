@@ -138,6 +138,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 448 : le droit de la tuile « Mon espace » (lot 1 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
   // 449 : le n° de mandat d'une vente, unique par structure (lot 2 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
   // 450 : « L'utiliser » — les apporteurs qu'un collaborateur utilise (lot 9 de docs/PLAN_MON_ESPACE.md, 02/11/2026).
+  // 451 : les coûts saisis (salaires par salarié, « Autres ») et la fonction des profils (Mon espace « Les coûts », lot 2, 03/11/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -162,7 +163,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '439_admin_statut_compte.sql', '440_transaction_inter_cabinet.sql', '441_admin_commissionne.sql',
     '442_transaction_mode_commission.sql', '443_transaction_personne_type.sql', '444_transaction_negociateur_statut.sql',
     '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql', '447_transaction_location_salaires.sql',
-    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql'];
+    '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql', '451_couts_saisis.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -175,7 +176,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 450 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 451 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -185,14 +186,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (451)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (452)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(450\)/);
-    const renumerotee = planifier([...existants, { fichier: '451_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(451\)/);
+    const renumerotee = planifier([...existants, { fichier: '452_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['451_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['452_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -1006,5 +1007,22 @@ describe('450 (« L’utiliser » un apporteur, Mon espace) : enveloppée, une t
   it('aucune donnée écrite ni supprimée ; une seule ligne vivante par (compte, apporteur)', () => {
     expect(contenu).not.toMatch(/^\s*(INSERT|DELETE|TRUNCATE|DROP|UPDATE)\b/im);
     expect(contenu.replace(/\s+/g, ' ')).toContain('CREATE UNIQUE INDEX IF NOT EXISTS mon_espace_apporteur_vivant_idx ON mon_espace_apporteur (compte_id, apporteur_id) WHERE retire_le IS NULL');
+  });
+});
+
+describe('451 (« Les coûts » : coûts saisis, fonction des profils) : enveloppée, deux tables, le pré-cochage des fonctions, aucune ligne existante touchée', () => {
+  const contenu = lire(MIGRATIONS, '451_couts_saisis.sql');
+  const a = analyserMigration({ fichier: '451_couts_saisis.sql', contenu });
+  it('passe le garde, enveloppée ; crée transaction_cout_ligne et admin_compte_fonction', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees].sort()).toEqual(['admin_compte_fonction', 'transaction_cout_ligne']);
+  });
+  it('ni UPDATE ni DELETE ni TRUNCATE ; le seul ajout de lignes : le pré-cochage, pour un profil SANS fonction ; jamais effacée (déclencheurs)', () => {
+    expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE|UPDATE)\b/im);
+    const t = contenu.replace(/\s+/g, ' ');
+    expect(t).toContain('WHERE NOT EXISTS (SELECT 1 FROM admin_compte_fonction f WHERE f.compte_id = d.compte_id)');
+    expect(t).toContain('BEFORE DELETE ON transaction_cout_ligne');
+    expect(t).toContain("CONSTRAINT transaction_cout_ligne_structure CHECK (famille = 'vente' OR societe = 'criterimmo')");
   });
 });

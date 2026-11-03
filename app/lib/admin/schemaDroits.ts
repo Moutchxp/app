@@ -218,3 +218,12 @@ export function droitCommissionsDisponible(): Promise<boolean> {
 export function droitResultatNetDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_resultat_net', () => colonneExiste('admin_utilisateur', 'perm_resultat_net'));
 }
+
+/** 🔴 Mon espace « Les coûts », lot 2 (451) — les coûts saisis (salaires par salarié, « Autres »). Sans elle : lecture seule. */
+export function coutsSaisisDisponible(): Promise<boolean> {
+  return memoiser('transaction_cout_ligne.montant_ht', () => colonneExiste('transaction_cout_ligne', 'montant_ht'));
+}
+/** 🔴 Mon espace « Les coûts », lot 2 (451) — la fonction des profils (C9). Sans elle : aucune fonction connue, cases absentes. */
+export function fonctionsComptesDisponible(): Promise<boolean> {
+  return memoiser('admin_compte_fonction.fonction', () => colonneExiste('admin_compte_fonction', 'fonction'));
+}

@@ -2,7 +2,8 @@ import type { GestionMois } from './modele';
 import type { MontantC } from './partAgence';
 import { motSalairesASaisir, nbMoisSalairesASaisir, type MoisChoisi } from './periodeMois';
 import { aSaisirGestion, moisGestion, totauxGestion, type MoisGestionVu, type TotauxGestion } from './gestionVue';
-import { coutsLocationMois, lignesDesMois, plusC, salairesLocationDuMois, totauxLocation, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa } from './locationCa';
+import { coutsLocationMois, lignesDesMois, plusC, salairesLocationDuMois, totauxLocation, type DuLocationMois, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa } from './locationCa';
+import { montantSaisi, type CoutSaisi } from './coutsSaisis';
 
 /**
  * ══ 🔴 LOT LG1 (Arno, 01/11/2026) — « FUSION LOCATION & GESTION » : LE CUMUL DES DEUX ACTIVITÉS (PUR) ═════════════════════════════════════════════
@@ -21,7 +22,9 @@ export const estActiviteFusion = (x: unknown): x is ActiviteFusion => x === 'deu
  * (ADHOC, MONGA, ses salaires chargés). 🔴 LOT LO11 — « Coûts salariaux chargés » devient « Salaires chargés » ; le variable et les salaires de la
  * Location s'ajoutent.
  */
-export type FamilleCout = 'primes' | 'apporteurs' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salaries';
+export type FamilleCout = 'primes' | 'apporteurs' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salaries'
+  // 🔴 « Les coûts » (03/11/2026) — C19 option A : les dus du module Location ; lot 2 : les « Autres » saisis
+  | 'partGestion' | 'collegues' | 'autresLocation' | 'autresGestion';
 export const FAMILLES_COUTS: readonly { cle: FamilleCout; libelle: string; activite: 'location' | 'gestion' }[] = [
   { cle: 'primes', libelle: 'Primes de nouvelle gestion', activite: 'location' },
   { cle: 'apporteurs', libelle: 'Commissions d’apporteurs', activite: 'location' },
@@ -30,10 +33,15 @@ export const FAMILLES_COUTS: readonly { cle: FamilleCout; libelle: string; activ
   { cle: 'adhoc', libelle: 'Coût ADHOC', activite: 'gestion' },
   { cle: 'monga', libelle: 'Coût MONGA', activite: 'gestion' },
   { cle: 'salaries', libelle: 'Salaires chargés — gestion', activite: 'gestion' },
+  { cle: 'partGestion', libelle: 'Part de gestion versée aux apporteurs', activite: 'location' },
+  { cle: 'collegues', libelle: 'Rémunération des collègues apporteurs', activite: 'location' },
+  { cle: 'autresLocation', libelle: 'Autres — location', activite: 'location' },
+  { cle: 'autresGestion', libelle: 'Autres — gestion', activite: 'gestion' },
 ];
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
-const familles0 = (): Record<FamilleCout, MontantC> => ({ primes: RIEN, apporteurs: RIEN, variable: RIEN, salairesLocation: RIEN, adhoc: RIEN, monga: RIEN, salaries: RIEN });
+const familles0 = (): Record<FamilleCout, MontantC> => ({ primes: RIEN, apporteurs: RIEN, variable: RIEN, salairesLocation: RIEN, adhoc: RIEN, monga: RIEN, salaries: RIEN,
+  partGestion: RIEN, collegues: RIEN, autresLocation: RIEN, autresGestion: RIEN });
 /**
  * Une part d'activité : CA brut ; `couts` : le montant de chaque famille (montré) ; `deduits` : ce qui en est déduit (🔴 LOT LO11 : les primes et le
  * variable d'un mois avec salaires chargés sont « inclus dans les salaires », non déduits ; en « Sans salaires », les salaires ne sont pas comptés) ;
@@ -80,7 +88,9 @@ export function partGestionMois(g: MoisGestionVu, salaires = true): PartFusion {
  * page Location + la page Gestion, au centime, chaque mois. Une période = la somme de ses mois. PUR.
  */
 export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readonly GestionMois[], ms: readonly MoisChoisi[], activite: ActiviteFusion = 'deux', salaires = true,
-  loc: { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null } = { retros: [], salaires: null }): TotauxFusion {
+  loc: { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null;
+    /** 🔴 « Les coûts » — les dus du module Location (C19 option A) et les coûts saisis (« Autres ») ; absents : 0. */
+    dus?: readonly DuLocationMois[] | null; saisis?: readonly CoutSaisi[] } = { retros: [], salaires: null }): TotauxFusion {
   let location = VIDE; let gest = VIDE;
   const inclus = { primes: RIEN, variable: RIEN, mois: 0 };
   for (const m of ms) {
@@ -89,14 +99,20 @@ export function totauxFusion(lignes: readonly LigneLocationCa[], gestion: readon
       const salL = salairesLocationDuMois(loc.salaires, m.annee, m.mois);
       // 🔴 LOT LO15 — la règle de la page Location, telle quelle (`coutsLocationMois`, « Avec | Sans salaires ») : primes et variable « inclus » les
       // seuls mois où les salaires chargés de la LOCATION sont saisis ; les salaires de la Gestion n'y jouent plus
-      const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL, salaires);
+      const c = coutsLocationMois(lignesDesMois(lignes, [m]), loc.retros.filter((r) => r.annee === m.annee && r.mois === m.mois), salL, salaires,
+        loc.dus?.find((d) => d.annee === m.annee && d.mois === m.mois) ?? null);
       const incl = c.moisAvecSalaires > 0;
-      const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salairesSaisis };
+      const autresL = montantSaisi(loc.saisis ?? [], { famille: 'location', poste: 'autres', ms: [m] });
+      const couts = { ...familles0(), primes: c.primes, apporteurs: c.apporteurs, variable: c.variable, salairesLocation: c.salairesSaisis, partGestion: c.partGestion, collegues: c.collegues,
+        autresLocation: autresL };
       const deduits = { ...couts, primes: c.primesDeduites, variable: c.variableDeduit, salairesLocation: c.salaires };
       location = additionner(location, part(c.ca, couts, deduits));
       if (incl && (c.primes.htC !== 0 || c.variable.htC !== 0)) { inclus.primes = plusC(inclus.primes, c.primes); inclus.variable = plusC(inclus.variable, c.variable); inclus.mois += 1; }
     }
-    if (activite !== 'location') gest = additionner(gest, partGestionMois(g, salaires));
+    if (activite !== 'location') {
+      const autresG = montantSaisi(loc.saisis ?? [], { famille: 'gestion', poste: 'autres', ms: [m] });
+      gest = additionner(gest, additionner(partGestionMois(g, salaires), part(RIEN, { ...familles0(), autresGestion: autresG }, { ...familles0(), autresGestion: autresG })));
+    }
   }
   const tLocation = totauxLocation(lignesDesMois(lignes, ms));
   const tGestion = totauxGestion(gestion, ms);

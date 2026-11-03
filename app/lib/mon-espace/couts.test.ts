@@ -35,11 +35,14 @@ describe('🔴 FUSION = « Coûts globaux », poste par poste, au centime (2025,
   for (const annee of ANNEES) it(String(annee), () => {
     for (const mois of POINTS) {
       const c = coutsGlobaux(E_COUTS, annee, mois, true); const p = coutsDuPoint(E_COUTS, 'tous', annee, mois);
-      expect([p.vente.commissions, p.vente.apporteurs, p.vente.exterieures]).toEqual([c.vente.commissions, c.vente.apporteurs, c.vente.exterieures]);
+      expect([p.vente.commissions, p.vente.apporteurs, p.vente.exterieures, p.vente.salaires, p.vente.autres])
+        .toEqual([c.vente.commissions, c.vente.apporteurs, c.vente.exterieures, c.saisis.venteSalaires, c.saisis.venteAutres]);
       const L = c.location!;
       expect(p.location).toEqual({ apporteurs: L.apporteurs, primes: L.primesDeduites, variable: variableNegociateur(L.variableDeduit, L.primesDeduites), salaires: L.salaires,
-        variableCalcule: variableNegociateur(L.variable, L.primes), total: somme([L.apporteurs, L.primesDeduites, L.variableDeduit, L.salaires]) });
-      expect(p.gestion).toEqual({ salaires: c.gestion.salaires, adhoc: c.gestion.adhoc, monga: c.gestion.monga, total: somme([c.gestion.salaires, c.gestion.adhoc, c.gestion.monga]) });
+        variableCalcule: variableNegociateur(L.variable, L.primes), partGestion: L.partGestion, collegues: L.collegues, autres: c.saisis.locationAutres,
+        total: somme([L.apporteurs, L.primesDeduites, L.variableDeduit, L.salaires, L.partGestion, L.collegues, c.saisis.locationAutres]) });
+      expect(p.gestion).toEqual({ salaires: c.gestion.salaires, adhoc: c.gestion.adhoc, monga: c.gestion.monga, autres: c.saisis.gestionAutres,
+        total: somme([c.gestion.salaires, c.gestion.adhoc, c.gestion.monga, c.saisis.gestionAutres]) });
       // le total de la page = celui de « Coûts globaux » = la somme des familles
       expect(p.total).toEqual(c.total);
       expect(somme([p.vente.total, p.location!.total, p.gestion!.total])).toEqual(c.total);
@@ -55,7 +58,7 @@ describe('🔴 CRITERIMMO, MACJ : la vente de la structure (fonction du graphiqu
         const v = coutsVenteDeLaSociete(E_COUTS, s, annee, mois);
         expect([p.vente.commissions, p.vente.apporteurs, p.vente.exterieures]).toEqual([v.commissions, v.apporteurs, v.exterieures]);
       }
-      for (const k of ['commissions', 'apporteurs', 'exterieures', 'total'] as const) expect(plus(cr.vente[k], mj.vente[k])).toEqual(t.vente[k]);
+      for (const k of ['commissions', 'apporteurs', 'exterieures', 'salaires', 'autres', 'total'] as const) expect(plus(cr.vente[k], mj.vente[k])).toEqual(t.vente[k]);
       // C7 : la location et la gestion sont à CRITERIMMO (comme FUSION) ; MACJ = vente seulement
       expect([cr.location, cr.gestion]).toEqual([t.location, t.gestion]);
       expect([mj.location, mj.gestion]).toEqual([null, null]);
@@ -83,9 +86,9 @@ describe('🔴 le tableau d’une année : 12 mois + « mois à confirmer » = l
       const t = coutsDeLAnnee(E_COUTS, a, annee);
       const lignes: CoutsDuPoint[] = [...t.mois, ...(t.aConfirmer === null ? [] : [t.aConfirmer])];
       expect(somme(lignes.map((x) => x.total))).toEqual(t.annee.total);
-      for (const k of ['commissions', 'apporteurs', 'exterieures', 'total'] as const) expect(somme(lignes.map((x) => x.vente[k]))).toEqual(t.annee.vente[k]);
-      if (t.annee.location !== null) for (const k of ['apporteurs', 'primes', 'variable', 'salaires', 'variableCalcule', 'total'] as const) expect(somme(lignes.map((x) => x.location![k]))).toEqual(t.annee.location[k]);
-      if (t.annee.gestion !== null) for (const k of ['salaires', 'adhoc', 'monga', 'total'] as const) expect(somme(lignes.map((x) => x.gestion![k]))).toEqual(t.annee.gestion[k]);
+      for (const k of ['commissions', 'apporteurs', 'exterieures', 'salaires', 'autres', 'total'] as const) expect(somme(lignes.map((x) => x.vente[k]))).toEqual(t.annee.vente[k]);
+      if (t.annee.location !== null) for (const k of ['apporteurs', 'primes', 'variable', 'salaires', 'variableCalcule', 'partGestion', 'collegues', 'autres', 'total'] as const) expect(somme(lignes.map((x) => x.location![k]))).toEqual(t.annee.location[k]);
+      if (t.annee.gestion !== null) for (const k of ['salaires', 'adhoc', 'monga', 'autres', 'total'] as const) expect(somme(lignes.map((x) => x.gestion![k]))).toEqual(t.annee.gestion[k]);
       expect(t.annee).toEqual(coutsDuPoint(E_COUTS, a, annee, null));
     }
     // la vente « mois à confirmer » est de 2026 et de CRITERIMMO : une ligne à part en 2026, aucune en 2025, aucune pour MACJ
@@ -99,12 +102,12 @@ describe('🔴 C3 — « Variable négo (calculé) » : le calcul existant, pour
     const p = coutsDuPoint(E_COUTS, 'tous', 2026, 8).location!;
     expect(p.variable.htC).toBe(0);
     expect(p.variableCalcule.htC).toBeGreaterThan(0);
-    expect(p.total).toEqual(somme([p.apporteurs, p.variable, p.salaires]));
+    expect(p.total).toEqual(somme([p.apporteurs, p.variable, p.salaires, p.partGestion, p.collegues, p.autres]));
   });
   it('septembre 2026 (sans salaires) : variable compté = variable calculé ; le total ne le compte qu’une fois', () => {
     const p = coutsDuPoint(E_COUTS, 'tous', 2026, 9).location!;
     expect(p.variable).toEqual(p.variableCalcule);
-    expect(p.total).toEqual(somme([p.apporteurs, p.variable, p.salaires]));
+    expect(p.total).toEqual(somme([p.apporteurs, p.variable, p.salaires, p.partGestion, p.collegues, p.autres]));
   });
 });
 

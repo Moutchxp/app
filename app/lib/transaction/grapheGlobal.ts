@@ -4,6 +4,7 @@ import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { venteDansSociete } from './interCabinet';
 import { celluleGlobalEn, type EntreesGlobalUnite } from './globalUnite';
 import { coutsGlobaux, coutsVente, type CoutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
+import { montantSaisi } from './coutsSaisis';
 
 /**
  * ══ 🔴 LOT CG9 (Arno) — LE GRAPHIQUE DU CA GLOBAL : LES FILTRES PAR FAMILLE, SUR LES DONNÉES MÊMES DU BILAN (PUR) ════════════════════════════════════
@@ -17,7 +18,9 @@ export type MesureGraphe = 'ca' | 'couts' | 'net';
 /** 🔴 LOT CG10 (retrait autorisé par Arno) — plus de « Ventes à attribuer » : le graphique ne les compte plus (le Bilan, si). */
 export type StructureGraphe = 'criterimmo' | 'macj';
 export type ActiviteGraphe = 'vente' | 'location' | 'gestion';
-export type FamilleGraphe = 'commissions' | 'apporteursVente' | 'exterieures' | 'apporteursLocation' | 'primes' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salairesGestion';
+export type FamilleGraphe = 'commissions' | 'apporteursVente' | 'exterieures' | 'apporteursLocation' | 'primes' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salairesGestion'
+  // 🔴 « Les coûts », lot 2 (03/11/2026) — les coûts saisis et les dus du module Location (C19 option A)
+  | 'salairesVente' | 'autresVente' | 'partGestion' | 'collegues' | 'autresLocation' | 'autresGestion';
 export type ComparerGraphe = 'n1' | 'structures' | 'activites' | 'familles' | 'rien';
 
 export const MESURES_GRAPHE: readonly { cle: MesureGraphe; mot: string }[] = [{ cle: 'ca', mot: 'CA brut' }, { cle: 'couts', mot: 'Coûts' }, { cle: 'net', mot: 'Résultat net (CA − coûts)' }];
@@ -29,6 +32,9 @@ export const FAMILLES_GRAPHE: readonly { cle: FamilleGraphe; mot: string; activi
   { cle: 'primes', mot: 'Primes de gestion', activite: 'location' }, { cle: 'variable', mot: 'Variable négociateur', activite: 'location' },
   { cle: 'salairesLocation', mot: 'Salaires location', activite: 'location' }, { cle: 'adhoc', mot: 'ADHOC', activite: 'gestion' },
   { cle: 'monga', mot: 'MONGA', activite: 'gestion' }, { cle: 'salairesGestion', mot: 'Salaires gestion', activite: 'gestion' },
+  { cle: 'salairesVente', mot: 'Salaires vente', activite: 'vente' }, { cle: 'autresVente', mot: 'Autres vente', activite: 'vente' },
+  { cle: 'partGestion', mot: 'Part de gestion versée aux apporteurs', activite: 'location' }, { cle: 'collegues', mot: 'Rémunération des collègues apporteurs', activite: 'location' },
+  { cle: 'autresLocation', mot: 'Autres location', activite: 'location' }, { cle: 'autresGestion', mot: 'Autres gestion', activite: 'gestion' },
 ];
 export const COMPARER_GRAPHE: readonly { cle: ComparerGraphe; mot: string }[] = [{ cle: 'n1', mot: 'Année précédente' }, { cle: 'structures', mot: 'Structures entre elles' },
   { cle: 'activites', mot: 'Activités entre elles' }, { cle: 'familles', mot: 'Familles de coûts entre elles' }, { cle: 'rien', mot: 'Rien' }];
@@ -75,15 +81,21 @@ export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, a
     { structure: 'criterimmo', activite: 'location', famille: null, m: ca('locationHt') },
     { structure: 'criterimmo', activite: 'gestion', famille: null, m: ca('gestionHt') },
   ];
+  // 🔴 « Les coûts », lot 2 — les coûts saisis de la vente de chaque structure (salaires « Avec salaires » seulement, comme `coutsGlobaux`)
+  const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois }];
+  const saisi = (societe: 'criterimmo' | 'macj', poste: 'salaires' | 'autres', famille: 'vente' | 'location' | 'gestion' = 'vente') => montantSaisi(eC.saisis ?? [], { famille, poste, ms, societe });
   for (const [s, x] of [['criterimmo', vc], ['macj', vm]] as const) {
     a.push({ structure: s, activite: 'vente', famille: 'commissions', m: x.commissions }, { structure: s, activite: 'vente', famille: 'apporteursVente', m: x.apporteurs },
-      { structure: s, activite: 'vente', famille: 'exterieures', m: x.exterieures });
+      { structure: s, activite: 'vente', famille: 'exterieures', m: x.exterieures },
+      { structure: s, activite: 'vente', famille: 'salairesVente', m: avecSalaires ? saisi(s, 'salaires') : { htC: 0, ttcC: 0 } }, { structure: s, activite: 'vente', famille: 'autresVente', m: saisi(s, 'autres') });
   }
   if (c.location !== null) a.push({ structure: 'criterimmo', activite: 'location', famille: 'apporteursLocation', m: c.location.apporteurs },
     { structure: 'criterimmo', activite: 'location', famille: 'primes', m: c.location.primesDeduites }, { structure: 'criterimmo', activite: 'location', famille: 'variable', m: c.location.variableDeduit },
-    { structure: 'criterimmo', activite: 'location', famille: 'salairesLocation', m: c.location.salaires });
+    { structure: 'criterimmo', activite: 'location', famille: 'salairesLocation', m: c.location.salaires },
+    { structure: 'criterimmo', activite: 'location', famille: 'partGestion', m: c.location.partGestion }, { structure: 'criterimmo', activite: 'location', famille: 'collegues', m: c.location.collegues },
+    { structure: 'criterimmo', activite: 'location', famille: 'autresLocation', m: c.saisis.locationAutres });
   a.push({ structure: 'criterimmo', activite: 'gestion', famille: 'adhoc', m: c.gestion.adhoc }, { structure: 'criterimmo', activite: 'gestion', famille: 'monga', m: c.gestion.monga },
-    { structure: 'criterimmo', activite: 'gestion', famille: 'salairesGestion', m: c.gestion.salaires });
+    { structure: 'criterimmo', activite: 'gestion', famille: 'salairesGestion', m: c.gestion.salaires }, { structure: 'criterimmo', activite: 'gestion', famille: 'autresGestion', m: c.saisis.gestionAutres });
   return a;
 }
 
@@ -103,7 +115,7 @@ const signe = (x: AtomeGraphe, mesure: MesureGraphe): MontantC => (x.famille !==
 /** Une série : sa clé, son nom, sa couleur (1 → 10, fixe pour un élément), ses montants. */
 export interface SerieValeur { cle: string; nom: string; couleur: number; m: MontantC }
 const COULEURS: Record<string, number> = { criterimmo: 1, macj: 2, inter: 4, vente: 1, location: 3, gestion: 5, location_gestion: 6,
-  ...Object.fromEntries(FAMILLES_GRAPHE.map((f, i) => [f.cle, i + 1])) };
+  ...Object.fromEntries(FAMILLES_GRAPHE.map((f, i) => [f.cle, (i % 10) + 1])) };
 const NOMS: Record<string, string> = { ...Object.fromEntries([...STRUCTURES_GRAPHE, ...ACTIVITES_GRAPHE, ...FAMILLES_GRAPHE].map((x) => [x.cle, x.mot])), inter: 'Inter-cabinet (neutralisé)', total: 'Total',
   location_gestion: 'Location & Gestion' };
 

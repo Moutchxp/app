@@ -3,7 +3,8 @@
 // la Location ne change pas ; sans sa migration (406), la location est « non lue » (null) et le CA global le dit.
 import { anneesActives, lireActivites } from '../location/suivi/tableauBordRepo';
 import { lireApporteurs, lireRegles, lireRetrocessions, suiviDisponible } from '../location/suivi/suiviRepo';
-import { caTtcC, depuisHt, ligneLocationCa, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
+import { aujourdhuiParis } from '../location/suivi/suivi';
+import { caTtcC, depuisHt, dusLocationParMois, ligneLocationCa, type DuLocationMois, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
 import { caLigne, cleNegociateur, moisDeLigne, type ActiviteCalcul } from '../location/suivi/tableauBord';
 import { lireSalairesLocation } from './repo';
 
@@ -40,11 +41,13 @@ export async function lireCaLocationHtTtc(): Promise<{ ht: Record<string, number
  * propriétaire, locataire, prime, apporteur, net), calculés ici par les fonctions de la Location ; seules ces lignes partent (ni règles ni
  * barèmes). LECTURE SEULE. Sans la migration 406 : `disponible` faux, aucune ligne.
  */
-export async function lireLocationCa(): Promise<{ disponible: boolean; lignes: LigneLocationCa[]; retrocessions: RetroLocation[]; salaires: SalairesLocation[] | null }> {
+export async function lireLocationCa(): Promise<{ disponible: boolean; lignes: LigneLocationCa[]; retrocessions: RetroLocation[]; salaires: SalairesLocation[] | null;
+  /** 🔴 « Les coûts », C19 option A — la part de gestion récurrente des apporteurs et la rémunération des collègues, mois par mois. */
+  dus?: DuLocationMois[] }> {
   // 🔴 LOT LO11 — les salaires chargés de la Location (447 ; null sans elle) et les rétrocessions des négociateurs (le variable du mois)
   const salaires = await lireSalairesLocation().catch(() => null);
   if (!(await suiviDisponible())) return { disponible: false, lignes: [], retrocessions: [], salaires };
   const [activites, regles, apporteurs, retros] = await Promise.all([lireActivites(await anneesActives()), lireRegles(), lireApporteurs(), lireRetrocessions()]);
-  return { disponible: true, lignes: activites.map((a) => ligneLocationCa(a, { regles, apporteurs })), salaires,
+  return { disponible: true, lignes: activites.map((a) => ligneLocationCa(a, { regles, apporteurs })), salaires, dus: dusLocationParMois(activites, apporteurs, aujourdhuiParis()),
     retrocessions: retros.map((r) => ({ annee: Number(r.mois.slice(0, 4)), mois: Number(r.mois.slice(5, 7)), negociateurCle: cleNegociateur(r), montantC: depuisHt(r.montant) })) };
 }

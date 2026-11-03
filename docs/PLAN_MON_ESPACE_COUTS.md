@@ -47,6 +47,22 @@ côté de la vraie valeur.
   composant du Suivi CA (« Variable négociateur ») : `EnteteAide`, extrait tel quel de `EnteteVariableNegociateur` (même rendu), aucune recopie.
   Les phrases : `AIDE_POSTES_FUTURS` (`CoutsMonEspace.tsx`). Correctif d'affichage du 03/11/2026 : aucun calcul, aucune valeur, aucune colonne touchés.
 
+- **C15.** Tout coût saisissable se modifie DIRECTEMENT dans les tableaux (Vente, Location, Gestion) ET depuis une page « Saisir les coûts du mois ».
+  Les deux écrivent le MÊME enregistrement ; toute saisie se propage partout (Les coûts, Synthèse, Coûts globaux et CA global du Suivi CA, CA net,
+  résultat net, Mon espace).
+- **C16.** Page « Saisir les coûts du mois » : mois proposé = le mois PRÉCÉDENT (au 03/11/2026 → octobre 2026) ; sélecteur limité aux 6 derniers
+  mois révolus.
+- **C17.** Tant que les coûts du mois précédent ne sont pas complets : un badge discret sur l'onglet « Les coûts » (« Coûts d'octobre à saisir »)
+  et un bouton en tête de l'onglet ouvrent la page de saisie.
+- **C18.** Phrase du picto « Salaires chargés » (Vente) validée telle quelle.
+- **C19 (remplacée, option A d'Arno, 03/11/2026).** « Part de gestion versée aux apporteurs » et « Rémunération des collègues apporteurs » sont
+  AUTOMATIQUES, reprises du calcul du module Location (`duRecurrent`, `commissionCollegueSignatureDe`, `duCollegueRecurrent` — les fonctions de
+  son Résumé de la période) : la part versée en une fois reste dans « Apporteurs » (`partGestionSignatureDe`), seule la part RÉCURRENTE va dans
+  « Part de gestion ». Correction à la source (le bail ou la règle de l'apporteur, comme C4). Elles entrent dans les coûts du Suivi CA
+  (`coutsLocation`), donc partout, sans double compte : un apporteur INTERNE (un collègue) est payé par « Apporteurs » et n'a jamais de
+  « rémunération du collègue » (`remunerationCollegueDe` le refuse) ; le variable du négociateur est déjà calculé net de ces commissions.
+  Constat du 03/11/2026 (lecture seule) : 24 apporteurs, tous externes ; 1 barème « Récurrent » ; 4 règles de collègue, toutes « non rémunéré ».
+
 Ce que ces décisions changent dans le plan ci-dessous (les passages concernés sont réécrits) : plus de droit « Coûts » (C1 : le statut « Associé ») ;
 plus de ligne « Ajustement » ni de table de corrections (C4 + règle absolue) ; les salaires mensuels ne sont plus gardés à côté du détail, ils sont
 effacés au lot des salaires (C8) ; plus de devis MONGA (C6) ; la part de gestion récurrente des apporteurs et les collègues apporteurs deviennent
@@ -448,3 +464,45 @@ temporaires du scratchpad sont effacés. Le serveur de recette d'Arno n'a pas é
   - aucun débordement horizontal ;
   - tuiles sur 2 colonnes à 390 px (4 colonnes à 1440 px).
 - `tsc` sans erreur ; `npm test` complet vert : 1587 fichiers, 24 904 tests (21 ignorés).
+
+## LOT 2 — SAISIE DANS LES TABLEAUX + SALAIRES PAR SALARIÉ (03/11/2026)
+
+**Migration `451_couts_saisis.sql`** (ajout seul, rejouable, enveloppée ; le code marche sans elle — « disponible après la mise à jour (migration 451) ») :
+- `transaction_cout_ligne` : un salarié d'un mois (poste « salaires », profil) ou un frais « Autres » (libellé), structure × famille × mois × montant HT ;
+  location et gestion = CRITERIMMO (contrainte) ; un salarié une fois par (structure, famille, mois) ; anti-DELETE / TRUNCATE ;
+- `admin_compte_fonction` (C9) : plusieurs fonctions par profil, pré-cochées par déduction (service gestion → gestion ; négociateur Location →
+  location ; structure de vente / négociateur d'une vente → vente), seulement pour un profil sans fonction ;
+- journaux : `transaction_journal` accepte `cout_ligne` ; `admin_utilisateur_log` accepte `changement_fonctions`.
+
+**Une seule comptabilité, branchée partout** :
+- salaires de la Location et de la Gestion : `lireSalairesLocation` / `lireGestion` additionnent les salariés du mois (un mois qui en a prend leur
+  somme, jamais en plus du montant mensuel d'avant) → page Location, page Gestion, Location & Gestion, Coûts globaux, résultat net, Les coûts ;
+- salaires de la vente et « Autres » des trois familles : `coutsGlobaux` (`saisis`) → Coûts globaux (nouvelles colonnes), résultat net, graphique du
+  CA global (nouvelles familles), Location & Gestion (« Autres »), Les coûts ;
+- C19 option A : `dusLocationParMois` (les fonctions du Résumé de la période du module Location) → `coutsLocation` (`partGestion`, `collegues`) →
+  page Suivi CA › Location (CA net, lignes du résultat), Location & Gestion, Coûts globaux, résultat net, graphique, Les coûts ;
+- ADHOC et facture MONGA : la ligne du mois de `transaction_gestion_mois` (la Gestion du Suivi CA), colonne seule, journalisée ; ADHOC repris d'un
+  import : non modifiable depuis « Les coûts » (il se corrige dans Suivi CA › Gestion).
+
+**Écritures** (`POST /api/admin/mon-espace/couts`, associés seulement — 403 sinon) : `ligne-ajouter`, `ligne-modifier`, `ligne-retirer`,
+`gestion-poste` ; garde de version (dernier n° du journal de la ligne) → 409 si périmée ; FUSION en lecture (422 : « saisissez sur CRITERIMMO ou
+MACJ ») ; location / gestion sur MACJ : 422 (C7). Annulation : `annulerGeste` connaît `cout_ligne`.
+
+**Écran** : clic sur une case saisie (✎) → panneau sur place (salariés : profils de la fonction de la famille d'abord, puis location / gestion,
+puis les autres ; « Autres » : libellé + montant) ; clic sur une case calculée → « corriger à la source » (les affaires du mois et le lien vers le
+Suivi CA ; pour la Location : la feuille du mois, les règles des apporteurs) ; « Variable négo (calculé) » jamais cliquable. Après une saisie : tout
+est relu (tableaux, synthèse, graphique) ; les autres écrans ouverts suivent par l'empreinte des coûts (15 s). Page Comptes : bloc « Fonctions ».
+
+**C8** : script `app/scripts/couts-c8-salaires-mensuels.ts` (lecture par défaut ; `--sauvegarder` → `.captures/sauvegardes/salaires-mensuels-<base>-<date>.json` ;
+`--effacer=<sauvegarde>` : exactement ces montants, refus si l'un a changé ; `--restaurer=<sauvegarde>` : là où c'est vide ; chaque geste journalisé ;
+garde `--base=<nom>` obligatoire). Testé (sauvegarde, effacement, refus, restauration, base étrangère refusée).
+
+**Base de recette du lot** : `svav_recette` n'a pas la Transaction (migrations 383 → 450 non posées) ; la 451 et C8 ont donc été appliquées sur une base
+d'essai `svav_test_couts` (schéma de la base de dev, données d'essai), effacée en fin de lot. **La base de dev (`sansvisavis`) n'a pas été touchée** :
+la 451 et C8 y attendent la décision d'Arno (lecture C8 : 8 montants mensuels de gestion et de location y seraient effacés).
+
+**Questions pour Arno** :
+1. « Autres » : saisis en HT et comptés SANS TVA ajoutée (TTC = HT), faute de convention dans « Coûts globaux ». Faut-il ajouter 20 % en TTC
+   (comme ADHOC et MONGA) ?
+2. La saisie mensuelle des salaires dans Suivi CA › Gestion / › Location reste en place (aucun retrait) ; après C8, un mois qui a des salariés
+   saisis dans « Les coûts » ignore ce montant mensuel. Faut-il, à terme, la remplacer par un lien vers « Les coûts » ?

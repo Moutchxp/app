@@ -3,7 +3,8 @@ import type { GestionMois, Retrocession, Societe, Vente } from './modele';
 import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { caNetVente, lignesCarteAffaire } from './carteAffaireLignes';
 import type { StatutDuLibelle } from './statutLigne';
-import { coutsLocation, type CoutsLocation, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
+import { coutsLocation, type CoutsLocation, type DuLocationMois, type LigneLocationCa, type RetroLocation, type SalairesLocation } from './locationCa';
+import { montantSaisi, type CoutSaisi } from './coutsSaisis';
 import { totauxGestion } from './gestionVue';
 
 /**
@@ -22,14 +23,21 @@ export interface CoutsVente { ca: MontantC; commissions: MontantC; apporteurs: M
 export interface CoutsGestion { adhoc: MontantC; monga: MontantC;
   /** Les salaires chargés comptés (« Sans salaires » : 0) ; `salairesSaisis` : le montant saisi, compté ou non. */
   salaires: MontantC; salairesSaisis: MontantC; honoraires: MontantC; net: MontantC; moisSalairesSaisis: number }
-export interface CoutsGlobaux { vente: CoutsVente; location: CoutsLocation | null; gestion: CoutsGestion; total: MontantC }
+/** 🔴 « Les coûts », lot 2 — les coûts saisis comptés (salaires de la vente, « Autres » de chaque famille), les deux structures. */
+export interface CoutsSaisisGlobaux { venteSalaires: MontantC; venteAutres: MontantC; locationAutres: MontantC; gestionAutres: MontantC }
+export interface CoutsGlobaux { vente: CoutsVente; location: CoutsLocation | null; gestion: CoutsGestion; saisis: CoutsSaisisGlobaux; total: MontantC }
 
 export interface EntreesCoutsGlobaux {
   /** Les ventes de la page FUSION (`lireVentes(null)`) et ses rétrocessions ; le statut des négociateurs payés (la paye importée). */
   ventes: readonly Vente[]; retrocessions: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle;
   /** Les données de la page « Suivi CA › Location » ; null : la location n'a pas pu être lue. */
-  location: { lignes: readonly LigneLocationCa[]; retrocessions: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null } | null;
+  location: { lignes: readonly LigneLocationCa[]; retrocessions: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null;
+    /** 🔴 C19 option A — les dus du module Location (part de gestion récurrente, collègues) ; absents : 0. */
+    dus?: readonly DuLocationMois[] | null } | null;
   gestion: readonly GestionMois[];
+  /** 🔴 « Les coûts », lot 2 (451) — les coûts saisis hors salaires location / gestion (ceux-là passent par la Location et la Gestion) : salaires de la
+   *  vente, « Autres » des trois familles ; absents : 0. */
+  saisis?: readonly CoutSaisi[];
 }
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
@@ -70,14 +78,17 @@ function coutsDe(e: EntreesCoutsGlobaux, choisir: (vs: Vente[]) => Vente[], ms: 
   // (une route d'avant le lot CG2) : aucune ligne
   const ventes = e.ventes.map((v) => (v.double === undefined || v.lignes === undefined ? { ...v, double: v.double ?? null, lignes: v.lignes ?? [] } : v));
   const vente = coutsVente(choisir(ventes), { retros: e.retrocessions, statutDuLibelle: e.statutDuLibelle });
-  const location = e.location === null ? null : coutsLocation(e.location.lignes, ms, e.location.retrocessions, e.location.salaires, avecSalaires);
+  const location = e.location === null ? null : coutsLocation(e.location.lignes, ms, e.location.retrocessions, e.location.salaires, avecSalaires, e.location.dus ?? null);
   const g = totauxGestion(e.gestion, ms, avecSalaires);
   const moisSalairesSaisis = ms.filter((m) => e.gestion.some((x) => x.annee === m.annee && x.mois === m.mois && x.salarieHt != null)).length;
   const gestion: CoutsGestion = { adhoc: { htC: g.adhocC, ttcC: g.adhocTtcC }, monga: { htC: g.mongaC, ttcC: g.mongaTtcC },
     salaires: sansTva(avecSalaires ? g.salariesC : 0), salairesSaisis: sansTva(g.salariesC), honoraires: { htC: g.honorairesC, ttcC: g.honorairesTtcC },
     net: { htC: g.netC, ttcC: g.netTtcC }, moisSalairesSaisis };
-  const total = somme([vente.commissions, vente.apporteurs, vente.exterieures,
-    ...(location === null ? [] : [location.apporteurs, location.primesDeduites, location.variableDeduit, location.salaires]),
-    gestion.adhoc, gestion.monga, gestion.salaires]);
-  return { vente, location, gestion, total };
+  const s = e.saisis ?? [];
+  const saisis: CoutsSaisisGlobaux = { venteSalaires: avecSalaires ? montantSaisi(s, { famille: 'vente', poste: 'salaires', ms }) : RIEN, venteAutres: montantSaisi(s, { famille: 'vente', poste: 'autres', ms }),
+    locationAutres: montantSaisi(s, { famille: 'location', poste: 'autres', ms }), gestionAutres: montantSaisi(s, { famille: 'gestion', poste: 'autres', ms }) };
+  const total = somme([vente.commissions, vente.apporteurs, vente.exterieures, saisis.venteSalaires, saisis.venteAutres,
+    ...(location === null ? [] : [location.apporteurs, location.primesDeduites, location.variableDeduit, location.salaires, location.partGestion, location.collegues, saisis.locationAutres]),
+    gestion.adhoc, gestion.monga, gestion.salaires, saisis.gestionAutres]);
+  return { vente, location, gestion, saisis, total };
 }

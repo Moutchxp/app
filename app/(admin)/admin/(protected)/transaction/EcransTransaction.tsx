@@ -33,7 +33,8 @@ import { LigneResultatNet } from './ResultatNetGlobal';
 import { GrapheGlobal } from './GrapheGlobal';
 import { ListeRepliable } from '../location/ListeRepliable';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
-import type { LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
+import type { DuLocationMois, LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
+import type { CoutLigne, CoutSaisi } from '../../../../lib/transaction/coutsSaisis';
 import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, anneesSoulignees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
@@ -1703,7 +1704,9 @@ export interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes
   monga?: boolean;
   /** 🔴 LOT CG2 — les coûts globaux : les rétrocessions et le statut des négociateurs payés (page FUSION), les données de « Suivi CA › Location ». */
   retrocessions?: Retrocession[]; statutsNegociateurs?: DonneesSociete['statutsNegociateurs'];
-  locationCa?: { lignes: LigneLocationCa[]; retrocessions: RetroLocation[]; salaires: SalairesLocation[] | null } | null }
+  locationCa?: { lignes: LigneLocationCa[]; retrocessions: RetroLocation[]; salaires: SalairesLocation[] | null; dus?: DuLocationMois[] } | null;
+  /** 🔴 « Les coûts », lot 2 (451) — les coûts saisis comptés par « Coûts globaux » (salaires de la vente, « Autres ») ; `coutsLignes` : toutes les lignes. */
+  coutsSaisis?: CoutSaisi[]; coutsLignes?: CoutLigne[] | null }
 /**
  * 🔴 LOT CY — le prévisionnel du CA global = les compromis EN COURS (la règle unique : tous, quel que soit leur mois ou leur année), en HT : chaque
  * société, et nos deux sociétés (chaque affaire une fois) ; l'inter-cabinet entre elles = ce qui est compté deux fois. Sans ces totaux (une base
@@ -1778,7 +1781,7 @@ export function EcranGlobal() {
   const champUnite = <div className="trx-unite-onglets" data-unite-global-onglets><span className="trx-unite-onglets-mot" id="trx-unite-mot">Montants</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>;
   // 🔴 LOT CG2 — les entrées des coûts globaux (les pages FUSION, Suivi CA › Location, Gestion)
   const eCouts: EntreesCoutsGlobaux = { ventes: d.ventes as Vente[], retrocessions: d.retrocessions ?? [], statutDuLibelle: resolveurDe(d.statutsNegociateurs),
-    location: d.locationCa ?? null, gestion: d.gestion };
+    location: d.locationCa ?? null, gestion: d.gestion, saisis: d.coutsSaisis ?? [] };
   const coutsCommun = { e: eCouts, jour, salaires: avecSalaires, onSalaires: setAvecSalaires };
   const resultatCommun = { e, eCouts, jour, salaires: avecSalaires };
   /** 🔴 LOT CG5 — le total d'un tableau du CA replié (le réalisé des années), l'unité choisie en grand, l'autre en petit. */
