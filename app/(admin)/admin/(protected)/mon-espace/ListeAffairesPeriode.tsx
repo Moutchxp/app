@@ -91,8 +91,10 @@ export function TableauParApporteur({ lignes, libelle, agence, sorte = 'ventes' 
   const vide = sorte === 'compromis' ? (agence ? 'Aucune commission d’apporteur sur les compromis en cours.' : 'Aucune commission d’apporteur sur vos compromis en cours.')
     : agence ? 'Aucune rétrocession d’apporteur sur la période.' : 'Aucune rétrocession d’apporteur sur vos ventes de la période.';
   return (
-    <section className="tdb-section" aria-labelledby={M.id} data-bloc={M.bloc}>
-      <h3 id={M.id}>Par apporteur d’affaires — {libelle === null ? M.titre : `${libelle} — ${M.titre}`}</h3>
+    // 🔴 D31 (Arno, 03/11/2026) — le titre « Volume d'affaires par apporteur d'affaires — … » ; le bloc sur la trame grise des grosses cartes, bien
+    // détaché de la liste au-dessus ; la période choisie reste portée par `data-periode` (la rangée des mois / années la dit à l'écran)
+    <section className="tdb-section mes-bloc-apporteurs" aria-labelledby={M.id} data-bloc={M.bloc} data-periode={libelle ?? ''}>
+      <h3 id={M.id}>Volume d’affaires par apporteur d’affaires — {M.titre}</h3>
       {lignes.length === 0 ? <p className="loc-muet" data-apporteurs-vide>{vide}</p> : (
         <div className="mes-table-defile">
         <table className="tdb-table mes-table-apporteurs">
@@ -124,5 +126,10 @@ export const CSS_LISTE_PERIODE = `
 .mes-table-apporteurs td,.mes-table-apporteurs th{text-align:left}
 /* D28 - le tableau defile dans son cadre au telephone (jamais la page) ; la ligne de total en gras */
 .mes-table-defile{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* D31 - le bloc des apporteurs : la trame grise des grosses cartes (.tdb-tuile), coins arrondis, nettement detache de la liste au-dessus */
+.mes-bloc-apporteurs{background:var(--color-svv-field);border-radius:18px;margin-top:24px}
+.mes-bloc-apporteurs .tdb-table{background:transparent}
+/* Mois / Annee(s) : leur page espace deja ses blocs de 18 px ; 6 px de plus donnent le meme ecart (24 px) que sous la liste des compromis */
+.mes-accueil .mes-bloc-apporteurs,.mes-annees .mes-bloc-apporteurs{margin-top:6px}
 .mes-table-apporteurs tfoot th,.mes-table-apporteurs tfoot td{font-weight:700;border-top:2px solid var(--color-svv-line)}
 `;

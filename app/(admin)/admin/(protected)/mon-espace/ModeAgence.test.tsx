@@ -141,12 +141,18 @@ describe('🔴 D27 / D28 (Arno, 03/11/2026) — l’onglet « Compromis » : 4 c
     expect(texte('[data-dont="negociateurs"]')).toBe('dont négociateurs 0 €');
     expect(texte('[data-dont="apporteurs"]')).toBe('dont apporteurs 833,33 € sans TVA');
     expect(texte('[data-valeur-compromis="net"]')).toBe('10 208,34 €');
-    expect(texte('[data-bloc="apporteurs-compromis"] h3')).toBe('Par apporteur d’affaires — compromis en cours');
+    expect(texte('[data-bloc="apporteurs-compromis"] h3')).toBe('Volume d’affaires par apporteur d’affaires — compromis en cours'); // 🔴 D31
+    expect(container.querySelector('[data-bloc="apporteurs-compromis"]')!.classList.contains('mes-bloc-apporteurs')).toBe(true); // trame grise (D31)
     expect(texte('[data-bloc="apporteurs-compromis"] [data-apporteur="Gardien Dacquet"] td')).toBe('1');
     expect(texte('[data-bloc="apporteurs-compromis"] [data-total-verse]')).toBe('833,33 € sans TVA');
     expect(texte('[data-bloc="apporteurs-compromis"] [data-verse-apporteur]')).toBe('833,33 € sans TVA');
     expect(texte('[data-tuile="reverse"] .tdb-tuile-mot')).toBe('Reversé / partagé (HT)'); // 🔴 D29 (Arno)
-    expect(container.querySelector('[data-dont="tva"]')).toBeNull(); // en HT : rien de perdu
+    expect(container.querySelector('[data-dont="tva"]')).toBeNull(); // 🔴 D31-3 — plus jamais dans la carte (HT ou TTC)
+    // 🔴 D31-3 — en TTC non plus ; le montant de la carte compte toujours la TVA non récupérable (D29) : 3 541,66 HT → coll × 1,2 + versé + 0,2 × versé
+    await cliquer('.mes-compteurs-tete [data-afficher="ttc"]');
+    expect(container.querySelector('[data-dont="tva"]')).toBeNull();
+    expect(container.querySelector('[data-reverse-detail]')!.textContent).not.toMatch(/TVA non récupérable/);
+    expect(texte('[data-valeur-compromis="reverse"]')).toBe('4 249,99 €'); // 2 708,33 × 1,2 + 833,33 + 166,67 (TVA non récupérable)
     // l'ordre : les cartes, puis la liste, puis le tableau
     const ordre = [...container.querySelectorAll('[data-cartes-compromis], [data-ma-vente], [data-bloc="apporteurs-compromis"]')].map((e) => e.getAttribute('data-bloc') ?? (e.hasAttribute('data-cartes-compromis') ? 'cartes' : 'carte'));
     expect(ordre).toEqual(['cartes', 'carte', 'carte', 'apporteurs-compromis']);
@@ -168,7 +174,8 @@ describe('🔴 D27 / D28 (Arno, 03/11/2026) — l’onglet « Compromis » : 4 c
     await ouvrir();
     await cliquer('[data-espace="macj"]');
     await cliquer('[data-vue="mois"]');
-    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026 — ventes actées');
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Volume d’affaires par apporteur d’affaires — ventes actées'); // 🔴 D31
+    expect(container.querySelector('[data-bloc="mes-apporteurs"]')!.classList.contains('mes-bloc-apporteurs')).toBe(true);
     expect(container.querySelector('[data-bloc="apporteurs-compromis"]')).toBeNull();
   });
 });

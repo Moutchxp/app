@@ -5015,3 +5015,16 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
     });
   });
 });
+
+describe('🔴 D31-3 (Arno, 03/11/2026) — la TVA non récupérable de l’apporteur reste écrite dans la fiche de la vente', () => {
+  it('un apporteur externe : la fiche dit « TVA sur la commission de l’apporteur (non récupérable) » (TTC) et l’apporteur « sans TVA »', async () => {
+    const r = compromis.repartition!;
+    listeCompromis = [{ ...compromis, apporteurInterne: undefined, repartition: { ...r, apporteurInterne: undefined } }];
+    references.apporteurs = [{ id: 4, nom: 'Julien Deblois' }] as typeof references.apporteurs;
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
+    expect(texte('[data-ligne-repartition="tva-apporteur"]')).toMatch(/^− TVA sur la commission de l’apporteur \(non récupérable\)/);
+    expect(texte('[data-ligne-repartition="apporteur"]')).toMatch(/sans TVA$/);
+    references.apporteurs = [{ id: 4, nom: 'Julien Deblois', interne: true }] as typeof references.apporteurs;
+  });
+});

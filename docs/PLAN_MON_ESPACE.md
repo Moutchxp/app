@@ -461,3 +461,15 @@ Le même composant (`FormulaireDossier`) dans le Suivi CA et dans Mon espace ; a
   le défilement (« Annuler » : l'ancien « Fermer », même geste).
 - Épreuves : la liste des 52 contrôles du formulaire = celle d'avant (relevée sur la version précédente) ; le corps enregistré est identique, octet
   pour octet ; 390 px sans débordement, chaque libellé au-dessus de son champ. Captures : `.captures/formulaire-vente-blocs/`.
+
+## 🔴 D31 (Arno, 03/11/2026) — Bloc des apporteurs bien séparé, titres harmonisés, carte « Reversé / partagé » allégée
+
+- Onglet « Compromis » : sous la liste, « Volume d'affaires par apporteur d'affaires — compromis en cours » ; « Mois » et « Année(s) » : « Volume
+  d'affaires par apporteur d'affaires — ventes actées » (la période choisie reste dite par la rangée des mois / années, et portée par
+  `data-periode`). Contenu, colonnes, totaux : inchangés.
+- Le bloc sur la trame grise des grosses cartes (`--color-svv-field`, coins de 18 px, Clair et Sombre), 24 px au-dessus (avant : 0 sous la liste
+  des compromis, il la touchait ; 18 px dans Mois / Année(s)) — plus que l'écart cartes / liste (16 px).
+- Carte « Reversé / partagé » : la mention « dont TVA non récupérable (apporteurs) » est retirée de la sous-ligne (accord d'Arno). Le montant ne
+  change pas (en TTC, il compte toujours cette TVA : perso 13 950 €, FUSION 15 800 €) ; la mention reste dans la fiche de la vente, le Résultat
+  et les coûts. Carte 1 − carte 3 = carte 4, au centime, inchangé.
+- Captures avant / après (1 440 × 900 et 390 px, clair et sombre ; Compromis perso et FUSION, Mois FUSION) : `.captures/bloc-apporteurs-titres/`.
