@@ -70,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
     const x = lu.geste;
     const r: Issue<number> = x.action === 'ligne-ajouter' ? await ajouterCoutLigne(x.ligne, auteur)
       : x.action === 'ligne-retirer' ? await modifierCoutLigne(x.id, x.version, { retirer: true }, auteur)
-      : x.action === 'ligne-modifier' ? await modifierCoutLigne(x.id, x.version, { montantHt: x.montantHt, compteId: x.compteId, libelle: x.libelle }, auteur)
+      : x.action === 'ligne-modifier' ? await modifierCoutLigne(x.id, x.version, { montantHt: x.montantHt, compteId: x.compteId, libelle: x.libelle, tva: x.tva }, auteur)
       : x.action === 'valider' ? await validerPosteCout(x.validation, x.valide, auteur)
       : await modifierPosteGestion(x.annee, x.mois, x.poste, x.montantHt, x.version, auteur);
     if (r.ok) return json({ etat: 'ok', data: { id: r.valeur ?? null } });

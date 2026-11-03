@@ -262,10 +262,11 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEc
       </div>}
       <LigneDesAnnees annees={annees} decoupage="annee" annee={annee} choisies={[annee]} onAnnee={setAnnee} onDecoupage={() => {}} uneSeule />
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`Les coûts ${annee} — ${nom}`} data-tuiles-couts>
-        {tuile('total', <>Coûts {MOT} — {annee}</>, A.total, A1.total)}
+        {/* 🔴 D22 (Arno, 03/11/2026) — l'ordre : Vente | Location | Gestion | Coûts totaux (le total tout à droite) */}
         {tuile('vente', <>Vente {MOT}</>, A.vente.total, A1.vente.total)}
         {tuile('location', <>Location {MOT}</>, A.location?.total ?? null, A1.location?.total ?? null, lg ? 'La location n’a pas pu être lue.' : sansLG)}
         {tuile('gestion', <>Gestion {MOT}</>, A.gestion?.total ?? null, A1.gestion?.total ?? null, sansLG)}
+        {tuile('total', <>Coûts totaux {MOT} — {annee}</>, A.total, A1.total)}
       </ul>
       {/* le graphique du CA global du Suivi CA, sur les coûts : les familles entre elles (par défaut), ou l'année précédente (Comparer), Mensuel / Cumul */}
       <GrapheGlobal key={agence} eG={eG} eC={eC} jour={jour} annee={annee} annees={null} salaires rouges={moisRougesDeLAnnee(annee, [annee], jour)}

@@ -286,7 +286,7 @@ describe('🔴 lot 2 — la saisie dans les tableaux (C15)', () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!; setter.call(m, '1 999,99'); m.dispatchEvent(new Event('input', { bubbles: true }));
     }); await calmer();
     await cliquer('[data-ajouter-ligne]');
-    expect(posts).toEqual([{ action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 5, libelle: null, montantHt: 1999.99 } }]);
+    expect(posts).toEqual([{ action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 5, libelle: null, montantHt: 1999.99, tva: false } }]);
     expect(lectures()).toBeGreaterThan(avant); // tous les tableaux, la synthèse et le graphique relus
   });
   it('une écriture périmée : 409, le motif et « Recharger » ; rien de plus n’est envoyé', async () => {
@@ -363,7 +363,7 @@ describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
     expect(texte('[data-etat-saisie="gestion"]')).toBe('à compléter'); // ADHOC et « Autres » de la gestion restent à valider
     await cliquer('[data-enregistrer-mois]');
     expect(posts).toEqual([
-      { action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 3, libelle: null, montantHt: 2100.5 } },
+      { action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 3, libelle: null, montantHt: 2100.5, tva: false } },
       { action: 'gestion-poste', annee: 2026, mois: 10, poste: 'monga', montantHt: 412.5, version: 0 },
       { action: 'valider', validation: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10 }, valide: true },
       { action: 'valider', validation: { societe: 'criterimmo', famille: 'gestion', poste: 'monga', annee: 2026, mois: 10 }, valide: true },
@@ -385,5 +385,35 @@ describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
     expect(posts).toHaveLength(1);
     expect(texte('[data-message-saisie="conflit"]')).toContain('modifié entre-temps');
     expect(container.querySelector('[data-saisie-mois]')).not.toBeNull();
+  });
+});
+
+describe('🔴 R2 / D22 (Arno, 03/11/2026)', () => {
+  it('D22 — l’ordre des cartes : Vente | Location | Gestion | Coûts totaux', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect([...container.querySelectorAll('[data-tuile-couts]')].map((e) => e.getAttribute('data-tuile-couts'))).toEqual(['vente', 'location', 'gestion', 'total']);
+    expect(texte('[data-tuile-couts="total"] .tdb-tuile-mot')).toBe('Coûts totaux HT — 2026');
+  });
+  it('R2 — « Autres » : TVA 20 % par défaut, au choix par ligne ; envoyée avec la ligne', async () => {
+    const posts: unknown[] = [];
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url); urls.push(u);
+      if (u.startsWith(URL_COUTS) && init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id: 9 } }) }; }
+      if (u.startsWith(URL_COUTS) && !u.includes('empreinte') && !u.includes('rappel')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true, coutsLignes: [],
+        profils: [], versionsGestion: {}, monga: true, validations: null } }) };
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+    await ouvrir('macj'); await cliquer('[data-onglet-mon-espace="couts"]');
+    await cliquer('[data-case-saisie="vente-autres-10"]');
+    expect((container.querySelector('[data-tva-ligne="nouveau"]') as HTMLSelectElement).value).toBe('20');
+    await act(async () => {
+      const l = container.querySelector('[data-libelle-nouveau]') as HTMLInputElement; const m = container.querySelector('[data-montant-nouveau]') as HTMLInputElement;
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(l, 'Assurance'); l.dispatchEvent(new Event('input', { bubbles: true })); set.call(m, '100'); m.dispatchEvent(new Event('input', { bubbles: true }));
+      const t = container.querySelector('[data-tva-ligne="nouveau"]') as HTMLSelectElement; t.value = '0'; t.dispatchEvent(new Event('change', { bubbles: true }));
+    }); await calmer();
+    await cliquer('[data-ajouter-ligne]');
+    expect(posts).toEqual([{ action: 'ligne-ajouter', ligne: { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10, compteId: null, libelle: 'Assurance', montantHt: 100, tva: false } }]);
   });
 });

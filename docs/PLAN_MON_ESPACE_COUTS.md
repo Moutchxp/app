@@ -527,3 +527,31 @@ la 451 et C8 y attendent la décision d'Arno (lecture C8 : 8 montants mensuels d
 
 **Base de recette du lot** : la 452 a été appliquée sur la même base d'essai que la 451 (`svav_test_couts`), effacée en fin de lot. La base de dev
 n'a pas été touchée.
+
+
+## 🔴 Réponses et décisions d'Arno du 03/11/2026 (après les lots 2 et 3 de « Les coûts »)
+
+- **R1.** Appliquer 451, 452 puis l'effacement C8 sur SA base locale (le site de recette du Mac, `sansvisavis`, celle de 448-450), jamais en production,
+  dans cet ordre : sauvegarde complète (pg_dump daté), 451, 452, C8 (sa sauvegarde JSON + journal), contrôle. **Fait le 03/11/2026** (voir ci-dessous).
+- **R2.** TVA des coûts saisis : choix PAR LIGNE « TVA 20 % » / « sans TVA » ; salaires chargés : toujours sans TVA ; MONGA, ADHOC : 20 % ; « Autres » :
+  20 % par défaut, modifiable par ligne ; TTC = HT × 1,20 ou HT selon la ligne, partout (tableaux, cartes, Coûts globaux). Colonne `tva` de
+  `transaction_cout_ligne` (ajoutée à la 451 avant son application), `ttcDeLigne` / `montantSaisi`.
+- **R3.** L'ancienne saisie mensuelle des salaires (Suivi CA › Gestion et › Location) est REMPLACÉE (accord d'Arno) par le total venant de « Les coûts »
+  (même enregistrement) et le lien « Saisir dans Les coûts » (`/admin/mon-espace?espace=criterimmo&onglet=couts&couts-tableau=…`). Plus aucune
+  deuxième case : la fenêtre de la Location est retirée, la case de la Gestion devient un affichage, le serveur n'écrit plus la colonne mensuelle
+  (Gestion) et refuse l'ancien geste (Location, 409).
+- **D20.** Mon espace › « Année(s) » : la liste sous le graphique ne montre plus le groupe « Compromis » (comme « Mois », décision 15) ; les compromis
+  restent dans le graphique et dans l'onglet « Compromis ».
+- **D21.** Mon espace › « Année(s) » et « Mois » : « Apporteurs d'affaires » est GARDÉ et suit exactement la période choisie (vérifié et prouvé : il
+  la suivait déjà — `apporteursPeriode`, rétrocessions saisies dans les mois choisis + celles rattachées aux ventes listées).
+- **D22.** Onglet « Les coûts » : cartes Vente | Location | Gestion | Coûts totaux (le total à droite).
+
+**R1, exécution du 03/11/2026 (base `sansvisavis`)** :
+- sauvegarde complète : `.captures/sauvegardes/sansvisavis-avant-451-452-c8-2026-11-03-111406.dump` (5,28 Go, `pg_restore --list` lisible, 296 tables) ;
+- 451 puis 452 : appliquées chacune en une transaction, sans erreur (hors registre `svav_migration`, comme 448-450) ; fonctions pré-cochées :
+  comptes 2, 8, 9 → vente ; 5 → location + vente ;
+- C8 : sauvegarde `.captures/sauvegardes/salaires-mensuels-sansvisavis-2026-11-03-111857.json`, 8 montants effacés (journalisés) — gestion 2025-05
+  2 444,00 € ; 2025-06, 07, 08, 09, 10, 11 et 2026-01 : 2 688,91 € chacun ; la ligne de salaires location 09/2026 était un essai « _TEST » déjà
+  retiré (non comptée, non concernée) ;
+- contrôle (lecture seule, 96 mois 2019 → 2026) : les seuls écarts de « Coûts globaux » sont ces 8 montants, au centime, sur les salaires de la
+  gestion et le total ; vente, location, ADHOC, MONGA inchangés.

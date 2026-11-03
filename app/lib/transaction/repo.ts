@@ -276,13 +276,13 @@ export async function lireGestion(): Promise<GestionMois[]> {
 export async function lireCoutsLignes(): Promise<CoutLigne[] | null> {
   if (!(await coutsSaisisDisponible())) return null;
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT l.id, l.societe, l.famille, l.poste, l.annee, l.mois, l.compte_id, l.libelle, l.montant_ht,
+    `SELECT l.id, l.societe, l.famille, l.poste, l.annee, l.mois, l.compte_id, l.libelle, l.montant_ht, l.tva,
             nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') AS compte_libelle,
             coalesce((SELECT max(j.id) FROM transaction_journal j WHERE j.entite = 'cout_ligne' AND j.entite_id = l.id), 0) AS version
        FROM transaction_cout_ligne l LEFT JOIN admin_utilisateur u ON u.id = l.compte_id
       WHERE l.retire_le IS NULL ORDER BY l.annee, l.mois, l.famille, l.poste, l.id`);
   return rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, famille: r.famille as CoutLigne['famille'], poste: r.poste as CoutLigne['poste'], annee: n(r.annee),
-    mois: n(r.mois), compteId: nOuNull(r.compte_id), compteLibelle: t(r.compte_libelle), libelle: t(r.libelle), montantHt: n(r.montant_ht), version: n(r.version) }));
+    mois: n(r.mois), compteId: nOuNull(r.compte_id), compteLibelle: t(r.compte_libelle), libelle: t(r.libelle), montantHt: n(r.montant_ht), tva: r.tva === true, version: n(r.version) }));
 }
 /** Les lignes de salaires de la Location et de la Gestion (ce que leurs pages additionnent) ; sans la 451 : aucune. LECTURE SEULE. */
 async function lireCoutsSaisisPourPages(): Promise<CoutLigne[]> {
@@ -368,7 +368,7 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
   // 🔴 LOT LO11 (447) — les salaires chargés de la Location d'un mois
   location_salaires_mois: { table: 'transaction_location_salaires_mois', colonnes: ['salaires_ht', 'note', 'retire_le'] },
   // 🔴 « Les coûts », lot 2 (451) — une ligne de coût saisi (salarié ou « Autres »)
-  cout_ligne: { table: 'transaction_cout_ligne', colonnes: ['montant_ht', 'compte_id', 'libelle', 'retire_le'] },
+  cout_ligne: { table: 'transaction_cout_ligne', colonnes: ['montant_ht', 'compte_id', 'libelle', 'tva', 'retire_le'] },
   // 🔴 « Les coûts », lot 3 (452) — un poste du mois validé (« complet »)
   cout_validation: { table: 'transaction_cout_validation', colonnes: ['retire_le'] },
 };
@@ -434,7 +434,9 @@ export const MOTIF_PERIME = 'Ce coût a été modifié entre-temps (par vous dan
 const versionDe = async (q: RequeteTx, entite: Entite, id: number): Promise<number> =>
   n((await q<{ v: string | null }>('SELECT max(id) AS v FROM transaction_journal WHERE entite = $1 AND entite_id = $2', [entite, id])).rows[0]?.v ?? 0);
 export interface SaisieCoutLigne { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres'; annee: number; mois: number;
-  compteId: number | null; libelle: string | null; montantHt: number }
+  compteId: number | null; libelle: string | null; montantHt: number;
+  /** R2 — « Autres » : la TVA de la ligne (défaut 20 %) ; salaires : toujours sans. */
+  tva?: boolean }
 /** Ajoute une ligne (un salarié du mois, ou un frais « Autres ») ; journalisée. Un salarié déjà présent ce mois-là : refus (le modifier). */
 export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await coutsSaisisDisponible())) return { ok: false, motif: MOTIF_SANS_451 };
@@ -445,9 +447,10 @@ export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Pr
       if (rows.length > 0) return { ok: false, motif: 'Ce salarié a déjà son salaire ce mois-ci : modifiez sa ligne.', conflit: true };
     }
     const { rows } = await q<{ id: string }>(
-      `INSERT INTO transaction_cout_ligne (societe, famille, poste, annee, mois, compte_id, libelle, montant_ht, cree_par_libelle)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-      [l.societe, l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt, auteur.libelle]);
+      `INSERT INTO transaction_cout_ligne (societe, famille, poste, annee, mois, compte_id, libelle, montant_ht, tva, cree_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [l.societe, l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt,
+        l.poste === 'autres' ? l.tva !== false : false, auteur.libelle]);
     const id = n(rows[0].id);
     await journaliser(q, { entite: 'cout_ligne', id, action: 'saisie', avant: null, apres: l, auteur });
     return { ok: true, valeur: id };
@@ -457,7 +460,7 @@ export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Pr
  * Modifie (montant, profil, libellé) ou retire une ligne ; journalisée. GARDE DE VERSION : `version` = le dernier n° de son journal tel que
  * l'écran l'a lu ; s'il a changé, refus (`conflit` → 409), rien n'est écrit. Retirer = `retire_le` (jamais un effacement).
  */
-export async function modifierCoutLigne(id: number, version: number, v: { montantHt?: number; compteId?: number | null; libelle?: string | null; retirer?: boolean }, auteur: AuteurTx): Promise<Issue> {
+export async function modifierCoutLigne(id: number, version: number, v: { montantHt?: number; compteId?: number | null; libelle?: string | null; tva?: boolean; retirer?: boolean }, auteur: AuteurTx): Promise<Issue> {
   if (!(await coutsSaisisDisponible())) return { ok: false, motif: MOTIF_SANS_451 };
   return withTransaction(async (q) => {
     const { rows } = await q<{ poste: string; retire_le: unknown }>('SELECT poste, retire_le FROM transaction_cout_ligne WHERE id = $1 FOR UPDATE', [id]);
@@ -465,7 +468,7 @@ export async function modifierCoutLigne(id: number, version: number, v: { montan
     if ((await versionDe(q, 'cout_ligne', id)) !== version) return { ok: false, motif: MOTIF_PERIME, conflit: true };
     const valeurs: Record<string, unknown> = v.retirer === true ? { retire_le: new Date().toISOString() }
       : { ...(v.montantHt === undefined ? {} : { montant_ht: v.montantHt }), ...(v.compteId === undefined || rows[0].poste !== 'salaires' ? {} : { compte_id: v.compteId }),
-        ...(v.libelle === undefined || rows[0].poste !== 'autres' ? {} : { libelle: v.libelle }) };
+        ...(v.libelle === undefined || rows[0].poste !== 'autres' ? {} : { libelle: v.libelle }), ...(v.tva === undefined || rows[0].poste !== 'autres' ? {} : { tva: v.tva }) };
     const r = await ecrire(q, 'cout_ligne', id, valeurs, true);
     if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
     if (v.retirer === true) await q('UPDATE transaction_cout_ligne SET retire_par_libelle = $2 WHERE id = $1', [id, auteur.libelle]);
@@ -834,13 +837,15 @@ export async function enregistrerGestion(annee: number, mois: number, g: Gestion
   const avecMonga = await mongaDisponible();
   if (!avecMonga && g.mongaHt != null) return { ok: false, motif: 'Le coût MONGA s’enregistrera après la mise à jour de la base (migration 446) : rien n’a été écrit.' };
   return withTransaction(async (q) => {
-    const valeurs = { nb_lots: g.nbLots, honoraires_ht: g.honorairesHt, adhoc_ht: g.adhocHt, ...(avecMonga ? { monga_ht: g.mongaHt ?? null } : {}), salarie_ht: g.salarieHt, reste_ht: g.resteHt, note: g.note };
+    // 🔴 R3 (accord d'Arno, 03/11/2026) — les salaires chargés de la Gestion ne se saisissent plus ici (« Les coûts », par salarié) : la colonne
+    // mensuelle d'avant n'est plus jamais écrite par ce geste (une seule source)
+    const valeurs = { nb_lots: g.nbLots, honoraires_ht: g.honorairesHt, adhoc_ht: g.adhocHt, ...(avecMonga ? { monga_ht: g.mongaHt ?? null } : {}), reste_ht: g.resteHt, note: g.note };
     const { rows } = await q<{ id: string }>('SELECT id FROM transaction_gestion_mois WHERE annee = $1 AND mois = $2 AND retire_le IS NULL FOR UPDATE', [annee, mois]);
     if (rows.length === 0) {
       const { rows: c } = await q<{ id: string }>(
         `INSERT INTO transaction_gestion_mois (annee, mois, nb_lots, honoraires_ht, adhoc_ht, salarie_ht, reste_ht, note, origine, cree_par_libelle${avecMonga ? ', monga_ht' : ''})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'saisie', $9${avecMonga ? ', $10' : ''}) RETURNING id`,
-        [annee, mois, g.nbLots, g.honorairesHt, g.adhocHt, g.salarieHt, g.resteHt, g.note, auteur.libelle, ...(avecMonga ? [g.mongaHt ?? null] : [])]);
+         VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, 'saisie', $8${avecMonga ? ', $9' : ''}) RETURNING id`,
+        [annee, mois, g.nbLots, g.honorairesHt, g.adhocHt, g.resteHt, g.note, auteur.libelle, ...(avecMonga ? [g.mongaHt ?? null] : [])]);
       await journaliser(q, { entite: 'gestion_mois', id: n(c[0].id), action: 'saisie', avant: null, apres: { annee, mois, ...valeurs }, auteur });
       return { ok: true };
     }

@@ -17,7 +17,9 @@ export type RendreCarte = (v: VenteMonEspace, section: 'compromis' | 'vente', mo
  * carte « CA », leur nombre = la carte « Ventes », au centime) puis « Compromis » (la part au-dessus du vendu dans le graphique). Chaque affaire :
  * la carte de l'onglet « Compromis » ; son montant : MA part en « Mon espace » (décision 1 ; aucun montant d'un autre, décision 2), sa carte en
  * mode agence. Tri : date décroissante. Le Suivi CA n'est pas touché.
- * 🔴 Décision 15 — l'onglet « Mois » : les « Vendus » seuls (`avecCompromis` faux) ; « Année(s) » : les deux groupes.
+ * 🔴 Décision 15 — l'onglet « Mois » : les « Vendus » seuls (`avecCompromis` faux) ; 🔴 D20 (03/11/2026) — « Année(s) » aussi.
+ * 🔴 D21 (03/11/2026) — « Apporteurs d'affaires » suit EXACTEMENT la sélection (`periode`) : les rétrocessions saisies dans ses mois, plus celles
+ * rattachées aux ventes listées (`apporteursPeriode`) — Année, Période, plusieurs années, Tout ; Mois, Période, Année.
  * 🔴 Décision 14 — sous la liste, sur la même sélection : « Par apporteur d'affaires » (le tableau de l'ancien onglet « Mes statistiques », lecture
  * seule, `parApporteur` du Suivi CA) et, en mode agence, « Par négociateur » (LE tableau de l'« Espace par négociateur » du Suivi CA).
  */

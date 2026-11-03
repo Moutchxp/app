@@ -22,12 +22,20 @@ const seule = (o: Partial<Vente>) => base({ repartition: { retroApporteurTtc: 0,
 const VENTES: Vente[] = [
   base({ id: 1, libelle: 'PARTAGÉE', honorairesTtc: 12345.67, mois: 3, repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Léa', 60), partie('sortie', 7, 'Marc', 40)] } as Vente['repartition'], dossier: dossier([5, 'Léa'], [7, 'Marc']) }),
   seule({ id: 2, libelle: 'JUIN', honorairesTtc: 6000.01, mois: 6 }),
+  // 🔴 D21 — une vente de 2025 (Période, Tout)
+  seule({ id: 8, libelle: 'AVRIL 2025', honorairesTtc: 3000.03, annee: 2025, mois: 4 }),
   seule({ id: 5, libelle: 'COMPROMIS SEPT', honorairesTtc: 9000.09, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-09-15' }),
   base({ id: 7, libelle: 'DE MARC', honorairesTtc: 7777.77, mois: 6, repartition: { retroApporteurTtc: 0, parties: [partie('entree_sortie', 7, 'Marc', 100)] } as Vente['repartition'], dossier: dossier([7, 'Marc'], [7, 'Marc']) }),
 ];
 const LEA: Moi = { compteId: 5, libelles: new Set(['Léa']) };
 const ventesLea = VENTES.filter((v) => v.id !== 7).map((v) => { const a = monCa([v], LEA); return { ...v, mesCotes: ['entree'], commissionsRetirees: false, maPart: { ca: a, net: a } }; });
-const reponse = () => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes: ventesLea, retrocessions: [],
+// 🔴 D21 — des rétrocessions d'apporteurs : juin 2026 (liée à la vente de juin), mars 2025 (saisie seule), avril 2025 (liée à la vente d'avril 2025)
+const RETROS = [
+  { id: 1, societe: 'criterimmo', annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600.06, apporteur: 'DEBLOIS', venteId: 2, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null },
+  { id: 2, societe: 'criterimmo', annee: 2025, mois: 3, negociateur: 'Léa', montantTtc: 120.12, apporteur: 'ANCIEN', venteId: null, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null },
+  { id: 3, societe: 'criterimmo', annee: 2025, mois: 4, negociateur: 'Léa', montantTtc: 300.03, apporteur: 'AVRIL', venteId: 8, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null },
+];
+const reponse = () => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 5, prenom: 'Léa', administrateur: false }, ventes: ventesLea, retrocessions: RETROS,
   compteurs: { compromis: { nb: 1, ids: [5], ca: monCa([VENTES[2]], LEA) }, actees: { nb: 2, ids: [1, 2], annee: 2026, ca: { htC: 0, ttcC: 0 } }, parAnnee: [] },
   statistiques: statistiquesMonEspace(VENTES, LEA, JOUR) });
 let container: HTMLDivElement;
@@ -77,10 +85,12 @@ describe('🔴 la liste sous le graphique', () => {
     await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="9"]');
     expect(texte('[data-liste-periode-vide]')).toBe('Aucune affaire sur cette période.');
   });
-  it('« Année(s) » : la même liste sous « Année par année » (Vendus + Compromis), total = la carte « CA » de l’année', async () => {
+  it('🔴 D20 — « Année(s) » : la liste sous « Année par année » ne montre que les Vendus (plus de groupe Compromis) ; total = la carte « CA » de l’année', async () => {
     await ouvrir('annee');
     expect(ids('vendus')).toEqual(['2', '1']);
-    expect(ids('compromis')).toEqual(['5']);
+    expect(container.querySelector('[data-groupe-periode="compromis"]')).toBeNull();
+    // les compromis restent dans le graphique (« Vendu + compromis ») et dans l'onglet « Compromis »
+    expect(container.querySelector('[data-onglet-vue="compromis"], [data-vue="compromis"]')).not.toBeNull();
     expect(euros(texte('[data-total-groupe="vendus"]'))).toBe(euros(texte('[data-valeur-tuile="ca-annee"]')));
   });
   it('décision 14 : sous la liste, « Par apporteur d’affaires » (vue perso : pas de « Par négociateur ») ; mêmes filtres', async () => {
@@ -91,5 +101,31 @@ describe('🔴 la liste sous le graphique', () => {
     expect(liste.compareDocumentPosition(apporteurs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026');
     expect(container.querySelector('[data-bloc="negociateurs-periode-mon-espace"]')).toBeNull();
+  });
+});
+
+describe('🔴 D21 — « Apporteurs d’affaires » suit exactement la période choisie', () => {
+  const apporteurs = () => [...container.querySelectorAll('[data-bloc="mes-apporteurs"] [data-apporteur]')].map((e) => e.getAttribute('data-apporteur')).sort();
+  it('« Année(s) » : une année (2026), une période (2025 + 2026), Tout', async () => {
+    await ouvrir('annee');
+    expect(apporteurs()).toEqual(['DEBLOIS']);
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — 2026');
+    await cliquer('[data-onglet-annee="2025"]');
+    expect(apporteurs()).toEqual(['ANCIEN', 'AVRIL']);
+    await cliquer('[data-decouper-annees="periode"]');
+    await cliquer('[data-onglet-annee="2026"]');
+    expect(apporteurs()).toEqual(['ANCIEN', 'AVRIL', 'DEBLOIS']);
+    await cliquer('[data-decouper-annees="tout"]');
+    expect(apporteurs()).toEqual(['ANCIEN', 'AVRIL', 'DEBLOIS']);
+  });
+  it('« Mois » : l’année, un mois (juin : DEBLOIS ; mars : aucun) — jamais une autre année', async () => {
+    await ouvrir('mois');
+    expect(apporteurs()).toEqual(['DEBLOIS']);
+    await cliquer('[data-decouper="mois"]');
+    await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="6"]');
+    expect(apporteurs()).toEqual(['DEBLOIS']);
+    await cliquer('[data-bloc="histogramme-mois"] [data-barre-mois="3"]');
+    expect(apporteurs()).toEqual([]);
+    expect(container.querySelector('[data-apporteurs-vide]')).not.toBeNull();
   });
 });

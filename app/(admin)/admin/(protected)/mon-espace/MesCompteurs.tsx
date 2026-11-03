@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, useAffichageRetenu } from '../transaction/commun';
-import { AGENCES, caAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
+import { AGENCES, caAgence, estAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
 import { LIBELLE_TRI_LISTE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
 import { personnesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { negociateursDe } from '../../../../lib/transaction/modele';
@@ -94,14 +94,19 @@ export function MesCompteurs() {
   // cours | Mes ventes | Mes statistiques | Mes apporteurs » (`onglet`) ; un seul des deux est choisi à la fois.
   const jourEcran = aujourdhuiParis();
   const avecMois = parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null;
-  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => vueDArrivee(parametre('vue'), avecMois));
-  const [onglet, setOngletEtat] = useState<Onglet | null>(null);
+  // 🔴 R3 (03/11/2026) — le lien « Saisir dans Les coûts » du Suivi CA : `?espace=criterimmo&onglet=couts` ouvre directement l'onglet, sur la structure
+  const ongletDemande = parametre('onglet') === 'couts' ? 'couts' as const : null;
+  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => (ongletDemande !== null ? null : vueDArrivee(parametre('vue'), avecMois)));
+  const [onglet, setOngletEtat] = useState<Onglet | null>(ongletDemande);
   const choisirVue = (v: 'compromis' | 'mois' | 'annee'): void => { setVueEtat(v); setOngletEtat(null); };
   const setOnglet = (o: Onglet): void => { setOngletEtat(o); setVueEtat(null); };
   const ligneMois = useLigneDesMois(jourEcran);
   // 🔴 LOT 10 — l'espace vu (le mien, ou une structure : administrateurs) ; tri et filtre « Négociateur » des compromis de la structure.
-  const [espace, setEspace] = useState<Espace>('moi');
-  const espaceVu = useRef<Espace>('moi');
+  const espaceDemande: Espace = estAgence(parametre('espace')) ? parametre('espace') as Agence : 'moi';
+  const [espace, setEspace] = useState<Espace>(espaceDemande);
+  const espaceVu = useRef<Espace>(espaceDemande);
+  // l'adresse ne garde pas la demande (un rechargement repart de l'écran normal)
+  useEffect(() => { ecrireAdresse({ espace: null, onglet: null }); }, []);
   const [tri, setTri] = useState<TriListe>(TRI_LISTE_DEFAUT);
   const [filtreNego, setFiltreNego] = useState('');
   // retenu d'une lecture à l'autre : le sélecteur reste pendant le chargement d'un autre espace
@@ -363,6 +368,7 @@ export function MesCompteurs() {
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
         : onglet === 'apporteurs' ? <MesApporteurs />
+        : onglet === 'couts' && !avecCouts ? <p className="loc-muet mes-vide" data-couts-reserve>« Les coûts » est réservé aux associés, dans « Voir » : CRITERIMMO, MACJ ou FUSION.</p>
         : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} saisieDemandee={saisieDemandee}
           onEcrit={() => setRappelRelu((x) => x + 1)} /> : null) : (
           <>

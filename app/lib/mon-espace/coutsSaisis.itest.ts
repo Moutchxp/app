@@ -109,3 +109,16 @@ describe('🔴 lot 3 (452) — la validation d’un poste du mois', () => {
     await expect(query('DELETE FROM transaction_cout_validation WHERE annee = $1', [a])).rejects.toThrow();
   });
 });
+
+describe('🔴 R2 — la TVA d’une ligne « Autres », écrite et relue', () => {
+  it('20 % par défaut ; « sans TVA » gardé ; un salaire : jamais (refusé par la base)', async () => {
+    const a = await anneeLibre(2080);
+    const avec = await repo.ajouterCoutLigne({ societe: 'macj', famille: 'vente', poste: 'autres', annee: a, mois: 2, compteId: null, libelle: 'Assurance', montantHt: 100 }, AUTEUR);
+    const sans = await repo.ajouterCoutLigne({ societe: 'macj', famille: 'vente', poste: 'autres', annee: a, mois: 2, compteId: null, libelle: 'Banque', montantHt: 10, tva: false }, AUTEUR);
+    const lues = (await repo.lireCoutsLignes())!.filter((x) => x.annee === a);
+    expect(lues.map((x) => [x.libelle, x.tva])).toEqual([['Assurance', true], ['Banque', false]]);
+    expect(avec.ok && sans.ok).toBe(true);
+    await expect(query(`INSERT INTO transaction_cout_ligne (societe, famille, poste, annee, mois, compte_id, montant_ht, tva, cree_par_libelle)
+      VALUES ('macj', 'vente', 'salaires', $1, 3, (SELECT min(id) FROM admin_utilisateur), 1, true, 'itest')`, [a])).rejects.toThrow();
+  });
+});

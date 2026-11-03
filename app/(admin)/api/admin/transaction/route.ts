@@ -4,9 +4,9 @@ import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
 import { compromisEnCours, pourLaVue } from '../../../../lib/transaction/compromisEnCours';
 import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
-import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireSalairesLocationSaisie, lireVente } from '../../../../lib/transaction/saisie';
+import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireJournal, lireNegociateurs,
+  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireJournal, lireNegociateurs,
   lirePersonnes, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, mandatDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
@@ -148,12 +148,9 @@ export async function POST(request: Request): Promise<Response> {
         return r.ok ? rendre(await saisirRetro(r.valeur, auteur)) : rendre(r);
       }
       case 'location-salaires-enregistrer': {
-        // 🔴 LOT LO11 — les salaires chargés de la Location d'un mois (447) ; journalisé ; un observateur est refusé avant (proxy, 403)
-        const annee = Number(corps.annee);
-        const mois = Number(corps.mois);
-        if (!Number.isInteger(annee) || annee < 2000 || annee > 2100 || !Number.isInteger(mois) || mois < 1 || mois > 12) return json({ etat: 'refus', motif: 'Mois invalide.' }, 400);
-        const v = lireSalairesLocationSaisie(corps.salaires);
-        return v.ok ? rendre(await enregistrerSalairesLocation(annee, mois, v.valeur, auteur)) : rendre(v);
+        // 🔴 R3 (accord d'Arno, 03/11/2026) — les salaires chargés de la Location ne se saisissent plus ici : par salarié, dans « Mon espace › Les coûts »
+        // (une seule source). Refus explicite, rien n'est écrit.
+        return json({ etat: 'refus', motif: 'Les salaires chargés de la Location se saisissent désormais par salarié dans « Mon espace › Les coûts » : rien n’a été écrit.' }, 409);
       }
       case 'gestion-enregistrer': {
         const annee = Number(corps.annee);

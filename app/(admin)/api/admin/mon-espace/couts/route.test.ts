@@ -78,7 +78,7 @@ describe('🔴 POST /api/admin/mon-espace/couts — la saisie (lot 2)', () => {
   it('un salaire : écrit par `ajouterCoutLigne` (la même ligne que la page de saisie), au nom de l’auteur', async () => {
     const r = await poster(SALAIRE);
     expect(r).toEqual({ status: 200, corps: { etat: 'ok', data: { id: 41 } } });
-    expect(h.ajouter).toHaveBeenCalledWith({ ...SALAIRE.ligne, libelle: null }, { id: 4, libelle: 'arno' });
+    expect(h.ajouter).toHaveBeenCalledWith({ ...SALAIRE.ligne, libelle: null, tva: false }, { id: 4, libelle: 'arno' });
   });
   it('pas associé : 403, rien n’est écrit', async () => {
     h.voir.mockResolvedValue(false);
@@ -94,7 +94,7 @@ describe('🔴 POST /api/admin/mon-espace/couts — la saisie (lot 2)', () => {
     h.modifier.mockResolvedValue({ ok: false, motif: 'Ce coût a été modifié entre-temps', conflit: true });
     const r = await poster({ action: 'ligne-modifier', id: 3, version: 12, montantHt: 10 });
     expect(r.status).toBe(409);
-    expect(h.modifier).toHaveBeenCalledWith(3, 12, { montantHt: 10, compteId: undefined, libelle: undefined }, { id: 4, libelle: 'arno' });
+    expect(h.modifier).toHaveBeenCalledWith(3, 12, { montantHt: 10, compteId: undefined, libelle: undefined, tva: undefined }, { id: 4, libelle: 'arno' });
   });
   it('retirer une ligne ; ADHOC / MONGA d’un mois : par `modifierPosteGestion` (la Gestion du Suivi CA)', async () => {
     expect((await poster({ action: 'ligne-retirer', id: 3, version: 12 })).status).toBe(200);

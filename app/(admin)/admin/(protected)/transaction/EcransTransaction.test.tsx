@@ -553,7 +553,9 @@ describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salari
     await ouvrirG('/?vue=mois&annee=2025&mois=3');
     await cliquer('[data-saisir-gestion-mois="2025-3"]');
     expect([...container.querySelectorAll('[data-saisie-gestion] [data-champ-gestion]')].map((x) => x.getAttribute('data-champ-gestion')))
-      .toEqual(['nbLots', 'honorairesHt', 'adhocHt', 'mongaHt', 'salarieHt', 'resteHt']);
+      .toEqual(['nbLots', 'honorairesHt', 'adhocHt', 'mongaHt', 'resteHt']);
+    // 🔴 R3 — les salaires : le total venant de « Les coûts » et le lien, plus de case de saisie
+    expect(container.querySelector('[data-saisir-dans-couts="gestion"]')?.getAttribute('href')).toBe('/admin/mon-espace?espace=criterimmo&onglet=couts&couts-tableau=gestion');
     await taper('mongaHt', '500');
     expect((container.querySelector('[data-champ-gestion="resteHt"]') as HTMLInputElement).value).toBe('10546,72');
     await taper('mongaHt', '500,05');
@@ -644,7 +646,10 @@ describe('🔴 LOT GE5 — « Gestion » : « Coûts salariaux chargés » (🔴
         expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('Salaires chargés2 688,91 €');
       }
       await act(async () => { (container.querySelector('[data-saisir-gestion-mois="2025-3"]') as HTMLElement).click(); }); await calmer();
-      expect(container.querySelector('[data-champ-gestion="salarieHt"]')!.closest('label')!.firstChild!.textContent).toBe('Salaires chargés (HT)');
+      // 🔴 R3 — la fenêtre montre le total des salariés (« Les coûts ») et le lien ; plus de case
+      expect(container.querySelector('[data-champ-gestion="salarieHt"]')).toBeNull();
+      expect([container.querySelector('[data-salaires-gestion-couts] span')!.textContent, texte('[data-salaires-gestion-total]'), texte('[data-saisir-dans-couts="gestion"]')])
+        .toEqual(['Salaires chargés (HT)', '2 688,91 €', 'Saisir dans Les coûts']);
     } finally { donneesGlobal.gestion = avant; window.localStorage.setItem('trx-affichage-montants', 'ht'); }
   });
 });

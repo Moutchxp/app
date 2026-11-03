@@ -27,7 +27,9 @@ export interface DonneesPageSaisie {
   versionsGestion: Readonly<Record<string, { version: number; origine: string }>>; monga: boolean;
   gestionDuMois: (m: MoisAn) => { adhoc: number | null; monga: number | null };
 }
-interface Brouillon { id: number | null; version: number; compte: string; libelle: string; montant: string; retirer: boolean; initial: string }
+interface Brouillon { id: number | null; version: number; compte: string; libelle: string; montant: string;
+  /** R2 — « Autres » : TVA 20 % (défaut) ou sans TVA. */
+  tva: boolean; retirer: boolean; initial: string }
 const MOT_FAMILLE: Record<FamilleCout, string> = { vente: 'Vente', location: 'Location', gestion: 'Gestion' };
 const ecrireMontant = (x: number | null): string => (x === null ? '' : x.toFixed(2).replace('.', ','));
 const cle = (p: Pick<PosteDuMois, 'famille' | 'poste'>): string => `${p.famille}-${p.poste}`;
@@ -72,7 +74,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, o
   const g = d.gestionDuMois(mois);
   const [brouillons, setBrouillons] = useState<Record<string, Brouillon[]>>(() => Object.fromEntries(postes.filter((p) => p.poste === 'salaires' || p.poste === 'autres')
     .map((p) => [cle(p), lignesDe(p).map((l) => { const montant = ecrireMontant(l.montantHt); const compte = String(l.compteId ?? ''); const libelle = l.libelle ?? '';
-      return { id: l.id, version: l.version, compte, libelle, montant, retirer: false, initial: `${compte}|${libelle}|${montant}` }; })])));
+      return { id: l.id, version: l.version, compte, libelle, montant, tva: l.tva === true, retirer: false, initial: `${compte}|${libelle}|${montant}|${l.tva === true}` }; })])));
   const [gestion, setGestion] = useState<Record<'adhoc' | 'monga', string>>({ adhoc: ecrireMontant(g.adhoc), monga: ecrireMontant(g.monga) });
   const [complets, setComplets] = useState<Record<string, boolean>>(() => Object.fromEntries(postes.map((p) => [cle(p), validations.some((v) => v.societe === societe
     && v.famille === p.famille && v.poste === p.poste && v.annee === mois.annee && v.mois === mois.mois)])));
@@ -82,7 +84,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, o
   const vue: Validation[] = postes.filter((p) => complets[cle(p)]).map((p) => ({ societe, famille: p.famille, poste: p.poste, annee: mois.annee, mois: mois.mois }));
   const etat = completude(postes, vue, societe, mois);
   const changer = (c: string, i: number, x: Partial<Brouillon>) => setBrouillons((b) => ({ ...b, [c]: b[c].map((y, j) => (j === i ? { ...y, ...x } : y)) }));
-  const ajouterLigne = (c: string) => setBrouillons((b) => ({ ...b, [c]: [...b[c], { id: null, version: 0, compte: '', libelle: '', montant: '', retirer: false, initial: '||' }] }));
+  const ajouterLigne = (c: string) => setBrouillons((b) => ({ ...b, [c]: [...b[c], { id: null, version: 0, compte: '', libelle: '', montant: '', tva: true, retirer: false, initial: '|||' }] }));
 
   const enregistrer = async (): Promise<void> => {
     setMessage(null);
@@ -105,9 +107,9 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, o
         if (p.poste === 'salaires' && b.compte === '') { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — salaires : choisissez le salarié de chaque ligne.`, conflit: false }); return; }
         if (p.poste === 'autres' && b.libelle.trim() === '') { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — autres : donnez un libellé à chaque ligne.`, conflit: false }); return; }
         if (b.id === null) gestes.push({ action: 'ligne-ajouter', ligne: { societe, famille: p.famille, poste: p.poste, annee: mois.annee, mois: mois.mois,
-          compteId: p.poste === 'salaires' ? Number(b.compte) : null, libelle: p.poste === 'autres' ? b.libelle.trim() : null, montantHt: m } });
-        else if (`${b.compte}|${b.libelle}|${b.montant}` !== b.initial) gestes.push({ action: 'ligne-modifier', id: b.id, version: b.version, montantHt: m,
-          ...(p.poste === 'salaires' ? { compteId: Number(b.compte) } : { libelle: b.libelle.trim() }) });
+          compteId: p.poste === 'salaires' ? Number(b.compte) : null, libelle: p.poste === 'autres' ? b.libelle.trim() : null, montantHt: m, tva: p.poste === 'autres' ? b.tva : false } });
+        else if (`${b.compte}|${b.libelle}|${b.montant}|${b.tva}` !== b.initial) gestes.push({ action: 'ligne-modifier', id: b.id, version: b.version, montantHt: m,
+          ...(p.poste === 'salaires' ? { compteId: Number(b.compte) } : { libelle: b.libelle.trim(), tva: b.tva }) });
       }
     }
     if (d.validations !== null) for (const p of postes) {
@@ -168,6 +170,8 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, o
                           </select>
                           : <input type="text" value={b.libelle} placeholder="Libellé (loyer, logiciel…)" maxLength={120} disabled={b.retirer} onChange={(e) => changer(c, i, { libelle: e.target.value })} aria-label="Libellé" data-libelle-brouillon={`${c}-${i}`} />}
                         <input type="text" inputMode="decimal" value={b.montant} placeholder="Montant HT" disabled={b.retirer} onChange={(e) => changer(c, i, { montant: e.target.value })} aria-label="Montant HT" data-montant-brouillon={`${c}-${i}`} />
+                        {p.poste === 'autres' && <select value={b.tva ? '20' : '0'} disabled={b.retirer} onChange={(e) => changer(c, i, { tva: e.target.value === '20' })} aria-label="TVA de la ligne" data-tva-brouillon={`${c}-${i}`}>
+                          <option value="20">TVA 20 %</option><option value="0">sans TVA</option></select>}
                         {b.id !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changer(c, i, { retirer: !b.retirer })} data-retirer-brouillon={`${c}-${i}`}>
                           {b.retirer ? 'Garder' : 'Retirer'}</button>}
                       </li>))}
@@ -189,7 +193,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, o
       <div className="mes-saisie-actions">
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void enregistrer()} data-enregistrer-mois>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
       </div>
-      <p className="loc-muet mes-couts-aide">Montants en euros HT (salaires : chargés, sans TVA ; « Autres » : sans TVA ajoutée ; ADHOC et MONGA : 20 % ajoutés en TTC). Ce que vous enregistrez ici est
+      <p className="loc-muet mes-couts-aide">Montants en euros HT (salaires : chargés, sans TVA ; « Autres » : TVA 20 % ou sans TVA, ligne par ligne ; ADHOC et MONGA : 20 % ajoutés en TTC). Ce que vous enregistrez ici est
         exactement ce que les tableaux, le Suivi CA et le résultat net affichent.</p>
     </div>
   );

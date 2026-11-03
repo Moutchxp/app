@@ -35,6 +35,7 @@ import { ListeRepliable } from '../location/ListeRepliable';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import type { DuLocationMois, LigneLocationCa, RetroLocation, SalairesLocation } from '../../../../lib/transaction/locationCa';
 import type { CoutLigne, CoutSaisi } from '../../../../lib/transaction/coutsSaisis';
+import { lienSaisirCouts, MOT_SAISIR_COUTS } from '../../../../lib/mon-espace/couts';
 import { celluleGlobalAnnees, celluleGlobalEn, previsionnelEn, type CompromisEnCoursGlobal, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import { aSaisirGestion, anneesGestion, centimesGestion, estMesureGestion, ligneGestionEnUnite, MESURES_GESTION, totauxGestion, valeurGestion, type MesureGestion, type TotauxGestion, type UniteGestion } from '../../../../lib/transaction/gestionVue';
 import { aConfirmerDesAnnees, anneesInitiales, basculerAnnee, compromisDesAnnees, DECOUPAGES_ANNEES, ecrireAnnees, borneCumul, cumulA, listeADate, listeDesAnnees, moisADate, moisDesAnnees, moisEcoules, moisSoulignes, anneesSoulignees, retrosDesAnnees, totauxDesAnnees, ventesDesAnnees, type DecoupageAnnees } from '../../../../lib/transaction/periodeAnnees';
@@ -2412,7 +2413,8 @@ function SaisieGestion({ annee, mois, actuelle, onFermer, onFait, onRelire, mong
     return { ...y, mongaHt: texte, resteHt: String(c / 100).replace('.', ',') };
   });
   const envoyer = async (): Promise<void> => {
-    const r = await posterTransaction({ action: 'gestion-enregistrer', annee, mois, gestion: v });
+    // 🔴 R3 — les salaires ne se saisissent plus ici (« Les coûts », par salarié) : le serveur ne touche plus à cette colonne
+    const r = await posterTransaction({ action: 'gestion-enregistrer', annee, mois, gestion: { ...v, salarieHt: '' } });
     if (r === null) onFait(); else setMotif(r);
   };
   const titre = `Gestion — ${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
@@ -2431,7 +2433,13 @@ function SaisieGestion({ annee, mois, actuelle, onFermer, onFait, onRelire, mong
             {/* 🔴 LOT GE3 — MONGA, entre ADHOC et Salarié : même format et mêmes contrôles qu'ADHOC ; il diminue le reste d'autant */}
             <label>MONGA HT<input value={v.mongaHt} inputMode="decimal" onChange={(x) => changerMonga(x.target.value)} disabled={!monga} data-champ-gestion="mongaHt" />
               <span className="loc-muet">{monga ? 'retranché du reste' : 'après la mise à jour de la base (migration 446)'}</span></label>
-            {champ('salarieHt', `${LIBELLE_SALAIRES} (HT)`)}
+            {/* 🔴 R3 (accord d'Arno, 03/11/2026) — plus de deuxième case de saisie des salaires : le total des salariés saisis dans « Les coûts », et le lien */}
+            <div className="trx-salaires-couts" data-salaires-gestion-couts style={{ display: 'flex', flexDirection: 'column', gap: 4, fontWeight: 600 }}>
+              <span>{LIBELLE_SALAIRES} (HT)</span>
+              <strong data-salaires-gestion-total>{actuelle?.salarieHt == null ? '—' : eur(actuelle.salarieHt)}</strong>
+              <a className="trx-bouton-lien" href={lienSaisirCouts('gestion')} data-saisir-dans-couts="gestion">{MOT_SAISIR_COUTS}</a>
+              <span className="loc-muet" style={{ fontWeight: 400 }}>Le total des salariés du mois, saisis dans « Mon espace › Les coûts ».</span>
+            </div>
             <label>Reste HT<input value={v.resteHt} inputMode="decimal" onChange={(x) => setV((y) => ({ ...y, resteHt: x.target.value }))} data-champ-gestion="resteHt" />
               <span className="loc-muet">{propose === null ? '' : <>Proposé : {eur(propose)} <button type="button" className="trx-bouton-lien" onClick={() => setV((y) => ({ ...y, resteHt: String(propose).replace('.', ',') }))}>Reprendre</button></>}</span></label>
             <label className="trx-plein">Note<textarea value={v.note} onChange={(x) => setV((y) => ({ ...y, note: x.target.value }))} /></label>

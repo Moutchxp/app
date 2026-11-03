@@ -462,8 +462,9 @@ describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négoc
       expect(texte(`${sept} [data-location-primes]`)).toContain('inclus dans les salaires');
       expect(centimes(texte(`${sept} [data-location-salaires]`))).toBe(40000);
       expect(centimes(texte(`${sept} [data-location-net-mois]`))).toBe(net);
-      expect(texte(`${sept} [data-saisir-salaires]`)).toBe('Modifier');
-      expect(texte('[data-rangee-location="2025-8"] [data-saisir-salaires]')).toBe('Saisir');
+      // 🔴 R3 (accord d'Arno, 03/11/2026) — plus de saisie ici : le lien « Saisir dans Les coûts » (par salarié, Mon espace)
+      expect(texte(`${sept} [data-saisir-dans-couts]`)).toBe('Saisir dans Les coûts');
+      expect(container.querySelector('[data-rangee-location="2025-8"] [data-saisir-dans-couts]')?.getAttribute('href')).toBe('/admin/mon-espace?espace=criterimmo&onglet=couts&couts-tableau=location');
       // les fenêtres : total = tuile ; la somme des catégories = le total
       await cliquer('[data-tuile="location-couts"]'); await deplierCategories();
       const g = (sel: string) => centimes(document.querySelector(`${sel} strong`)?.textContent ?? '');
@@ -479,25 +480,21 @@ describe('🔴 LOT LO11 — salaires chargés de la Location, variable du négoc
       window.localStorage.removeItem('trx-location-net-mode');
     });
   }
-  it('la saisie : « Modifier » ouvre la fenêtre, « Enregistrer » envoie le mois et le montant (HT) ; un filtre : salaires non comptés (mention)', async () => {
+  it('🔴 R3 — plus aucune case de saisie des salaires ici : le lien « Saisir dans Les coûts », aucune fenêtre ; un filtre : salaires non comptés (mention)', async () => {
     avecSalaires([{ id: 1, annee: 2025, mois: 9, salairesHt: 400, note: null }]);
     await ouvrir('/?vue=mois&annee=2025&mois=9');
-    await cliquer('[data-saisir-salaires="2025-9"]');
-    const champ = document.querySelector('[data-champ-salaires-location]') as HTMLInputElement;
-    expect(champ.value).toBe('400');
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, '450,50'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
-    await cliquerDoc('[data-enregistrer-salaires-location]');
-    const appel = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls.find((c) => c[1]?.method === 'POST')!;
-    expect(JSON.parse(String(appel[1].body))).toEqual({ action: 'location-salaires-enregistrer', annee: 2025, mois: 9, salaires: { salairesHt: '450,50', note: '' } });
+    expect(container.querySelector('[data-saisir-salaires]')).toBeNull();
+    expect(container.querySelector('[data-saisir-dans-couts="2025-9"]')?.tagName).toBe('A');
+    expect(document.querySelector('[data-champ-salaires-location]')).toBeNull();
+    expect(texte('[data-salaires-couts-note]')).toContain('Les coûts');
     await rouvrir('/?vue=mois&annee=2025&mois=9&compter=avec');
     expect(texte('[data-filtre-salaires]')).toContain('ne sont pas comptés');
     expect(centimes(texte('[data-location-couts]'))).toBe(24000 + 12150); // sans salaires : apporteur + prime + variable
   });
-  it('sans la 447 (salaires null) : « Saisir » grisé, la mention ; la règle « sans salaires » partout', async () => {
+  it('sans salaires lus (null) : le lien reste ; la règle « sans salaires » partout', async () => {
     avecSalaires(null);
     await ouvrir('/?vue=mois&annee=2025&mois=9');
-    expect((container.querySelector('[data-saisir-salaires="2025-9"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(texte('[data-sans-447]')).toContain('migration 447');
+    expect(container.querySelector('[data-saisir-dans-couts="2025-9"]')).not.toBeNull();
     expect(centimes(texte('[data-location-couts]'))).toBe(39000 + VARIABLE_SEPT);
   });
   it('« L’année » : le tableau année par année (2024, 2025) ; total = la somme des années', async () => {

@@ -7,7 +7,7 @@
 -- CE QU'ELLE FAIT, EN AJOUT SEUL :
 --   · `transaction_cout_ligne` : une ligne = un salarié d'un mois (poste « salaires », `compte_id`) ou un frais « Autres » (libellé) ; structure
 --     (C7 : location et gestion = CRITERIMMO seulement), famille, année, mois, montant HT ; jamais effacée (`retire_le`, déclencheurs anti-DELETE /
---     TRUNCATE) ; un salarié UNE fois par (structure, famille, mois) ;
+--     TRUNCATE) ; un salarié UNE fois par (structure, famille, mois) ; la TVA de chaque ligne (R2 : « Autres » 20 % ou sans TVA ; salaires : jamais) ;
 --   · `admin_compte_fonction` : la fonction d'un profil (plusieurs possibles), retirée par `retire_le` ; PRÉ-COCHÉE d'après les données existantes
 --     (origine « deduite ») : service gestion → gestion ; négociateur de la Location (activités, alias) → location ; structure de vente ou
 --     négociateur d'une vente → vente ;
@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS transaction_cout_ligne (
   compte_id           bigint         REFERENCES admin_utilisateur(id),
   libelle             text,
   montant_ht          numeric(14, 2) NOT NULL CHECK (montant_ht >= 0),
+  -- R2 d'Arno (03/11/2026) : la TVA PAR LIGNE — « TVA 20 % » (TTC = HT × 1,20) ou « sans TVA » (TTC = HT) ; les salaires chargés : jamais de TVA
+  tva                 boolean        NOT NULL DEFAULT false,
   cree_le             timestamptz    NOT NULL DEFAULT now(),
   cree_par_libelle    text           NOT NULL CHECK (btrim(cree_par_libelle) <> ''),
   modifie_le          timestamptz,
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS transaction_cout_ligne (
   -- un salaire : un profil, pas de libellé ; « Autres » : un libellé, pas de profil
   CONSTRAINT transaction_cout_ligne_forme CHECK ((poste = 'salaires' AND compte_id IS NOT NULL AND libelle IS NULL)
                                               OR (poste = 'autres' AND compte_id IS NULL AND btrim(coalesce(libelle, '')) <> '')),
+  CONSTRAINT transaction_cout_ligne_tva CHECK (poste = 'autres' OR tva = false),
   -- C7 : la location et la gestion sont à CRITERIMMO
   CONSTRAINT transaction_cout_ligne_structure CHECK (famille = 'vente' OR societe = 'criterimmo')
 );

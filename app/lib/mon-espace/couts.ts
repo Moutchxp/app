@@ -111,8 +111,8 @@ export const ongletCoutsVisible = (titulaire: { associe?: boolean; administrateu
 // ══ 🔴 LOT 2 (451) — LA SAISIE : ce que la route accepte (lu et vérifié ici, PUR) ══════════════════════════════════════════════════════════════
 export type GesteCout =
   | { action: 'ligne-ajouter'; ligne: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres'; annee: number; mois: number;
-      compteId: number | null; libelle: string | null; montantHt: number } }
-  | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string }
+      compteId: number | null; libelle: string | null; montantHt: number; tva: boolean } }
+  | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string; tva?: boolean }
   | { action: 'ligne-retirer'; id: number; version: number }
   | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number }
   | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga'; annee: number; mois: number };
@@ -136,8 +136,12 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (l.poste === 'salaires' && !entier(l.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez le salarié.');
     const libelle = typeof l.libelle === 'string' ? l.libelle.trim() : '';
     if (l.poste === 'autres' && (libelle === '' || libelle.length > 120)) return refus('Donnez un libellé (120 caractères au plus).');
+    if (l.tva !== undefined && typeof l.tva !== 'boolean') return refus('TVA : 20 % ou sans TVA.');
+    if (l.poste === 'salaires' && l.tva === true) return refus('Les salaires chargés n’ont jamais de TVA.');
     return { ok: true, geste: { action: 'ligne-ajouter', ligne: { societe: l.societe, famille: l.famille, poste: l.poste, annee: l.annee, mois: l.mois,
-      compteId: l.poste === 'salaires' ? l.compteId as number : null, libelle: l.poste === 'autres' ? libelle : null, montantHt: l.montantHt } } };
+      compteId: l.poste === 'salaires' ? l.compteId as number : null, libelle: l.poste === 'autres' ? libelle : null, montantHt: l.montantHt,
+      // R2 — « Autres » : 20 % par défaut ; salaires : jamais
+      tva: l.poste === 'autres' ? l.tva !== false : false } } };
   }
   if (o.action === 'ligne-modifier' || o.action === 'ligne-retirer') {
     if (!entier(o.id, 1, Number.MAX_SAFE_INTEGER) || !entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Ligne inconnue.');
@@ -145,8 +149,10 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (o.montantHt !== undefined && !estMontantSaisi(o.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
     if (o.compteId !== undefined && !entier(o.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez le salarié.');
     if (o.libelle !== undefined && (typeof o.libelle !== 'string' || o.libelle.trim() === '' || o.libelle.length > 120)) return refus('Donnez un libellé (120 caractères au plus).');
+    if (o.tva !== undefined && typeof o.tva !== 'boolean') return refus('TVA : 20 % ou sans TVA.');
     return { ok: true, geste: { action: 'ligne-modifier', id: o.id, version: o.version, ...(o.montantHt === undefined ? {} : { montantHt: o.montantHt as number }),
-      ...(o.compteId === undefined ? {} : { compteId: o.compteId as number }), ...(o.libelle === undefined ? {} : { libelle: (o.libelle as string).trim() }) } };
+      ...(o.compteId === undefined ? {} : { compteId: o.compteId as number }), ...(o.libelle === undefined ? {} : { libelle: (o.libelle as string).trim() }),
+      ...(o.tva === undefined ? {} : { tva: o.tva as boolean }) } };
   }
   if (o.action === 'gestion-poste') {
     if (!moisOk) return refus('Mois invalide.');
@@ -167,3 +173,10 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
   }
   return refus('Action inconnue.');
 }
+
+/**
+ * 🔴 R3 (accord d'Arno, 03/11/2026) — L'ADRESSE « SAISIR DANS LES COÛTS » : les salaires chargés ne se saisissent plus que dans « Mon espace › Les
+ * coûts » (par salarié) ; le Suivi CA (Gestion, Location) montre leur total et ce lien. CRITERIMMO (C7), l'onglet du tableau de la famille. PUR.
+ */
+export const lienSaisirCouts = (famille: 'vente' | 'location' | 'gestion'): string => `/admin/mon-espace?espace=criterimmo&onglet=couts&couts-tableau=${famille}`;
+export const MOT_SAISIR_COUTS = 'Saisir dans Les coûts';

@@ -1,30 +1,33 @@
 import type { MontantC } from './partAgence';
-import type { Societe } from './modele';
+import { TVA, type Societe } from './modele';
 
 /**
  * ══ 🔴 MON ESPACE « LES COÛTS », LOT 2 (Arno, 03/11/2026, migration 451) — LES COÛTS SAISIS (PUR) ═════════════════════════════════════════════════
  * Une ligne = un salarié d'un mois (poste « salaires », un profil) ou un frais « Autres » (un libellé), d'une structure et d'une famille. UNE seule
  * source (`transaction_cout_ligne`) : les salaires de la Location et de la Gestion entrent par leur page (`lireSalairesLocation`, `lireGestion`,
  * la somme des salariés du mois) ; les salaires de la vente et les « Autres » par `coutsGlobaux` (`saisis`). Jamais les deux.
- * Montants saisis en HT. TVA : les salaires n'en ont pas (comme partout) ; « Autres » : aucune convention dans « Coûts globaux » → saisis en HT,
- * comptés sans TVA ajoutée (TTC = HT), et l'écran le dit (question posée à Arno).
+ * Montants saisis en HT. TVA (R2 d'Arno, 03/11/2026) : PAR LIGNE — « TVA 20 % » (TTC = HT × 1,20) ou « sans TVA » (TTC = HT) ; « Autres » : 20 % par
+ * défaut, modifiable ; les salaires chargés : jamais de TVA.
  */
 export type FamilleCout = 'vente' | 'location' | 'gestion';
 export type PosteSaisi = 'salaires' | 'autres';
 export const FAMILLES_COUT: readonly FamilleCout[] = ['vente', 'location', 'gestion'];
-export interface CoutSaisi { societe: Societe; famille: FamilleCout; poste: PosteSaisi; annee: number; mois: number; montantHt: number }
+export interface CoutSaisi { societe: Societe; famille: FamilleCout; poste: PosteSaisi; annee: number; mois: number; montantHt: number;
+  /** R2 (Arno, 03/11/2026) — la TVA de la ligne : vrai → TTC = HT × 1,20 ; faux → TTC = HT. Salaires : jamais. Absente (ligne d'avant) : faux. */
+  tva?: boolean }
 /** Une ligne telle que l'écran la reçoit : son id, son profil (salaires) ou son libellé (« Autres »), sa version (le dernier n° de son journal). */
 export interface CoutLigne extends CoutSaisi { id: number; compteId: number | null; compteLibelle: string | null; libelle: string | null; version: number }
 
 const centimes = (x: number): number => Math.round((x + Number.EPSILON) * 100);
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
 
-/** Le montant (HT, et TTC = HT) des lignes d'une famille et d'un poste sur des mois, pour une structure (absente : les deux). Chaque ligne au centime. PUR. */
+/** R2 — le TTC d'une ligne, au centime : HT × 1,20 si la ligne porte la TVA (la règle d'ADHOC et MONGA, `Math.round(htC × 1,2)`), sinon le HT. PUR. */
+export const ttcDeLigne = (htC: number, tva: boolean | undefined): number => (tva === true ? Math.round(htC * TVA) : htC);
+/** Le montant (HT et TTC, chaque ligne selon SA TVA, R2) des lignes d'une famille et d'un poste sur des mois, pour une structure (absente : les deux). PUR. */
 export function montantSaisi(lignes: readonly CoutSaisi[], f: { famille: FamilleCout; poste: PosteSaisi; ms: readonly { annee: number; mois: number }[]; societe?: Societe | null }): MontantC {
   const cles = new Set(f.ms.map((m) => m.annee * 100 + m.mois));
-  const c = lignes.filter((l) => l.famille === f.famille && l.poste === f.poste && cles.has(l.annee * 100 + l.mois) && (f.societe == null || l.societe === f.societe))
-    .reduce((t, l) => t + centimes(l.montantHt), 0);
-  return c === 0 ? RIEN : { htC: c, ttcC: c };
+  return lignes.filter((l) => l.famille === f.famille && l.poste === f.poste && cles.has(l.annee * 100 + l.mois) && (f.societe == null || l.societe === f.societe))
+    .reduce((t, l) => { const h = centimes(l.montantHt); return { htC: t.htC + h, ttcC: t.ttcC + ttcDeLigne(h, l.poste === 'autres' ? l.tva : false) }; }, RIEN);
 }
 
 /**

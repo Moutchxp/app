@@ -293,3 +293,21 @@ Contrôle de fin de chaque lot : `npm test` complet vert + `tsc` + preuve curl (
 
 Les cinq questions de la recon sont tranchées : voir « Décisions métier » ci-dessus (02/11/2026), ainsi que les décisions 6 (prévisionnel = ma
 part) et 7 (un négociateur par côté). Aucune question ouverte.
+
+
+## 🔴 Réponses et décisions d'Arno du 03/11/2026 (après les lots 2 et 3 de « Les coûts »)
+
+- **R1.** Appliquer 451, 452 puis l'effacement C8 sur SA base locale (le site de recette du Mac, `sansvisavis`, celle de 448-450), jamais en production,
+  dans cet ordre : sauvegarde complète (pg_dump daté), 451, 452, C8 (sa sauvegarde JSON + journal), contrôle. **Fait le 03/11/2026** (voir ci-dessous).
+- **R2.** TVA des coûts saisis : choix PAR LIGNE « TVA 20 % » / « sans TVA » ; salaires chargés : toujours sans TVA ; MONGA, ADHOC : 20 % ; « Autres » :
+  20 % par défaut, modifiable par ligne ; TTC = HT × 1,20 ou HT selon la ligne, partout (tableaux, cartes, Coûts globaux). Colonne `tva` de
+  `transaction_cout_ligne` (ajoutée à la 451 avant son application), `ttcDeLigne` / `montantSaisi`.
+- **R3.** L'ancienne saisie mensuelle des salaires (Suivi CA › Gestion et › Location) est REMPLACÉE (accord d'Arno) par le total venant de « Les coûts »
+  (même enregistrement) et le lien « Saisir dans Les coûts » (`/admin/mon-espace?espace=criterimmo&onglet=couts&couts-tableau=…`). Plus aucune
+  deuxième case : la fenêtre de la Location est retirée, la case de la Gestion devient un affichage, le serveur n'écrit plus la colonne mensuelle
+  (Gestion) et refuse l'ancien geste (Location, 409).
+- **D20.** Mon espace › « Année(s) » : la liste sous le graphique ne montre plus le groupe « Compromis » (comme « Mois », décision 15) ; les compromis
+  restent dans le graphique et dans l'onglet « Compromis ».
+- **D21.** Mon espace › « Année(s) » et « Mois » : « Apporteurs d'affaires » est GARDÉ et suit exactement la période choisie (vérifié et prouvé : il
+  la suivait déjà — `apporteursPeriode`, rétrocessions saisies dans les mois choisis + celles rattachées aux ventes listées).
+- **D22.** Onglet « Les coûts » : cartes Vente | Location | Gestion | Coûts totaux (le total à droite).

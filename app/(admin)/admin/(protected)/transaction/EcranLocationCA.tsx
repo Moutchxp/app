@@ -12,13 +12,13 @@ import {
   coutsLocation, espaceLocationRegle, lignesDesAnnees, moinsC as moinsM, lignesDesMois, negociateursLocation, salairesLocationDuMois, titreBail, totauxLocation, trierLocation, variableNegociateur, type CompterLocation, type CoutsLocation,
   type LigneEspaceRegle, type LigneLocationCa, type RetroLocation, type SalairesLocation, type TotauxLocationCa,
 } from '../../../../lib/transaction/locationCa';
+import { lienSaisirCouts, MOT_SAISIR_COUTS } from '../../../../lib/mon-espace/couts';
 import type { DuLocationMois } from '../../../../lib/transaction/locationCa';
 import { CourbeCumul, EnteteGraphe, Histogramme, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { BlocReplie } from '../location/BlocReplie';
 import { ListeRepliable, useListeRepliee } from '../location/ListeRepliable';
 import { ListeChoix } from '../location/ListeChoix';
-import { AideVariableMobile, BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, EnteteVariableNegociateur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, posterTransaction, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
-import { Journal } from './FormulaireVente';
+import { AideVariableMobile, BoutonAffichage, ONGLET_ANNEES, ONGLET_MOIS, classeSens, COURT, ecrireAdresse, ecrireAdresseListe, ESPACE, eur, EnteteVariableNegociateur, FournisseurAffichage, Montants, MOT_UNITE, parametre, parametres, signePct, useAffichage, useAffichageRetenu, useTransaction } from './commun';
 import { CSS, attributMoisRouges, StyleMoisRouges, anneesRouges, moisRougesDeLAnnee, attributAnneesRouges, StyleAnneesRouges, libelleAnnees, LigneDesAnnees, LigneDesMois, Mt, useLigneDesAnnees, useLigneDesMois, type ChoixAnnees } from './EcransTransaction';
 import { FiltreNegociateurs } from './FiltreNegociateurs';
 import { GrapheNegociateurs, MAX_NEGOCIATEURS } from './GrapheNegociateurs';
@@ -51,11 +51,9 @@ interface DonneesLocationCa { disponible: boolean; aujourdhui: string; lignes: L
 interface CtxCouts { retros: readonly RetroLocation[]; salaires: readonly SalairesLocation[] | null; filtre: boolean;
   /** 🔴 C19 option A — les dus du mois (sans filtre seulement : ils ne tiennent à aucun bail de la période, comme les salaires). */
   dus?: readonly DuLocationMois[] | null;
-  /** La saisie des salaires d'un mois (la 447 appliquée) ; null : non disponible. */
-  onSaisir: ((m: MoisChoisi) => void) | null;
   /** 🔴 LOT LO12 — « Avec salaires » (true) | « Sans salaires » (false) : le choix partagé avec la Gestion et la FUSION. */
   avecSalaires: boolean; onSalaires: (avec: boolean) => void }
-const ContexteCouts = createContext<CtxCouts>({ retros: [], salaires: null, filtre: false, onSaisir: null, avecSalaires: true, onSalaires: () => undefined });
+const ContexteCouts = createContext<CtxCouts>({ retros: [], salaires: null, filtre: false, avecSalaires: true, onSalaires: () => undefined });
 /** 🔴 LOT LO12 — « hors salaires » après un mot (titres, graphique, fenêtres) en mode « Sans salaires ». */
 const hors = (avec: boolean): string => (avec ? '' : ' hors salaires');
 /** Les totaux d'un ensemble de mois à la règle : ceux de la page (CA, primes, apporteurs…) et, à la règle, les coûts et le CA net ; `c` : le détail. */
@@ -79,8 +77,7 @@ const compterInitial = (): CompterLocation => { const x = parametre('compter'); 
 
 export function EcranLocationCA() {
   const jour = aujourdhuiParis();
-  const { lu, relire } = useTransaction<DonneesLocationCa>('vue=location');
-  const [saisie, setSaisie] = useState<MoisChoisi | null>(null);
+  const { lu } = useTransaction<DonneesLocationCa>('vue=location');
   const [vue, setVue] = useState<'mois' | 'annee'>(() => (parametre('vue') === 'annee' ? 'annee' : 'mois'));
   const { annee, setAnnee, mois, setMois, refusPeriode, choisirMois, choisirDecoupage, decoupage, periodeVue, periodeTexte, setPeriode, setAnneeEntiere } = useLigneDesMois(jour); // 🔴 LOT LO7 — sans vue du mois dans l'adresse : « Année »
   const [compter, setCompter] = useState<CompterLocation>(compterInitial);
@@ -114,7 +111,7 @@ export function EcranLocationCA() {
   const filtre = compter !== 'tous' || choisis.length > 0;
   const ctxCouts: CtxCouts = { filtre, salaires: filtre ? null : d.salaires ?? null, dus: filtre ? null : d.dus ?? null,
     retros: compter !== 'tous' ? [] : (d.retrocessions ?? []).filter((r) => choisis.length === 0 || choisis.some((c) => c.cle === r.negociateurCle)),
-    onSaisir: d.salaires === undefined || d.salaires === null ? null : setSaisie, avecSalaires, onSalaires: setAvecSalaires };
+    avecSalaires, onSalaires: setAvecSalaires };
   const champsCommuns = <>
     <div className="tdb-champ">Négociateur
       <FiltreNegociateurs personnes={personnes.map((p) => p.nom)} choisis={choisis.map((c) => c.nom)} onChange={setNegociateurs} /></div>
@@ -163,8 +160,7 @@ export function EcranLocationCA() {
           onOuvrirMois={(a, m) => { setAnneeEntiere(false); setPeriode(null); setAnnee(a); setMois(m); setVue('mois'); }} />
       </>}
       </ContexteCouts.Provider></FournisseurAffichage>
-      {saisie !== null && <SaisieSalairesLocation annee={saisie.annee} mois={saisie.mois} actuelle={(d.salaires ?? []).find((x) => x.annee === saisie.annee && x.mois === saisie.mois) ?? null}
-        onFermer={() => setSaisie(null)} onFait={() => { setSaisie(null); relire(); }} onRelire={relire} />}
+
     </div>
   );
 }
@@ -692,8 +688,9 @@ function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: read
                 <tr key={r.cle} data-rangee-location={r.cle}>
                   <th scope="row">{r.libelle}</th>
                   {cellules(tot(lignes, r.ms), r.ms)}
-                  {r.mois !== null && <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" disabled={x.onSaisir === null}
-                    onClick={() => { if (r.mois !== null) x.onSaisir?.(r.mois); }} data-saisir-salaires={`${r.mois.annee}-${r.mois.mois}`}>{saisi === null ? 'Saisir' : 'Modifier'}</button></td>}
+                  {/* 🔴 R3 (accord d'Arno, 03/11/2026) — les salaires se saisissent par salarié dans « Les coûts » : le lien, plus de fenêtre de saisie ici */}
+                  {r.mois !== null && <td data-mot="Saisie"><a className="trx-bouton-lien" href={lienSaisirCouts('location')} data-saisir-dans-couts={`${r.mois.annee}-${r.mois.mois}`}
+                    title={saisi === null ? undefined : `Total des salariés saisis : ${saisi}`}>{MOT_SAISIR_COUTS}</a></td>}
                 </tr>
               );
             })}
@@ -701,43 +698,9 @@ function TableauLocation({ lignes, rangees, titre, annee, jour }: { lignes: read
           </tbody>
         </table>
       </div>
-      {x.onSaisir === null && <p className="loc-muet" data-sans-447>Les salaires chargés de la Location se saisiront après la mise à jour de la base (migration 447).</p>}
+      <p className="loc-muet" data-salaires-couts-note>{LIBELLE_SALAIRES_LOCATION} : le total des salariés saisis dans « Mon espace › Les coûts » (<a className="trx-bouton-lien" href={lienSaisirCouts('location')}>{MOT_SAISIR_COUTS}</a>).</p>
       {x.filtre ? <p className="loc-muet">Filtre actif : salaires chargés non comptés.</p> : !x.avecSalaires && <p className="loc-muet" data-sans-salaires-note>Sans salaires : salaires chargés non comptés ; primes et variable déduits chaque mois.</p>}
     </>
-  );
-}
-
-/** 🔴 LOT LO11 — « Saisir / Modifier » les salaires chargés de la Location d'un mois (HT, sans TVA), comme la saisie de la Gestion ; journalisé. */
-function SaisieSalairesLocation({ annee, mois, actuelle, onFermer, onFait, onRelire }: {
-  annee: number; mois: number; actuelle: SalairesLocation | null; onFermer: () => void; onFait: () => void; onRelire: () => void;
-}) {
-  const txt = (v: number | null | undefined): string => (v === null || v === undefined ? '' : String(v).replace('.', ','));
-  const [v, setV] = useState({ salairesHt: txt(actuelle?.salairesHt), note: actuelle?.note ?? '' });
-  const [motif, setMotif] = useState<string | null>(null);
-  const envoyer = async (): Promise<void> => {
-    const r = await posterTransaction({ action: 'location-salaires-enregistrer', annee, mois, salaires: v });
-    if (r === null) onFait(); else setMotif(r);
-  };
-  const titre = `${LIBELLE_SALAIRES_LOCATION} de la Location — ${NOMS_MOIS[mois - 1].toLowerCase()} ${annee}`;
-  return (
-    <div className="tdb-voile" onMouseDown={(x) => { if (x.target === x.currentTarget) onFermer(); }}>
-      <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-saisie-salaires-location>
-        <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
-        <div className="tdb-fenetre-corps">
-          <p className="loc-muet">Montant HT, sans TVA. Vide : non saisi (les primes et le variable du mois sont alors déduits).</p>
-          <form className="trx-form" onSubmit={(x) => { x.preventDefault(); void envoyer(); }}>
-            <label>{LIBELLE_SALAIRES_LOCATION} (HT)<input value={v.salairesHt} inputMode="decimal" onChange={(x) => setV((y) => ({ ...y, salairesHt: x.target.value }))} data-champ-salaires-location /></label>
-            <label className="trx-plein">Note<textarea value={v.note} onChange={(x) => setV((y) => ({ ...y, note: x.target.value }))} /></label>
-            {motif !== null && <p className="trx-erreur trx-plein" role="alert">{motif}</p>}
-            <div className="trx-actions trx-plein">
-              <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-enregistrer-salaires-location>Enregistrer</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
-            </div>
-          </form>
-          {actuelle?.id !== undefined && <Journal entite="location_salaires_mois" id={actuelle.id} onFait={onRelire} />}
-        </div>
-      </div>
-    </div>
   );
 }
 

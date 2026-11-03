@@ -107,7 +107,8 @@ export function AnneesMonEspace({ data, ligne, annees, onOuvrirMois, onOuvrirAnn
             moisSeul={false} periodeAnnee={null} rouges={rougesMois} entete={choixEchelle} {...(dSoc === null ? { source: sourceMoisPerso(s, annee) } : {})} />}
       </FournisseurConsolide>
       {/* Les affaires qui font exactement ces cartes et ce graphique (les années choisies ; un clic sur une année la change, la liste suit). */}
-      <ListeAffairesPeriode data={data} periode={periodeAnnees(sel, agence === null, jour)} libelle={lib} carte={carte} />
+      {/* 🔴 D20 (Arno, 03/11/2026) — comme « Mois » (décision 15) : les « Vendus » seuls ; les compromis restent dans le graphique et l'onglet « Compromis » */}
+      <ListeAffairesPeriode data={data} periode={periodeAnnees(sel, agence === null, jour)} libelle={lib} carte={carte} avecCompromis={false} />
     </div>
   );
 }

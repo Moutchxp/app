@@ -114,3 +114,21 @@ describe('🔴 C9 — les profils proposés pour un salaire : la fonction de la 
     expect(profilsPourSalaire('gestion', p).map((x) => [x.profil.libelle, x.groupe])).toEqual([['Bruno', 1], ['Chloé', 2], ['Amélie', 3], ['Zoé', 3]]);
   });
 });
+
+describe('🔴 R2 — la TVA par ligne', () => {
+  const l = (montantHt: number, tva?: boolean, poste: 'autres' | 'salaires' = 'autres'): CoutSaisi => ({ societe: 'criterimmo', famille: 'gestion', poste, annee: 2026, mois: 10, montantHt, tva });
+  const ms = [{ annee: 2026, mois: 10 }];
+  it('« sans TVA » : TTC = HT ; « TVA 20 % » : TTC = HT × 1,20 au centime (la règle d’ADHOC) ; un salaire : jamais de TVA, même marqué', () => {
+    expect(montantSaisi([l(100.01, false)], { famille: 'gestion', poste: 'autres', ms })).toEqual({ htC: 10001, ttcC: 10001 });
+    expect(montantSaisi([l(100.01, true)], { famille: 'gestion', poste: 'autres', ms })).toEqual({ htC: 10001, ttcC: Math.round(10001 * 1.2) });
+    expect(montantSaisi([l(100.01, true), l(33.33, false)], { famille: 'gestion', poste: 'autres', ms })).toEqual({ htC: 13334, ttcC: 12001 + 3333 });
+    expect(montantSaisi([l(2000, true, 'salaires')], { famille: 'gestion', poste: 'salaires', ms })).toEqual({ htC: 200000, ttcC: 200000 });
+  });
+  it('« Coûts globaux » : le TTC de « Autres » = la somme des lignes, chacune à sa TVA, au centime', () => {
+    const e = { ...E_COUTS, saisis: [{ societe: 'criterimmo' as const, famille: 'location' as const, poste: 'autres' as const, annee: 2026, mois: 10, montantHt: 10.05, tva: true },
+      { societe: 'criterimmo' as const, famille: 'location' as const, poste: 'autres' as const, annee: 2026, mois: 10, montantHt: 7, tva: false }] };
+    const c = coutsGlobaux(e, 2026, 10);
+    expect(c.saisis.locationAutres).toEqual({ htC: 1705, ttcC: Math.round(1005 * 1.2) + 700 });
+    expect(c.total.ttcC - coutsGlobaux({ ...e, saisis: [] }, 2026, 10).total.ttcC).toBe(Math.round(1005 * 1.2) + 700);
+  });
+});
