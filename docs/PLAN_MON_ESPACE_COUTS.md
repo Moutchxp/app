@@ -41,6 +41,12 @@ côté de la vraie valeur.
   Gestion et Synthèse présents, chaque case « — », avec « MACJ : vente seulement ». L'onglet choisi est dans l'adresse (`?couts-tableau=`).
   Aucun nouveau calcul : seuls l'ordre, les titres et la répartition en onglets changent (chantier du 03/11/2026).
 
+- **C13.** Colonne MONGA : titre « MONGA » seul (sans « (facture mensuelle) »).
+- **C14.** La mention « (saisie au lot suivant) » disparaît de tout l'écran (vocabulaire interne). Chaque colonne encore sans saisie garde son titre
+  simple avec un picto « i » (au survol, au toucher) qui dit en une phrase ce qu'elle contiendra ; ses cases restent vides (fond gris). Le picto est le
+  composant du Suivi CA (« Variable négociateur ») : `EnteteAide`, extrait tel quel de `EnteteVariableNegociateur` (même rendu), aucune recopie.
+  Les phrases : `AIDE_POSTES_FUTURS` (`CoutsMonEspace.tsx`). Correctif d'affichage du 03/11/2026 : aucun calcul, aucune valeur, aucune colonne touchés.
+
 Ce que ces décisions changent dans le plan ci-dessous (les passages concernés sont réécrits) : plus de droit « Coûts » (C1 : le statut « Associé ») ;
 plus de ligne « Ajustement » ni de table de corrections (C4 + règle absolue) ; les salaires mensuels ne sont plus gardés à côté du détail, ils sont
 effacés au lot des salaires (C8) ; plus de devis MONGA (C6) ; la part de gestion récurrente des apporteurs et les collègues apporteurs deviennent

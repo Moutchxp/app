@@ -6,6 +6,7 @@ import { MesCompteurs, URL_EMPREINTE, URL_MES_AFFAIRES } from './MesCompteurs';
 import { eur } from '../../../../lib/transaction/format';
 import { coutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
 import { coutsDeLAnnee, coutsDuPoint, URL_COUTS } from '../../../../lib/mon-espace/couts';
+import { AIDE_POSTES_FUTURS } from './CoutsMonEspace';
 import type { Agence } from '../../../../lib/mon-espace/agence';
 import { E_COUTS, GESTION_COUTS, LIGNES_LOCATION_COUTS, RETROS_COUTS, SALAIRES_LOCATION_COUTS, VENTES_COUTS } from '../../../../lib/mon-espace/__fixtures__/couts';
 
@@ -52,6 +53,11 @@ const ouvrir = async (espace: Agence | null) => {
   if (espace !== null) await cliquer(`[data-espace="${espace}"]`);
 };
 const onglet = () => container.querySelector('[data-onglet-mon-espace="couts"]');
+/** Le titre d'une colonne (sans le « i » de son picto). */
+const titre = (th: Element): string | undefined => {
+  const aide = th.querySelector('.trx-entete-aide');
+  return (aide === null ? th.firstChild?.textContent : [...aide.childNodes].find((n) => n.nodeType === Node.TEXT_NODE)?.textContent)?.trim();
+};
 
 describe('🔴 l’onglet « Les coûts » : associés, mode agence', () => {
   it('vue perso : absent, même pour un associé', async () => {
@@ -98,7 +104,7 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
   });
   it('C10 / C11 — Location : titres et ordre des colonnes ; aucun « dont »', async () => {
     await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="location"]');
-    const titres = [...container.querySelectorAll('[data-table-couts-mon-espace="location"] thead th')].map((e) => e.firstChild?.textContent?.trim());
+    const titres = [...container.querySelectorAll('[data-table-couts-mon-espace="location"] thead th')].map(titre);
     expect(titres).toEqual(['Mois', 'Apporteurs', 'Variable négo (calculé)', 'Primes de gestion', 'Variable négociateur', 'Salaires chargés', 'Part de gestion versée aux apporteurs',
       'Rémunération des collègues apporteurs', 'Autres', 'Total location']);
     expect(container.querySelector('[data-couts-mon-espace]')!.textContent).not.toMatch(/\bdont\b/i);
@@ -143,9 +149,32 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
     egal('[data-ligne-couts="8"] [data-cout="location-variable-calcule"]', aout.variableCalcule.htC);
     egal('[data-ligne-couts="8"] [data-cout="location-variable"]', 0);
     expect(container.querySelectorAll('[data-ligne-couts="annee"] [data-poste-futur]').length).toBe(3);
-    expect([...container.querySelectorAll('[data-entete-futur]')].every((e) => e.textContent?.includes('saisie au lot suivant'))).toBe(true);
     await cliquer('[data-afficher="ttc"]'); await cliquer('[data-tableau-couts="synthese"]');
     egal('[data-ligne-couts="annee"] [data-cout="location-gestion-total"]', t.annee.location!.total.ttcC + t.annee.gestion!.total.ttcC);
+  });
+  it('C13 / C14 — ni « (facture mensuelle) » ni « saisie au lot suivant » ; chaque colonne sans saisie : son titre simple, son picto « i » et sa phrase', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    const attendus: Record<string, string[]> = { vente: ['salaires', 'autres'], location: ['part-gestion', 'collegues', 'autres'], gestion: ['autres'], synthese: [] };
+    const titres: Record<string, string> = { salaires: 'Salaires chargés', autres: 'Autres', 'part-gestion': 'Part de gestion versée aux apporteurs', collegues: 'Rémunération des collègues apporteurs' };
+    for (const o of ['vente', 'location', 'gestion', 'synthese']) {
+      await cliquer(`[data-tableau-couts="${o}"]`);
+      const rendu = container.querySelector('[data-couts-mon-espace]')!.textContent ?? '';
+      expect(rendu).not.toContain('facture mensuelle');
+      expect(rendu).not.toContain('saisie au lot suivant');
+      const futurs = [...container.querySelectorAll('[data-entete-futur]')];
+      expect(futurs.map((e) => e.getAttribute('data-entete-futur'))).toEqual(attendus[o].map((x) => `${o}-${x}`));
+      for (const th of futurs) {
+        const cle = th.getAttribute('data-entete-futur')!.replace(/^(vente|location|gestion)-/, '');
+        expect(titre(th)).toBe(titres[cle]);
+        await act(async () => { (th.querySelector('.svv-pil-ib-btn') as HTMLElement).click(); }); await calmer();
+        expect(th.querySelector('[role="tooltip"]')?.textContent).toContain(AIDE_POSTES_FUTURS[cle]); // (et son « × » pour fermer)
+      }
+      // les cases encore sans saisie : vides (aucun « 0 € » inventé)
+      expect([...container.querySelectorAll('[data-poste-futur]')].every((e) => e.textContent === '')).toBe(true);
+    }
+    await cliquer('[data-tableau-couts="gestion"]');
+    expect([...container.querySelectorAll('[data-table-couts-mon-espace="gestion"] thead th')].map(titre)).toEqual(['Mois', 'Salaires chargés', 'ADHOC', 'MONGA', 'Autres', 'Total gestion']);
+    expect(AIDE_POSTES_FUTURS.autres).toBe('Frais saisis à la main : loyer, logiciels, portails d’annonces, assurances, comptable, banque, publicité, GLI…');
   });
   it('l’onglet du tableau est dans l’adresse ; « Vente » par défaut (rien dans l’adresse)', async () => {
     await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');

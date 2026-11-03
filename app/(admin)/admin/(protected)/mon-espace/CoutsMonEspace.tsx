@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { classeSens, ecrireAdresse, ESPACE, eur, MOT_UNITE, parametre, signePct, useAffichage } from '../transaction/commun';
+import { classeSens, ecrireAdresse, EnteteAide, ESPACE, eur, MOT_UNITE, parametre, signePct, useAffichage } from '../transaction/commun';
 import { anneeAvecDonnees, anneesDuGlobal, LigneDesAnnees, moisRougesDeLAnnee, type DonneesGlobal } from '../transaction/EcransTransaction';
 import { GrapheGlobal } from '../transaction/GrapheGlobal';
 import { CSS_COUTS_GLOBAUX, CSS_TABLES_GROUPES } from '../transaction/CoutsGlobaux';
@@ -29,7 +29,13 @@ export type OngletTableau = 'vente' | 'location' | 'gestion' | 'synthese';
 const ONGLETS_TABLEAU: readonly (readonly [OngletTableau, string])[] = [['vente', 'Vente'], ['location', 'Location'], ['gestion', 'Gestion'], ['synthese', 'Synthèse location et gestion']];
 const ongletDeLAdresse = (x: string | null): OngletTableau => (ONGLETS_TABLEAU.some(([c]) => c === x) ? (x as OngletTableau) : 'vente');
 const STRUCTURES: Record<Agence, StructureGraphe[]> = { criterimmo: ['criterimmo'], macj: ['macj'], tous: ['criterimmo', 'macj'] };
-const MOT_LOT_SUIVANT = 'saisie au lot suivant';
+/** 🔴 C14 (Arno, 03/11/2026) — la phrase du picto « i » de chaque colonne encore sans saisie. */
+export const AIDE_POSTES_FUTURS: Record<string, string> = {
+  autres: 'Frais saisis à la main : loyer, logiciels, portails d’annonces, assurances, comptable, banque, publicité, GLI…',
+  'part-gestion': 'Ce que l’agence reverse chaque mois aux apporteurs sur les mandats de gestion qu’ils ont amenés.',
+  collegues: 'Ce que touchent les collègues qui apportent des affaires.',
+  salaires: 'Les salaires chargés des collaborateurs de la vente, saisis par salarié et par mois.',
+};
 
 export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour: string;
   /** Le compteur de relecture de « Mon espace » (rafraîchissement, gestes) : « Les coûts » se relit avec lui. */
@@ -83,7 +89,9 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
   const montant = (m: MontantC, attr: Record<string, string> = {}) => <span className={classeSens('verse', m.htC, m.ttcC)} {...attr}>{eur(m[k] / 100)}</span>;
   const info = (m: MontantC) => <span className="loc-muet" data-info-couts>{eur(m[k] / 100)}</span>;
   const futur = (mot: string) => <td data-mot={mot} data-poste-futur className="mes-couts-futur" />;
-  const enteteFutur = (mot: string) => <th scope="col" data-entete-futur>{mot} <small className="loc-muet">({MOT_LOT_SUIVANT})</small></th>;
+  // 🔴 C14 — une colonne encore sans saisie : son titre simple et un picto « i » qui dit ce qu'elle contiendra (le composant du Suivi CA)
+  const enteteFutur = (mot: string, cle: string) => <th key={cle} scope="col" data-entete-futur={cle}>
+    <EnteteAide libelle={mot} cible={`mes-couts-${cle}`} etiquette={`Ce que contiendra « ${mot} »`} texte={AIDE_POSTES_FUTURS[cle.replace(/^(vente|location|gestion)-/, '')]} /></th>;
   const lignes: { cle: string; libelle: string; p: CoutsDuPoint; total: boolean; aVenir: boolean }[] = [
     ...c.n.mois.map((p, i) => ({ cle: String(i + 1), libelle: NOMS_MOIS[i], p, total: false, aVenir: !moisCommence({ annee, mois: i + 1 }, jour) })),
     ...(c.n.aConfirmer === null ? [] : [{ cle: 'a-confirmer', libelle: 'Mois à confirmer', p: c.n.aConfirmer, total: false, aVenir: false }]),
@@ -97,7 +105,7 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
     <table className="tdb-table trx-table-groupes trx-table-couts mes-table-couts" data-table-couts-mon-espace="vente">
       <colgroup><col /></colgroup><colgroup span={5} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={1} className="trx-g" data-bloc-colonnes="total" />
       <thead><tr><th scope="col">Mois</th><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th>
-        {enteteFutur('Salaires chargés')}{enteteFutur('Autres')}<th scope="col">Total vente</th></tr></thead>
+        {enteteFutur('Salaires chargés', 'vente-salaires')}{enteteFutur('Autres', 'vente-autres')}<th scope="col">Total vente</th></tr></thead>
       <tbody>{lignes.map((l) => ligne(l, <>
         <td data-cout="vente-commissions">{montant(l.p.vente.commissions)}</td><td data-cout="vente-apporteurs">{montant(l.p.vente.apporteurs)}</td>
         <td data-cout="vente-exterieures">{montant(l.p.vente.exterieures)}</td>{futur('Salaires chargés')}{futur('Autres')}{totalCase(l, l.p.vente.total, 'vente-total')}</>))}</tbody>
@@ -116,7 +124,7 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
   const entetesLocation = [<th key="a" scope="col">Apporteurs</th>,
     <th key="c" scope="col" data-entete-info>Variable négo (calculé) <small className="loc-muet">(pour information, hors totaux)</small></th>,
     <th key="p" scope="col">Primes de gestion</th>, <th key="v" scope="col">Variable négociateur <small className="loc-muet">(primes incluses)</small></th>,
-    <th key="s" scope="col">Salaires chargés</th>, enteteFutur('Part de gestion versée aux apporteurs'), enteteFutur('Rémunération des collègues apporteurs'), enteteFutur('Autres'),
+    <th key="s" scope="col">Salaires chargés</th>, enteteFutur('Part de gestion versée aux apporteurs', 'location-part-gestion'), enteteFutur('Rémunération des collègues apporteurs', 'location-collegues'), enteteFutur('Autres', 'location-autres'),
     <th key="t" scope="col">Total location</th>];
   const tableLocation = !lg ? macj('location', entetesLocation) : (
     <table className="tdb-table trx-table-groupes trx-table-couts mes-table-couts" data-table-couts-mon-espace="location">
@@ -130,7 +138,7 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
     </table>
   );
   const entetesGestion = [<th key="s" scope="col">Salaires chargés</th>, <th key="a" scope="col">ADHOC</th>,
-    <th key="m" scope="col">MONGA <small className="loc-muet">(facture mensuelle)</small></th>, enteteFutur('Autres'), <th key="t" scope="col">Total gestion</th>];
+    <th key="m" scope="col">MONGA</th>, enteteFutur('Autres', 'gestion-autres'), <th key="t" scope="col">Total gestion</th>];
   const tableGestion = !lg ? macj('gestion', entetesGestion) : (
     <table className="tdb-table trx-table-groupes trx-table-couts mes-table-couts" data-table-couts-mon-espace="gestion">
       <colgroup><col /></colgroup><colgroup span={4} className="trx-g trx-g--fond" data-bloc-colonnes="gestion" /><colgroup span={1} className="trx-g" data-bloc-colonnes="total" />
@@ -191,6 +199,8 @@ const CSS_COUTS_MON_ESPACE = `
 .mes-table-couts td.mes-couts-futur{background:color-mix(in srgb, var(--color-svv-ink) 3%, transparent)}
 .mes-table-couts th[data-entete-futur],.mes-table-couts th[data-entete-info]{color:var(--color-svv-muted)}
 .mes-table-couts [data-info-couts]{font-size:inherit}
+/* au telephone, la bulle du picto reste dans la zone du tableau qui defile (elle y serait coupee a droite) */
+@media (max-width:640px){ .mes-table-couts .svv-pil-ib-bulle{max-width:min(200px,calc(100vw - 150px))} }
 .mes-table-couts thead th small{display:block;font-size:.6rem;font-weight:600;text-transform:none;letter-spacing:0}
 @media (max-width:1024px){ .tdb-table.mes-table-couts{min-width:640px} .tdb-table.mes-table-synthese{min-width:0} }
 `;

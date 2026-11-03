@@ -179,10 +179,19 @@ export const ONGLET_ANNEES = 'Année(s)';
  * (`AIDE_VARIABLE_NEGOCIATEUR`) ; ouverte au clic, au toucher, au clavier ET au survol, fermable (×, Échap, clic ailleurs).
  */
 export function EnteteVariableNegociateur({ libelle = 'Variable négociateur', cible, apres = null }: { libelle?: string; cible: string; apres?: ReactNode }) {
-  return <span className="trx-entete-aide" data-entete-variable={cible}><style>{INFOBULLE_CSS + '.trx-entete-aide{display:inline-flex;align-items:center;gap:.15rem}'
+  return <EnteteAide libelle={libelle} cible={`trx-variable-${cible}`} etiquette="Comment le variable du négociateur est calculé" texte={AIDE_VARIABLE_NEGOCIATEUR} apres={apres}
+    donnees={{ 'data-entete-variable': cible }} />;
+}
+/**
+ * Un en-tête de colonne avec son picto « i » (au survol, au toucher) : le composant du « Variable négociateur », pour toute colonne qui a une phrase à
+ * dire. 🔴 Mon espace « Les coûts » (Arno, 03/11/2026, C14) : extrait tel quel de `EnteteVariableNegociateur` (même rendu), pour le réutiliser.
+ */
+export function EnteteAide({ libelle, cible, etiquette, texte, apres = null, donnees }: { libelle: string; cible: string; etiquette: string; texte: string; apres?: ReactNode;
+  donnees?: Record<string, string> }) {
+  return <span className="trx-entete-aide" {...donnees}><style>{INFOBULLE_CSS + '.trx-entete-aide{display:inline-flex;align-items:center;gap:.15rem}'
     // dans un en-tête de tableau (capitales, gras, aligné à droite) : la bulle garde l'écriture d'une phrase
     + '.trx-entete-aide .svv-pil-ib-bulle{text-transform:none;text-align:left;letter-spacing:normal;font-weight:400}'}</style>
-    {libelle}{apres}<InfoBulle libelle={libelle} cible={`trx-variable-${cible}`} etiquette="Comment le variable du négociateur est calculé" texte={AIDE_VARIABLE_NEGOCIATEUR} dansLEcran auSurvol /></span>;
+    {libelle}{apres}<InfoBulle libelle={libelle} cible={cible} etiquette={etiquette} texte={texte} dansLEcran auSurvol /></span>;
 }
 /**
  * 🔴 Arno (02/11/2026) — au téléphone (≤ 1024 px), les grands tableaux passent en cartes et leur en-tête disparaît (`cartes`, TableauBordSuivi) :
