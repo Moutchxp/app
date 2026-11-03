@@ -571,3 +571,23 @@ n'a pas été touchée.
     « Corriger à la source » ;
   - pied collant : total du mois (HT / TTC) et « Enregistrer ».
   - Hauteur de la page (CRITERIMMO, septembre 2026, données d'essai) : 1 832 → 1 179 px à 1 440 px de large ; 2 431 → 1 498 px à 390 px.
+
+## 🔴 Décision d'Arno du 03/11/2026 (suite) — D25 : filtres du graphique des coûts classés par famille
+
+- **D25.** Dans les filtres du graphique (mesure « Coûts »), la ligne « Famille » remplace la longue liste des 16 coûts et la ligne « Activité »
+  (FUSIONNÉE, pas supprimée — accord d'Arno) :
+  - trois boutons Vente | Location | Gestion aux couleurs du graphique (`trx-serie--1/3/5` : bleu, vert, rose), chacun avec sa case d'inclusion
+    (l'ancienne case « Activité », mêmes règles de grisé) et le compteur « cochés / total » de ses coûts ; « Séparées | Réunies » reste à droite ;
+  - un clic sur le NOM d'une famille ouvre SES coûts seuls, avec « Tout / Aucun » de cette famille (ils ne touchent pas les autres familles) ; une
+    seule famille ouverte à la fois, un deuxième clic la referme, toutes fermées par défaut ;
+  - le « Tout / Aucun » global est retiré (accord d'Arno) ; « Réinitialiser les filtres », « Comparer », « Affichage » : inchangés ;
+  - hors mesure « Coûts » : la ligne garde les trois cases, sans liste ni compteur (comme l'ancienne ligne « Activité »).
+- Appartenance des coûts aux familles : celle du code (`FAMILLES_GRAPHE`), qui correspondait déjà à la liste d'Arno ; seul l'ORDRE d'affichage des coûts
+  de la Gestion suit celui d'Arno (Salaires gestion, ADHOC, MONGA, Autres gestion — le code avait ADHOC, MONGA, Salaires gestion, Autres gestion).
+- Aucun calcul touché : mêmes états de filtre (`activites`, `familles`), même `coutsGlobaux` ; prouvé au centime par l'épreuve « le graphique = celui de
+  l'ancienne voie (l'adresse) pour la même sélection » (`EcransTransaction.test.tsx`, describe D25).
+- Adresse : familles incluses (`g-activites`), coûts cochés (`g-familles`) et famille ouverte (`g-ouverte`) dans l'adresse du Suivi CA › CA global.
+  Dans « Les coûts », les filtres du graphique ne sont pas dans l'adresse (mode `initiaux`, comme avant D25).
+- Composant PARTAGÉ (`GrapheGlobal`) : le même changement vaut pour Suivi CA › CA global (consigné aussi dans `docs/PLAN_MON_ESPACE.md`).
+- Au téléphone (390 px) : les trois familles empilées, pleine largeur ; la liste ouverte en colonne ; aucun débordement horizontal.
+- Captures avant / après (1 440 × 900 et 390 px, clair et sombre ; Vente et Gestion ouvertes) : `.captures/graphe-filtres-familles/`.

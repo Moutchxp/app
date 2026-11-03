@@ -9,12 +9,18 @@ import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
   ACTIVITES_GRAPHE, atomesDesMois, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
-  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur, type StructureGraphe,
+  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type ActiviteGraphe, type FamilleGraphe, type FiltresGraphe, type SerieValeur, type StructureGraphe,
 } from '../../../../lib/transaction/grapheGlobal';
 import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
 import { AucuneDonnee, CourbeCumul, eurAxe, HAUSSE_TRACE, Histogramme, margeAxe, PAS_ANNEE_FIXE, type InfoBarre } from '../location/TableauBordSuivi';
 import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
+
+/** 🔴 D25 — les couleurs des familles (celles des séries « Activités entre elles » du graphique : Vente bleu, Location vert, Gestion rose). */
+const COULEURS: Record<string, number> = { vente: 1, location: 3, gestion: 5, location_gestion: 6 };
+/** 🔴 D25 — l'ordre d'affichage des coûts dans la liste d'une famille (celui d'Arno) ; l'appartenance reste celle de `FAMILLES_GRAPHE`. */
+const ORDRE_FAMILLES_COUTS: readonly FamilleGraphe[] = ['commissions', 'apporteursVente', 'exterieures', 'salairesVente', 'autresVente',
+  'apporteursLocation', 'primes', 'variable', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'salairesGestion', 'adhoc', 'monga', 'autresGestion'];
 
 /**
  * ══ 🔴 LOT CG9 (Arno) — LE GRAPHIQUE DU CA GLOBAL, SOUS LES TUILES ═══════════════════════════════════════════════════════════════════════════════
@@ -45,6 +51,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   const [f, setF] = useState<FiltresGraphe>(() => (initiaux === undefined ? filtresDepuisAdresse(parametre) : depart));
   useEffect(() => { if (initiaux === undefined) ecrireAdresse(filtresVersAdresse(f)); }, [f]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ouvert, setOuvert] = useState(false);
+  // 🔴 D25 (Arno, 03/11/2026) — la famille dont la liste des coûts est ouverte (une seule ; aucune par défaut), dans l'adresse avec les filtres
+  const [famOuverte, setFamOuverte] = useState<string | null>(() => (initiaux === undefined ? parametre('g-ouverte') : null));
+  useEffect(() => { if (initiaux === undefined) ecrireAdresse({ 'g-ouverte': famOuverte }); }, [famOuverte]); // eslint-disable-line react-hooks/exhaustive-deps
   const changer = (x: Partial<FiltresGraphe>): void => setF((v) => ({ ...v, ...x }));
   const basculer = <T extends string>(liste: readonly T[], c: T): T[] => (liste.includes(c) ? liste.filter((x) => x !== c) : [...liste, c]);
   // les points : les 12 mois de l'année, ou une année par point ; N−1 : les mêmes, un an plus tôt
@@ -241,20 +250,45 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
       </div>
       <div id="trx-gf-panneau" className={`trx-gf-panneau${ouvert ? ' trx-gf-panneau--ouvert' : ''}`} data-filtres-graphe>
         {verrous === undefined && famille('Mesure', choix('Mesure', MESURES_GRAPHE, f.mesure, (c) => changer({ mesure: c, comparer: c !== 'couts' && f.comparer === 'familles' ? 'n1' : f.comparer })), 'mesure')}
-        {f.mesure === 'couts' && famille('Coûts', <>{cases('Coûts', FAMILLES_GRAPHE, f.familles, (xs) => changer({ familles: xs }), (c) => raisonGrise(f, { sorte: 'famille', cle: c }))}
-          <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: FAMILLES_GRAPHE.map((x) => x.cle) })} data-familles-tout>Tout</button>
-            {' / '}<button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: [] })} data-familles-aucun>Aucun</button></span></>, 'couts')}
         {verrous === undefined && famille('Structure', cases('Structure', STRUCTURES_GRAPHE, f.structures, (xs) => changer({ structures: xs }), (c) => raisonGrise(f, { sorte: 'structure', cle: c })), 'structure')}
-        {famille('Activité', <>
-          {/* 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » (cochée : les deux), une seule série en « Activités entre elles » */}
-          {f.reunies
-            ? cases('Activité', [{ cle: 'vente' as const, mot: 'Vente' }, { cle: 'location_gestion' as const, mot: 'Location & Gestion' }],
-              [...(f.activites.includes('vente') ? ['vente' as const] : []), ...(f.activites.includes('location') && f.activites.includes('gestion') ? ['location_gestion' as const] : [])],
-              (xs) => changer({ activites: [...(xs.includes('vente') ? ['vente' as const] : []), ...(xs.includes('location_gestion') ? ['location' as const, 'gestion' as const] : [])] }),
-              (c) => (c === 'vente' ? null : raisonGrise(f, { sorte: 'activite', cle: 'location' })))
-            : cases('Activité', ACTIVITES_GRAPHE, f.activites, (xs) => changer({ activites: xs }), (c) => raisonGrise(f, { sorte: 'activite', cle: c }))}
+        {/* 🔴 D25 (Arno, 03/11/2026) — FIN DU « MUR DE CASES » : la ligne « Famille » (l'ancienne ligne « Activité », fusionnée) — un bouton par famille aux
+            couleurs du graphique : sa case d'inclusion, son nom (en « Coûts » : ouvre SES seuls coûts, une famille à la fois, avec « Tout / Aucun »), le
+            compteur des coûts cochés ; « Séparées | Réunies » à droite. Même état qu'avant (`activites`, `familles`) : le calcul ne change pas. */}
+        {famille('Famille', <>
+          <div className="trx-gf-familles" role="group" aria-label="Familles" data-filtre-graphe="Activité">
+            {(f.reunies ? [{ cle: 'vente', mot: 'Vente', acts: ['vente'] as ActiviteGraphe[] }, { cle: 'location_gestion', mot: 'Location & Gestion', acts: ['location', 'gestion'] as ActiviteGraphe[] }]
+              : ACTIVITES_GRAPHE.map((a) => ({ cle: a.cle as string, mot: a.mot, acts: [a.cle] }))).map((g) => {
+              const inclus = g.acts.every((a) => f.activites.includes(a));
+              const r = raisonGrise(f, { sorte: 'activite', cle: g.acts[0] === 'vente' ? 'vente' : 'location' });
+              const siennes = ORDRE_FAMILLES_COUTS.filter((c) => g.acts.includes(FAMILLES_GRAPHE.find((x) => x.cle === c)!.activite));
+              const cochees = siennes.filter((c) => f.familles.includes(c)).length;
+              const couts = f.mesure === 'couts';
+              const basculerInclusion = (): void => changer({ activites: inclus ? f.activites.filter((a) => !g.acts.includes(a)) : [...f.activites.filter((a) => !g.acts.includes(a)), ...g.acts] });
+              return (
+                <span key={g.cle} className={`trx-gf-famille-btn trx-serie--${COULEURS[g.cle] ?? 1}${famOuverte === g.cle && couts ? ' trx-gf-famille-btn--ouverte' : ''}${r !== null ? ' trx-gf-case--grise' : ''}`} title={r ?? undefined}>
+                  <input type="checkbox" checked={inclus} disabled={r !== null} onChange={basculerInclusion} aria-label={`Compter ${g.mot}`} data-case-graphe={g.cle} />
+                  {couts ? <button type="button" className="trx-gf-famille-nom" aria-expanded={famOuverte === g.cle} aria-controls="trx-gf-couts-famille"
+                    onClick={() => setFamOuverte((x) => (x === g.cle ? null : g.cle))} data-ouvrir-famille={g.cle}>{g.mot} <small data-compteur-famille={g.cle}>{cochees}/{siennes.length}</small> <span aria-hidden="true">{famOuverte === g.cle ? '▴' : '▾'}</span></button>
+                    : <span className="trx-gf-famille-nom">{g.mot}</span>}
+                </span>
+              );
+            })}
+          </div>
           {choix('Location et Gestion', [{ cle: 'separees', mot: 'Séparées' }, { cle: 'reunies', mot: 'Réunies' }] as const, f.reunies ? 'reunies' : 'separees',
-            (c) => setF((v) => avecReunies(v, c === 'reunies')))}</>, 'activite')}
+            (c) => { setF((v) => avecReunies(v, c === 'reunies')); setFamOuverte(null); })}</>, 'famille')}
+        {f.mesure === 'couts' && famOuverte !== null && (() => {
+          const acts: ActiviteGraphe[] = famOuverte === 'location_gestion' ? ['location', 'gestion'] : ACTIVITES_GRAPHE.some((a) => a.cle === famOuverte) ? [famOuverte as ActiviteGraphe] : [];
+          if (acts.length === 0) return null;
+          const siennes = ORDRE_FAMILLES_COUTS.map((c) => FAMILLES_GRAPHE.find((x) => x.cle === c)!).filter((x) => acts.includes(x.activite));
+          const autres = f.familles.filter((c) => !siennes.some((x) => x.cle === c));
+          return (
+            <div id="trx-gf-couts-famille" className={`trx-gf-couts-famille trx-serie--${COULEURS[famOuverte] ?? 1}`} data-liste-couts={famOuverte}>
+              {cases('Coûts', siennes, f.familles, (xs) => changer({ familles: xs }), (c) => raisonGrise(f, { sorte: 'famille', cle: c }))}
+              <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: [...autres, ...siennes.map((x) => x.cle)] })} data-familles-tout={famOuverte}>Tout</button>
+                {' / '}<button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: autres })} data-familles-aucun={famOuverte}>Aucun</button></span>
+            </div>
+          );
+        })()}
         {famille('Comparer', choix('Comparer', COMPARER_GRAPHE, f.comparer, (c) => changer({ comparer: c }), (c) => raisonGrise(f, { sorte: 'comparer', cle: c })), 'comparer')}
         {famille('Affichage', <>{choix('Période', [{ cle: 'mensuel', mot: parAnnees ? 'Annuel' : 'Mensuel' }, { cle: 'cumul', mot: 'Cumul' }] as const, f.cumul ? 'cumul' : 'mensuel', (c) => changer({ cumul: c === 'cumul' }))}
           {choix('Barres', [{ cle: 'empile', mot: 'Barres empilées' }, { cle: 'cote', mot: 'Côte à côte' }] as const, f.empile ? 'empile' : 'cote', (c) => changer({ empile: c === 'empile' }), () => raisonGrise(f, { sorte: 'affichage' }))}
@@ -287,6 +321,15 @@ export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-case input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 .trx-gf-case--grise{opacity:.45;cursor:not-allowed}
 .trx-gf-tout{font-size:.8rem}
+.trx-gf-familles{display:flex;flex-wrap:wrap;gap:6px}
+.trx-gf-famille-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 4px 0 8px;border:1px solid var(--color-svv-line-strong);border-left:4px solid var(--trx-serie);border-radius:8px;background:color-mix(in srgb, var(--trx-serie) 10%, transparent)}
+.trx-gf-famille-btn input{width:18px;height:18px;accent-color:var(--trx-serie)}
+.trx-gf-famille-btn--ouverte{background:color-mix(in srgb, var(--trx-serie) 22%, transparent)}
+.trx-gf-famille-nom{appearance:none;border:0;background:none;font:inherit;font-size:.85rem;font-weight:700;color:var(--color-svv-ink);cursor:pointer;min-height:36px;padding:0 6px;white-space:nowrap}
+span.trx-gf-famille-nom{cursor:default}
+.trx-gf-famille-nom small{font-weight:600;color:var(--color-svv-muted);margin-left:2px}
+.trx-gf-famille-nom:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.trx-gf-couts-famille{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin:0 0 0 6.5rem;padding:6px 10px;border-left:4px solid var(--trx-serie);border-radius:6px;background:color-mix(in srgb, var(--trx-serie) 8%, transparent)}
 .trx-gf-reinit{margin-left:auto;font-size:.8rem}
 .trx-gf-note{margin:6px 0 0;font-size:.82rem}
 .trx-axe-choisi{fill:var(--color-svv-red)}
@@ -301,5 +344,9 @@ export const CSS_GRAPHE_GLOBAL = `
   .trx-gf-titre{flex:none}
   .trx-gf-choix{flex-wrap:wrap}
   .trx-gf-reinit{margin-left:0;align-self:flex-end}
+  .trx-gf-familles{flex-direction:column;align-self:stretch}
+  .trx-gf-famille-btn{flex:0 0 auto}
+  .trx-gf-famille-nom{flex:1;text-align:left}
+  .trx-gf-couts-famille{margin-left:0;flex-direction:column;align-items:flex-start}
 }
 `;

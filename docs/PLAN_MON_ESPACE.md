@@ -311,3 +311,9 @@ part) et 7 (un négociateur par côté). Aucune question ouverte.
 - **D21.** Mon espace › « Année(s) » et « Mois » : « Apporteurs d'affaires » est GARDÉ et suit exactement la période choisie (vérifié et prouvé : il
   la suivait déjà — `apporteursPeriode`, rétrocessions saisies dans les mois choisis + celles rattachées aux ventes listées).
 - **D22.** Onglet « Les coûts » : cartes Vente | Location | Gestion | Coûts totaux (le total à droite).
+
+## 🔴 D25 (Arno, 03/11/2026) — Suivi CA › CA global : filtres du graphique des coûts classés par famille
+
+- Le graphique du CA global est le MÊME composant que celui de Mon espace › « Les coûts » (`GrapheGlobal`) : la décision D25 s'y applique (ligne
+  « Famille » Vente | Location | Gestion avec case d'inclusion et compteur, liste des coûts par famille, « Tout / Aucun » par famille, plus de
+  « Tout / Aucun » global, ligne « Activité » fusionnée). Aucun calcul touché. Détail : `docs/PLAN_MON_ESPACE_COUTS.md`, section D25.

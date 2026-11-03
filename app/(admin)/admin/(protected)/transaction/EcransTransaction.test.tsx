@@ -1164,7 +1164,8 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
     const tuiles = container.querySelector('[data-ca-global] .tdb-tuiles')!;
     expect(tuiles.nextElementSibling!.getAttribute('data-bloc')).toBe('global-graphe');
     expect(graphe().nextElementSibling!.getAttribute('data-bloc')).toBe('global-synthese');
-    expect([...graphe().querySelectorAll('[data-famille-filtre]')].map((x) => x.getAttribute('data-famille-filtre'))).toEqual(['mesure', 'structure', 'activite', 'comparer', 'affichage']);
+    // 🔴 D25 — la ligne « Famille » (l'ancienne « Activité », fusionnée avec les coûts)
+    expect([...graphe().querySelectorAll('[data-famille-filtre]')].map((x) => x.getAttribute('data-famille-filtre'))).toEqual(['mesure', 'structure', 'famille', 'comparer', 'affichage']);
     for (const u of ['ht', 'ttc'] as const) {
       if (u === 'ttc') await cliquer('[data-barre-onglets-global] [data-afficher="ttc"]');
       // chaque barre = le total du mois du tableau « Chiffre d'affaires global » (les mois commencés)
@@ -1178,7 +1179,9 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
     }
     // Mesure = Coûts : la famille « Coûts » apparaît ; Comparer = Familles ; l'adresse garde les filtres
     await cliquer('[data-filtre-graphe="Mesure"] [data-choix-graphe="couts"]');
-    expect(graphe().querySelector('[data-famille-filtre="couts"]')).not.toBeNull();
+    // 🔴 D25 — en « Coûts » : chaque famille a son compteur et s'ouvre sur SES coûts ; aucune liste ouverte au départ
+    expect(graphe().querySelector('[data-liste-couts]')).toBeNull();
+    expect(texte('[data-compteur-famille="vente"]')).toBe('5/5');
     await cliquer('[data-filtre-graphe="Comparer"] [data-choix-graphe="familles"]');
     expect(new URLSearchParams(window.location.search).get('g-mesure')).toBe('couts');
     expect(new URLSearchParams(window.location.search).get('g-comparer')).toBe('familles');
@@ -1196,7 +1199,7 @@ describe('🔴 LOT CG9 — le CA global : le graphique filtré', () => {
     // les choix impossibles : grisés avec leur raison
     await cliquer('[data-case-graphe="criterimmo"]');
     const loc = graphe().querySelector('[data-case-graphe="location"]') as HTMLInputElement;
-    expect([loc.disabled, loc.closest('label')!.getAttribute('title')]).toEqual([true, 'La location et la gestion sont à CRITERIMMO : cochez « CRITERIMMO ».']);
+    expect([loc.disabled, loc.closest('[title]')!.getAttribute('title')]).toEqual([true, 'La location et la gestion sont à CRITERIMMO : cochez « CRITERIMMO ».']);
     // réinitialiser : le réglage par défaut, l'adresse nettoyée
     await cliquer('[data-reinitialiser-filtres]');
     expect(['g-mesure', 'g-comparer', 'g-structures'].map((k) => new URLSearchParams(window.location.search).get(k))).toEqual([null, null, null]);
@@ -1369,7 +1372,8 @@ describe('🔴 LOT CG12 — graphiques : zéros masqués, réinitialiser, hauteu
     await act(async () => { root.render(createElement('div')); }); // un nouvel écran : les filtres relus dans l'adresse
     window.history.replaceState(null, '', '/?annee=2025&g-mesure=couts&g-comparer=familles');
     await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer();
-    await cliquer('[data-familles-aucun]');
+    // 🔴 D25 — « Aucun » se fait famille par famille
+    for (const fam of ['vente', 'location', 'gestion']) { await cliquer(`[data-ouvrir-famille="${fam}"]`); await cliquer(`[data-familles-aucun="${fam}"]`); }
     expect(texte('[data-bloc="global-graphe"] [data-aucune-donnee]')).toBe('Aucune donnée pour ces filtres');
     expect(graphe().querySelector('[data-filtres-graphe]')).not.toBeNull();
   });
@@ -4430,5 +4434,66 @@ describe('Arno (01/11/2026) — onglet « Année(s) » : CRITERIMMO, MACJ, FUSIO
     expect(moisRougesDeLAnnee(2026, [2025, 2026], '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(moisRougesDeLAnnee(2025, [2025], '2026-11-15')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(moisRougesDeLAnnee(2027, [2027], '2026-11-15')).toEqual([]);
+  });
+});
+
+/**
+ * 🔴 D25 (Arno, 03/11/2026) — LES FILTRES DU GRAPHIQUE PAR FAMILLE : la ligne « Famille » (inclusion + nom + compteur), une seule liste de coûts
+ * ouverte à la fois, « Tout / Aucun » par famille ; le même état qu'avant (`activites`, `familles`) : pour une même sélection, le graphique est
+ * identique au centime à celui obtenu par l'ancienne voie (l'adresse).
+ */
+describe('🔴 D25 — filtres du graphique classés par famille', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const barres = () => [...graphe().querySelectorAll('[data-barre-serie]')].map((x) => `${x.closest('[data-point-global]')!.getAttribute('data-point-global')}:${x.getAttribute('data-barre-serie')}:${Math.round(Number(x.getAttribute('data-valeur')) * 100)}`);
+  const ouvrirG = async (q: string) => { await act(async () => { root.render(createElement('div')); }); window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); };
+  it('par défaut : aucune liste ; trois familles avec leur compteur ; ouvrir Vente → ses seuls coûts ; ouvrir Location → Vente se ferme ; re-clic : fermé', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    await ouvrirG('/?annee=2025&g-mesure=couts');
+    expect(graphe().querySelector('[data-liste-couts]')).toBeNull();
+    expect(['vente', 'location', 'gestion'].map((f) => texte(`[data-compteur-famille="${f}"]`))).toEqual(['5/5', '7/7', '4/4']);
+    await cliquer('[data-ouvrir-famille="vente"]');
+    expect([...graphe().querySelectorAll('[data-liste-couts="vente"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe')))
+      .toEqual(['commissions', 'apporteursVente', 'exterieures', 'salairesVente', 'autresVente']);
+    expect(new URLSearchParams(window.location.search).get('g-ouverte')).toBe('vente');
+    await cliquer('[data-ouvrir-famille="location"]');
+    expect(graphe().querySelector('[data-liste-couts="vente"]')).toBeNull();
+    expect([...graphe().querySelectorAll('[data-liste-couts="location"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe')))
+      .toEqual(['apporteursLocation', 'primes', 'variable', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation']);
+    await cliquer('[data-ouvrir-famille="location"]');
+    expect(graphe().querySelector('[data-liste-couts]')).toBeNull();
+    await cliquer('[data-ouvrir-famille="gestion"]');
+    expect([...graphe().querySelectorAll('[data-liste-couts="gestion"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe'))).toEqual(['salairesGestion', 'adhoc', 'monga', 'autresGestion']);
+  });
+  it('décocher un coût, exclure une famille : le graphique = celui de l’ancienne voie (l’adresse) pour la même sélection, au centime', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ht');
+    await ouvrirG('/?annee=2025&g-mesure=couts&g-comparer=familles');
+    await cliquer('[data-ouvrir-famille="gestion"]'); await cliquer('[data-liste-couts="gestion"] [data-case-graphe="salairesGestion"]');
+    await cliquer('[data-case-graphe="vente"]'); // exclure la vente
+    expect(texte('[data-compteur-famille="gestion"]')).toBe('3/4');
+    const nouvelle = barres();
+    const p = new URLSearchParams(window.location.search);
+    expect([p.get('g-activites'), p.get('g-familles')?.split(',').includes('salairesGestion')]).toEqual(['location,gestion', false]);
+    await ouvrirG(`/?annee=2025&g-mesure=couts&g-comparer=familles&g-activites=location,gestion&g-familles=${p.get('g-familles')}`);
+    expect(barres()).toEqual(nouvelle);
+    expect(nouvelle.length).toBeGreaterThan(0);
+  });
+  it('« Tout / Aucun » d’une famille ne touche qu’elle ; « Réinitialiser » rend tout', async () => {
+    await ouvrirG('/?annee=2025&g-mesure=couts');
+    await cliquer('[data-ouvrir-famille="location"]'); await cliquer('[data-familles-aucun="location"]');
+    expect(['vente', 'location', 'gestion'].map((f) => texte(`[data-compteur-famille="${f}"]`))).toEqual(['5/5', '0/7', '4/4']);
+    await cliquer('[data-familles-tout="location"]');
+    expect(texte('[data-compteur-famille="location"]')).toBe('7/7');
+    await cliquer('[data-familles-aucun="location"]'); await cliquer('[data-case-graphe="vente"]');
+    await cliquer('[data-reinitialiser-filtres]');
+    expect(['g-familles', 'g-activites', 'g-mesure'].map((k) => new URLSearchParams(window.location.search).get(k))).toEqual([null, null, null]);
+    expect((graphe().querySelector('[data-case-graphe="vente"]') as HTMLInputElement).checked).toBe(true);
+    await cliquer('[data-filtre-graphe="Mesure"] [data-choix-graphe="couts"]');
+    expect(['vente', 'location', 'gestion'].map((f) => texte(`[data-compteur-famille="${f}"]`))).toEqual(['5/5', '7/7', '4/4']);
+  });
+  it('hors « Coûts » (CA, Résultat net) : les familles restent incluables, sans liste ni compteur', async () => {
+    await ouvrirG('/?annee=2025');
+    expect(graphe().querySelector('[data-ouvrir-famille]')).toBeNull();
+    expect([...graphe().querySelectorAll('[data-filtre-graphe="Activité"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe'))).toEqual(['vente', 'location', 'gestion']);
   });
 });
